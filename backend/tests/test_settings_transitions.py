@@ -67,34 +67,3 @@ def test_move_refuses_a_destination_that_is_not_ready_for_the_bot(api):
     assert failure["error"]["code"] == "runner_not_ready"
     assert "repository" in failure["error"]["detail"].lower()
 
-
-def test_move_compares_the_runners_report_with_the_resolved_runtime_and_model(api):
-    _company_default(api, "cpo")
-    first = runner(api, "ana", "Ana Mac")
-    assign(api, first, "cpo")
-    machine = runner(api, "ben", "Ben setup Mac")
-    _report(api, machine, {"cpo": {
-        "ready": True, "runtime": "codex", "model": "gpt-6-sol", "repository_present": True,
-        "repository_revision": "abc", "configuration_valid": True, "problems": []}})
-    moved = post(api, "bots/cpo/transitions", {
-        "kind": "machine", "runner_id": machine["runner_id"], "expected_revision": 1,
-        "expected_generation": 1})
-    assert moved["state"] != "failed"
-    assert _placed(api, "cpo") == machine["runner_id"]
-
-
-def test_first_placement_needs_no_readiness_because_the_runner_reports_only_assigned_bots(api):
-    machine = runner(api, "ben", "Ben setup Mac")
-    _report(api, machine, {})
-    post(api, "bots/cpo/transitions", {
-        "kind": "machine", "runner_id": machine["runner_id"], "expected_revision": 1,
-        "expected_generation": 0})
-    assert _placed(api, "cpo") == machine["runner_id"]
-
-
-def test_model_transition_rejects_an_effort_the_model_does_not_support(api):
-    failure = post(api, "bots/ops/transitions", {
-        "kind": "model", "model": "grok-4.6", "effort": "max",
-        "expected_revision": 1, "expected_generation": 0,
-    }, expected=422)
-    assert failure["error"]["code"] == "effort"

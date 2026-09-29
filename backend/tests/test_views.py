@@ -1,4 +1,3 @@
-import json
 
 from backend.store import H
 from backend.tests.test_api import api, as_member, headers, get, post, restrict, setup_attempt, runner, ready, assign, claim
@@ -103,57 +102,3 @@ def test_task_chat_never_falls_back_to_the_assistant(api):
     # The tasks page's assistant chat is gone with it.
     post(api, "page-chat", {"page": "tasks", "text": "What is late?"}, expected=422)
 
-
-def test_a_runner_checkout_off_main_is_an_owner_issue(api):
-    """#492: the production runner ran 28 commits behind main for a day because a bot committed in
-    its checkout. Local commits are said at once; behind, once it has lasted an hour."""
-    from backend.tests.test_api import runner as enroll
-    r = enroll(api)
-    head, running = "a" * 40, "b" * 40
-
-    def beat(**checkout):
-        post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {},
-             "checkout": {"head": head, "running": head, "ahead": 0, "behind": 0,
-                          "checked_at": "2026-09-24T18:00:00Z", **checkout}}, token=r["token"])
-        return [i for i in get(api, "operations")["issues"] if i.get("kind") == "runner_checkout"]
-
-    assert beat() == []
-    ahead = beat(ahead=3, behind=28)
-    assert len(ahead) == 1 and "3 local commits and 28 behind main" in ahead[0]["detail"]
-    assert beat(behind=5) == [], "behind for less than an hour: a pull is probably on its way"
-    with api.app.state.store.transaction() as c:
-        row = c.execute("SELECT checkout_json FROM runners WHERE id=?", (r["runner_id"],)).fetchone()
-        checkout = json.loads(row["checkout_json"])
-        assert checkout["behind_since"], "the server remembers when it fell behind"
-        checkout["behind_since"] = H.shift(H.now(), seconds=-2 * 3600)
-        c.execute("UPDATE runners SET checkout_json=? WHERE id=?", (json.dumps(checkout), r["runner_id"]))
-    # One plain line, whether anything would be interrupted, and a Restart button.
-    behind = beat(behind=6)
-    assert len(behind) == 1 and behind[0]["title"].endswith("has a Tico update")
-    assert behind[0]["detail"] == "Nothing is running, so nothing will be interrupted." and behind[0]["restart"] is True
-    stale = beat(running=running)
-    assert stale[0]["title"].endswith("has a Tico update") and stale[0]["restart"] is True
-
-    # Restart: the next heartbeat hands the request to the runner once and clears it.
-    requested = post(api, f"runners/{r['runner_id']}/restart", {})
-    assert requested == {"requested": True, "running": 0}
-    shown = [i for i in get(api, "operations")["issues"] if i.get("kind") == "runner_checkout"]
-    assert shown[0]["detail"].startswith("Restarting now") and shown[0]["restart"] is False
-    first = post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {}}, token=r["token"])
-    again = post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {}}, token=r["token"])
-    assert first.get("restart") is True and "restart" not in again
-
-
-def test_a_runner_that_cannot_update_itself_says_why(api):
-    """BotOps, 2026-09-25: the runner sat 87 commits behind because uncommitted changes blocked its
-    self-update, and only its log said so. The reason reaches the owner at once."""
-    from backend.tests.test_api import runner as enroll
-    r = enroll(api)
-    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {},
-         "checkout": {"head": "a" * 40, "running": "a" * 40, "ahead": 0, "behind": 12,
-                      "checked_at": "2026-09-25T18:00:00Z", "blocked": "checkout has uncommitted changes"}},
-         token=r["token"])
-    issues = [i for i in get(api, "operations")["issues"] if i.get("kind") == "runner_checkout"]
-    assert len(issues) == 1 and issues[0]["title"].endswith("can't update itself")
-    assert "12 commits behind main: checkout has uncommitted changes" in issues[0]["detail"]
-    assert "commit or stash" in issues[0]["action"]

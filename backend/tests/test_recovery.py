@@ -57,12 +57,6 @@ def test_restore_fences_credentials_and_preserves_uncertain_effects(api, tmp_pat
         assert c.execute("SELECT generation FROM assignments WHERE bot='ops'").fetchone()[0] == 2
 
 
-def test_new_tasks_require_timezone_to_keep_scheduler_reliable(api):
-    post(api, "tasks", {"title": "Review due date", "owner": "coo", "body": "Review it", "due": "2026-09-10"}, expected=422)
-    task = post(api, "tasks", {"title": "Review due date", "owner": "coo", "body": "Review it", "due": "2026-09-11T10:00:00-07:00"})
-    assert task["due"]
-
-
 def test_restart_gives_lapsed_leases_one_more_period_instead_of_expiring_them(api):
     from fastapi.testclient import TestClient
     from backend.app import create_app

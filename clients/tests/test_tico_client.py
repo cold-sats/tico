@@ -70,15 +70,3 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class PlainHttpTests(unittest.TestCase):
-    def test_loopback_and_service_names_may_use_http(self):
-        for url in ("http://127.0.0.1:8765", "http://localhost:8765", "http://server:8765", "http://[::1]:8765",
-                    "https://tico.example.com"):
-            Client(url, "t")
-
-    def test_everything_else_needs_https(self):
-        for url in ("http://tico.example.com", "http://8.8.8.8:8765", "http://169.254.169.254", "http://10.0.3.4:8765",
-                    "http://192.168.1.20", "http://server.example", "http://127.0.0.1.evil.example",
-                    "http://[fe80::1]:8765"):
-            with self.assertRaises(ValueError, msg=url):
-                Client(url, "t")

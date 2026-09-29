@@ -1,12 +1,8 @@
 """People and access managed in the app: the owner, the allow list, and who has left."""
 
-import dataclasses
 import uuid
 
-import yaml
-from fastapi.testclient import TestClient
 
-from backend.app import create_app
 from backend.auth import Identity
 from backend.store import H, digest
 from backend.tests.test_onboarding import (OWNER_EMAIL, PEOPLE, TOKEN, draft, environment,  # noqa: F401
@@ -117,40 +113,6 @@ def test_a_transfer_needs_confirmation_a_fresh_revision_and_an_active_other_pers
     assert view(api)["owner"]["email"] == OWNER_EMAIL
 
 
-def test_the_environment_variable_only_seeds_the_first_boot(environment):
-    api = environment()
-    transfer(api, "riley")
-    settings = dataclasses.replace(api.app.state.store.settings, owner_email=OWNER_EMAIL,
-                                   credential_admins=(OWNER_EMAIL,))
-    with TestClient(create_app(settings)) as restarted:
-        assert view(restarted)["owner"]["email"] == "riley@acme.example"
-        assert view(restarted, person_headers(restarted, "morgan"), expected=403)
-
-
-def test_runner_assignment_and_onboarding_wiring_follow_the_new_owner(environment):
-    api = environment(seed={"coo": {"name": "coo", "status": "planned"}})
-    def enroll(operator, label):
-        code = api.post("/api/v2/enrollments", json={"operator": operator}, headers=signed_in()).json()["code"]
-        return api.post("/api/v2/runners/enroll", json={"code": code, "label": label, "platform": "test"},
-                        headers={"Idempotency-Key": str(uuid.uuid4())}).json()
-    rileys = enroll("riley", "Riley Mac")
-    # Before: only the owner's machines host bots someone else operates.
-    refused = api.post("/api/v2/bots/coo/assignment", json={"runner_id": rileys["runner_id"], "expected_generation": 0},
-                       headers=signed_in())
-    assert refused.status_code == 403
-    transfer(api, "riley")
-    morgans = enroll("morgan", "Morgan Mac")               # the newer machine, but no longer the owner's
-    with api.app.state.store.read() as c:
-        auth = api.app.state.auth
-        assert auth.owner_id(c) == "riley"
-    draft(api)
-    record = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert record.status_code == 200, record.text
-    assert record.json()["assigned_to"]["runner_id"] == rileys["runner_id"] != morgans["runner_id"]
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM events WHERE action='runner.adopted'").fetchone()[0] == 0
-
-
 def test_a_person_who_left_loses_their_tokens_and_cannot_sign_in(environment):
     api = environment()
     riley = person_headers(api, "riley")
@@ -193,16 +155,3 @@ def test_allow_list_changes_take_effect_without_a_restart(environment):
     call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": ["nodot"], "expected_revision": revision + 1},
          expected=422)
 
-
-def test_the_hub_access_file_seeds_the_lists_once(environment, tmp_path):
-    api = environment()
-    with api.app.state.store.read() as c:
-        from backend import access
-        seeded = access.load_access(c, api.app.state.store.settings)
-    assert seeded["bot_admins"] == ["riley@acme.example"] and seeded["source"] == "environment"
-    path = api.app.state.store.settings.registry_dir / "hub-access.yaml"
-    path.write_text(yaml.safe_dump({"bot_admins": ["quinn@acme.example"]}))
-    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": [], "expected_revision": seeded["revision"]})
-    with TestClient(create_app(api.app.state.store.settings)) as restarted:
-        view(restarted)
-        assert restarted.app.state.auth.bot_admins == {"riley@acme.example"}

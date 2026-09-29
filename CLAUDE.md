@@ -11,10 +11,12 @@ none are left: read `skills/tico-tickets/SKILL.md` before filing, picking or mer
 bot's own work is hub tasks, never issues.
 
 ## Tests
-`python3 -m pytest -q -n auto` runs the Python suite in about ten seconds; `npm run test:ui` runs
-the browser scripts in `ui/tests/` (Playwright, needs `npm ci`). CI runs both on every push and
-pull request (`.github/workflows/ci.yml`). The suite is deliberately small: add a test only for a
-path whose breaking would hurt the company, and delete one that stops earning its place.
+`python3 -m pytest -q` (parallel by default) runs the Python suite; `npm run test:ui` runs the browser
+scripts in `ui/tests/` a few at a time (Playwright, needs `npm ci`). Tests run locally: CI does not run
+them on push or pull request (`.github/workflows/ci.yml` is manual). A full local run (pytest plus UI) must
+stay under 10 minutes. The suite is deliberately small: write tests while building if they help, then keep
+only the ones that guard a security or privacy boundary, data safety, or a core contract, and delete the
+rest. Adding tests that push the run past 10 minutes means cutting something else.
 
 ## Conventions
 - Keep company names, people, domains, buckets and credentials out of the repository. Examples use

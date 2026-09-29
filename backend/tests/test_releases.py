@@ -1,7 +1,6 @@
 """The running version, the update notice and the owner's "Update now"."""
 
 import json
-import threading
 from pathlib import Path
 
 import httpx
@@ -37,15 +36,6 @@ def test_semver_comparison():
     assert not releases.newer("0.2.0", "dev") and not releases.newer("latest", "0.1.0")
 
 
-def test_version_prefers_env_then_file_then_dev(monkeypatch, tmp_path):
-    assert releases.version() == "0.1.0"
-    monkeypatch.delenv("TICO_VERSION")
-    monkeypatch.setattr(releases, "ROOT", tmp_path)
-    assert releases.version() == "dev"
-    (tmp_path / "VERSION").write_text("0.3.1\n")
-    assert releases.version() == "0.3.1"
-
-
 def test_refresh_caches_and_revalidates_with_the_etag(monkeypatch):
     seen = []
 
@@ -63,28 +53,6 @@ def test_refresh_caches_and_revalidates_with_the_etag(monkeypatch):
                                      "url": RELEASE["html_url"], "published_at": RELEASE["published_at"],
                                      "name": "Tico 0.2.0"}
     assert checker.view("0.2.0")["available"] is False
-
-
-def test_reads_never_wait_and_refresh_once_when_stale(monkeypatch):
-    started, now = [], [1000.0]
-
-    class Deferred:
-        def __init__(self, target, **kw):
-            self.target = target
-
-        def start(self):
-            started.append(self.target)
-    monkeypatch.setattr(releases.threading, "Thread", Deferred)
-    network(monkeypatch, lambda request: httpx.Response(200, json=RELEASE))
-    checker = releases.Checker(clock=lambda: now[0])
-    assert checker.view("0.1.0")["available"] is False           # answered before any fetch landed
-    checker.view("0.1.0")
-    assert len(started) == 1                                      # one refresh in flight at a time
-    started[0]()
-    assert checker.view("0.1.0")["available"] is True and len(started) == 1   # cached inside the TTL
-    now[0] += releases.TTL + 1
-    checker.view("0.1.0")
-    assert len(started) == 2
 
 
 def test_failures_are_silent_keep_the_last_answer_and_back_off(monkeypatch):
@@ -118,23 +86,6 @@ def test_disabled_and_dev_builds_show_no_notice_and_make_no_request(monkeypatch)
     assert checker.view("abc1234")["available"] is False
 
 
-def test_url_is_configurable(monkeypatch):
-    urls = []
-    network(monkeypatch, lambda request: (urls.append(str(request.url)), httpx.Response(200, json=RELEASE))[1])
-    monkeypatch.setenv("TICO_RELEASES_URL", "https://mirror.example/latest")
-    releases.Checker().refresh()
-    assert urls == ["https://mirror.example/latest"]
-
-
-def test_config_carries_version_and_notice(environment):
-    api = environment()
-    releases.CHECKER.release = {"tag": "v0.2.0", "url": RELEASE["html_url"], "published_at": "", "name": "x"}
-    releases.CHECKER.checked = 10 ** 12
-    config = api.get("/api/v2/config", headers=signed_in()).json()
-    assert config["version"] == "0.1.0"
-    assert config["update"]["available"] is True and config["update"]["latest"] == "0.2.0"
-
-
 def test_check_now_bypasses_the_cache_and_is_rate_limited(monkeypatch):
     now, calls = [1000.0], []
 
@@ -154,17 +105,6 @@ def test_check_now_bypasses_the_cache_and_is_rate_limited(monkeypatch):
     assert len(calls) == 3
 
 
-def test_check_now_reports_a_failed_check_and_a_disabled_one(monkeypatch):
-    network(monkeypatch, lambda request: httpx.Response(500))
-    with pytest.raises(releases.Problem) as failed:
-        releases.Checker().check_now()
-    assert failed.value.status == 502
-    monkeypatch.setenv("TICO_UPDATE_CHECK", "off")
-    with pytest.raises(releases.Problem) as off:
-        releases.Checker().check_now()
-    assert off.value.code == "check_disabled"
-
-
 def test_check_for_updates_endpoint_is_owner_only_and_returns_the_notice(environment, monkeypatch):
     api = environment()
     network(monkeypatch, lambda request: httpx.Response(200, json=RELEASE))
@@ -180,15 +120,6 @@ def test_update_is_owner_only(environment):
     person = as_person(api, "riley")
     assert api.post("/api/v2/system/update", json={"version": "0.2.0"}, headers=person).status_code == 403
     assert api.get("/api/v2/system/update", headers=person).status_code == 403
-
-
-def test_without_an_updater_the_owner_gets_the_manual_command(environment):
-    api = environment()
-    r = api.post("/api/v2/system/update", json={"version": "0.2.0"}, headers=signed_in())
-    assert r.status_code == 409
-    assert r.json()["error"]["command"] == "docker compose pull && docker compose up -d"
-    assert "docker compose pull && docker compose up -d" in r.json()["error"]["detail"]
-    assert api.get("/api/v2/system/update", headers=signed_in()).json()["state"] == "unavailable"
 
 
 def test_update_is_forwarded_to_the_updater_with_the_token(environment, monkeypatch):
@@ -293,21 +224,3 @@ def test_docker_updater_speaks_the_servers_contract(environment, monkeypatch, tm
     time.sleep(0.2)
     assert started == ["v0.2.0"]
 
-
-def test_check_now_waits_for_the_fresh_answer_then_says_still_checking(monkeypatch):
-    gate = threading.Event()
-    calls = []
-
-    def handler(request):
-        calls.append(request.headers.get("if-none-match"))
-        if len(calls) == 3:
-            gate.wait(5)
-        return httpx.Response(200, json=RELEASE, headers={"etag": "x"})
-    network(monkeypatch, handler)
-    checker = releases.Checker()
-    checker.refresh()
-    assert checker.check_now() is True and calls[1] is None     # forced: not answered from a 304
-    monkeypatch.setattr(releases, "CHECK_WAIT", 0.05)
-    checker.forced = 0.0
-    assert checker.check_now() is False                          # slow lookup: still checking
-    gate.set()

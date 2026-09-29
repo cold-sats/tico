@@ -5,7 +5,6 @@ response; the hub transport through a fake client. The question sets in `questio
 loaded for real, because a set that does not load is a broken release.
 """
 import io
-import json
 import unittest
 import urllib.error
 from pathlib import Path
@@ -66,76 +65,6 @@ class Contract(unittest.TestCase):
             J.validate({}, QUESTIONS, label="l" * (J.MAX_LABEL + 1))
         J.validate({"subject": "hi"}, QUESTIONS, label="mail-triage@1")
 
-    def test_answers_are_checked_against_the_questions(self):
-        J.check_answers(ANSWERS, QUESTIONS)
-        with self.assertRaises(J.JudgeError):
-            J.check_answers({**ANSWERS, "bucket": {"choice": "elsewhere"}}, QUESTIONS)
-        with self.assertRaises(J.JudgeError):
-            J.check_answers({k: v for k, v in ANSWERS.items() if k != "is_ask"}, QUESTIONS)
-        for bad in (
-            {"noul": 1.5}, {"noul": float("nan")}, {"noul": True},
-        ):
-            with self.assertRaises(J.JudgeError):
-                J.check_answers({**ANSWERS, "is_ask": bad}, QUESTIONS)
-        for bad in ({"score": -1, "confidence": 0.9},
-                    {"score": 0.5, "confidence": 1.5}):
-            with self.assertRaises(J.JudgeError):
-                J.check_answers({**ANSWERS, "urgency": bad}, QUESTIONS)
-        with self.assertRaises(J.JudgeError):
-            J.check_answers({**ANSWERS, "bucket": {"choice": "reply"}}, QUESTIONS)
-
-class ProviderJudge(unittest.TestCase):
-    """With no TypeSafe key the judge asks the company's own provider, in that provider's dialect."""
-
-    REPLY = {"bucket": {"probabilities": {"archive": 1, "reply": 3}},
-             "urgency": {"probabilities": [0.25, 0.75]}, "is_ask": {"noul": 0.9}}
-
-    def engine(self, provider, wrap):
-        seen = []
-
-        def opener(request, timeout):
-            seen.append(request)
-            return Response(json.dumps(wrap(json.dumps(self.REPLY))).encode())
-        return J.llm(provider, "key", "some-model", opener=opener), seen
-
-    def test_each_provider_dialect_is_read_into_the_same_answers(self):
-        dialects = {
-            "anthropic": lambda text: {"content": [{"type": "text", "text": text}]},
-            "openai": lambda text: {"choices": [{"message": {"content": text}}]},
-            "google": lambda text: {"candidates": [{"content": {"parts": [{"text": text}]}}]},
-        }
-        for provider, wrap in dialects.items():
-            engine, seen = self.engine(provider, wrap)
-            result = engine({"subject": "hi"}, QUESTIONS)
-            self.assertEqual(result["answers"]["bucket"]["choice"], "reply", provider)
-            self.assertAlmostEqual(result["answers"]["bucket"]["confidence"], 0.75)
-            self.assertAlmostEqual(result["answers"]["urgency"]["score"], 0.75)
-            self.assertEqual(result["answers"]["is_ask"]["noul"], 0.9)
-            self.assertEqual(engine.model, "some-model")
-            self.assertTrue(any(value.endswith("key") for value in seen[0].headers.values()), provider)
-
-    def test_an_answer_that_is_not_json_or_misses_a_question_is_a_shape_error(self):
-        engine, _ = self.engine("openai", lambda text: {"choices": [{"message": {"content": "sorry"}}]})
-        with self.assertRaises(J.JudgeError) as caught:
-            engine({}, QUESTIONS)
-        self.assertEqual(caught.exception.code, "shape")
-
-    def test_it_needs_a_key_and_a_model(self):
-        with self.assertRaises(J.JudgeError):
-            J.llm("openai", "", "m")
-
-
-class Sets(unittest.TestCase):
-    def test_every_shipped_set_loads_and_is_listed(self):
-        listed = {s["id"]: s for s in J.list_sets()}
-        self.assertFalse([s for s in listed.values() if "error" in s], listed)
-        shipped = {"mail-triage", "mail-draft-gate", "covered", "slack-route",
-                   "listening-card", "listening-item", "reply-intent"}
-        for name in shipped:
-            chosen = J.load_set(name)
-            self.assertEqual(chosen["label"], f"{name}@{chosen['version']}")
-            self.assertIn(name, listed)
-        self.assertEqual(set(listed) - shipped, set(), "a new set needs its README line and a caller")
 
 if __name__ == "__main__":
     unittest.main()

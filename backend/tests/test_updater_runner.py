@@ -63,13 +63,6 @@ def test_a_runner_that_does_not_turn_healthy_is_rolled_back(monkeypatch, tmp_pat
     assert "TICO_TAG" not in (tmp_path / ".env").read_text()           # the failed version is not remembered
 
 
-def test_a_rollback_that_fails_too_is_reported_failed(monkeypatch, tmp_path):
-    updater = load(monkeypatch, "runner", tmp_path)
-    Docker(updater, monkeypatch, [False, False])
-    updater.update("v0.2.0")
-    assert updater.status["state"] == "failed" and "old version did not start either" in updater.status["message"]
-
-
 def test_the_token_is_the_supervisors_alone_on_every_start(monkeypatch, tmp_path):
     updater = load(monkeypatch, "runner", tmp_path)
     owners = []
@@ -106,16 +99,6 @@ def test_a_downgrade_is_refused_and_an_upgrade_accepted(monkeypatch, tmp_path):
     Docker(updater, monkeypatch, [True])                               # running v0.1.0
     assert updater.older_than_running("v0.0.9") and updater.older_than_running("v0.0.99")
     assert not any(updater.older_than_running(v) for v in ("v0.1.0", "v0.1.1", "v1.0.0", "latest"))
-
-
-def test_server_mode_is_unchanged(monkeypatch, tmp_path):
-    updater = load(monkeypatch, "", tmp_path)
-    assert (updater.SERVICE, updater.IMAGE, updater.COMPOSE_FILE) == ("server", "ghcr.io/ticoteam/tico", "")
-    updater.ensure_token()
-    assert not (tmp_path / "token").exists()                           # the server writes that one
-    docker = Docker(updater, monkeypatch, [True])
-    updater.update("v0.2.0")
-    assert docker.compose()[0] == (["pull", "server"], "v0.2.0") and "-f" not in docker.calls[0][0]
 
 
 def test_the_runner_compose_keeps_the_socket_in_the_sidecar():

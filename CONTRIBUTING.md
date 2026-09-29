@@ -14,20 +14,25 @@ released under the same license.
 
 ```bash
 pip install -r backend/requirements-dev.txt
-python -m pytest -q -n auto -p no:warnings     # the Python suite, about ten seconds
+python -m pytest -q                            # the Python suite, in parallel
 
 npm ci
 npx playwright install chromium
 npm run test:ui                                # the browser scripts in ui/tests/
 ```
 
-CI (`.github/workflows/ci.yml`) runs both on every pull request. If you touch `app/`, also run
+Run both locally before you open a pull request: CI does not run the tests unless started by hand
+(`.github/workflows/ci.yml`). A full run has to stay under 10 minutes. If you touch `app/`, also run
 `cargo check` there.
 
 ## Pull requests
 
 - Make the smallest change that fixes the problem, against `main`.
-- Add a test only for a path whose breaking would hurt users; the suite is kept small on purpose.
+- Few, high-value tests. Write tests while you build if they help, then keep only the ones that guard a
+  security or privacy boundary, data safety (migrations, backup, restore) or a core contract (the
+  updater and release path, job claim and lease, task writes, the API schema), plus at most one happy
+  path per feature. Delete the rest before you open the pull request; the whole suite has to run in
+  under 10 minutes, so a new test that would push it over means cutting another.
 - Added or changed an icon in `ui/`? Run `python3 scripts/build-icon-font.py` to rebuild the icon font subset (a test fails until you do).
 - Keep the tests green, and do not add a dependency, a network call in the UI or a build step
   without saying why.

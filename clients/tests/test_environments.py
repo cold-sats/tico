@@ -41,11 +41,6 @@ class Base(unittest.TestCase):
 
 
 class Providers(Base):
-    def test_create_without_providers_says_what_to_pass(self):
-        with self.assertRaises(ValueError) as refused:
-            ENV.create("acme", company="Acme", **OWNER)
-        self.assertIn("--providers is required", str(refused.exception))
-        self.assertFalse(ENV.path("acme").exists())
 
     def test_the_choice_reaches_the_server_env_and_fills_what_was_left_out(self):
         report = self.create(providers="openai,anthropic", default_runtime="claude")
@@ -54,18 +49,6 @@ class Providers(Base):
         env = dict(line.split("=", 1) for line in (ENV.path("acme") / "server.env").read_text().splitlines())
         self.assertEqual((env["TICO_ENABLED_PROVIDERS"], env["TICO_DEFAULT_RUNTIME"], env["TICO_DEFAULT_MODEL"]),
                          ("openai,anthropic", "claude", "claude-opus-5"))
-
-    def test_a_default_from_a_provider_that_is_not_enabled_is_refused(self):
-        with self.assertRaises(ValueError) as refused:
-            self.create(providers="anthropic", default_runtime="codex")
-        self.assertIn("provider", str(refused.exception))
-
-    def test_the_seed_roster_names_no_runtime_or_model(self):
-        self.create()
-        text = (ENV.path("acme") / "registry" / "employees.yaml").read_text()
-        for word in ("codex", "gpt-", "grok", "claude", "gemini"):
-            self.assertNotIn(word, text)
-
 
 class Remove(Base):
     def test_removing_refuses_while_the_company_still_has_data(self):

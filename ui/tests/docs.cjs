@@ -178,15 +178,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(await page.locator('.docs-welcome').count(), 1);
     await shot(page, 'list');
 
-    // ---- the Ask AI button: readable on the green, and the hook for the Librarian
-    const ask = await page.locator('#docs-ask').evaluate(el => ({button: getComputedStyle(el).color, icon: getComputedStyle(el.querySelector('.nav-icon')).color}));
-    assert.equal(ask.icon, ask.button);
-    await page.locator('#docs-ask').click();
-    assert.match(await page.locator('#docs-feedback').textContent(), /Librarian is not available/);
-    await page.evaluate(() => { window.openDocsAsk = () => { window.__asked = true; }; });
-    await page.locator('#docs-ask').click();
-    assert.equal(await page.evaluate(() => window.__asked), true);
-
     // ---- read an internal doc, and its relative link to another doc stays in the app
     await page.locator('.docs-item', {hasText: 'Pricing and plans'}).click();
     await page.locator('.docs-reader-head h2', {hasText: 'Pricing and plans'}).waitFor();

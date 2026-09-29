@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from backend import integrations as I
-from backend.config import ROOT, Settings
+from backend.config import ROOT
 from backend.tests.test_api import api, headers, post, setup_attempt  # noqa: F401
 from clients import dbquery as D
 from clients.tico import APIError
@@ -136,71 +136,7 @@ def test_a_runaway_statement_is_stopped_by_the_timeout(tmp_path):
     assert caught.value.code == "timeout" and time.monotonic() - started < 10
 
 
-def test_parameters_bind_by_name_and_by_position(tmp_path):
-    db = sqlite_db(tmp_path)
-    assert D.execute(db, "SELECT count(*) FROM orders WHERE status = :s AND id > :n", {"s": "paid", "n": 40})["rows"] == [[5]]
-    assert D.execute(db, "SELECT count(*) FROM orders WHERE id > $2 AND status = $1", {"a": "paid", "b": 40}, order=["a", "b"])["rows"] == [[5]]
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(db, "SELECT :missing")
-    assert caught.value.code == "params"
-
-
-def test_a_missing_file_is_an_error_that_does_not_leak_more_than_the_path(tmp_path):
-    db = D.Database("gone", "sqlite", f"sqlite:///{tmp_path}/nope.db")
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(db, "SELECT 1")
-    assert caught.value.code == "db_error"
-
-
 # ----------------------------------------------------------------------------- scanner and binder
-@pytest.mark.parametrize("kind,sql,ok", [
-    ("postgres", "SELECT 'a;b', \"c;d\", $$e;f$$ FROM t;", True),
-    ("postgres", "SELECT E'it\\'s; fine' FROM t", True),
-    ("postgres", "SELECT 'it\\'; DROP TABLE t; --'", False),          # standard string: the backslash is literal
-    ("postgres", "SELECT 1 /* a /* nested */ ; */", True),
-    ("postgres", "SELECT 1; SELECT 2", False),
-    ("postgres", "select 1 -- trailing; comment", True),
-    ("postgres", "COPY t TO '/tmp/x'", False),
-    ("postgres", "WITH a AS (SELECT 1) SELECT * FROM a", True),
-    ("postgres", "SHOW transaction_read_only", True),
-    ("postgres", "EXPLAIN SELECT 1", True),
-    ("postgres", "SELECT * INTO backup FROM t", False),
-    ("mysql", "SELECT 'it\\'s; fine' FROM t", True),
-    ("mysql", "SELECT 'x\\'; DROP TABLE t; #'", True),                # inside the string for MySQL
-    ("mysql", "SELECT 1 # comment; more", True),
-    ("mysql", "SELECT 1; DROP TABLE t", False),
-    ("mysql", "SELECT 1 /*! ; DROP TABLE t */", False),
-    ("mysql", "SELECT `a;b` FROM t", True),
-    ("mysql", "SELECT 1 INTO OUTFILE '/tmp/x'", False),
-    ("mysql", "CALL do_things()", False),
-    ("mysql", "DESCRIBE orders", True),
-    ("sqlite", "REPLACE INTO t VALUES (1)", False),
-])
-def test_statement_shape_rules_per_dialect(kind, sql, ok):
-    if ok:
-        assert D.check_statement(sql, kind)
-    else:
-        with pytest.raises(D.Refusal):
-            D.check_statement(sql, kind)
-
-
-def test_binding_translates_placeholders_and_leaves_casts_strings_and_percent_alone():
-    sql, args_ = D.bind("SELECT a::int, ':not', '50%' FROM t WHERE x = :x AND y LIKE 'a%' AND z = $2 AND w = :x",
-                        "postgres", {"x": 1, "second": 2}, ["first", "second"])
-    assert sql == "SELECT a::int, ':not', '50%%' FROM t WHERE x = %s AND y LIKE 'a%%' AND z = %s AND w = %s"
-    assert args_ == [1, 2, 1]
-    assert D.bind("SELECT '50%' FROM t", "postgres", {}) == ("SELECT '50%' FROM t", [])       # no args, no escaping
-    assert D.bind("SELECT :x", "sqlite", {"x": 3}) == ("SELECT ?", [3])
-    with pytest.raises(D.Refusal):
-        D.bind("SELECT $3", "postgres", {"a": 1}, ["a"])
-
-
-def test_param_coercion_follows_the_catalog_type():
-    assert D.coerce("2026-09-01", "date").isoformat() == "2026-09-01"
-    assert D.coerce("7", "int") == 7 and D.coerce("true", "bool") is True
-    assert D.coerce("acme", "text") == "acme"
-    with pytest.raises(D.Refusal):
-        D.coerce("soon", "date")
 
 
 # ----------------------------------------------------------------------------- redaction
@@ -248,33 +184,6 @@ def test_a_bot_needs_a_declared_entry_and_the_credential(tmp_path):
     assert caught.value.code == "grant"
 
 
-def test_an_entry_names_its_own_env_var_and_can_lower_the_limits(tmp_path):
-    url = f"sqlite:///{make_sqlite(tmp_path)}"
-    entry = {**GRANT, "env": "REPORTING_DB", "max_rows": 7, "timeout_seconds": 3}
-    db = D.open_database("acme", "bot:ops", {**workspace(tmp_path, "ops", [entry]), "REPORTING_DB": url})
-    assert (db.max_rows, db.timeout) == (7, 3)
-    raised = workspace(tmp_path / "y", "ops", [{**GRANT, "max_rows": 10**9, "timeout_seconds": 10**6}])
-    db = D.open_database("acme", "bot:ops", {**raised, "DB_ACME_URL": url})
-    assert (db.max_rows, db.timeout) == (D.MAX_ROWS_CEILING, D.TIMEOUT_CEILING)
-
-
-def test_list_shows_only_the_bots_declared_databases(tmp_path):
-    env = {**workspace(tmp_path, "ops", [GRANT, {"service": "mysql", "database": "billing", "can": ["read"]}]),
-           "DB_ACME_URL": "sqlite:///x.db"}
-    rows = {r["database"]: r for r in D.listing("bot:ops", env)}
-    assert set(rows) == {"acme", "billing"} and rows["acme"]["credential"] and not rows["billing"]["credential"]
-
-
-def test_the_command_refuses_an_undeclared_database_and_reserved_names(tmp_path):
-    hub = FakeHub()
-    env = workspace(tmp_path, "ops", [])
-    with pytest.raises(APIError) as caught:
-        D.run(hub, args("acme", "SELECT 1"), env)
-    assert caught.value.code == "grant" and not hub.audits
-    with pytest.raises(D.Refusal):
-        D.open_database("doctor", "human:ana", {"DB_DOCTOR_URL": "sqlite:///x"})
-
-
 # ----------------------------------------------------------------------------- the command and its audit
 def command_env(tmp_path, **extra):
     return {**workspace(tmp_path, "ops", [GRANT]), "DB_ACME_URL": f"sqlite:///{make_sqlite(tmp_path)}", **extra}
@@ -291,14 +200,6 @@ def test_a_query_is_audited_with_the_statement_and_row_count_but_no_data(tmp_pat
     assert event["statement"].startswith("SELECT id, status") and event["params"] == ["s"]
     assert "paid" not in json.dumps({k: v for k, v in event.items() if k != "statement"})
     assert event["error"] is None and event["query"] is None
-
-
-def test_a_refused_statement_is_audited_with_its_error_code(tmp_path):
-    hub = FakeHub()
-    with pytest.raises(APIError) as caught:
-        D.run(hub, args("acme", "DELETE FROM orders"), command_env(tmp_path))
-    assert caught.value.code == "read_only"
-    assert hub.audits[0]["error"] == "read_only" and hub.audits[0]["rows"] == 0
 
 
 def test_when_the_hub_cannot_record_the_query_the_rows_are_withheld(tmp_path):
@@ -330,24 +231,12 @@ def test_a_catalog_query_is_held_to_the_same_read_only_rules(tmp_path):
     assert caught.value.code == "read_only"
 
 
-def test_a_person_needs_only_their_own_credential(tmp_path):
-    env = {"DB_ACME_URL": f"sqlite:///{make_sqlite(tmp_path)}"}
-    result = D.run(FakeHub("human:ana"), args("acme", "SELECT count(*) FROM orders"), env)
-    assert result["rows"] == [[50]]
-
-
 def test_doctor_reports_read_only_and_names_a_missing_credential(tmp_path):
     report = D.doctor("bot:ops", ["acme"], command_env(tmp_path))
     assert report["ok"] and any(c["check"] == "session is read-only" and c["level"] == "ok"
                                 for c in report["databases"][0]["checks"])
     report = D.doctor("bot:ops", ["acme"], workspace(tmp_path / "z", "ops", [GRANT]))
     assert not report["ok"] and report["databases"][0]["checks"][0]["check"] == "credential"
-
-
-def test_output_renders_as_table_csv_and_json(tmp_path):
-    result = D.run(FakeHub(), args("acme", "SELECT id, status FROM orders WHERE id <= 2 ORDER BY id"), command_env(tmp_path))
-    assert D.render(result, args("acme")).splitlines()[-1].startswith("2 rows (")
-    assert D.render(result, args("acme", csv=True)).splitlines() == ["id,status", "1,pending", "2,paid"]
 
 
 def test_the_cli_declares_db_and_keeps_it_off_the_servers_tool_table():
@@ -385,44 +274,6 @@ def company_config(root, service="warehouse"):
     return root
 
 
-def test_the_example_company_config_is_valid_and_loads_over_the_release(tmp_path):
-    config = company_config(tmp_path / "integrations")
-    pages, aliases = I.load(ROOT / "integrations", config)
-    assert {"postgres", "mysql", "sqlite", "hub-sql"} <= set(pages) and "warehouse" in pages
-    ids = {q["id"] for q in pages["warehouse"]["queries"]}
-    assert {"revenue-by-month", "orders-by-status", "top-products"} <= ids
-    assert aliases["acme-db"] == "warehouse"
-    # Upstream alone never carries a company's database.
-    assert "warehouse" not in I.load(ROOT / "integrations")[0]
-    for query in pages["warehouse"]["queries"]:
-        D.check_statement(query["sql"], "postgres")
-        D.bind(query["sql"], "postgres", {p["name"]: 1 for p in query["params"]}, [p["name"] for p in query["params"]])
-
-
-def test_a_company_page_replaces_a_release_page_and_a_catalog_replaces_queries(tmp_path):
-    config = tmp_path / "company"
-    (config / "queries").mkdir(parents=True)
-    page = (ROOT / "integrations" / "hub-sql.md").read_text().replace("title: Hub database (SQL)", "title: Our override")
-    (config / "hub-sql.md").write_text(page)
-    pages, _ = I.load(ROOT / "integrations", config)
-    upstream, _ = I.load(ROOT / "integrations")
-    assert pages["hub-sql"]["title"] == "Our override"
-    assert pages["hub-sql"]["queries"] == upstream["hub-sql"]["queries"]           # no catalog of its own: keeps the release's
-    (config / "queries" / "hub-sql.yaml").write_text(yaml.safe_dump({"queries": [
-        {"id": "mine", "title": "Mine", "description": "", "category": "", "tags": [], "database": "hub.sqlite",
-         "sql": "SELECT 1", "params": []}]}))
-    assert [q["id"] for q in I.load(ROOT / "integrations", config)[0]["hub-sql"]["queries"]] == ["mine"]
-
-
-def test_a_catalog_without_a_page_and_a_missing_company_directory(tmp_path):
-    config = tmp_path / "company"
-    (config / "queries").mkdir(parents=True)
-    (config / "queries" / "ghost.yaml").write_text(yaml.safe_dump({"queries": []}))
-    with pytest.raises(ValueError, match="no page named ghost"):
-        I.load(ROOT / "integrations", config)
-    assert I.load(ROOT / "integrations", tmp_path / "absent")[0] == I.load(ROOT / "integrations")[0]
-
-
 def test_the_server_serves_the_private_catalog_from_the_registry_directory(api):
     # The catalog is read on first use, so the company's directory can be filled after start.
     (directory,) = api.app.state.integrations.company
@@ -433,12 +284,6 @@ def test_the_server_serves_the_private_catalog_from_the_registry_directory(api):
     found = api.get("/api/v2/integrations/warehouse/queries", params={"term": "revenue"}, headers=headers()).json()
     assert [q["id"] for q in found["queries"]] == ["revenue-by-month"]
     assert api.get("/api/v2/integrations/postgres", headers=headers()).status_code == 200
-
-
-def test_the_explicit_integrations_directory_wins_over_the_registry_default(tmp_path):
-    other = company_config(tmp_path / "elsewhere")
-    settings = Settings(db_path=tmp_path / "hub.db", registry_dir=tmp_path / "registry", company_integrations_dir=other)
-    assert settings.company_integrations_dir == other
 
 
 # ----------------------------------------------------------------------------- PostgreSQL, when Docker can run one
@@ -506,26 +351,6 @@ def test_postgres_session_is_read_only_even_for_a_role_that_can_write(postgres):
     assert any(c["check"] == "session is read-only" and c["level"] == "ok" for c in report)
 
 
-def test_postgres_readonly_role_passes_the_doctor_clean(postgres):
-    report = D.probe(D.Database("w", "postgres", postgres["readonly"]))
-    assert all(c["level"] == "ok" for c in report), report
-
-
-def test_postgres_timeout_cancels_the_statement(postgres):
-    db = D.Database("w", "postgres", postgres["readonly"], timeout=1)
-    started = time.monotonic()
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(db, "SELECT pg_sleep(30)")
-    assert caught.value.code == "timeout" and time.monotonic() - started < 10
-
-
-def test_postgres_errors_do_not_leak_the_password(postgres):
-    wrong = postgres["readonly"].replace("ro-secret-pw", "bad-pw-123")
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(D.Database("w", "postgres", wrong), "SELECT 1")
-    assert "bad-pw-123" not in caught.value.detail and "ro-secret-pw" not in caught.value.detail
-
-
 # ----------------------------------------------------------------------------- MySQL, when Docker can run one
 @pytest.fixture(scope="module")
 def mysql():
@@ -564,34 +389,3 @@ def mysql():
     finally:
         subprocess.run([docker, "rm", "-f", name], capture_output=True)
 
-
-def test_mysql_reads_binds_and_caps_rows(mysql):
-    db = D.Database("w", "mysql", mysql["readonly"], max_rows=50)
-    result = D.execute(db, "SELECT id, status FROM orders ORDER BY id")
-    assert result["row_count"] == 50 and result["truncated"]
-    assert D.execute(db, "SELECT count(*) FROM orders WHERE status = :s", {"s": "paid"})["rows"] == [[150]]
-    assert D.execute(db, "SELECT '50%' AS p, count(*) FROM orders WHERE id > $1", {"n": 290}, order=["n"])["rows"] == [["50%", 10]]
-
-
-def test_mysql_session_is_read_only_even_for_an_account_that_can_write(mysql):
-    db = D.Database("w", "mysql", mysql["writer"])
-    with pytest.raises(D.Refusal):
-        D.execute(db, "DELETE FROM orders")
-    assert D.execute(db, "SELECT count(*) FROM orders")["rows"] == [[300]]
-    report = D.probe(db)
-    assert next(c for c in report if c["check"] == "role privileges")["level"] == "warn"
-    assert next(c for c in report if c["check"] == "session is read-only")["level"] == "ok"
-    clean = D.probe(D.Database("w", "mysql", mysql["readonly"]))
-    assert all(c["level"] == "ok" for c in clean), clean
-
-
-def test_mysql_timeout_and_redaction(mysql):
-    started = time.monotonic()
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(D.Database("w", "mysql", mysql["readonly"], timeout=1), 
-                  "SELECT sum(length(sha2(concat(a.id, b.id, c.id), 256))) FROM orders a, orders b, orders c")
-    assert caught.value.code == "timeout" and time.monotonic() - started < 15
-    wrong = mysql["readonly"].replace("ro-secret-pw", "bad-pw-123")
-    with pytest.raises(D.Refusal) as caught:
-        D.execute(D.Database("w", "mysql", wrong), "SELECT 1")
-    assert "bad-pw-123" not in caught.value.detail

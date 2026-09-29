@@ -50,13 +50,6 @@ def test_the_first_turn_publishes_history_to_an_empty_repository(tmp_path):
     assert G.publish_history(path, REPO, env) == ("current", "")      # once it has an upstream, nothing to do
 
 
-def test_an_origin_already_set_to_the_repository_is_used(tmp_path):
-    bare(tmp_path)
-    path, env = checkout(tmp_path)
-    git(path, "remote", "add", "origin", URL)                                  # linked by hand, never pushed
-    assert G.publish_history(path, REPO, env)[0] == "published"
-
-
 def test_an_origin_that_points_elsewhere_is_not_touched(tmp_path):
     bare(tmp_path)
     path, env = checkout(tmp_path)
@@ -80,40 +73,3 @@ def test_a_remote_with_different_history_is_left_alone_and_reported(tmp_path):
     assert state == "failed" and "different history" in detail
     assert git(remote, "rev-parse", "main") == before, "never force-pushed"
 
-
-def test_a_remote_that_is_behind_this_checkout_is_fast_forwarded(tmp_path):
-    remote = bare(tmp_path)
-    path, env = checkout(tmp_path, commits=1)
-    git(path, "push", "-q", str(remote), "main", env=env)                       # the first commit is already there
-    (path / "more.txt").write_text("more")
-    git(path, "add", "-A", env=env)
-    git(path, "commit", "-q", "-m", "more", env=env)
-    assert G.publish_history(path, REPO, env) == ("published", "")
-    assert git(remote, "rev-parse", "main") == git(path, "rev-parse", "HEAD")
-
-
-def test_nothing_to_publish_without_commits_a_branch_or_a_link(tmp_path):
-    bare(tmp_path)
-    empty = tmp_path / "emp-empty"
-    subprocess.run(["git", "init", "-q", "-b", "main", str(empty)], check=True)
-    env = make_env(tmp_path, tmp_path / "remote.git")
-    assert G.publish_history(empty, REPO, env) == ("skipped", "no commits yet")
-    assert G.publish_history(tmp_path / "missing", REPO, env)[0] == "skipped"
-    path, env = checkout(tmp_path)
-    assert G.publish_history(path, "", env) == ("skipped", "no repository link")
-
-
-def test_an_unreachable_repository_is_reported_not_raised(tmp_path):
-    path, env = checkout(tmp_path)
-    env["GIT_CONFIG_VALUE_2"] = "https://github.com/nobody/nothing.git"          # nothing rewrites the URL to a repository
-    env["GIT_CONFIG_KEY_2"] = "url.file:///nonexistent-remote.insteadOf"
-    state, detail = G.publish_history(path, REPO, env)
-    assert state == "failed" and detail
-
-
-def test_apply_keeps_the_repository_the_hub_resolved():
-    class Hub:
-        def post(self, path, body):
-            return {"configured": True, "token": "ghs_x", "repository": REPO}
-    env = {}
-    assert G.apply(env, Hub(), "cpo") and env[G.REPOSITORY_KEY] == REPO

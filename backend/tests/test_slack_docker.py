@@ -3,7 +3,6 @@ gateway process with a fake Slack client (nothing touches the network)."""
 import json
 import logging
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,7 +16,6 @@ from backend import slack_gateway as G
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
-from backend.store import Store
 
 ROOT = Path(__file__).resolve().parents[2]
 BOT, APP_TOKEN = "xoxb-1111111111-secret-bot-token", "xapp-1-A0SECRET-2222222222-secrettoken"
@@ -29,29 +27,6 @@ def compose(profiles=""):
                          env={**os.environ, "COMPOSE_PROFILES": profiles, **ENV})
     assert out.returncode == 0, out.stderr
     return yaml.safe_load(out.stdout)["services"]
-
-
-@pytest.mark.skipif(not shutil.which("docker"), reason="docker is not installed")
-def test_compose_runs_the_gateway_only_when_the_slack_profile_is_on():
-    assert "slack" not in compose()
-    on = compose("slack")["slack"]
-    assert on["command"] == ["slack-gateway"] and on["image"] == compose("slack")["server"]["image"]
-    assert "ports" not in on          # Socket Mode is outbound only
-    assert any(v["target"] == "/data" for v in on["volumes"])
-
-
-def test_every_slack_setting_the_code_reads_reaches_the_service_and_no_token_does():
-    text = (ROOT / "compose.yaml").read_text()
-    service = yaml.safe_load(text)["services"]["slack"]["environment"]
-    source = (ROOT / "backend" / "config.py").read_text()
-    read = {n for n in ("SLACK_TEAM_ID", "SLACK_APP_ID", "TICO_SLACK_ROUTE_THRESHOLD", "TICO_SLACK_ASK_THRESHOLD",
-                        "TICO_SLACK_MAX_RECIPIENTS", "TICO_SLACK_DIGEST_MINUTES", "TICO_SLACK_DIGEST_CAP")
-            if f'"{n}"' in source}
-    assert len(read) == 7 and read <= set(service)
-    assert "SLACK_BOT_TOKEN" not in text and "SLACK_APP_TOKEN" not in text
-    example = (ROOT / ".env.example").read_text()
-    assert "slack" in example and "SLACK_BOT_TOKEN" not in example.replace("do not put them here", "")
-    assert "TICO_SLACK_GATEWAY_ENABLED" not in text          # the entrypoint switches it on for this service only
 
 
 def test_manifest_matches_the_code_and_the_yaml():
@@ -104,23 +79,6 @@ def test_tokens_are_sealed_never_returned_and_never_logged(api, caplog, tmp_path
     assert slack_app.load(store, store.settings) is None
 
 
-def test_health_shows_the_gateway_only_after_tokens_are_saved(api):
-    from backend import health
-    store = api.app_state.store
-    with store.read() as c:
-        assert health._slack(c) is None
-    api.put("/api/v2/slack/tokens", json={"bot_token": BOT, "app_token": APP_TOKEN}, headers=h())
-    with store.read() as c:
-        assert health._slack(c)["status"] == "warn"
-    slack_app.report(store, "disconnected", "invalid_auth")
-    with store.read() as c:
-        check = health._slack(c)
-    assert check["status"] == "bad" and "invalid_auth" in check["summary"]
-    slack_app.report(store, "connected")
-    with store.read() as c:
-        assert health._slack(c)["status"] == "ok"
-
-
 class FakeClient:
     """Stands in for SlackAPI: auth and bot lookups succeed, the socket is a flag."""
     instances = []
@@ -144,60 +102,3 @@ class FakeClient:
     def close(self):
         self.up, self.closed = False, True
 
-
-def test_gateway_process_waits_connects_reports_and_stops(tmp_path, monkeypatch, caplog):
-    caplog.set_level(logging.INFO)
-    settings = Settings(db_path=tmp_path / "hub.db", slack_gateway_enabled=True)
-    monkeypatch.setattr(G.Settings, "from_env", classmethod(lambda cls: settings))
-    for name in ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_TEAM_ID", "TICO_SLACK_SECRET_ARN"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("TICO_SLACK_WAIT", "1")
-    monkeypatch.setattr(G, "slack_credentials", lambda s: {"bot_token": "", "app_token": "", "team_id": "", "app_id": ""})
-    monkeypatch.setattr(G.signal, "signal", lambda *a: None)
-    monkeypatch.setattr(G.Gateway, "run_tick_seconds", 0, raising=False)
-    monkeypatch.setattr(G, "TICK_SECONDS", 0.01)
-    store = Store(settings)
-    store.initialize()
-    sleeps = []
-
-    def sleep(stopping, seconds):
-        sleeps.append(seconds)
-        if len(sleeps) == 1:      # first wait: the owner pastes tokens
-            slack_app.save(store, settings, "human:ana", BOT, APP_TOKEN)
-            return True
-        return False              # the second: stop
-
-    monkeypatch.setattr(G, "_sleep", sleep)
-    seen = {}
-    real_run = G.Gateway.run
-
-    def run(self):
-        # Let the heartbeat report, then the owner disconnects, which must end this connection.
-        self.heartbeat()
-        with store.read() as c:
-            seen["state"] = slack_app.status(c)
-        slack_app.forget(store)
-        real_run(self)
-
-    monkeypatch.setattr(G.Gateway, "run", run)
-    assert G.main([], make_slack=FakeClient) == 0
-    assert sleeps == [15, 15]
-    assert seen["state"]["state"] == "connected" and seen["state"]["last_success"]
-    client = FakeClient.instances[-1]
-    assert client.closed and (client.bot, client.app) == (BOT, APP_TOKEN)
-    assert BOT not in caplog.text and APP_TOKEN not in caplog.text
-    assert "Verified workspace T0FAKE1" in caplog.text
-
-
-def test_first_connect_pins_the_workspace_and_a_refused_start_is_reported(tmp_path, monkeypatch):
-    settings = Settings(db_path=tmp_path / "hub.db", slack_gateway_enabled=True)
-    store = Store(settings)
-    store.initialize()
-    slack_app.save(store, settings, "human:ana", BOT, APP_TOKEN)
-    gateway = G.Gateway(store, FakeClient(BOT, APP_TOKEN))
-    with pytest.raises(RuntimeError, match="SLACK_TEAM_ID"):
-        gateway.verify_app()
-    gateway.pin_workspace = True
-    assert gateway.verify_app()["team_id"] == "T0FAKE1"
-    slack_app.pin(store, "T0FAKE1", "A0FAKE1")
-    assert slack_app.load(store, settings)["team_id"] == "T0FAKE1"

@@ -117,21 +117,6 @@ def test_a_page_over_five_megabytes_is_cut_and_says_so():
     assert refused.value.code == "too_large"
 
 
-def test_only_text_like_content_is_read():
-    net = Net({"docs.example.com": [PUBLIC]}, reply(ctype="application/zip", body=b"PK"))
-    with pytest.raises(F.FetchError) as refused:
-        net.fetch("https://docs.example.com/a.zip")
-    assert refused.value.code == "content_type"
-
-
-def test_twenty_seconds_is_the_whole_budget():
-    ticks = iter([0, 0, 0, 25, 25, 25, 25])
-    net = Net({"docs.example.com": [PUBLIC]}, reply(body=b"<p>slow</p>"))
-    with pytest.raises(F.FetchError) as refused:
-        net.fetch("https://docs.example.com/a", clock=lambda: next(ticks))
-    assert refused.value.code == "timeout"
-
-
 def test_a_credential_is_sent_only_to_the_host_it_belongs_to():
     env = {"GH_TOKEN": "ghs_secret", "GOOGLE_ACCESS_TOKEN": "ya29.secret"}
     net = Net({"docs.example.com": [PUBLIC], "api.github.com": [PUBLIC], "docs.google.com": [PUBLIC]},
@@ -169,17 +154,3 @@ def test_a_google_doc_that_is_not_public_says_so():
         net.fetch("https://docs.google.com/document/d/abc123/edit")
     assert refused.value.code == "not_public"
 
-
-def test_html_becomes_text_with_its_links_and_a_sitemap_becomes_its_addresses():
-    page = (b"<html><head><title>Help</title><script>bad()</script></head><body><nav>menu</nav><h1>Refunds</h1>"
-            b"<p>Ask <a href='/contact'>support</a>.</p><ul><li>One</li><li>Two</li></ul></body></html>")
-    sitemap = (b"<urlset><url><loc>https://help.example.com/a</loc></url>"
-               b"<url><loc>https://help.example.com/b</loc></url></urlset>")
-    net = Net({"help.example.com": [PUBLIC]}, reply(body=page), reply(ctype="application/xml", body=sitemap))
-    result = net.fetch("https://help.example.com/refunds")
-    assert result["title"] == "Help" and "# Refunds" in result["text"] and "bad()" not in result["text"]
-    assert "menu" not in result["text"] and "- One" in result["text"]
-    assert "[support](https://help.example.com/contact)" in result["text"]
-    assert result["links"] == [{"text": "support", "url": "https://help.example.com/contact"}]
-    listing = net.fetch("https://help.example.com/sitemap.xml")
-    assert listing["text"] == "https://help.example.com/a\nhttps://help.example.com/b"

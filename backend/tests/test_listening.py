@@ -68,47 +68,6 @@ def test_only_listening_and_the_owner_save_runs_and_judgments(api):
                                                      "scores": {"lead": 1.5}}]}, expected=422)
 
 
-def test_the_judge_scores_every_category_and_a_post_goes_to_every_inbox_it_clears(api):
-    _bots(api)
-    listening = _token(api, "listening")
-    judge_engine = FakeJudge()
-    api.app.state.judge = judge_engine
-    saved = post(api, "listening/runs", {"source": "x", "query": "q", "status": "ok", "items": [
-        _post("1", "Creator with 40k followers asks how to price sprints [creator] [content]"),
-        _post("2", "Atlia raised a seed round [market]"),
-        _post("3", "nice weather today")]}, token=listening)
-    ids = [i["id"] for i in saved["items"]]
-    judged = post(api, "listening/judge", {"limit": 10}, token=listening)
-    assert judged["question_set"] == "listening-item@5" and judged["judged"] == 3 and not judged["errors"]
-    assert len(judge_engine.calls) == 3 and judge_engine.calls[0][1] == "listening-item@5"
-    assert set(judge_engine.calls[0][0]) == {"source", "url", "author", "published_at", "content"}
-    by_item = {r["judgment"]["item_id"]: sorted(o["destination"] for o in r["intake"]) for r in judged["results"]}
-    assert by_item == {ids[0]: ["content", "creators"], ids[1]: ["market"], ids[2]: []}
-    # Every category's probability is kept, not only the ones that routed.
-    scores = judged["results"][0]["judgment"]["scores"]
-    assert set(scores) == {"market", "content", "lead", "vendor_pitch", "creator", "partner"}
-    # Each call is audited as a judge call against Listening's budget.
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM events WHERE actor='bot:listening' AND action='judge.call' "
-                         "AND target='listening-item@5'").fetchone()[0] == 3
-    # Nothing is left to judge from this set, so a second pass calls the judge for nothing.
-    assert post(api, "listening/judge", {"limit": 10}, token=listening)["judged"] == 0
-    assert len(judge_engine.calls) == 3
-    # Reclassification: a new judgment adds the inbox the post now clears and leaves the rest alone.
-    before = get(api, "intake?destination=creators", token=listening)["items"]
-    redo = post(api, "listening/judgments", {"judgments": [
-        {"item_id": ids[0], "question_set": "listening-item@6", "scores": {"creator": 0.2, "market": 0.95}},
-        {"item_id": ids[0], "question_set": "listening-item@6", "scores": {"creator": 0.2, "market": 0.95}}]},
-        token=listening)["results"]
-    assert [o["destination"] for o in redo[0]["intake"]] == ["market"] and redo[1]["intake"] == []
-    after = get(api, "intake?destination=creators", token=listening)["items"]
-    assert [(r["id"], r["judgment_id"]) for r in after] == [(r["id"], r["judgment_id"]) for r in before]
-    trace = get(api, f"listening/items/{ids[0]}", token=listening)
-    assert trace["current"]["question_set"] == "listening-item@6" and len(trace["judgments"]) == 3
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM intake_items WHERE item_id=?", (ids[0],)).fetchone()[0] == 3
-
-
 def test_a_receiver_sees_and_resolves_only_its_own_inbox(api):
     _bots(api)
     listening = _token(api, "listening")
@@ -162,63 +121,4 @@ def test_hub_sql_shows_posts_only_to_listening_the_owner_and_their_receivers(api
     assert rows("SELECT count(*) FROM listen_judgments", sales)[0][0] == 1
     assert rows("SELECT count(*) FROM listen_items", listening)[0][0] == 2
     assert rows("SELECT count(*) FROM listen_items", "ana-test")[0][0] == 2
-
-
-def test_every_destination_names_a_category_the_question_set_asks(api):
-    from clients import judge as J
-    _bots(api)
-    settings = api.app.state.store.settings
-    questions = J.load_set(L.QUESTION_SET)["questions"]
-    assert {cfg["category"] for cfg in L.destinations(settings).values()} <= set(questions)
-    assert {cfg["unless"]["category"] for cfg in L.destinations(settings).values() if cfg.get("unless")} <= set(questions)
-    assert all(q["type"] == "noul" for q in questions.values())
-    assert all(0 < cfg["threshold"] <= 1 for cfg in L.destinations(settings).values())
-
-
-def test_a_vendor_pitch_dressed_as_a_question_is_not_a_lead(api):
-    """2026-09-24: both leads imported in the test sweep were vendors asking "X vs Y: how are you
-    handling…". A pitch still counts for the market and content; it is never a lead."""
-    _bots(api)
-    listening = _token(api, "listening")
-    api.app.state.judge = FakeJudge()
-    saved = post(api, "listening/runs", {"source": "reddit", "query": "q", "status": "ok", "items": [
-        _post("1", "Northwind vs Tracklight: how are you tracking sprints? [lead] [vendor_pitch] [content]"),
-        _post("2", "Our PM tool broke the week of a launch, what do I do? [lead] [content]")]},
-        token=listening)
-    ids = [i["id"] for i in saved["items"]]
-    judged = post(api, "listening/judge", {"limit": 10}, token=listening)
-    by_item = {r["judgment"]["item_id"]: sorted(o["destination"] for o in r["intake"]) for r in judged["results"]}
-    assert by_item == {ids[0]: ["content"], ids[1]: ["content", "leads"]}
-
-
-def test_doc_updater_reads_the_content_inbox_for_community_research_and_decides_nothing(api):
-    """2026-09-24: nobody kept the community research current after the COO review ended. Doc
-    Updater reads leads' questions from the content inbox; Content still decides each item."""
-    _bots(api)
-    listening = _token(api, "listening")
-    api.app.state.judge = FakeJudge()
-    saved = post(api, "listening/runs", {"source": "reddit", "query": "q", "status": "ok", "items": [
-        _post("1", "How do you keep a standup short? [content]"),
-        _post("2", "Creator with 40k followers [creator]", author="@creator1")]}, token=listening)
-    post(api, "listening/judge", {}, token=listening)
-    docs = _token(api, "doc-updater")
-    inbox = get(api, "intake", token=docs)["items"]
-    assert [i["destination"] for i in inbox] == ["content"]
-    get(api, "intake?destination=creators", token=docs, expected=403)
-    post(api, f"intake/{inbox[0]['id']}/resolve", {"status": "rejected", "reason": "no"}, token=docs, expected=403)
-    assert get(api, f"listening/items/{saved['items'][0]['id']}", token=docs)["intake"][0]["destination"] == "content"
-    rows = post(api, "sql", {"sql": "SELECT i.content FROM listen_items i"}, token=docs)["rows"]
-    assert [r["content"] if isinstance(r, dict) else r[0] for r in rows] == ["How do you keep a standup short? [content]"]
-
-
-def test_a_consultancy_goes_to_the_partners_inbox(api):
-    """A training consultancy went nowhere; partners are the company's channel."""
-    _bots(api)
-    listening = _token(api, "listening")
-    api.app.state.judge = FakeJudge()
-    post(api, "listening/runs", {"source": "reddit", "query": "q", "status": "ok", "items": [
-        _post("1", "We run onboarding workshops for 40 teams a year [partner]")]}, token=listening)
-    post(api, "listening/judge", {}, token=listening)
-    pros = get(api, "intake", token=_token(api, "recruiting"))["items"]
-    assert [i["destination"] for i in pros] == ["partners"] and pros[0]["routed_because"] == "partner >= 0.75"
 

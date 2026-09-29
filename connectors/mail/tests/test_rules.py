@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fake                    # noqa: E402,F401  (puts the hub on sys.path)
 
 from backend import people as P                                             # noqa: E402
-from connectors.mail import Failure, RULES_FILE, access, gmail as gm, rules as rl   # noqa: E402
+from connectors.mail import RULES_FILE, access, gmail as gm, rules as rl
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
@@ -104,20 +104,10 @@ class BotRules(unittest.TestCase):
         found = access.bot_rules_file(mailbox, ROSTER)
         return [r["id"] for r in rl.load(self.root / "company.yaml", mailbox, found)]
 
-    def test_the_bots_rules_replace_the_registry_ones_after_the_company_protections(self):
-        self.bot_file()
-        self.assertEqual(self.ids("ana@acme.example"), ["payment-risk-words", "bot-own"])
-
     def test_a_report_is_handled_by_the_managers_inbox_bot(self):
         self.bot_file(BOT.replace("ana@", "ben@"))
         self.assertEqual(access.inbox_bot_for("ben@acme.example", ROSTER), "inbox")
         self.assertEqual(self.ids("ben@acme.example"), ["payment-risk-words", "bot-own"])
-
-    def test_without_a_bot_file_or_a_bot_the_registry_file_is_used(self):
-        self.assertEqual(self.ids("ana@acme.example"), ["payment-risk-words", "registry-own"])
-        self.bot_file()
-        self.assertIsNone(access.inbox_bot_for("cy@other.example", ROSTER))
-        self.assertEqual(self.ids("cy@other.example"), ["payment-risk-words"])
 
     def test_a_company_protection_still_wins_over_a_bot_archive(self):
         self.bot_file()
@@ -127,21 +117,6 @@ class BotRules(unittest.TestCase):
         self.assertFalse(plan["archive"])
         self.assertTrue(plan["never_archive"])
         self.assertEqual(plan["blocked"][0]["rule"], "bot-own")
-
-    def test_a_bots_file_is_checked_like_the_registry_one(self):
-        self.bot_file("mailboxes:\n  ana@acme.example:\n    - {id: x, when: {nope: 1}, do: {archive: true}}\n")
-        with self.assertRaises(Failure):
-            self.ids("ana@acme.example")
-
-    def test_the_repository_name_comes_from_the_registry_when_it_says(self):
-        import connectors.mail as mail
-        (self.root / "employees.yaml").write_text("employees:\n  - {name: inbox, repo: acme-inbox}\n")
-        self.assertEqual(access.bot_repo("inbox"), "emp-inbox")
-        registry, mail.REGISTRY = mail.REGISTRY, self.root
-        self.addCleanup(lambda: setattr(mail, "REGISTRY", registry))
-        self.assertEqual(access.bot_repo("inbox"), "acme-inbox")
-        self.assertEqual(access.bot_repo("other"), "emp-other")
-
 
 if __name__ == "__main__":
     unittest.main()

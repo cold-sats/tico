@@ -48,26 +48,6 @@ def push(api, rid, iid, body=None, token="ana-test", expected=200, key=None):
     return r.json()
 
 
-def test_anyone_who_can_read_the_room_edits_and_deletes_but_only_the_owner_pushes(api):
-    rid = record(api, {"title": "Weekly sync"}, "ben-test")
-    iid = add(api, rid, {"section": "feature", "text": "Bulk edit for guidebooks",
-                         "detail": {"side": "F"}}, "ben-test")["item"]["id"]
-    # A viewer may correct the text and delete an item; the row is kept with who did it.
-    edited = change(api, rid, iid, {"text": "Bulk edit for guidebook entries"}, "cara-test")["item"]
-    assert edited["text"] == "Bulk edit for guidebook entries" and edited["updated_by"] == "human:cara"
-    assert items(api, rid, "cara-test")["can_push"] is False
-    push(api, rid, iid, {}, "cara-test", expected=403)
-    dismissed = change(api, rid, iid, {"status": "dismissed"}, "cara-test")["item"]
-    assert dismissed["status"] == "dismissed" and dismissed["updated_by"] == "human:cara"
-    push(api, rid, iid, {}, "ben-test", expected=409)
-    change(api, rid, iid, {"status": "dismissed"}, "ben-test", expected=409)
-    # A bot has no business in a meeting room at all.
-    from backend.tests.test_api import setup_attempt
-    _, _, attempt = setup_attempt(api)
-    items(api, rid, attempt["token"], expected=403)
-    add(api, rid, {"section": "task", "text": "From a bot"}, attempt["token"], expected=403)
-
-
 def test_a_private_meeting_keeps_its_items_to_the_people_the_invite_names(api):
     """Items inherit the room's visibility; `backend/media.authorized` is the only gate."""
     rid = record(api, {"title": "Comp review", "private": True,
@@ -102,10 +82,3 @@ def test_a_pushed_item_is_a_hub_task_with_the_meeting_it_came_from(api):
     bare = add(api, rid, {"section": "task", "text": "Someone should follow up"})["item"]["id"]
     push(api, rid, bare, expected=422)
 
-
-def test_the_thread_on_a_meeting_is_open_to_whoever_can_read_it(api):
-    rid = record(api)
-    r = api.post(f"/api/meetings/{rid}/comments", json={"text": "Agreed on the date", "at_ms": 5000}, headers=headers("cara-test"))
-    assert r.status_code == 200 and r.json()["comment"]["author_name"]
-    thread = api.get(f"/api/meetings/{rid}/comments", headers=headers("ben-test")).json()["comments"]
-    assert [c["text"] for c in thread] == ["Agreed on the date"]

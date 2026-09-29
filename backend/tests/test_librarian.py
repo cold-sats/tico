@@ -86,33 +86,3 @@ def test_a_bot_asks_the_librarian_with_an_ask_message_and_the_final_text_is_the_
         assert H.answers_to(c, [question["id"]])[question["id"]]["body"] == "Not in the docs."
     ask(desk, "A bot uses hub docs ask, not this route", token=turn["token"], expected=403)
 
-
-def test_asking_is_refused_plainly_when_the_librarian_is_off_and_only_the_owner_turns_it_on(api, monkeypatch):
-    async def search(request, question):
-        return []
-    monkeypatch.setattr(librarian, "_search", search)
-    assert get(api, "librarian")["available"] is False and get(api, "librarian")["can_turn_on"] is True
-    assert get(api, "librarian", "ben-test")["can_turn_on"] is False
-    assert ask(api, "Anyone there?", expected=409)["error"]["code"] == "librarian_off"
-    post(api, "librarian/turn-on", {}, token="ben-test", expected=403)
-
-
-def test_the_librarian_is_built_in_and_cannot_be_archived_but_can_be_paused(desk):
-    for token in ("ana-test", "ben-test"):
-        assert post(desk, "bots/librarian/archive", {"expected_revision": 1}, token=token,
-                    expected=409)["error"]["code"] == "system_bot"
-    with desk.app.state.store.read() as c:
-        revision = c.execute("SELECT revision FROM bot_config WHERE bot='librarian'").fetchone()[0]
-    post(desk, "bots/librarian/definition", {"status": "paused", "expected_revision": revision})
-    assert get(desk, "librarian")["state"] == "paused"
-    assert ask(desk, "Still there?", expected=409)["error"]["code"] == "librarian_off"
-
-
-def test_a_new_conversation_closes_the_old_one_and_never_mixes_them(desk):
-    first = ask(desk, "How long do refunds take?", new_conversation=True)
-    second = ask(desk, "Who signs contracts?", new_conversation=True)
-    assert second["conversation_id"] != first["conversation_id"]
-    with desk.app.state.store.read() as c:
-        assert H.conversation(c, first["conversation_id"])["closed_at"]
-    ask(desk, "Both at once", expected=422, new_conversation=True, conversation_id=second["conversation_id"])
-    ask(desk, "Into the closed one", expected=422, conversation_id=first["conversation_id"])

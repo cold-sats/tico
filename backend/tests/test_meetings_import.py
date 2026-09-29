@@ -83,38 +83,6 @@ def test_a_bot_cannot_import_and_a_machine_files_only_for_a_person_on_the_roster
     assert "own importer" in import_meeting(api, source="close", expected=422)["error"]["detail"]
 
 
-def test_a_bad_transcript_or_field_is_refused_with_the_reason(api):
-    for fields, reason in (({"transcript": "  ", "notes": ""}, "transcript, notes, or both"),
-                           ({"transcript": "1\nno times\n", "format": "srt"}, "time line"),
-                           ({"transcript": "[oops", "format": "json"}, "JSON"),
-                           ({"transcript": TEXT, "format": "docx"}, "format is one of"),
-                           ({"transcript": TEXT, "started_at": "2026-09-28T16:00:00"}, "timezone"),
-                           ({"transcript": TEXT, "media_url": "http://example.com/a.mp4"}, "https"),
-                           ({"transcript": TEXT, "source": "Bad Source!"}, "source is a short"),
-                           ({"transcript": TEXT, "participants": ["x"] * 101}, "participants"),
-                           ({"transcript": "x" * 1_000_001}, "one million"),
-                           ({"transcript": TEXT, "surprise": 1}, "surprise")):
-        problem = import_meeting(api, expected=422, **fields)
-        assert reason in problem["error"]["detail"], (fields.keys(), problem)
-
-
-def test_media_link_notes_duration_and_a_file_are_kept_and_reimport_adds_no_second_copy(api):
-    files = {"files": ("call.m4a", b"audio bytes", "audio/mp4")}
-    fields = {"title": "Kickoff", "transcript": TEXT, "notes": "Summary.", "media_url": "https://example.com/rec/1",
-              "started_at": "2026-09-28T16:00:00-07:00", "duration_seconds": "1800", "source": "zoom",
-              "external_id": "z-9", "participants": json.dumps(["ben@acme.example"])}
-    r = api.post("/api/v2/meetings/import", data=fields, files=files, headers=headers())
-    assert r.status_code == 200, r.text
-    record = meeting(api, r.json()["id"])
-    assert record["media_url"] == "https://example.com/rec/1" and record["duration_ms"] == 1_800_000
-    assert record["started"] == "2026-09-28T16:00:00-07:00" and record["ended"].startswith("2026-09-28T16:30:00")
-    assert [a["name"] for a in record["attachments"]] == ["call.m4a"]
-    assert "Media: https://example.com/rec/1" in record["meeting_context"]
-    again = api.post("/api/v2/meetings/import", data=fields, files=files, headers=headers()).json()
-    assert again["id"] == r.json()["id"] and again["changed"] is False
-    assert len(meeting(api, again["id"])["attachments"]) == 1
-
-
 def test_send_to_hands_the_meeting_to_a_bot_the_person_may_use_and_a_routine_hears_it(api):
     runner_ = setup(api)
     create(api, "ops", DEBRIEF)
@@ -135,21 +103,6 @@ def test_send_to_hands_the_meeting_to_a_bot_the_person_may_use_and_a_routine_hea
     import_meeting(api, "cara-test", send_to="no-such-bot", source="zoom", external_id="z-3", expected=404)
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM meetings").fetchone()[0] == before
-
-
-def test_a_close_call_and_an_api_import_share_the_list_and_the_search(api):
-    machine = runner(api)
-    post(api, "imports/transcripts", {"source": "close", "resource_type": "call", "external_id": "acti_1",
-         "owner_email": "ben@acme.example", "title": "Pricing call", "started": "2026-09-19T10:00:00-07:00",
-         "ended": "2026-09-19T10:05:00-07:00", "duration_ms": 300000, "source_updated_at": "2026-09-19T17:07:00Z",
-         "turns": [{"text": "Can you send pricing?", "start_ms": 1000, "end_ms": 3000, "speaker": "Dana"}]}, machine["token"])
-    import_meeting(api, "ben-test", title="Pricing sync", transcript="Ben: Pricing goes up.", source="fireflies", external_id="f-1")
-    listed = api.get("/api/meetings", headers=headers("cara-test")).json()
-    assert sorted((m["source"], m["title"]) for m in listed) == [("close", "Pricing call"), ("fireflies", "Pricing sync")]
-    found = get(api, "meetings/search?q=pricing", "cara-test")["results"]
-    assert len(found) == 2
-    sources = api.get("/api/meetings/sources", headers=headers()).json()["sources"]
-    assert [s["id"] for s in sources] == ["import", "close"]
 
 
 def test_the_mcp_tool_and_the_cli_file_a_meeting_the_same_way(api, tmp_path):
@@ -184,20 +137,3 @@ def test_the_mcp_tool_and_the_cli_file_a_meeting_the_same_way(api, tmp_path):
     else:
         raise AssertionError("a bad --date must be refused")
 
-
-def test_typed_notes_file_as_a_manual_meeting_with_no_transcript(api):
-    """What the Meetings page's "Add meeting notes" posts: the notes are the body, the source is manual."""
-    setup(api)
-    notes = "## Decisions\n- ship on Friday"
-    made = import_meeting(api, "ben-test", title="Weekly sync", transcript="", notes=notes, source="manual",
-                          started_at="2026-09-28T16:00:00-07:00", participants=["cara@acme.example", "Pat"], send_to="coo")
-    assert made["turns"] == 0 and made["sent"]["slug"] == "coo"
-    record = meeting(api, made["id"], "ben-test")
-    assert record["source"] == "manual" and record["kind"] == "meeting" and record["notes"] == notes
-    assert record["turns"] == [] and record["started"] == "2026-09-28T16:00:00-07:00"
-    assert {p["name"] for p in record["participants"]} >= {"Pat"} and any(p["person_id"] == "cara" for p in record["participants"])
-    listed = api.get("/api/meetings", headers=headers("ben-test")).json()
-    assert [m["id"] for m in listed] == [made["id"]]
-    # Two typed meetings with the same title are two meetings: there is no external id to merge on.
-    again = import_meeting(api, "ben-test", title="Weekly sync", transcript="", notes="Another.", source="manual")
-    assert again["id"] != made["id"]

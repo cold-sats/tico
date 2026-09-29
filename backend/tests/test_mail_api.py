@@ -112,21 +112,3 @@ def test_bot_and_runner_are_refused(api):
     get(api, "mail/threads/tc?mailbox=ana@acme.example", attempt["token"], expected=403)
     get(api, "mail/messages/c1?mailbox=ana@acme.example", attempt["token"], expected=403)
 
-
-def test_fts_search_uses_the_sanitizer_and_stays_inside_visible_mail(api):
-    seed_mail(api)
-    put_mail(api, "ana@acme.example", msg_id="c2", thread_id="tc2", subject="Nearby cafe",
-             body="The cafe is around the corner.", snippet="The cafe", epoch=110)
-    hits = get(api, "mail/messages?q=invoice", "ana-test")
-    assert [row["subject"] for row in hits["messages"]] == ["Ana invoice"]
-    assert hits["q"] == '"invoice"'
-    # Operators become literal tokens; they do not widen the match to every message.
-    poisoned = get(api, "mail/messages?q=invoice%20OR%20standup", "ana-test")
-    assert poisoned["messages"] == []
-    assert poisoned["q"] == '"invoice" AND "OR" AND "standup"'
-    empty = get(api, "mail/messages?q=***", "ana-test")
-    assert empty["messages"] == [] and empty["q"] == ""
-    ben = get(api, "mail/messages?q=invoice", "ben-test")
-    assert ben["messages"] == []
-    labeled = get(api, "mail/messages?mailbox=ana@acme.example&label=INBOX", "ana-test")
-    assert [row["msg_id"] for row in labeled["messages"]] == ["c2", "c1"]

@@ -1,6 +1,5 @@
 """The `local` target: what scripts/install.sh runs on the server itself."""
-from setup import dns, remote, state
-from setup.remote import Result
+from setup import dns, state
 from setup.tests import fakes
 from setup.tests.fakes import FakeShell
 from setup.tests.test_wizard import BASE, SECRET, go  # noqa: F401  (SECRET fixture env is autouse in that module)
@@ -34,14 +33,3 @@ def test_local_run_pins_the_release_and_never_uses_ssh(monkeypatch):
     assert not any(SECRET in c for c in shell.cmds()) and SECRET not in out
     assert state.load("tico.example.com")[0]["tag"] == "v0.2.0"
 
-
-def test_local_dry_run_plan_and_tunnel_needs_no_ip():
-    code, out = go(["--dry-run", "--target", "local", "--server-ip", "203.0.113.7", *BASE])
-    assert code == 0 and "On this server: install Docker if missing" in out and "A tico.example.com -> 203.0.113.7" in out
-    code, out = go(["--dry-run", "--target", "local", "--front-door", "cloudflared", *BASE])
-    assert code == 0 and "CNAME tico.example.com" in out
-
-
-def test_local_shell_runs_commands_and_passes_stdin():
-    r = remote.LocalShell().run("cat; echo done >&2", b"hello")
-    assert r == Result(0, "hello", "done\n")

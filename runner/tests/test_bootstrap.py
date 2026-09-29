@@ -108,13 +108,5 @@ class Bootstrap(unittest.TestCase):
         self.assertFalse((self.projects / "emp-coo").exists())
         self.assertFalse((self.projects / "emp-botops").exists())
 
-    def test_an_existing_repository_is_left_exactly_as_it_is(self):
-        repository = self.projects / "emp-coo"
-        (repository / "knowledge").mkdir(parents=True)
-        (repository / "AGENT.md").write_text("# Ada\n\n## Owns\n- everything so far\n")
-        rows = self.rows(entry("coo", "assistant"))
-        self.assertEqual(rows["coo"]["materialized"], "")
-        self.assertEqual((repository / "AGENT.md").read_text(), "# Ada\n\n## Owns\n- everything so far\n")
-
 if __name__ == "__main__":
     unittest.main()

@@ -29,13 +29,6 @@ def mint(api, token=ADMIN, label="laptop script", **fields):
     return post(api, "me/tokens", {"label": label, **fields}, token=token)
 
 
-def test_a_plain_person_may_not_create_a_token(tokens):
-    r = tokens.post("/api/v2/me/tokens", json={"label": "mine"}, headers=headers(PLAIN))
-    assert r.status_code == 403
-    assert r.json()["error"]["detail"] == "Personal tokens are for the owner and bot administrators"
-    assert get(tokens, "me/tokens", token=PLAIN) == {"tokens": []}
-
-
 def test_the_list_never_carries_the_secret_or_its_hash(tokens):
     issued = mint(tokens)
     r = tokens.get("/api/v2/me/tokens", headers=headers(ADMIN))

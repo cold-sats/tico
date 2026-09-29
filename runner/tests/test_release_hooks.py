@@ -45,20 +45,6 @@ def test_the_runner_reports_its_release_and_holds_work_while_it_updates(api, liv
     service.pool.shutdown()
 
 
-def test_a_pinned_runner_keeps_working_and_says_pinned(api, live, tmp_path, monkeypatch):
-    launched = []
-    r, service = start(api, live, tmp_path, config={"pinned": True}, launched=launched)
-    monkeypatch.setattr("runner.release_update.current_release", lambda *a, **k: "0.2.5")
-    service.maintain()
-    ready(api, r, ["ops"])                            # the fake bot has no checkout here; say it is ready
-    with api.app.state.store.read() as c:
-        row = runner_versions.load(c)[r["runner_id"]]
-    assert row["update_state"] == "pinned" and runner_versions.view(row)["state"] == "needs_update"
-    service.tick()
-    assert launched == [] and len(service.active) == 1
-    service.pool.shutdown()
-
-
 def test_an_incompatible_runner_learns_why_it_gets_no_work(api, live, tmp_path, monkeypatch):
     said = []
     monkeypatch.setattr("runner.service.log", said.append)

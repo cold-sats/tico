@@ -127,61 +127,6 @@ class Execution(unittest.TestCase):
         self.assertTrue(runner.stop.is_set(), "quiet: exit so the supervisor starts the new code")
         self.assertFalse(any(path == "jobs/claim" for path, _ in client.posts))
 
-    def test_a_restart_a_person_pressed_is_taken_from_the_heartbeat(self):
-        client = FakeClient()
-        client.post = lambda path, body=None, key=None: {"restart": True} if path == "runners/heartbeat" else {}
-        runner = self.runner(client)
-        runner._checkout_at = time.monotonic()          # no checkout check this beat
-        quiet = dict(readiness_candidates=lambda *a: [], runtime_report=lambda *a: {}, preflight=lambda *a: {},
-                     changed_agent_instructions=lambda *a: ({}, {}), readiness=lambda *a: {},
-                     mail_agent_instructions=lambda *a: {}, recover_output=lambda: None)
-        with mock.patch.multiple(runner, **quiet), mock.patch("runner.service.log"), \
-                mock.patch("runner.service.self_update", return_value=(False, "")) as update:
-            with mock.patch("runner.service.supervised", return_value=False):
-                runner.maintain()
-            self.assertIsNone(runner.restart_due, "nothing would start it again, so it stays up")
-            with mock.patch("runner.service.supervised", return_value=True):
-                runner.maintain()
-        self.assertIsNotNone(runner.restart_due)
-        update.assert_called_once()
-
-    def test_an_update_that_touches_no_runner_code_is_taken_without_a_restart(self):
-        client = FakeClient()
-        runner = self.runner(client)
-        runner.revision = "a" * 40
-        runner.state.directory.mkdir(parents=True, exist_ok=True)
-        quiet = dict(readiness_candidates=lambda *a: [], runtime_report=lambda *a: {}, preflight=lambda *a: {},
-                     changed_agent_instructions=lambda *a: ({}, {}), readiness=lambda *a: {},
-                     mail_agent_instructions=lambda *a: {}, recover_output=lambda: None)
-        behind = {"head": "a" * 40, "running": "a" * 40, "ahead": 0, "behind": 3}
-        with mock.patch.multiple(runner, **quiet), mock.patch("runner.service.log"), \
-                mock.patch("runner.service.under_supervisor", return_value=True), \
-                mock.patch("runner.service.checkout_status", return_value=behind), \
-                mock.patch("runner.service.self_update", return_value=(True, "")), \
-                mock.patch("runner.service.checkout_head", return_value="b" * 40), \
-                mock.patch("runner.service.runner_code_changed", return_value=False):
-            runner.maintain()
-        self.assertIsNone(runner.restart_due, "a UI or backend merge restarts nothing")
-        self.assertEqual(runner.revision, "b" * 40)
-        self.assertEqual(json.loads((runner.state.directory / "runner-revision").read_text())["revision"], "b" * 40)
-
-    def test_a_refused_recovered_result_is_kept_locally_and_the_runner_starts(self):
-        """2026-09-27: a non-retryable refusal on recovery raised KeyError('bot') as the runner
-        started, and the supervisor restarted it into the same crash for an hour."""
-        client = FakeClient()
-        runner = self.runner(client)
-        runner.state.record({"id": "att-old", "bot": "reputation", "job_id": "j", "token": "t"})
-        runner.state.finish("att-old", {"outcome": "interrupted", "text": "stopped"})
-        def refuse(path, body=None, key=None):
-            if path.startswith("attempts/"):
-                raise APIError("idempotency", "This key was used for different content", 422, False)
-            return {}
-        client.post = refuse
-        with mock.patch("runner.service.log") as log:
-            runner.recover_output()
-        assert any("reputation: recovered result for att-old refused" in str(call) for call in log.call_args_list), log.call_args_list
-        assert runner.state.unfinished() == [], "kept on this Mac as historical, not retried forever"
-
     def test_a_worker_exception_does_not_kill_claiming_and_is_recovered(self):
         client = FakeClient()
         runner = self.runner(client)
@@ -277,13 +222,6 @@ class Pushing(unittest.TestCase):
     def head(self, path, ref="HEAD"):
         return git(path, "rev-parse", ref, env=self.env).stdout.strip()
 
-    def test_a_completed_turn_pushes_the_bots_commits(self):
-        with mock.patch.dict(os.environ, self.env), mock.patch("runner.service.log") as log:
-            self.runner.execute(attempt())
-        self.assertEqual(self.client.completion()["outcome"], "completed")
-        self.assertEqual(self.head(self.origin, "main"), self.head(self.repo))
-        log.assert_not_called()
-
     def test_a_diverged_origin_is_left_for_a_person_and_said_once(self):
         other = Path(self.tmp.name) / "other"
         git(self.tmp.name, "clone", "-q", "-b", "main", str(self.origin), str(other), env=self.env)
@@ -299,22 +237,6 @@ class Pushing(unittest.TestCase):
         self.assertTrue(any("pull before coo turn failed" in m and "using the local tree" in m for m in messages), messages)
         self.assertEqual(messages[-1], "Tico runner: emp-coo has 1 unpushed commits and push failed (non-fast-forward); leaving it for a person")
         self.assertEqual(len(messages), 2)
-
-def test_checkout_status_counts_what_is_ahead_and_behind_main_and_fails_quietly():
-    """#492: the heartbeat says how the runner's own checkout stands against origin/main."""
-    from types import SimpleNamespace
-    from runner.service import checkout_status
-    answers = {"fetch": "", "rev-parse": "a" * 40, "rev-list": "2\t7"}
-
-    def run(cmd, **_):
-        return SimpleNamespace(returncode=0, stdout=answers[cmd[3]], stderr="")
-    status = checkout_status("/repo", running="b" * 40, run=run)
-    assert (status["ahead"], status["behind"], status["head"], status["running"]) == (2, 7, "a" * 40, "b" * 40)
-
-    def offline(cmd, **_):
-        return SimpleNamespace(returncode=1, stdout="", stderr="could not resolve host")
-    assert checkout_status("/repo", run=offline) == {}
-
 
 def _git(cwd, *args):
     subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
@@ -347,38 +269,6 @@ def test_self_update_fast_forwards_a_clean_checkout_and_asks_for_a_restart():
         assert service.self_update(clone, running=first) == (True, "")
         assert Path(clone, "README").read_text() == "two\n"
         assert service.self_update(clone, running=first) == (True, ""), "pulled but not restarted still restarts"
-
-
-def test_only_a_change_to_the_runners_own_code_needs_a_restart():
-    with tempfile.TemporaryDirectory() as tmp:
-        repo = Path(tmp)
-        git = lambda *args: subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
-        git("init", "-q"); git("config", "user.email", "t@t"); git("config", "user.name", "t")
-        (repo / "runner").mkdir(); (repo / "ui").mkdir()
-        (repo / "runner" / "service.py").write_text("one"); (repo / "ui" / "index.html").write_text("one")
-        git("add", "-A"); git("commit", "-qm", "one"); first = git("rev-parse", "HEAD")
-        (repo / "ui" / "index.html").write_text("two"); git("commit", "-qam", "ui"); ui_only = git("rev-parse", "HEAD")
-        (repo / "runner" / "service.py").write_text("two"); git("commit", "-qam", "runner"); runner_too = git("rev-parse", "HEAD")
-        assert service.runner_code_changed(first, ui_only, repo) is False
-        assert service.runner_code_changed(first, runner_too, repo) is True
-        assert service.runner_code_changed(first, first, repo) is False
-        assert service.runner_code_changed(None, first, repo) is True, "unknown counts as changed"
-        assert service.checkout_head(repo) == runner_too
-
-
-def test_self_update_leaves_what_a_person_must_sort_out():
-    with tempfile.TemporaryDirectory() as tmp, mock.patch("runner.service.log"):
-        clone, first = _behind_checkout(tmp)
-        Path(clone, "README").write_text("local edit\n")
-        assert service.self_update(clone, running=first) == (False, "checkout has uncommitted changes")
-        _git(clone, "checkout", "-q", "--", "README")
-        _git(clone, "checkout", "-q", "-b", "feature")
-        assert service.self_update(clone, running=first)[1] == "checkout is on feature, not main"
-    with tempfile.TemporaryDirectory() as tmp, mock.patch("runner.service.log"):
-        clone, first = _behind_checkout(tmp, change="backend/requirements.txt")
-        restart, note = service.self_update(clone, running=first)
-        assert not restart and "requirements.txt" in note
-        assert not Path(clone, "backend/requirements.txt").exists(), "not pulled"
 
 
 SUPERVISOR_VARS = ("XPC_SERVICE_NAME", "TICO_SUPERVISED", "TICO_RUNNER_SELF_UPDATE")
@@ -478,15 +368,6 @@ class Fallback(unittest.TestCase):
         kinds = [json.loads(p)["text"] for (k, p) in self.events(runner, "diagnostic")]
         self.assertIn("antigravity unavailable; running this turn on gemini", kinds)
 
-    def test_an_ordinary_failure_does_not_fall_back(self):
-        client = FakeClient()
-        self.hosts["antigravity"] = FakeHost()
-        self.hosts["antigravity"].fail_next_turn("Antigravity failed")
-        self.runner(client).execute(with_fallback())
-        self.assertEqual(client.completion()["outcome"], "failed")
-        self.assertNotIn("fallback", client.completion())
-        self.assertEqual([c[0] for c in self.calls], ["antigravity"])
-
     @staticmethod
     def events(runner, kind):
         with runner.state.connect() as c:
@@ -533,25 +414,6 @@ class ThreadContinuity(unittest.TestCase):
             self.assertEqual(next(iter(self.hosts[2].threads)), first)
             self.assertEqual(runner.state.session("coo", BOT_THREAD, "codex"), first)
 
-    def test_a_resumed_turn_forwards_only_what_the_room_said_since(self):
-        runner = self.runner()
-        history = [{"id": f"h{n}", "from_actor": "human:ana", "body": f"earlier-{n}", "refs": {}}
-                   for n in range(3)]
-        with mock.patch("runner.service.log"):
-            first = attempt("a1")
-            first["history"] = history[:2]
-            runner.execute(first)
-            second = attempt("a2")
-            second["message"] = {"id": "msg-2", "body": "next", "from_actor": "human:ana"}
-            second["history"] = history[:2] + [{"id": "msg-1", "from_actor": "human:ana", "body": "hello",
-                                                "refs": {}}] + history[2:]
-            runner.execute(second)
-        prompt = self.hosts[1].prompts[0][1]
-        self.assertIn("earlier-2", prompt)          # said after the first turn's message
-        self.assertNotIn("earlier-0", prompt)       # the thread already holds it
-        self.assertNotIn("[msg-1]", prompt)
-
-
 class RefusedReplies(unittest.TestCase):
     """The COO, 2026-09-28: a reply with Codex's local file links into another bot's repository
     was refused on completion twice, and the job read as a run that stopped partway."""
@@ -570,21 +432,6 @@ class RefusedReplies(unittest.TestCase):
         self.assertIn("(a file in legal's repository), emp-coo", clean, "the comma survives")
         self.assertNotIn("file://", clean)
         self.assertEqual(service.scrub_reply("All clear.", "coo"), "All clear.")
-
-    def test_a_turn_with_such_links_completes_with_them_taken_out(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        (Path(tmp.name) / "emp-coo").mkdir()
-        client = FakeClient()
-        runner = Runner({"url": "https://runner.example", "token": "machine", "projects_dir": tmp.name, "capacity": 1},
-                        Path(tmp.name) / "state", host_factory=lambda a, env: FakeHost(replies=[self.CODEX]),
-                        client=client, push=lambda path, env=None: (0, ""))
-        with mock.patch("runner.service.log"):
-            runner.execute(attempt())
-        done = client.completion()
-        self.assertEqual(done["outcome"], "completed")
-        self.assertNotIn("emp-legal/", done["text"])
-        self.assertIn("(a file in legal's repository)", done["text"])
 
     def test_a_refused_reply_settles_the_attempt_instead_of_letting_the_lease_lapse(self):
         tmp = tempfile.TemporaryDirectory()

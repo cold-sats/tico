@@ -126,7 +126,7 @@ def fake_runner(base, admin):
         call("attempts/%s/started" % aid, {"thread_id": "t"}, token)
         words = REPLY.split(" ")
         for seq, word in enumerate(words, 1):
-            time.sleep(0.4)
+            time.sleep(0.1)
             call("attempts/%s/events" % aid, {"events": [{"seq": seq, "kind": "delta", "payload": {"text": word + " "}}]}, token)
         call("attempts/%s/complete" % aid, {"outcome": "completed", "text": REPLY, "last_seq": len(words)}, token)
 

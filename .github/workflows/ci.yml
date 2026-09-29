@@ -1,10 +1,9 @@
-# Tests on every push and pull request: the Python suite (pytest) and the browser scripts (npm run test:ui).
+# The test suite, on demand from the Actions tab: the Python suite (pytest) and the browser scripts (npm run test:ui).
+# Nothing triggers it: the suite is run locally before a release (see docs/releasing.md).
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

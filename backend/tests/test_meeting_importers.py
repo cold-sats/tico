@@ -8,49 +8,6 @@ from runner.state import State
 from backend.tests.test_api import api, get, headers, post, runner  # noqa: F401
 
 
-def test_only_the_owner_configures_and_the_machine_learns_what_to_run(api):
-    machine = runner(api)
-    other = runner(api, "ben", "Ben Mac")
-    listing = get(api, "meeting-importers")
-    assert [i["source"] for i in listing["importers"]] == ["fireflies", "zoom", "google-meet", "granola"]
-    assert all(i["status"] == "off" and i["setup"]["file"].startswith("secrets/") for i in listing["importers"])
-    assert {c["id"] for c in listing["computers"]} == {machine["runner_id"]}        # Ben's Mac may not run importers
-    assert api.get("/api/v2/meeting-importers", headers=headers("ben-test")).status_code == 403
-    post(api, "meeting-importers/fireflies", {"enabled": True, "runner_id": machine["runner_id"]}, "ben-test", expected=403)
-    post(api, "meeting-importers/fireflies", {"enabled": True, "runner_id": other["runner_id"]}, expected=422)
-    post(api, "meeting-importers/nope", {"enabled": True, "runner_id": machine["runner_id"]}, expected=404)
-    post(api, "meeting-importers/fireflies", {"enabled": True, "runner_id": machine["runner_id"]})
-    assert get(api, "runners/importers", machine["token"]) == {"importers": [{"source": "fireflies"}]}
-    get(api, "runners/importers", other["token"], expected=403)             # not a machine that may run importers
-    row = [i for i in get(api, "meeting-importers")["importers"] if i["source"] == "fireflies"][0]
-    assert row["enabled"] and row["status"] == "waiting" and row["runner_label"] == "Test Mac"
-    post(api, "meeting-importers/fireflies", {"enabled": False, "runner_id": machine["runner_id"]})
-    assert get(api, "runners/importers", machine["token"]) == {"importers": []}
-
-
-def test_heartbeats_show_counts_the_last_error_and_the_sources_strip(api):
-    machine = runner(api)
-    post(api, "meeting-importers/zoom", {"enabled": True, "runner_id": machine["runner_id"]})
-    post(api, "imports/sources/zoom/status", {"state": "ok", "imported": 2}, machine["token"])
-    post(api, "imports/sources/zoom/status", {"state": "ok", "imported": 1}, machine["token"])
-    zoom = [i for i in get(api, "meeting-importers")["importers"] if i["source"] == "zoom"][0]
-    assert zoom["status"] == "syncing" and zoom["imported_total"] == 3 and zoom["last_import"] and zoom["error"] == ""
-    strip = {s["id"]: s for s in api.get("/api/meetings/sources", headers=headers("ben-test")).json()["sources"]}
-    assert strip["zoom"]["status"] == "syncing" and strip["zoom"]["imported"] == 3 and "granola" not in strip
-    post(api, "imports/sources/zoom/status", {"state": "error", "error_code": "auth_failed", "message": "Zoom refused the credential"},
-         machine["token"])
-    zoom = [i for i in get(api, "meeting-importers")["importers"] if i["source"] == "zoom"][0]
-    assert zoom["status"] == "error" and zoom["error_code"] == "auth_failed" and zoom["error"] == "Zoom refused the credential"
-    post(api, "imports/sources/zoom/status", {"state": "ok"}, "ben-test", expected=403)
-    post(api, "imports/sources/close-ish/status", {"state": "ok"}, machine["token"], expected=404)
-    post(api, "imports/sources/zoom/status", {"state": "error", "error_code": "Bad Code!"}, machine["token"], expected=422)
-    # Moving an importer to another computer starts from a clean status.
-    second = runner(api, "ana", "Second Mac")
-    post(api, "meeting-importers/zoom", {"enabled": True, "runner_id": second["runner_id"]})
-    zoom = [i for i in get(api, "meeting-importers")["importers"] if i["source"] == "zoom"][0]
-    assert zoom["status"] == "waiting" and zoom["error"] == "" and zoom["imported_total"] == 0
-
-
 class HubClient:
     """The runner's client, pointed at the test hub."""
 

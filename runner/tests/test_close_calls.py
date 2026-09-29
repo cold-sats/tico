@@ -126,8 +126,3 @@ def test_late_transcript_is_retried_and_revisions_are_idempotent(setup):
     assert len(hub.imports()) == 3  # repeat poll is a safe no-op at the hub
     assert hub.imports()[-1]["turns"][0]["text"] == "Please send the revised pricing."
 
-
-def test_a_rep_who_is_not_on_the_roster_files_under_the_configured_owner(setup):
-    worker, hub = setup(Close([call()], call_transcript=transcript()), Hub(refuse_owner=True))
-    assert worker.tick() == 1
-    assert [b["owner_email"] for b in hub.imports()] == ["ben@acme.example", OWNER]

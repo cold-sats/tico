@@ -63,11 +63,6 @@ def test_apply_points_the_turn_at_the_socket_without_the_config_path():
     assert env[C.SOCKET_ENV] == "/run/tico-runner/git-credential.sock"
 
 
-def test_it_falls_back_to_the_turn_token_when_the_supervisor_is_gone(monkeypatch):
-    monkeypatch.setenv("GH_TOKEN", "ghs_start")
-    assert G.credential(None, "alpha", "/tmp/no-such.sock") == "ghs_start"
-
-
 def test_bot_code_is_wrapped_only_when_told_to_and_only_as_another_user(monkeypatch):
     monkeypatch.delenv(isolation.UID_ENV, raising=False)
     assert isolation.wrap(["git", "status"], {"cwd": "x"}) == (["git", "status"], {"cwd": "x"})

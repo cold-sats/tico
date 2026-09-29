@@ -18,8 +18,8 @@ function start(cmd,args,ready){
   let err='';child.stderr.on('data',d=>{err+=d;});
   return new Promise((resolve,reject)=>{
     child.on('exit',code=>reject(new Error(`${cmd} ${args.join(' ')} exited ${code}: ${err.slice(-1500)}`)));
-    readline.createInterface({input:child.stdout}).on('line',line=>{const v=ready(line);if(v)resolve({child,value:v});});
-    setTimeout(()=>reject(new Error('server did not start: '+err.slice(-1500))),60000);
+    const timer=setTimeout(()=>reject(new Error('server did not start: '+err.slice(-1500))),60000);
+    readline.createInterface({input:child.stdout}).on('line',line=>{const v=ready(line);if(v){clearTimeout(timer);resolve({child,value:v});}});
   });
 }
 
@@ -70,6 +70,7 @@ async function python(){
       assert.equal(await page.textContent('#who'),'ana@acme.example');
 
       // Org chart: people and bots, nested by who reports to whom.
+      await page.waitForSelector('#org li');
       const org=await page.textContent('#org');
       for(const name of ['Ana Rivera','Ben Okafor','Chief of Staff','Ops'])assert.match(org,new RegExp(name),name+' is on the chart');
       const parentOf=name=>page.evaluate(n=>{const li=[...document.querySelectorAll('#org li')].find(l=>l.firstChild.textContent===n);const up=li&&li.parentElement.closest('li');return up?up.firstChild.textContent:null;},name);

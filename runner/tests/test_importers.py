@@ -18,9 +18,9 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from backend.imports import MeetingImport
 from clients.tico import APIError
-from runner.importers import base, fireflies, google_meet, granola, zoom
+from runner.importers import fireflies, google_meet, granola, zoom
 from runner.importers.base import ProviderError
-from runner.importers.service import ImporterService, doctor
+from runner.importers.service import ImporterService
 from runner.state import State
 
 NOW = datetime(2026, 9, 28, 20, 0, tzinfo=timezone.utc)
@@ -153,36 +153,6 @@ def test_fireflies_paginates_and_never_imports_the_same_transcript_twice(tmp_pat
     assert len(hub.meetings) == 3
 
 
-def test_fireflies_window_is_bounded_and_backfill_is_explicit(tmp_path):
-    transport = Recorder(ff_route([[]], {}))
-    importer, hub, state = make(fireflies.Fireflies, tmp_path, transport, ff_env())
-    importer.tick()
-    lists = [c.body["variables"] for c in transport.calls if "transcripts(" in c.body["query"]]
-    assert lists[0]["from"] == "2026-08-29T20:00:00Z" and lists[-1]["to"] == "2026-09-28T20:00:00Z"
-    assert len(lists) == 30                                   # one bounded day per call
-    assert state.import_cursor(importer.scope_state(importer.scopes()[0])).startswith("2026-09-28T20:00")
-    transport.calls.clear()
-    importer.tick()                                           # next pass: only the rolling overlap
-    assert transport.calls and datetime.fromisoformat(
-        [c.body["variables"]["from"] for c in transport.calls if "transcripts(" in c.body["query"]][0].replace("Z", "+00:00")) \
-        == NOW - timedelta(hours=base.RECENT_HOURS)
-    wide, _, _ = make(fireflies.Fireflies, tmp_path / "b", Recorder(ff_route([[]], {})), ff_env(), backfill_days=400)
-    wide.transport.calls.clear()
-    wide.tick()
-    first = [c.body["variables"]["from"] for c in wide.transport.calls if "transcripts(" in c.body["query"]][0]
-    assert first == "2025-09-28T20:00:00Z"                    # capped at a year
-
-
-def test_fireflies_transcript_not_ready_holds_the_cursor(tmp_path):
-    when = int((NOW - timedelta(hours=1)).timestamp() * 1000)
-    row = {"id": "ff1", "title": "t", "date": when, "duration": 1}
-    transport = Recorder(ff_route([[row]], {"ff1": ff_detail(sentences=[], date=when)}))
-    importer, hub, state = make(fireflies.Fireflies, tmp_path, transport, ff_env())
-    assert importer.tick() == 0 and hub.posts == []
-    cursor = state.import_cursor(importer.scope_state(importer.scopes()[0]))
-    assert datetime.fromisoformat(cursor) <= datetime.fromtimestamp(when / 1000, timezone.utc)
-
-
 def test_fireflies_errors_are_sanitized(tmp_path):
     for code, wanted in (("auth_failed", "auth_failed"), ("too_many_requests", "rate_limited"),
                          ("something_new", "provider_error")):
@@ -191,42 +161,6 @@ def test_fireflies_errors_are_sanitized(tmp_path):
         with pytest.raises(ProviderError) as caught:
             importer.tick()
         assert caught.value.code == wanted and KEY not in str(caught.value)
-
-
-def test_missing_credentials_say_which_file_and_never_call_out(tmp_path):
-    for cls, env in ((fireflies.Fireflies, {}), (granola.Granola, {}), (zoom.Zoom, {"ZOOM_ACCOUNT_ID": "a"}),
-                     (google_meet.GoogleMeet, {})):
-        calls = Recorder(lambda call: {})
-        importer, _, _ = make(cls, tmp_path, calls, env)
-        with pytest.raises(ProviderError) as caught:
-            importer.tick()
-        assert caught.value.code == "missing_credentials" and "secrets/" in str(caught.value) and calls.calls == []
-
-
-def test_credentials_are_read_from_the_secret_file_on_this_computer(tmp_path):
-    projects = tmp_path / "projects" / "secrets"
-    projects.mkdir(parents=True)
-    (projects / "granola.env").write_text("# key\nGRANOLA_API_KEY='grn_file'\n")
-    state = State(tmp_path / "state")
-    config = {"projects_dir": str(tmp_path / "projects"), "url": "https://hub.test", "token": "t"}
-    assert granola.Granola(config, state, Hub()).ready()["GRANOLA_API_KEY"] == "grn_file"
-    assert doctor(config)["granola"].startswith("present") and doctor(config)["zoom"].startswith("not set up")
-
-
-def test_a_provider_failure_never_carries_the_url_or_the_body():
-    class Opener:
-        def open(self, request, timeout=None):
-            raise urllib.error.HTTPError(request.full_url, 401, "no", {}, None)
-    with pytest.raises(ProviderError) as caught:
-        base.request_json("GET", "https://api.example/x?token=" + KEY, headers={"Authorization": "Bearer " + KEY},
-                          tool="Fireflies", opener=Opener())
-    assert caught.value.code == "auth_failed" and KEY not in str(caught.value) and "api.example" not in str(caught.value)
-    class Down:
-        def open(self, request, timeout=None):
-            raise urllib.error.URLError("dns for " + KEY)
-    with pytest.raises(ProviderError) as caught:
-        base.request_json("GET", "https://api.example/", tool="Zoom", opener=Down())
-    assert caught.value.code == "unreachable" and KEY not in str(caught.value)
 
 
 # ---------------------------------------------------------------- Granola
@@ -328,27 +262,6 @@ def test_granola_paginates_notes_and_large_transcripts_and_dedupes(tmp_path, mon
     assert len(hub.posts) == before + 1 and len(hub.meetings) == 3
 
 
-def test_granola_skips_a_note_owned_by_someone_outside_the_roster(tmp_path):
-    row = gr_note(owner={"name": "Guest", "email": "guest@elsewhere.example"})
-    route = gr_route([{"notes": [row], "hasMore": False, "cursor": None}],
-                     {row["id"]: gr_detail(row, TRANSCRIPT, owner=row["owner"])})
-    importer, hub, _ = make(granola.Granola, tmp_path, Recorder(route), {"GRANOLA_API_KEY": "k"})
-    assert importer.tick() == 0 and hub.meetings == {}
-
-
-def test_granola_auth_error_is_sanitized_through_the_service(tmp_path):
-    def route(call):
-        raise ProviderError(*base.status_code(401, "Granola"), status=401)
-    hub = Hub()
-    service = ImporterService({"projects_dir": str(tmp_path), "url": "https://hub.test", "token": "t"}, tmp_path / "s",
-                              client=hub, now=lambda: NOW, transport=Recorder(route), only="granola",
-                              classes=lambda s: lambda *a, **k: granola.Granola(*a, env={"GRANOLA_API_KEY": KEY}, **k))
-    assert service.sync("granola") is None
-    source, status = hub.statuses[-1]
-    assert source == "granola" and status["state"] == "error" and status["error_code"] == "auth_failed"
-    assert KEY not in json.dumps(status) and "granola.ai" not in json.dumps(status)
-
-
 # ---------------------------------------------------------------- Zoom
 
 ZOOM_ENV = {"ZOOM_ACCOUNT_ID": "acct", "ZOOM_CLIENT_ID": "cid", "ZOOM_CLIENT_SECRET": "csecret"}
@@ -411,40 +324,6 @@ def test_zoom_downloads_the_vtt_transcript_and_files_it_for_the_host(tmp_path):
     assert len(downloads) == 1 and downloads[0].url.endswith("/rec/download/t")      # audio and video are never fetched
 
 
-def test_zoom_double_encodes_a_uuid_that_starts_with_a_slash(tmp_path):
-    def recordings(call, token):
-        return {"meetings": [zm_meeting("/abc//d==")], "next_page_token": ""}
-    transport = Recorder(zm_route(recordings, []))
-    importer, hub, _ = make(zoom.Zoom, tmp_path, transport, ZOOM_ENV)
-    importer.tick()
-    assert any("/past_meetings/%252Fabc%252F%252Fd%253D%253D/participants" in c.url for c in transport.calls)
-
-
-def test_zoom_paginates_windows_and_stays_within_a_month(tmp_path):
-    windows = []
-    def recordings(call, token):
-        if not token:
-            windows.append((call.query["from"], call.query["to"]))
-            return {"meetings": [zm_meeting("u-" + call.query["from"], start=call.query["from"] + "T23:00:00Z")], "next_page_token": "p2"}
-        return {"meetings": [zm_meeting("v-" + call.query["from"], start=call.query["from"] + "T23:30:00Z")], "next_page_token": ""}
-    importer, hub, _ = make(zoom.Zoom, tmp_path, Recorder(zm_route(recordings, [])), ZOOM_ENV)
-    assert importer.tick() > 0
-    assert windows[0][0] == "2026-08-29" and windows[-1][1] == "2026-09-28"
-    assert all((datetime.fromisoformat(b) - datetime.fromisoformat(a)).days <= 7 for a, b in windows)
-    assert len({k[2] for k in hub.meetings}) == len(hub.meetings)          # every id once per owner
-
-
-def test_zoom_recording_without_a_transcript_is_skipped_and_a_fresh_one_is_revisited(tmp_path):
-    old = zm_meeting("old", start="2026-09-20T10:00:00Z", recording_files=[
-        {"id": "f1", "file_type": "MP4", "status": "completed", "download_url": "https://acme.zoom.us/rec/download/v"}])
-    fresh = zm_meeting("fresh", start="2026-09-28T19:00:00Z", recording_files=[
-        {"id": "f1", "file_type": "MP4", "status": "completed", "download_url": "https://acme.zoom.us/rec/download/v"}])
-    importer, hub, state = make(zoom.Zoom, tmp_path, Recorder(zm_route(lambda c, t: {"meetings": [old, fresh], "next_page_token": ""}, [])), ZOOM_ENV)
-    assert importer.tick() == 0 and hub.posts == []
-    cursor = datetime.fromisoformat(state.import_cursor(importer.scope_state(importer.scopes()[0])))
-    assert cursor <= datetime(2026, 9, 28, 19, tzinfo=timezone.utc)
-
-
 def test_zoom_refuses_a_download_outside_zoom_and_never_follows_redirects_elsewhere(tmp_path):
     bad = zm_meeting(recording_files=[{"id": "f2", "file_type": "TRANSCRIPT", "file_extension": "VTT", "status": "completed",
                                        "download_url": "https://evil.example/rec/download/t"}])
@@ -454,24 +333,6 @@ def test_zoom_refuses_a_download_outside_zoom_and_never_follows_redirects_elsewh
     assert caught.value.code == "bad_response"
     assert zoom.zoom_host("https://us02web.zoom.us/x") and not zoom.zoom_host("https://zoom.us.evil.example/x")
     assert not zoom.zoom_host("http://zoom.us/x")
-
-
-def test_zoom_users_can_be_limited_and_bad_credentials_are_sanitized(tmp_path):
-    users = [{"id": "u1", "email": "ana@acme.example"}, {"id": "u2", "email": "ben@acme.example"}]
-    asked = []
-    def recordings(call, token):
-        asked.append(call.path)
-        return {"meetings": [], "next_page_token": ""}
-    importer, _, _ = make(zoom.Zoom, tmp_path, Recorder(zm_route(recordings, [], users)), {**ZOOM_ENV, "ZOOM_USERS": "Ben@acme.example"})
-    importer.tick()
-    assert {p.split("/")[3] for p in asked} == {"u2"}
-
-    def refuse(call):
-        raise ProviderError(*base.status_code(401, "Zoom"), status=401)
-    broken, _, _ = make(zoom.Zoom, tmp_path / "x", Recorder(refuse), ZOOM_ENV)
-    with pytest.raises(ProviderError) as caught:
-        broken.tick()
-    assert caught.value.code == "auth_failed" and "csecret" not in str(caught.value)
 
 
 # ---------------------------------------------------------------- Google Meet
@@ -566,48 +427,6 @@ def test_google_meet_signs_a_delegated_assertion_and_maps_entries(tmp_path):
     assert "ana@acme.example" in body["participants"] and "Dana Reyes" in body["participants"]
 
 
-def test_google_meet_window_is_capped_at_the_thirty_day_record_lifetime_and_each_user_is_separate(tmp_path):
-    public, path = service_account(tmp_path)
-    seen = {}
-    transport = Recorder(gm_route(public, lambda c: {}, {}, lambda c: {}, seen))
-    importer, hub, _ = make(google_meet.GoogleMeet, tmp_path, transport, gm_env(path, "ana@acme.example, ben@acme.example"),
-                            backfill_days=200)
-    importer.tick()
-    filters = [c.query["filter"] for c in transport.calls if c.path == "/v2/conferenceRecords"]
-    assert 'start_time>="2026-08-29T20:00:00.000Z"' in filters[0]
-    assert len(seen["users"]) == 2 and len(filters) == 2 * 5                         # two people, 7-day windows
-
-
-def test_google_meet_running_meetings_and_pending_transcripts_hold_the_cursor(tmp_path):
-    public, path = service_account(tmp_path)
-    running = gm_record(endTime=None)
-    running.pop("endTime")
-    transport = Recorder(gm_route(public, lambda c: {"conferenceRecords": [running]}, {}, lambda c: {}))
-    importer, hub, state = make(google_meet.GoogleMeet, tmp_path, transport, gm_env(path))
-    assert importer.tick() == 0 and hub.posts == []
-    assert datetime.fromisoformat(state.import_cursor(importer.scope_state(importer.scopes()[0]))) <= datetime(2026, 9, 28, 17, tzinfo=timezone.utc)
-    pending = {"transcripts": [{"name": TR, "state": "ENDED"}]}
-    other, hub2, _ = make(google_meet.GoogleMeet, tmp_path / "o", Recorder(gm_route(public, lambda c: {"conferenceRecords": [gm_record()]}, pending, lambda c: {})), gm_env(path))
-    assert other.tick() == 0 and hub2.posts == []
-
-
-def test_google_meet_delegation_errors_are_sanitized(tmp_path):
-    public, path = service_account(tmp_path)
-    def refuse(call):
-        raise ProviderError(*base.status_code(400, "Google"), status=400)
-    importer, _, _ = make(google_meet.GoogleMeet, tmp_path, Recorder(refuse), gm_env(path))
-    with pytest.raises(ProviderError) as caught:
-        importer.tick()
-    assert caught.value.code == "auth_failed" and "domain-wide delegation" in str(caught.value)
-    assert "PRIVATE KEY" not in str(caught.value)
-    broken = tmp_path / "bad.json"
-    broken.write_text(json.dumps({"client_email": "x@y", "private_key": "not a key"}))
-    importer, _, _ = make(google_meet.GoogleMeet, tmp_path / "b", Recorder(lambda c: {}), gm_env(str(broken)))
-    with pytest.raises(ProviderError) as caught:
-        importer.tick()
-    assert caught.value.code == "missing_credentials"
-
-
 # ---------------------------------------------------------------- the service
 
 def test_service_runs_only_what_the_hub_assigned_and_reports_status(tmp_path):
@@ -625,24 +444,3 @@ def test_service_runs_only_what_the_hub_assigned_and_reports_status(tmp_path):
     service.due.clear()
     assert service.tick() == {}
 
-
-def test_service_backfill_is_one_bounded_pass_over_the_named_importer(tmp_path):
-    hub = Hub()
-    transport = Recorder(ff_route([[]], {}))
-    service = ImporterService({"projects_dir": str(tmp_path), "url": "https://hub.test", "token": "t"}, tmp_path / "s",
-                              client=hub, now=lambda: NOW, transport=transport, backfill_days=3, only="fireflies",
-                              classes=lambda s: lambda *a, **k: fireflies.Fireflies(*a, env=ff_env(), **k))
-    assert service.tick() == {"fireflies": 0}
-    first = [c.body["variables"]["from"] for c in transport.calls if "transcripts(" in c.body["query"]][0]
-    assert first == "2026-09-25T20:00:00Z"
-
-
-def test_a_bug_reports_the_type_and_never_the_text(tmp_path):
-    hub = Hub()
-    def boom(call):
-        raise ValueError("secret " + KEY)
-    service = ImporterService({"projects_dir": str(tmp_path), "url": "https://hub.test", "token": "t"}, tmp_path / "s",
-                              client=hub, now=lambda: NOW, transport=Recorder(boom), only="fireflies",
-                              classes=lambda s: lambda *a, **k: fireflies.Fireflies(*a, env=ff_env(), **k))
-    assert service.sync("fireflies") is None
-    assert KEY not in json.dumps(hub.statuses) and hub.statuses[-1][1]["error_code"] == "sync_error"

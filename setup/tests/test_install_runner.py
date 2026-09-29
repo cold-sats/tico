@@ -71,21 +71,6 @@ def test_runner_mode_writes_the_compose_file_and_a_pinned_env_and_starts_it(box)
     assert "docker run" not in calls
 
 
-def test_the_label_defaults_to_the_host_name_and_bad_input_is_refused_before_anything_is_written(box):
-    ok = install(box, "--runner", "--url", "https://tico.example.com", "--code", "abc")
-    assert ok.returncode == 0, ok.stderr
-    assert 'TICO_RUNNER_LABEL="build-host"' in (box["dir"] / ".env").read_text()
-    for args in (("--runner", "--url", "https://x.example.com"),                      # no code
-                 ("--runner", "--url", "https://x.example.com/path", "--code", "abc"),  # a path
-                 ("--runner", "--url", "https://x.example.com", "--code", "a b"),
-                 ("--runner", "--url", "https://x.example.com", "--code", "abc", "--label", 'a"b')):
-        clean = box["tmp"] / "clean"
-        shutil.rmtree(clean, ignore_errors=True)
-        result = subprocess.run(["sh", str(box["rel"] / "download/v0.2.0/install.sh"), "--dir", str(clean), *args],
-                                capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
-        assert result.returncode == 2 and not clean.exists(), (args, result.stderr)
-
-
 def test_running_it_again_keeps_the_env_and_a_bare_docker_run_switches_over_with_its_volume(box):
     assert install(box, *JOIN).returncode == 0
     (box["dir"] / ".env").write_text((box["dir"] / ".env").read_text() + "TICO_RUNNER_PINNED=1\n")
@@ -101,8 +86,3 @@ def test_running_it_again_keeps_the_env_and_a_bare_docker_run_switches_over_with
     assert "docker rm -f tico-runner" in calls
     assert calls.index("docker rm -f tico-runner") < calls.index("up -d")
 
-
-def test_the_compose_file_can_use_the_volume_a_bare_run_made():
-    compose = (ROOT / "docker" / "runner.compose.yaml").read_text()
-    assert "name: ${TICO_RUNNER_HOME_VOLUME:-tico-runner_runner-home}" in compose
-    assert "container_name: tico-runner" in compose

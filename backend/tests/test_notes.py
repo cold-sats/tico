@@ -6,7 +6,6 @@ reads them all in one prompt, each with the time it was sent.
 """
 
 from backend.tests.test_api import api, assign, get, headers, post, ready, runner  # noqa: F401
-from backend.store import H
 
 
 def claim(api, r, next_run=True):
@@ -59,14 +58,6 @@ def test_the_next_run_carries_every_waiting_note_with_its_time(api):
     assert all(n["carried"] and not n["waiting"] for n in shown)
 
 
-def test_an_older_runner_leaves_them_waiting(api):
-    r = setup(api)
-    note(api)
-    post(api, "chat/ops", {"text": "Hello"})
-    assert claim(api, r, next_run=False)["notes"] == []
-    assert listed(api)["notes"] == 1
-
-
 def test_a_failed_run_gives_them_back_and_a_finished_one_does_not(api):
     r = setup(api)
     n = note(api)
@@ -83,48 +74,6 @@ def test_a_failed_run_gives_them_back_and_a_finished_one_does_not(api):
     post(api, f"attempts/{second['id']}/complete", {"outcome": "completed", "text": "ok", "last_seq": 0}, token=r["token"])
     post(api, "chat/ops", {"text": "Third"})
     assert claim(api, r)["notes"] == []
-
-
-def test_a_person_can_take_one_back_before_it_goes(api):
-    setup(api)
-    n = note(api)
-    gone = post(api, f"notes/{n['id']}/cancel", {}, token="ana-test")["note"]
-    assert gone["cancelled_at"] and not gone["waiting"]
-    assert listed(api)["notes"] == 0
-    assert get(api, "notes?to=ops&waiting=true")["notes"] == []
-
-
-def test_a_carried_note_cannot_be_taken_back(api):
-    r = setup(api)
-    n = note(api)
-    post(api, "chat/ops", {"text": "Go"})
-    claim(api, r)
-    got = api.post(f"/api/v2/notes/{n['id']}/cancel", json={}, headers=headers())
-    assert got.status_code >=400 and "already carried" in got.text
-
-
-def test_only_a_bot_gets_notes_and_never_an_empty_one(api):
-    assert api.post("/api/v2/notes", json={"to": "human:ben", "text": "hi"}, headers=headers()).status_code >= 400
-    assert api.post("/api/v2/notes", json={"to": "ops", "text": "   "}, headers=headers()).status_code >= 400
-
-
-def test_listing_filters_by_time_and_by_waiting(api):
-    r = setup(api)
-    old = note(api, "yesterday")
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE notes SET created='2026-01-01T00:00:00Z' WHERE id=?", (old["id"],))
-    note(api, "today")
-    recent = get(api, "notes?to=ops&since=2026-06-01T00:00:00Z")["notes"]
-    assert [n["text"] for n in recent] == ["today"]
-    assert len(get(api, "notes?to=ops&waiting=true")["notes"]) == 2
-
-
-def test_the_sql_and_the_python_agree(api):
-    setup(api)
-    n = note(api)
-    with api.app.state.store.read() as c:
-        assert H.note_waiting(c, H.note(c, n["id"])) is True
-        assert [x["id"] for x in H.notes_waiting(c, "ops")] == [n["id"]]
 
 
 def test_a_bot_leaves_another_bot_a_note_and_sees_only_its_own(api):

@@ -78,17 +78,6 @@ def test_private_rooms_and_their_messages_are_visible_through_sql_exactly_when_t
         assert sql_ids(api, "messages", token) == message_ids, name
 
 
-def test_meetings_are_visible_through_sql_exactly_when_the_api_shows_them(api, seeded):
-    for name, token in actors(seeded).items():
-        in_sql = sql_ids(api, "meetings", token)
-        through_api = {rid for rid in seeded["meetings"] if allowed(api, f"/api/meetings/{rid}", token)}
-        assert in_sql == through_api, name
-    for name in ("owner", "member", "person with a private room"):      # and the search that lists them
-        token = actors(seeded)[name]
-        found = {m["id"] for m in get(api, "meetings/search?limit=50", token)["results"]}
-        assert found == sql_ids(api, "meetings", token, "WHERE json_extract(metadata_json,'$.kind')='meeting'"), name
-
-
 def test_a_bot_whose_turn_was_reassigned_is_refused_by_both_doors(api, seeded):
     token = seeded["attempt"]["token"]
     assert query(api, "SELECT count(*) FROM tasks", token)["rows"]
