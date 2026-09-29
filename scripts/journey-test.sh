@@ -13,9 +13,15 @@
 #   3 bot turn    one BotOps turn answered by a fake `codex` (scripts/journey-fake-codex.py), through the real runner
 #   4 restart     the server restarts; data, environment id and the runner survive
 #   5 upgrade     "Update now" (POST /api/v2/system/update) moves the server to the candidate
-#   6 rollback    the updater follows (docker compose up -d), then an update to an image that migrates the database and
-#                 never turns healthy is rolled back, and the pre-update snapshot brings the database back
-#   7 backup      docker/backup-test.sh on the candidate: MinIO and a file replica, wipe the volume, restore
+#   6 rollback    the updater follows (docker compose up -d), then an update to an image that migrates the database (with
+#                 the real entrypoint's Litestream replicating it) and never turns healthy is rolled back, and the
+#                 pre-update snapshot brings the database back
+#   7 replica     after that rollback the data volume is wiped and the server restores from its Litestream replica: the
+#                 database opens, the pre-migration rows are there and the migration is not
+#   8 runner      the runner is started as docker/runner.compose.yaml does (root, five capabilities, no-new-privileges),
+#                 takes a turn (which hands its secrets folder to the bot user), is restarted with `docker restart`
+#                 and must answer a second turn (v0.2.6 and v0.2.7 crash-looped on exactly that restart)
+#   9 backup      docker/backup-test.sh on the candidate: MinIO and a file replica, wipe the volume, restore
 #
 # scripts/install.sh is Linux-and-root only (it installs Docker and writes /opt/tico), so this does what it does
 # after the preflight, the same way: download the bundle and SHA256SUMS, check the checksum, unpack, write .env. The
@@ -30,12 +36,12 @@ while [ $# -gt 0 ]; do
     --tag) CAND="$2"; LOCAL=0; shift 2 ;;
     --previous) PREV="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
-    -h|--help) sed -n 2,26p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n 2,32p "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
 done
 [ "$LOCAL" = 1 ] && CAND=v9.9.9
-BROKEN=v9.9.8
+BROKEN=v9.9.10   # newer than the candidate: the updater refuses a downgrade
 RELEASES="${TICO_JOURNEY_RELEASES_URL:-https://github.com/ticoteam/tico/releases}"
 SERVER_IMAGE=ghcr.io/ticoteam/tico RUNNER_IMAGE=ghcr.io/ticoteam/tico-runner UPDATER_IMAGE=ghcr.io/ticoteam/tico-updater
 PROJECT=tico-journey NET=tico-journey_default RUNNER=journey-runner
@@ -152,7 +158,12 @@ step_turn() {
   retry 120 replied || { say "no reply from the fake harness"; return 1; }
 }
 botops_ready() { get operations | json 'sys.exit(0 if d["machines"][0]["readiness"]["bots"]["botops"]["ready"] else 1)'; }
-replied() { get "conversations/$(cat "$WORK/conversation")/messages" | json 'sys.exit(0 if any(m["body"].startswith("journey-reply:") for m in d["messages"]) else 1)'; }
+replied() { get "conversations/${1:-$(cat "$WORK/conversation")}/messages" | json 'sys.exit(0 if any(m["body"].startswith("journey-reply:") for m in d["messages"]) else 1)'; }
+chat_turn() {  # text: a new conversation with BotOps, answered by the fake harness
+  local cid
+  cid="$(post chat/botops "{\"text\": \"$1\"}" | json 'd["conversation"]["id"]')" || return 1
+  retry 120 replied "$cid"
+}
 conversation_intact() { replied && [ "$(environment_id)" = "$STATE_ID" ]; }
 
 step_restart() {
@@ -204,8 +215,18 @@ step_rollback() {
   retry 60 updater_on_candidate || { say "the updater is not on $CAND"; return 1; }
   retry 120 healthy || { say "the server is not healthy after docker compose up"; return 1; }
   # A "release" that migrates the database and then never serves: the case the snapshot exists for.
-  printf 'FROM %s:%s\nENTRYPOINT ["python", "-c", "import sqlite3, time; c = sqlite3.connect(\\"/data/hub.sqlite\\"); c.execute(\\"CREATE TABLE journey_migrated(x)\\"); c.commit(); time.sleep(3600)"]\n' \
-    "$SERVER_IMAGE" "$CAND" | docker build -q -t "$SERVER_IMAGE:$BROKEN" - >/dev/null || return 1
+  # Through the server's real entrypoint (`prepare`: seed, identity, Litestream's configuration), so Litestream follows the
+  # database and replicates the migration before the rollback puts the snapshot back. It never serves.
+  mkdir -p "$WORK/broken"
+  cat > "$WORK/broken/tico-broken" <<'EOF'
+#!/bin/sh
+set -e
+tico-entrypoint prepare
+python -c 'import sqlite3; c = sqlite3.connect("/data/hub.sqlite"); c.execute("CREATE TABLE journey_migrated(x)"); c.commit()'
+exec litestream replicate -config /tmp/litestream.yml -exec "sleep 3600"
+EOF
+  printf 'FROM %s:%s\nCOPY --chmod=755 tico-broken /usr/local/bin/tico-broken\nENTRYPOINT ["tico-broken"]\n' "$SERVER_IMAGE" "$CAND" > "$WORK/broken/Dockerfile"
+  docker build -q -t "$SERVER_IMAGE:$BROKEN" "$WORK/broken" >/dev/null || return 1
   state="$(run_update "${BROKEN#v}")"
   [ "$state" = rolled_back ] || { say "expected rolled_back, got $state"; return 1; }
   snapshot="$(get system/update | json 'd.get("snapshot","") + " " + str(d.get("restored"))')"
@@ -214,6 +235,40 @@ step_rollback() {
   [ -z "$(sql "SELECT name FROM sqlite_master WHERE name='journey_migrated'")" ] || { say "the migration is still in the database"; return 1; }
   conversation_intact || { say "data did not survive the rollback"; return 1; }
   dc exec -T server sh -c 'ls /data/snapshots/pre-update-*.sqlite >/dev/null' || { say "no snapshot file in /data/snapshots"; return 1; }
+}
+
+step_replica() {
+  local data="${PROJECT}_tico-data" rows
+  # The rolled-back server has been replicating for a while; then the volume is lost and the same image restores from
+  # the replica. The migrated copy Litestream saw before the rollback must not be the newest thing in it.
+  sleep 20
+  dc stop server >/dev/null 2>&1 || return 1
+  docker run --rm --user 0 --entrypoint sh -v "$data:/data" "$SERVER_IMAGE:$CAND" -c 'find /data -mindepth 1 -delete' || return 1
+  dc up -d server >/dev/null 2>&1 || return 1
+  retry 180 healthy || { say "the server did not start from the replica"; return 1; }
+  [ "$(sql 'PRAGMA integrity_check')" = ok ] || { say "the restored database fails its integrity check"; return 1; }
+  [ -z "$(sql "SELECT name FROM sqlite_master WHERE name='journey_migrated'")" ] || { say "the restore brought back the migrated database"; return 1; }
+  conversation_intact || { say "the pre-migration rows are missing after the restore"; return 1; }
+}
+
+step_runner_restart() {
+  local before
+  # As docker/runner.compose.yaml starts the runner. The volume is already enrolled, so no code is needed.
+  docker rm -f "$RUNNER" >/dev/null 2>&1
+  before="$(last_seen)"
+  docker run -d --name "$RUNNER" --restart unless-stopped --network "$NET" -e OPENAI_API_KEY=journey-fake -v journey-runner:/home/runner \
+    --user 0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add KILL --cap-add SETGID --cap-add SETUID \
+    --security-opt no-new-privileges:true "$RUNNER_IMAGE:$CAND" join --url http://server:8765 --code "" --label "Journey runner" >/dev/null || return 1
+  # The mode is set before the copy: root here has no FOWNER, so it cannot chmod a file that keeps the host user as owner.
+  install -m 755 scripts/journey-fake-codex.py "$WORK/codex" && docker cp "$WORK/codex" "$RUNNER:/usr/local/bin/codex" || return 1
+  retry 120 seen_since "$before" || { say "the candidate runner did not connect"; return 1; }
+  retry 120 botops_ready || { say "BotOps is not ready on the candidate runner"; return 1; }
+  chat_turn "journey before restart" || { say "no reply to the first turn"; return 1; }
+  before="$(last_seen)"
+  docker restart "$RUNNER" >/dev/null || return 1
+  retry 120 seen_since "$before" || { say "the runner did not come back after docker restart: $(docker logs --tail 5 "$RUNNER" 2>&1 | tr '\n' ' ')"; return 1; }
+  retry 120 botops_ready || { say "BotOps is not ready after the restart"; return 1; }
+  chat_turn "journey after restart" || { say "no reply to the second turn"; return 1; }
 }
 
 step_backup() {
@@ -239,6 +294,8 @@ run_step "one bot turn through a fake harness" step_turn
 run_step "restart the server" step_restart
 run_step "upgrade $PREV -> $CAND" step_upgrade
 run_step "roll back a bad update (snapshot restored)" step_rollback
+run_step "restore from the replica after that rollback" step_replica
+run_step "runner restarts after a turn took its secrets" step_runner_restart
 FAILED=0   # the backup rehearsal builds its own stack; it does not depend on the steps above
 run_step "backup, wipe and restore (MinIO + file replica)" step_backup
 
