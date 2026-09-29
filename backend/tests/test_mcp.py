@@ -32,7 +32,8 @@ def test_initialize_lists_every_tool_and_ignores_notifications(api):
     r = api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=headers())
     assert r.status_code == 202 and r.content == b""
     tools = rpc(api, "tools/list")["result"]["tools"]
-    assert {t["name"] for t in tools} == set(hubtools.BY_NAME)
+    # A tool that reaches out to the internet (hub_docs_fetch) runs on the bot's computer, never here.
+    assert {t["name"] for t in tools} == {n for n, t in hubtools.BY_NAME.items() if not t["local"]}
     assert all(t["inputSchema"]["type"] == "object" for t in tools)
     assert api.get("/api/v2/mcp", headers=headers()).status_code == 405
     assert api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "resources/list"},

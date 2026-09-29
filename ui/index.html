@@ -2150,6 +2150,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 <script src="/tico/ui/bot-files.js"></script>
 <script src="/tico/ui/docs-search.js"></script>
 <script src="/tico/ui/docs-editor.js"></script>
+<script src="/tico/ui/docs-ask.js"></script>
 <script src="/tico/ui/docs-page.js"></script>
 <script src="/tico/ui/market-page.js"></script>
 <script src="/tico/ui/changelog.js"></script>
@@ -2785,8 +2786,8 @@ const S = { emps: [], people: [], orgGroups: [], status: null, issues: [], me: n
 const appName = () => S.config.app_name || CONFIG_DEFAULTS.app_name;
 const assistantName = () => S.config.assistant_name || CONFIG_DEFAULTS.assistant_name;
 const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_bot;
-// The assistant and BotOps are built in to every company: pause and rename them, never archive or delete.
-const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops';
+// The assistant, BotOps and the Librarian are built in to every company: pause and rename them, never archive or delete.
+const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian';
 const companyName = () => S.config.company_name || appName();
 const publicUrl = () => S.config.public_url || location.origin;
 const runnerUrl = () => S.config.runner_url || location.origin;

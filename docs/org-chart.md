@@ -65,7 +65,7 @@ bot to someone without giving them the whole group, put that bot's slug in their
 
 A person's `bot` is where the hub sends the notes and meetings they Send in **Auto** mode. Routing is a COO function the hub performs itself, with no run behind it: it matches the verified `Sender:` email against this roster first, then falls
 back to one cheap model call over the active bots, then to the person's team root, then to the
-COO (BotOps in a company whose assistant is off; see [onboarding](onboarding.md#the-assistant-and-botops-are-built-in)).
+COO (BotOps in a company whose assistant is off; see [onboarding](onboarding.md#the-assistant-botops-and-the-librarian-are-built-in)).
 
 `bot: null` does not mean nobody. It means route by what the note actually says — the right default
 for the root person, who talks to every bot, and for anyone whose team is not set yet. See

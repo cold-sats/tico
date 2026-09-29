@@ -1,8 +1,9 @@
 """First run: the catalog people pick bots from, and the record of what they chose.
 
-A company starts with two bots: the assistant, which is each person's private Assistant chat
-(backend/assistant.py) and works in the background (Slack routing, meetings' Auto delivery), and BotOps, which builds
-every other bot. Onboarding names the company, asks six questions, recommends templates
+A company starts with three built-in bots: the assistant, which is each person's private Assistant
+chat (backend/assistant.py) and works in the background (Slack routing, meetings' Auto delivery),
+BotOps, which builds every other bot, and the Librarian, which answers questions from the company's
+docs (backend/librarian.py). Onboarding names the company, asks six questions, recommends templates
 against those answers, and on completion defines the chosen bots and hands BotOps one task
 per bot it has to set up. Nothing here reaches a machine: it writes definitions and tasks.
 """
@@ -17,11 +18,12 @@ import yaml
 from . import models as M
 from . import providers
 from . import releases, replication, runner_versions
-from . import rooms
+from . import rooms, routines
 from .store import H, Problem, encode, readiness_document
 
 KEY = "onboarding"
 BOTOPS = "botops"
+LIBRARIAN = "librarian"
 ASSISTANT_TEMPLATE_SLUG = "coo"
 CARD_FILE = "card.yaml"
 INSTRUCTIONS_FILE = "AGENT.md"
@@ -339,6 +341,8 @@ class Onboarding:
             card = render(raw, names, choice["display_name"]) if raw else {}
             self._define(c, who, slug, choice, card)
             self._setup_task(c, who, slug, choice, card, record["answers"])
+            if card.get("bootstrap"):
+                self._seed_routines(c, who, slug, choice["template"])
         # Completing twice keeps the moment the company actually finished.
         record.update(selected=plan, completed=record["completed"] or H.now())
         self._wire(c, record, who.actor)
@@ -384,16 +388,51 @@ class Onboarding:
         """The owner's one click on the Assistant tab: bring the company's assistant back (the v0.2.1
         restore of an archived one) or add it from the catalog, put it on the computer BotOps runs
         on and activate it. With no computer yet it is left planned, and the answer says so."""
-        slug = self.settings.assistant_bot
+        return self._turn_on(c, who, self.settings.assistant_bot, "assistant",
+                             self.settings.assistant_name, "assistant.turned_on")
+
+    def turn_on_librarian(self, c, who):
+        """The Docs page's Turn on Librarian: the same for the built-in docs bot (docs/librarian.md)."""
+        return self._turn_on(c, who, LIBRARIAN, LIBRARIAN, "Librarian", "librarian.turned_on")
+
+    def ensure_librarian(self, c):
+        """A company set up before the Librarian was built in gets it without anyone clicking, once
+        it can run: the owner is on the roster, a model is chosen and a computer is enrolled. Called
+        when the server starts (an update) and when a computer enrolls; with any of those missing it
+        does nothing, and the owner's Turn on Librarian stays available. An owner who paused it
+        keeps it paused: only a missing or unplaced one is touched."""
+        if not load(c)["completed"] or not providers.configured(providers.load(c, self.settings)):
+            return None
+        if not c.execute("SELECT 1 FROM runners WHERE revoked_at IS NULL").fetchone():
+            return None
+        row = H.bot(c, LIBRARIAN)
+        if row and (row["state"] != "planned" or c.execute("SELECT 1 FROM assignments WHERE bot=?",
+                                                           (LIBRARIAN,)).fetchone()):
+            return None
+        if row and row["state"] == "archived":
+            return None
+        if not any(card["template"] == LIBRARIAN for card in read_cards(self.settings)):
+            return None
+        # Best effort and all or nothing: an update or an enrollment never fails because of this.
+        c.execute("SAVEPOINT ensure_librarian")
+        try:
+            who = self.auth.owner_identity(c)
+            done = self._turn_on(c, who, LIBRARIAN, LIBRARIAN, "Librarian", "librarian.turned_on")
+        except Problem:
+            c.execute("ROLLBACK TO ensure_librarian")
+            done = None
+        c.execute("RELEASE ensure_librarian")
+        return done
+
+    def _turn_on(self, c, who, slug, template, name, event):
         row = H.bot(c, slug)
         if row and row["state"] == "active":
             return {"bot": slug, "state": "active", "restored": False}
         if row and row["state"] not in ("archived", "planned", "paused"):
-            raise Problem("state", "The " + self.settings.assistant_name + " is " + row["state"]
+            raise Problem("state", "The " + name + " is " + row["state"]
                           + "; a person changes that in Settings", 409)
         record = load(c)
-        display = self.settings.assistant_name
-        card = render(self._template("assistant"), display_names(self.settings, record), display)
+        card = render(self._template(template), display_names(self.settings, record), name)
         choice = {"template": card["template"], "display_name": card["name"], "instructions": card["instructions"]}
         restored = bool(row and row["state"] == "archived")
         if restored:
@@ -415,8 +454,31 @@ class Onboarding:
         if placed and H.bot(c, slug)["state"] != "active":
             self.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(
                 status="active", expected_revision=self.admin._config(c, slug)["revision"]))
-        H.event(c, who.actor, "assistant.turned_on", slug, {"restored": restored, "placed": placed})
+        self._seed_routines(c, who, slug, template)
+        H.event(c, who.actor, event, slug, {"restored": restored, "placed": placed})
         return {"bot": slug, "state": H.bot(c, slug)["state"], "restored": restored, "placed": placed}
+
+    def _seed_routines(self, c, who, slug, template):
+        """The template's `schedules:` become the bot's first routines, once. A routine a person
+        changed or deleted is never put back: only a key the bot has never had is created. (A bot
+        BotOps builds gets these from `hub bot create`; a built-in one is made here.)"""
+        from clients.routines import validate_schedules
+        folder = Path(self.settings.catalog_dir) / template
+        try:
+            declared = (yaml.safe_load((folder / "employee.yaml").read_text()) or {}).get("schedules")
+            names = display_names(self.settings, load(c))
+            entries = validate_schedules(declared, lambda rel: fill((folder / rel).read_text(), names))
+        except (OSError, ValueError, TypeError, yaml.YAMLError):
+            return []
+        made = []
+        for entry in entries:
+            if c.execute("SELECT 1 FROM schedules WHERE bot=? AND routine_key=?", (slug, entry["id"])).fetchone():
+                continue
+            routines.create(c, who.actor, slug, {"title": entry["title"], "text": entry["instructions"],
+                                                 "cron": entry["cron"], "on": entry["on"],
+                                                 "timezone": entry["timezone"]}, key=entry["id"])
+            made.append(entry["id"])
+        return made
 
     def on_runner_enrolled(self, c, runner_id, operator):
         """Enrolling the owner's Mac after the wizard finishes wires it up too, so the order
@@ -426,6 +488,7 @@ class Onboarding:
         record = load(c)
         if not record["completed"]:
             return []
+        self.ensure_librarian(c)              # a company from before it was built in
         placed = self._wire(c, record, "human:" + operator, runner_id)
         self._store(c, record, "human:" + operator)
         return placed

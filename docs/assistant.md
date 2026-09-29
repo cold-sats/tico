@@ -13,8 +13,8 @@ meetings, docs, files, bots, people), and the links open inside the app.
 
 The chat is a personal room (`scope: personal`, `room_key: assistant`) owned by you. Only you can read it or post in it.
 The company owner and administrators cannot read anyone else's, and no other route reaches the assistant: the ordinary
-chat routes still refuse it (`403`). Every new company gets the assistant and BotOps built in (both required in setup, active once a computer is enrolled),
-and neither can be archived or deleted by anyone: the owner included, through Settings, the API, `hub` or BotOps
+chat routes still refuse it (`403`). Every new company gets the assistant, BotOps and the [Librarian](librarian.md) built in (all required in setup, active once a computer is enrolled),
+and none can be archived or deleted by anyone: the owner included, through Settings, the API, `hub` or BotOps
 (`409 system_bot`); pausing and renaming stay allowed, and Settings > Bots shows them as **Built in**. A company
 that set the assistant aside before it was built in keeps it archived on update, and its Assistant tab says the Assistant is off
 instead of failing. The owner gets **Turn on Assistant** there and at the top of **Settings > Bots**: one click restores the

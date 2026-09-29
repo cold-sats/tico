@@ -1,0 +1,54 @@
+# Questions for the Librarian eval (docs/librarian.md). `cite` lists the fixture docs (paths under fixture/) a good
+# answer must cite, all of them. `contains` lists strings the answer should contain (a spot check on the fact, not
+# a full grade). `unknown: true` marks a question the docs do not answer: the right answer starts "Not in the docs."
+questions:
+  - id: refund-window
+    question: How long do customers have to ask for a refund?
+    cite: [finance/refunds.md]
+    contains: ["14 days"]
+  - id: monthly-refund
+    question: Can a customer on a monthly plan get a refund?
+    cite: [finance/refunds.md]
+    contains: ["not"]
+  - id: refund-approval
+    question: Who has to approve a refund over $500, and who is that person?
+    cite: [finance/refunds.md, company/about.md]
+    contains: ["Ana"]
+  - id: studio-price
+    question: How much does the Studio plan cost per month?
+    cite: [sales/pricing.md]
+    contains: ["$29"]
+  - id: discount-limit
+    question: How big a discount can a salesperson give without asking anyone?
+    cite: [sales/pricing.md]
+    contains: ["10%"]
+  - id: support-hours
+    question: When is support open?
+    cite: [support/hours-and-sla.md]
+    contains: ["8am", "6pm"]
+  - id: team-sla
+    question: How quickly do we first reply to a customer on the Team plan?
+    cite: [support/hours-and-sla.md]
+    contains: ["4 business hours"]
+  - id: release-cadence
+    question: How often do we ship a release?
+    cite: [engineering/release-process.md]
+    contains: ["second Tuesday"]
+  - id: freeze
+    question: When does the code freeze start ahead of a release?
+    cite: [engineering/release-process.md]
+    contains: ["Monday"]
+  - id: retention
+    question: How long do we keep a customer's data after they cancel?
+    cite: [security/data-retention.md]
+    contains: ["90 days"]
+  - id: first-week
+    question: What does a new hire have to finish in their first week?
+    cite: [people/onboarding.md]
+    contains: ["security training"]
+  - id: gift-cards
+    question: Do we sell gift cards?
+    unknown: true
+  - id: wifi
+    question: What is the password for the office wifi?
+    unknown: true

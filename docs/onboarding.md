@@ -196,17 +196,20 @@ check result and the one thing to read before activating.
 It never activates a bot, never creates a credential, and never overwrites a repository that
 already exists.
 
-## The assistant and BotOps are built in
+## The assistant, BotOps and the Librarian are built in
 
-Every company gets both, and neither is a choice: their cards are `required: true` in the wizard, so the wizard
+Every company gets all three, and none is a choice: their cards are `required: true` in the wizard, so the wizard
 builds them whatever else is ticked, and both become active once a computer is enrolled ([Activating](#activating)).
 The assistant is every person's private [Assistant](assistant.md) (a tab on their own page); it also works in the
 background: it routes Slack messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews
 BotOps' refused writes, and runs its own routines.
 
-Neither can be archived or deleted by anyone, the owner included, through Settings, the API, `hub` or BotOps itself:
+None can be archived or deleted by anyone, the owner included, through Settings, the API, `hub` or BotOps itself:
 the archive route answers `409 system_bot`. Pausing, renaming and editing their instructions stay allowed. Settings >
 Bots lists them as **Built in**, with no Archive or Delete control.
+
+The third, the [Librarian](librarian.md#built-in), answers questions from the company's docs. A company from before it existed gets it on
+update, without a click, once a model is chosen and a computer is enrolled; until then its owner gets **Turn on the Librarian** on Ask AI.
 
 A company that set the assistant aside before it was built in (v0.2.1 to v0.2.9 let the wizard skip it) keeps it archived
 on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant tab and at the top of

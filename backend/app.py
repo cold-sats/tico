@@ -79,6 +79,12 @@ def create_app(settings=None):
         asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=64, thread_name_prefix="tico"))
         store.initialize()
         asyncio.get_running_loop().run_in_executor(None, auth.warm)   # Cloudflare's keys, before anyone signs in
+        # A company from before the Librarian was built in gets it on update, once it can run it.
+        try:
+            with store.transaction() as c:
+                onboarding.ensure_librarian(c)
+        except Exception as exc:
+            telemetry.capture("librarian", exc)
         # This release may ship merged product tasks that waited for it (backend/github.py).
         try:
             from .github import ship_deployed
@@ -2693,6 +2699,8 @@ def create_app(settings=None):
     install_health(app, store, auth, settings)
     from .assistant import install as install_assistant
     install_assistant(app, store, auth, mutate, onboarding)
+    from .librarian import install as install_librarian
+    install_librarian(app, store, auth, mutate, onboarding)
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts from /tico/ui/ (ui/index.html), so the same directory is

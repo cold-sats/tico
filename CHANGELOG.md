@@ -8,16 +8,6 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- Docs has two parts, and search covers both. **Internal docs** are Markdown written, pasted or imported in Tico (`.md`, `.txt`,
-  `.html`, `.docx`, `.pdf`, up to 20 MB), in folders (`sales/pricing.md`). Everyone in the company can read and edit; every change is a
-  version you can read and restore; a "version conflict" message appears when someone saved first; an owner or bot administrator can
-  lock a doc so only they can change it. Bots read and write the same docs (`hub docs list|read|search|write|history|links` and the
-  matching `hub_docs_*` MCP tools) and show in the history as themselves. **Linked docs** are only links (a help site, a Drive
-  folder, a Notion page, a repository) with a kind detected from the address and a one-line note; Tico stores no copy and runs no
-  sync, and opening one goes to the source. The owner's first-run Docs card now asks "Where do your current docs live?" and turns
-  pasted links into linked docs. See docs/docs.md.
-- Stable v2 API: `/api/v2/docs` (list, create, read, edit with `version`, `versions`, `restore`, `import`, `search`) and
-  `/api/v2/linked-docs`. `GET /api/v2/context/search?source=docs` covers both kinds.
 
 ### Changed
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
