@@ -60,7 +60,7 @@
     const frames = (event.exception?.values || []).flatMap(value => value.stacktrace?.frames || []).slice(-30)
       .map(frame => {
         // Only known static application filenames, no origin/query/hash/function/source text.
-        const match = /(?:^|\/)(index\.html|observability\.js|observability-vendors\.js|docs-chat\.js|docs-page\.js|docs-search\.js|docs-pr-chat\.js|changelog\.js)(?:[?#].*)?$/.exec(frame.filename || '');
+        const match = /(?:^|\/)(index\.html|observability\.js|observability-vendors\.js|docs-ask\.js|docs-page\.js|docs-search\.js|docs-pr-chat\.js|changelog\.js)(?:[?#].*)?$/.exec(frame.filename || '');
         return match ? {filename: match[1], ...(Number.isInteger(frame.lineno) ? {lineno: frame.lineno} : {}),
           ...(Number.isInteger(frame.colno) ? {colno: frame.colno} : {})} : null;
       }).filter(Boolean);
