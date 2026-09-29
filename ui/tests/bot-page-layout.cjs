@@ -20,7 +20,7 @@ const hour = 3600e3, now = Date.now(), iso = ms => new Date(now + ms).toISOStrin
 const bot = (name, display_name, org_parent, extra = {}) => ({name, display_name, org_parent, host: 'keeper',
   status: 'active', can_chat: true, users: [{id: 'ana', name: 'Ana'}], schedules: [], ...extra});
 const bots = [
-  bot('coo', 'Tico', ''), bot('doc-updater', 'Doc Updater', 'b:coo'),
+  bot('coo', 'Tico', ''), bot('librarian', 'Librarian', 'b:coo'),
   bot('cmo', 'AI CMO', '', {role: 'Grows organic signups through content and search.', schedules: [
     {id: 'r-plan', title: 'Weekday content plan', kind: 'cron', cron: '0 8 * * 1-5', on: '', timezone: 'America/Los_Angeles',
      enabled: true, active: true, next: iso(14 * hour)},
@@ -519,7 +519,7 @@ async function routineDelete(browser) {
     await page.evaluate(() => { $('#nav-inboxes-section').hidden = false; });   // no message bots in these fixtures; the order still holds
     assert.deepEqual(await railOrder(), ['Updates', 'Tasks', 'Goals', 'Docs', 'Market', 'Meetings', 'Org', 'Message bots']);
     await page.evaluate(() => { $('#nav-inboxes-section').hidden = true; });
-    assert.equal(await page.locator('.side-scroll #nav-docs-librarian').getAttribute('href'), '#/bot/doc-updater/more');
+    assert.equal(await page.locator('.side-scroll #nav-docs-librarian').getAttribute('href'), '#/bot/librarian/more');
     assert.equal(await page.locator('.side-scroll #nav-market-librarian').count(), 1, 'the Market Analyst gear stays beside Market');
     await shot(page, 'rail-desktop.png');
     // The account menu holds Integrations, Runs, Changelog and Settings, in that order.

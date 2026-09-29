@@ -119,6 +119,9 @@ class Client:
     def post(self, path, body=None, key=None):
         return self.request("POST", "/api/v2/" + path, body or {}, key)
 
+    def patch(self, path, body=None, key=None):
+        return self.request("PATCH", "/api/v2/" + path, body or {}, key)
+
     def post_bytes(self, path, data, key=None):
         """One opaque binary body (an audio chunk), under the same retry rule as a JSON write."""
         return self.request("POST", "/api/v2/" + path, key=key, raw=data)

@@ -1,7 +1,7 @@
 // Offline browser regression for retiring the Tico chat and Tico Live: there is
 // no Chat entry and an old #/chat link lands on Tasks; the org panel, search and the bot pickers
-// leave out the assistant (Tico) and Doc Updater, whose reports take their place, so BotOps sits at
-// the top; Doc Updater stays one click away from the Docs row; the assistant's own page has no Chat
+// leave out the assistant (Tico) and Librarian, whose reports take their place, so BotOps sits at
+// the top; Librarian stays one click away from the Docs row; the assistant's own page has no Chat
 // tab; and every other bot's chat keeps its per-bot Live voice button. Fixtures only, no network.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -20,7 +20,7 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
       status: 'active', can_chat: true, users: [{id: 'ana', name: 'Ana'}], ...extra});
     const bots = [
       bot('coo', 'Tico', ''), bot('botops', 'BotOps', 'b:coo'), bot('bug-triage', 'Bug Triage', 'b:coo'),
-      bot('doc-updater', 'Doc Updater', 'b:coo'), bot('cmo', 'AI CMO', ''), bot('seo', 'AI SEO', 'b:cmo'),
+      bot('librarian', 'Librarian', 'b:coo'), bot('cmo', 'AI CMO', ''), bot('seo', 'AI SEO', 'b:cmo'),
     ];
     const conv = {id: 'cmo-chat', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:cmo']};
     await page.route('**/*', route => {
@@ -66,10 +66,10 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
     assert.equal(await page.locator('a[href="#/chat"], [data-nav="chat"]').count(), 0);
     await page.locator('#tree [data-org="b:botops"]').waitFor();
 
-    // The org panel: no Tico, no Doc Updater; their reports sit where Tico sat, at the top.
+    // The org panel: no Tico, no Librarian; their reports sit where Tico sat, at the top.
     const tree = page.locator('#tree');
-    assert.equal(await tree.locator('[data-org="b:coo"], [data-org="b:doc-updater"]').count(), 0);
-    assert.doesNotMatch(await tree.innerText(), /Tico|Doc Updater/);
+    assert.equal(await tree.locator('[data-org="b:coo"], [data-org="b:librarian"]').count(), 0);
+    assert.doesNotMatch(await tree.innerText(), /Tico|Librarian/);
     const top = await tree.evaluate(el => [...el.children].map(li => li.querySelector(':scope > .noderow > a')?.dataset.org));
     assert.deepEqual(top.filter(k => k?.startsWith('b:')).sort(), ['b:botops', 'b:bug-triage', 'b:cmo']);
     assert.equal(await tree.locator('[data-org="b:seo"]').count(), 1);          // an ordinary report keeps its parent
@@ -93,16 +93,16 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
       .map(h => { const d = document.createElement('div'); d.innerHTML = h; const el = d.firstElementChild; return el ? [el.className, el.textContent] : null; })),
       [['cnt needs working', '2'], ['tree-alert', '!'], ['tree-spin', ''], null]);
 
-    // Doc Updater stays reachable from the Docs row in the rail, and opens on its settings.
+    // Librarian stays reachable from the Docs row in the rail, and opens on its settings.
     const librarian = page.locator('.side-scroll .nav-row #nav-docs-librarian');
     assert.equal(await librarian.isVisible(), true);
-    assert.equal(await librarian.getAttribute('href'), '#/bot/doc-updater/more');
+    assert.equal(await librarian.getAttribute('href'), '#/bot/librarian/more');
 
     // Search and the task owner picker leave both out.
     const entries = await page.evaluate(() => searchEntries().filter(e => e.kind === 'bot').map(e => e.alias).sort());
     assert.deepEqual(entries, ['botops', 'bug-triage', 'cmo', 'seo']);
     const owners = await page.evaluate(() => taskOwnerOptions());
-    assert.doesNotMatch(owners, /value="coo"|value="doc-updater"/);
+    assert.doesNotMatch(owners, /value="coo"|value="librarian"/);
     assert.match(await page.evaluate(() => taskOwnerOptions('coo')), /value="coo" selected/);   // a task already Tico's keeps its owner
 
     // Tico's own page has no Chat and opens on Tasks alone; Docs and settings stay behind More.
@@ -151,7 +151,7 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
     await page.evaluate(() => v2Refresh());
     assert.equal(await page.locator('#side-update').isVisible(), false);
     assert.deepEqual(errors, []);
-    console.log('PASS: no Chat entry, #/chat lands on Tasks, Tico and Doc Updater out of the org panel, search and pickers with BotOps on top, Doc Updater from Docs in the rail, no Chat for Tico, per-bot Live kept.');
+    console.log('PASS: no Chat entry, #/chat lands on Tasks, Tico and Librarian out of the org panel, search and pickers with BotOps on top, Librarian from Docs in the rail, no Chat for Tico, per-bot Live kept.');
   } finally {
     await browser.close();
   }

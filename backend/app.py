@@ -242,13 +242,12 @@ def create_app(settings=None):
                 if not size.isdigit():
                     raise Problem("content_length", "Invalid Content-Length", 400)
                 upload = request.url.path in ("/api/notes", "/api/send", "/api/v2/uploads/tasks", "/api/v2/meetings/import") or re.fullmatch(r"/api/(?:meetings/[^/]+/send|v2/uploads/chat/[^/]+)", request.url.path)
-                catalog = (request.url.path == "/api/v2/documents/catalog"
-                           and request.state.identity.role == "bot"
-                           and request.state.identity.actor == "bot:doc-updater")
+                docs_import = (request.url.path == "/api/v2/docs/import"
+                               and request.state.identity.role in ("human", "owner", "bot"))
                 # A bot's computer publishes files up to 25 MB as raw bytes (backend/files.py).
                 published = (request.url.path in ("/api/v2/files/uploads", "/api/v2/files/imports")
                              and request.state.identity.role in ("bot", "runner"))
-                limit = (27_000_000 if published else 20_000_000 if catalog or upload and request.state.identity.role in ("human", "owner")
+                limit = (27_000_000 if published else 20_000_000 if docs_import or upload and request.state.identity.role in ("human", "owner")
                          else 2_000_000)
                 if int(size) > limit:
                     raise Problem("too_large", "Request exceeds the upload limit", 413)
@@ -2642,6 +2641,8 @@ def create_app(settings=None):
     turn_work.install(app, store, auth)
     from .documents import install_documents
     install_documents(app, store, auth, mutate)
+    from .docs import install_docs
+    install_docs(app, store, auth, mutate)
     from .context_search import install_context_search
     install_context_search(app, store, auth)
     from .market import install as install_market

@@ -78,25 +78,9 @@ class TaskChat(Contract):
 
 
 class PageChat(Contract):
-    page: Literal["tasks", "docs", "doc-pr"]
+    page: Literal["tasks"]
     text: str = Field(default="", max_length=200_000)
     task_id: str | None = None
-    doc_id: str | None = None
-    collection: Literal["docs", "notes", "market"] = "docs"
-    action: Literal["load", "feedback", "merge"] | None = None
-    repo: str | None = Field(default=None, max_length=200)
-    number: int | None = Field(default=None, ge=1)
-    head_sha: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
-
-
-class DocumentSource(Contract):
-    repo: str = Field(min_length=1, max_length=1000)
-    folder: str = Field(default="docs", max_length=500)
-    branch: str = Field(default="", max_length=200)
-
-
-class DocumentCatalog(Contract):
-    catalog: dict
 
 
 class Answer(Contract):
@@ -176,9 +160,13 @@ class GettingStartedBot(Contract):
     name: str = Field(default="", max_length=80)
 
 
+class GettingStartedDocLink(Contract):
+    url: str = Field(min_length=1, max_length=2000)
+    description: str = Field(default="", max_length=300)
+
+
 class GettingStartedDocs(Contract):
-    kind: Literal["drive", "notion", "github", "website", "upload", "none"]
-    value: str = Field(default="", max_length=500)
+    links: list[GettingStartedDocLink] = Field(min_length=1, max_length=20)
 
 
 class GettingStartedMarket(Contract):

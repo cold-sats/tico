@@ -94,8 +94,8 @@ For a repository whose merge still needs human review, request that exact action
   line an hour. Check for another writer's commits, then reconcile without discarding their work.
 - `GH_TOKEN` is not in a turn; if `gh auth status` fails on a computer without the app, that
   machine's login is the operator's to fix.
-- The hub's own `docs/` PR flow (Doc Updater's **Proposed changes**) is the way company docs
-  change; do not edit `docs/` in a product repo for that.
+- Company docs are Tico's Docs page (internal docs, and links to where the rest live); do not
+  edit `docs/` in a product repo for that ([docs/docs.md](../docs/docs.md)).
 
 ## Learnings
 

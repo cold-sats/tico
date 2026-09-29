@@ -8,8 +8,8 @@ transport). Two clients read it:
   * the `hub` CLI, whose commands map onto these names one for one (`hub task create`
     is `hub_task_create`).
 
-Every tool is written against a two-method `api`: `api.get(path, **query)` and
-`api.post(path, body, key=None)`, paths relative to `/api/v2/`. On the Mac that is
+Every tool is written against a small `api`: `api.get(path, **query)`,
+`api.post(path, body, key=None)` and `api.patch(path, body, key=None)`, paths relative to `/api/v2/`. On the Mac that is
 `clients.tico.Client`; on the server it is an in-process caller that replays the caller's
 own bearer token through the ordinary routes, so a tool can do nothing the HTTP API refuses.
 No rule lives here; the rules live in `backend/hubdb.py`.
@@ -18,6 +18,7 @@ Pure stdlib on purpose: this module is imported by the runner venv, the cloud ve
 CLI alike.
 """
 import json
+import re
 import sys
 import time
 from datetime import datetime
@@ -741,6 +742,95 @@ def files_publish_path(client, args):
     if commit:
         query["commit"] = commit
     return client.request("POST", "/api/v2/files/uploads?" + BF.urlencode(query), raw=data, key=_key(args))
+
+
+# ----------------------------------------------------------------------------- docs
+# The company's written knowledge (docs/docs.md): internal docs anyone (bots included) reads and
+# writes, and linked docs, which are only links. Asking the Librarian is `hub docs ask`.
+DOC_ID = re.compile(r"doc-[0-9a-f]{12}")
+
+
+def _doc_path(ref):
+    path = str(ref).strip().strip("/")
+    return path if path.lower().endswith((".md", ".markdown")) else path + ".md"
+
+
+def _doc_lookup(api, ref):
+    """The doc row for an id or a path (`sales/pricing`, `sales/pricing.md`), or None."""
+    ref = str(ref).strip()
+    if DOC_ID.fullmatch(ref):
+        return api.get("docs/" + ref)["doc"]
+    path = _doc_path(ref)
+    for row in api.get("docs", path_prefix=path, limit=20)["docs"]:
+        if row["path"].lower() == path.lower():
+            return api.get("docs/" + row["id"])["doc"]
+    return None
+
+
+def _doc_missing(ref):
+    return {"refused": "docs", "detail": f"No doc {ref!r}: use an id from `hub docs list` or a path like sales/pricing.md"}
+
+
+@tool("hub_docs_list", "List the company's internal docs by path (folders are path prefixes): id, path, title, "
+      "who changed it last and when, whether it is locked.",
+      {"prefix": _s("Only paths starting with this, e.g. sales/"), "limit": {"type": "integer", "minimum": 1, "maximum": 500}})
+def docs_list(api, args):
+    return api.get("docs", path_prefix=args.get("prefix"), limit=args.get("limit"))
+
+
+@tool("hub_docs_read", "Read one internal doc in full (Markdown) by id or path, with its version.",
+      {"ref": _s("A doc id (doc-...) or a path such as sales/pricing.md")}, required=("ref",))
+def docs_read(api, args):
+    doc = _doc_lookup(api, args["ref"])
+    return {"doc": doc} if doc else _doc_missing(args["ref"])
+
+
+@tool("hub_docs_search", "Search the company's docs: internal docs (ranked, with an excerpt) and linked docs "
+      "(a title, address and note; open them with `hub docs fetch`). Start here for any question about the company.",
+      {"q": _s("Words to search for"), "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, required=("q",))
+def docs_search(api, args):
+    return api.get("docs/search", q=args["q"], limit=args.get("limit"))
+
+
+@tool("hub_docs_write", "Create or replace an internal doc at a path (Markdown). Every write is a version the "
+      "history shows as yours, so write freely and say what changed in `note`. A locked doc is refused. If someone "
+      "changed the doc since you read it, the call reads it again and retries once.",
+      {"path": _s("Folder and file, e.g. sales/pricing.md"), "body": _s("The whole doc, in Markdown"),
+       "title": _s("What people see; defaults to the first # heading, else the file name"),
+       "note": _s("One line on what changed")}, required=("path", "body"), writes=True)
+def docs_write(api, args):
+    path, text = _doc_path(args["path"]), str(args["body"])
+    heading = re.match(r"\s*#\s+(.+)", text)
+    title = args.get("title") or (heading.group(1).strip() if heading else path.rsplit("/", 1)[-1].rsplit(".", 1)[0])
+    note = args.get("note") or ""
+    current = _doc_lookup(api, path)
+    for attempt in (0, 1):
+        suffix = "" if attempt == 0 else "-retry"
+        try:
+            if current is None:
+                return api.post("docs", {"path": path, "title": title, "body": text, "note": note}, key=_key(args, suffix))
+            fields = {"version": current["version"], "body": text, "note": note}
+            if args.get("title"):
+                fields["title"] = args["title"]
+            return api.patch("docs/" + current["id"], fields, key=_key(args, suffix))
+        except Exception as exc:                        # the api's own error type, whichever transport
+            code = getattr(exc, "code", "")
+            if attempt or code not in ("version_conflict", "path_taken"):
+                raise
+            current = _doc_lookup(api, path)
+
+
+@tool("hub_docs_history", "The versions of an internal doc, newest first: who changed it, when and why.",
+      {"ref": _s("A doc id (doc-...) or a path")}, required=("ref",))
+def docs_history(api, args):
+    doc = _doc_lookup(api, args["ref"])
+    return api.get(f"docs/{doc['id']}/versions") if doc else _doc_missing(args["ref"])
+
+
+@tool("hub_docs_links", "The company's linked docs: where its other docs live (a help site, a Drive folder, a "
+      "Notion page, a repository), each with a kind, address and one-line note. Tico stores only the link.", {})
+def docs_links(api, args):
+    return api.get("linked-docs")
 
 
 @tool("hub_task_close", "Close a task you requested. Never close a task you did not request.",

@@ -496,6 +496,8 @@ class Store:
             c.executescript(_runner_versions.SCHEMA)
             from . import files as _files
             c.executescript(_files.SCHEMA)
+            from . import docs as _docs
+            _docs.ensure_schema(c, self.settings)
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:

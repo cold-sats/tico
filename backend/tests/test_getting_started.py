@@ -12,6 +12,10 @@ def items(api, headers=None):
     return body, {row["id"]: row for row in body["items"]}
 
 
+def body_of(api):
+    return api.get("/api/v2/getting-started", headers=signed_in()).json()
+
+
 def heartbeat(api, runner_id, *, seconds_ago=0, runtimes=None):
     """A runner's last word, as the heartbeat stores it."""
     with api.app.state.store.transaction() as c:
@@ -215,29 +219,29 @@ def test_docs_and_market_are_the_owners(environment):
     api = environment()
     activate(api, "botops")
     quinn = as_person(api, "quinn")
-    assert api.post("/api/v2/getting-started/docs", json={"kind": "drive", "value": "https://drive.example/x"},
+    assert api.post("/api/v2/getting-started/docs", json={"links": [{"url": "https://drive.example.com/x"}]},
                     headers=quinn).status_code == 403
     assert api.post("/api/v2/getting-started/market", json={"sells": "a", "customers": "b"},
                     headers=quinn).status_code == 403
 
 
-def test_docs_choice_files_a_task_to_the_docs_bot_or_botops(environment):
+def test_the_docs_card_turns_pasted_links_into_linked_docs(environment):
     api = environment()
-    activate(api, "botops")
-    first = api.post("/api/v2/getting-started/docs",
-                     json={"kind": "github", "value": "AcmeCorp/handbook"}, headers=signed_in()).json()
-    assert first["bot"] == "botops"                      # nobody keeps docs yet
-    add_bot(api, "doc-updater")
-    second = api.post("/api/v2/getting-started/docs",
-                      json={"kind": "notion", "value": "https://notion.example/acme"}, headers=signed_in()).json()
-    assert second["bot"] == "doc-updater"
-    tasks = api.get("/api/v2/tasks", params={"owner": "doc-updater"}, headers=signed_in()).json()["tasks"]
-    assert tasks[0]["title"] == "Connect our docs: Notion"
-    assert "https://notion.example/acme" in tasks[0]["body"]
-    none = api.post("/api/v2/getting-started/docs", json={"kind": "none"}, headers=signed_in()).json()
-    assert none["task_id"] is None
-    assert api.post("/api/v2/getting-started/docs", json={"kind": "website"},
-                    headers=signed_in()).status_code == 422
+    assert body_of(api)["empty"]["docs"] is True
+    made = api.post("/api/v2/getting-started/docs", headers=signed_in(), json={"links": [
+        {"url": "https://github.com/AcmeCorp/handbook", "description": "Engineering handbook"},
+        {"url": "https://www.notion.so/Acme-Wiki-1"},
+        {"url": "https://github.com/AcmeCorp/handbook"},           # a repeat
+        {"url": "javascript:alert(1)"}]})
+    assert made.status_code == 200, made.text
+    linked, skipped = made.json()["linked"], made.json()["skipped"]
+    assert [(row["kind"], row["description"]) for row in linked] == [("github", "Engineering handbook"), ("notion", "")]
+    assert len(skipped) == 2
+    assert [row["title"] for row in api.get("/api/v2/linked-docs", headers=signed_in()).json()["linked"]] == \
+        ["github.com/AcmeCorp/handbook", "notion.so/Acme-Wiki-1"]
+    assert body_of(api)["empty"]["docs"] is False                # the card's section now has content
+    assert api.post("/api/v2/getting-started/docs", json={"links": []}, headers=signed_in()).status_code == 422
+    assert api.get("/api/v2/tasks", params={"owner": "botops"}, headers=signed_in()).json()["tasks"] == []
 
 
 def test_market_answers_are_saved_and_start_research(environment):

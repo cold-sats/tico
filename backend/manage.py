@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import sqlite3
 
 import yaml
@@ -14,9 +13,8 @@ from .archive import import_text_archives
 from .backup import inspect, snapshot, upload_bundle
 from .blobs import Blobs
 from .config import ROOT, Settings
-from .documents import import_catalog, proposal_repos
 from .execution import Execution
-from .store import H, P, Problem, Store, encode, repo_url
+from .store import H, P, Store, encode, repo_url
 
 
 CORE_HISTORY = ("conversations", "messages", "tasks", "task_events", "turns", "meetings",
@@ -52,49 +50,6 @@ def resolved_registry(projects, registry_dir):
     return entries
 
 
-def import_legacy_catalog(store, runtime):
-    """Import readable legacy docs without trusting obsolete PR review metadata."""
-    catalog = runtime / "company-docs/index.json"
-    if not catalog.exists():
-        return {"status": "missing", "documents": 0, "proposals": 0, "proposal_skips": {}}
-    try:
-        data = json.loads(catalog.read_text())
-        from clients import company_docs
-        documents = [company_docs.classify_document(d) for d in data.get("documents", [])]
-    except (OSError, ValueError, TypeError) as exc:
-        return {"status": "skipped", "documents": 0, "proposals": 0,
-                "proposal_skips": {}, "error": type(exc).__name__}
-    raw = data.get("proposals", []) if isinstance(data.get("proposals", []), list) else []
-    exact, skips = [], {}
-    for proposal in raw:
-        if not isinstance(proposal, dict) or not re.fullmatch(r"[0-9a-f]{40}", str(proposal.get("head_sha") or "")):
-            skips["missing_exact_revision"] = skips.get("missing_exact_revision", 0) + 1
-        else:
-            exact.append(proposal)
-    payload = {"updated": data.get("updated"), "versions": data.get("versions", {}),
-               "errors": [str(error) for error in data.get("errors", [])][:500]
-               if isinstance(data.get("errors", []), list) else [],
-               "documents": documents, "proposals": exact}
-    try:
-        with store.transaction() as c:
-            result = import_catalog(c, payload, proposal_repos(store.settings))
-        accepted = len(exact)
-    except Problem as exc:
-        # Current docs remain useful even if an older proposal schema cannot meet
-        # the exact-revision cloud contract. Doc Updater will republish fresh PRs.
-        try:
-            with store.transaction() as c:
-                result = import_catalog(c, {**payload, "proposals": []}, proposal_repos(store.settings))
-        except Problem as document_error:
-            return {"status": "skipped", "documents": 0, "proposals": 0,
-                    "proposal_skips": {**skips, "catalog_validation": len(exact)},
-                    "error": document_error.code}
-        skips["proposal_validation"] = skips.get("proposal_validation", 0) + len(exact)
-        accepted = 0
-    return {"status": "imported", **result, "proposals": accepted,
-            "proposal_skips": skips, "source_proposals": len(raw)}
-
-
 def migrate_legacy(source, destination, runtime, projects, *, queue_backlog=False):
     """Create a new cloud database from a read-only legacy source snapshot."""
     source, destination = Path(source).resolve(), Path(destination).resolve()
@@ -128,7 +83,6 @@ def migrate_legacy(source, destination, runtime, projects, *, queue_backlog=Fals
     if queue_backlog:
         store.enqueue_existing()
     archives = import_text_archives(store, runtime)
-    catalog = import_legacy_catalog(store, runtime)
     with store.transaction() as c:
         counts = {table: c.execute('SELECT count(*) FROM "' + table + '"').fetchone()[0]
                   for table in CORE_HISTORY}
@@ -147,7 +101,7 @@ def migrate_legacy(source, destination, runtime, projects, *, queue_backlog=Fals
             raise RuntimeError("Legacy execution authority was not fully fenced")
         manifest = {"format": "tico-legacy-import-v1", "source": str(source),
                     "source_sha256": source_report["sha256"], "history": counts,
-                    "archives": archives, "catalog": catalog, "execution": state}
+                    "archives": archives, "execution": state}
         c.execute("INSERT INTO registry_metadata VALUES('legacy-import',?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
                   (encode(manifest),))
     # Produce one portable file for transfer. The cloud server will return it to WAL mode on
@@ -162,7 +116,7 @@ def migrate_legacy(source, destination, runtime, projects, *, queue_backlog=Fals
     if final["integrity"] != ["ok"] or final["foreign_key_violations"]:
         raise RuntimeError("Migrated database failed final integrity verification")
     return {"source": source_report, "destination": final, "history": counts,
-            "archives": archives, "catalog": catalog, "execution": state}
+            "archives": archives, "execution": state}
 
 
 def main(argv=None):
@@ -265,7 +219,6 @@ def main(argv=None):
         store = Store(Settings(db_path=args.database))
         store.initialize()
         report = import_text_archives(store, args.runtime)
-        report["catalog"] = import_legacy_catalog(store, args.runtime)
     elif args.command == "migrate-legacy":
         report = migrate_legacy(args.source, args.destination, args.runtime, args.projects,
                                 queue_backlog=args.queue_legacy_backlog)

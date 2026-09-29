@@ -11,7 +11,7 @@ const gsLater = () => { try { return JSON.parse(sessionStorage.getItem(GS_LATER_
 const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.stringify([...new Set([...gsLater(), section])])); } catch { /* the card returns on reload */ } };
 
 const gsCards = {
-  docs: {owner: true, title: 'Where do your docs live?'},
+  docs: {owner: true, title: 'Where do your current docs live?'},
   market: {owner: true, title: 'Tell us about your market'},
   tasks: {title: 'Tasks', text: 'Work you hand to a bot or a person. Every task has an owner and a status, and bots pick theirs up on their own.',
           action: ['Create a task', '#task-new']},
@@ -131,29 +131,23 @@ function gsCard() {
       ${sent ? '' : `<button class="ghost gs-never" type="button" data-gs-dismiss="${section}">Don't show again</button>`}</div></aside>`;
   const market = host.querySelector('[data-gs-market]');
   if (market && GS_ASK?.section === 'market') for (const [name, value] of Object.entries(GS_ASK.answers)) market[name].value = value;
-  const docs = host.querySelector('[data-gs-docs]');
-  if (docs) gsDocsValue(docs);          // the form opens on Google Drive, so its link field is set up now
 }
 
-const GS_DOC_CHOICES = [
-  ['drive', 'Google Drive', 'Link to the folder', 'https://drive.google.com/…'],
-  ['notion', 'Notion', 'Link to the workspace or page', 'https://www.notion.so/…'],
-  ['github', 'A GitHub repository', 'Repository, as owner/name', 'your-org/handbook'],
-  ['website', 'A website', 'Address of the site', 'https://…'],
-  ['upload', 'Files I will upload', '', ''],
-  ['none', 'We do not have docs yet', '', ''],
-];
+// One row per link: the address, and what is in it. Kind is detected from the address (backend/docs.py).
+const gsLinkRow = () => `<div class="gs-link-row" data-gs-link-row>
+    <label class="gs-field"><span>Link</span><input name="url" maxlength="2000" autocomplete="off" inputmode="url" placeholder="https://drive.google.com/drive/folders/…"></label>
+    <label class="gs-field"><span>What is in it? (optional)</span><input name="description" maxlength="300" autocomplete="off" placeholder="Help centre articles"></label>
+    <small class="gs-kind muted" data-gs-kind aria-live="polite"></small></div>`;
 
 function gsDocsForm() {
-  return `<strong>Where do your docs live?</strong>
-    <p>A bot will connect them and index them so Docs can search them.</p>
+  return `<strong>Where do your current docs live?</strong>
+    <p>Paste a link to each place: your help site, a Drive folder, a Notion page, a GitHub repository, anything. Tico keeps the links and never copies what is inside them.</p>
     <form data-gs-docs>
-      <fieldset><legend class="sr-only">Where your docs live</legend>
-        ${GS_DOC_CHOICES.map(([value, label], i) => `<label class="gs-choice"><input type="radio" name="kind" value="${value}"${i ? '' : ' checked'}><span>${esc(label)}</span></label>`).join('')}
-      </fieldset>
-      <label class="gs-field" data-gs-value><span></span><input name="value" maxlength="500" autocomplete="off"></label>
+      <div data-gs-links>${gsLinkRow()}</div>
+      <button class="ghost gs-add" type="button" data-gs-add-link>Add another link</button>
       <p class="err" data-gs-error hidden></p>
-      <div class="gs-card-actions"><button class="primary" type="submit">Connect my docs</button></div>
+      <div class="gs-card-actions"><button class="primary" type="submit">Link my docs</button></div>
+      <p class="gs-alt">No docs yet? <a href="#/docs/new">Write your first internal doc</a>. Files to upload? <a href="#/docs?import=1">Import them</a>.</p>
     </form>`;
 }
 
@@ -180,15 +174,6 @@ function gsMarketAsk() {
     <p class="err" data-gs-error hidden></p>`;
 }
 
-function gsDocsValue(form) {
-  const [, , label, placeholder] = GS_DOC_CHOICES.find(row => row[0] === form.kind.value);
-  const host = form.querySelector('[data-gs-value]');
-  host.hidden = !label;
-  host.querySelector('span').textContent = label;
-  host.querySelector('input').placeholder = placeholder;
-  host.querySelector('input').required = !!label;
-}
-
 function gsFail(form, error) {
   const line = form.querySelector('[data-gs-error]');
   line.textContent = error.message || 'That did not go through.';
@@ -205,12 +190,17 @@ function gsSent(section, html) {
 const gsTaskLink = (id, text) => id ? `<a href="#/task/${esc(id)}">${text}</a>` : '';
 
 async function gsSubmitDocs(form) {
+  const links = [...form.querySelectorAll('[data-gs-link-row]')].map(row => ({
+    url: row.querySelector('[name=url]').value.trim(), description: row.querySelector('[name=description]').value.trim()}))
+    .filter(row => row.url);
+  if (!links.length) return gsFail(form, new Error('Paste at least one link.'));
   form.querySelector('[type=submit]').disabled = true;
   try {
-    const result = await post('/v2/getting-started/docs', {kind: form.kind.value, value: form.value.value.trim()});
-    gsSent('docs', result.task_id
-      ? `Sent to ${esc(botDisplayName(result.bot))} to connect and index them. ${gsTaskLink(result.task_id, 'Open the task')}`
-      : 'Fine for now. Add docs here whenever you have some.');
+    const result = await post('/v2/getting-started/docs', {links});
+    if (!result.linked.length) return gsFail(form, new Error(result.skipped.map(row => `${row.url}: ${row.reason}`).join(' ')));
+    const skipped = result.skipped.length ? ` ${result.skipped.length} could not be added: ${result.skipped.map(row => esc(row.url)).join(', ')}.` : '';
+    gsSent('docs', `Linked ${result.linked.length} ${result.linked.length === 1 ? 'doc' : 'docs'}. <a href="#/docs">Open Docs</a>.${skipped}`);
+    window.dispatchEvent(new Event('tico-docs-changed'));
   } catch (error) { gsFail(form, error); }
 }
 
@@ -461,6 +451,8 @@ document.addEventListener('click', event => {
   if (dismiss) { void gsState({card: dismiss.dataset.gsDismiss}); return; }
   const run = t.closest('[data-gs-run]');
   if (run) { gsWhenReady(run.dataset.gsRun); return; }
+  const addLink = t.closest('[data-gs-add-link]');
+  if (addLink) { const host = addLink.closest('form').querySelector('[data-gs-links]'); host.insertAdjacentHTML('beforeend', gsLinkRow()); host.lastElementChild.querySelector('input').focus(); return; }
   if (t.closest('[data-gs-build]')) { gsBotForm(); return; }
   if (t.closest('[data-gs-connect]')) { connectAgent(); return; }
   if (t.closest('[data-gs-tour]')) { gsTourStart(); return; }
@@ -474,9 +466,25 @@ document.addEventListener('click', event => {
     if (location.hash === link.getAttribute('href')) route(); else location.hash = link.getAttribute('href');
   }
 });
-document.addEventListener('change', event => {
-  const form = event.target.closest('[data-gs-docs]');
-  if (form) gsDocsValue(form);
+// The docs card: a detected kind under each link, more rows on request, and a pasted list of links spread over rows.
+document.addEventListener('input', event => {
+  const row = event.target.closest('[data-gs-link-row]');
+  if (!row || event.target.name !== 'url') return;
+  const kind = window.DocsSearch?.kindOf(event.target.value);
+  row.querySelector('[data-gs-kind]').textContent = kind ? `Filed as ${DocsSearch.kind(kind).label}` : '';
+});
+document.addEventListener('paste', event => {
+  const row = event.target.closest?.('[data-gs-link-row]');
+  const lines = (event.clipboardData?.getData('text') || '').split(/\s*\n\s*/).map(l => l.trim()).filter(Boolean);
+  if (!row || event.target.name !== 'url' || lines.length < 2) return;
+  event.preventDefault();
+  const host = row.parentElement;
+  lines.slice(0, 20).forEach((line, i) => {
+    let target = [...host.querySelectorAll('[data-gs-link-row]')][[...host.children].indexOf(row) + i];
+    if (!target) { host.insertAdjacentHTML('beforeend', gsLinkRow()); target = host.lastElementChild; }
+    target.querySelector('[name=url]').value = line;
+    target.querySelector('[name=url]').dispatchEvent(new Event('input', {bubbles: true}));
+  });
 });
 document.addEventListener('submit', event => {
   const docs = event.target.closest('[data-gs-docs]'), market = event.target.closest('[data-gs-market]');

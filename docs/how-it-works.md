@@ -52,7 +52,7 @@ action items), **Docs**,
 **Integrations**, **Changelog**, the **Org** tree, and under your email **Runs**, **Settings**, **Credentials**
 and, for the owner, **SQL**. Tasks has List, Board, Recurring and Done. A bot's page has **Chat**,
 **Tasks**, **Docs** and **More**. The assistant (Tico, `coo`) and BotOps are built in to every company and cannot be archived or deleted (`409 system_bot`); the assistant
-and Doc Updater work in the background and are not listed for people. Each person has one private **Assistant** chat, the first tab on their own page
+and the Librarian work in the background and are not listed for people. Each person has one private **Assistant** chat, the first tab on their own page
 and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that person, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared
 Tico chat page and no Tico Live; people can also act across the company through their own agent over the hub's
@@ -253,7 +253,7 @@ made or revoked is an `events` row (`token.create`, `token.revoke`).
 |---|---|
 | `backend/` | the cloud API, authorization, write layer, scheduler, backups (FastAPI, SQLite) |
 | `runner/` | the local runner: enrolment, readiness, leases, turns, connectors, Close call import |
-| `clients/` | what bots and the runner call: the `hub` CLI, the HTTP client, attachment download, routine validation, preflight, the company-docs publisher |
+| `clients/` | what bots and the runner call: the `hub` CLI, the HTTP client, attachment download, routine validation, preflight, the docs read and write commands |
 | `connectors/` | shared Slack, mail/calendar and browser adapters bots use instead of vendor APIs |
 | `integrations/` | one page per outside system (what it is, how a bot uses it, rules, recipes) and the query catalogs; served as **Integrations** and `hub integration <service>`, with the learnings bots add |
 | `questions/` | the question sets the decision model answers (`hub_decisions`, `hub decisions`, `mail inbox --decisions`, the meeting brain): one versioned JSON file per decision, with its thresholds |

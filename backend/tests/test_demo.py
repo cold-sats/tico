@@ -59,7 +59,7 @@ def test_the_sample_company_is_rich_and_valid(built):
         needs = read("/api/v2/needs-you")["items"]
         assert {"approval", "task", "declined"} <= {item["kind"] for item in needs}
         assert len(read("/api/meetings")) == 3 and read("/api/meetings")[0]["title"]
-        assert read("/api/company-docs")["documents"]
+        assert read("/api/v2/docs")["docs"] and read("/api/v2/linked-docs")["linked"]
         assert len(read("/api/v2/market/entities")["entities"]) >= 7
         assert read("/api/v2/goals")
         health = read("/api/v2/health")

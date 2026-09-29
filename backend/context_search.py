@@ -59,21 +59,29 @@ def install_context_search(app, store, auth):
             raise Problem("query", "Search needs at least one word", 422)
         found = []
         with store.read() as c:
-            for row in c.execute("SELECT * FROM documents ORDER BY id"):
-                is_market = row["collection"] == "market"
-                if source != "all" and is_market != (source == "market"):
-                    continue
-                if not documents.visible(who, row):
-                    continue
-                doc = json.loads(row["payload_json"])
-                title, content = doc.get("title", ""), doc.get("content", "")
-                body = "\n".join((content, str(doc.get("search", ""))))
-                if all(word in (title + " " + body).casefold() for word in words):
-                    found.append({"kind": "document", "id": row["id"], "title": title,
-                                  "collection": row["collection"], "updated": row["updated"],
-                                  "url": doc.get("url") or ("#/market?note=" if is_market else "#/docs/") + quote(row["id"], safe=""),
-                                  "excerpt": excerpt(body, words),
-                                  "score": sum(10 if w in title.casefold() else 1 for w in words)})
+            if source in ("all", "docs"):
+                # The company's own docs: internal ones (written or imported in Tico) and linked ones.
+                for hit in app.state.docs.find(c, q, limit):
+                    if hit["type"] == "internal":
+                        found.append({"kind": "document", "id": hit["id"], "title": hit["title"], "collection": "docs",
+                                      "path": hit["path"], "url": "#/docs/" + quote(hit["id"], safe=""),
+                                      "excerpt": hit["excerpt"], "score": hit["score"]})
+                    else:
+                        found.append({"kind": "linked_doc", "id": hit["id"], "title": hit["title"], "collection": "docs",
+                                      "url": hit["url"], "excerpt": hit["description"], "score": hit["score"]})
+            if source in ("all", "market"):
+                for row in c.execute("SELECT * FROM documents WHERE collection='market' ORDER BY id"):
+                    if not documents.visible(who, row):
+                        continue
+                    doc = json.loads(row["payload_json"])
+                    title, content = doc.get("title", ""), doc.get("content", "")
+                    body = "\n".join((content, str(doc.get("search", ""))))
+                    if all(word in (title + " " + body).casefold() for word in words):
+                        found.append({"kind": "document", "id": row["id"], "title": title,
+                                      "collection": row["collection"], "updated": row["updated"],
+                                      "url": doc.get("url") or "#/market?note=" + quote(row["id"], safe=""),
+                                      "excerpt": excerpt(body, words),
+                                      "score": sum(10 if w in title.casefold() else 1 for w in words)})
             if source in ("all", "market"):
                 matches = market.find(c, q, limit=limit)
                 for kind, rows in (("market_entity", matches["entities"]), ("market_evidence", matches["evidence"])):
@@ -88,6 +96,12 @@ def install_context_search(app, store, auth):
     @app.get("/api/v2/context/document")
     def document(request: Request, id: str = Query(min_length=1, max_length=200)):
         with store.read() as c:
+            auth.domain(request.state.identity)
+            row = c.execute("SELECT * FROM docs WHERE archived=0 AND (id=? OR path=? COLLATE NOCASE)", (id, id)).fetchone()
+            if row:
+                return {"id": row["id"], "title": row["title"], "content": row["body"], "path": row["path"],
+                        "collection": "docs", "category": "Internal / " + (row["path"].rpartition("/")[0] or "Docs"),
+                        "url": "#/docs/" + quote(row["id"], safe=""), "version": row["version"], "updated": row["updated"]}
             return documents.document(c, auth, request.state.identity, id)
 
     # `recordings` is the old name of both routes; installed CLIs and MCP clients still call it.

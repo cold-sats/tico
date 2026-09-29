@@ -112,4 +112,15 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("getNeedsYou", "get", "/api/v2/needs-you", params={"count": "true"})
     call("searchMeetings", "get", "/api/v2/meetings/search")
     call("searchDocs", "get", "/api/v2/context/search", params={"q": "plan"})
+    doc = call("createInternalDoc", "post", "/api/v2/docs", json={"title": "Refund policy", "body": "Refund in 30 days."})["doc"]
+    call("listInternalDocs", "get", "/api/v2/docs")
+    call("getInternalDoc", "get", "/api/v2/docs/" + doc["id"])
+    call("updateInternalDoc", "patch", "/api/v2/docs/" + doc["id"], json={"version": 1, "body": "Refund in 14 days."})
+    call("listInternalDocVersions", "get", "/api/v2/docs/%s/versions" % doc["id"])
+    call("getInternalDocVersion", "get", "/api/v2/docs/%s/versions/1" % doc["id"])
+    call("restoreInternalDoc", "post", "/api/v2/docs/%s/restore" % doc["id"], json={"version": 1})
+    link = call("addLinkedDoc", "post", "/api/v2/linked-docs", json={"url": "https://help.acme.example/refunds"})["linked"]
+    call("listLinkedDocs", "get", "/api/v2/linked-docs")
+    call("updateLinkedDoc", "patch", "/api/v2/linked-docs/" + link["id"], json={"description": "Public refunds page"})
+    call("searchInternalAndLinkedDocs", "get", "/api/v2/docs/search", params={"q": "refund"})
     call("getHealth", "get", "/api/v2/health")
