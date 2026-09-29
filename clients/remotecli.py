@@ -35,6 +35,9 @@ def run(args, who=None):
         if args.fn == "meetings import":
             return hubtools.meetings_import_file(client, fields)
         return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
+    if args.fn == "docs ask":           # `docs fetch` never gets here: it runs locally (clients/hubcli.py)
+        from clients import docs_ask
+        return docs_ask.ask(client, args.question, args.wait, key=os.environ.get("HUB_OPERATION_ID"))
     if args.cmd == "grokbot":
         from clients import hubtools
         body = json.loads(Path(args.file).read_text())

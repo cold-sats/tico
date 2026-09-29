@@ -44,8 +44,10 @@ def _s(description, **extra):
     return {"type": "string", "description": description, **extra}
 
 
-def tool(name, description, properties, required=(), *, writes=False):
-    """Register one tool; the decorated function is `fn(api, args) -> result`."""
+def tool(name, description, properties, required=(), *, writes=False, local=False):
+    """Register one tool; the decorated function is `fn(api, args) -> result`. A `local` tool runs on the
+    computer that runs the bot and is served only by the local MCP server (`clients/hubmcp.py`), never by
+    the Tico server's own endpoint (backend/mcp.py): it reaches out to the internet, and the server must not."""
     schema = {"type": "object", "properties": dict(properties), "additionalProperties": False}
     if required:
         schema["required"] = list(required)
@@ -55,7 +57,7 @@ def tool(name, description, properties, required=(), *, writes=False):
 
     def register(fn):
         TOOLS.append({"name": name, "description": description, "inputSchema": schema,
-                      "writes": writes, "fn": fn})
+                      "writes": writes, "local": local, "fn": fn})
         return fn
     return register
 
@@ -1261,6 +1263,34 @@ def batch_abandon(api, args):
     return api.post("batch/" + args["batch"] + "/abandon", {}, key=_key(args))
 
 
+# ----------------------------------------------------------------------------- the Librarian (docs/librarian.md)
+@tool("hub_docs_ask", "Ask the Librarian a question about the company's docs and wait for its answer. Returns "
+      "`answer` (short, answer first), `citations` ([{type: internal|linked, title, url_or_id}]) and `covered` "
+      "(false when the docs do not say). Use it before you tell anyone the company has no answer.",
+      {"question": _s("The question, in a full sentence"),
+       "wait_s": {"type": "integer", "minimum": 0, "maximum": ASK_WAIT_MAX, "default": 120,
+                  "description": "How long to wait for the answer, in seconds"}},
+      required=("question",), writes=True)
+def docs_ask(api, args):
+    from clients import docs_ask as D
+    return D.ask(api, args["question"], args.get("wait_s", 120), key=_key(args))
+
+
+@tool("hub_docs_fetch", "Read one public web page, Google Doc, public Drive folder, GitHub repository or sitemap "
+      "link from a linked doc, as text with its links. Runs on this computer, http and https only, public addresses "
+      "only, at most 5 MB. Returns {url, final_url, title, text, links, truncated}.",
+      {"url": _s("The address to read"),
+       "max_chars": {"type": "integer", "minimum": 500, "maximum": 200000, "default": 30000,
+                     "description": "Cut the text after this many characters"}},
+      required=("url",), local=True)
+def docs_fetch(api, args):
+    from clients import doc_fetch
+    try:
+        return doc_fetch.fetch(args["url"], args.get("max_chars") or doc_fetch.DEFAULT_MAX_CHARS)
+    except doc_fetch.FetchError as exc:
+        return {"error": exc.code, "detail": exc.message, "retryable": exc.code in ("timeout", "network", "dns")}
+
+
 # `hub` commands with no tool: they write the Mac's own workspace (`clients/catalog.py`), which
 # the hub cannot reach, so BotOps runs them in a shell. Everything else is in both doors.
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
@@ -1279,10 +1309,10 @@ def query_search(queries, term):
     return [q for q in queries if all(w in text(q) for w in words)]
 
 
-def listing():
-    """`tools/list` payload: the public fields of every tool."""
+def listing(local=False):
+    """`tools/list` payload: the public fields of every tool this server may offer."""
     return [{"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}
-            for t in TOOLS]
+            for t in TOOLS if local or not t.get("local")]
 
 
 def error_payload(exc):
@@ -1301,8 +1331,8 @@ class Protocol:
     is a bug and surfaces as a JSON-RPC error.
     """
 
-    def __init__(self, api, api_error=Exception):
-        self.api, self.api_error = api, api_error
+    def __init__(self, api, api_error=Exception, local=False):
+        self.api, self.api_error, self.local = api, api_error, local
 
     def handle(self, message):
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
@@ -1321,7 +1351,7 @@ class Protocol:
         if method == "ping":
             return self._result(rid, {})
         if method == "tools/list":
-            return self._result(rid, {"tools": listing()})
+            return self._result(rid, {"tools": listing(self.local)})
         if method == "tools/call":
             return self._call(rid, params)
         return self._error(rid, -32601, f"Method not found: {method}")
@@ -1329,7 +1359,7 @@ class Protocol:
     def _call(self, rid, params):
         name, args = params.get("name"), params.get("arguments") or {}
         entry = BY_NAME.get(name)
-        if not entry:
+        if not entry or (entry.get("local") and not self.local):
             return self._error(rid, -32602, f"Unknown tool: {name}")
         if not isinstance(args, dict):
             return self._error(rid, -32602, "arguments must be an object")

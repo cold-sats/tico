@@ -27,7 +27,7 @@ def main(stdin=None, stdout=None):
               file=sys.stderr)
         return 1
     # An ask may wait up to 300 s on the server side of one poll; leave room for that.
-    protocol = hubtools.Protocol(Client(url, token, timeout=30), api_error=APIError)
+    protocol = hubtools.Protocol(Client(url, token, timeout=30), api_error=APIError, local=True)
     for line in stdin:
         line = line.strip()
         if not line:

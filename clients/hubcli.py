@@ -105,6 +105,9 @@ the server (`backend/hubdb.py`), never here.
                                            ask the decision model typed questions about a state (questions/README.md);
                                            --questions-file q.json instead of --set; --list shows the sets
                                            (`hub judge` is the old name and still works)
+    hub docs ask "<question>" [--wait 120] ask the Librarian about the company's docs: {answer, citations, covered}
+    hub docs fetch <url> [--max-chars N]   read one public link (web page, Google Doc, Drive folder, GitHub repo,
+                                           sitemap) as text; runs on this computer, public addresses only
     hub catalog                            the bot templates this company can pick from
     hub bot create <slug> --template T [--name "Display"]
                                            set a chosen bot up in the workspace (BotOps only)
@@ -797,6 +800,16 @@ def parser():
     s.set_defaults(fn="decisions")
 
     # Onboarding: the person picks bots, BotOps sets each one up from the catalog in a turn.
+    # The Librarian (docs/librarian.md): ask a question, and read a linked doc on this computer.
+    docs = sub.add_parser("docs", help="ask the Librarian, and read a linked doc").add_subparsers(dest="sub")
+    s = docs.add_parser("ask", help="ask the Librarian about the company's docs and wait for the answer")
+    s.add_argument("question")
+    s.add_argument("--wait", type=float, default=120, help="seconds to wait for the answer (default 120)")
+    s.set_defaults(fn="docs ask")
+    s = docs.add_parser("fetch", help="read a public link as text; runs on this computer, never on the server")
+    s.add_argument("url")
+    s.add_argument("--max-chars", dest="max_chars", type=int, default=30000)
+    s.set_defaults(fn="docs fetch")
     sub.add_parser("catalog", help="the bot templates this company can pick from").set_defaults(fn="catalog")
     bot = sub.add_parser("bot", help="set a chosen bot up from the catalog (BotOps)").add_subparsers(dest="sub")
     s = bot.add_parser("create", help="materialize <slug> from a catalog template into the workspace")
@@ -867,6 +880,14 @@ def main(argv):
             from clients import judge
             print(json.dumps(judge.list_sets(), indent=2))
             return 0
+        if args.fn == "docs fetch":                 # runs here, beside the bot: no hub, no credential
+            from clients import doc_fetch
+            try:
+                print(json.dumps(doc_fetch.fetch(args.url, args.max_chars), indent=2))
+                return 0
+            except doc_fetch.FetchError as e:
+                print(json.dumps({"error": e.code, "detail": e.message}, indent=2))
+                return 1
         if not os.environ.get("HUB_API_URL"):
             local = args.fn in READ_OUTSIDE_A_TURN
             credential = runner_credential(os.environ.get("HUB_RUNNER_CONFIG")) if local else None
