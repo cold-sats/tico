@@ -128,6 +128,21 @@ Automatic rollback covers a release that does not come up. To go back by choice:
   back to the server's release.
 - **Docker runner:** set `TICO_TAG=vX.Y.Z` and `TICO_RUNNER_PINNED=1` in `.env`, then `docker compose -f runner.compose.yaml up -d`.
 
+## Coming from an older version
+
+- **v0.2.5 or older:** the updaters of these versions cannot replace themselves or install new configuration files, so
+  run the release's install command once more on each machine (server, then each runner box). From then on, Update
+  in the app does everything.
+- **v0.2.6 to v0.2.8:** Update in the app to v0.2.9 or later. An updater that replaced itself in these versions stopped
+  pulling images, so a Linux runner box may then show "No such image" under Settings > Health and stay on its old
+  version. Run this once in its directory (`/opt/tico-runner`):
+
+  ```
+  docker compose -f runner.compose.yaml up -d --no-deps --force-recreate updater
+  ```
+
+  Its next update follows the server as usual. The server's updater repairs itself when the server updates.
+
 ## For maintainers
 
 Bump `MIN_RUNNER_RELEASE` in the release that changes the runner/server contract, and say so in the changelog.

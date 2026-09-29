@@ -509,7 +509,7 @@ def token_hash(token):
 
 
 # ----------------------------------------------------------------------------- connection
-def connect(path=None):
+def connect(path=None, adopt_legacy=False):
     """Open (and if need be create) hub.db. WAL, foreign keys on, migrations applied.
 
     Precedence: the `path` argument, then `$HUB_DB`, then `<projects>/runtime/hub.db`.
@@ -525,16 +525,76 @@ def connect(path=None):
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA synchronous=NORMAL")
-    migrate(conn)
+    try:
+        migrate(conn, adopt_legacy=adopt_legacy)
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
-def migrate(conn):
-    """Apply every migration the file has not seen, by `PRAGMA user_version`."""
+class UnknownDatabase(RuntimeError):
+    """The file has Tico's tables but no version record: not a database this code made."""
+
+
+def add_column(conn, table, column, declaration):
+    """ALTER TABLE ... ADD COLUMN unless the column is there: SQLite has no IF NOT EXISTS for it."""
+    if column not in {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
+ADD_COLUMN = re.compile(r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\s+([^;]+);", re.I)
+
+
+def _statements(script):
+    """The complete statements of a script (a trigger body keeps its inner semicolons)."""
+    buffer = ""
+    for line in script.splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            yield buffer.strip()
+            buffer = ""
+    if buffer.strip():
+        yield buffer.strip()
+
+
+def _apply(conn, script):
+    for statement in _statements(script):
+        match = ADD_COLUMN.fullmatch(statement)
+        if match:
+            add_column(conn, *match.groups())
+        else:
+            conn.execute(statement)
+
+
+def _refuse_foreign(conn):
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if tables & {"bots", "tasks", "messages"} and "cloud_migrations" not in tables:
+        raise UnknownDatabase(
+            "This database file has Tico-like tables but no version record (user_version 0, no "
+            "cloud_migrations table), so it is not one this Tico made. Refusing to start: point "
+            "TICO_DB at an empty path or a Tico database, or restore a snapshot.")
+
+
+def migrate(conn, adopt_legacy=False):
+    """Apply every migration the file has not seen, by `PRAGMA user_version`.
+
+    Each migration is one transaction with its version bump, so a failure leaves the file at
+    the version it had; every statement is also safe to run twice (IF NOT EXISTS, guarded
+    ADD COLUMN), so a file that has the change but an older version simply catches up.
+    `adopt_legacy` is for `manage.migrate_legacy`, whose source has no version record."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == 0 and not adopt_legacy:
+        _refuse_foreign(conn)
     for i in range(version, len(MIGRATIONS)):
-        conn.executescript(MIGRATIONS[i])
-        conn.execute(f"PRAGMA user_version={i + 1}")
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            _apply(conn, MIGRATIONS[i])
+            conn.execute(f"PRAGMA user_version={i + 1}")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
     # Cloud added explicit room scopes after the original local schema. Keep old local
     # databases usable without relying on SQLite's unsupported ADD COLUMN IF NOT EXISTS.
     columns = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}

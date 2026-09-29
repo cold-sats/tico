@@ -483,9 +483,9 @@ class Store:
         c.execute("PRAGMA synchronous=FULL")
         return c
 
-    def initialize(self, *, seed_market=True):
+    def initialize(self, *, seed_market=True, adopt_legacy=False):
         self.settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with H.connect(self.settings.db_path) as c:
+        with H.connect(self.settings.db_path, adopt_legacy=adopt_legacy) as c:
             c.executescript(SCHEMA)
             from . import updates as _updates
             c.executescript(_updates.SCHEMA)
@@ -498,8 +498,8 @@ class Store:
             c.execute("BEGIN IMMEDIATE")
             try:
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=1").fetchone():
-                    c.execute("ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
-                    c.execute("ALTER TABLE tasks ADD COLUMN acceptance_json TEXT NOT NULL DEFAULT '[]'")
+                    H.add_column(c, "tasks", "version", "INTEGER NOT NULL DEFAULT 1")
+                    H.add_column(c, "tasks", "acceptance_json", "TEXT NOT NULL DEFAULT '[]'")
                     c.execute("INSERT INTO cloud_migrations VALUES(1,?)", (H.now(),))
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=2").fetchone():
                     columns = {row[1] for row in c.execute("PRAGMA table_info(bot_config)")}
@@ -727,8 +727,13 @@ class Store:
                     # The repository manifest, its Git sync and the per-version snapshots that
                     # tracked it are gone; the rows, their settings and their occurrence history
                     # stay. A row the manifest had deleted stays deleted.
+                    # Whatever they hold is copied to `<table>_retired` first, so a start on a
+                    # new tag with no updater snapshot loses nothing.
                     for table in ("routine_tasks", "routine_versions", "routine_sources", "routine_deliveries"):
-                        c.execute(f"DROP TABLE IF EXISTS {table}")
+                        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                            if c.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+                                c.execute(f"CREATE TABLE IF NOT EXISTS {table}_retired AS SELECT * FROM {table}")
+                            c.execute(f"DROP TABLE {table}")
                     columns = {row[1] for row in c.execute("PRAGMA table_info(schedules)")}
                     if {"source", "deleted_at"} <= columns:
                         c.execute("UPDATE schedules SET source='hub' WHERE deleted_at IS NULL")

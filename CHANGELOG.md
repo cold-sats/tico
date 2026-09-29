@@ -42,7 +42,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ### Fixed
 - Rolling back a failed server update no longer leaves Litestream able to upload the migrated database as the newest copy: the snapshot is written to a temporary file and swapped in only once complete, and Litestream's tracking directory is cleared before the old image starts. Rolling back by choice ([updates](docs/updates.md#rolling-back)) uses the same steps.
-
+- Starting on a database that already had part of a schema change (a column added but the version not recorded) failed
+  on every boot. Each schema change now runs in one transaction with its version bump and is safe to run twice.
+- A database file that has Tico's tables but no version record is refused with a clear message instead of being
+  migrated blind. An empty file still starts.
+- The one-time removal of the old routine-manifest tables keeps what they held in `routine_*_retired` tables.
 
 ### Security
 - Files auto-publish and `hub files publish` refuse a regular file with more than one hard link, so a bot cannot hard-link a
