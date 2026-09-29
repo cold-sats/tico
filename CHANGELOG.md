@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-09-29
+
 ### Added
 - **Assistant**: every person has one private chat with the company's assistant, a personal operator that knows how Tico is
   organised and acts on their behalf (docs/assistant.md). An **Assistant** tab first on your own person page, and "Ask the
@@ -390,7 +392,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/ticoteam/tico/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/ticoteam/tico/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/ticoteam/tico/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/ticoteam/tico/compare/v0.2.6...v0.2.7
