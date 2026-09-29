@@ -7,6 +7,32 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
+  computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
+  inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
+  operator allows it (`POST /api/v2/runners/{id}/inbox-sharing`). Onboarding leaves such a bot unplaced rather than failing.
+  Settings > Health warns about installs that already mix them; nothing running is moved.
+- On a Docker runner with the two-user layout, the Google Workspace mail key no longer sits in `workspace/secrets`, where any
+  bot could read it. The runner moves it (once, on its own) to its state directory, closed to bots, and an inbox bot's turn asks
+  the runner over the credential socket for a one-hour token for its own person's mailbox (and the people below them). Any other
+  bot, or another mailbox, is refused. A Mac, or Docker started the old way, keeps reading the key file, and Settings > Health
+  warns ("Mail key") that bots there can read it. See docs/mail.md, "Who can read the key".
+
+### Fixed
+- Rolling back a failed server update no longer leaves Litestream able to upload the migrated database as the newest copy: the snapshot is written to a temporary file and swapped in only once complete, and Litestream's tracking directory is cleared before the old image starts. Rolling back by choice ([updates](docs/updates.md#rolling-back)) uses the same steps.
+- Starting on a database that already had part of a schema change (a column added but the version not recorded) failed
+  on every boot. Each schema change now runs in one transaction with its version bump and is safe to run twice.
+- A database file that has Tico's tables but no version record is refused with a clear message instead of being
+  migrated blind. An empty file still starts.
+- The one-time removal of the old routine-manifest tables keeps what they held in `routine_*_retired` tables.
+- Idle runners no longer keep the database's write lock busy. Each runner asked for work four times a second and every ask
+  was a write transaction, so a fleet of 8 to 12 idle runners made 32 to 48 writes a second and starved the scheduler,
+  backups and lease renewals. The server now checks with a read and writes only when there is something to do, and an idle
+  runner backs off from 0.25 s to 2 s between asks. The API's database wait is 30 s, as the scheduler's already was.
+- Due reminders and the three-day auto-close stopped for every task past the first 500: they read a capped task listing. They
+  now query exactly the tasks they need.
+
 ## [0.2.10] - 2026-09-29
 
 ### Added
@@ -41,30 +67,6 @@ All notable changes to Tico are recorded here. The format follows
   server exposes then. The bare `docker run` sample follows the release placeholder, the shared secrets file is described as
   readable by every bot on the computer, the removed VM path is gone, the Files page states who removes a file and that the
   owner sees direct chats (not personal Assistant rooms), and sizing says only a small pilot was measured.
-- An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
-  computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
-  inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
-  operator allows it (`POST /api/v2/runners/{id}/inbox-sharing`). Onboarding leaves such a bot unplaced rather than failing.
-  Settings > Health warns about installs that already mix them; nothing running is moved.
-- On a Docker runner with the two-user layout, the Google Workspace mail key no longer sits in `workspace/secrets`, where any
-  bot could read it. The runner moves it (once, on its own) to its state directory, closed to bots, and an inbox bot's turn asks
-  the runner over the credential socket for a one-hour token for its own person's mailbox (and the people below them). Any other
-  bot, or another mailbox, is refused. A Mac, or Docker started the old way, keeps reading the key file, and Settings > Health
-  warns ("Mail key") that bots there can read it. See docs/mail.md, "Who can read the key".
-
-### Fixed
-- Rolling back a failed server update no longer leaves Litestream able to upload the migrated database as the newest copy: the snapshot is written to a temporary file and swapped in only once complete, and Litestream's tracking directory is cleared before the old image starts. Rolling back by choice ([updates](docs/updates.md#rolling-back)) uses the same steps.
-- Starting on a database that already had part of a schema change (a column added but the version not recorded) failed
-  on every boot. Each schema change now runs in one transaction with its version bump and is safe to run twice.
-- A database file that has Tico's tables but no version record is refused with a clear message instead of being
-  migrated blind. An empty file still starts.
-- The one-time removal of the old routine-manifest tables keeps what they held in `routine_*_retired` tables.
-- Idle runners no longer keep the database's write lock busy. Each runner asked for work four times a second and every ask
-  was a write transaction, so a fleet of 8 to 12 idle runners made 32 to 48 writes a second and starved the scheduler,
-  backups and lease renewals. The server now checks with a read and writes only when there is something to do, and an idle
-  runner backs off from 0.25 s to 2 s between asks. The API's database wait is 30 s, as the scheduler's already was.
-- Due reminders and the three-day auto-close stopped for every task past the first 500: they read a capped task listing. They
-  now query exactly the tasks they need.
 
 ### Security
 - Files auto-publish and `hub files publish` refuse a regular file with more than one hard link, so a bot cannot hard-link a
