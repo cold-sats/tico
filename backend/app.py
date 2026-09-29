@@ -225,7 +225,11 @@ def create_app(settings=None):
                 catalog = (request.url.path == "/api/v2/documents/catalog"
                            and request.state.identity.role == "bot"
                            and request.state.identity.actor == "bot:doc-updater")
-                limit = 20_000_000 if catalog or upload and request.state.identity.role in ("human", "owner") else 2_000_000
+                # A bot's computer publishes files up to 25 MB as raw bytes (backend/files.py).
+                published = (request.url.path in ("/api/v2/files/uploads", "/api/v2/files/imports")
+                             and request.state.identity.role in ("bot", "runner"))
+                limit = (27_000_000 if published else 20_000_000 if catalog or upload and request.state.identity.role in ("human", "owner")
+                         else 2_000_000)
                 if int(size) > limit:
                     raise Problem("too_large", "Request exceeds the upload limit", 413)
                 # Streaming/chunked requests also have a hard limit. Starlette caches body()

@@ -28,6 +28,7 @@ TAGS = {
     "Updates": "Daily and weekly updates bots post to people.",
     "Needs you": "What is waiting on the signed-in person: questions, tasks, approvals.",
     "Meetings": "Recorded meetings.",
+    "Files": "What a bot creates, revises or delivers, listed on its page (docs/files.md).",
     "Docs": "Company documents and search.",
     "Health": "Whether the installation is working.",
 }
@@ -88,6 +89,21 @@ STABLE = [
     ("/api/v2/approvals/{aid}", "post", "Needs you", "decideApproval", "Approve or reject", None),
     ("/api/v2/meetings/search", "get", "Meetings", "searchMeetings", "Search or list recorded meetings", "MeetingSearch"),
     ("/api/v2/meetings/transcript", "get", "Meetings", "getMeetingTranscript", "A meeting's transcript", None),
+    ("/api/v2/bots/{bot}/files", "get", "Files", "listBotFiles",
+     "A bot's files the caller may see, newest activity first, with the visible total; limit and cursor page", "BotFileList"),
+    ("/api/v2/files/uploads", "post", "Files", "uploadBotFile",
+     "A bot (or its computer) publishes a file: raw bytes with the fields in the query, or JSON text/content_base64", "BotFileResult"),
+    ("/api/v2/files/links", "post", "Files", "addFileLink",
+     "Register or touch an https document (Google, Notion, Figma, any site); Tico keeps the address only", "BotFileResult"),
+    ("/api/v2/files/imports", "post", "Files", "importFile",
+     "Bytes the bot's computer copied from an S3 object; a changed etag is a new version", "BotFileResult"),
+    ("/api/v2/files/{fid}", "patch", "Files", "editBotFile",
+     "Change a file's title or task, remove it from the list (archive) or promote it bot-wide (owner and bot administrators)",
+     "BotFileResult"),
+    ("/api/v2/files/{fid}/activity", "get", "Files", "listFileActivity", "A file's append-only activity, newest first", "FileActivity"),
+    ("/api/v2/files/{fid}/versions", "get", "Files", "listFileVersions", "A file's versions, newest first", "FileVersions"),
+    ("/api/v2/files/{fid}/versions/{number}", "get", "Files", "getFileVersion",
+     "The bytes of one version (a download, never a storage address)", None),
     ("/api/v2/context/search", "get", "Docs", "searchDocs", "Search company documents", "DocSearch"),
     ("/api/v2/context/document", "get", "Docs", "getDocument", "One document", None),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
@@ -169,6 +185,21 @@ SCHEMAS = {
     "MeetingSearch": obj({"results": "a", "next_offset": {"type": ["integer", "null"]}, "mode": "s"}),
     "DocSearch": obj({"query": "s", "results": "a", "has_more": "b", "mode": "s"}),
     "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"}),
+    "BotFile": obj({"id": "s", "bot": "s", "title": "s", "kind": "s", "mime": "s", "locator": "s", "scope": "s",
+                    "version": "i", "state": "s", "synced": "b", "size": {"type": ["integer", "null"]},
+                    "name": "n", "open": {"type": ["object", "null"], "description": "{type: tico|external, url}: "
+                                          "a Tico route, or the provider's address; null when nothing can be opened"},
+                    "provider": "s", "provider_label": "s", "note": "s", "source": "s", "task_id": "n", "task_title": "n",
+                    "working": "b", "github_url": "n", "actor": "n", "action": "n", "first_activity_at": "s",
+                    "last_activity_at": "s", "archived": "b"},
+                   required=["id", "bot", "title", "kind", "locator", "scope", "version", "state", "synced", "open",
+                             "working", "last_activity_at"]),
+    "BotFileList": obj({"bot": "s", "files": items(ref("BotFile")), "total": "i", "next_cursor": "n", "has_more": "b",
+                        "can_manage": "b"}, required=["bot", "files", "total", "next_cursor", "has_more", "can_manage"],
+                       actors=ACTORS),
+    "BotFileResult": obj({"file": "o", "created": "b"}, required=["file"]),
+    "FileActivity": obj({"file": "s", "activity": "a"}, actors=ACTORS),
+    "FileVersions": obj({"file": "s", "versions": "a"}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),
 }
@@ -225,6 +256,9 @@ def spec(app):
                       else "`event: snapshot`, `event: expired`, and `: keepalive` comments")
             responses["200"] = {"description": "text/event-stream: " + events + ". Ends after about a minute; reconnect.",
                                 "content": {"text/event-stream": {"schema": {"type": "string"}}}}
+        if path.endswith("/versions/{number}"):
+            responses["200"] = {"description": "The file's bytes (application/octet-stream, sent as an attachment)",
+                                "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
         if path == "/auth/login":
             responses = {"302": {"description": "Redirect to the identity provider"},
                          "400": {"description": "next is not an allowed origin, or code_challenge is missing"}}
@@ -239,7 +273,7 @@ def spec(app):
         if path in ("/healthz", "/auth/login"):
             op["security"] = []
         op["responses"] = dict(sorted(responses.items()))
-        if method == "post" and path.startswith("/api/v2/"):
+        if method in ("post", "patch") and path.startswith("/api/v2/"):
             op.setdefault("parameters", []).append({
                 "name": "Idempotency-Key", "in": "header", "required": True, "schema": {"type": "string"},
                 "description": "1-200 characters. Reusing a key with the same body replays the first answer."})

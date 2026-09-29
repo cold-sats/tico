@@ -19,6 +19,7 @@ from . import meetings as MS
 from . import models as M
 from . import note_outcomes
 from .blobs import Blobs, brief, register
+from .files import is_file_id
 from . import rooms
 from .store import H, P, Problem, encode
 from .views import default_bot, human_only, may_hand_work, roster
@@ -316,6 +317,9 @@ def install_media(app, store, auth, mutate, send_message, task_create):
     blobs = Blobs(store.settings)
     app.state.blobs = blobs
 
+    from .files import install_files
+    files = install_files(app, store, auth, blobs, mutate)
+
     def write(request, body, uploads, fn):
         human_only(request.state.identity)
         return write_upload(store, request, body, uploads, fn)
@@ -378,6 +382,8 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             item = register(c, who, digest, len(data), body.name, content_type)
             c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, item["id"]))
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
+            # What a bot delivers is one of its files, listed on its page; a person's upload is not.
+            files.publish_task_deliverable(c, who, tid, item, digest)
             return {"file": item, "link": store.settings.public_url + item["url"]}
         return mutate(request, body, work)
 
@@ -548,6 +554,8 @@ def install_media(app, store, auth, mutate, send_message, task_create):
     def file_meta(request: Request, bid: str):
         """Name, size and type without the bytes (the viewer decides a
         thumbnail or a type mark from this, not by downloading the file)."""
+        if is_file_id(bid):
+            return files.serve(request.state.identity, bid, meta=True)
         with store.read() as c:
             row = readable_blob(c, request.state.identity, bid)
             return {"id": row["id"], "name": row["name"], "size": row["size"], "content_type": row["content_type"]}
@@ -555,6 +563,8 @@ def install_media(app, store, auth, mutate, send_message, task_create):
     @app.get("/api/v2/files/{bid}")
     def download(request: Request, bid: str):
         who = request.state.identity
+        if is_file_id(bid):
+            return files.serve(who, bid)
         with store.read() as c:
             row = readable_blob(c, who, bid)
             data = blobs.get(row["digest"])

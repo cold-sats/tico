@@ -16,7 +16,7 @@ LOOPBACK = ("localhost", "127.0.0.1", "[::1]")
 ORIGIN = re.compile(r"(https?)://([a-z0-9]([a-z0-9.-]*[a-z0-9])?|\[::1\])(:[0-9]{1,5})?")
 # Idempotency-Key is required on every write; Last-Event-ID lets a client resume a stream.
 HEADERS = ["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"]
-METHODS = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+METHODS = ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
 EXPOSED = ["Server-Timing"]
 
 
