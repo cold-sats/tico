@@ -864,6 +864,249 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/tools": {
+      "get": {
+        "summary": "The tools a bot uses, for the row at the top of its page: its model and harness, its repository and each declared `access:` entry, with its status; names and verbs, never a secret",
+        "operationId": "listBotTools",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotTools"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      },
+      "post": {
+        "summary": "Register a tool for a bot you manage: validated, kept as a pending request and handed to BotOps as a task with the exact `access:` entry. Never a credential: `env` is a variable's name",
+        "operationId": "registerBotTool",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolRegister"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotToolRegistered"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/tools/{tool_id}": {
+      "delete": {
+        "summary": "Ask BotOps to remove a declared tool, or withdraw a pending request (bot managers)",
+        "operationId": "removeBotTool",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "tool_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotToolRemoval"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/tools/{tool_id}/delete": {
+      "post": {
+        "summary": "The same as DELETE, for clients that only send GET and POST",
+        "operationId": "removeBotToolPost",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "tool_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotToolRemoval"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/updates": {
       "get": {
         "summary": "A bot's daily and weekly update settings",
@@ -5293,6 +5536,172 @@
           "$ref": "#/components/schemas/Bot"
         }
       },
+      "BotTool": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "logo_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "identity": {
+            "type": "string"
+          },
+          "can": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "object",
+            "description": "Service-specific fields, a string or a list of strings each: database, channels, project, mailbox, sites, repo, effort ..."
+          },
+          "note": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "problem",
+              "unknown",
+              "pending"
+            ]
+          },
+          "env": {
+            "type": "string",
+            "description": "The environment variable's name, never its value"
+          },
+          "detail": {
+            "type": "string",
+            "description": "One sentence on what the tool is or how it was checked"
+          },
+          "problem": {
+            "type": "string",
+            "description": "Why status is `problem`, in words a person can act on"
+          },
+          "url": {
+            "type": "string",
+            "description": "Where the tool opens, when it has an address (the repository)"
+          },
+          "pending": {
+            "enum": [
+              "add",
+              "remove"
+            ],
+            "description": "A request BotOps has not finished: `add` on a tool that is not on the bot yet (status `pending`), `remove` on a declared one being taken out"
+          },
+          "task_id": {
+            "type": "string",
+            "description": "The BotOps task carrying the request"
+          }
+        },
+        "required": [
+          "can",
+          "id",
+          "identity",
+          "logo_key",
+          "name",
+          "note",
+          "scope",
+          "service",
+          "status"
+        ],
+        "additionalProperties": true
+      },
+      "BotToolRegistered": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "$ref": "#/components/schemas/BotTool"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "yaml": {
+            "type": "string"
+          },
+          "credentials": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credentials",
+          "task_id",
+          "tool",
+          "yaml"
+        ],
+        "additionalProperties": true
+      },
+      "BotToolRemoval": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "cancelled": {
+            "type": "boolean"
+          },
+          "removal": {
+            "type": "boolean"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": true
+      },
+      "BotTools": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BotTool"
+            }
+          },
+          "computer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "reported_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bot",
+          "computer",
+          "online",
+          "reported_at",
+          "tools"
+        ],
+        "additionalProperties": true
+      },
       "ChatCreate": {
         "properties": {
           "text": {
@@ -7625,6 +8034,57 @@
           "token_type"
         ],
         "additionalProperties": true
+      },
+      "ToolRegister": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Service"
+          },
+          "identity": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Identity",
+            "default": ""
+          },
+          "can": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Can"
+          },
+          "scope": {
+            "additionalProperties": true,
+            "type": "object",
+            "maxProperties": 20,
+            "title": "Scope"
+          },
+          "env": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Env",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "service",
+          "can"
+        ],
+        "title": "ToolRegister",
+        "description": "A tool a person registers for a bot (backend/bot_tools.py). Names and verbs only: `env` is the\nvariable's name, and the server refuses a field that looks like a credential."
       },
       "Unread": {
         "type": "object",

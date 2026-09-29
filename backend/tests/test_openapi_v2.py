@@ -92,6 +92,7 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("getBot", "get", "/api/v2/bots/ops")
     call("listBotRoutines", "get", "/api/v2/bots/ops/routines")
     call("listRecentBots", "get", "/api/v2/me/recent")
+    call("listBotTools", "get", "/api/v2/bots/ops/tools")
     chat = call("chatWithBot", "post", "/api/v2/chat/ops", json={"text": "hello"})
     cid = chat["conversation"]["id"]
     call("listConversations", "get", "/api/v2/conversations")

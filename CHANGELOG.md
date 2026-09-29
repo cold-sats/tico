@@ -8,39 +8,17 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- **Per-bot permissions.** Every bot has three: **See** (the org chart and bot lists: name, role, who runs it, who it reports
-  to), **Read** (its activity: tasks, updates, files, status and run log, routines, shared rooms, its page's activity) and
-  **Write** (messages, chat, asking it, tasks, notes and comments that wake it). Each is Everyone, or chosen people, teams
-  (the org chart's departments) and bots. Set them in Settings > Bots: the **Access** column (which replaces "Can use") shows
-  `See: Everyone · Read: Legal · Write: Everyone`, and its editor has the presets **Open**, **Visible, requests only**
-  (See and Write Everyone, Read chosen) and **Private**, or a custom mix per level. Changes are revisioned and undoable from
-  the settings history. The owner, the bot itself, the people above it on the org chart and bot administrators for their own
-  bots always have full access, and someone who may write without reading still sees their own conversations and tasks with the
-  bot. A bot's page for someone who cannot read it shows its name, role, who runs it and a **Send a request** box, no activity.
-  See docs/permissions.md.
-- The org panel has a person icon beside the clock: on, it shows only the bots you can read or write to. It combines with the
-  Recent sort and is kept with your account.
-- Stable v2: `GET/PUT /api/v2/bots/{bot}/access` (owner, bot administrators and the people the bot reports up to),
-  `GET /api/v2/bots/{bot}` (a bot's profile, and its status, queue and goals for whoever can read it, in place of the internal
-  `/api/employees`) and `GET /api/v2/bots/{bot}/routines`; `GET /api/v2/bots` and `/api/v2/org` return only the bots the caller
-  can see, each with `access: {see, read, write}`, and take `?can=read|write`.
+### Fixed
+- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
+  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
+- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
+  send keeps the text and shows the error.
+- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
+  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
+  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
+- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
+  the existing config poll), a small banner offers Reload. It never reloads by itself.
 
-- **Roles and members.** Company roles are Owner, Admin (the old bot administrators, read from either key for one release) and Member.
-  Members may create bots (up to 5 active each by default, an admin sets it) and add people, and owners and admins switch either off per
-  person in Settings > People. Adding people is on by default for coworkers in the company's email domain (the allowed sign-in domain, else the
-  owner's own unless it is a public mail address); outside it needs an owner or admin. A new person goes on the roster and the sign-in list.
-  Admins manage every bot, people, computers and credentials; only owners make admins.
-- **Bot owners.** A bot's creator and co-owners (and its operator, whoever it reports to and the admins) own it, and one rule now says who may
-  manage a bot. Owners edit its configuration, access, status and routines, archive it and add co-owners (Settings > Bots, **Owned by**;
-  `POST /api/v2/bots/{bot}/co-owners`).
-- **Computers for members' bots.** A computer has **Accepts members' bots** (Settings > Devices). A bot a member created is placed only on one
-  that accepts them (off for existing computers and ones an owner or admin enrols; on for one a member enrols themselves); admins may place it
-  anywhere. Health warns when members' bots share a computer that holds `secrets/_shared.env` keys.
-- **BotOps acts for the person who asked.** `hub bot register`, `hub bot access`, `hub bot owners`, `hub people add` and `hub people list` (and
-  MCP tools), and `hub bot create` registers the bot with the server in a turn a person started: all as that person, checked with their rights,
-  recorded "via BotOps". Adding people, roles, granting add_people, a stored-credential grant and a placement on a closed computer come back as a
-  Confirm card in their chat with BotOps that runs only on their click. New BotOps playbook: build-me-a-bot. Fixes `hub bot set` on a bot with
-  no server record, and adding a colleague no longer needs the owner in Settings.
 
 ### Changed
 - Tico's icon and wordmark now match tico.team; the old robot icon is gone. The favicon, app icon (web, desktop, macOS menu bar, Slack) and the assistant's avatar use the new mark, the first-run setup and sign-in pages show the wordmark (reversed in dark mode, replaced by the app's name when a company has named its app), and the installed web app gains a maskable icon. `scripts/build-brand-icons.sh` regenerates every image from the SVGs in `ui/assets/tico/`.

@@ -130,7 +130,8 @@ def machine(c, bot):
     # Online is contact; awake is contact that has lasted. A machine waking for a few seconds
     # is online and takes no work, so say which of the two a queued request is waiting for.
     awake = online and Execution.awake(row["awake_since"], now)
-    detail = bot_readiness(row["readiness_json"], bot)
+    # The declared access has its own route, behind the bot's visibility (backend/bot_tools.py).
+    detail = {k: v for k, v in bot_readiness(row["readiness_json"], bot).items() if k != "tools"}
     return {"online": online, "awake": awake, "ready": online and detail.get("ready") is True,
             "readiness": detail,
             "machine": {k: row[k] for k in ("runner_id", "generation", "label", "operator", "last_seen",
@@ -832,6 +833,8 @@ def install_views(app, store, auth, mutate, task_view):
                 value = dict(row)
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
+                for report in value["readiness"].get("bots", {}).values():
+                    report.pop("tools", None)
                 from .harness_actions import recent
                 machines.append({**value, "bots": bots, "needed_runtimes": sorted(wanted | assigned.get(row["id"], set())),
                                  "update": runner_versions.view(fleet.get(row["id"])),

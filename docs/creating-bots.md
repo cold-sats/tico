@@ -375,6 +375,58 @@ every turn) and the decision model behind `hub_decisions` (`skills/decisions/SKI
 the hub holds. A bot that needs a service it has not declared stops and says so on the task; it never
 borrows another bot's credential.
 
+### What people see about a bot's tools
+
+At the top of the right column of a bot's page (above the chat on a phone) is a row of small round
+icons, one per tool the bot uses. It is how a person learns what a bot can reach without opening its
+repository. The row is short by design: past eight tools it shows "+N", which opens the whole list.
+
+- **Where it comes from.** The first icon is the model and harness the bot runs on (for example
+  "Codex · openai/gpt-6-luna"), the second its GitHub repository when it has an address, and the
+  rest are the `access:` entries above, one each. The runner reads `employee.yaml` from the bot's
+  checkout and reports the entries on its heartbeat, so an edit shows up once it is in the checkout
+  on the computer. A computer running an older runner shows the model and repository only.
+- **The icon** is the service's logo when Tico bundles one (GitHub, Slack, Gmail, Google Drive and
+  Calendar, PostHog, MongoDB, PostgreSQL, MySQL, OpenAI, Anthropic, Notion, Linear, Stripe, AWS,
+  Cloudflare, Zoom) and the first two letters of the name in a tinted circle for everything else.
+  A red dot means the tool has a problem.
+- **Hover, focus or tap** opens the details: the service's name, the identity it acts as
+  (`identity:`), what it may do (`can:`), its scope (`database:`, `channels:`, `project:`,
+  `mailbox:`, `sites:`, `repo:` and a few like them), the `note:`, the name of the environment
+  variable, and a status: ready, or the problem, such as "Credential missing on Test Mac".
+  Escape closes it; on a phone it opens as a sheet.
+- **What never appears.** No secret value. The runner sends the service, identity, verbs, the scope
+  fields above, the note and the variable's *name*, plus whether that variable is set on its
+  computer. Any other field in an entry (a token typed in by mistake, say) stays on the computer,
+  and a password inside a URL is dropped. Write `identity:` and `note:` for a person reading them:
+  they are shown as written.
+- **Status** is what the computer can check: the variable is set (a 1Password reference counts as
+  set), is missing, or is granted through the credential vault (`vault: hub`, checked when a run
+  starts). An entry with no credential to check shows "Not checked".
+
+The same list is `GET /api/v2/bots/{bot}/tools` ([custom-frontend.md](custom-frontend.md)), for a
+company's own frontend.
+
+**Registering a tool.** Someone who manages a bot (the owner, a bot administrator who operates it,
+or a person above it on the org chart) can add or remove a tool without opening its repository:
+`POST /api/v2/bots/{bot}/tools`, `DELETE /api/v2/bots/{bot}/tools/{id}`, or the MCP tools
+`hub_tools_add`, `hub_tools_list` and `hub_tools_remove` (`hub tools add <bot> posthog --can read
+--identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`). Tico holds no
+bot repository, so it cannot write `employee.yaml` itself. It checks the entry against the same
+fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
+"Add PostHog access to <bot>" with the exact YAML. BotOps adds it to `employee.yaml`, commits and
+pushes, runs preflight and says what it found. Until the bot's computer reports the entry the tool
+shows as **pending** in the row; then it is **ready**, or names its problem. Removing works the same
+way, as a task "Remove PostHog access from <bot>"; the tool keeps its icon, marked as being
+removed, until the computer stops reporting it.
+
+**Credentials are never part of it.** `env` is the variable's *name*. A value is refused, and so is
+anything that looks like a key, a token, a password or a URL with one in it; the check is a guard
+against pasting one by mistake, not a substitute for care. The operator puts the value on the bot's
+computer ([install.md](install.md), "Add computers to run your bots", or the secrets table above),
+or grants it from the credential vault ([credential-vault.md](credential-vault.md)). Until it is
+there the tool shows "Credential missing on <computer>".
+
 ## 7. Harness, model, effort and fallback
 
 Levers set in **Settings → Bots**, not in the repository:

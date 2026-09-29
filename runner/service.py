@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from clients.tico import APIError, Client
-from . import credential_socket, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles
+from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -387,6 +387,7 @@ class Runner:
     tools = None
     harness_relay = None
     _harness_after = 0.0            # monotonic time before which a server that refused harness reports is not asked
+    _tools_after = 0.0              # the same for the per-bot `tools` list (runner/declared_access.py)
 
     def __init__(self, config, state_dir, host_factory=None, client=None, push=None, config_path=None):
         self.config = config
@@ -871,9 +872,14 @@ class Runner:
             # the authority on whether the configured model can run.
             configuration_valid = runtime in RUNTIMES
             manifest = path / "employee.yaml"
+            tools = []
             if repository_present and manifest.is_file():
                 try:
                     declared = yaml.safe_load(manifest.read_text()) or {}
+                    access = declared.get("access") if isinstance(declared, dict) else None
+                    if access and time.monotonic() >= self._tools_after:
+                        tools = declared_access.declared_tools(
+                            access, self.credential_environment(bot, {**entry["config"], "access": access}))
                     expected = entry["config"]
                     cloud_model = expected.get("model_managed_by") == "cloud"
                     configuration_valid = (
@@ -900,6 +906,7 @@ class Runner:
                          "model": model, "state": entry.get("state"), "ready": not problems,
                          "repository_present": repository_present, "repository_revision": revision,
                          "configuration_valid": configuration_valid, "problems": problems,
+                         "tools": tools,
                          # Local to `doctor` and `scripts/tico status`: the heartbeat's own
                          # contract (backend/models.py) takes only the keys `readiness` picks.
                          "materialized": materialized,
@@ -1031,6 +1038,8 @@ class Runner:
             bots[row["bot"]] = {k: row[k] for k in (
                 "ready", "runtime", "model", "repository_present", "repository_revision",
                 "configuration_valid", "problems") if k in row}
+            if row.get("tools"):
+                bots[row["bot"]]["tools"] = row["tools"]      # declared access, no values (runner/declared_access.py)
             bots[row["bot"]]["warnings"] = list(row.get("warnings") or [])
             note = getattr(self, "publish_notes", {}).get(row["bot"])
             if note:
@@ -1631,12 +1640,19 @@ class Runner:
         except APIError as exc:
             # A server from before harness reports refuses the new field outright; the runner
             # must not go offline over it, so it reports without and asks again later.
-            if exc.status != 422 or not {"harnesses", "mail_key", "shared_env"} & set(body["readiness"]):
+            sends_tools = any(row.get("tools") for row in body["readiness"].get("bots", {}).values())
+            sends_harnesses = bool({"harnesses", "mail_key", "shared_env"} & set(body["readiness"]))
+            if exc.status != 422 or not (sends_harnesses or sends_tools):
                 raise
-            self._harness_after = time.monotonic() + 600
+            if sends_harnesses:
+                self._harness_after = time.monotonic() + 600
+            if sends_tools:
+                self._tools_after = time.monotonic() + 600     # a server from before declared access refuses `tools`
             body["readiness"].pop("harnesses", None)
             body["readiness"].pop("mail_key", None)
             body["readiness"].pop("shared_env", None)
+            for row in body["readiness"].get("bots", {}).values():
+                row.pop("tools", None)
             beat = self.client.post("runners/heartbeat", body)
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:

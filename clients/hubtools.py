@@ -853,6 +853,55 @@ def history(api, args):
 
 
 # ----------------------------------------------------------------------------- routines
+# ----------------------------------------------------------------------------- tools
+# What a bot uses, as its page shows it (docs/creating-bots.md, "What people see about a bot's tools"). Adding one
+# never carries a credential: `env` is a variable's name, and the operator installs the value on the bot's computer.
+def _scope_of(value):
+    """A scope as an object, from an object or from KEY=VALUE strings (a comma makes a list)."""
+    if isinstance(value, dict):
+        return value
+    scope = {}
+    for item in value or []:
+        key, _, text = str(item).partition("=")
+        scope[key.strip()] = [part.strip() for part in text.split(",")] if "," in text else text.strip()
+    return scope
+
+
+@tool("hub_tools_list", "The tools a bot uses, as its page shows them: its model and harness, its repository and each "
+      "declared access entry, with who it acts as, what it may do, its scope and a status (ready, problem, unknown, "
+      "or pending while BotOps is adding it). Yours unless `bot` is given.", {"bot": _s("Another bot's slug")})
+def tools_list(api, args):
+    return api.get(f"bots/{_bot_of(api, args)}/tools")
+
+
+@tool("hub_tools_add", "Register a tool for a bot you manage: an `access:` entry for its employee.yaml. The server checks "
+      "it and opens a task for BotOps with the exact YAML; the tool shows as pending until the bot's computer reports "
+      "it. Names and verbs only: never a credential value. `env` names the variable, which the operator puts on the "
+      "bot's computer.",
+      {"bot": _s("The bot's slug"), "service": _s("A short name such as posthog or google-calendar"),
+       "identity": _s("Who it acts as, for a person to read: an account, a project, a role"),
+       "can": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+               "description": "What it may do: read, draft, post, act, use, send, write (or a comma list)"},
+       "scope": {"type": "object", "description": "database, channels, project, mailbox, sites, repo and the like"},
+       "env": _s("The environment variable's name, such as POSTHOG_KEY; never its value"),
+       "note": _s("Who authorized it and what is excluded")},
+      required=("bot", "service", "can"), writes=True)
+def tools_add(api, args):
+    can = args["can"]
+    can = [part.strip() for part in can.split(",")] if isinstance(can, str) else can
+    body = {"service": args["service"], "can": can, "scope": _scope_of(args.get("scope")),
+            **{k: args[k] for k in ("identity", "env", "note") if args.get(k)}}
+    return api.post(f"bots/{args['bot']}/tools", body, key=_key(args))
+
+
+@tool("hub_tools_remove", "Ask BotOps to remove a tool from a bot you manage (its id from `hub_tools_list`), or withdraw "
+      "a pending request. The entry goes from employee.yaml when BotOps commits the change.",
+      {"bot": _s("The bot's slug"), "id": _s("The tool id from hub_tools_list")},
+      required=("bot", "id"), writes=True)
+def tools_remove(api, args):
+    return api.post(f"bots/{args['bot']}/tools/{args['id']}/delete", {}, key=_key(args))
+
+
 def _bot_of(api, args):
     return args.get("bot") or api.get("me")["actor"].split(":", 1)[-1]
 

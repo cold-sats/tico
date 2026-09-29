@@ -1,6 +1,6 @@
 """The HTTP contract. Unknown fields fail validation rather than changing identity."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
@@ -428,6 +428,31 @@ class RuntimeReadiness(Contract):
     profiles: dict[str, ProfileReadiness] = Field(default_factory=dict, max_length=50)
 
 
+class ToolAccess(Contract):
+    """One `access:` entry of a bot's employee.yaml as the runner reports it (runner/declared_access.py):
+    names and verbs, never a value. `credential` is whether the variable is on the runner's computer."""
+    service: str = Field(min_length=1, max_length=100)
+    identity: str = Field(default="", max_length=300)
+    can: list[Annotated[str, Field(max_length=40)]] = Field(default_factory=list, max_length=20)
+    scope: dict[Annotated[str, Field(max_length=40)], str | list[Annotated[str, Field(max_length=100)]]] = Field(
+        default_factory=dict, max_length=20)
+    env: str = Field(default="", max_length=100)
+    note: str = Field(default="", max_length=500)
+    credential: Literal["present", "missing", "hub-vault", "not-declared"] = "not-declared"
+    problem: str = Field(default="", max_length=300)
+
+
+class ToolRegister(Contract):
+    """A tool a person registers for a bot (backend/bot_tools.py). Names and verbs only: `env` is the
+    variable's name, and the server refuses a field that looks like a credential."""
+    service: str = Field(min_length=1, max_length=100)
+    identity: str = Field(default="", max_length=300)
+    can: list[str] = Field(min_length=1, max_length=20)
+    scope: dict[str, Any] = Field(default_factory=dict, max_length=20)
+    env: str = Field(default="", max_length=100)
+    note: str = Field(default="", max_length=500)
+
+
 class BotReadiness(Contract):
     ready: bool
     runtime: str = Field(default="", max_length=100)
@@ -447,6 +472,8 @@ class BotReadiness(Contract):
     # The subscription profile this bot's turns run on, and that profile's own sign-in state.
     profile: str = Field(default="", max_length=100)
     sign_in: Literal["ready", "missing", "failed", "unknown"] = "unknown"
+    # The bot's declared `access:`, for the Tools row on its page. A runner from before it omits it.
+    tools: list[ToolAccess] = Field(default_factory=list, max_length=30)
 
 
 class StructuredReadiness(Contract):

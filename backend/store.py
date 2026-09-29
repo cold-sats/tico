@@ -498,6 +498,8 @@ class Store:
             c.executescript(_files.SCHEMA)
             from . import docs as _docs
             _docs.ensure_schema(c, self.settings)
+            from . import bot_tools as _bot_tools
+            c.executescript(_bot_tools.SCHEMA)
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:

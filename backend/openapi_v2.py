@@ -62,6 +62,16 @@ STABLE = [
      "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccess"),
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
      "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccess"),
+    ("/api/v2/bots/{bot}/tools", "get", "Bots", "listBotTools",
+     "The tools a bot uses, for the row at the top of its page: its model and harness, its repository and each "
+     "declared `access:` entry, with its status; names and verbs, never a secret", "BotTools"),
+    ("/api/v2/bots/{bot}/tools", "post", "Bots", "registerBotTool",
+     "Register a tool for a bot you manage: validated, kept as a pending request and handed to BotOps as a task with the "
+     "exact `access:` entry. Never a credential: `env` is a variable's name", "BotToolRegistered"),
+    ("/api/v2/bots/{bot}/tools/{tool_id}", "delete", "Bots", "removeBotTool",
+     "Ask BotOps to remove a declared tool, or withdraw a pending request (bot managers)", "BotToolRemoval"),
+    ("/api/v2/bots/{bot}/tools/{tool_id}/delete", "post", "Bots", "removeBotToolPost",
+     "The same as DELETE, for clients that only send GET and POST", "BotToolRemoval"),
     ("/api/v2/models", "get", "Bots", "listModels", "Models a bot can be set to", None),
     ("/api/v2/me/recent", "get", "Bots", "listRecentBots", "Bots the caller worked with lately", "Recent"),
     ("/api/v2/bots/{bot}/updates", "get", "Updates", "getBotUpdateSettings", "A bot's daily and weekly update settings", None),
@@ -240,6 +250,23 @@ SCHEMAS = {
                    "public_url": "s", "owner_email": "s", "version": "s"}),
     "Org": obj({"people": items(ref("Person")), "bots": items(ref("OrgBot")), "org_groups": "a", "teams": "o"}),
     "BotList": items(ref("Bot")),
+    "BotTool": obj({"id": "s", "service": "s", "name": "s", "logo_key": "n", "identity": "s", "can": items({"type": "string"}),
+                    "scope": {"type": "object", "description": "Service-specific fields, a string or a list of strings each: "
+                              "database, channels, project, mailbox, sites, repo, effort ..."},
+                    "note": "s", "status": {"enum": ["ready", "problem", "unknown", "pending"]}},
+                   required=["id", "service", "name", "logo_key", "identity", "can", "scope", "note", "status"],
+                   env={"type": "string", "description": "The environment variable's name, never its value"},
+                   detail={"type": "string", "description": "One sentence on what the tool is or how it was checked"},
+                   problem={"type": "string", "description": "Why status is `problem`, in words a person can act on"},
+                   url={"type": "string", "description": "Where the tool opens, when it has an address (the repository)"},
+                   pending={"enum": ["add", "remove"], "description": "A request BotOps has not finished: `add` on a tool that is "
+                            "not on the bot yet (status `pending`), `remove` on a declared one being taken out"},
+                   task_id={"type": "string", "description": "The BotOps task carrying the request"}),
+    "BotToolRegistered": obj({"tool": ref("BotTool"), "task_id": "s", "yaml": "s", "credentials": "s"}),
+    "BotToolRemoval": obj({"task_id": "s"}, required=[], cancelled={"type": "boolean"}, removal={"type": "boolean"},
+                          tool={"type": "string"}, detail={"type": "string"}),
+    "BotTools": obj({"bot": "s", "tools": items(ref("BotTool")), "computer": "n", "online": "b", "reported_at": "n"},
+                    required=["bot", "tools", "computer", "online", "reported_at"]),
     "Recent": obj({"actor": "s", "since": "s", "bots": "a"}),
     "ConversationList": obj({"actor": "s", "conversations": items(ref("Conversation"))},
                             required=["actor", "conversations"], actors=ACTORS),
@@ -394,7 +421,7 @@ def spec(app):
         if path in ("/healthz", "/auth/login"):
             op["security"] = []
         op["responses"] = dict(sorted(responses.items()))
-        if method in ("post", "patch") and path.startswith("/api/v2/"):
+        if method in ("post", "patch", "delete") and path.startswith("/api/v2/"):
             op.setdefault("parameters", []).append({
                 "name": "Idempotency-Key", "in": "header", "required": True, "schema": {"type": "string"},
                 "description": "1-200 characters. Reusing a key with the same body replays the first answer."})

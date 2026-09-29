@@ -1,0 +1,354 @@
+"""The Tools row on a bot's page: what the bot uses, at a glance (docs/creating-bots.md, "What people
+see about a bot's tools").
+
+Three sources make the list, none of them a secret. The model and harness the bot runs on come from
+its stored config and the company's provider choice. Its repository comes from the bot's record. The
+rest are the `access:` entries of its employee.yaml, which the runner reads from the bot's checkout
+and reports on every heartbeat with whether each credential is on its computer
+(runner/declared_access.py, `bots.<bot>.tools` in the readiness report). A runner from before that
+report yields the first two only. No value ever passes through here: env is a variable's name.
+
+A person who manages a bot can also register or remove a tool. The server holds no bot repository,
+so it cannot edit employee.yaml: it checks the entry against the schema employee.yaml uses
+(clients/access_entry.py, which also refuses anything that looks like a credential), keeps it as a
+pending request, and opens a task for BotOps with the exact YAML. The Tools row shows the request as
+"pending" until the runner's report lists the entry (or, for a removal, stops listing it).
+"""
+
+import json
+
+from fastapi import Request
+
+from clients import access_entry
+from . import models as M
+from . import providers
+from .harnesses import EXTERNAL_HARNESSES, resolve_harness
+from .store import H, Problem, encode, readiness_document, repo_url
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS bot_tool_requests(
+ id TEXT PRIMARY KEY, bot TEXT NOT NULL REFERENCES bots(slug), kind TEXT NOT NULL,
+ service TEXT NOT NULL, identity TEXT NOT NULL DEFAULT '', entry_json TEXT NOT NULL,
+ task_id TEXT, requested_by TEXT NOT NULL, created TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending');
+CREATE INDEX IF NOT EXISTS bot_tool_requests_bot ON bot_tool_requests(bot, state, kind);
+"""
+CREDENTIALS_NOTE = ("Tico never takes a credential. The operator puts its value on the bot's computer "
+                    "(docs/install.md, and docs/creating-bots.md, \"Access and credentials\"); this entry names "
+                    "only the variable.")
+
+ONLINE_WITHIN_S = 60
+
+HARNESS_NAMES = {"codex": "Codex", "claude": "Claude Code", "gemini": "Gemini CLI", "antigravity": "Antigravity",
+                 "grok": "Grok Build", "pi": "pi", "cursor": "Cursor", "hermes": "Hermes", "grokbot": "Grok Bot"}
+PROVIDER_LOGOS = {"openai": "openai", "anthropic": "anthropic", "google": "google"}
+
+SERVICE_NAMES = {
+    "github": "GitHub", "github-app": "GitHub App", "slack": "Slack", "gmail": "Gmail", "google-calendar": "Google Calendar",
+    "google-drive": "Google Drive", "google-workspace": "Google Workspace", "google-workspace-admin": "Google Workspace admin",
+    "google-ads": "Google Ads", "meta-ads": "Meta Ads", "posthog": "PostHog", "mongodb": "MongoDB", "postgres": "PostgreSQL",
+    "postgresql": "PostgreSQL", "mysql": "MySQL", "mariadb": "MariaDB", "sqlite": "SQLite", "openai": "OpenAI",
+    "anthropic": "Anthropic", "notion": "Notion", "linear": "Linear", "stripe": "Stripe", "aws": "AWS", "s3": "Amazon S3",
+    "cloudflare": "Cloudflare", "zoom": "Zoom", "fireflies": "Fireflies", "linkedin": "LinkedIn", "x": "X", "reddit": "Reddit",
+    "close-crm": "Close CRM", "calendly": "Calendly", "brex": "Brex", "mercury": "Mercury", "web-search": "Web search",
+    "hugging-face": "Hugging Face", "elevenlabs": "ElevenLabs", "heygen": "HeyGen", "xai": "xAI", "gemini": "Gemini",
+}
+# The logo a service is drawn with: a Simple Icons slug for a mark ui/tool-icons.js bundles (or fireflies, which
+# Simple Icons lacks: a frontend without one draws the name's first two letters). Anything else has none.
+LOGO_KEYS = {
+    "github": "github", "github-app": "github", "slack": "slack", "gmail": "gmail", "google-calendar": "googlecalendar",
+    "google-drive": "googledrive", "google-workspace": "google", "google-workspace-admin": "google", "posthog": "posthog",
+    "mongodb": "mongodb", "postgres": "postgresql", "postgresql": "postgresql", "mysql": "mysql", "openai": "openai",
+    "anthropic": "anthropic", "notion": "notion", "linear": "linear", "stripe": "stripe", "aws": "amazonaws",
+    "s3": "amazonaws", "cloudflare": "cloudflare", "zoom": "zoom", "fireflies": "fireflies",
+}
+
+
+def service_name(service):
+    key = str(service or "").strip().lower()
+    return SERVICE_NAMES.get(key) or key.replace("-", " ").replace("_", " ").title() or "Tool"
+
+
+def _unique(used, base):
+    name, n = base, 1
+    while name in used:
+        n += 1
+        name = f"{base}-{n}"
+    used.add(name)
+    return name
+
+
+def _model_tool(c, settings, bot, config, readiness, label):
+    row = H.bot(c, bot) or {}
+    runtime, model = providers.bot_choice(c, settings, config)
+    runtime = runtime or row.get("runtime") or ""
+    harness = resolve_harness(config, runtime)
+    model = model or row.get("model") or ""
+    catalog = providers.MODEL_BY_ID.get(model) or {}
+    provider = catalog.get("provider") or ""
+    scope = {}
+    effort = config.get("reasoning_effort") or config.get("effort") or row.get("effort")
+    if effort and effort != "as-configured":
+        scope["effort"] = str(effort)
+    fallback = config.get("fallback")
+    if isinstance(fallback, dict) and fallback.get("model"):
+        scope["fallback"] = "/".join(str(fallback[k]) for k in ("harness", "model") if fallback.get(k))
+    status, problem = "unknown", ""
+    state = (readiness.get("runtimes") or {}).get(runtime) if harness not in EXTERNAL_HARNESSES else None
+    if isinstance(state, dict):
+        if not state.get("installed"):
+            status, problem = "problem", "Runtime is not installed on " + label
+        elif state.get("authenticated") in ("missing", "failed", "rejected"):
+            status, problem = "problem", state.get("detail") or "Runtime is not signed in on " + label
+        else:
+            status = "ready"
+    tool = {"id": "model", "service": harness or runtime or "model", "name": HARNESS_NAMES.get(harness) or harness.title() or "Model",
+            "logo_key": PROVIDER_LOGOS.get(provider), "identity": (provider + "/" + model) if provider and model else model,
+            "can": ["use"], "scope": scope, "note": "", "status": status,
+            "detail": "The AI model and harness this bot's turns run on."}
+    if problem:
+        tool["problem"] = problem
+    return tool
+
+
+def _repo_tool(settings, bot, repo, report):
+    """The bot's own repository, when it has a browsable address."""
+    url = repo_url(repo or "emp-" + bot, settings.github_owner)
+    if not url:
+        return None
+    name = (url.split("github.com/", 1)[-1] if "github.com/" in url else url).removesuffix(".git")
+    tool = {"id": "repo", "service": "github", "name": "GitHub", "logo_key": "github", "identity": name,
+            "can": [], "scope": {"repo": name}, "note": "", "url": url,
+            "status": "unknown", "detail": "The repository that holds this bot's instructions and memory."}
+    if report.get("repository_present") is True:
+        tool["status"] = "ready"
+    elif report.get("repository_present") is False:
+        tool["status"], tool["problem"] = "problem", "Repository is not checked out on the bot's computer"
+    return tool
+
+
+def _declared_tool(entry, used, label):
+    service = str(entry.get("service") or "")
+    env, credential = entry.get("env") or "", entry.get("credential") or "not-declared"
+    status, problem, detail = "unknown", entry.get("problem") or "", ""
+    if credential == "present":
+        status, detail = "ready", f"{env} is set on {label}"
+    elif credential == "missing":
+        status, problem = "problem", problem or f"Credential missing on {label}"
+    elif credential == "hub-vault":
+        detail = "Granted through the credential vault; it arrives when a run starts"
+    else:
+        detail = "No credential is declared, so there is nothing to check"
+    if problem:
+        status = "problem"
+    tool = {"id": _unique(used, service.lower() or "tool"), "service": service, "name": service_name(service),
+            "logo_key": LOGO_KEYS.get(service.strip().lower()), "identity": entry.get("identity") or "",
+            "can": list(entry.get("can") or []), "scope": dict(entry.get("scope") or {}), "env": env,
+            "note": entry.get("note") or "", "status": status, "detail": detail}
+    if problem:
+        tool["problem"] = problem
+    return tool
+
+
+def _same(a, b):
+    """Whether two entries are the same tool: one service, acting as one identity."""
+    norm = lambda entry: (str(entry.get("service") or "").strip().lower(), str(entry.get("identity") or "").strip().lower())
+    return norm(a) == norm(b)
+
+
+def _state(c, settings, bot):
+    row = c.execute("SELECT config_json,repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    config = H._json(row["config_json"], {}) if row else {}
+    config = config if isinstance(config, dict) else {}
+    runner = c.execute("SELECT r.label,r.last_seen,r.revoked_at,r.readiness_json FROM assignments a "
+                       "JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
+    readiness = readiness_document(runner["readiness_json"]) if runner else {}
+    report = (readiness.get("bots") or {}).get(bot)
+    report = report if isinstance(report, dict) else {}
+    label = (runner["label"] if runner else "") or "its computer"
+    used = {"model", "repo"}
+    raw = [entry for entry in report.get("tools") or [] if isinstance(entry, dict)]
+    return {"row": row, "config": config, "runner": runner, "readiness": readiness, "report": report, "label": label,
+            "raw": raw, "declared": [_declared_tool(entry, used, label) for entry in raw]}
+
+
+def _requests(c, bot):
+    return [dict(row, entry=H._json(row["entry_json"], {}) or {}) for row in c.execute(
+        "SELECT * FROM bot_tool_requests WHERE bot=? AND state='pending' ORDER BY created,id", (bot,))]
+
+
+def _pending_tool(request):
+    entry = request["entry"]
+    service = entry.get("service") or request["service"]
+    return {"id": "pending-" + request["id"], "service": service, "name": service_name(service),
+            "logo_key": LOGO_KEYS.get(service), "identity": entry.get("identity") or "", "can": list(entry.get("can") or []),
+            "scope": access_entry.scope_of(entry), "env": entry.get("env") or "", "note": entry.get("note") or "",
+            "status": "pending", "pending": "add", "task_id": request["task_id"],
+            "detail": "Waiting for BotOps to add it to the bot's employee.yaml; it shows as ready once the computer reports it"}
+
+
+def listing(c, settings, bot):
+    """Everything the row shows for one bot, from records this server already holds."""
+    state = _state(c, settings, bot)
+    runner, report, label = state["runner"], state["report"], state["label"]
+    online = bool(runner and not runner["revoked_at"] and runner["last_seen"]
+                  and runner["last_seen"] > H.shift(H.now(), seconds=-ONLINE_WITHIN_S))
+    declared = state["declared"]
+    requests = _requests(c, bot)
+    for request in requests:
+        if request["kind"] == "remove":
+            for tool, entry in zip(declared, state["raw"]):
+                if _same(entry, request["entry"]):
+                    tool["pending"], tool["task_id"] = "remove", request["task_id"]
+                    tool["detail"] = "Removal requested; waiting for BotOps to take it out of employee.yaml"
+    adding = [_pending_tool(r) for r in requests if r["kind"] == "add"
+              and not any(_same(entry, r["entry"]) for entry in state["raw"])]
+    tools = [_model_tool(c, settings, bot, state["config"], state["readiness"], label)]
+    # A declared GitHub access names the repository itself; a second GitHub icon would say nothing new.
+    repo = None if any(tool["service"].lower() in ("github", "github-app") for tool in declared) \
+        else _repo_tool(settings, bot, state["row"] and state["row"]["repo"], report)
+    if repo:
+        tools.append(repo)
+    return {"bot": bot, "tools": tools + declared + adding, "computer": label if runner else None, "online": online,
+            "reported_at": runner["last_seen"] if runner else None}
+
+
+# ----------------------------------------------------------------------------- registering
+def _task_text(verb, bot, name, entry, computer):
+    where = "emp-" + bot + "/employee.yaml"
+    if verb == "add":
+        do = (f"Add this entry to the `access:` list in {where}, keeping the entries already there, then commit and "
+              "push it:")
+    else:
+        do = f"Remove this entry from the `access:` list in {where} (match it by service and identity), then commit and push it:"
+    return "\n".join([
+        f"{'Add' if verb == 'add' else 'Remove'} {name} access {'to' if verb == 'add' else 'from'} {bot}.", "",
+        do, "", "```yaml", access_entry.to_yaml(entry), "```", "",
+        "Then run preflight for the bot (`scripts/preflight.sh " + bot + "`) and say on this task what it reported. "
+        "Tico shows the entry on the bot's page once the computer's readiness report "
+        + ("lists it." if verb == "add" else "no longer lists it."), "",
+        CREDENTIALS_NOTE + (" Do not ask for the value here, and never commit it." if verb == "add" else "")
+        + (f" The computer is {computer}." if computer else "")])
+
+
+def _request_task(c, auth, who, verb, bot, name, entry, computer, taken):
+    from . import getting_started as G
+    G._botops(c)
+    title = f"{'Add' if verb == 'add' else 'Remove'} {name} access {'to' if verb == 'add' else 'from'} {bot}"
+    if taken:
+        title += f" ({taken + 1})"        # the hub refuses a second live task with the same title
+    return G._task(c, auth, who, G.BOTOPS, title, _task_text(verb, bot, name, entry, computer))
+
+
+def register(c, auth, settings_admin, settings, who, bot, body):
+    auth.domain(who)
+    settings_admin._manager(c, who, bot)      # access: manage
+    if not H.bot(c, bot):
+        raise Problem("not_found", "Bot not found", 404)
+    try:
+        entry = access_entry.clean(body.model_dump())
+    except access_entry.EntryError as exc:
+        raise Problem(exc.code, str(exc), 422) from None
+    state = _state(c, settings, bot)
+    if any(_same(entry, declared) for declared in state["raw"]) or any(
+            r["kind"] == "add" and _same(entry, r["entry"]) for r in _requests(c, bot)):
+        raise Problem("duplicate", "This bot already has that tool, or a request for it is waiting for BotOps", 409)
+    taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='add' AND state='pending'",
+                      (bot, entry["service"])).fetchone()[0]
+    name = service_name(entry["service"])
+    task = _request_task(c, auth, who, "add", bot, name, entry, state["runner"] and state["label"], taken)
+    rid = H.new_id()
+    c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
+              "VALUES(?,?,?,?,?,?,?,?,?)", (rid, bot, "add", entry["service"], entry.get("identity", ""), encode(entry),
+                                            task["id"], who.actor, H.now()))
+    H.event(c, who.actor, "bot.tool_requested", bot, {"service": entry["service"], "task": task["id"]})
+    tool = _pending_tool(dict(id=rid, entry=entry, service=entry["service"], task_id=task["id"]))
+    return {"tool": tool, "task_id": task["id"], "yaml": access_entry.to_yaml(entry), "credentials": CREDENTIALS_NOTE}
+
+
+def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
+    auth.domain(who)
+    settings_admin._manager(c, who, bot)      # access: manage
+    if not H.bot(c, bot):
+        raise Problem("not_found", "Bot not found", 404)
+    requests = _requests(c, bot)
+    if tool_id.startswith("pending-"):
+        found = next((r for r in requests if "pending-" + r["id"] == tool_id and r["kind"] == "add"), None)
+        if not found:
+            raise Problem("not_found", "That request is not waiting any more", 404)
+        c.execute("UPDATE bot_tool_requests SET state='cancelled' WHERE id=?", (found["id"],))
+        H.event(c, who.actor, "bot.tool_request_cancelled", bot, {"service": found["service"], "task": found["task_id"]})
+        return {"cancelled": True, "task_id": found["task_id"],
+                "detail": "The request is withdrawn. If BotOps already added the entry it stays until you remove it."}
+    if tool_id in ("model", "repo"):
+        raise Problem("tool", "The model and the repository are set in the bot's settings, not removed here", 422)
+    state = _state(c, settings, bot)
+    index = next((i for i, tool in enumerate(state["declared"]) if tool["id"] == tool_id), None)
+    if index is None:
+        raise Problem("not_found", "This bot does not declare that tool", 404)
+    raw = state["raw"][index]
+    entry = {k: raw[k] for k in ("service", "identity", "can", "scope", "env", "note") if raw.get(k)}
+    if any(r["kind"] == "remove" and _same(entry, r["entry"]) for r in requests):
+        raise Problem("duplicate", "Its removal is already waiting for BotOps", 409)
+    flat = {"service": entry["service"], **({"identity": entry["identity"]} if entry.get("identity") else {}),
+            "can": entry.get("can") or [], **(entry.get("scope") or {}),
+            **({"env": entry["env"]} if entry.get("env") else {}), **({"note": entry["note"]} if entry.get("note") else {})}
+    taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='remove' AND state='pending'",
+                      (bot, entry["service"])).fetchone()[0]
+    name = service_name(entry["service"])
+    task = _request_task(c, auth, who, "remove", bot, name, flat, state["label"], taken)
+    c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
+              "VALUES(?,?,?,?,?,?,?,?,?)", (H.new_id(), bot, "remove", entry["service"], entry.get("identity", ""),
+                                            encode(entry), task["id"], who.actor, H.now()))
+    H.event(c, who.actor, "bot.tool_removal_requested", bot, {"service": entry["service"], "task": task["id"]})
+    return {"removal": True, "tool": tool_id, "task_id": task["id"]}
+
+
+def reconcile(c, reported):
+    """Close the requests a heartbeat's report has caught up with. `reported` is {bot: the report's tools}.
+    A listed entry closes its request to add it; an entry that is gone closes its request to remove it,
+    once the report lists something (a runner from before the report lists nothing at all) or the
+    request is ten minutes old."""
+    for bot in [row[0] for row in c.execute("SELECT DISTINCT bot FROM bot_tool_requests WHERE state='pending'")]:
+        if bot not in reported:
+            continue
+        raw = [entry for entry in reported[bot] or [] if isinstance(entry, dict)]
+        for request in _requests(c, bot):
+            listed = any(_same(entry, request["entry"]) for entry in raw)
+            settled = listed if request["kind"] == "add" else (not listed and (
+                raw or request["created"] < H.shift(H.now(), seconds=-600)))
+            if settled:
+                c.execute("UPDATE bot_tool_requests SET state='done' WHERE id=?", (request["id"],))
+
+
+def install(app, store, auth, mutate, settings_admin):
+    @app.get("/api/v2/bots/{bot}/tools")
+    def bot_tools(request: Request, bot: str):
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            if not auth.visible_bot(who, bot):      # access: read
+                raise Problem("forbidden", "This bot is private", 403)
+            if not H.bot(c, bot):
+                raise Problem("not_found", "Bot not found", 404)
+            return listing(c, store.settings, bot)
+
+    @app.post("/api/v2/bots/{bot}/tools")
+    def register_tool(request: Request, bot: str, body: M.ToolRegister):
+        """Register a tool for a bot: checked, kept as a pending request, and handed to BotOps as a task
+        with the exact `access:` entry. A credential is never accepted; `env` is a variable's name."""
+        who = request.state.identity
+        return mutate(request, body, lambda c: register(c, auth, settings_admin, store.settings, who, bot, body))
+
+    def remove(request, bot, tool_id):
+        who = request.state.identity
+        return mutate(request, M.Empty(), lambda c: unregister(c, auth, settings_admin, store.settings, who, bot, tool_id))
+
+    @app.delete("/api/v2/bots/{bot}/tools/{tool_id}")
+    def delete_tool(request: Request, bot: str, tool_id: str):
+        """Ask BotOps to remove a declared tool (or withdraw a pending request)."""
+        return remove(request, bot, tool_id)
+
+    @app.post("/api/v2/bots/{bot}/tools/{tool_id}/delete")
+    def delete_tool_post(request: Request, bot: str, tool_id: str, body: M.Empty):
+        """The same as DELETE, for clients (the hub CLI, MCP) that only send GET and POST."""
+        return remove(request, bot, tool_id)

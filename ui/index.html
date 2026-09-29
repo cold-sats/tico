@@ -2174,6 +2174,8 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 
 <script src="/vendor/marked.min.js"></script>
 <script src="/tico/ui/bot-files.js"></script>
+<script src="/tico/ui/tool-icons.js"></script>
+<script src="/tico/ui/bot-tools.js"></script>
 <script src="/tico/ui/docs-search.js"></script>
 <script src="/tico/ui/docs-editor.js"></script>
 <script src="/tico/ui/docs-ask.js"></script>
@@ -6569,6 +6571,7 @@ async function pageBot(slug, tab) {
   <a class="bot-back" id="bot-back" href="${base}" hidden>‹ ${work.includes('chat') ? 'Chat and tasks' : 'Tasks'}</a>
 
   <div class="bot-work" id="bot-work">
+  <section class="bot-tools" id="bot-tools" aria-label="Tools" hidden></section>
   <div id="pane-chat" hidden>
     <section class="bot-chat-tasks" id="bot-chat-tasks" aria-label="What needs you" hidden></section>
     <section class="card conv" id="conv"><div class="conv-top"><span class="sub" id="conv-state">Loading…</span><span class="spacer" style="flex:1"></span><span class="sub" id="conv-access"></span></div>
@@ -6741,6 +6744,12 @@ function placeBotGoal(view) {
   if (BOT_PHONE.matches && view === 'more') { if (goal.parentElement !== more) more.prepend(goal); }
   else if (goal.parentElement !== top) top.insertBefore(goal, $('#bot-more-btn'));
 }   // the sidebar takes ~300px; below this one column fits
+// The Tools row heads the right column when chat and tasks sit side by side; on one column (a phone) it
+// stays above whichever of the two is showing, so it is near the top either way (ui/bot-tools.js).
+function placeBotTools(split) {
+  const tools = $('#bot-tools'), home = split ? $('#pane-tasks') : $('#bot-work');
+  if (tools && home && tools.parentElement !== home) home.prepend(tools);
+}
 function showBotTab(tab) {
   if (!BOT || !$('#btabs')) return;
   const wantSession = tab === 'session';                         // the old tab, now a card in More
@@ -6752,6 +6761,7 @@ function showBotTab(tab) {
   const split = work && BOT_WIDE.matches && tabs.includes('chat');
   const chat = split || view === 'chat';
   BOT.split = split;
+  placeBotTools(split);
   $('#main').classList.toggle('chat-layout', chat);
   $('#main').classList.toggle('bot-chat-layout', chat);
   $('#main').classList.toggle('bot-split-layout', split);
@@ -6775,6 +6785,7 @@ function showBotTab(tab) {
   else if (!CONV || CONV.slug !== BOT.slug) loadConversation(BOT.slug);
   if (chat && !split) void loadBotChatTasks(BOT.slug);            // side by side, the tasks column says it
   const once = (key, fn) => { if (!BOT.loaded.has(key)) { BOT.loaded.add(key); fn(BOT.slug); } };
+  if (work) once('tools', slug => window.botTools?.mount($('#bot-tools'), {slug, get, esc}));
   if (split || view === 'tasks') {
     once('tasks', isKeeper(BOT.slug) ? loadBotTasksV2 : loadBotIssues);
     if (isKeeper(BOT.slug)) once('files', slug => window.botFiles?.mount($('#bot-files'), {slug, get, esc, openFile: openFileLink}));

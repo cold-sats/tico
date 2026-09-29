@@ -159,6 +159,8 @@ class Execution:
                 row.pop('profile', None)
             if row.get('sign_in') == 'unknown':
                 row.pop('sign_in', None)
+            if not row.get('tools'):
+                row.pop('tools', None)
         for row in readiness.get('runtimes', {}).values():
             if not row.get('profiles'):
                 row.pop('profiles', None)
@@ -176,6 +178,8 @@ class Execution:
                   "capacity=?,readiness_json=? WHERE id=?",
                   (H.now(), awake_since, body.version, body.platform, body.capacity,
                    encode(readiness), who.runner_id))
+        from . import bot_tools
+        bot_tools.reconcile(c, {bot: row.get('tools') for bot, row in readiness.get('bots', {}).items()})
         if body.release:
             runner_versions.record(c, who.runner_id, body)
         if body.checkout:

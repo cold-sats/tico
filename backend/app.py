@@ -2977,6 +2977,8 @@ def create_app(settings=None):
     install_assistant(app, store, auth, mutate, onboarding)
     from .librarian import install as install_librarian
     install_librarian(app, store, auth, mutate, onboarding)
+    from .bot_tools import install as install_bot_tools
+    install_bot_tools(app, store, auth, mutate, settings_admin)
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts from /tico/ui/ (ui/index.html), so the same directory is
