@@ -10,6 +10,7 @@ All notable changes to Tico are recorded here. The format follows
 ### Added
 
 ### Changed
+- Tico's icon and wordmark now match tico.team; the old robot icon is gone. The favicon, app icon (web, desktop, macOS menu bar, Slack) and the assistant's avatar use the new mark, the first-run setup and sign-in pages show the wordmark (reversed in dark mode, replaced by the app's name when a company has named its app), and the installed web app gains a maskable icon. `scripts/build-brand-icons.sh` regenerates every image from the SVGs in `ui/assets/tico/`.
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
   inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the

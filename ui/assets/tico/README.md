@@ -1,22 +1,31 @@
-# Tico icon
+# Tico brand
 
-`tico.svg` is the user-supplied master icon, with no background. Its charcoal face
-and teal details are the artwork, and the surrounding canvas is transparent.
+The icon and wordmark are the ones on tico.team. Three SVGs are the source; everything else is
+generated from them.
 
-- `tico-monochrome.svg`: selected monochrome identity, with transparent eye cutouts.
-- `tico-slack.png`: transparent monochrome 512×512 export for the installed Slack app.
-- `tico-tile.svg` / `tico-tile-mac.svg`: the mark in off-white on an opaque teal tile, generated;
-  a transparent charcoal mark vanished on iOS home screens and the dark Dock (2026-09-15).
-- `tico-1024.png`: the Mac tile (inset rounded square) for the native app's icon bundle.
-- `tico-menubar.svg` / `tico-menubar.png`: monochrome mark with transparent eye
-  cutouts. AppKit loads the PNG as an 18-point template image and handles light
-  and dark menu bars. Status and recording details remain in the tooltip/menu.
-- `../icon-192.png` / `../icon-512.png`: the full-bleed teal tile for the web app (iOS rounds it).
+- `tico-mark.svg`: the square icon, a dark rounded tile (#172221) with an off-white "ti" and a green dot.
+  The tab favicon uses it directly.
+- `tico-wordmark.svg` / `tico-wordmark-reversed.svg`: the full-width "tico" logo, dark ink for light
+  backgrounds and off-white for dark ones. The first-run setup and the sign-in pages show it while the
+  app is still called Tico (the UI swaps in the reversed one in dark mode); a company that names its app
+  sees the name as text instead.
+- `tico-glyph.svg`: the "ti" and dot in black, no tile. It is the assistant's avatar (a CSS mask, drawn
+  white on a dark disc) and the macOS menu bar template image.
 
-Run `python3 scripts/tico-icons.py` from the repository to regenerate the exports
-(requires `rsvg-convert`, available through Homebrew's `librsvg`). Then rebuild
-the native app with `scripts/app.sh build` to include the updated icons.
+Generated, do not edit by hand:
 
-The COO avatar uses the monochrome SVG. The tab favicon uses `tico-tile.svg` (off-white
-on teal) so the mark stays visible on dark browser chrome; a charcoal mark reads as a
-black blob there. The earlier generated options in `concepts/` are unused explorations.
+- `tico-1024.png`: the tile inset on Apple's grid, the master for the desktop app icon (`scripts/app.sh`).
+- `tico-slack.png`: full-bleed 512 px square for the Slack app's icon, uploaded by hand in the Slack app settings.
+- `tico-menubar.png` / `tico-menubar@2x.png`: 16 and 32 px black-with-alpha template images. AppKit tints
+  them for light and dark menu bars. The 32 px file is `app/icons/tray.png`.
+- `../favicon-32.png`, `../apple-touch-icon.png` (180 px, full-bleed), `../icon-192.png`, `../icon-512.png`,
+  `../icon-maskable-512.png` (mark inside the safe zone; the manifest marks it `maskable`).
+- `app/icons/*`: the desktop bundle's icons (`icon.icns`, `icon.ico` and the PNGs `tauri.conf.json` lists).
+
+Regenerate after changing an SVG:
+
+    bash scripts/build-brand-icons.sh
+
+It needs `rsvg-convert` (`brew install librsvg`) and, for `icon.icns`, macOS's `iconutil`. Then rebuild the
+desktop app with `scripts/app.sh build`. A per-environment desktop app can still carry its own icon: put
+`icon.png` in that environment's directory (docs/environments.md).

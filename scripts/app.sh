@@ -42,7 +42,7 @@ BUNDLE_ID="team.tico.app"
 HUB_URL="${HUB_APP_URL:-https://hub.acme.example/}"
 UPDATE_URL="https://runner.acme.example/download/latest.json"
 ICON_SRC="${ICON_SRC:-$HUB/ui/assets/tico/tico-1024.png}"
-TRAY_SRC="$HUB/ui/assets/tico/tico-menubar.png"
+TRAY_SRC="$HUB/ui/assets/tico/tico-menubar@2x.png"
 LOCAL_TOKEN_FILE=""
 
 json() { plutil -extract "$2" raw -o - "$1" 2>/dev/null || true; }

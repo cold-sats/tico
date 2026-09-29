@@ -277,6 +277,16 @@ def test_unknown_roster_email_gets_a_friendly_page(signin):
     assert signin.login(claims={"email": "stranger@acme.example"}).status_code == 403
 
 
+def test_sign_in_pages_carry_the_wordmark_until_the_app_is_renamed():
+    from types import SimpleNamespace
+    from backend.config import ROOT
+    from backend.oidc import _page
+    tico = _page(SimpleNamespace(app_name="Tico", ui_dir=ROOT / "ui"), 200, "Signed out", "Bye").body.decode()
+    assert 'aria-label="Tico"' in tico and "#172221" in tico and "#f7f7f3" in tico   # dark ink and the reversed one
+    named = _page(SimpleNamespace(app_name="Acme HQ", ui_dir=ROOT / "ui"), 200, "Signed out", "Bye").body.decode()
+    assert "<svg" not in named and '<p class="brand">Acme HQ</p>' in named
+
+
 def test_email_match_ignores_case(signin):
     assert signin.login(claims={"email": "Ben@ACME.example"}).status_code == 302
     assert me(signin.api).json()["actor"] == "human:ben"

@@ -5,10 +5,11 @@
 <title>Tico</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
-<meta name="theme-color" content="#0f6e56">
+<meta name="theme-color" content="#172221">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="apple-touch-icon" href="/assets/icon-192.png">
-<link rel="icon" type="image/svg+xml" href="/assets/tico/tico-tile.svg">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/assets/tico/tico-mark.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
 <!-- Icons: ui/vendor/fonts/material-symbols-outlined.woff2 is the Material Symbols Outlined subset (Apache-2.0, see ui/vendor/fonts/LICENSE-material-symbols.txt).
      Add an icon anywhere in the UI, then run scripts/build-icon-font.py: it rewrites ui/vendor/fonts/icons.txt and the font. -->
@@ -183,8 +184,8 @@ body.native #rail{display:block}
 .av{display:inline-flex;align-items:center;justify-content:center;flex:none;position:relative;border-radius:50%}
 .av.bot-symbol{background:var(--bot-color);color:#fff}
 .av.bot-symbol::before{content:"";width:70%;height:70%;background:currentColor;-webkit-mask:var(--bot-icon) center/contain no-repeat;mask:var(--bot-icon) center/contain no-repeat}
-.av.bot-tico{background:#0f6e56}
-.av.bot-tico::before{content:"";position:absolute;inset:12%;background:#fff;-webkit-mask:url('assets/tico/tico-monochrome.svg') center/contain no-repeat;mask:url('assets/tico/tico-monochrome.svg') center/contain no-repeat}
+.av.bot-tico{background:#172221;box-shadow:inset 0 0 0 1px #ffffff26}
+.av.bot-tico::before{content:"";position:absolute;inset:20%;background:#f7f7f3;-webkit-mask:url('assets/tico/tico-glyph.svg') center/contain no-repeat;mask:url('assets/tico/tico-glyph.svg') center/contain no-repeat}
 .av.av-initials{background-image:none;background:hsl(var(--hue,210) 38% 45%);color:#fff;font-weight:600;line-height:1;letter-spacing:.02em}
 img.av-photo{object-fit:cover;background:var(--surface2)}
 .av.needs::after,.av.failed::after{content:"";position:absolute;inset:-4px;border-radius:inherit;pointer-events:none}
@@ -1943,6 +1944,14 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 }
 .onb{max-width:840px}
 .onb-head{margin-bottom:var(--s4)}
+.onb-brand{margin-bottom:var(--s3)}
+/* The wordmark: dark ink on light pages, the reversed one on dark, by the OS setting or the app's own theme switch. */
+.brand-logo{display:block;height:30px;width:auto}
+.brand-logo.on-dark{display:none}
+.brand-name{font-size:20px;font-weight:700;letter-spacing:-.01em}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .brand-logo.on-light{display:none}:root:not([data-theme="light"]) .brand-logo.on-dark{display:block}}
+:root[data-theme="dark"] .brand-logo.on-light{display:none}
+:root[data-theme="dark"] .brand-logo.on-dark{display:block}
 .onb-head h1{font-size:24px;line-height:1.2;margin:2px 0 4px}
 .onb-head p{margin:0;color:var(--muted);font-size:13.5px}
 .onb-progress{display:flex;align-items:center;gap:var(--s2) var(--s3);flex-wrap:wrap;margin:0 0 var(--s4);padding:0;list-style:none}
@@ -2789,6 +2798,10 @@ const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_b
 // The assistant, BotOps and the Librarian are built in to every company: pause and rename them, never archive or delete.
 const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian';
 const companyName = () => S.config.company_name || appName();
+// Tico's own wordmark, only while the app is called Tico; a company that named its app gets that name as text.
+const brandLogo = () => appName() === CONFIG_DEFAULTS.app_name
+  ? `<img class="brand-logo on-light" src="assets/tico/tico-wordmark.svg" alt="${esc(appName())}"><img class="brand-logo on-dark" src="assets/tico/tico-wordmark-reversed.svg" alt="${esc(appName())}">`
+  : `<span class="brand-name">${esc(appName())}</span>`;
 const publicUrl = () => S.config.public_url || location.origin;
 const runnerUrl = () => S.config.runner_url || location.origin;
 function applyConfig(config) {
@@ -10999,7 +11012,7 @@ function onbRender(state) {
 
   const done = state.step >= state.steps.length, key = done ? 'done' : state.steps[state.step];
   const heading = done ? `Setting up ${state.record.names.company_name || companyName()}` : ONB_TITLES[key];
-  host.innerHTML = `<div class="onb-head"><div class="mono muted">FIRST RUN</div>
+  host.innerHTML = `<div class="onb-head"><div class="onb-brand">${brandLogo()}</div><div class="mono muted">FIRST RUN</div>
       <h1>${esc(heading)}</h1><p>${esc(ONB_BLURB[key])}</p></div>
     ${done ? '' : `<ol class="onb-progress" aria-label="Setup steps">${state.steps.map((step, i) =>
       `<li class="${i < state.step ? 'done' : i === state.step ? 'cur' : ''}"${i === state.step ? ' aria-current="step"' : ''}>${esc(ONB_TITLES[step])}</li>`).join('')}</ol>

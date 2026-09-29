@@ -9,6 +9,7 @@ provider token is ever stored.
 
 import asyncio
 import base64
+import functools
 import hashlib
 import hmac
 import html
@@ -28,6 +29,7 @@ import jwt
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from .config import PRODUCT_NAME
 from .store import H, Problem, digest
 
 log = logging.getLogger("tico.oidc")
@@ -466,6 +468,26 @@ class Oidc:
                             httponly=True, samesite="lax")
 
 
+@functools.lru_cache(maxsize=4)
+def _wordmark(ui_dir, name):
+    """One of the wordmark SVGs, inlined so a sign-in page needs no second request."""
+    try:
+        svg = (Path(ui_dir) / "assets/tico" / name).read_text()
+    except OSError:
+        return ""
+    return svg.replace("<svg ", '<svg class="logo" ', 1)
+
+
+def _brand(settings):
+    """Tico's wordmark (dark ink, reversed in a dark scheme) while the app is called Tico; a company
+    that named its app gets the name as text."""
+    if settings.app_name != PRODUCT_NAME:
+        return '<p class="brand">' + html.escape(settings.app_name) + "</p>"
+    light, dark = _wordmark(settings.ui_dir, "tico-wordmark.svg"), _wordmark(settings.ui_dir, "tico-wordmark-reversed.svg")
+    return '<div class="brand" role="img" aria-label="' + html.escape(PRODUCT_NAME) + '">' + (
+        '<span class="on-light">' + light + '</span><span class="on-dark">' + dark + "</span></div>") if light and dark else ""
+
+
 def _page(settings, status, title, message, action=None):
     button = ""
     if action:
@@ -478,8 +500,10 @@ def _page(settings, status, title, message, action=None):
         "display:grid;place-items:center;min-height:100vh}main{max-width:26rem;padding:2rem;background:#fff;"
         "border-radius:12px;box-shadow:0 1px 8px #0002;margin:1rem}h1{font-size:1.25rem;margin:0 0 .5rem}"
         ".b{display:inline-block;padding:.6rem 1rem;background:#1c1c1a;color:#fff;border-radius:8px;"
-        "text-decoration:none}@media(prefers-color-scheme:dark){body{background:#151514;color:#eee}"
-        "main{background:#222}.b{background:#eee;color:#111}}</style></head><body><main><h1>"
+        "text-decoration:none}.brand{margin:0 0 1.25rem;font-weight:700;font-size:1.25rem}.logo{height:1.75rem;width:auto;display:block}"
+        ".on-dark{display:none}@media(prefers-color-scheme:dark){body{background:#151514;color:#eee}"
+        "main{background:#222}.b{background:#eee;color:#111}.on-light{display:none}.on-dark{display:block}}"
+        "</style></head><body><main>" + _brand(settings) + "<h1>"
         + html.escape(title) + "</h1><p>" + message + "</p>" + button + "</main></body></html>")
     return HTMLResponse(body, status_code=status)
 
