@@ -1,0 +1,19 @@
+{
+  "id": "covered",
+  "version": 1,
+  "owner": "ana",
+  "summary": "Is this new thing already one of these existing things? A dynamic choice over the caller's options plus `new`: dedupe a message against open tasks, a lead against records, a learning against the page, a Peec action against yesterday's.",
+  "state": ["candidate", "existing"],
+  "questions": {
+    "covered": {
+      "type": "choice",
+      "dynamic": true,
+      "instructions": "Is the candidate about the same matter as one of the existing items, or about something new? Same matter means a person acting on the existing item would also be acting on the candidate.",
+      "criteria": {"new": "Something not on the list"}
+    }
+  },
+  "thresholds": {
+    "same": 0.7,
+    "review": 0.5
+  }
+}

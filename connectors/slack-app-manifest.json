@@ -1,0 +1,56 @@
+{
+  "display_information": {
+    "name": "Tico",
+    "description": "Tico: your AI COO and connection to your company's AI team.",
+    "background_color": "#1f2933",
+    "long_description": "Tico is your AI COO and the single Slack app for your company's AI employees. DM it, or @Tico in a channel it has been invited to, and the message reaches the AI employee it is for; the reply comes back in the same thread under that employee's name. Bots also call the hub's connectors/slack.py to read channel history (including threads) and, for the small set of channels approved in registry/slack-channels.yaml, to post an update. Every post is recorded in the company's audit log with the employee that made it."
+  },
+  "features": {
+    "app_home": {
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "Tico",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "channels:history",
+        "channels:read",
+        "channels:join",
+        "groups:history",
+        "groups:read",
+        "chat:write",
+        "chat:write.customize",
+        "users:read",
+        "users:read.email",
+        "im:write",
+        "im:history",
+        "im:read",
+        "mpim:write",
+        "mpim:history",
+        "mpim:read",
+        "app_mentions:read"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false,
+    "interactivity": {
+      "is_enabled": false
+    },
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "message.im",
+        "message.channels",
+        "message.groups"
+      ]
+    }
+  }
+}

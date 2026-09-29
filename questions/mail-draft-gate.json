@@ -1,0 +1,36 @@
+{
+  "id": "mail-draft-gate",
+  "version": 1,
+  "owner": "ana",
+  "summary": "A draft reply against the thread it answers: does it commit the founder to anything, claim something the thread does not support, confirm a time, or sound wrong. Advisory, recorded with the draft; the second reviewer still has the last word (`mail draft`).",
+  "state": ["mailbox", "employee", "subject", "thread", "draft"],
+  "questions": {
+    "commitment_money": {
+      "type": "noul",
+      "instructions": "The draft commits the sender to money: a price, a discount, a refund, a payment, a fee, a budget, a guarantee with a cost."
+    },
+    "commitment_date": {
+      "type": "noul",
+      "instructions": "The draft commits the sender to a date or a deliverable: 'by Friday', 'we will ship', 'you will have it', a promised outcome."
+    },
+    "confirms_time": {
+      "type": "noul",
+      "instructions": "The draft confirms a specific meeting time as settled, rather than offering times."
+    },
+    "unsupported_claim": {
+      "type": "noul",
+      "instructions": "The draft states a fact about the recipient, the thread or the company that the thread itself does not support."
+    },
+    "legal_position": {
+      "type": "noul",
+      "instructions": "The draft takes a legal position: liability, a contract term, a right, a threat, an admission."
+    },
+    "tone_off": {
+      "type": "noul",
+      "instructions": "The draft does not sound like a founder writing a short, plain, warm email from his own mailbox: it is salesy, stiff, over-long, apologetic, or robotic."
+    }
+  },
+  "thresholds": {
+    "flag": 0.5
+  }
+}

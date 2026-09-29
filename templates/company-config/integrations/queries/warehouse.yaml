@@ -1,0 +1,60 @@
+# Named queries for the Acme warehouse (fictional). `hub queries warehouse <term>` searches them and
+# `hub db warehouse --query <id> --param name=value` runs one. Bind parameters as :name; `$1`, `$2`
+# also work and mean the params in the order listed. Every query is SELECT-only.
+queries:
+- id: revenue-by-month
+  title: Revenue by month
+  description: Paid order revenue per month in a date window.
+  category: billing
+  tags: [revenue, orders, monthly]
+  database: warehouse
+  sql: |
+    SELECT date_trunc('month', placed_at)::date AS month,
+           count(*) AS orders,
+           sum(total_cents) / 100.0 AS revenue
+    FROM orders
+    WHERE placed_at >= :start AND placed_at < :end AND status IN ('paid', 'shipped')
+    GROUP BY 1 ORDER BY 1 DESC
+  params:
+  - {name: start, type: date, label: Start date, required: true}
+  - {name: end, type: date, label: End date (exclusive), required: true}
+- id: orders-by-status
+  title: Orders by status
+  description: How many orders sit in each status since a date.
+  category: orders
+  tags: [orders, status]
+  database: warehouse
+  sql: |
+    SELECT status, count(*) AS orders
+    FROM orders WHERE placed_at >= :since
+    GROUP BY status ORDER BY orders DESC
+  params:
+  - {name: since, type: date, label: Since, required: false, default: "2026-01-01"}
+- id: top-products
+  title: Top products by units sold
+  description: Best-selling active products in a date window.
+  category: products
+  tags: [products, sales]
+  database: warehouse
+  sql: |
+    SELECT p.sku, p.name, sum(i.quantity) AS units
+    FROM order_items i
+    JOIN orders o ON o.id = i.order_id
+    JOIN products p ON p.id = i.product_id
+    WHERE o.placed_at >= :since AND p.active
+    GROUP BY p.sku, p.name ORDER BY units DESC LIMIT :top
+  params:
+  - {name: since, type: date, label: Since, required: true}
+  - {name: top, type: int, label: How many, required: false, default: "10"}
+- id: new-customers-by-region
+  title: New customers by region
+  description: Customers created since a date, counted per region (never lists people).
+  category: customers
+  tags: [customers, region, growth]
+  database: warehouse
+  sql: |
+    SELECT region, count(*) AS customers
+    FROM customers WHERE created_at >= :since
+    GROUP BY region ORDER BY customers DESC
+  params:
+  - {name: since, type: date, label: Since, required: true}

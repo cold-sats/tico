@@ -1,0 +1,20 @@
+{
+  "name": "tico",
+  "owner": {
+    "name": "Tico"
+  },
+  "metadata": {
+    "description": "Team skills for people's own Claude Code sessions: the same ones the dev bots use."
+  },
+  "plugins": [
+    {
+      "name": "tico",
+      "source": "./",
+      "description": "Open a pull request the way the team and the dev bots do.",
+      "strict": false,
+      "skills": [
+        "./skills/create-pr"
+      ]
+    }
+  ]
+}

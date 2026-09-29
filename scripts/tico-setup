@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Set up Tico on one Docker server: `scripts/tico-setup --help`, or `python3 -m setup` from the repo root.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+# scripts/install.sh keeps the wizard's answers beside the install, so `doctor` finds them whoever runs it.
+if [ -z "${TICO_SETUP_HOME:-}" ] && [ -d "$root/.setup" ]; then export TICO_SETUP_HOME="$root/.setup"; fi
+cd "$root" && exec python3 -m setup "$@"

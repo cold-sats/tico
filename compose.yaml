@@ -1,0 +1,148 @@
+# Tico server: the app and its database, one front door, and the updater. It runs no bots: computers
+# join with a one-time code (docker/runner.compose.yaml, or a Mac). See docs/install.md.
+#   docker compose up -d                       # front door and updater chosen by COMPOSE_PROFILES in .env
+#   docker compose pull && docker compose up -d   # update
+name: tico
+
+x-image: &image ${TICO_IMAGE:-ghcr.io/ticoteam/tico}:${TICO_TAG:-latest}
+
+x-hardening: &hardening
+  init: true
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+services:
+  server:
+    <<: *hardening
+    image: *image
+    command: server
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      TICO_COMPANY_NAME:
+      TICO_OWNER_EMAIL:
+      TICO_OWNER_NAME:
+      TICO_DOMAIN:
+      TICO_ENVIRONMENT_ID:
+      TICO_AUTH_PROXY:
+      TICO_OIDC_ISSUER:
+      TICO_OIDC_CLIENT_ID:
+      TICO_OIDC_CLIENT_SECRET:
+      TICO_OIDC_ALLOWED_DOMAINS:
+      TICO_CORS_ORIGINS:
+      TICO_ACCESS_ISSUER:
+      TICO_ACCESS_AUDIENCE:
+      TICO_GITHUB_OWNER:
+      TICO_ENABLED_PROVIDERS:
+      TICO_DEFAULT_RUNTIME:
+      TICO_DEFAULT_MODEL:
+      TICO_BACKUP:
+      TICO_BACKUP_URL:
+      TICO_BACKUP_ENDPOINT:
+      TICO_BACKUP_REGION:
+      LITESTREAM_ACCESS_KEY_ID:
+      LITESTREAM_SECRET_ACCESS_KEY:
+      OPENAI_API_KEY:
+      ANTHROPIC_API_KEY:
+      GEMINI_API_KEY:
+      TICO_UPDATER_URL:
+    volumes:
+      - tico-data:/data
+      - tico-control:/control
+      # Continuous local copy of the database and attachments when TICO_BACKUP_URL is unset. A separate
+      # volume, so deleting tico-data alone loses nothing; it is still on this server's disk.
+      - tico-backups:/backups
+    # Loopback only: for health checks and TICO_AUTH_PROXY=none test installs.
+    ports: ["127.0.0.1:8765:8765"]
+
+  # Slack: DMs and @mentions reach your bots. Same image, its own process, an outbound websocket only
+  # (Socket Mode), so no port and no public URL. Off unless COMPOSE_PROFILES includes slack. The tokens
+  # are pasted in Settings > Slack and stored encrypted in the database, not in .env. See docs/slack.md.
+  slack:
+    <<: *hardening
+    profiles: [slack]
+    image: *image
+    command: slack-gateway
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck: {disable: true}  # the image's check probes the server's port; Health shows this service
+    environment:
+      TICO_COMPANY_NAME:
+      TICO_OWNER_EMAIL:
+      TICO_OWNER_NAME:
+      TICO_DOMAIN:
+      TICO_AUTH_PROXY:
+      TICO_ENABLED_PROVIDERS:
+      TICO_DEFAULT_RUNTIME:
+      TICO_DEFAULT_MODEL:
+      OPENAI_API_KEY:
+      ANTHROPIC_API_KEY:
+      GEMINI_API_KEY:
+      SLACK_TEAM_ID:
+      SLACK_APP_ID:
+      TICO_SLACK_ROUTE_THRESHOLD:
+      TICO_SLACK_ASK_THRESHOLD:
+      TICO_SLACK_MAX_RECIPIENTS:
+      TICO_SLACK_DIGEST_MINUTES:
+      TICO_SLACK_DIGEST_CAP:
+    volumes:
+      - tico-data:/data
+    depends_on:
+      server: {condition: service_healthy}
+
+  # Front door 1: automatic HTTPS for TICO_DOMAIN (Let's Encrypt). Needs ports 80 and 443 open.
+  caddy:
+    <<: *hardening
+    profiles: [caddy]
+    image: caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+    command: caddy reverse-proxy --from ${TICO_DOMAIN:-} --to server:8765
+    cap_add: [NET_BIND_SERVICE]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      server: {condition: service_healthy}
+
+  # Front door 2: a named Cloudflare tunnel. No ports. In the tunnel's Public Hostname tab, route the
+  # hostname to http://server:8765.
+  cloudflared:
+    <<: *hardening
+    profiles: [cloudflared]
+    image: cloudflare/cloudflared:2026.7.3@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      server: {condition: service_healthy}
+
+  # Behind the in-app "Update now" button. It holds the Docker socket, which is root on this host; the
+  # server runs no bots, so nothing untrusted shares the host. On through COMPOSE_PROFILES and
+  # TICO_UPDATER_URL in .env; it has no published port. An update also replaces this file and the rest of the
+  # release's bundle (never .env). It does not restart itself (it cannot replace itself mid-run), so the updater
+  # moves to TICO_TAG, which it records in .env, at the next `docker compose up -d` on this host.
+  # Settings reach the server through the explicit list above rather than `env_file: .env`, which would also
+  # hand it secrets meant for other services (CLOUDFLARE_TUNNEL_TOKEN).
+  updater:
+    <<: *hardening
+    profiles: [updater]
+    image: ${TICO_UPDATER_IMAGE:-ghcr.io/ticoteam/tico-updater}:${TICO_UPDATER_TAG:-${TICO_TAG:-latest}}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_add: [DAC_OVERRIDE]  # the socket is root:docker 0660, and .env belongs to whoever installed
+    environment:
+      TICO_IMAGE: ${TICO_IMAGE:-ghcr.io/ticoteam/tico}
+      DOCKER_CONFIG: /tmp/.docker
+      TICO_UPDATER_BUNDLE: ${TICO_UPDATER_BUNDLE:-always}   # never: releases that exist only as local tags (docker/smoke.sh)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - tico-control:/control:ro
+      - ./:/project
+
+volumes:
+  tico-data:
+  tico-backups:
+  tico-control:
+  caddy-data:
+  caddy-config:

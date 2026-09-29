@@ -1,0 +1,22 @@
+# Who may sign in to this company's server. `clients/environments.py` copies it in, filling in the
+# owner given at creation. It only seeds the first boot: after that the owner, the allow list and
+# the bot administrators are edited in Settings > People (docs/people.md), and this file is not read.
+#
+# The owner sees everything. Anyone else who passes sign-in is a viewer, except for the bots
+# listed under private_owners, whose work only the owner sees. A hosted server must also let
+# these people through its identity proxy: this file and that policy have to agree.
+
+owner: {{owner_email}}
+
+# Anyone with an email at these domains may sign in. Empty means individual addresses only.
+allowed_domains: []
+
+allowed:
+  - {{owner_email}}
+
+# Bot administrators may create bots and manage settings for bots assigned to their own
+# operator identity. Not company-owner visibility.
+bot_admins: []
+
+# Bots whose conversations, runs, and files only the owner sees.
+private_owners: []

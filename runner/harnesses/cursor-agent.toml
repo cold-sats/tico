@@ -1,0 +1,29 @@
+# Cursor's agent CLI (cursor.com/docs/cli). Its only official install is a script that installs under
+# $HOME, so the runner runs it with HOME set to a fresh directory inside its tools directory. The
+# script always installs the newest release, so this harness cannot be pinned to an older version.
+id = "cursor-agent"
+name = "Cursor Agent"
+host = "cursor"
+executable = "cursor-agent"
+providers = ["cursor"]
+
+[install]
+method = "script"
+url = "https://cursor.com/install"
+shell = "bash"
+requires = ["curl", "tar"]
+prefix_env = "HOME"
+bin = ".local/bin/cursor-agent"
+latest_url = "https://cursor.com/install"
+latest_pattern = 'lab/([0-9]{4}\.[0-9.]+-[0-9a-f]+)/'
+
+[version]
+args = ["--version"]
+pattern = '(\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)'
+
+[update]
+policy = "latest"
+
+[auth]
+methods = ["subscription", "api-key"]
+api_key_env = ["CURSOR_API_KEY"]

@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "The hub's own page, loaded from the hub, talks to the shell: window mode, open a meeting in its own window, native dialogs.",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://hub.acme.example/*",
+      "https://*.hub.acme.example/*",
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "dialog:allow-ask",
+    "dialog:allow-message",
+    "dialog:allow-confirm",
+    "allow-bridge"
+  ]
+}

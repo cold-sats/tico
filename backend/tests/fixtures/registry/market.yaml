@@ -1,0 +1,29 @@
+# A fictional market for the tests: Acme and six invented competitors, in the shape
+# backend/market.py `seed` takes as its `document`.
+watch_evidence:
+  id: ev-watchlist
+  source_kind: other
+  our_read: Names on the listening watchlist, each treated as competing with Acme until the curator verifies it.
+
+companies:
+  - {id: company/acme, name: Acme, tier: null, aliases: [Acme, acme.example], external_ids: {domain: acme.example}, summary: Acme.}
+  - {id: company/northwind, name: Northwind, tier: core, aliases: [Northwind], summary: ""}
+  - {id: company/brightline, name: Brightline, tier: core, aliases: [Brightline, Brightline YC], external_ids: {domain: brightline.example}, summary: ""}
+  - {id: company/pricewise, name: Pricewise, tier: lookalike, aliases: [Pricewise], summary: ""}
+  - {id: company/harborly, name: Harborly, tier: core, aliases: [Harborly], summary: ""}
+  - {id: company/fernwood, name: Fernwood, tier: lookalike, aliases: [Fernwood], summary: ""}
+  - {id: company/doorlark, name: Doorlark, tier: core, aliases: [Doorlark], summary: ""}
+
+segments:
+  - {id: segment/independent-owners, name: Independent owners, summary: Owners who manage a few properties themselves.}
+
+channels:
+  - {id: channel/r-propertymanagement, name: r/propertymanagement}
+
+edges:
+  - {id: edge-competes-northwind-acme, src: company/northwind, rel: competes_with, dst: company/acme, confidence: medium, evidence_id: ev-watchlist}
+  - {id: edge-competes-brightline-acme, src: company/brightline, rel: competes_with, dst: company/acme, confidence: medium, evidence_id: ev-watchlist}
+  - {id: edge-competes-pricewise-acme, src: company/pricewise, rel: competes_with, dst: company/acme, confidence: medium, evidence_id: ev-watchlist}
+  - {id: edge-competes-harborly-acme, src: company/harborly, rel: competes_with, dst: company/acme, confidence: medium, evidence_id: ev-watchlist}
+  - {id: edge-competes-fernwood-acme, src: company/fernwood, rel: competes_with, dst: company/acme, confidence: medium, evidence_id: ev-watchlist}
+  - {id: edge-competes-doorlark-acme, src: company/doorlark, rel: competes_with, dst: company/acme, confidence: medium, evidence_id: ev-watchlist}

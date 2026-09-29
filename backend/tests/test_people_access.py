@@ -1,0 +1,203 @@
+"""People and access managed in the app: the owner, the allow list, and who has left."""
+
+import dataclasses
+import uuid
+
+import yaml
+from fastapi.testclient import TestClient
+
+from backend.app import create_app
+from backend.auth import Identity
+from backend.store import H, digest
+from backend.tests.test_onboarding import (OWNER_EMAIL, PEOPLE, TOKEN, draft, environment,  # noqa: F401
+                                           machine, signed_in)
+
+
+def person_headers(api, pid):
+    """A personal API token: its role is decided by the person's email, as a browser's is."""
+    secret = "tok-" + pid + "-" + uuid.uuid4().hex
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO human_tokens(id,human,label,token_hash,created,created_by) VALUES(?,?,?,?,?,?)",
+                  (uuid.uuid4().hex, pid, "test", digest(secret), H.now(), "test"))
+    return {"Authorization": "Bearer " + secret, "Idempotency-Key": str(uuid.uuid4())}
+
+
+def view(api, headers=None, expected=200):
+    r = api.get("/api/v2/access", headers=headers or signed_in())
+    assert r.status_code == expected, r.text
+    return r.json()
+
+
+def call(api, method, path, body, headers=None, expected=200):
+    r = api.request(method, "/api/v2/access" + path, json=body, headers=headers or signed_in())
+    assert r.status_code == expected, r.text
+    return r.json()
+
+
+def transfer(api, person, headers=None, expected=200, **fields):
+    body = {"person": person, "expected_revision": view(api)["owner"]["revision"], "confirm": True, **fields}
+    return call(api, "POST", "/owner", body, headers, expected)
+
+
+class HeaderProxy:
+    """An identity proxy that trusts a test header instead of a signed assertion."""
+    name = "cloudflare"
+
+    def email(self, headers):
+        return headers.get("x-test-email")
+
+
+def test_only_the_owner_reads_or_changes_access(environment):
+    api = environment()
+    riley = person_headers(api, "riley")
+    view(api, riley, expected=403)
+    call(api, "POST", "/people", {"name": "Zed", "email": "zed@acme.example"}, riley, expected=403)
+    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": ["acme.example"]}, riley, expected=403)
+    call(api, "POST", "/owner", {"person": "riley", "confirm": True}, riley, expected=403)
+    assert view(api)["owner"]["email"] == OWNER_EMAIL
+
+
+def test_the_owner_adds_edits_and_makes_a_bot_admin(environment):
+    api = environment()
+    added = call(api, "POST", "/people", {"name": "Zed Park", "email": "Zed@Acme.example",
+                                          "title": "Analyst", "team": "ops"})
+    assert added["person"] == "zed"
+    call(api, "POST", "/people", {"name": "Other", "email": "zed@acme.example"}, expected=409)
+    call(api, "POST", "/people", {"name": "Bad", "email": "not-an-email"}, expected=422)
+    call(api, "POST", "/people/zed", {"title": "Lead", "bot_admin": True, "email": "zed@new.example"})
+    row = next(p for p in view(api)["people"] if p["id"] == "zed")
+    assert (row["title"], row["team"], row["email"]) == ("Lead", "ops", "zed@new.example")
+    assert row["bot_admin"] and row["can_sign_in"] and not row["owner"]
+    # The bot administrator entry follows the person's address.
+    assert api.app.state.auth.bot_admin(Identity("human:zed", "human", "zed@new.example"))
+    call(api, "POST", "/people/zed", {"bot_admin": False})
+    assert not api.app.state.auth.bot_admin(Identity("human:zed", "human", "zed@new.example"))
+    call(api, "POST", "/people/morgan", {"bot_admin": True}, expected=409)          # the owner already can
+    call(api, "POST", "/people/morgan", {"email": "m@acme.example"}, expected=409)  # identity is the email
+
+
+def test_transfer_changes_who_is_owner_at_once_and_the_old_owner_loses_owner_routes(environment):
+    api = environment()
+    old, new = person_headers(api, "morgan"), person_headers(api, "riley")
+    before = view(api, old)
+    result = transfer(api, "riley", previous_owner_bot_admin=True, headers=old)
+    assert result["owner"] == "riley@acme.example" and result["revision"] == before["owner"]["revision"] + 1
+    # No restart: the very next requests already see the new owner.
+    view(api, new)
+    view(api, old, expected=403)
+    call(api, "POST", "/people", {"name": "Zed", "email": "zed@acme.example"}, old, expected=403)
+    assert api.get("/api/v2/config", headers=signed_in()).json()["owner_email"] == "riley@acme.example"
+    after = view(api, new)
+    assert after["owner"]["person"] == "riley"
+    morgan = next(p for p in after["people"] if p["id"] == "morgan")
+    assert not morgan["owner"] and morgan["bot_admin"]
+    auth = api.app.state.auth
+    assert auth.bot_admin(Identity("human:morgan", "human", OWNER_EMAIL)) and auth.owner_email == "riley@acme.example"
+    with api.app.state.store.read() as c:
+        events = c.execute("SELECT actor,target,detail_json FROM events WHERE action='owner.transferred'").fetchall()
+    assert len(events) == 1 and events[0]["actor"] == "human:morgan" and events[0]["target"] == "riley"
+    assert "riley@acme.example" in events[0]["detail_json"]
+
+
+def test_a_transfer_needs_confirmation_a_fresh_revision_and_an_active_other_person(environment):
+    api = environment()
+    revision = view(api)["owner"]["revision"]
+    call(api, "POST", "/owner", {"person": "riley", "expected_revision": revision}, expected=422)
+    call(api, "POST", "/owner", {"person": "riley", "expected_revision": revision, "confirm": False}, expected=422)
+    call(api, "POST", "/owner", {"person": "riley", "expected_revision": revision + 5, "confirm": True}, expected=409)
+    call(api, "POST", "/owner", {"person": "morgan", "expected_revision": revision, "confirm": True}, expected=409)
+    call(api, "POST", "/owner", {"person": "nobody", "expected_revision": revision, "confirm": True}, expected=404)
+    api.post("/api/v2/people/riley", json={"left": True}, headers=signed_in())
+    call(api, "POST", "/owner", {"person": "riley", "expected_revision": revision, "confirm": True}, expected=404)
+    assert view(api)["owner"]["email"] == OWNER_EMAIL
+
+
+def test_the_environment_variable_only_seeds_the_first_boot(environment):
+    api = environment()
+    transfer(api, "riley")
+    settings = dataclasses.replace(api.app.state.store.settings, owner_email=OWNER_EMAIL,
+                                   credential_admins=(OWNER_EMAIL,))
+    with TestClient(create_app(settings)) as restarted:
+        assert view(restarted)["owner"]["email"] == "riley@acme.example"
+        assert view(restarted, person_headers(restarted, "morgan"), expected=403)
+
+
+def test_runner_assignment_and_onboarding_wiring_follow_the_new_owner(environment):
+    api = environment(seed={"coo": {"name": "coo", "status": "planned"}})
+    def enroll(operator, label):
+        code = api.post("/api/v2/enrollments", json={"operator": operator}, headers=signed_in()).json()["code"]
+        return api.post("/api/v2/runners/enroll", json={"code": code, "label": label, "platform": "test"},
+                        headers={"Idempotency-Key": str(uuid.uuid4())}).json()
+    rileys = enroll("riley", "Riley Mac")
+    # Before: only the owner's machines host bots someone else operates.
+    refused = api.post("/api/v2/bots/coo/assignment", json={"runner_id": rileys["runner_id"], "expected_generation": 0},
+                       headers=signed_in())
+    assert refused.status_code == 403
+    transfer(api, "riley")
+    morgans = enroll("morgan", "Morgan Mac")               # the newer machine, but no longer the owner's
+    with api.app.state.store.read() as c:
+        auth = api.app.state.auth
+        assert auth.owner_id(c) == "riley"
+    draft(api)
+    record = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert record.status_code == 200, record.text
+    assert record.json()["assigned_to"]["runner_id"] == rileys["runner_id"] != morgans["runner_id"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM events WHERE action='runner.adopted'").fetchone()[0] == 0
+
+
+def test_a_person_who_left_loses_their_tokens_and_cannot_sign_in(environment):
+    api = environment()
+    riley = person_headers(api, "riley")
+    assert api.get("/api/v2/tasks", headers=riley).status_code == 200
+    assert api.post("/api/v2/people/riley", json={"left": True}, headers=signed_in()).status_code == 200
+    assert api.get("/api/v2/tasks", headers=riley).status_code == 401
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT revoked_at FROM human_tokens WHERE human='riley'").fetchone()[0]
+    proxy = api.app.state.auth
+    proxy.proxy = HeaderProxy()
+    assert api.get("/api/v2/tasks", headers={"x-test-email": "riley@acme.example"}).status_code == 403
+    assert api.get("/api/v2/tasks", headers={"x-test-email": "quinn@acme.example"}).status_code == 200
+    # The owner can bring them back.
+    call(api, "POST", "/people/riley", {"left": False})
+    assert api.get("/api/v2/tasks", headers={"x-test-email": "riley@acme.example"}).status_code == 200
+
+
+def test_allow_list_changes_take_effect_without_a_restart(environment):
+    api = environment()
+    api.app.state.auth.proxy = HeaderProxy()
+    stranger = {"x-test-email": "sam@partner.example"}
+    colleague = {"x-test-email": "kim@acme.example"}
+    assert api.get("/api/v2/tasks", headers=stranger).status_code == 403
+    revision = view(api)["revision"]
+    call(api, "PUT", "/allow", {"allowed": ["Sam@Partner.example"], "allowed_domains": ["@acme.example"],
+                                "expected_revision": revision})
+    # An allowed address and an allowed domain both sign in and join the roster as ordinary people.
+    assert api.get("/api/v2/tasks", headers=stranger).status_code == 200
+    assert api.get("/api/v2/me", headers=colleague).json()["role"] == "human"
+    ids = {p["email"]: p for p in view(api)["people"]}
+    assert set(ids) >= {"sam@partner.example", "kim@acme.example"} and not ids["kim@acme.example"]["owner"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM events WHERE action='person.joined'").fetchone()[0] == 2
+    # Narrowing the list stops new people; those already on the roster stay until marked as left.
+    revision = view(api)["revision"]
+    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": [], "expected_revision": revision})
+    assert api.get("/api/v2/tasks", headers={"x-test-email": "lee@acme.example"}).status_code == 403
+    assert api.get("/api/v2/tasks", headers=colleague).status_code == 200
+    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": [], "expected_revision": revision}, expected=409)
+    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": ["nodot"], "expected_revision": revision + 1},
+         expected=422)
+
+
+def test_the_hub_access_file_seeds_the_lists_once(environment, tmp_path):
+    api = environment()
+    with api.app.state.store.read() as c:
+        from backend import access
+        seeded = access.load_access(c, api.app.state.store.settings)
+    assert seeded["bot_admins"] == ["riley@acme.example"] and seeded["source"] == "environment"
+    path = api.app.state.store.settings.registry_dir / "hub-access.yaml"
+    path.write_text(yaml.safe_dump({"bot_admins": ["quinn@acme.example"]}))
+    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": [], "expected_revision": seeded["revision"]})
+    with TestClient(create_app(api.app.state.store.settings)) as restarted:
+        view(restarted)
+        assert restarted.app.state.auth.bot_admins == {"riley@acme.example"}

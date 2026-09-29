@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Custom frontend for Tico</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src *; img-src 'self' data:; style-src 'self'">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <strong id="company">Custom frontend</strong>
+    <nav id="tabs" hidden>
+      <button data-tab="org" class="on">Org chart</button>
+      <button data-tab="chat">Chat</button>
+      <button data-tab="tasks">Tasks</button>
+      <button data-tab="needs">Needs you</button>
+    </nav>
+    <span id="who"></span>
+    <button id="sign-out" hidden>Sign out</button>
+  </header>
+  <main>
+    <p id="error" role="alert" hidden></p>
+    <section id="signin" hidden>
+      <h1>Sign in</h1>
+      <p>Sign in with your company account. You come back here when it is done.</p>
+      <button id="sign-in">Sign in</button>
+      <details id="dev" hidden>
+        <summary>Development: use a token</summary>
+        <p>Only offered for a Tico on this computer (TICO_AUTH_PROXY=none). Paste the owner token.</p>
+        <input id="dev-token" type="password" autocomplete="off" aria-label="Owner token">
+        <button id="dev-go">Use token</button>
+      </details>
+    </section>
+    <section id="org" hidden></section>
+    <section id="chat" hidden>
+      <div class="cols">
+        <ul id="chat-bots" class="list"></ul>
+        <div>
+          <h2 id="chat-title">Pick a bot</h2>
+          <div id="messages" aria-live="polite"></div>
+          <form id="send" hidden>
+            <input id="text" autocomplete="off" placeholder="Message" aria-label="Message">
+            <button>Send</button>
+          </form>
+        </div>
+      </div>
+    </section>
+    <section id="tasks" hidden></section>
+    <section id="needs" hidden></section>
+  </main>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

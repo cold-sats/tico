@@ -1,0 +1,95 @@
+"""`POST /api/v2/judge` (`backend/judge.py`): the judge as a hub tool, audited, budgeted, never the state."""
+
+import json
+
+from backend import judge as B
+from backend.tests.test_api import api, get, headers, post, setup_attempt   # noqa: F401
+from backend.tests.test_mcp import call
+from clients import judge as J
+
+QUESTIONS = {
+    "bucket": {"type": "choice", "instructions": "Where does it go?",
+               "criteria": {"archive": "noise", "reply": "answer it"}},
+    "is_ask": {"type": "noul", "instructions": "Is someone asking for something?"},
+}
+
+
+class FakeJudge:
+    def __init__(self):
+        self.calls, self.fail = [], None
+
+    def __call__(self, state, questions, label=None):
+        self.calls.append({"state": state, "questions": questions, "label": label})
+        if self.fail:
+            raise self.fail
+        return {"model": "judge-1.13.0", "usage": {"input_tokens": 90, "output_tokens": 0}, "ms": 180,
+                "answers": {"bucket": {"type": "choice", "choice": "reply", "confidence": 0.8,
+                                       "probabilities": {"archive": 0.2, "reply": 0.8}},
+                            "is_ask": {"type": "noul", "noul": 0.9}}}
+
+
+def fake(api):
+    engine = FakeJudge()
+    api.app.state.judge = engine
+    return engine
+
+
+def events(api, actor):
+    with api.app.state.store.read() as c:
+        return [(r["target"], json.loads(r["detail_json"])) for r in c.execute(
+            "SELECT target, detail_json FROM events WHERE action='judge.call' AND actor=? ORDER BY ts", (actor,))]
+
+
+def test_a_person_or_a_bot_judges_and_the_audit_keeps_the_answers_not_the_state(api):
+    engine = fake(api)
+    state = {"subject": "Invoice 4471", "snippet": "the secret body of the mail"}
+    out = post(api, "judge", {"state": state, "questions": QUESTIONS, "label": "mail-triage@1"})
+    assert out["answers"]["bucket"]["choice"] == "reply" and out["label"] == "mail-triage@1"
+    assert out["model"] == "judge-1.13.0" and out["ms"] == 180
+    assert engine.calls[-1] == {"state": state, "questions": QUESTIONS, "label": "mail-triage@1"}
+    (target, detail), = events(api, "human:ana")
+    assert target == "mail-triage@1"
+    assert detail["answers"] == {"bucket": {"type": "choice", "value": "reply", "confidence": 0.8},
+                                 "is_ask": {"type": "noul", "value": 0.9, "confidence": 0.8}}
+    assert detail["usage"]["input_tokens"] == 90 and detail["questions"] == 2
+    assert "secret" not in json.dumps(detail)
+
+    r, msg, attempt = setup_attempt(api)
+    err, out = call(api, "hub_judge", {"state": state, "questions": QUESTIONS}, token=attempt["token"])
+    assert not err and out["answers"]["is_ask"]["noul"] == 0.9
+    assert events(api, "bot:ops")[0][0] == ""
+
+
+def test_without_a_judge_key_the_company_provider_is_the_judge(api, monkeypatch):
+    api.app.state.judge = None
+    post(api, "judge", {"state": {}, "questions": QUESTIONS}, expected=503)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO registry_metadata VALUES('providers',?)", (json.dumps(
+            {"enabled": ["openai"], "runtime": "codex", "model": "gpt-6-sol", "revision": 1}),))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    seen = []
+
+    def opener(request, timeout):
+        import io
+        seen.append(json.loads(request.data)["model"])
+        body = {"choices": [{"message": {"content": json.dumps({
+            "bucket": {"probabilities": {"archive": 0.1, "reply": 0.9}}, "is_ask": {"noul": 0.7}})}}]}
+        return type("R", (io.BytesIO,), {"__enter__": lambda s: s, "__exit__": lambda s, *e: False})(
+            json.dumps(body).encode())
+    monkeypatch.setattr(J.urllib.request, "urlopen", opener)
+    out = post(api, "judge", {"state": {}, "questions": QUESTIONS})
+    assert seen == ["gpt-6-sol"] and out["model"] == "gpt-6-sol"
+    assert out["answers"]["bucket"]["choice"] == "reply"
+    assert get(api, "judge")["configured"] is True
+
+
+def test_the_budget_stops_a_loop_and_the_config_says_where_it_stands(api, monkeypatch):
+    fake(api)
+    monkeypatch.setitem(B.DAILY_CALLS, "owner", 2)
+    assert get(api, "judge") == {"configured": True, "model": J.MODEL, "daily_calls": 2, "used_today": 0,
+                                 "max_questions": J.MAX_QUESTIONS, "max_state_chars": J.MAX_STATE_CHARS}
+    for _ in range(2):
+        post(api, "judge", {"state": {}, "questions": QUESTIONS})
+    out = post(api, "judge", {"state": {}, "questions": QUESTIONS}, expected=429)
+    assert out["error"]["code"] == "budget"
+    assert get(api, "judge")["used_today"] == 2

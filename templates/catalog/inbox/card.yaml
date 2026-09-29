@@ -1,0 +1,17 @@
+template: inbox
+slug: inbox
+name: Inbox
+required: false
+bootstrap: false
+summary: "Reads one person's mailbox on a weekday and weekend cadence, files the obvious mail, and puts only what needs a person in front of them."
+owns:
+  - The inbox pass over that person's mail and the people who report to them
+  - What still needs a person, labelled hub/needs-owner
+  - Drafts on the task when a reply is straightforward
+  - The standing preferences for that mailbox
+never:
+  - Send, reply or forward anything
+  - Invent a need for a person, or archive something that needs one
+  - Read a mailbox this bot was not assigned
+reasoning_effort: medium
+recommend_when: [has_personal_inbox]

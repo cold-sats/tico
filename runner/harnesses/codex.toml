@@ -1,0 +1,25 @@
+# OpenAI Codex CLI. Signs in with a ChatGPT subscription (device code, relayed to the browser).
+id = "codex"
+name = "Codex"
+host = "codex"
+executable = "codex"
+providers = ["openai"]
+
+[install]
+method = "npm"
+package = "@openai/codex"
+
+[version]
+args = ["--version"]
+pattern = '(\d+\.\d+\.\d+)'
+
+[update]
+policy = "latest"
+
+[auth]
+methods = ["device-code", "subscription", "api-key"]
+api_key_env = ["OPENAI_API_KEY"]
+
+[login]
+command = ["login", "--device-auth"]
+terminal = false

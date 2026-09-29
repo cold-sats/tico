@@ -1,0 +1,172 @@
+// Run with Playwright available: NODE_PATH=/path/to/node_modules node ui/tests/updates.cjs
+// Every request is intercepted; this test never contacts the hub or a bot.
+// Updates is a feed with Daily and Weekly toggles; each bot reports in once a day
+// (Friday: the week in review); read state is per person and marked as cards are seen; a reply shows
+// on the update and goes to the bot's chat. On a phone Updates takes Tasks' place in the bottom bar.
+// "Getting updates and working through them should be very very snappy."
+// TICO_SCREENSHOT_DIR=<dir> saves the review screenshots.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const shots = process.env.TICO_SCREENSHOT_DIR;
+const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), hour = 3600e3;
+const day = ms => new Date(now + ms).toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
+const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['game', 'Temp Game']].map(([name, display_name]) =>
+  ({name, display_name, host: 'keeper', status: 'active', can_chat: true, team: 'marketing', operator: name === 'game' ? 'ben' : 'ana'}));
+
+(async () => {
+  const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
+  const posted = [];
+  let updates = [
+    {id: 'u-seo', bot: 'seo', kind: 'daily', day: day(0), headline: 'Published the vacation rental checklist page',
+     body: '- Published the vacation rental checklist page, 1,240 words\n- Linked it from six older posts\n- Pitching it to three host newsletters next',
+     created: iso(-2 * hour), updated: iso(-2 * hour), read: false, replies: 0},
+    {id: 'u-fin', bot: 'finance', kind: 'daily', day: day(0), headline: 'Brex balance is fine; Canva retry scheduled',
+     body: '- Brex has $13,000 available, so no cash warning\n- Rechecking the Canva payment on Oct 16', created: iso(-3 * hour),
+     updated: iso(-3 * hour), read: false, replies: 1},
+    {id: 'u-game', bot: 'game', kind: 'daily', day: day(0), headline: 'x', body: '- Ben\'s bot shipped a level', created: iso(-hour), updated: iso(-hour), read: true, replies: 0},
+    {id: 'u-cmo', bot: 'cmo', kind: 'daily', day: day(-86400e3), headline: 'Drafted October content plan',
+     body: '- Drafted the October content plan', created: iso(-26 * hour), updated: iso(-26 * hour), read: true, replies: 0},
+  ];
+  const weekly = [{id: 'w-seo', bot: 'seo', kind: 'weekly', day: day(0), headline: 'Week: 4 pages shipped, rankings up on 2 of 3 goals',
+    body: '- Shipped four pages this week\n- Organic signups are on track', created: iso(-hour), updated: iso(-hour), read: false, replies: 0}];
+  const threads = {'u-fin': [{id: 'm1', from_actor: 'human:ana', body: 'Re your update "Brex balance is fine": Thanks, flag anything under $10k', created: iso(-2 * hour)},
+                             {id: 'm2', from_actor: 'bot:finance', body: 'Will do.', created: iso(-hour)}]};
+  const feed = (kind, unread) => {
+    const list = (kind === 'weekly' ? weekly : updates);
+    return {updates: list, missed: kind === 'weekly' ? [] : [{bot: 'game', kind: 'daily', day: day(0), reason: 'its run stopped part-way'}],
+            unread: list.filter(u => !u.read).length, next_before: null, today: {posted: 2, missed: 1, queued: 1}};
+  };
+  const open = async (viewport) => {
+    const page = await browser.newPage({viewport, serviceWorkers: 'block'});
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.route('**/*', async route => {
+      const req = route.request(), url = new URL(req.url()), p = url.pathname;
+      const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
+      if (url.origin !== 'http://tico-ui.test') return route.abort();
+      if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+      const ui = p.match(/\/tico\/ui\/([^/]+\.js)$/);
+      if (ui) { const file = path.join(__dirname, '..', ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
+      if (p === '/api/employees') return json(bots);
+      if (p === '/api/issues') return json([]);
+      if (p === '/api/me') return json({id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', mover: true, cloud: true});
+      if (p === '/api/status') return json({active: [], employees: []});
+      if (p === '/api/v2/status') return json({bots: []});
+      if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}]});
+      if (p === '/api/v2/updates/unread') return json({unread: updates.filter(u => !u.read).length});
+      if (p === '/api/v2/updates' && req.method() === 'GET') {
+        await new Promise(r => setTimeout(r, 120));        // a real round trip, so the cache paint shows first
+        return json(feed(url.searchParams.get('kind')));
+      }
+      if (p === '/api/v2/updates/read') {
+        const body = req.postDataJSON(); posted.push({path: p, body});
+        for (const u of updates) if (body.all || body.ids.includes(u.id)) u.read = body.read !== false;
+        return json({marked: body.ids.length, read: body.read !== false});
+      }
+      const reply = p.match(/^\/api\/v2\/updates\/([^/]+)\/reply$/);
+      if (reply) {
+        const body = req.postDataJSON(); posted.push({path: p, body});
+        await new Promise(r => setTimeout(r, 250));
+        const msg = {id: 'm-new', from_actor: 'human:ana', body: `Re your update "x": ${body.text}`, created: new Date().toISOString(), conversation_id: 'c-seo'};
+        threads[reply[1]] = [...(threads[reply[1]] || []), msg];
+        return json({message: msg, thread: threads[reply[1]]});
+      }
+      const one = p.match(/^\/api\/v2\/updates\/([^/]+)$/);
+      if (one) return json({update: updates.find(u => u.id === one[1]), thread: threads[one[1]] || []});
+      return json({});
+    });
+    return {page, errors};
+  };
+  try {
+    // Desktop: the rail leads with Updates and an unread badge; the feed groups by day.
+    const {page, errors} = await open({width: 1280, height: 900});
+    await page.goto('http://tico-ui.test/#/updates');
+    await page.locator('#upd-feed .upd-card').first().waitFor();
+    assert.equal(await page.locator('.side-scroll .nav-link:visible').first().getAttribute('data-nav'), 'updates');
+    await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.textContent === '2');
+    // Just the updates, each only its bullets: no title, no sections, no greeting,
+    // no day headers, no who did not report, no More / Less.
+    // My bots is on by default: Ben's bot's update is hidden until it is off.
+    assert.equal(await page.locator('#upd-mine').getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-seo', 'u-fin', 'u-cmo']);
+    await page.locator('#upd-mine').click();
+    assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-seo', 'u-fin', 'u-game', 'u-cmo']);
+    await page.locator('#upd-mine').click();
+    assert.equal(await page.evaluate(() => localStorage.getItem('tico.updates.mine')), '1');
+    assert.equal(await page.locator('#upd-mine .upd-lbl').isVisible(), true, 'words on a desktop');
+    assert.equal(await page.locator('#upd-feed .upd-headline, #upd-feed .upd-day, #upd-today, .upd-missed, [data-upd-open], .upd-body.clamp').count(), 0);
+    assert.match(await page.locator('[data-upd="u-seo"] .upd-body').innerText(), /Published the vacation rental checklist page/);
+    // Seen is read: the visible unread cards are marked in one small request.
+    await page.waitForFunction(() => !document.querySelector('#upd-feed .upd-card.unread'), null, {timeout: 5000});
+    await page.waitForFunction(() => document.querySelector('.side-scroll [data-upd-badge]')?.hidden === true);
+    for (const end = Date.now() + 3000; !posted.some(x => x.path === '/api/v2/updates/read') && Date.now() < end;) await new Promise(r => setTimeout(r, 50));
+    const reads = posted.filter(x => x.path === '/api/v2/updates/read');
+    assert.equal(reads.length, 1, 'batched: ' + JSON.stringify(reads));
+    assert.deepEqual(reads[0].body.ids.sort(), ['u-fin', 'u-seo']);
+    if (shots) await page.screenshot({path: path.join(shots, 'updates-desktop.png')});
+    // No Unread filter. Unread first, then newest; marking one unread (or read)
+    // never moves anything while the page is open.
+    assert.equal(await page.locator('#upd-unread').count(), 0);
+    await page.locator('[data-upd="u-cmo"] [data-upd-toggle]').click();
+    assert.deepEqual(await page.locator('#upd-feed .upd-card').evaluateAll(els => els.map(e => e.dataset.upd)), ['u-seo', 'u-fin', 'u-cmo'],
+      'nothing re-sorts while you are on the page');
+    // A reply shows at once, then goes to the bot's chat (the hub does both).
+    await page.locator('[data-upd="u-seo"] [data-upd-reply]').click();
+    const box = page.locator('[data-upd="u-seo"] textarea');
+    await box.fill('Pitch it to Northwind Homes first');
+    const t0 = Date.now();
+    await box.press('Enter');
+    await page.locator('[data-upd="u-seo"] .upd-msg.pending').waitFor();
+    assert(Date.now() - t0 < 200, 'the reply shows before the round trip');
+    await page.locator('[data-upd="u-seo"] .upd-msg:not(.pending)').waitFor();
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/updates/u-seo/reply', body: {text: 'Pitch it to Northwind Homes first'}});
+    assert.match(await page.locator('[data-upd="u-seo"] .upd-msg').last().innerText(), /Pitch it to Northwind Homes first/);
+    assert.match(await page.locator('[data-upd="u-seo"] .upd-hint').innerText(), /Goes to AI SEO's chat too/);
+    // A thread with replies opens with them.
+    await page.locator('[data-upd="u-fin"] .upd-body').click();
+    await page.locator('[data-upd="u-fin"] .upd-msg.bot').waitFor();
+    if (shots) await page.screenshot({path: path.join(shots, 'updates-desktop-thread.png')});
+    // Keyboard: j / k move the selection.
+    await page.locator('#upd-feed').click({position: {x: 5, y: 5}});
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('j'); await page.keyboard.press('j');
+    assert.equal(await page.locator('#upd-feed .upd-card.sel').getAttribute('data-upd'), 'u-fin');
+    // Weekly: the toggle swaps the feed; Friday's cards say so.
+    await page.locator('[data-upd-kind="weekly"]').click();
+    await page.waitForFunction(() => location.hash === '#/updates?kind=weekly' && document.querySelector('[data-upd="w-seo"]'));
+    assert.match(await page.locator('[data-upd="w-seo"] .upd-pill').innerText(), /Week in review/);
+    // Snappy: coming back to Daily paints from this tab's cache before the network answers, and the
+    // unread one (AI CMO, marked unread above) now comes first.
+    await page.evaluate(() => { location.hash = '#/updates'; });
+    await page.waitForFunction(() => document.querySelector('[data-upd="u-seo"]'), null, {timeout: 60});
+    await page.waitForFunction(() => document.querySelector('#upd-feed .upd-card')?.dataset.upd === 'u-cmo', null, {timeout: 3000});
+    assert.deepEqual(errors, []);
+    await page.close();
+
+    // Phone: Updates is in the bottom bar where Tasks was; Tasks is in More.
+    const phone = await open({width: 390, height: 844});
+    const p = phone.page;
+    await p.goto('http://tico-ui.test/#/updates');
+    await p.locator('#upd-feed .upd-card').first().waitFor();
+    assert.deepEqual(await p.locator('#mobile-nav .mobile-nav-label').allInnerTexts(), ['Org', 'Search', 'Updates', 'More']);
+    // Day, week, unread and my bots are icons on a phone.
+    for (const sel of ['[data-upd-kind="daily"]', '[data-upd-kind="weekly"]', '#upd-mine']) {
+      assert.equal(await p.locator(sel + ' .nav-icon').isVisible(), true, sel + ' shows its icon');
+      assert.equal(await p.locator(sel + ' .upd-lbl').isVisible(), false, sel + ' hides its word');
+    }
+    assert.equal(await p.locator('#mobile-nav [data-nav="updates"]').evaluate(el => el.classList.contains('cur')), true);
+    const card = await p.locator('#upd-feed .upd-card').first().boundingBox();
+    assert(card.x >= 8 && card.x + card.width <= 390 - 8, 'cards fit the phone with a gutter');
+    if (shots) { await p.waitForTimeout(200); await p.screenshot({path: path.join(shots, 'updates-phone.png')}); }
+    await p.locator('#mobile-more').click();
+    await p.locator('body.drawer').waitFor();
+    assert.equal(await p.locator('.side-scroll [data-nav="tasks"]').isVisible(), true, 'Tasks is in More');
+    assert.deepEqual(phone.errors, []);
+    await p.close();
+    console.log('PASS: Updates first in the rail with an unread badge, just the bullets (no title, sections, greeting, day headers or missed list), seen-is-read in one batched request, mark unread without re-sorting, unread first on the next visit, an instant reply that goes to the bot\'s chat, threads, j/k, Daily/Weekly toggle, cached paint, and on a phone Updates in the bottom bar with Tasks in More.');
+  } finally { await browser.close(); }
+})().catch(e => { console.error(e); process.exitCode = 1; });

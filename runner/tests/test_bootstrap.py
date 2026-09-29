@@ -1,0 +1,120 @@
+"""First run: the runner sets the two bootstrap bots up from the catalog itself.
+
+The assistant is who the person talks to and BotOps sets every other chosen bot up, so neither
+can wait for a bot that does not exist yet. Everybody else stays missing until BotOps has run
+`hub bot create` in a turn, which is what `HUB_WORKSPACE` is in a turn's environment for.
+
+No CLI and no network: the cloud is a fake client, and the catalog is a temporary directory.
+"""
+import tempfile
+import unittest
+from pathlib import Path
+
+from clients.tico import APIError
+from runner.service import Runner
+
+CONFIG = {"company_name": "Acme Ltd", "app_name": "Acme OS", "assistant_name": "Ada",
+          "assistant_bot": "coo"}
+ONBOARDING = {"names": CONFIG,
+              "answers": {"what_we_do": "we clean holiday homes", "customers": "owners",
+                          "team_size": "nine people", "work_arrives": ["email"],
+                          "repetitive_work": "chasing photos", "never_without_person": ["refunds"]},
+              "selected": {"seo": {"template": "specialist", "display_name": "Sam",
+                                   "instructions": "# Sam\n\n## Owns\n- the blog\n"}},
+              "completed": True}
+RUNTIMES = {"codex": {"installed": True, "authenticated": "ready", "detail": "", "models": [],
+                      "version": "codex 1.0", "controls": []}}
+AGENT = """# {{bot_name}}
+
+You are {{bot_name}} at {{company_name}}; {{app_name}} is where the work lives.
+
+## Owns
+- being useful
+"""
+
+
+def card(template, slug, bootstrap):
+    return (f"template: {template}\nslug: {slug}\nname: The {slug.title()}\n"
+            f"bootstrap: {'true' if bootstrap else 'false'}\nrequired: {'true' if bootstrap else 'false'}\n"
+            f"summary: A bot.\nowns: []\nnever: []\nruntime: codex\n")
+
+
+def catalog(root):
+    """A catalog with one bootstrap template and one the runner must leave to BotOps."""
+    for template, slug, bootstrap in (("assistant", "coo", True), ("botops", "botops", True),
+                                      ("specialist", "seo", False)):
+        directory = Path(root) / template
+        directory.mkdir(parents=True)
+        (directory / "card.yaml").write_text(card(template, slug, bootstrap))
+        (directory / "AGENT.md").write_text(AGENT)
+        (directory / "employee.yaml").write_text('name: CHANGE-ME\ndisplay_name: "Change Me"\nschedules: []\n')
+        (directory / "state.md").write_text("# State\n")
+    return Path(root)
+
+
+class FakeClient:
+    """The cloud: this installation's names and its onboarding record, and nothing else."""
+
+    def __init__(self, onboarding=ONBOARDING):
+        self.record, self.seen = onboarding, []
+
+    def get(self, path, **query):
+        self.seen.append(path)
+        if path == "config":
+            return dict(CONFIG)
+        if path == "onboarding":
+            if self.record is None:
+                raise APIError("not_found", "This server has no onboarding", 404, False)
+            return dict(self.record)
+        raise APIError("not_found", path, 404, False)
+
+
+def entry(bot, template=None, runner_id="r1", **config):
+    row = {"bot": bot, "runner_id": runner_id, "state": "active",
+           "config": {"runtime": "codex", "model": "gpt-6-sol", **config}}
+    if template:
+        row["config"]["template"] = template
+    return row
+
+
+class Bootstrap(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.projects = self.root / "Companies/Acme"
+        self.projects.mkdir(parents=True)
+        self.catalog = catalog(self.root / "catalog")
+        self.client = FakeClient()
+        self.runner = self.service()
+
+    def service(self, client=None):
+        runner = Runner.__new__(Runner)
+        runner.config = {"url": "https://acme.test", "token": "t", "runner_id": "r1",
+                         "projects_dir": str(self.projects)}
+        runner.client = client or self.client
+        runner._names = None
+        return runner
+
+    def rows(self, *entries):
+        import os
+        os.environ["TICO_CATALOG_DIR"] = str(self.catalog)
+        self.addCleanup(os.environ.pop, "TICO_CATALOG_DIR", None)
+        return {row["bot"]: row for row in self.runner.preflight(list(entries), RUNTIMES)}
+
+    def test_only_the_machine_a_bot_is_assigned_to_writes_its_repository(self):
+        rows = self.rows(entry("coo", "assistant", runner_id="another-mac"), entry("botops", "botops", runner_id=None))
+        self.assertEqual(rows["coo"]["problems"], ["Missing bot repository or AGENT.md"])
+        self.assertFalse((self.projects / "emp-coo").exists())
+        self.assertFalse((self.projects / "emp-botops").exists())
+
+    def test_an_existing_repository_is_left_exactly_as_it_is(self):
+        repository = self.projects / "emp-coo"
+        (repository / "knowledge").mkdir(parents=True)
+        (repository / "AGENT.md").write_text("# Ada\n\n## Owns\n- everything so far\n")
+        rows = self.rows(entry("coo", "assistant"))
+        self.assertEqual(rows["coo"]["materialized"], "")
+        self.assertEqual((repository / "AGENT.md").read_text(), "# Ada\n\n## Owns\n- everything so far\n")
+
+if __name__ == "__main__":
+    unittest.main()

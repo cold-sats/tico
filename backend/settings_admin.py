@@ -1,0 +1,692 @@
+"""Audited bot settings, reversible changes, and transitions that apply at once."""
+
+import json
+import re
+from types import SimpleNamespace
+
+from . import models as M
+from . import providers
+from .auth import Identity
+from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
+from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
+
+
+def _json(value, fallback=None):
+    try:
+        return json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        return fallback
+
+class SettingsAdmin:
+    def __init__(self, store, auth, execution, models, reset_sessions):
+        self.store, self.auth, self.execution = store, auth, execution
+        self.models, self.reset_sessions = models, reset_sessions
+        self.settings = store.settings
+
+    @staticmethod
+    def _owner(who):
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner may change company bot settings", 403)
+
+    def _creator(self, who):
+        if not self.auth.bot_admin(who):
+            raise Problem("forbidden", "Only the owner or a bot administrator may add bots", 403)
+
+    def _manager(self, c, who, bot):
+        if who.role == "owner":
+            return
+        row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        if row and self.auth.bot_admin(who) and row["operator"] == H.actor_id(who.actor):
+            return
+        if row and self.auth.manages(c, who, "bot", bot):
+            return                          # the bot sits under this person on the org chart
+        raise Problem("forbidden", "You may change only bots that report up to you", 403)
+
+    @staticmethod
+    def _config(c, bot):
+        row = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        if not row:
+            raise Problem("not_found", "Bot not found", 404)
+        return row
+
+    @staticmethod
+    def _effort(choice, requested=None, current=None):
+        supported = tuple(choice.get("efforts") or ())
+        value = str(requested or "").strip().lower()
+        if requested is not None and value not in supported:
+            raise Problem("effort", "Choose an effort supported by that model", 422)
+        current = str(current or "").strip().lower()
+        return value or (current if current in supported else choice.get("default_effort") or "")
+
+    @staticmethod
+    def _harness(choice, requested=None, current=None):
+        supported = tuple(choice.get("harnesses") or (choice.get("runtime"),))
+        value = str(requested or "").strip().lower()
+        if requested is not None and value not in supported:
+            raise Problem("harness", "Choose a harness that can run that model", 422)
+        current = str(current or "").strip().lower()
+        return value or (current if current in supported else (supported[0] if supported else ""))
+
+    @staticmethod
+    def _entry(row):
+        config = _json(row["config_json"], {}) or {}
+        config.update({"name": row["bot"], "description": row["description"],
+                       "reports_to": row["reports_to"], "repo": row["repo"],
+                       "thread_mode": row["thread_mode"] or config.get("thread_mode") or "personal"})
+        return config
+
+    def _entries(self, c):
+        return {row["bot"]: self._entry(row) for row in c.execute("SELECT * FROM bot_config")}
+
+    @staticmethod
+    def _roster(c):
+        row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+        return P.load(_json(row[0], {}) if row else {"people": H.humans(c)})
+
+    def _team(self, c, bot, proposed=None):
+        entries = self._entries(c)
+        if proposed is not None:
+            entries[bot] = proposed
+        return P.team_of(bot, entries, self._roster(c).get("teams", {}))
+
+    @staticmethod
+    def _people(c, ids):
+        unique = list(dict.fromkeys(ids))
+        rows = [H.human(c, pid) for pid in unique]
+        missing = [pid for pid, row in zip(unique, rows) if not row]
+        if missing:
+            raise Problem("not_found", "Unknown person: " + ", ".join(missing), 404)
+        return unique, rows
+
+    @staticmethod
+    def _parent(c, bot, parent):
+        """A bot reports to another bot, or to a person (`human:<id>`), never in a circle."""
+        if not parent:
+            return
+        if str(parent).startswith("human:"):
+            from . import views
+            if not P.person(parent[6:], views.roster(c)):
+                raise Problem("not_found", "Reports-to person was not found", 404)
+            return
+        if not H.bot(c, parent):
+            raise Problem("not_found", "Reports-to bot was not found", 404)
+        seen, current = {bot}, parent
+        while current:
+            if current in seen:
+                raise Problem("hierarchy", "A bot cannot report to itself or one of its descendants", 422)
+            seen.add(current)
+            row = c.execute("SELECT reports_to,config_json FROM bot_config WHERE bot=?", (current,)).fetchone()
+            if not row:
+                break
+            current = row["reports_to"] or (_json(row["config_json"], {}) or {}).get("reports_to")
+
+    def definition(self, c, bot):
+        config, row = self._config(c, bot), H.bot(c, bot)
+        repo = config["repo"] or ("emp-" + bot)
+        return {"slug": bot, "display_name": row["display_name"],
+                "description": config["description"] or "", "reports_to": config["reports_to"],
+                "bot_contact": (_json(config["config_json"], {}) or {}).get("bot_contact") or "open",
+                "status": row["state"], "repo": repo,
+                "repo_url": repo_url(repo, self.settings.github_owner),
+                "thread_mode": config["thread_mode"] or "personal",
+                "temp": bool((_json(config["config_json"], {}) or {}).get("temp")),
+                "operator": config["operator"], "revision": config["revision"],
+                "model": row["model"], "runtime": row["runtime"], "effort": row["effort"],
+                "harness": resolve_harness(_json(config["config_json"], {}), row.get("runtime")),
+                "fallback": normalize_fallback((_json(config["config_json"], {}) or {}).get("fallback"))}
+
+    @staticmethod
+    def refuse_retired(choice):
+        """A retired model stays in the catalog for bots already on it; nothing new may pick it."""
+        if choice.get("deprecated"):
+            raise Problem("model", f"{choice['label']} is retired; choose a current model", 422)
+
+    def create_bot(self, c, who, body):
+        self._creator(who)
+        existing = H.bot(c, body.slug)
+        if existing and existing["state"] == "archived" and body.slug == self.settings.assistant_bot:
+            # First run set the assistant aside; adding it later brings the same bot back.
+            return self._restore(c, who, body)
+        if existing:
+            raise Problem("duplicate", "That bot slug already exists", 409)
+        manager = self._default_manager(c, body)
+        if manager:
+            body = body.model_copy(update={"reports_to": manager})
+        choice = self.models.get(body.model)
+        if not choice:
+            raise Problem("model", "Choose one of the supported models", 422)
+        self.refuse_retired(choice)
+        effort = self._effort(choice, body.effort)
+        harness = self._harness(choice, getattr(body, "harness", None))
+        self._parent(c, body.slug, body.reports_to)
+        owners, _ = self._people(c, body.owners)
+        runner = None
+        if body.runner_id and harness in EXTERNAL_HARNESSES:
+            raise Problem("harness", "A bot run by an external agent has no computer; leave the "
+                          "computer unassigned and give it an agent credential after saving", 422)
+        if body.runner_id:
+            runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (body.runner_id,)).fetchone()
+            if not runner:
+                raise Problem("not_found", "Machine is not registered", 404)
+        parent = (self._config(c, body.reports_to)
+                  if body.reports_to and not str(body.reports_to).startswith("human:") else None)
+        operator = body.operator or (runner["operator"] if runner else None) or (
+            parent["operator"] if parent else H.actor_id(who.actor))
+        if not H.human(c, operator):
+            raise Problem("not_found", "Computer operator is not on the roster", 404)
+        if who.role != "owner" and operator != H.actor_id(who.actor):
+            raise Problem("forbidden", "Bot administrators may add bots only for their own operator account", 403)
+        if who.role != "owner" and parent and parent["operator"] != operator:
+            raise Problem("forbidden", "The parent bot belongs to a different operator", 403)
+        if runner:
+            if runner["operator"] != operator:
+                raise Problem("operator", "The selected machine belongs to a different operator", 422)
+        if body.slug == self.settings.assistant_bot and body.thread_mode != "personal":
+            raise Problem("thread_mode", self.settings.assistant_name + " must use personal rooms", 422)
+        repo = body.repo or ("emp-" + body.slug)
+        config = {"name": body.slug, "display_name": body.display_name,
+                  "description": body.description, "reports_to": body.reports_to,
+                  "status": body.status, "repo": repo, "host": "keeper", "tasks": "hub",
+                  "runtime": runtime_of(harness) or choice["runtime"], "model": choice["id"],
+                  "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode,
+                  "model_managed_by": "cloud"}
+        team = self._team(c, body.slug, config)
+        now = H.now()
+        c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
+                  "VALUES(?,?,?,?,?,'','keeper',?,?)",
+                  (body.slug, body.display_name, runtime_of(harness) or choice["runtime"],
+                   choice["id"], effort, body.status, now))
+        c.execute(
+            "INSERT INTO bot_config(bot,config_json,team,operator,owner_ids_json,description,reports_to,"
+            "repo,thread_mode,definition_updated,definition_updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (body.slug, encode(config), team, operator, encode(owners), body.description,
+             body.reports_to, repo, body.thread_mode, now, who.actor))
+        assignment = None
+        if runner:
+            assignment = self.execution.assign(c, who, body.slug, SimpleNamespace(
+                runner_id=runner["id"], expected_generation=0))
+        H.event(c, who.actor, "bot.definition_created", body.slug,
+                {"operator": operator, "owners": owners, "runner": body.runner_id})
+        return {**self.definition(c, body.slug), "owners": owners, "assignment": assignment}
+
+    def _default_manager(self, c, body):
+        """Who a bot with no manager reports to when the company has no assistant to head the
+        chart: the owner, so the org chart stays one tree under a person."""
+        if body.reports_to or body.slug == self.settings.assistant_bot:
+            return None
+        assistant = H.bot(c, self.settings.assistant_bot)
+        if assistant and assistant["state"] != "archived":
+            return None
+        owner = self.auth.owner_id(c)
+        return "human:" + owner if owner and H.human(c, owner) else None
+
+    def _restore(self, c, who, body):
+        """An archived assistant, planned again under the name and description just given. It
+        keeps its history; its computer is assigned the way any planned bot's is."""
+        self.update_bot(c, who, body.slug, M.BotDefinitionUpdate(
+            display_name=body.display_name, description=body.description, status="planned",
+            expected_revision=self._config(c, body.slug)["revision"]))
+        return {**self.definition(c, body.slug), "owners": self._people(c, body.owners)[0], "assignment": None}
+
+    def archive(self, c, who, bot, body):
+        self._manager(c, who, bot)
+        if bot == self.settings.assistant_bot:
+            raise Problem("forbidden", self.settings.assistant_name + " cannot be removed", 409)
+        if self._config(c, bot)["revision"] != body.expected_revision:
+            raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
+        if body.successor:
+            self._manager(c, who, body.successor)
+        return archive_bot(c, who.actor, bot, body.successor or "")
+
+    def update_bot(self, c, who, bot, body):
+        self._manager(c, who, bot)
+        config = self._config(c, bot)
+        if config["revision"] != body.expected_revision:
+            raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
+        before = self.definition(c, bot)
+        values = dict(before)
+        for field in body.model_fields_set - {"expected_revision", "on_behalf_of"}:
+            values[field] = getattr(body, field)
+        values["description"] = values.get("description") or ""
+        # Lifting a quarantine has its own route and rules (status_set, quarantine/clear).
+        if before.get("status") == "quarantined" and values.get("status") != "quarantined":
+            raise Problem("quarantined", "This bot is quarantined; clear the quarantine first", 409)
+        self._parent(c, bot, values.get("reports_to"))
+        if who.role != "owner" and values.get("reports_to") and not str(values["reports_to"]).startswith("human:"):
+            parent = self._config(c, values["reports_to"])
+            if parent["operator"] != H.actor_id(who.actor) and not self.auth.manages(c, who, "bot", values["reports_to"]):
+                raise Problem("forbidden", "The parent bot belongs to a different operator", 403)
+        if bot == self.settings.assistant_bot and values["thread_mode"] != "personal":
+            raise Problem("thread_mode", self.settings.assistant_name + " must use personal rooms", 422)
+        mode_changed = values["thread_mode"] != before["thread_mode"]
+        if mode_changed and c.execute(
+                "SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone():
+            raise Problem("busy", "Wait for the current bot turn before changing its room type", 409)
+        declared = _json(config["config_json"], {}) or {}
+        declared.update({"name": bot, "display_name": values["display_name"],
+                         "description": values["description"], "reports_to": values.get("reports_to"),
+                         "bot_contact": values.get("bot_contact") or "open",
+                         "status": values["status"], "repo": values["repo"],
+                         "thread_mode": values["thread_mode"], "temp": bool(values.get("temp"))})
+        c.execute("UPDATE bots SET display_name=?,state=? WHERE slug=?",
+                  (values["display_name"], values["status"], bot))
+        c.execute(
+            "UPDATE bot_config SET config_json=?,description=?,reports_to=?,repo=?,thread_mode=?,"
+            "definition_updated=?,definition_updated_by=?,revision=revision+1 WHERE bot=?",
+            (encode(declared), values["description"], values.get("reports_to"), values["repo"],
+             values["thread_mode"], H.now(), who.actor, bot))
+        entries = self._entries(c)
+        teams = self._roster(c).get("teams", {})
+        for slug in entries:
+            c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, teams), slug))
+        after = self.definition(c, bot)
+        self.record(c, who.actor, bot, "definition", before, after)
+        H.event(c, who.actor, "bot.definition_changed", bot,
+                {"before": before, "after": after})
+        return {**after, "previous_thread_mode": before["thread_mode"]}
+
+    def snapshot(self, c, bot, field):
+        config = self._config(c, bot)
+        if field == "owners":
+            return _json(config["owner_ids_json"], []) if config["owner_ids_json"] is not None else None
+        if field == "model":
+            declared, row = _json(config["config_json"], {}), H.bot(c, bot)
+            runtime = declared.get("runtime") or row.get("runtime") or ""
+            return {"model": declared.get("model") or row.get("model") or "",
+                    "runtime": runtime, "harness": resolve_harness(declared, runtime),
+                    "effort": declared.get("reasoning_effort") or row.get("effort") or ""}
+        if field == "fallback":
+            return normalize_fallback((_json(config["config_json"], {}) or {}).get("fallback"))
+        if field == "placement":
+            row = c.execute("SELECT a.runner_id,a.generation,r.label,r.operator AS runner_operator "
+                            "FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
+            return {"runner_id": row["runner_id"] if row else None,
+                    "generation": row["generation"] if row else 0,
+                    "operator": config["operator"], "label": row["label"] if row else ""}
+        if field == "definition":
+            return self.definition(c, bot)
+        raise ValueError(field)
+
+    def record(self, c, actor, bot, field, before, after, transition_id=None):
+        if before == after:
+            return None
+        change_id = H.new_id()
+        c.execute("INSERT INTO settings_changes(id,bot,field,before_json,after_json,actor,transition_id,created) "
+                  "VALUES(?,?,?,?,?,?,?,?)",
+                  (change_id, bot, field, encode(before), encode(after), actor, transition_id, H.now()))
+        return change_id
+
+    def _target(self, c, who, bot, body):
+        if body.kind == "model":
+            choice = self.models.get(body.model)
+            if not choice:
+                raise Problem("model", "Choose one of the supported models", 422)
+            self.refuse_retired(choice)
+            current = self.snapshot(c, bot, "model")
+            effort = self._effort(choice, getattr(body, "effort", None), current.get("effort"))
+            harness = self._harness(choice, getattr(body, "harness", None), current.get("harness"))
+            assignment = c.execute(
+                "SELECT r.last_seen,r.revoked_at,r.readiness_json FROM assignments a "
+                "JOIN runners r ON r.id=a.runner_id WHERE a.bot=?", (bot,)).fetchone()
+            online = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
+                          and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
+            readiness = readiness_document(assignment["readiness_json"]) if online else {}
+            runtime_name = runtime_of(harness) or choice["runtime"]
+            runtime = readiness.get("runtimes", {}).get(runtime_name, {})
+            if readiness.get("schema_version") == 1 and harness != "antigravity":
+                if not runtime.get("installed") or runtime.get("authenticated") in ("missing", "failed"):
+                    raise Problem("runner_not_ready", runtime.get("detail") or
+                                  "The current computer is not ready for that runtime", 409)
+            return {"model": choice["id"], "runtime": runtime_name, "harness": harness,
+                    "effort": effort}
+        runner = c.execute("SELECT id,label,operator,revoked_at,last_seen,readiness_json FROM runners WHERE id=?",
+                           (body.runner_id,)).fetchone()
+        if not runner or runner["revoked_at"]:
+            raise Problem("not_found", "Machine is not registered", 404)
+        if who.role != "owner" and runner["operator"] != H.actor_id(who.actor):
+            raise Problem("forbidden", "Bot administrators may use only their own registered computers", 403)
+        if not runner["last_seen"] or runner["last_seen"] <= H.shift(H.now(), seconds=-60):
+            raise Problem("runner_not_ready", "The destination computer is offline", 409)
+        # A runner reports only on bots already assigned to it, so a bot's first placement has
+        # nothing to be ready yet: assigning it is what makes the runner set its repository up.
+        if c.execute("SELECT 1 FROM assignments WHERE bot=?", (bot,)).fetchone():
+            readiness = readiness_document(runner["readiness_json"])
+            detail = readiness.get("bots", {}).get(bot) if readiness.get("schema_version") == 1 else None
+            if not isinstance(detail, dict):
+                raise Problem("runner_not_ready", "Update the destination runner before moving this bot", 409)
+            # The runner reports what the bot runs on, not what is stored: a bot on the company
+            # default stores neither.
+            desired = providers.fill(providers.load(c, self.settings),
+                                     _json(self._config(c, bot)["config_json"], {}) or {})
+            if (str(detail.get("runtime") or "") != str(desired.get("runtime") or "")
+                    or str(detail.get("model") or "") != str(desired.get("model") or "")):
+                raise Problem("runner_not_ready",
+                              "The destination configuration differs from the server; wait for its next heartbeat", 409)
+            if detail.get("ready") is not True:
+                raise Problem("runner_not_ready", (detail.get("problems") or
+                              ["The destination computer is not ready for this bot"])[0], 409)
+        return {"runner_id": runner["id"], "label": runner["label"], "operator": runner["operator"]}
+
+    def begin(self, c, who, bot, body, undo_change_id=None):
+        self._manager(c, who, bot)
+        config = self._config(c, bot)
+        if config["revision"] != body.expected_revision:
+            raise Problem("version_conflict", "Bot configuration changed; refresh before preparing the change", 409)
+        target = self._target(c, who, bot, body)
+        field = "model" if body.kind == "model" else "placement"
+        current = self.snapshot(c, bot, field)
+        unchanged = (field == "model" and current == target) or (
+            field == "placement" and current["runner_id"] == target["runner_id"])
+        if unchanged:
+            raise Problem("unchanged", "That setting is already selected", 409)
+        existing = c.execute("SELECT id FROM bot_transitions WHERE bot=? AND state IN ('preparing','blocked','prepared')",
+                             (bot,)).fetchone()
+        if existing:
+            raise Problem("transition_pending", "Finish or cancel the existing prepared change first", 409)
+        if field == "placement" and current["generation"] != body.expected_generation:
+            raise Problem("version_conflict", "Machine assignment changed; refresh before preparing the move", 409)
+
+        transition_id, now = H.new_id(), H.now()
+        c.execute("INSERT INTO bot_transitions(id,bot,kind,target_json,requested_by,expected_revision,"
+                  "expected_generation,state,undo_change_id,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                  (transition_id, bot, body.kind, encode(target), who.actor, body.expected_revision,
+                   body.expected_generation, "preparing", undo_change_id, now, now))
+
+        # The change applies at once. The bot's session is the bot's runtime's business: the
+        # hub asks for no checkpoint turn and rebuilds nothing; a bot that wants what was said
+        # before reads it with `hub history`.
+        c.execute("UPDATE bot_transitions SET state='prepared',updated=? WHERE id=?", (H.now(), transition_id))
+        self._apply(c, who, c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone())
+        return self.get(c, who, transition_id)
+
+    def _apply(self, c, who, transition, *, without_checkpoint=False):
+        self._manager(c, who, transition["bot"])
+        config = self._config(c, transition["bot"])
+        if config["revision"] != transition["expected_revision"]:
+            raise Problem("version_conflict", "Bot settings changed while the checkpoint was being prepared", 409)
+        self.execution.expire(c)
+        if c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (transition["bot"],)).fetchone():
+            raise Problem("busy", "Wait for the current bot turn to finish", 409)
+        target, bot, field = _json(transition["target_json"], {}), transition["bot"], transition["kind"]
+        field = "model" if field == "model" else "placement"
+        before = self.snapshot(c, bot, field)
+        c.execute("SAVEPOINT apply_bot_transition")
+        try:
+            if field == "model":
+                declared = _json(config["config_json"], {})
+                # A Settings choice is the live authority. The checked-in manifest remains
+                # the bootstrap default, but must not make the runner reject an intentional
+                # model change on its next heartbeat.
+                declared.update({"model": target["model"], "runtime": target["runtime"],
+                                 "harness": target.get("harness") or runtime_of(target["runtime"]) or target["runtime"],
+                                 "reasoning_effort": target["effort"],
+                                 "model_managed_by": "cloud"})
+                c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(declared), bot))
+                c.execute("UPDATE bots SET model=?,runtime=?,effort=? WHERE slug=?",
+                          (target["model"], target["runtime"], target["effort"], bot))
+            else:
+                runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (target["runner_id"],)).fetchone()
+                if not runner:
+                    raise Problem("not_found", "The destination computer is no longer registered", 409)
+                current = c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone()
+                generation = current["generation"] if current else 0
+                if generation != transition["expected_generation"]:
+                    raise Problem("version_conflict", "Machine assignment changed while the checkpoint was being prepared", 409)
+                c.execute("UPDATE bot_config SET operator=? WHERE bot=?", (runner["operator"], bot))
+                self.execution.assign(c, who, bot, SimpleNamespace(
+                    runner_id=runner["id"], expected_generation=generation))
+                c.execute("UPDATE bot_config SET revision=revision+1 WHERE bot=?", (bot,))
+            reset = self.reset_sessions(c, bot)
+            after = self.snapshot(c, bot, field)
+            self.record(c, who.actor, bot, field, before, after, transition["id"])
+            if transition["undo_change_id"]:
+                c.execute("UPDATE settings_changes SET undone_by=?,undone_at=? WHERE id=? AND undone_at IS NULL",
+                          (who.actor, H.now(), transition["undo_change_id"]))
+            now = H.now()
+            c.execute("UPDATE bot_transitions SET state='applied',error=NULL,without_checkpoint=?,"
+                      "updated=?,applied_at=? WHERE id=?",
+                      (int(without_checkpoint), now, now, transition["id"]))
+            H.event(c, who.actor, "bot.transition_applied", bot,
+                    {"transition": transition["id"], "kind": transition["kind"],
+                     "checkpointed": not without_checkpoint, "sessions_reset": reset})
+            c.execute("RELEASE apply_bot_transition")
+        except Exception:
+            c.execute("ROLLBACK TO apply_bot_transition")
+            c.execute("RELEASE apply_bot_transition")
+            raise
+
+    def get(self, c, who, transition_id):
+        transition = c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone()
+        if not transition:
+            raise Problem("not_found", "Prepared change not found", 404)
+        self._manager(c, who, transition["bot"])
+        checkpoints = []
+        for row in c.execute("SELECT * FROM bot_transition_checkpoints WHERE transition_id=? ORDER BY conversation_id",
+                             (transition_id,)):
+            checkpoints.append({"conversation_id": row["conversation_id"], "state": row["state"],
+                                "checkpoint": _json(row["checkpoint_json"]), "error": row["error"]})
+        value = dict(transition)
+        value["target"] = _json(value.pop("target_json"), {})
+        value["checkpoints"] = checkpoints
+        value["progress"] = {"prepared": sum(row["state"] == "prepared" for row in checkpoints),
+                             "total": len(checkpoints)}
+        return value
+
+    def force(self, c, who, transition_id):
+        transition = c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone()
+        if transition:
+            self._manager(c, who, transition["bot"])
+        if not transition or transition["state"] in ("applied", "cancelled"):
+            raise Problem("state", "This prepared change is no longer pending", 409)
+        active = c.execute("SELECT 1 FROM bot_transition_checkpoints p JOIN jobs j ON j.message_id=p.message_id "
+                           "WHERE p.transition_id=? AND j.state IN ('leased','running','input')", (transition_id,)).fetchone()
+        if active:
+            raise Problem("busy", "A checkpoint is currently running; wait for it to finish", 409)
+        c.execute("UPDATE jobs SET state='cancelled' WHERE message_id IN "
+                  "(SELECT message_id FROM bot_transition_checkpoints WHERE transition_id=?) AND state='queued'", (transition_id,))
+        self._apply(c, who, transition, without_checkpoint=True)
+        return self.get(c, who, transition_id)
+
+    def cancel(self, c, who, transition_id):
+        transition = c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone()
+        if transition:
+            self._manager(c, who, transition["bot"])
+        if not transition or transition["state"] in ("applied", "cancelled"):
+            raise Problem("state", "This prepared change is no longer pending", 409)
+        if c.execute("SELECT 1 FROM bot_transition_checkpoints p JOIN jobs j ON j.message_id=p.message_id "
+                     "WHERE p.transition_id=? AND j.state IN ('leased','running','input')", (transition_id,)).fetchone():
+            raise Problem("busy", "A checkpoint is currently running; wait for it to finish", 409)
+        c.execute("UPDATE jobs SET state='cancelled' WHERE message_id IN "
+                  "(SELECT message_id FROM bot_transition_checkpoints WHERE transition_id=?) AND state='queued'", (transition_id,))
+        c.execute("UPDATE bot_transition_checkpoints SET state='cancelled' WHERE transition_id=? AND state='queued'",
+                  (transition_id,))
+        c.execute("UPDATE bot_transitions SET state='cancelled',updated=? WHERE id=?", (H.now(), transition_id))
+        H.event(c, who.actor, "bot.transition_cancelled", transition["bot"], {"transition": transition_id})
+        return self.get(c, who, transition_id)
+
+    def history(self, c, who, limit=100):
+        self._owner(who)
+        limit = max(1, min(int(limit), 200))
+        changes = []
+        for row in c.execute("SELECT * FROM settings_changes ORDER BY created DESC LIMIT ?", (limit,)):
+            value = dict(row)
+            value["before"], value["after"] = _json(value.pop("before_json")), _json(value.pop("after_json"))
+            try:
+                current = self.snapshot(c, row["bot"], row["field"])
+            except (ValueError, Problem, TypeError, KeyError):
+                # A field an older release wrote, or a bot deleted since: history still shows it.
+                current = None
+            value["can_undo"] = (row["field"] in ("owners", "model", "placement", "fallback")
+                                 and not row["undone_at"] and current == value["after"])
+            changes.append(value)
+        transitions = [self.get(c, who, row[0]) for row in c.execute(
+            "SELECT id FROM bot_transitions ORDER BY created DESC LIMIT ?", (limit,))]
+        return {"changes": changes, "transitions": transitions}
+
+    def undo(self, c, who, change_id, body):
+        self._owner(who)
+        change = c.execute("SELECT * FROM settings_changes WHERE id=?", (change_id,)).fetchone()
+        if not change:
+            raise Problem("not_found", "Settings change not found", 404)
+        config = self._config(c, change["bot"])
+        if config["revision"] != body.expected_revision:
+            raise Problem("version_conflict", "Bot settings changed; refresh before undoing", 409)
+        before, after = _json(change["before_json"]), _json(change["after_json"])
+        if change["undone_at"] or self.snapshot(c, change["bot"], change["field"]) != after:
+            raise Problem("not_latest", "A newer change replaced this value, so it cannot be undone directly", 409)
+        self.execution.expire(c)
+        if change["field"] in ("model", "placement") and c.execute(
+                "SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (change["bot"],)).fetchone():
+            raise Problem("busy", "Wait for the current bot turn to finish before undoing", 409)
+        bot = change["bot"]
+        if change["field"] == "owners":
+            owner_json = None if before is None else encode(before)
+            c.execute("UPDATE bot_config SET owner_ids_json=?,revision=revision+1 WHERE bot=?", (owner_json, bot))
+            restored = self.snapshot(c, bot, "owners")
+            self.record(c, who.actor, bot, "owners", after, restored)
+            c.execute("UPDATE settings_changes SET undone_by=?,undone_at=? WHERE id=?", (who.actor, H.now(), change_id))
+            H.event(c, who.actor, "settings.undo", bot, {"change": change_id, "field": change["field"]})
+            return {"undone": True, "bot": bot, "field": change["field"],
+                    "revision": config["revision"] + 1}
+        if change["field"] == "model":
+            if before.get("model") not in self.models:
+                raise Problem("not_reversible", "The previous model is no longer in the supported model list", 409)
+            return self.begin(c, who, bot, SimpleNamespace(
+                kind="model", model=before["model"], effort=before.get("effort"),
+                harness=before.get("harness"), runner_id=None,
+                expected_revision=body.expected_revision, expected_generation=0), undo_change_id=change_id)
+        if change["field"] == "placement":
+            if not before.get("runner_id"):
+                raise Problem("not_reversible", "There was no previous computer to restore", 409)
+            runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (before["runner_id"],)).fetchone()
+            if not runner:
+                raise Problem("not_reversible", "The previous computer is no longer registered", 409)
+            current = c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone()
+            return self.begin(c, who, bot, SimpleNamespace(
+                kind="machine", model=None, harness=None, runner_id=runner["id"],
+                expected_revision=body.expected_revision,
+                expected_generation=current["generation"] if current else 0), undo_change_id=change_id)
+        if change["field"] == "fallback":
+            return self.set_fallback(c, who, bot, SimpleNamespace(
+                fallback=SimpleNamespace(**before) if before else None,
+                expected_revision=body.expected_revision), undo_change_id=change_id)
+        raise Problem("not_reversible", "This settings change cannot be undone", 409)
+
+    def set_fallback(self, c, who, bot, body, undo_change_id=None):
+        self._manager(c, who, bot)
+        config = self._config(c, bot)
+        if config["revision"] != body.expected_revision:
+            raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
+        choice_body = body.fallback
+        if choice_body is None:
+            target = None
+        else:
+            if isinstance(choice_body, dict):
+                model_id, harness_id = choice_body.get("model"), choice_body.get("harness")
+                effort_id = choice_body.get("effort") or choice_body.get("reasoning_effort")
+            else:
+                model_id, harness_id = choice_body.model, choice_body.harness
+                effort_id = getattr(choice_body, "effort", None) or getattr(choice_body, "reasoning_effort", None)
+            if not HARNESS_BY_ID.get(harness_id):
+                raise Problem("harness", "Choose one of the supported harnesses", 422)
+            choice = self.models.get(model_id)
+            if not choice:
+                raise Problem("model", "Choose one of the supported models", 422)
+            self.refuse_retired(choice)
+            harness = self._harness(choice, harness_id)
+            effort = self._effort(choice, effort_id)
+            target = {"harness": harness, "model": choice["id"], "reasoning_effort": effort,
+                      "runtime": runtime_of(harness)}
+        before = self.snapshot(c, bot, "fallback")
+        if before == target:
+            raise Problem("unchanged", "That fallback is already selected", 409)
+        declared = _json(config["config_json"], {}) or {}
+        if target is None:
+            declared.pop("fallback", None)
+        else:
+            declared["fallback"] = target
+        c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?",
+                  (encode(declared), bot))
+        after = self.snapshot(c, bot, "fallback")
+        self.record(c, who.actor, bot, "fallback", before, after)
+        if undo_change_id:
+            c.execute("UPDATE settings_changes SET undone_by=?,undone_at=? WHERE id=? AND undone_at IS NULL",
+                      (who.actor, H.now(), undo_change_id))
+        H.event(c, who.actor, "bot.fallback_changed", bot, {"before": before, "after": after})
+        return {"bot": bot, "fallback": after, "revision": config["revision"] + 1}
+
+
+def archive_bot(c, actor, bot, successor=""):
+    """Take a bot off the org chart and out of work (#535). Its routines are deleted, queued
+    turns cancelled and its computer released; open tasks it owns or requested go to `successor`
+    (a bot slug) or else its operator; bots reporting to it move up to its own parent. A bot that
+    roots a team hands the team to `successor`, which then reports to nobody. Nothing is
+    deleted: the rows, tasks and history stay, and the repository is untouched."""
+    config = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    if not config or not H.bot(c, bot):
+        raise Problem("not_found", "Bot not found", 404)
+    if successor and (successor == bot or not H.bot(c, successor)
+                      or H.bot(c, successor).get("state") == "archived"):
+        raise Problem("not_found", "Successor bot not found", 404)
+    ts, parent = H.now(), config["reports_to"]
+    declared = _json(config["config_json"], {}) or {}
+    declared["status"] = "archived"
+    c.execute("UPDATE bots SET state='archived' WHERE slug=?", (bot,))
+    c.execute("UPDATE bot_config SET config_json=?,revision=revision+1,definition_updated=?,"
+              "definition_updated_by=? WHERE bot=?", (encode(declared), ts, actor, bot))
+    c.execute("DELETE FROM assignments WHERE bot=?", (bot,))
+    c.execute("UPDATE jobs SET state='cancelled' WHERE bot=? AND state='queued'", (bot,))
+    for row in c.execute("SELECT id FROM schedules WHERE bot=? AND deleted_at IS NULL", (bot,)).fetchall():
+        c.execute("INSERT INTO schedule_config(schedule_id,enabled) VALUES(?,0) "
+                  "ON CONFLICT(schedule_id) DO UPDATE SET enabled=0", (row["id"],))
+    c.execute("UPDATE schedules SET deleted_at=COALESCE(deleted_at,?),updated_at=? WHERE bot=?",
+              (ts, ts, bot))
+
+    # The team it rooted passes to the successor, which now heads it.
+    people = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
+    roster = _json(people["value_json"], {}) if people else {}
+    rooted = [name for name, team in (roster.get("teams") or {}).items()
+              if isinstance(team, dict) and team.get("root") == bot]
+    if rooted and successor:
+        for name in rooted:
+            roster["teams"][name]["root"] = successor
+        _set_parent(c, actor, successor, None, ts)
+    # People whose notes or mail went to it fall back to the defaults (the COO), never to the
+    # successor: a successor is someone else's bot as often as not.
+    cleared = [p for p in roster.get("people") or [] if bot in (p.get("bot"), p.get("inbox_bot"))]
+    for p in cleared:
+        for key in ("bot", "inbox_bot"):
+            if p.get(key) == bot:
+                p[key] = None
+    if (rooted and successor) or cleared:
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(roster),))
+    for row in c.execute("SELECT bot FROM bot_config WHERE reports_to=?", (bot,)).fetchall():
+        if row["bot"] != successor or not rooted:
+            _set_parent(c, actor, row["bot"], successor or parent, ts)
+
+    heir = "bot:" + successor if successor else H.human_actor(config["operator"])
+    marks = ",".join("?" * len(H.ACTIVE_STATUSES))
+    for field in ("owner", "requester"):
+        for task in c.execute(f"SELECT id FROM tasks WHERE {field}=? AND status IN ({marks})",
+                              ("bot:" + bot, *H.ACTIVE_STATUSES)).fetchall():
+            H._task_event(c, task["id"], actor, field, "bot:" + bot, heir, "Its bot was removed")
+            c.execute(f"UPDATE tasks SET {field}=?,updated=?,version=version+1 WHERE id=?",
+                      (heir, ts, task["id"]))
+    H._recount(c, "bot:" + bot)
+    H._recount(c, heir)
+
+    entries = {row["bot"]: SettingsAdmin._entry(row) for row in c.execute("SELECT * FROM bot_config")}
+    teams = P.load(roster or {"people": H.humans(c)}).get("teams", {})
+    for slug in entries:
+        c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, teams), slug))
+    H.event(c, actor, "bot.archived", bot, {"successor": successor or None, "heir": heir})
+    return {"bot": bot, "status": "archived", "successor": successor or None}
+
+
+def _set_parent(c, actor, bot, parent, ts):
+    row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    declared = _json(row["config_json"], {}) or {}
+    declared["reports_to"] = parent
+    c.execute("UPDATE bot_config SET reports_to=?,config_json=?,revision=revision+1,"
+              "definition_updated=?,definition_updated_by=? WHERE bot=?",
+              (parent, encode(declared), ts, actor, bot))

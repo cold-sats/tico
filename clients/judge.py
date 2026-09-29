@@ -1,0 +1,450 @@
+"""Decisions (TypeSafe's Jev is the optional provider; the question format matches OpenRouter's Decisions API),
+the one decision primitive the hub and every bot share. The module keeps its old name, `judge`.
+
+One call takes a JSON `state` and a map of typed questions and returns a calibrated answer per
+question, all in one round trip of about two hundred milliseconds. It writes no prose. That is
+the whole contract, and it never changes:
+
+    choice   pick one of named options      -> {"choice": name, "confidence": 0-1, "probabilities": {...}}
+    score    place the state on ordered levels -> {"score": float, "confidence": 0-1, "probabilities": {...}}
+    noul     is this statement true          -> {"noul": probability that the answer is yes}
+
+Three ways to reach it, one signature (`engine(state, questions, label=None) -> result`):
+
+    direct(api_key)        POST https://api.typesafe.ai/v1/systemone with the key; the hub server
+                           and the Slack gateway use this.
+    through_hub(client)    POST /api/v2/judge on the hub with the turn's own credential; the
+                           `hub decisions` command, the `hub_decisions` MCP tool and the mail CLI use
+                           this, so no bot ever holds the key and every call is audited.
+    from_env()             whichever of the two the environment allows, or None.
+
+The reusable part is not this module but the question sets in `questions/*.json`: a named,
+versioned set of questions with the state fields it expects and the thresholds callers act at
+(`load_set`). The hub knows nothing about them; a caller loads one and sends it inline. `label`
+(a set's `id@version`) is how calls are grouped in the audit, so a month of judgments can be
+read back per question set.
+
+Pure stdlib on purpose: the runner venv, the mail venv, the cloud venv and the `hub` CLI all
+import it.
+"""
+import json
+import math
+import os
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+URL = "https://api.typesafe.ai/v1/systemone"
+MODEL = "jev-latest"
+KEY_ENV = "TYPESAFE_API_KEY"
+TYPES = ("choice", "score", "noul")
+QUESTIONS_DIR = Path(__file__).resolve().parents[1] / "questions"
+
+# What one call may carry. TypeSafe takes up to 255 options and 10 levels, and Jev 1.13 reads
+# 32k tokens of state plus the longest question (64k for the whole call); the state limit here
+# is that budget at roughly four characters a token, so an oversized call is refused before it
+# is sent. The rest are ours.
+MAX_QUESTIONS = 40
+MAX_OPTIONS = 255
+MIN_LEVELS, MAX_LEVELS = 2, 10
+MAX_STATE_CHARS = 120_000
+MAX_INSTRUCTIONS = 8_000
+MAX_LABEL = 80
+TIMEOUT = 20
+RETRIES = 2
+BACKOFF = (0.5, 1.5)
+# Keys a question may carry beyond `type`; `dynamic` is ours (see `with_options`) and is stripped.
+QUESTION_KEYS = {"type", "instructions", "criteria", "dynamic"}
+# Instructions, an option's description, a level and a noul's true/false are "entries": a string,
+# or JSON structure (an object of named parts, a list of things to check) when that reads more
+# clearly; null for an option that needs no description.
+ENTRY_TYPES = (str, dict, list)
+
+
+class JudgeError(Exception):
+    """The call could not be made or did not come back in the shape promised."""
+
+    def __init__(self, code, detail, status=0, retryable=False):
+        super().__init__(detail)
+        self.code, self.detail, self.status, self.retryable = code, detail, status, retryable
+
+
+# ----------------------------------------------------------------------------- the contract
+def validate(state, questions, label=None):
+    """Refuse before the network does: the shape every transport checks the same way."""
+    if not isinstance(questions, dict) or not questions:
+        raise JudgeError("invalid", "questions must be a non-empty map of id -> question")
+    if len(questions) > MAX_QUESTIONS:
+        raise JudgeError("invalid", f"at most {MAX_QUESTIONS} questions in one call")
+    for qid, q in questions.items():
+        if not isinstance(qid, str) or not qid.strip():
+            raise JudgeError("invalid", "every question id is a non-empty string")
+        if not isinstance(q, dict):
+            raise JudgeError("invalid", f"{qid}: a question is a map")
+        extra = set(q) - QUESTION_KEYS
+        if extra:
+            raise JudgeError("invalid", f"{qid}: unknown keys {', '.join(sorted(extra))}")
+        kind = q.get("type")
+        if kind not in TYPES:
+            raise JudgeError("invalid", f"{qid}: type must be one of {', '.join(TYPES)}")
+        text = q.get("instructions")
+        if not isinstance(text, ENTRY_TYPES) or not text or (isinstance(text, str) and not text.strip()):
+            raise JudgeError("invalid", f"{qid}: instructions are required: a string, or an object or list of parts")
+        if len(text if isinstance(text, str) else json.dumps(text, default=str)) > MAX_INSTRUCTIONS:
+            raise JudgeError("invalid", f"{qid}: instructions over {MAX_INSTRUCTIONS} characters")
+        criteria = q.get("criteria")
+        if kind == "choice":
+            if not isinstance(criteria, dict) or len(criteria) < 2:
+                raise JudgeError("invalid", f"{qid}: a choice needs a criteria map of at least two options")
+            if len(criteria) > MAX_OPTIONS:
+                raise JudgeError("invalid", f"{qid}: at most {MAX_OPTIONS} options")
+            if not all(isinstance(k, str) and k.strip() for k in criteria):
+                raise JudgeError("invalid", f"{qid}: option names are non-empty strings")
+            if not all(v is None or isinstance(v, ENTRY_TYPES) for v in criteria.values()):
+                raise JudgeError("invalid", f"{qid}: an option's description is a string, structure, or null")
+        elif kind == "score":
+            if not isinstance(criteria, list) or not (MIN_LEVELS <= len(criteria) <= MAX_LEVELS):
+                raise JudgeError("invalid", f"{qid}: a score needs {MIN_LEVELS} to {MAX_LEVELS} ordered levels")
+            if not all(v is None or isinstance(v, ENTRY_TYPES) for v in criteria):
+                raise JudgeError("invalid", f"{qid}: a level is a string, structure, or null")
+        elif criteria is not None:
+            if not isinstance(criteria, dict) or set(criteria) - {"true", "false"}:
+                raise JudgeError("invalid", f"{qid}: a noul's criteria, if given, is a map of `true` and `false` descriptions")
+            if not all(v is None or isinstance(v, ENTRY_TYPES) for v in criteria.values()):
+                raise JudgeError("invalid", f"{qid}: a noul's true/false description is a string, structure, or null")
+    try:
+        size = len(json.dumps(state, default=str))
+    except (TypeError, ValueError):
+        raise JudgeError("invalid", "state must be JSON")
+    if size > MAX_STATE_CHARS:
+        raise JudgeError("invalid", f"state is {size} characters; the limit is {MAX_STATE_CHARS}")
+    if label is not None and (not isinstance(label, str) or len(label) > MAX_LABEL):
+        raise JudgeError("invalid", f"label is a string of at most {MAX_LABEL} characters")
+
+
+def clean(questions):
+    """The questions as TypeSafe sees them: our `dynamic` marker stripped."""
+    return {qid: {k: v for k, v in q.items() if k != "dynamic"} for qid, q in questions.items()}
+
+
+def check_answers(answers, questions):
+    """Every question answered, in its type's shape; anything else is `JudgeError("shape")`."""
+    if not isinstance(answers, dict):
+        raise JudgeError("shape", "answers is not a map")
+    for qid, q in questions.items():
+        a = answers.get(qid)
+        if not isinstance(a, dict):
+            raise JudgeError("shape", f"{qid}: no answer")
+        kind = q["type"]
+        if kind == "choice":
+            if a.get("choice") not in q["criteria"]:
+                raise JudgeError("shape", f"{qid}: choice is not one of the options")
+            if not _bounded(a.get("confidence"), 0, 1):
+                raise JudgeError("shape", f"{qid}: confidence is not in [0,1]")
+        if kind == "score":
+            if not _bounded(a.get("score"), 0, len(q["criteria"]) - 1):
+                raise JudgeError("shape", f"{qid}: score is outside its levels")
+            if not _bounded(a.get("confidence"), 0, 1):
+                raise JudgeError("shape", f"{qid}: confidence is not in [0,1]")
+        if kind == "noul" and not _bounded(a.get("noul"), 0, 1):
+            raise JudgeError("shape", f"{qid}: noul is not in [0,1]")
+    return answers
+
+
+def _bounded(value, low, high):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and low <= value <= high)
+
+
+# ----------------------------------------------------------------------------- transports
+def direct(api_key, model=MODEL, timeout=TIMEOUT, opener=None, sleep=time.sleep):
+    """The TypeSafe API with a key. `opener(request, timeout)` is the seam the tests use."""
+    if not api_key:
+        raise JudgeError("unconfigured", "no TypeSafe key")
+    opener = opener or urllib.request.urlopen
+
+    def engine(state, questions, label=None):
+        validate(state, questions, label)
+        body = json.dumps({"state": state, "model": model, "questions": clean(questions)},
+                          default=str).encode()
+        started = time.monotonic()
+        for attempt in range(RETRIES + 1):
+            request = urllib.request.Request(URL, data=body, method="POST", headers={
+                "Authorization": "Bearer " + api_key, "Content-Type": "application/json",
+                "Accept": "application/json"})
+            try:
+                with opener(request, timeout=timeout) as response:
+                    payload = json.load(response)
+                break
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+                try:
+                    detail = json.load(exc)
+                except ValueError:
+                    detail = {}
+                if status == 401:
+                    raise JudgeError("auth", "TypeSafe refused the key", 401)
+                if status == 422:
+                    raise JudgeError("invalid", str(detail.get("detail") or detail or "TypeSafe refused the request"), 422)
+                if status in (429, 529) or status >= 500:
+                    if attempt < RETRIES:
+                        sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
+                        continue
+                    raise JudgeError("unavailable", f"TypeSafe answered {status}", status, retryable=True)
+                raise JudgeError("http", f"TypeSafe answered {status}", status)
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                if attempt < RETRIES:
+                    sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
+                    continue
+                raise JudgeError("unavailable", f"TypeSafe did not answer: {type(exc).__name__}", retryable=True)
+        ms = round((time.monotonic() - started) * 1000)
+        if not isinstance(payload, dict):
+            raise JudgeError("shape", "TypeSafe answered with something other than an object")
+        answers = check_answers(payload.get("answers"), questions)
+        return {"model": str(payload.get("model") or model), "answers": answers,
+                "usage": payload.get("usage") or {}, "ms": ms}
+    return engine
+
+
+# The provider-neutral decision model: when there is no TypeSafe key, one call to the company's own model
+# provider answers the same questions. Keys are the providers' usual environment variables.
+LLM_KEYS = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "google": "GEMINI_API_KEY",
+            "xai": "XAI_API_KEY", "openrouter": "OPENROUTER_API_KEY"}
+LLM_URLS = {"anthropic": "https://api.anthropic.com/v1/messages",
+            "openai": "https://api.openai.com/v1/chat/completions",
+            "xai": "https://api.x.ai/v1/chat/completions",
+            "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+            "google": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"}
+LLM_INSTRUCTIONS = (
+    "You judge a JSON state against typed questions. Reply with one JSON object and nothing else: "
+    "a key per question id. For `choice`, {\"probabilities\": {option: p}} over every option; for "
+    "`score`, {\"probabilities\": [p per level, in order]}; for `noul`, {\"noul\": probability the "
+    "statement is true}. Probabilities are numbers in [0,1] that sum to 1 within a question.")
+
+
+def llm_request(provider, api_key, model, system, user):
+    """(request) for one provider's chat API; each takes a system prompt and one user turn."""
+    headers = {"Content-Type": "application/json"}
+    if provider == "anthropic":
+        headers.update({"x-api-key": api_key, "anthropic-version": "2023-06-01"})
+        body = {"model": model, "max_tokens": 4096, "system": system,
+                "messages": [{"role": "user", "content": user}]}
+    elif provider == "google":
+        headers["x-goog-api-key"] = api_key
+        body = {"systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": user}]}],
+                "generationConfig": {"responseMimeType": "application/json"}}
+    else:
+        headers["Authorization"] = "Bearer " + api_key
+        body = {"model": model, "response_format": {"type": "json_object"},
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    return urllib.request.Request(LLM_URLS[provider].format(model=model), data=json.dumps(body).encode(),
+                                  method="POST", headers=headers)
+
+
+def llm_text(provider, payload):
+    if provider == "anthropic":
+        return "".join(part.get("text", "") for part in payload.get("content") or [])
+    if provider == "google":
+        return "".join(part.get("text", "") for part in payload["candidates"][0]["content"]["parts"])
+    return payload["choices"][0]["message"]["content"]
+
+
+def llm_answers(raw, questions):
+    """Turn the model's probabilities into the decisions contract's answers."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        raise JudgeError("shape", "the model did not answer with JSON")
+    answers = {}
+    for qid, q in questions.items():
+        got = parsed.get(qid) if isinstance(parsed, dict) else None
+        if not isinstance(got, dict):
+            raise JudgeError("shape", f"{qid}: no answer")
+        if q["type"] == "noul":
+            answers[qid] = {"noul": min(1.0, max(0.0, float(got.get("noul", 0.5))))}
+            continue
+        raw_p = got.get("probabilities")
+        names = list(q["criteria"]) if q["type"] == "choice" else list(range(len(q["criteria"])))
+        try:
+            values = ([float(raw_p[name]) for name in names] if q["type"] == "choice"
+                      else [float(v) for v in raw_p])
+        except (TypeError, KeyError, ValueError):
+            raise JudgeError("shape", f"{qid}: probabilities do not cover every option")
+        if len(values) != len(names) or any(v < 0 for v in values) or not sum(values):
+            raise JudgeError("shape", f"{qid}: probabilities are not usable")
+        total = sum(values)
+        probabilities = [v / total for v in values]
+        best = max(range(len(names)), key=probabilities.__getitem__)
+        if q["type"] == "choice":
+            answers[qid] = {"choice": names[best], "confidence": probabilities[best],
+                            "probabilities": dict(zip(names, probabilities))}
+        else:
+            answers[qid] = {"score": sum(i * p for i, p in enumerate(probabilities)),
+                            "confidence": probabilities[best],
+                            "probabilities": dict(enumerate(probabilities))}
+    return check_answers(answers, questions)
+
+
+def llm(provider, api_key, model, timeout=TIMEOUT, opener=None):
+    """A decision model that asks the company's own provider. Less calibrated than a purpose-built
+    classifier: the probabilities are the model's stated ones. `opener` is the test seam."""
+    if provider not in LLM_URLS or not api_key or not model:
+        raise JudgeError("unconfigured", "no provider key or model for the decision model")
+    opener = opener or urllib.request.urlopen
+
+    def engine(state, questions, label=None):
+        validate(state, questions, label)
+        user = json.dumps({"state": state, "questions": clean(questions)}, default=str)
+        started = time.monotonic()
+        try:
+            with opener(llm_request(provider, api_key, model, LLM_INSTRUCTIONS, user), timeout=timeout) as response:
+                payload = json.load(response)
+            text = llm_text(provider, payload)
+        except urllib.error.HTTPError as exc:
+            raise JudgeError("unavailable" if exc.code in (429, 529) or exc.code >= 500 else "http",
+                             f"{provider} answered {exc.code}", exc.code,
+                             retryable=exc.code in (429, 529) or exc.code >= 500)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError, IndexError, TypeError) as exc:
+            raise JudgeError("unavailable", f"{provider} did not answer: {type(exc).__name__}", retryable=True)
+        return {"model": model, "answers": llm_answers(text, questions),
+                "usage": payload.get("usage") or payload.get("usageMetadata") or {},
+                "ms": round((time.monotonic() - started) * 1000)}
+    engine.model = model
+    return engine
+
+
+def through_hub(client):
+    """The hub's `POST /api/v2/judge` with a turn's credential (`clients.tico.Client`)."""
+    def engine(state, questions, label=None):
+        validate(state, questions, label)
+        body = {"state": state, "questions": questions}
+        if label:
+            body["label"] = label
+        try:
+            result = client.post("judge", body)         # `Client.post` puts /api/v2/ in front
+        except Exception as exc:                        # APIError, without importing clients.tico
+            code = getattr(exc, "code", "unavailable")
+            raise JudgeError(str(code), getattr(exc, "detail", str(exc)), getattr(exc, "status", 0),
+                             bool(getattr(exc, "retryable", False)))
+        answers = check_answers(result.get("answers") if isinstance(result, dict) else None, questions)
+        return {"model": str(result.get("model") or MODEL), "answers": answers,
+                "usage": result.get("usage") or {}, "ms": int(result.get("ms") or 0)}
+    return engine
+
+
+def from_env(env=None):
+    """Inside a turn the hub decides (the key stays on the server); a process with its own
+    `TYPESAFE_API_KEY` decides directly; otherwise None, and the caller does without."""
+    env = os.environ if env is None else env
+    url, token = env.get("HUB_API_URL"), env.get("HUB_TOKEN")
+    if url and token:
+        from clients.tico import Client
+        return through_hub(Client(url, token, timeout=TIMEOUT + 10))
+    key = (env.get(KEY_ENV) or "").strip()
+    if key:
+        return direct(key)
+    return None
+
+
+# ----------------------------------------------------------------------------- question sets
+def load_set(name, root=None):
+    """One question set from `questions/<name>.json`, validated, with its `label`."""
+    if not isinstance(name, str) or not name or any(ch in name for ch in "/\\.") :
+        raise JudgeError("invalid", f"{name!r} is not a question set name")
+    path = Path(root or QUESTIONS_DIR) / (name + ".json")
+    try:
+        data = json.loads(path.read_text())
+    except OSError:
+        raise JudgeError("not_found", f"no question set {name} ({path})")
+    except ValueError as exc:
+        raise JudgeError("invalid", f"{path.name}: {exc}")
+    return check_set(data, name)
+
+
+def check_set(data, name):
+    for key in ("id", "version", "summary", "questions"):
+        if key not in data:
+            raise JudgeError("invalid", f"{name}: question set is missing `{key}`")
+    if data["id"] != name:
+        raise JudgeError("invalid", f"{name}: `id` must equal the file name")
+    if not isinstance(data["version"], int) or data["version"] < 1:
+        raise JudgeError("invalid", f"{name}: `version` is a positive integer")
+    questions = data["questions"]
+    static = {qid: q for qid, q in questions.items() if not (isinstance(q, dict) and q.get("dynamic"))}
+    # A dynamic question's options are completed by the caller; check the fixed ones alone.
+    for qid, q in questions.items():
+        if isinstance(q, dict) and q.get("dynamic"):
+            if q.get("type") != "choice":
+                raise JudgeError("invalid", f"{name}: {qid}: only a choice can be dynamic")
+            static[qid] = {**q, "criteria": {**(q.get("criteria") or {}), "_a": "", "_b": ""}}
+    validate({}, static)
+    thresholds = data.get("thresholds") or {}
+    if not isinstance(thresholds, dict) or not all(isinstance(v, (int, float)) for v in thresholds.values()):
+        raise JudgeError("invalid", f"{name}: thresholds is a map of name -> number")
+    return {**data, "label": f"{data['id']}@{data['version']}", "thresholds": thresholds,
+            "state": list(data.get("state") or [])}
+
+
+def with_options(question, options):
+    """A dynamic choice completed: the caller's options first, then the set's fixed ones
+    (`new`, `unassigned`, `other`)."""
+    fixed = question.get("criteria") or {}
+    merged = {**{str(k): (v if v is None or isinstance(v, ENTRY_TYPES) else str(v)) for k, v in options.items()},
+              **fixed}
+    return {**{k: v for k, v in question.items() if k != "dynamic"}, "criteria": merged}
+
+
+def list_sets(root=None):
+    out = []
+    for path in sorted(Path(root or QUESTIONS_DIR).glob("*.json")):
+        try:
+            data = load_set(path.stem, root)
+        except JudgeError as exc:
+            out.append({"id": path.stem, "error": exc.detail})
+            continue
+        out.append({"id": data["id"], "version": data["version"], "label": data["label"],
+                    "summary": data["summary"], "questions": list(data["questions"]),
+                    "state": data["state"], "thresholds": data["thresholds"]})
+    return out
+
+
+# ----------------------------------------------------------------------------- reading answers
+def top(answer):
+    """(value, confidence) whatever the type: a noul's confidence is how far it is from a coin toss."""
+    if "choice" in answer:
+        return answer["choice"], float(answer.get("confidence") or 0)
+    if "score" in answer:
+        return float(answer["score"]), float(answer.get("confidence") or 0)
+    p = float(answer.get("noul") or 0)
+    return p, abs(p - 0.5) * 2
+
+
+def choice(answers, qid):
+    a = answers[qid]
+    return a["choice"], float(a.get("confidence") or 0)
+
+
+def noul(answers, qid):
+    return float(answers[qid]["noul"])
+
+
+def score(answers, qid):
+    a = answers[qid]
+    return float(a["score"]), float(a.get("confidence") or 0)
+
+
+def summary(answers):
+    """What the audit keeps of a call: the value and confidence per question, never the state."""
+    out = {}
+    for qid, a in (answers or {}).items():
+        if not isinstance(a, dict):
+            continue
+        value, confidence = top(a)
+        out[qid] = {"type": a.get("type") or ("choice" if "choice" in a else "score" if "score" in a else "noul"),
+                    "value": value, "confidence": round(confidence, 3)}
+    return out

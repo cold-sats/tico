@@ -1,0 +1,24 @@
+name: market-analyst
+display_name: "Market Analyst"
+labels: [owner:market-analyst]
+reads: []
+reports_to: cmo
+
+reasoning_effort: high
+max_run_minutes: 60
+
+outbound_send: false
+
+schedules:
+  - id: curate
+    title: Curate the market
+    cron: "0 * * * *"
+    timezone: America/Los_Angeles
+    template: playbooks/curate.md
+  - id: urgent
+    title: Urgent market insight
+    "on": market.insight.urgent    # quoted: YAML reads a bare `on` as true
+    timezone: America/Los_Angeles
+    template: playbooks/urgent.md
+
+access: []

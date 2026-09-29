@@ -1,0 +1,8 @@
+# Who may sign in to the fictional Acme environment the tests run against.
+owner: ana@acme.example
+allowed_domains: [acme.example]
+allowed:
+  - ana@acme.example
+  - ben@acme.example
+bot_admins: []
+private_owners: []

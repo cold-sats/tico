@@ -1,0 +1,395 @@
+"""Exercise the network contract with separate humans and runners over real SQLite."""
+
+import json
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+import yaml
+from fastapi.testclient import TestClient
+
+from backend.app import create_app
+from backend.auth import Identity
+from backend.config import Settings
+from backend.execution import AWAKE_SETTLE
+from backend.store import H, encode
+
+
+@pytest.fixture
+def api(tmp_path):
+    registry = tmp_path / "hub-registry"
+    registry.mkdir()
+    (registry / "hub-access.yaml").write_text(yaml.safe_dump({
+        "owner": "ana@acme.example", "private_owners": ["inbox"], "bot_admins": ["ben@acme.example"]}))
+    app = create_app(Settings(db_path=tmp_path / "hub.db", registry_dir=registry, test_identities={
+        "ana-test": Identity("human:ana", "owner", "ana@acme.example"),
+        "ben-test": Identity("human:ben", "human", "ben@acme.example"),
+        "cara-test": Identity("human:cara", "human", "cara@acme.example"),
+    }))
+    with TestClient(app) as client:
+        with app.state.store.transaction() as c:
+            bots = {slug: {"name": slug, "runtime": "fake", "status": "active"}
+                    for slug in ("coo", "ops", "cpo", "product-design", "finance", "inbox", "doc-updater")}
+            H.sync_registry(c, bots, {"people": [{"id": p, "email": p + "@acme.example"}
+                                               for p in ("ana", "ben", "cara")]})
+            c.execute("INSERT INTO registry_metadata VALUES('people',?)", (encode({"people": [
+                {"id": "ana", "email": "ana@acme.example", "primary_for": ["*"]},
+                {"id": "ben", "email": "ben@acme.example", "primary_for": ["cpo", "product-design", "ops"]},
+                {"id": "cara", "email": "cara@acme.example"}]}),))
+            for slug, config in bots.items():
+                product = slug in ("cpo", "product-design")
+                c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES(?,?,?,?)",
+                          (slug, encode(config), "product" if product else None, "ben" if product else "ana"))
+            # A company with a fleet this size is long past first run; the wizard belongs to
+            # backend/tests/test_onboarding.py, not to every other test's front page.
+            c.execute("INSERT INTO registry_metadata VALUES('onboarding',?)",
+                      (encode({"completed": "2026-01-01T00:00:00Z"}),))
+        yield client
+
+
+def headers(token="ana-test", key=None):
+    return {"Authorization": "Bearer " + token, "Idempotency-Key": key or str(uuid.uuid4())}
+
+
+def post(api, path, body, token="ana-test", key=None, expected=200):
+    r = api.post("/api/v2/" + path, json=body, headers=headers(token, key))
+    assert r.status_code == expected, r.text
+    data = r.json()
+    if expected == 200 and isinstance(data, dict):
+        if path.startswith("chat/"):
+            return data["message"]
+        if set(data) == {"task"}:
+            return data["task"]
+    return data
+
+
+def get(api, path, token="ana-test", expected=200):
+    r = api.get("/api/v2/" + path, headers=headers(token))
+    assert r.status_code == expected, r.text
+    data = r.json()
+    if expected == 200 and isinstance(data, dict):
+        if path == "conversations":
+            return data["conversations"]
+        if path.startswith("conversations/") and path.endswith("/messages"):
+            return data["messages"]
+    return data
+
+
+def put(api, path, body, token="ana-test", expected=200):
+    r = api.put("/api/v2/" + path, json=body, headers=headers(token))
+    assert r.status_code == expected, r.text
+    return r.json()
+
+
+def runner(api, operator="ana", label="Test Mac"):
+    code = post(api, "enrollments", {"operator": operator})["code"]
+    return post(api, "runners/enroll", {"code": code, "label": label, "platform": "test"})
+
+
+def assign(api, r, bot, generation=0, operator="ana-test"):
+    return post(api, "bots/" + bot + "/assignment", {"runner_id": r["runner_id"],
+                "expected_generation": generation}, token=operator)
+
+
+def ready(api, r, bots):
+    return post(api, "runners/heartbeat", {"version": "test", "platform": "test",
+                "readiness": {bot: True for bot in bots}}, token=r["token"])
+
+
+def claim(api, r, bot=None, key=None):
+    return post(api, "jobs/claim", {"bot": bot}, token=r["token"], key=key)["attempt"]
+
+
+def setup_attempt(api, bot="ops", operator="ana"):
+    r = runner(api, operator)
+    assign(api, r, bot)
+    ready(api, r, [bot])
+    if bot == "coo":
+        # Nobody chats with the assistant; a person hands it a task.
+        msg = post(api, "tasks", {"owner": bot, "title": "Summarize", "body": "Please summarize the current work."})
+    else:
+        msg = post(api, "chat/" + bot, {"text": "Please summarize the current work."})
+    return r, msg, claim(api, r)
+
+
+def expire(api, aid):
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET lease_until=? WHERE id=?", (H.shift(H.now(), seconds=-1), aid))
+
+
+def test_no_local_owner_or_header_spoofing(api):
+    assert api.get("/healthz").status_code == 200
+    assert api.get("/api/v2/tasks").status_code == 401
+    assert api.get("/", headers={"Cf-Access-Authenticated-User-Email": "ana@acme.example"}).status_code == 401
+    assert api.get("/runtime/hub.db", headers=headers()).status_code == 404
+    assert api.get("/../registry/employees.yaml", headers=headers()).status_code == 404
+
+
+def test_schema_rejects_forged_actor_and_missing_fields(api):
+    post(api, "tasks", {"owner": "coo", "title": "Create something", "body": "Do it", "requester": "human:ben"}, expected=422)
+    post(api, "tasks", {"owner": "coo", "title": "Missing body"}, expected=422)
+    r = api.post("/api/v2/tasks", json={"owner": "coo", "title": "Create report", "body": "A report"},
+                 headers={"Authorization": "Bearer ana-test"})
+    assert r.status_code == 422
+
+
+def test_task_and_queue_commit_once_with_concurrent_retries(api):
+    body = {"owner": "coo", "title": "Review the proposal", "body": "Give a recommendation."}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        replies = list(pool.map(lambda _: post(api, "tasks", body, key="same-operation"), range(4)))
+    assert len({r["id"] for r in replies}) == 1
+    assert replies[0]["requester"] == "human:ana"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM tasks").fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM jobs").fetchone()[0] == 1
+    post(api, "tasks", {**body, "body": "Changed"}, key="same-operation", expected=409)
+
+
+def test_task_version_conflict_preserves_first_write(api):
+    task = post(api, "tasks", {"owner": "coo", "title": "Review design", "body": "Recommend improvements."})
+    updated = post(api, "tasks/" + task["id"], {"version": 1, "note": "First revision"})
+    assert updated["version"] == 2
+    post(api, "tasks/" + task["id"], {"version": 1, "note": "Stale revision"}, expected=409)
+    assert get(api, "tasks/" + task["id"])["task"]["note"] == "First revision"
+
+
+def test_nobody_chats_with_the_assistant_but_people_still_hand_it_work(api):
+    """The assistant's chat was retired (2026-09-24): it works in the background, and a person's
+    task for it still lands in that person's own room."""
+    for token in ("ana-test", "ben-test"):
+        refused = post(api, "chat/coo", {"text": "Hello"}, token=token, expected=403)
+        assert "works in the background" in refused["error"]["detail"]
+        post(api, "messages", {"to": "coo", "text": "Hello"}, token=token, expected=403)
+        post(api, "chat/coo/new", {}, token=token, expected=403)
+    employees = api.get("/api/employees", headers=headers()).json()
+    assert next(row for row in employees if row["name"] == "coo")["can_chat"] is False
+    ana = post(api, "tasks", {"owner": "coo", "title": "Ana's review", "body": "Private context."})
+    ben = post(api, "tasks", {"owner": "coo", "title": "Ben's review", "body": "Private context."},
+                  token="ben-test")
+    assert ana["conversation_id"] != ben["conversation_id"]
+    get(api, "conversations/" + ana["conversation_id"] + "/messages", "ben-test", expected=403)
+    get(api, "conversations/" + ben["conversation_id"] + "/messages", "ana-test", expected=403)
+    post(api, "messages", {"to": "coo", "text": "Injected", "conversation_id": ana["conversation_id"]},
+         token="ben-test", expected=403)
+    # A bot still talks to it.
+    r, _, attempt = setup_attempt(api)
+    assert post(api, "messages", {"to": "coo", "text": "FYI"}, token=attempt["token"])["to_actor"] == "bot:coo"
+
+
+def test_shared_room_membership_updates_and_revokes_history_access(api):
+    message = post(api, "chat/cpo", {"text": "The group can read this."})
+    changed = post(api, "bots/cpo/owners", {"owners": ["cara"], "expected_revision": 1})
+    assert [owner["id"] for owner in changed["owners"]] == ["cara"]
+    get(api, "conversations/" + message["conversation_id"] + "/messages", "ben-test", expected=403)
+    visible = get(api, "conversations/" + message["conversation_id"] + "/messages", "cara-test")
+    assert visible[0]["body"] == "The group can read this."
+
+
+def test_private_task_reference_is_denied(api):
+    task = post(api, "tasks", {"owner": "inbox", "title": "Review inbox", "body": "Review private messages."})
+    get(api, "tasks/" + task["id"], "ben-test", expected=403)
+    post(api, "chat/cpo", {"text": "Read this", "refs": {"task": task["id"]}}, token="ben-test", expected=403)
+
+
+def test_steven_manages_product_subtree_only(api):
+    r = runner(api, "ben")
+    assign(api, r, "cpo", operator="ben-test")
+    assign(api, r, "product-design", operator="ben-test")
+    post(api, "bots/finance/assignment", {"runner_id": r["runner_id"], "expected_generation": 0},
+         token="ben-test", expected=403)
+    post(api, "bots/finance/assignment", {"runner_id": r["runner_id"], "expected_generation": 0}, expected=403)
+    post(api, "chat/cpo", {"text": "Pretend to be Ben"}, token=r["token"], expected=403)
+
+
+def test_running_bot_cannot_change_model(api):
+    _, _, _ = setup_attempt(api)
+    post(api, "bots/ops/model", {"model": "gpt-6-astra", "expected_revision": 1}, expected=409)
+    with api.app.state.store.read() as c:
+        config = c.execute("SELECT config_json,revision FROM bot_config WHERE bot='ops'").fetchone()
+        assert json.loads(config["config_json"]).get("model") is None
+        assert config["revision"] == 1
+        assert c.execute("SELECT count(*) FROM session_epochs").fetchone()[0] == 0
+
+
+def test_two_runners_claim_only_their_own_bots(api):
+    ana, ben = runner(api), runner(api, "ben", "Ben Mac")
+    assign(api, ana, "coo")
+    assign(api, ben, "cpo")
+    ready(api, ana, ["coo", "cpo"])
+    ready(api, ben, ["coo", "cpo"])
+    post(api, "chat/cpo", {"text": "Talk to product"})
+    assert claim(api, ana) is None
+    attempt = claim(api, ben, key="claim-once")
+    assert attempt["bot"] == "cpo"
+    assert claim(api, ben, key="claim-once")["id"] == attempt["id"]
+    assert claim(api, ben) is None
+
+
+def test_turn_output_and_completion_are_durable_and_idempotent(api):
+    r, msg, attempt = setup_attempt(api)
+    aid = attempt["id"]
+    post(api, f"attempts/{aid}/started", {"thread_id": "local-thread"}, token=r["token"])
+    event = {"events": [{"seq": 1, "kind": "message", "payload": {"text": "Answer", "final": True}}]}
+    assert post(api, f"attempts/{aid}/events", event, token=r["token"])["ack_seq"] == 1
+    assert post(api, f"attempts/{aid}/events", event, token=r["token"])["ack_seq"] == 1
+    final = {"outcome": "completed", "text": "A complete answer", "last_seq": 1}
+    done = post(api, f"attempts/{aid}/complete", final, token=r["token"], key="completion-once")
+    replay = post(api, f"attempts/{aid}/complete", final, token=r["token"], key="completion-once")
+    assert done == replay
+    messages = get(api, f"conversations/{msg['conversation_id']}/messages")
+    assert [m["body"] for m in messages] == [msg["body"], "A complete answer"]
+    post(api, "chat/cpo", {"text": "Stale bot token"}, token=attempt["token"], expected=409)
+
+
+def test_bot_ask_still_receives_exactly_one_answer(api):
+    r = runner(api)
+    assign(api, r, "coo")
+    ready(api, r, ["coo"])
+    with api.app.state.store.transaction() as c:
+        question = H.say(c, "bot:cpo", "bot:coo", "Is it ready?", kind="ask", wait_s=60)
+    attempt = claim(api, r)
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "bot-question"}, token=r["token"])
+    post(api, f"attempts/{attempt['id']}/complete",
+         {"outcome": "completed", "text": "Yes.", "last_seq": 0}, token=r["token"])
+    with api.app.state.store.read() as c:
+        answers = H.answers_to(c, [question["id"]])
+        assert answers[question["id"]]["body"] == "Yes."
+        assert c.execute("SELECT count(*) FROM messages WHERE in_reply_to=?",
+                         (question["id"],)).fetchone()[0] == 1
+
+
+def test_unstarted_expired_claim_is_safely_redelivered(api):
+    r, _, a = setup_attempt(api)
+    expire(api, a["id"])
+    replacement = claim(api, r)
+    assert replacement["job_id"] == a["job_id"]
+    assert replacement["id"] != a["id"]
+
+
+def slept(api, r, seconds=3600, awake_since=None):
+    """Age a machine's last contact the way an hour of sleep does."""
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET last_seen=?,awake_since=? WHERE id=?",
+                  (H.shift(H.now(), seconds=-seconds), awake_since, r["runner_id"]))
+
+
+def settled(api, r):
+    """A machine that came back and has been reporting in ever since."""
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET awake_since=? WHERE id=?",
+                  (H.shift(H.now(), seconds=-AWAKE_SETTLE - 1), r["runner_id"]))
+
+
+def awake_since(api, r):
+    with api.app.state.store.read() as c:
+        return c.execute("SELECT awake_since FROM runners WHERE id=?", (r["runner_id"],)).fetchone()["awake_since"]
+
+
+def test_work_goes_out_once_the_machine_has_stayed_awake(api):
+    r = runner(api, "ana")
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    msg = post(api, "chat/ops", {"text": "Run this when you are really up."})
+    slept(api, r, seconds=3600, awake_since=H.shift(H.now(), seconds=-7200))
+    assert claim(api, r) is None
+    ready(api, r, ["ops"])   # the heartbeat lands moments later: in contact, not yet trusted
+    assert get(api, f"conversations/{msg['conversation_id']}/snapshot")["execution"]["label"] == (
+        "Saved — waiting for Test Mac to stay awake")
+    settled(api, r)   # unbroken contact since the wake, longer than the settle window
+    attempt = claim(api, r)
+    assert attempt and attempt["message"]["id"] == msg["id"], "the work kept its place in the queue"
+
+
+def test_a_person_resumes_a_quarantined_bot_in_one_click(api):
+    """No note to write and no stopped-run review first. The stopped run settles
+    on its own (execution.auto_reconcile); the bot is simply resumed."""
+    r, _, interrupted = setup_attempt(api)
+    post(api, f"attempts/{interrupted['id']}/started", {"thread_id": "interrupted"}, r["token"])
+    with api.app.state.store.transaction() as c:
+        H.quarantine(c, 'ops', 'escape: refused task write')
+    expire(api, interrupted['id'])
+    assert claim(api, r) is None
+    path = 'bots/ops/quarantine/clear'
+    post(api, path, {}, token=r['token'], expected=403)
+    cleared = post(api, path, {})['status']
+    assert cleared['state'] == 'idle'
+    with api.app.state.store.read() as c:
+        assert H.bot(c, 'ops')['state'] == 'active'
+
+
+def test_cross_site_post_is_denied(api):
+    r = api.post("/api/v2/chat/ops", json={"text": "Cross-site request"},
+                 headers={**headers(), "Origin": "https://untrusted.example"})
+    assert r.status_code == 403
+
+
+def test_approval_decision_and_consumption_have_separate_authority(api):
+    r, _, a = setup_attempt(api)
+    payload = {"to": "colleague@acme.example", "cc": [], "subject": "Draft", "body_sha256": "a" * 64, "mailbox": "work"}
+    approval = post(api, "approvals", {"kind": "send", "payload": payload}, token=a["token"])
+    path = "approvals/" + approval["id"]
+    post(api, path, {"decision": "approved"}, token="ben-test", expected=403)
+    post(api, path, {"decision": "approved"})
+    post(api, path + "/consume", {"payload_hash": "b" * 64}, token=a["token"], expected=403)
+    result = post(api, path + "/consume", {"payload_hash": approval["payload_hash"]}, token=a["token"], key="send-op")
+    assert result["consumed_at"]
+    assert post(api, path + "/consume", {"payload_hash": approval["payload_hash"]}, token=a["token"], key="send-op") == result
+    post(api, path + "/consume", {"payload_hash": approval["payload_hash"]}, token=a["token"], expected=422)
+
+
+def test_a_chat_message_cannot_decide_an_approval(api):
+    """Approvals are decided on the approval itself; the assistant chat that confirmed them is gone."""
+    r, _, attempt = setup_attempt(api)
+    payload = {"to": "colleague@acme.example", "cc": [], "subject": "Draft",
+               "body_sha256": "c" * 64, "mailbox": "work"}
+    approval = post(api, "approvals", {"kind": "send", "payload": payload}, token=attempt["token"])
+    refs = {"approval": approval["id"], "decision": "approved"}
+    post(api, "chat/ops", {"text": "Sure, go ahead.", "refs": refs}, expected=422)
+    post(api, "messages", {"to": "ana", "text": "approve", "refs": refs}, token=attempt["token"], expected=422)
+    assert get(api, "approvals/" + approval["id"])["decision"] is None
+
+
+def test_a_spoken_chat_message_is_marked_voice_and_nothing_else_is_accepted(api):
+    ok = post(api, "chat/cpo", {"text": "Hello.", "refs": {"voice": True}})
+    assert ok["refs"]["voice"] is True
+    post(api, "chat/cpo", {"text": "Hello.", "refs": {"voice": "yes"}}, expected=422)
+
+
+
+def test_botops_lifts_an_escape_quarantine_when_a_person_asks(api):
+    """Ana, 2026-09-25: "why is my content not unblocked?" said in chat is his say-so."""
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('botops',?, 'ana')",
+                  (encode({"name": "botops", "runtime": "fake", "status": "active"}),))
+    _, _, botops = setup_attempt(api, "botops")
+    with api.app.state.store.transaction() as c:
+        H.quarantine(c, 'ops', 'escape: refused task write')
+    path = 'bots/ops/quarantine/clear'
+    post(api, path, {}, token=botops['token'], expected=403)      # an escape waits for a person
+    ask = post(api, "chat/botops", {"text": "Why is ops not unblocked?"})
+    post(api, path, {"on_behalf_of": ask.get("message", ask)["id"]}, token=botops['token'])
+    with api.app.state.store.read() as c:
+        assert H.bot(c, 'ops')['state'] == 'active'
+        assert c.execute("SELECT count(*) FROM events WHERE action='quarantine.clear_delegated'").fetchone()[0] == 1
+
+
+def test_a_files_metadata_follows_the_same_access_as_the_file(api):
+    """Name, size and type without the bytes, for the viewer's thumbnails."""
+    store = api.app.state.store
+    with store.transaction() as c:
+        c.execute("INSERT INTO blobs(id,owner,digest,size,name,content_type,created) VALUES(?,?,?,?,?,?,?)",
+                  ("blob-meta-0001", "human:ana", "d" * 64, 2048, "storyboard.png", "image/png", H.now()))
+    assert get(api, "files/blob-meta-0001/meta") == {"id": "blob-meta-0001", "name": "storyboard.png", "size": 2048,
+                                                     "content_type": "image/png"}
+    get(api, "files/blob-meta-0001/meta", token="ben-test", expected=403)
+    get(api, "files/nope-nope-nope/meta", expected=404)
+
+
+def test_the_page_loads_its_scripts_from_the_mounted_ui_directory(api):
+    import re
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[2] / "ui" / "index.html").read_text()
+    sources = sorted(set(re.findall(r'<script src="(/[^"]+)"', html)))
+    assert any(s.startswith("/tico/ui/") for s in sources)
+    assert [s for s in sources if api.get(s, headers=headers()).status_code != 200] == []

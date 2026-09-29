@@ -1,0 +1,83 @@
+#cloud-config
+# Tico runner on any Ubuntu 24.04 cloud VM: runs the release's install.sh --runner (Docker, the runner and its updater, pinned to that release), which joins your
+# Tico server with a one-time code. Nothing is open inbound (there is no web service on this box). Docs: docs/install.md
+#
+# Edit only the values between the two marker lines. Get the code from Settings > Devices > Add computer: it works
+# once and expires after 15 minutes, so create the server right after copying it.
+write_files:
+  - path: /etc/tico/runner.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      # --- inputs begin ---
+      TICO_CLOUD_VERSION=v0.0.0
+      TICO_CLOUD_ALLOW_SSH=0
+      TICO_URL=https://tico.example.com
+      TICO_CODE=
+      TICO_RUNNER_LABEL=cloud-runner
+      # --- inputs end ---
+
+  # Bots run here and must not read the provider's metadata service (it serves this file's values).
+  - path: /etc/systemd/system/tico-block-metadata.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Keep containers away from the cloud metadata service
+      After=docker.service
+      Requires=docker.service
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254 -j DROP 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254 -j DROP'
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/sbin/tico-runner-bootstrap
+    permissions: "0700"
+    content: |
+      #!/bin/bash
+      # Safe to run again: an existing runner container is left alone (its volume keeps the login and repositories).
+      set -euo pipefail
+      umask 077
+      exec >>/var/log/tico-setup.log 2>&1
+      IN=/etc/tico/runner.env
+      say() { echo "tico-setup runner: $* ($(date -u +%FT%TZ))"; }
+      val() { grep -m1 "^$1=" "$IN" | cut -d= -f2- || true; }
+
+      say start
+      if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx tico-runner; then
+        say "runner container already exists; leaving it"; rm -f "$IN"; exit 0
+      fi
+      [ -f "$IN" ] || { say "no inputs found"; exit 1; }
+      version=$(val TICO_CLOUD_VERSION); url=$(val TICO_URL); code=$(val TICO_CODE); label=$(val TICO_RUNNER_LABEL)
+      allow_ssh=$(val TICO_CLOUD_ALLOW_SSH)
+      [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ && "$version" != v0.0.0 ]] || { say "TICO_CLOUD_VERSION must be a release such as v1.2.3"; exit 1; }
+      [[ "$url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { say "TICO_URL must look like https://tico.example.com"; exit 1; }
+      [[ "$code" =~ ^[A-Za-z0-9_-]+$ ]] || { say "TICO_CODE is missing or has odd characters"; exit 1; }
+      [[ "$label" =~ ^[A-Za-z0-9._\ -]+$ ]] || { say "TICO_RUNNER_LABEL has odd characters"; exit 1; }
+
+      # Nothing listens here, so nothing needs to come in (SSH only when asked for).
+      if ! command -v ufw >/dev/null; then apt-get update -qq && apt-get install -y -qq ufw; fi
+      ufw default deny incoming >/dev/null
+      ufw default allow outgoing >/dev/null
+      if [ "$allow_ssh" = 1 ]; then ufw limit 22/tcp >/dev/null; fi
+      ufw --force enable >/dev/null
+      say firewall ready
+
+      # The release's own installer sets up Docker, the runner and its updater sidecar, all pinned to $version.
+      installer=$(mktemp)
+      for _ in 1 2 3; do
+        curl -fsSL --retry 3 "https://github.com/ticoteam/tico/releases/download/$version/install.sh" -o "$installer" && break
+        sleep 10
+      done
+      [ -s "$installer" ] || { say "could not download install.sh for $version"; exit 1; }
+      sh "$installer" --runner --url "$url" --code "$code" --label "$label"
+      rm -f "$installer"
+      systemctl enable --now tico-block-metadata.service >/dev/null
+      say "runner started"
+      rm -f "$IN" /var/lib/cloud/instance/user-data.txt* /var/lib/cloud/instance/cloud-config.txt 2>/dev/null || true
+      touch /etc/tico/.bootstrapped
+      say finished
+
+runcmd:
+  - [/usr/local/sbin/tico-runner-bootstrap]

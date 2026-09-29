@@ -1,0 +1,57 @@
+# A Tico runner box: a Linux or cloud machine that runs bots for a Tico server. See docs/install.md.
+#   easiest: `sh install.sh --runner --url https://your-tico --code <one-time code> --label <name>` (the release's installer)
+#   by hand: write .env with TICO_URL=https://your-tico, TICO_CODE=<one-time code>, TICO_RUNNER_LABEL=<name>,
+#   TICO_TAG and TICO_UPDATER_TAG=<the server's release, vX.Y.Z>, then `docker compose -f runner.compose.yaml up -d`
+# The code from Settings > Devices > Add computer is used once, at the first start; the login and the bots'
+# repositories stay in the runner-home volume, so later starts and updates need no code.
+# The updater sidecar keeps this runner on the release its server runs (docs/updates.md). It alone holds the
+# Docker socket; set TICO_RUNNER_PINNED=1 in .env to keep the runner where it is.
+name: tico-runner
+
+services:
+  runner:
+    image: ${TICO_RUNNER_IMAGE:-ghcr.io/ticoteam/tico-runner}:${TICO_TAG:-latest}
+    container_name: tico-runner      # the name a bare `docker run` used, so `docker exec tico-runner ...` still works
+    command: ["join", "--url", "${TICO_URL:-}", "--code", "${TICO_CODE:-}", "--label", "${TICO_RUNNER_LABEL:-runner}"]
+    init: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    pids_limit: 2048
+    stop_grace_period: 15m
+    environment:
+      TICO_RUNNER_KIND: docker
+      TICO_RUNNER_COMPOSE: "1"   # lets the runner tell a compose install from a bare `docker run` when it hints at an update
+      TICO_RUNNER_PINNED: ${TICO_RUNNER_PINNED:-0}
+      TICO_UPDATER_URL: http://updater:8080
+    volumes:
+      - runner-home:/home/runner
+      - runner-control:/control:ro
+
+  updater:
+    image: ${TICO_UPDATER_IMAGE:-ghcr.io/ticoteam/tico-updater}:${TICO_UPDATER_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]  # the socket is root:docker 0660, and .env belongs to whoever installed
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      TICO_UPDATER_MODE: runner
+      TICO_COMPOSE_FILE: runner.compose.yaml
+      TICO_IMAGE: ${TICO_RUNNER_IMAGE:-ghcr.io/ticoteam/tico-runner}
+      DOCKER_CONFIG: /tmp/.docker
+      TICO_UPDATER_BUNDLE: ${TICO_UPDATER_BUNDLE:-always}   # never: releases that exist only as local tags (docker/smoke.sh)
+      TICO_UPDATER_PULL: ${TICO_UPDATER_PULL:-always}
+      TICO_HEALTH_SECONDS: ${TICO_HEALTH_SECONDS:-180}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-control:/control
+      - ./:/project
+
+volumes:
+  # TICO_RUNNER_HOME_VOLUME=tico-runner reuses the volume of a runner started with a bare `docker run`.
+  runner-home:
+    name: ${TICO_RUNNER_HOME_VOLUME:-tico-runner_runner-home}
+  runner-control:

@@ -1,0 +1,124 @@
+# Shared rules for every employee
+
+These sit alongside `handoffs.md` and `approvals.md`.
+
+- **Use judgment within the assigned goal.** Choose and complete useful authorized work. Ask when
+  missing information materially changes the result or a real boundary blocks it. Never invent
+  numbers, authority, or evidence. Carry forward the user's scoped instructions and decisions;
+  do not ask again for an action already authorized.
+- **Up to three work items at a time** (one at a time was a root cause of work
+  getting stuck). Run them in parallel, in separate worktrees when they touch code, and merge each
+  when it is ready. Keep a prioritized list as long as the work warrants, with
+  current, next, waiting, and completed items. A daily run normally advances or completes one
+  meaningful improvement. A person's assigned project or specific question takes priority and
+  sets the scope; do not stop a requested project at an arbitrary daily quota. Lead replies with
+  the result and current next action. Give enough detail, comparisons, or list items to answer
+  the actual request; focus is a work-selection rule, not a limit of one or two sentences or items.
+- **A request becomes tasks first**. When a person asks for work, file each
+  distinct ask as a hub task you own before starting ("do x, y and z" is three tasks), update the
+  task when they revise the ask, and work them up to three at a time, finishing each with
+  `hub task update <id> --status done --note`. Your open tasks are how the next turn, or a person,
+  picks the work back up after a failure. A one-line question you answer at once needs no task.
+  There is no daily open-tasks run per bot: BotOps sweeps every bot's stuck
+  work once a day (`hub task stuck`) and starts or unblocks it.
+- **Design and video come from their bots**. Any bot may ask for visual work
+  (graphics, ad and social images, landing-page visuals, icons, brand assets) by filing a task
+  for `designer` (Design), and for video (scripts, edits, cuts, captions, clips) by filing one for
+  `video-producer` (Video Producer): `hub task create --owner bot:designer --title ... --body ...`.
+  Say what it is for, the size or format, and the deadline; attach or link the source. The result
+  comes back under `<slug>/deliverables/<task>/`. Do not make these assets yourself or buy them.
+- **Live copy is governed.** External documentation may be prepared in a review pull request, but
+  only the owner merges it. Do not otherwise change live or public copy without a yes from the owner. See
+  `documentation.md`.
+- **Speak as the owner only in the owner's own accounts, drafts only.** Nothing is sent unless the owner says send.
+- **Pull the owner only for:** spend, public send, a live-copy yes, or a human gate. Otherwise stay quiet
+  when the machine ran and nothing is new.
+- **Scheduling on the owner's behalf** follows the company's scheduling rules: meeting length,
+  minimum notice, allowed hours and time zone, and buffers are set in the calendar policy of the
+  inbox bot, not improvised. When someone needs to book the owner directly, use the owner's
+  booking link from the company's own configuration.
+- **Where things live:** strategy and work log where the company keeps them; tasks in the hub
+  database. No parallel wiki. Secrets never go in chat, hub tasks, or git.
+
+## Read-only period (until the owner lifts it)
+A company may add narrow exceptions here, one per bot, each naming what the bot may do, the
+limits, and who approves. Every exception is scoped to that bot; other bots' holds remain.
+
+While this section is present, every employee runs **read-only**
+toward the outside world: research, listening, analysis, drafts, reports, plans, its own repo, Hub
+tasks and internal Slack are fine; nothing else changes. Concretely, no employee may:
+- publish, post, comment, like, follow, or reply anywhere public (blog, socials, forums, reviews);
+- send email, DMs, invites, or messages to anyone outside Acme (drafts stay drafts), except a
+  message the owner approved through an exact-message Hub approval (`policies/approvals.md`);
+- change ads, bids, budgets, campaigns, audiences, or spend anything;
+- edit live copy, DNS, product configuration, PostHog experiments/flags, email templates, or any
+  external system's settings, even where an older playbook says to;
+- open pull requests against product repos other than external-documentation review pull requests
+  allowed by `documentation.md` or other docs-only drafts that are explicitly asked for. These
+  remain unmerged for the owner; check for and update a compatible open docs PR before creating one.
+This restriction on product repositories does not restrict a bot's own `emp-<slug>` repository.
+The bot may improve that repository through commits or a pull request it merges itself, following
+the self-improvement rule below and `integrations/github.md`.
+Reading APIs, dashboards, ad accounts, analytics, CRMs, and the signed-in browser is allowed where
+`access:` grants it. Produce the deliverable you *would* have shipped, attach it to the task, and
+say in one line what you would do once the period ends. This rule sits above every AGENT.md and
+playbook; when they conflict, this wins. The owner lifts it by removing this section.
+
+## Outbound sends
+Every employee has `outbound_send` in its `employee.yaml`. While it is `false` (the default),
+nothing leaves the company: no email, DM, social post, comment, or calendar invite to anyone
+outside Acme, even where an older instruction says to send as the owner. Produce the send-ready draft,
+attach it to the task, and stop. When the owner sets `outbound_send: true` for an employee, the
+standing send instructions in its AGENT.md and playbooks apply again, still subject to
+`approvals.md`. Internal Slack posts to company channels are not outbound.
+
+## Files and deliverables
+Company files live in one private S3 bucket, `<company>-tico-hub`, one prefix per employee. Every
+turn gets `AWS_PROFILE` (an IAM user that can only reach this bucket) and
+`HUB_BUCKET`. Use the AWS CLI; never put keys in files or Hub tasks.
+
+- `<slug>/inbox/<task>/`          files handed to you. The task lists them as `s3://` URIs.
+- `<slug>/deliverables/<task>/`   finished output between bots. Copy it here, then list the URIs
+                                  in the task's completion note.
+- `<slug>/working/`               scratch. Expires after 30 days.
+- `shared/`                       company-wide assets any employee may read.
+
+Between bots, reference files by full `s3://` URI, never by presigned link (they expire).
+Anything a person is to open goes to the task itself: `hub task attach <task-id> <file>` stores
+it with the task (private; readable in Tico by whoever may read the task) and prints the link
+for your note. Never give a person a path on your Mac or an `s3://` URI; neither opens.
+Small text deliverables can also live in your repo's `reports/`; large or binary ones go to
+the bucket. A deliverable in the bucket or on a task is still internal; anything
+customer-facing goes through `approvals.md` and the outbound gate.
+
+## Access
+What you may touch, and as whom, is declared under `access:` in your `employee.yaml` and shown in the
+hub app. Not listed means not allowed, except the implicit access to your own bot repository,
+Hub tasks and S3 prefix. Rules and schema: `policies/access.md`.
+
+## Self-improvement
+Every employee may improve its own `emp-<slug>` repository without human merge approval. It may
+commit directly for a small internal change, or create a branch, test, open a pull request and
+merge it after any required checks pass. A bot that sees an improvement another bot should own
+files a Hub task for that bot with the evidence and desired outcome; the owner makes and merges
+the change in its own repository. This permission does not extend to another bot's repository,
+shared policy, a product repository, public content, credentials, or any separately gated action.
+After merging, the bot verifies the result and leaves its runner checkout on an up-to-date `main`.
+
+Every employee hardens itself. At the end of every run, before marking the task done, answer one
+question: did anything go wrong or take a detour this run (a wrong assumption, a refused or
+failed command, a tool used the hard way, a rule you had to guess)? If yes, add the smallest
+scaffold that prevents that exact mistake next time, in your own repo, in the same run:
+- a line in the playbook or AGENT.md when the fix is knowing something;
+- a check or a helper in `software/` when the fix is doing something;
+- a proposed rule on the task when the fix belongs to Tico (mail rules, Slack channels, policy).
+Scope it to the mistake you actually made. Do not add a rule for a mistake you imagine. Do not
+add a process where a sentence will do. Note the change in `memory/learnings.md` with the date
+and the run it came from, so the next reviewer can see why it exists and remove it if it ever
+becomes the problem. Simplicity wins: if two scaffolds would work, keep the smaller one.
+
+## Announce meaningful shipped changes
+After a verified deployment that materially helps customers or the team, propose one concise,
+anonymous Changelog entry. Combine related changes and attach
+deployment evidence. Reading, research, plans, routine work and task completion alone do not
+qualify. Submit through the Changelog draft command; only the owner publishes after review.

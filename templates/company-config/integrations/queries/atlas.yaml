@@ -1,0 +1,49 @@
+# Named queries for the Acme Atlas cluster (fictional): `mongo:` instead of `sql:`. A value comes from a
+# parameter as `{"$param": name}`, replacing the whole value with a typed literal (types: text, int,
+# number, bool, date, objectid, list), never spliced into text, so a value cannot become an operator.
+# Run one with `hub db atlas --query <id> --param name=value`. Ops: find, aggregate, count, distinct.
+queries:
+- id: signups-since
+  title: Signups since a date
+  description: Number of accounts created on or after a date, optionally for one plan.
+  category: growth
+  tags: [signups, accounts]
+  database: atlas
+  mongo:
+    op: count
+    collection: accounts
+    filter:
+      created_at: {$gte: {$param: since}}
+      plan: {$param: plan}
+  params:
+  - {name: since, type: date, label: Since, required: true}
+  - {name: plan, type: text, label: Plan, required: false, default: team}
+- id: signups-by-region
+  title: Signups by region
+  description: Accounts created since a date, counted per region (never lists people).
+  category: growth
+  tags: [signups, region]
+  database: atlas
+  mongo:
+    op: aggregate
+    collection: accounts
+    pipeline:
+    - {$match: {created_at: {$gte: {$param: since}}}}
+    - {$group: {_id: $region, accounts: {$sum: 1}}}
+    - {$sort: {accounts: -1}}
+  params:
+  - {name: since, type: date, label: Since, required: true}
+- id: event-types
+  title: Event types seen in a window
+  description: The distinct event types recorded since a date.
+  category: product
+  tags: [events]
+  database: atlas
+  mongo:
+    op: distinct
+    collection: events
+    field: type
+    filter:
+      at: {$gte: {$param: since}}
+  params:
+  - {name: since, type: date, label: Since, required: true}

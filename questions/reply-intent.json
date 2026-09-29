@@ -1,0 +1,22 @@
+{
+  "id": "reply-intent",
+  "version": 1,
+  "owner": "sales",
+  "summary": "One ambiguous inbound Close reply after deterministic opt-out, wrong-person, automated and positive keyword rules. Classify explicit intent without treating a polite acknowledgment as interest.",
+  "state": ["channel", "reply"],
+  "questions": {
+    "intent": {
+      "type": "choice",
+      "instructions": "Classify the inbound reply alone. Only positive means the sender explicitly asks to learn more, book or discuss the service, or requests details. 'OK', 'thanks', emoji, a bare yes, and vague acknowledgments are unclear without the outbound context. Prefer unclear when intent is ambiguous. Identify requests to stop contact even when politely phrased.",
+      "criteria": {
+        "positive": "Explicit human interest in Acme's service or a clear request for details, a call, or a demo",
+        "opt_out": "The sender asks not to be contacted again or declines further outreach",
+        "wrong_person": "The sender says they are not the owner, host, or intended recipient",
+        "automatic": "Automated reply, delivery failure, or number no longer in service",
+        "negative": "Human decline or lack of interest without a request to stop contact",
+        "unclear": "Acknowledgment, question with unclear intent, too little context, or none of the above"
+      }
+    }
+  },
+  "thresholds": {"positive_confidence": 0.8, "protective_confidence": 0.65}
+}

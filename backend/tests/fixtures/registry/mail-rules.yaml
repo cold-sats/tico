@@ -1,0 +1,10 @@
+# Inbox rules for the fictional Acme mailboxes: `common` runs first for every address, then the
+# mailbox's own list. The mail connector's fixtures (connectors/mail/tests/fixtures) run against this.
+mailboxes:
+  common:
+    - id: payment-risk-words
+      when: { subject_or_body_matches: ["\\bpast due\\b", "\\bpayment failed\\b"] }
+      do:   { label: hub/needs-owner, never_archive: true }
+    - id: unsubscribe-is-marketing
+      when: { has_unsubscribe_link: true }
+      do:   { label: hub/marketing, archive: true, mark_read: true }

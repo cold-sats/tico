@@ -1,0 +1,105 @@
+// Offline browser regression: the "New version" notice in the sidebar appears only when the server
+// says a newer release exists, offers "Update now" to the owner alone, and dismissal is remembered.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const shots = process.env.TICO_SCREENSHOT_DIR;
+const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https://github.com/ticoteam/tico/releases/tag/v0.2.0',
+                published_at: '2026-10-20T10:00:00Z', name: 'Tico 0.2.0'};
+(async () => {
+  const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
+  try {
+    const visit = async ({role = 'owner', update = UPDATE, updater = null, context} = {}) => {
+      const ctx = context || await browser.newContext({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
+      const page = await ctx.newPage();
+      const errors = [], posts = [];
+      let reloads = 0, polls = 0;
+      page.on('pageerror', e => errors.push(e.message));
+      await page.route('**/*', route => {
+        const req = route.request(), p = new URL(req.url()).pathname;
+        const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
+        const ui = p.match(/\/tico\/ui\/([^/]+\.js)$/);
+        if (ui && fs.existsSync(path.join(__dirname, '..', ui[1])))
+          return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
+        if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
+        if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+        const config = {version: update ? update.current : '0.1.0', update, app_name: 'Tico'};
+        if (p === '/api/me') return json({id: 'ana', role, name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
+        if (p === '/api/v2/config') return json({...config, version: polls > 1 ? '0.2.0' : '0.1.0'});
+        if (p === '/api/v2/system/update' && req.method() === 'POST') {
+          posts.push(req.postDataJSON());
+          return updater === 'manual'
+            ? json({error: {code: 'manual_update', detail: 'Run this on the server', command: 'docker compose pull && docker compose up -d'}}, 409)
+            : json({state: 'pulling'});
+        }
+        if (p === '/api/v2/system/update') { polls++; return json({state: polls > 1 ? 'healthy' : 'restarting', from: '0.1.0', to: '0.2.0', message: ''}); }
+        if (p === '/api/employees' || p === '/api/issues') return json([]);
+        if (p === '/api/people') return json({people: [], teams: {}});
+        if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
+        if (p === '/api/v2/status') return json({bots: []});
+        if (p === '/api/v2/needs-you') return json({items: []});
+        if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+        return json({});
+      });
+      await page.goto('https://tico-ui.test/#/help');
+      await page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
+      page.on('framenavigated', () => reloads++);
+      return {page, ctx, errors, posts};
+    };
+
+    // Nothing available, nothing shown.
+    let v = await visit({update: {...UPDATE, available: false}});
+    assert.equal(await v.page.locator('#new-version-wrap').isVisible(), false, 'no notice when up to date');
+    assert.match(await v.page.locator('#help-version').innerText(), /^Version v0\.1\.0$/, 'help footer shows the running version');
+    await v.ctx.close();
+    v = await visit({update: null});
+    assert.equal(await v.page.locator('#new-version-wrap').isVisible(), false, 'no notice without update data');
+    await v.ctx.close();
+
+    // A non-owner reads the changelog and cannot update.
+    v = await visit({role: 'viewer'});
+    await v.page.locator('#new-version').click();
+    assert.equal(await v.page.locator('#nv-update').count(), 0, 'non-owner has no Update now');
+    assert.equal(await v.page.locator('#nv-changelog').getAttribute('href'), UPDATE.url);
+    assert.equal(await v.page.locator('#nv-changelog').getAttribute('target'), '_blank');
+    await v.ctx.close();
+
+    // The owner sees it, and a dismissal survives a reload but not a newer version.
+    v = await visit({});
+    const notice = v.page.locator('#new-version');
+    assert.equal((await notice.innerText()).trim(), 'New version v0.2.0');
+    await notice.click();
+    assert.equal(await v.page.locator('#nv-update').isVisible(), true, 'owner sees Update now');
+    if (shots) { await v.page.waitForTimeout(150); const box = await v.page.locator('aside').first().boundingBox(); await v.page.screenshot({path: path.join(shots, 'new-version-notice.png'), clip: {x: 0, y: Math.max(0, box.y + box.height - 330), width: box.width, height: 330}}); }
+    await v.page.locator('#nv-dismiss').click();
+    assert.equal(await v.page.locator('#new-version-wrap').isVisible(), false, 'dismissed');
+    const again = await visit({context: v.ctx});
+    assert.equal(await again.page.locator('#new-version-wrap').isVisible(), false, 'dismissal persists');
+    await again.page.evaluate(() => localStorage.setItem('tico.new-version.dismissed:ana', '0.1.9'));
+    await again.page.reload();
+    await again.page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
+    assert.equal(await again.page.locator('#new-version-wrap').isVisible(), true, 'a newer version shows again');
+    await v.ctx.close();
+
+    // Without an updater the owner is shown the command to run.
+    v = await visit({updater: 'manual'});
+    await v.page.locator('#new-version').click();
+    await v.page.locator('#nv-update').click();
+    await v.page.locator('#nv-copy').waitFor();
+    assert.deepEqual(v.posts, [{version: '0.2.0'}]);
+    assert.match(await v.page.locator('.nv-cmd code').innerText(), /^docker compose pull && docker compose up -d$/);
+    await v.ctx.close();
+
+    // With one, progress is polled and the page reloads once the new version is healthy.
+    v = await visit({});
+    await v.page.locator('#new-version').click();
+    await v.page.locator('#nv-update').click();
+    await v.page.locator('#nv-out .nv-status').filter({hasText: 'Updating'}).waitFor();
+    await v.page.waitForEvent('framenavigated', {timeout: 15000});
+    for (const x of [v]) assert.deepEqual(x.errors, []);
+    await v.ctx.close();
+    console.log('PASS: New version notice hidden unless available, changelog link for everyone, Update now for the owner only (progress, reload, manual command), dismissal per version.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

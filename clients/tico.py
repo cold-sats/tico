@@ -1,0 +1,129 @@
+"""Small stdlib HTTP client usable by existing bot environments."""
+
+import json
+import hashlib
+import ipaddress
+import random
+import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+CLIENT_VERSION = "0.2.1"
+
+
+class APIError(Exception):
+    def __init__(self, code, detail, status=0, retryable=False, operation_id=None):
+        super().__init__(detail)
+        self.code, self.detail, self.status = code, detail, status
+        self.retryable, self.operation_id = retryable, operation_id
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A Cloudflare login redirect is an auth failure, not a destination for credentials.
+        return None
+
+
+def plain_http_host(host):
+    """Where plain http is accepted: loopback, or a one-label name such as a compose service (local
+    development and CI). Anything else, private addresses included, is HTTPS."""
+    if not host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost" or ("." not in host and re.fullmatch(r"[A-Za-z0-9-]+", host) is not None)
+
+
+class Client:
+    def __init__(self, url, token, timeout=15, retries=3):
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme != "https" and not (parsed.scheme == "http" and plain_http_host(parsed.hostname)):
+            raise ValueError("Tico requires HTTPS, except on loopback or a one-label service name")
+        self.url, self.token, self.timeout, self.retries = url.rstrip("/"), token, timeout, retries
+        if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
+            raise ValueError("Use the Tico origin URL without credentials, path, query, or fragment")
+        self.opener = urllib.request.build_opener(NoRedirect())
+
+    def request(self, method, path, body=None, key=None, extra_headers=None, binary=False, raw=None):
+        if not path.startswith("/api/v2/"):
+            raise ValueError("Use a versioned Tico API path")
+        key = key or str(uuid.uuid4())
+        if raw is not None and body is not None:
+            raise ValueError("Send either a JSON body or opaque bytes, not both")
+        data = bytes(raw) if raw is not None else (json.dumps(body).encode() if body is not None else None)
+        # Persistent harnesses retain a reference, never an expired per-turn token.
+        token = self.token
+        if token.startswith("tico-file:"):
+            try:
+                token = Path(token[len("tico-file:"):]).read_text().strip()
+            except OSError:
+                token = ""
+            if not token:
+                raise APIError("stale_lease", "No active Hub turn; wait for a new request", status=409)
+        headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
+                   "User-Agent": "Tico-Client/" + CLIENT_VERSION}
+        if extra_headers:
+            if set(extra_headers) != {"X-Tico-Processing-Token"}:
+                raise ValueError("Only a scoped processing credential may be added")
+            headers.update(extra_headers)
+        if data is not None:
+            headers.update({"Content-Type": "application/octet-stream" if raw is not None else "application/json",
+                            "Idempotency-Key": key})
+        for attempt in range(self.retries + 1):
+            req = urllib.request.Request(self.url + path, data=data, headers=headers, method=method)
+            try:
+                with self.opener.open(req, timeout=self.timeout) as response:
+                    if binary:
+                        data = response.read(20_000_001)
+                        if (len(data) > 20_000_000 or response.headers.get_content_type() != "application/octet-stream"
+                                or hashlib.sha256(data).hexdigest() != response.headers.get("X-Content-SHA256")):
+                            raise APIError("file_integrity", "Tico file response failed its size, type, or integrity check")
+                        return data
+                    return json.load(response)
+            except urllib.error.HTTPError as exc:
+                try:
+                    payload = json.load(exc)
+                except ValueError:
+                    payload = {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                error = payload.get("error", {})
+                if not isinstance(error, dict):
+                    error = {}
+                # Cloudflare answers 502 then 530 (Error 1033, tunnel down) with a problem-detail
+                # body and no `error` key while a deploy activates; keep its title so the log says why.
+                detail = error.get("detail") or (f"HTTP {exc.code}" + (": " + str(payload["title"])[:200]
+                                                                        if payload.get("title") else ""))
+                retryable = exc.code == 429 or 500 <= exc.code < 600
+                failure = APIError(error.get("code", "http_error"), detail, exc.code, retryable, key)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                failure = APIError("unavailable", "Tico could not confirm this request; retry with the same operation ID",
+                                   retryable=True, operation_id=key)
+            except ValueError:
+                failure = APIError("protocol", "Tico returned an invalid API response; check the endpoint and sign-in configuration",
+                                   operation_id=key)
+            if not failure.retryable or attempt == self.retries:
+                raise failure
+            time.sleep(min(2 ** attempt, 5) + random.random() * 0.2)
+
+    def get(self, path, **query):
+        filtered = {k: v for k, v in query.items() if v is not None}
+        suffix = "?" + urllib.parse.urlencode(filtered) if filtered else ""
+        return self.request("GET", "/api/v2/" + path + suffix)
+
+    def post(self, path, body=None, key=None):
+        return self.request("POST", "/api/v2/" + path, body or {}, key)
+
+    def post_bytes(self, path, data, key=None):
+        """One opaque binary body (an audio chunk), under the same retry rule as a JSON write."""
+        return self.request("POST", "/api/v2/" + path, key=key, raw=data)
+
+    def download(self, file_id):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,100}", file_id):
+            raise ValueError("Use an opaque Tico file ID, not a URL or path")
+        return self.request("GET", "/api/v2/files/" + file_id, binary=True)

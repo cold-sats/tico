@@ -1,0 +1,595 @@
+"""Built-in browser sign-in with OpenID Connect (TICO_AUTH_PROXY=oidc).
+
+Authorization-code flow with PKCE against Google, Microsoft Entra ID or any issuer that publishes
+discovery. A verified ID token only proves who the person is; `Auth.authenticate` then matches the
+email against the roster like it does for every proxy. What the browser holds afterwards is a
+random session id whose hash is a row in `oidc_sessions`, so a session can be revoked, and no
+provider token is ever stored.
+"""
+
+import asyncio
+import base64
+import hashlib
+import hmac
+import html
+import json
+import logging
+import os
+import re
+import secrets
+import stat
+import threading
+import time
+from pathlib import Path
+from urllib.parse import urlencode, urlparse
+
+import httpx
+import jwt
+from fastapi import Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+from .store import H, Problem, digest
+
+log = logging.getLogger("tico.oidc")
+
+LOGIN_PATH = "/auth/login"
+CALLBACK_PATH = "/auth/callback"
+SIGNED_OUT_PATH = "/auth/signed-out"
+AUTH_PATHS = (LOGIN_PATH, CALLBACK_PATH, SIGNED_OUT_PATH)
+# A separate browser app on an allowed origin (TICO_CORS_ORIGINS, backend/cors.py) signs in here:
+# `/auth/login?next=<its URL>&code_challenge=<S256>` returns it a one-time code in the URL fragment,
+# and `POST /auth/token` exchanges the code (with the PKCE verifier) for a bearer session.
+TOKEN_PATH = "/auth/token"
+REVOKE_PATH = "/auth/token/revoke"
+BEARER_PREFIX = "tico_st_"
+CODE_WINDOW = 60
+CHALLENGE = re.compile(r"[A-Za-z0-9_-]{43}")
+VERIFIER = re.compile(r"[A-Za-z0-9._~-]{43,128}")
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+# Only asymmetric algorithms: an HMAC "signature" would be checkable with a public key.
+ALGORITHMS = ("RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512")
+LEEWAY = 60
+LOGIN_WINDOW = 600
+TOUCH_EVERY = 60
+DISCOVERY_TTL = 3600
+JWKS_MIN_INTERVAL = 60.0
+UNPINNED_TENANTS = ("common", "organizations", "consumers")
+SAFE_NEXT = re.compile(r"/[^/\\\s][^\s\\]*")
+SECRET_FILE = "tico-session-secret"
+
+
+class SignInError(Exception):
+    """A sign-in that cannot continue; `reason` is for the log, never shown or holds a token."""
+
+    def __init__(self, reason, status=400):
+        super().__init__(reason)
+        self.reason, self.status = reason, status
+
+
+class NotOnRoster(Exception):
+    def __init__(self, email):
+        super().__init__("not on roster")
+        self.email = email
+
+
+def _loopback(url):
+    return (urlparse(url).hostname or "") in LOOPBACK
+
+
+def _b64(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _unb64(text):
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def safe_next(value):
+    """A same-origin path, or "/": never an absolute or protocol-relative URL."""
+    value = str(value or "")
+    if not SAFE_NEXT.fullmatch(value) or value.startswith("/auth/") or any(ord(ch) < 32 for ch in value):
+        return "/"
+    return value
+
+
+def _microsoft(issuer):
+    return urlparse(issuer).hostname == "login.microsoftonline.com"
+
+
+def _google(issuer):
+    return urlparse(issuer).hostname == "accounts.google.com"
+
+
+def read_secret_file(path):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        raise RuntimeError("TICO_OIDC_CLIENT_SECRET_FILE cannot be read") from None
+
+
+def check(settings):
+    """Refuse to start with built-in sign-in selected but not configured."""
+    issuer = settings.oidc_issuer
+    if not (issuer and settings.oidc_client_id):
+        raise RuntimeError("TICO_AUTH_PROXY=oidc needs TICO_OIDC_ISSUER and TICO_OIDC_CLIENT_ID")
+    if urlparse(issuer).scheme != "https" and not (urlparse(issuer).scheme == "http" and _loopback(issuer)):
+        raise RuntimeError("TICO_OIDC_ISSUER must be an https URL")
+    if _microsoft(issuer):
+        tenant = urlparse(issuer).path.strip("/").split("/")[0].lower()
+        if not tenant or tenant in UNPINNED_TENANTS:
+            raise RuntimeError("TICO_OIDC_ISSUER for Microsoft must name your own tenant "
+                               "(https://login.microsoftonline.com/<tenant-id>/v2.0), not "
+                               + (tenant or "an empty tenant"))
+    if settings.oidc_client_secret_file and not settings.oidc_client_secret:
+        settings.oidc_client_secret = read_secret_file(settings.oidc_client_secret_file)
+    if not settings.oidc_client_secret:
+        raise RuntimeError("TICO_AUTH_PROXY=oidc needs TICO_OIDC_CLIENT_SECRET or TICO_OIDC_CLIENT_SECRET_FILE")
+    # The redirect URI and the Secure cookies both need https; loopback is the development exception.
+    if not settings.public_url.startswith("https://") and not settings.loopback:
+        raise RuntimeError("TICO_AUTH_PROXY=oidc needs an https TICO_PUBLIC_URL (loopback may use http)")
+    if settings.session_secret and len(settings.session_secret) < 32:
+        raise RuntimeError("TICO_SESSION_SECRET must be at least 32 characters")
+    if any("@" in d or "." not in d for d in settings.oidc_allowed_domains):
+        raise RuntimeError("TICO_OIDC_ALLOWED_DOMAINS is a comma-separated list of domains such as acme.com")
+
+
+def _session_secret(settings):
+    if settings.session_secret:
+        return settings.session_secret.encode()
+    path = settings.db_path.parent / SECRET_FILE
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        if stat.S_IMODE(path.stat().st_mode) & 0o077:
+            raise RuntimeError(str(path) + " must be readable only by its owner (chmod 600)") from None
+        value = path.read_text().strip()
+        if len(value) < 32:
+            raise RuntimeError(str(path) + " is too short to sign sessions; delete it to generate a new one")
+        return value.encode()
+    value = secrets.token_hex(32)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(value)
+    return value.encode()
+
+
+class Oidc:
+    name = "oidc"
+    # Marks a proxy that keeps its sessions in the database: `email` takes the connection.
+    sessions = True
+
+    def __init__(self, settings, store):
+        self.settings, self.store = settings, store
+        self.issuer = settings.oidc_issuer
+        self.secret = _session_secret(settings)
+        self.secure = settings.public_url.startswith("https://")
+        prefix = "__Host-" if self.secure else ""
+        self.cookie = prefix + "tico_session"
+        self.login_cookie = prefix + "tico_login"
+        self.redirect_uri = settings.public_url + CALLBACK_PATH
+        self.jwks_min_interval = JWKS_MIN_INTERVAL
+        self._lock = threading.Lock()
+        self._discovery, self._discovered_at = None, 0.0
+        self._keys, self._jwks_at = {}, None
+
+    def warm(self):
+        self._discover()
+
+    # ---- provider metadata ------------------------------------------------------------
+
+    def _fetch(self, url):
+        if urlparse(url).scheme != "https" and not (_loopback(self.issuer) and _loopback(url)):
+            raise SignInError("provider URL is not https", 502)
+        try:
+            reply = httpx.get(url, timeout=10, follow_redirects=False)
+            reply.raise_for_status()
+            data = reply.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SignInError("provider fetch failed: " + type(exc).__name__, 502) from exc
+        if not isinstance(data, dict):
+            raise SignInError("provider answered with something else than an object", 502)
+        return data
+
+    def _discover(self):
+        with self._lock:
+            if self._discovery and time.monotonic() - self._discovered_at < DISCOVERY_TTL:
+                return self._discovery
+        doc = self._fetch(self.issuer.rstrip("/") + "/.well-known/openid-configuration")
+        # A tenant given by name is published under its id, so only Microsoft may differ.
+        if str(doc.get("issuer", "")).rstrip("/") != self.issuer.rstrip("/") and not _microsoft(self.issuer):
+            raise SignInError("discovery issuer does not match TICO_OIDC_ISSUER", 502)
+        for field in ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"):
+            value = doc.get(field)
+            if not isinstance(value, str) or not value:
+                raise SignInError("discovery lacks " + field, 502)
+            if field != "issuer" and urlparse(value).scheme != "https" and not (
+                    _loopback(self.issuer) and _loopback(value)):
+                raise SignInError("discovery " + field + " is not https", 502)
+        with self._lock:
+            self._discovery, self._discovered_at = doc, time.monotonic()
+        return doc
+
+    def _load_keys(self, doc):
+        data = self._fetch(doc["jwks_uri"])
+        keys = {}
+        for entry in data.get("keys") or []:
+            if not isinstance(entry, dict) or entry.get("use") == "enc" or not entry.get("kid"):
+                continue
+            try:
+                keys[str(entry["kid"])] = jwt.PyJWK(entry).key
+            except (jwt.PyJWTError, ValueError, KeyError):
+                continue
+        return keys
+
+    def _key(self, kid, doc):
+        with self._lock:
+            key = self._keys.get(kid)
+            recent = (self._jwks_at is not None
+                      and time.monotonic() - self._jwks_at < self.jwks_min_interval)
+            if key or recent:
+                if not key:
+                    raise SignInError("unknown signing key")
+                return key
+            self._jwks_at = time.monotonic()
+        keys = self._load_keys(doc)
+        with self._lock:
+            self._keys = keys
+        if kid not in keys:
+            raise SignInError("unknown signing key")
+        return keys[kid]
+
+    # ---- the login round trip ---------------------------------------------------------
+
+    def _sign(self, payload):
+        body = _b64(json.dumps(payload, separators=(",", ":")).encode())
+        return body + "." + _b64(hmac.new(self.secret, body.encode(), hashlib.sha256).digest())
+
+    def _unsign(self, value):
+        body, _, mac = str(value or "").partition(".")
+        good = _b64(hmac.new(self.secret, body.encode(), hashlib.sha256).digest())
+        if not body or not hmac.compare_digest(mac, good):
+            raise SignInError("login cookie is not ours")
+        try:
+            payload = json.loads(_unb64(body))
+        except ValueError:
+            raise SignInError("login cookie is unreadable") from None
+        if not isinstance(payload, dict) or float(payload.get("e", 0)) < time.time():
+            raise SignInError("login expired")
+        return payload
+
+    def begin(self, target, fresh=False, challenge=""):
+        """The provider URL to send the browser to, and the signed cookie that remembers this attempt.
+        `target` is a same-origin path, or (with the PKCE `challenge`) the URL of an allowed frontend."""
+        doc = self._discover()
+        state, nonce, verifier = secrets.token_urlsafe(24), secrets.token_urlsafe(24), secrets.token_urlsafe(48)
+        params = {"response_type": "code", "client_id": self.settings.oidc_client_id,
+                  "redirect_uri": self.redirect_uri, "scope": "openid email profile",
+                  "state": state, "nonce": nonce, "code_challenge_method": "S256",
+                  "code_challenge": _b64(hashlib.sha256(verifier.encode()).digest())}
+        domains = self.settings.oidc_allowed_domains
+        if _google(self.issuer) and len(domains) == 1:
+            params["hd"] = domains[0]            # a hint only; the ID token's claim is what is checked
+        if fresh:
+            params["prompt"] = "select_account"
+        endpoint = doc["authorization_endpoint"]
+        url = endpoint + ("&" if "?" in endpoint else "?") + urlencode(params)
+        frontend = bool(challenge)
+        cookie = self._sign({"s": state, "n": nonce, "v": verifier, "x": target if frontend else safe_next(target),
+                             "c": challenge, "e": time.time() + LOGIN_WINDOW})
+        return url, cookie
+
+    def finish(self, query, cookie):
+        """The verified email of a finished login, the path (or frontend URL) to return to, and the
+        frontend's PKCE challenge ("" for the built-in page). Raises SignInError.
+        No database is held open: this waits on the provider."""
+        pending = self._unsign(cookie)
+        if query.get("error"):
+            raise SignInError("provider refused: " + re.sub(r"[^a-z_]", "", str(query["error"]))[:40])
+        code, state = str(query.get("code") or ""), str(query.get("state") or "")
+        if not code or not hmac.compare_digest(state.encode(), str(pending["s"]).encode()):
+            raise SignInError("state mismatch")
+        doc = self._discover()
+        claims = self._verify(self._exchange(doc, code, pending["v"]), pending["n"], doc)
+        return self._email(claims), pending["x"], str(pending.get("c") or "")
+
+    def person(self, c, email):
+        """The roster id for this email, the same match every proxy gets. Raises NotOnRoster."""
+        row = c.execute("SELECT id FROM humans WHERE lower(email)=?", (email,)).fetchone()
+        if not row or self._left(c, row["id"]):
+            raise NotOnRoster(email)
+        return row["id"]
+
+    def _left(self, c, human):
+        from . import views
+        person = next((p for p in views.roster(c).get("people", []) if p.get("id") == human), None)
+        return bool(person and person.get("hidden"))
+
+    def _exchange(self, doc, code, verifier):
+        data = {"grant_type": "authorization_code", "code": code, "redirect_uri": self.redirect_uri,
+                "code_verifier": verifier}
+        auth = None
+        methods = doc.get("token_endpoint_auth_methods_supported")
+        if isinstance(methods, list) and "client_secret_post" not in methods and "client_secret_basic" in methods:
+            auth = httpx.BasicAuth(self.settings.oidc_client_id, self.settings.oidc_client_secret)
+        else:
+            data.update(client_id=self.settings.oidc_client_id, client_secret=self.settings.oidc_client_secret)
+        try:
+            reply = httpx.post(doc["token_endpoint"], data=data, auth=auth, timeout=10, follow_redirects=False)
+            body = reply.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise SignInError("token exchange failed: " + type(exc).__name__, 502) from exc
+        token = body.get("id_token") if isinstance(body, dict) else None
+        if reply.status_code != 200 or not isinstance(token, str) or not token:
+            raise SignInError("token endpoint refused the code")
+        return token
+
+    def _verify(self, token, nonce, doc):
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError as exc:
+            raise SignInError("id token is malformed") from exc
+        allowed = doc.get("id_token_signing_alg_values_supported")
+        algs = [a for a in ALGORITHMS if not isinstance(allowed, list) or a in allowed] or ["RS256"]
+        if header.get("alg") not in algs or not isinstance(header.get("kid"), str):
+            raise SignInError("id token algorithm or key id not accepted")
+        key = self._key(header["kid"], doc)
+        try:
+            claims = jwt.decode(token, key, algorithms=[header["alg"]], audience=self.settings.oidc_client_id,
+                                issuer=doc["issuer"], leeway=LEEWAY,
+                                options={"require": ["exp", "iat", "iss", "aud", "sub"]})
+        except jwt.PyJWTError as exc:
+            raise SignInError("id token rejected: " + type(exc).__name__) from exc
+        if isinstance(claims["aud"], list) and len(claims["aud"]) > 1 \
+                and claims.get("azp") != self.settings.oidc_client_id:
+            raise SignInError("id token authorized party mismatch")
+        if not hmac.compare_digest(str(claims.get("nonce") or "").encode(), str(nonce).encode()):
+            raise SignInError("nonce mismatch")
+        if _microsoft(self.issuer):
+            tenant = urlparse(doc["issuer"]).path.strip("/").split("/")[0].lower()
+            if str(claims.get("tid") or "").lower() != tenant:
+                raise SignInError("token is from another tenant")
+        return claims
+
+    def _email(self, claims):
+        microsoft = _microsoft(self.issuer)
+        email = claims.get("email")
+        if microsoft and not (isinstance(email, str) and "@" in email):
+            email = claims.get("preferred_username")
+        if not isinstance(email, str) or "@" not in email:
+            raise SignInError("id token carries no email")
+        email = email.strip().lower()
+        verified = claims.get("email_verified")
+        if isinstance(verified, str):
+            verified = verified.lower() == "true"
+        # Microsoft publishes no email_verified; its tenant check above is what vouches for the address.
+        if ("email_verified" in claims or not microsoft) and verified is not True:
+            raise SignInError("email is not verified")
+        domains = self.settings.oidc_allowed_domains
+        if domains:
+            if email.rsplit("@", 1)[1] not in domains:
+                raise SignInError("email domain is not allowed")
+            if _google(self.issuer) and str(claims.get("hd") or "").lower() not in domains:
+                raise SignInError("hosted domain is not allowed")
+        return email
+
+    # ---- sessions -----------------------------------------------------------------------
+
+    def start_session(self, c, human, email, previous=""):
+        """A new session for this person. The id changes on every sign-in, and a session id
+        the browser already held is dropped with it."""
+        now = H.now()
+        if previous:
+            c.execute("DELETE FROM oidc_sessions WHERE id_hash=?", (digest(previous),))
+        c.execute("DELETE FROM oidc_sessions WHERE expires_at<=? OR last_seen<?",
+                  (now, H.shift(now, seconds=-self.settings.session_idle_seconds)))
+        sid = secrets.token_urlsafe(32)
+        c.execute("INSERT INTO oidc_sessions(id_hash,human,email,created,last_seen,expires_at) VALUES(?,?,?,?,?,?)",
+                  (digest(sid), human, email, now, now, H.shift(now, seconds=self.settings.session_absolute_seconds)))
+        return sid
+
+    def email(self, headers, c):
+        """The signed-in person's email, or None when the request has no live session."""
+        from .auth import cookies
+        return self.session_email(cookies(headers).get(self.cookie, ""), c)
+
+    def session_email(self, raw, c):
+        """The email behind a session id, from the cookie or from a bearer session."""
+        if not raw:
+            return None
+        row = c.execute("SELECT s.id_hash,s.last_seen,s.expires_at,h.email FROM oidc_sessions s "
+                        "JOIN humans h ON h.id=s.human WHERE s.id_hash=?", (digest(raw),)).fetchone()
+        if not row:
+            return None
+        now = H.now()
+        if row["expires_at"] <= now or row["last_seen"] < H.shift(now, seconds=-self.settings.session_idle_seconds):
+            return None
+        if row["last_seen"] < H.shift(now, seconds=-TOUCH_EVERY):
+            # A hint for the idle clock: a locked database must not turn a read into a refusal.
+            try:
+                with self.store.transaction() as w:
+                    w.execute("UPDATE oidc_sessions SET last_seen=? WHERE id_hash=?", (now, row["id_hash"]))
+            except Exception:
+                pass
+        return str(row["email"] or "").lower()
+
+    def logout(self, headers):
+        from .auth import cookies
+        raw = cookies(headers).get(self.cookie, "")
+        if raw:
+            with self.store.transaction() as c:
+                c.execute("DELETE FROM oidc_sessions WHERE id_hash=?", (digest(raw),))
+        return SIGNED_OUT_PATH, [self.cookie]
+
+    # ---- separate frontends (docs/custom-frontend.md) ---------------------------------------
+
+    def frontend_target(self, value):
+        """The URL of an allowed frontend, normalised, or None. Its origin must be exactly one of
+        TICO_CORS_ORIGINS; a fragment, credentials or an odd path are refused, so the redirect cannot
+        land anywhere but that app's own page."""
+        try:
+            url = urlparse(str(value or ""))
+            origin = "%s://%s" % (url.scheme, url.netloc)
+            path = url.path or "/"
+            if (origin.lower() not in self.settings.cors_origins or url.username is not None or url.fragment
+                    or not (path == "/" or SAFE_NEXT.fullmatch(path))
+                    or any(ord(ch) < 32 for ch in str(value))):
+                return None
+            return origin.lower() + path + ("?" + url.query if url.query else "")
+        except ValueError:
+            return None
+
+    def issue_code(self, c, human, email, challenge, origin):
+        """A one-time code for the frontend at `origin`; only its hash is stored, and it is good for a minute."""
+        now = H.now()
+        c.execute("DELETE FROM oidc_codes WHERE expires_at<=?", (now,))
+        code = secrets.token_urlsafe(32)
+        c.execute("INSERT INTO oidc_codes(code_hash,human,email,challenge,origin,expires_at) VALUES(?,?,?,?,?,?)",
+                  (digest(code), human, email, challenge, origin, H.shift(now, seconds=CODE_WINDOW)))
+        return code
+
+    def redeem_code(self, c, code, verifier, origin):
+        """A bearer session for the code, once. The code is spent whether or not the rest checks out."""
+        row = c.execute("SELECT * FROM oidc_codes WHERE code_hash=?", (digest(code),)).fetchone()
+        if row:
+            c.execute("DELETE FROM oidc_codes WHERE code_hash=?", (digest(code),))
+        good = _b64(hashlib.sha256(verifier.encode()).digest()) if VERIFIER.fullmatch(verifier) else ""
+        if (not row or row["expires_at"] <= H.now() or not hmac.compare_digest(good, row["challenge"])
+                or not origin or origin.lower() != row["origin"]):
+            return None
+        return self.start_session(c, row["human"], row["email"]), row["human"]
+
+    def revoke_session(self, raw):
+        with self.store.transaction() as c:
+            c.execute("DELETE FROM oidc_sessions WHERE id_hash=?", (digest(raw),))
+
+    def set_cookie(self, response, name, value, max_age):
+        response.set_cookie(name, value, max_age=max_age, path="/", secure=self.secure,
+                            httponly=True, samesite="lax")
+
+
+def _page(settings, status, title, message, action=None):
+    button = ""
+    if action:
+        button = '<p><a class="b" href="' + html.escape(action[0]) + '">' + html.escape(action[1]) + "</a></p>"
+    body = (
+        "<!doctype html><html lang=en><head><meta charset=utf-8>"
+        '<meta name=viewport content="width=device-width,initial-scale=1">'
+        "<title>" + html.escape(title) + " - " + html.escape(settings.app_name) + "</title>"
+        "<style>body{font:16px/1.5 system-ui,sans-serif;background:#f6f6f4;color:#1c1c1a;margin:0;"
+        "display:grid;place-items:center;min-height:100vh}main{max-width:26rem;padding:2rem;background:#fff;"
+        "border-radius:12px;box-shadow:0 1px 8px #0002;margin:1rem}h1{font-size:1.25rem;margin:0 0 .5rem}"
+        ".b{display:inline-block;padding:.6rem 1rem;background:#1c1c1a;color:#fff;border-radius:8px;"
+        "text-decoration:none}@media(prefers-color-scheme:dark){body{background:#151514;color:#eee}"
+        "main{background:#222}.b{background:#eee;color:#111}}</style></head><body><main><h1>"
+        + html.escape(title) + "</h1><p>" + message + "</p>" + button + "</main></body></html>")
+    return HTMLResponse(body, status_code=status)
+
+
+def register(app, auth):
+    """`/auth/login`, `/auth/callback` and `/auth/signed-out`. They answer 404 unless the
+    server was started with TICO_AUTH_PROXY=oidc."""
+    settings, store = auth.settings, auth.store
+
+    def active():
+        if not isinstance(auth.proxy, Oidc):
+            raise Problem("not_found", "Not found", 404)
+        return auth.proxy
+
+    @app.get(LOGIN_PATH)
+    def login(next: str = "/", fresh: str = "", code_challenge: str = ""):
+        oidc = active()
+        challenge = ""
+        target = None if next.startswith("/") else oidc.frontend_target(next)
+        if target or (code_challenge and not next.startswith("/")):
+            # A separate frontend: only an allowed origin, and only with a PKCE challenge.
+            if not target or not CHALLENGE.fullmatch(code_challenge):
+                return _page(settings, 400, "This app cannot sign you in",
+                             "Its address is not one this server allows (TICO_CORS_ORIGINS), or it did not send "
+                             "a PKCE code_challenge.")
+            next, challenge = target, code_challenge
+        try:
+            url, cookie = oidc.begin(next, bool(fresh), challenge)
+        except SignInError as exc:
+            log.warning("sign-in could not start: %s", exc.reason)
+            return _page(settings, 502, "Sign-in is unavailable",
+                         "The sign-in provider could not be reached. Try again in a minute.",
+                         (LOGIN_PATH, "Try again"))
+        response = RedirectResponse(url, status_code=302)
+        oidc.set_cookie(response, oidc.login_cookie, cookie, LOGIN_WINDOW)
+        return response
+
+    @app.get(CALLBACK_PATH)
+    def callback(request: Request):
+        from .auth import cookies
+        oidc = active()
+        jar = cookies(request.headers)
+        try:
+            email, target, challenge = oidc.finish(dict(request.query_params), jar.get(oidc.login_cookie, ""))
+            with store.transaction() as c:
+                human = oidc.person(c, email)
+                if challenge:
+                    # No cookie for a frontend: it gets a code, in the fragment so no server or log sees it.
+                    origin = "%s://%s" % urlparse(target)[:2]
+                    sid = None
+                    code = oidc.issue_code(c, human, email, challenge, origin)
+                else:
+                    sid = oidc.start_session(c, human, email, jar.get(oidc.cookie, ""))
+        except NotOnRoster as exc:
+            response = _page(settings, 403, "You're not on the list",
+                             "<b>" + html.escape(exc.email) + "</b> is not on " + html.escape(settings.company_name)
+                             + "'s list of people for " + html.escape(settings.app_name)
+                             + ". Ask whoever runs it to add you, or sign in with a different account.",
+                             (LOGIN_PATH + "?fresh=1", "Use another account"))
+            response.delete_cookie(oidc.login_cookie, path="/", secure=oidc.secure, httponly=True)
+            return response
+        except SignInError as exc:
+            log.warning("sign-in refused: %s", exc.reason)
+            response = _page(settings, exc.status, "Sign-in did not complete",
+                             "Your sign-in could not be confirmed. Start again; if it keeps failing, "
+                             "check that you are using your work account.", (LOGIN_PATH, "Try again"))
+            response.delete_cookie(oidc.login_cookie, path="/", secure=oidc.secure, httponly=True)
+            return response
+        if challenge:
+            response = RedirectResponse(target + "#" + urlencode({"tico_code": code}), status_code=302)
+        else:
+            response = RedirectResponse(target, status_code=302)
+            oidc.set_cookie(response, oidc.cookie, sid, settings.session_absolute_seconds)
+        response.delete_cookie(oidc.login_cookie, path="/", secure=oidc.secure, httponly=True)
+        return response
+
+    @app.post(TOKEN_PATH)
+    async def token(request: Request):
+        """Exchange the one-time code a frontend got in its URL for a bearer session."""
+        oidc = active()
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or not all(isinstance(body.get(k), str) for k in ("code", "code_verifier")):
+            raise Problem("invalid_request", "Send JSON with code and code_verifier", 400)
+        def redeem():
+            with store.transaction() as c:
+                return oidc.redeem_code(c, body["code"][:200], body["code_verifier"][:200],
+                                        request.headers.get("origin", ""))
+        made = await asyncio.to_thread(redeem)
+        if not made:
+            raise Problem("invalid_grant", "The code is wrong, expired, already used, or from another app", 400)
+        sid, human = made
+        return JSONResponse({"access_token": BEARER_PREFIX + sid, "token_type": "Bearer",
+                             "expires_in": settings.session_absolute_seconds,
+                             "idle_timeout": settings.session_idle_seconds, "person": human},
+                            headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
+
+    @app.post(REVOKE_PATH)
+    def revoke(request: Request):
+        """Sign a bearer session out (the request is already authenticated by it)."""
+        oidc = active()
+        bearer = request.headers.get("authorization", "")
+        if bearer.startswith("Bearer " + BEARER_PREFIX):
+            oidc.revoke_session(bearer[7 + len(BEARER_PREFIX):])
+        return {"revoked": True}
+
+    @app.get(SIGNED_OUT_PATH)
+    def signed_out():
+        active()
+        return _page(settings, 200, "You're signed out", "Your session on this browser has ended.",
+                     (LOGIN_PATH + "?fresh=1", "Sign in again"))

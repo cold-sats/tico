@@ -1,0 +1,23 @@
+# The catch-all: pi runs any provider that has no CLI of its own, with an OpenRouter API key
+# (docs/harnesses.md explains why pi and not OpenCode or aider).
+id = "pi"
+name = "pi (multi-provider)"
+host = "pi"
+executable = "pi"
+catch_all = true
+providers = ["deepseek", "moonshot", "meta", "mistral", "openrouter"]
+
+[install]
+method = "npm"
+package = "@earendil-works/pi-coding-agent"
+
+[version]
+args = ["--version"]
+pattern = '(\d+\.\d+\.\d+)'
+
+[update]
+policy = "latest"
+
+[auth]
+methods = ["api-key"]
+api_key_env = ["OPENROUTER_API_KEY"]

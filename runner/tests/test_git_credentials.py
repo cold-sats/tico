@@ -1,0 +1,107 @@
+"""The turn's GitHub App token reaches git and gh through the environment only, and git asks for a fresh one each time."""
+import json
+import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from runner import git_credentials as G
+
+
+class Hub:
+    def __init__(self, answer=None, error=None):
+        self.answer, self.error, self.calls = answer, error, []
+
+    def post(self, path, body):
+        self.calls.append((path, body))
+        if self.error:
+            raise self.error
+        return self.answer
+
+
+def test_applies_scoped_token_to_env():
+    env, hub = {"PATH": "/bin"}, Hub({"configured": True, "token": "ghs_x", "expires_at": "z"})
+    assert G.apply(env, hub, "cpo") is True
+    assert hub.calls == [("github/token", {"bot": "cpo"})]
+    assert env["GH_TOKEN"] == env["GITHUB_TOKEN"] == "ghs_x" and env["PATH"] == "/bin"
+
+
+def test_falls_back_when_not_configured_or_failing():
+    for hub in (Hub({"configured": False}), Hub(error=RuntimeError("down"))):
+        env = {"A": "1"}
+        assert G.apply(env, hub, "cpo") is False and env == {"A": "1"}
+
+
+def test_git_uses_the_helper_without_writing_anything(tmp_path):
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1", **G.environment("ghs_secret")}
+    out = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", env=env,
+                         capture_output=True, text=True, timeout=10).stdout
+    assert "username=x-access-token" in out and "password=ghs_secret" in out
+    assert list(tmp_path.iterdir()) == []
+
+
+class HubServer:
+    """A loopback stand-in for POST /api/v2/github/token that mints a different token per request."""
+
+    def __init__(self):
+        outer = self
+        outer.count, outer.seen = 0, []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                outer.seen.append((self.path, self.headers.get("Authorization"), json.loads(self.rfile.read(length))))
+                outer.count += 1
+                body = json.dumps({"configured": True, "token": f"ghs_fresh{outer.count}"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+        self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+
+
+def fill(env, tmp_path):
+    return subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", env=env,
+                          capture_output=True, text=True, timeout=30, cwd=tmp_path).stdout
+
+
+def test_git_gets_a_fresh_token_on_every_credential_request_and_nothing_is_written(tmp_path):
+    hub = HubServer()
+    try:
+        config = tmp_path / "config" / "runner.json"
+        config.parent.mkdir()
+        config.write_text(json.dumps({"url": hub.url, "token": "runner-secret"}))
+        home = tmp_path / "home"
+        home.mkdir()
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "GIT_CONFIG_NOSYSTEM": "1"}
+        assert G.apply(env, Hub({"configured": True, "token": "ghs_start"}), "cpo", config) is True
+        assert env["GH_TOKEN"] == "ghs_start"           # gh reads this one; only git refreshes
+        assert "ghs_start" not in env["GIT_CONFIG_VALUE_1"] and "runner-secret" not in "".join(env.values())
+        before = sorted(p.name for p in tmp_path.rglob("*"))
+        first, second = fill(env, tmp_path), fill(env, tmp_path)
+        assert "username=x-access-token" in first and "password=ghs_fresh1" in first
+        assert "password=ghs_fresh2" in second
+        assert hub.seen[0] == ("/api/v2/github/token", "Bearer runner-secret", {"bot": "cpo"})
+        assert sorted(p.name for p in tmp_path.rglob("*")) == before
+        # An unrelated host gets nothing, and neither does a store or erase.
+        other = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=example.com\n\n",
+                               env={**env, "GIT_ASKPASS": "true"}, capture_output=True, text=True, timeout=30, cwd=tmp_path)
+        assert "ghs_" not in other.stdout and hub.count == 2
+    finally:
+        hub.close()
+
+
+def test_the_helper_falls_back_to_the_turn_token_when_the_hub_cannot_be_reached(tmp_path):
+    config = tmp_path / "runner.json"
+    config.write_text(json.dumps({"url": "http://127.0.0.1:9", "token": "runner-secret"}))
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1"}
+    assert G.apply(env, Hub({"configured": True, "token": "ghs_start"}), "cpo", config)
+    assert "password=ghs_start" in fill(env, tmp_path)

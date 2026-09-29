@@ -1,0 +1,22 @@
+# xAI's Grok Build, the official CLI (npm package published by xAI; docs.x.ai/build). Its browser
+# login redirects to a local callback, so it is signed in from the computer's terminal, not relayed.
+id = "grok"
+name = "Grok Build"
+host = "grok"
+executable = "grok"
+providers = ["xai"]
+
+[install]
+method = "npm"
+package = "@xai-official/grok"
+
+[version]
+args = ["--version"]
+pattern = '(\d+\.\d+\.\d+)'
+
+[update]
+policy = "latest"
+
+[auth]
+methods = ["subscription", "api-key"]
+api_key_env = ["XAI_API_KEY"]

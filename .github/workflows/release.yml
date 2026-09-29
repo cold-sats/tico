@@ -1,0 +1,48 @@
+# A pushed version tag becomes a GitHub release: the CHANGELOG section as notes and the one-line installer (install.sh with this tag baked in, the compose bundle, SHA256SUMS).
+# See docs/releasing.md.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Build the notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir dist
+          python scripts/changelog_notes.py "$version" > dist/notes.md
+      - name: Build the installer and its compose bundle
+        run: |
+          python scripts/build_install_bundle.py --version "$GITHUB_REF_NAME" --output dist/install
+          shellcheck -s sh dist/install/install.sh
+          grep -q "TICO_VERSION_BAKED='$GITHUB_REF_NAME'" dist/install/install.sh
+      # The Docker workflow builds the images from the same tag; an installer that runs before they exist fails on pull.
+      - name: Wait for the images of this tag
+        run: |
+          for image in tico tico-runner tico-updater; do
+            for _ in $(seq 1 90); do
+              docker buildx imagetools inspect "ghcr.io/ticoteam/$image:$GITHUB_REF_NAME" >/dev/null 2>&1 && continue 2
+              sleep 20
+            done
+            echo "ghcr.io/ticoteam/$image:$GITHUB_REF_NAME was not published within 30 minutes" >&2
+            exit 1
+          done
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/install/install.sh "dist/install/tico-bundle-$GITHUB_REF_NAME.tar.gz" dist/install/SHA256SUMS \
+            --title "$GITHUB_REF_NAME" --notes-file dist/notes.md --verify-tag "${flags[@]}"

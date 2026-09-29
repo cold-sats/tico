@@ -1,0 +1,35 @@
+# Message bots
+
+The **Message bots** section in the sidebar is the directory for recurring email and Slack work;
+there is no separate messaging index or search page. Choosing an inbox or channel opens its bot
+directly. The left side shows covered sources, published instructions, status, current routines,
+and recent occurrences. The right side is an inbox of example messages and actions. Email and
+Slack thread viewers open the original message context, and Slack messages link back to Slack.
+The source chips can widen or narrow the examples to the bot's other inboxes and channels.
+
+Bot pause/resume and routine pause/resume use the same APIs and authorization as the bot and
+Recurring pages. **Run now** opens one manual occurrence of an active timed routine. It refuses
+when the routine or bot is paused or that routine still has unfinished work. The resulting task
+and occurrence are part of the normal history. Event routines need their event's subject and
+cannot run this way.
+
+Coverage is read from the live bot config and roster for Gmail, and from
+`registry/slack-channels.yaml` for Slack readers. A bot may cover many sources. Source assignments
+still follow the connector and registry configuration that grants actual access; this view does
+not create a Gmail permission or change a Slack channel reader.
+
+The server stores the last `AGENT.md` published by each assigned runner in
+`bot_agent_instructions`. A runner sends a file on its first successful heartbeat and whenever
+its timestamp or size changes. Until then, the bot view shows the published role summary. An old
+runner may continue publishing only personal inbox instructions; the page uses that copy as a
+fallback.
+
+The mail connector's cloud snapshot contains message labels and matched rule IDs. Those are
+shown as message evidence. Its detailed local audit remains on the Mac; a source message with
+no bot-specific `hub/handled/<bot>` or `hub/triaged/<bot>` label is never attributed to the bot.
+Slack digests have exact event IDs, so a check opens the messages delivered to that bot. Slack
+replies come from `slack_posts` with their delivery state. Slack channel message content is
+restricted to the owner in Message bots; everyone else's email view stays within their existing
+mailbox access. The backend enforces these rules for every detail and thread endpoint.
+The gateway publishes the verified Slack workspace URL so message links open the exact Slack
+thread. Before that URL is available, links open the channel.

@@ -1,0 +1,29 @@
+"""The server compose file pins its updater to the release, and an update leaves the updater running."""
+import importlib.util
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_the_updater_image_follows_the_release_tag():
+    text = (ROOT / "compose.yaml").read_text()
+    image = re.search(r"tico-updater\}:(\S+)", text).group(1)
+    assert image == "${TICO_UPDATER_TAG:-${TICO_TAG:-latest}}"
+
+
+def test_a_server_update_recreates_only_the_server_never_the_updater(monkeypatch, tmp_path):
+    for key, value in {"TICO_UPDATER_MODE": "", "TICO_PROJECT_DIR": str(tmp_path), "TICO_COMPOSE_FILE": "", "TICO_UPDATER_BUNDLE": "never"}.items():
+        monkeypatch.setenv(key, value)
+    spec = importlib.util.spec_from_file_location("tico_updater_server_pin", ROOT / "docker/updater.py")
+    updater = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(updater)
+    calls = []
+    monkeypatch.setattr(updater, "compose", lambda *a, tag=None, **k: calls.append(a) or "")
+    monkeypatch.setattr(updater, "running_image", lambda: ("sha256:old", "v0.1.0"))
+    monkeypatch.setattr(updater, "healthy", lambda seconds: True)
+    (tmp_path / ".env").write_text("TICO_URL=x\n")
+    updater.update("v0.2.0")
+    assert updater.status["state"] == "healthy"
+    assert all(a[-1] == "server" for a in calls) and not any("updater" in a for a in calls)
+    assert "TICO_TAG=v0.2.0" in (tmp_path / ".env").read_text()

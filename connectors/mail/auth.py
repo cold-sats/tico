@@ -1,0 +1,111 @@
+"""Service account + domain-wide delegation.
+
+One Google service account acts as every mailbox. The key is never in a bot's environment;
+this module reads it by path (`GOOGLE_SA_KEY`, default <projects>/secrets/google-sa.json) and
+mints a credential impersonating one mailbox at a time (`subject=`).
+
+Nothing here ever prints or returns the private key. `key_info()` returns only the public
+identifiers the owner needs for the Admin console: client_email, client_id, project_id.
+
+The Google client libraries are imported lazily so the rest of the package - normalization,
+rules, the database, the tests - works with nothing installed.
+"""
+
+import json, os, stat
+from pathlib import Path
+
+from . import DEFAULT_KEY, Failure
+
+KEY_ENV = "GOOGLE_SA_KEY"
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
+SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE]
+REQUIRED_FIELDS = ("type", "client_email", "client_id", "private_key", "token_uri")
+
+SETUP_HINT = ("The owner creates it once: Google Cloud console > project acme-tico-hub > enable "
+              "the Gmail API and the Google Calendar API > IAM & Admin > Service Accounts > "
+              "company-hub-mail > Keys > Add key > JSON. Save it as the path above and "
+              "`chmod 600` it. Full steps: connectors/mail/README.md.")
+
+
+def key_path():
+    return Path(os.environ.get(KEY_ENV) or DEFAULT_KEY).expanduser()
+
+
+def read_key(path=None):
+    """The parsed key file. Raises Failure with the exact fix when it is missing or wrong."""
+    p = Path(path) if path else key_path()
+    if not p.exists():
+        raise Failure(f"the Google service-account key is not at {p}",
+                      f"{SETUP_HINT} Or point {KEY_ENV} at an existing key file.")
+    mode = stat.S_IMODE(p.stat().st_mode)
+    if mode != 0o600:
+        raise Failure(f"{p} is mode {mode:o}; the key must be private",
+                      f"chmod 600 {p}")
+    try:
+        data = json.loads(p.read_text())
+    except Exception as e:
+        raise Failure(f"{p} is not valid JSON: {e}",
+                      "Download the key again from the service account's Keys tab; keep the "
+                      "file exactly as Google produced it.")
+    missing = [f for f in REQUIRED_FIELDS if not data.get(f)]
+    if missing:
+        raise Failure(f"{p} is missing {', '.join(missing)}",
+                      "That is not a service-account key. Create a JSON key on the service "
+                      "account itself, not an OAuth client id.")
+    if data.get("type") != "service_account":
+        raise Failure(f"{p} is a {data.get('type')!r} key, not a service account",
+                      "Domain-wide delegation only works with a service account key.")
+    return data
+
+
+def key_info(path=None):
+    """Public identifiers only - never the private key."""
+    d = read_key(path)
+    return {"path": str(Path(path) if path else key_path()),
+            "client_email": d["client_email"],
+            "client_id": str(d["client_id"]),
+            "project_id": d.get("project_id", ""),
+            "private_key_id": str(d.get("private_key_id", ""))[:8] + "..."}
+
+
+def delegation_hint(scope, client_id):
+    return ("domain-wide delegation is not granted for scope %s: Google Workspace Admin console > "
+            "Security > Access and data control > API controls > Domain-wide delegation > "
+            "Add new, client id %s, scope %s." % (scope, client_id, scope))
+
+
+def credentials(mailbox, scopes=None, path=None):
+    """A credential that acts as `mailbox`. Requires the google-auth library."""
+    try:
+        from google.oauth2 import service_account       # noqa: PLC0415
+    except ImportError:
+        raise Failure("the google-auth library is not installed",
+                      "Run mail through scripts/mail.sh, which builds the venv "
+                      "(connectors/mail/requirements.txt).")
+    read_key(path)                                      # mode + shape checks, with good errors
+    p = str(Path(path) if path else key_path())
+    creds = service_account.Credentials.from_service_account_file(p, scopes=scopes or SCOPES)
+    return creds.with_subject(mailbox)
+
+
+def build_service(api, version, mailbox, scopes=None, path=None):
+    try:
+        from googleapiclient.discovery import build     # noqa: PLC0415
+    except ImportError:
+        raise Failure("the google-api-python-client library is not installed",
+                      "Run mail through scripts/mail.sh, which builds the venv "
+                      "(connectors/mail/requirements.txt).")
+    # A test seam for the container smoke: a fake Google on this address. Unset, Google's own.
+    endpoint = os.environ.get("TICO_GOOGLE_API_ENDPOINT")
+    options = {"client_options": {"api_endpoint": endpoint}} if endpoint else {}
+    return build(api, version, credentials=credentials(mailbox, scopes, path),
+                 cache_discovery=False, **options)
+
+
+def gmail_service(mailbox, path=None):
+    return build_service("gmail", "v1", mailbox, [GMAIL_SCOPE], path)
+
+
+def calendar_service(mailbox, path=None):
+    return build_service("calendar", "v3", mailbox, [CALENDAR_SCOPE], path)

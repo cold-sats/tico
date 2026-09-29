@@ -1,0 +1,518 @@
+"""Per-company GitHub access through a GitHub App the company creates in its own organization.
+
+The owner registers the app with GitHub's manifest flow (nothing to copy by hand), installs it on the
+org, and from then on the hub mints short-lived installation tokens scoped to one bot repository.
+Runners fetch that token per turn (runner/git_credentials.py); no long-lived personal token is used.
+
+The app's private key and secrets are encrypted at rest and are never returned by any endpoint or
+written to a log. See docs/github-app.md.
+"""
+import json
+import logging
+import os
+import re
+import secrets
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote, urlparse
+
+import httpx
+import jwt
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
+
+from . import hubdb as H
+from .auth import validate_identity
+from .health import note_github_token
+from .store import Problem
+
+log = logging.getLogger("tico.github_app")
+
+API = "https://api.github.com"
+STATE_TTL = 3600
+REFRESH_MARGIN = 300          # a cached token is dropped this long before GitHub expires it
+# What a bot's turn needs in its own repository, and nothing else.
+TURN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
+CREATE_PERMISSIONS = {"administration": "write", "contents": "read"}
+ORG = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
+SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+REPO_PART = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+DEFAULT_TEMPLATE = "ticoteam/botops"
+BOTOPS = "botops"
+EXTRA_KEY = "github-extra-repos"   # registry_metadata: {bot: ["owner/name", ...]}
+MAX_EXTRA_REPOS = 20
+
+# Replaced in tests with an httpx.MockTransport so nothing reaches the network.
+TRANSPORT = None
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS github_app(
+ id TEXT PRIMARY KEY, app_id INTEGER NOT NULL, slug TEXT NOT NULL, client_id TEXT NOT NULL, org TEXT NOT NULL,
+ administration INTEGER NOT NULL, installation_id INTEGER, html_url TEXT NOT NULL DEFAULT '',
+ ciphertext BLOB NOT NULL, nonce BLOB NOT NULL, created TEXT NOT NULL, created_by TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS github_app_states(
+ nonce TEXT PRIMARY KEY, actor TEXT NOT NULL, org TEXT NOT NULL, administration INTEGER NOT NULL,
+ created REAL NOT NULL);
+"""
+
+
+def _client():
+    return httpx.Client(base_url=API, timeout=15, transport=TRANSPORT,
+                        headers={"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+                                 "User-Agent": "Tico-GitHub-App"})
+
+
+def _iso(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+
+def repo_of(repo, default_owner):
+    """`owner/name` from a stored bot repo: a bare name, owner/name, or a github.com URL."""
+    repo = str(repo or "").strip()
+    if repo.startswith(("http://", "https://")):
+        url = urlparse(repo)
+        if (url.hostname or "").lower() != "github.com":
+            return None
+        repo = url.path.strip("/")
+    repo = repo.removesuffix(".git")
+    if "/" not in repo:
+        repo = f"{default_owner}/{repo}" if default_owner and repo else ""
+    parts = repo.split("/")
+    if len(parts) != 2 or not all(REPO_PART.match(p) for p in parts):
+        return None
+    return repo
+
+
+class GitHubApp:
+    """The stored app, its at-rest encryption, and installation-token minting."""
+
+    def __init__(self, settings, store, vault=None):
+        self.settings, self.store, self.vault = settings, store, vault
+        self.cache = {}
+        self.lock = threading.Lock()
+        with store.transaction() as c:
+            c.executescript(SCHEMA)
+
+    # -- secret storage ---------------------------------------------------------------------
+    def _key(self, c):
+        """The vault's KMS-wrapped key when the deployment has one; otherwise a local key file kept
+        beside the database, so a copy of the database alone does not carry the app's private key."""
+        if self.settings.credential_kms_key and self.vault is not None:
+            return self.vault.cipher.key(c)
+        path = Path(self.settings.db_path).parent / "github-app.key"
+        if not path.exists():
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as out:
+                out.write(os.urandom(32))
+        return path.read_bytes()
+
+    def secret_key(self, c):
+        """The same at-rest key, for other stored secrets (directory sync credentials)."""
+        return self._key(c)
+
+    def save(self, c, actor, org, administration, conversion):
+        secrets_blob = json.dumps({"pem": conversion["pem"], "webhook_secret": conversion.get("webhook_secret") or "",
+                                   "client_secret": conversion.get("client_secret") or ""}).encode()
+        nonce = os.urandom(12)
+        sealed = AESGCM(self._key(c)).encrypt(nonce, secrets_blob, b"tico-github-app:v1")
+        c.execute("DELETE FROM github_app")
+        c.execute("INSERT INTO github_app VALUES('app',?,?,?,?,?,NULL,?,?,?,?,?)",
+                  (int(conversion["id"]), conversion["slug"], conversion["client_id"], org, int(administration),
+                   str(conversion.get("html_url") or ""), sealed, nonce, H.now(), actor))
+        self.cache.clear()
+
+    def row(self, c=None):
+        if c is not None:
+            return c.execute("SELECT * FROM github_app WHERE id='app'").fetchone()
+        with self.store.read() as c:
+            return self.row(c)
+
+    def private_key(self, c, row):
+        try:
+            blob = AESGCM(self._key(c)).decrypt(row["nonce"], row["ciphertext"], b"tico-github-app:v1")
+            return json.loads(blob)["pem"]
+        except Exception:
+            raise Problem("github_unavailable", "The stored GitHub App key could not be decrypted", 503) from None
+
+    def forget(self, c):
+        c.execute("DELETE FROM github_app")
+        c.execute("DELETE FROM github_app_states")
+        self.cache.clear()
+
+    # -- GitHub calls -----------------------------------------------------------------------
+    def app_jwt(self, c, row):
+        now = int(time.time())
+        # GitHub rejects an exp more than ten minutes out; iat is backdated for clock drift.
+        return jwt.encode({"iat": now - 60, "exp": now + 540, "iss": str(row["app_id"])},
+                          self.private_key(c, row), algorithm="RS256")
+
+    def _call(self, method, path, **kw):
+        try:
+            with _client() as http:
+                return http.request(method, path, **kw)
+        except httpx.HTTPError:
+            raise Problem("github_unreachable", "GitHub could not be reached; try again shortly", 502) from None
+
+    def exchange(self, code):
+        r = self._call("POST", f"/app-manifests/{quote(code, safe='')}/conversions")
+        if r.status_code >= 300:
+            raise Problem("github_exchange", "GitHub did not accept that setup code; start again from Settings", 400)
+        data = r.json()
+        if not all(data.get(k) for k in ("id", "slug", "client_id", "pem")):
+            raise Problem("github_exchange", "GitHub's answer was missing the app's credentials", 502)
+        return data
+
+    def installation(self, refresh=False):
+        """The org's installation id, discovered through the app and remembered."""
+        with self.store.transaction() as c:
+            row = self.row(c)
+            if not row:
+                return None
+            if row["installation_id"] and not refresh:
+                return int(row["installation_id"])
+            token = self.app_jwt(c, row)
+        r = self._call("GET", "/app/installations", params={"per_page": 100},
+                       headers={"Authorization": "Bearer " + token})
+        if r.status_code >= 300:
+            raise Problem("github_installations", "GitHub would not list the app's installations", 502)
+        found = next((i for i in r.json() if str((i.get("account") or {}).get("login", "")).lower() == row["org"].lower()), None)
+        with self.store.transaction() as c:
+            c.execute("UPDATE github_app SET installation_id=? WHERE id='app'", (found["id"] if found else None,))
+        return int(found["id"]) if found else None
+
+    def mint(self, repos, permissions):
+        """A token for the repositories (`owner/name` each), or the whole installation when there are none.
+        Cached until shortly before it expires."""
+        repos = sorted(set(repos or ()))
+        key = (tuple(repos), tuple(sorted(permissions.items())))
+        with self.lock:
+            hit = self.cache.get(key)
+            if hit and hit["exp"] - REFRESH_MARGIN > time.time():
+                return hit["token"], hit["expires_at"]
+        installation = self.installation()
+        if not installation:
+            raise Problem("github_not_installed", "The GitHub App is not installed on the organization yet", 409)
+        with self.store.transaction() as c:
+            token = self.app_jwt(c, self.row(c))
+        body = {"permissions": permissions}
+        if repos:
+            body["repositories"] = [r.split("/", 1)[1] for r in repos]
+        r = self._call("POST", f"/app/installations/{installation}/access_tokens", json=body,
+                       headers={"Authorization": "Bearer " + token})
+        if r.status_code in (403, 404, 422) and repos:
+            raise self._unreachable(installation, repos, r.status_code)
+        if r.status_code >= 300:
+            raise Problem("github_token", "GitHub would not issue an installation token", 502)
+        data = r.json()
+        entry = {"token": data["token"], "expires_at": data["expires_at"], "exp": _iso(data["expires_at"])}
+        with self.lock:
+            self.cache[key] = entry
+        return entry["token"], entry["expires_at"]
+
+    def _unreachable(self, installation, repos, status):
+        """Why GitHub would not scope a token to `repos`. A repository that does not exist yet answers
+        404, the same as one the app cannot see, so ask GitHub what the installation can see: with
+        access to every repository a 404 means it is not there yet; with selected repositories it could
+        be either, and the message says both. A 403 is always access."""
+        access = ("give it access to those repositories in the app's installation settings")
+        problem = Problem("github_repo_not_accessible",
+                          f"The GitHub App cannot reach {', '.join(repos)}; {access}", 409)
+        if status == 403:
+            return problem
+        try:
+            with self.store.transaction() as c:
+                token = self.app_jwt(c, self.row(c))
+            info = self._call("GET", f"/app/installations/{installation}", headers={"Authorization": "Bearer " + token})
+            selection = info.json().get("repository_selection") if info.status_code < 300 else ""
+            wide, _ = self.mint(None, {"metadata": "read"})
+            absent = [repo for repo in repos
+                      if self._call("GET", f"/repos/{repo}", headers={"Authorization": "Bearer " + wide}).status_code == 404]
+        except Problem:
+            return problem
+        if not absent:
+            return problem
+        slugs = ", ".join(repo.split("/", 1)[1].removeprefix("emp-") for repo in absent)
+        create = (f"Create it with BotOps: `hub github create-bot-repo {slugs.split(', ')[0]}` "
+                  "(add `--empty` for a bot built locally, whose history its runner then pushes)")
+        if selection == "all":
+            return Problem("github_repo_missing", f"The repository {', '.join(absent)} does not exist yet on GitHub. {create}.", 409)
+        return Problem("github_repo_not_accessible",
+                       f"GitHub answers 404 for {', '.join(absent)}: it does not exist yet, or the app is not installed on it. "
+                       f"If it does not exist yet: {create[0].lower() + create[1:]}. If it exists: {access}.", 409)
+
+    def create_repo(self, slug, template, empty=False):
+        row = self.row()
+        if not row:
+            raise Problem("github_not_connected", "GitHub is not connected. Connect it in Settings first.", 409)
+        name = "emp-" + slug.removeprefix("emp-")
+        if not row["administration"]:
+            how = ("as an empty private repository" if empty else
+                   f"from the {template} template (https://github.com/{template} > Use this template)")
+            raise Problem(
+                "github_permission_missing",
+                f"The GitHub App was set up without permission to create repositories. Create {row['org']}/{name} "
+                f"yourself {how}, or reconnect GitHub with repository creation allowed.", 409)
+        token, _ = self.mint(None, CREATE_PERMISSIONS)
+        if empty:
+            # For a bot whose history already exists on a computer: nothing generated, the runner pushes into it.
+            r = self._call("POST", f"/orgs/{row['org']}/repos", headers={"Authorization": "Bearer " + token},
+                           json={"name": name, "private": True, "auto_init": False,
+                                 "description": f"Tico bot repository for {slug.removeprefix('emp-')}"})
+            if r.status_code == 422:
+                raise Problem("github_repo_exists", f"{row['org']}/{name} already exists or the name is not allowed", 409)
+            if r.status_code >= 300:
+                raise Problem("github_create_failed", f"GitHub would not create {row['org']}/{name} "
+                              f"(HTTP {r.status_code}). Create it manually if this persists.", 502)
+            data = r.json()
+            return {"repository": data.get("full_name") or f"{row['org']}/{name}", "html_url": data.get("html_url", ""),
+                    "empty": True, "note": "Empty repository. Push the bot's existing history to it; if the app is "
+                    "installed on selected repositories only, add this repository to the installation first."}
+        t_owner, t_repo = template.split("/", 1)
+        r = self._call("POST", f"/repos/{t_owner}/{t_repo}/generate", headers={"Authorization": "Bearer " + token},
+                       json={"owner": row["org"], "name": name, "private": True,
+                             "description": f"Tico bot repository for {slug.removeprefix('emp-')}"})
+        if r.status_code == 422:
+            raise Problem("github_repo_exists", f"{row['org']}/{name} already exists or the name is not allowed", 409)
+        if r.status_code >= 300:
+            raise Problem("github_create_failed", f"GitHub would not create {row['org']}/{name} from {template} "
+                          f"(HTTP {r.status_code}). Create it manually if this persists.", 502)
+        data = r.json()
+        return {"repository": data.get("full_name") or f"{row['org']}/{name}", "html_url": data.get("html_url", ""),
+                "note": "If the app is installed on selected repositories only, add this repository to the installation."}
+
+
+class Repo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slug: str = Field(min_length=1, max_length=64)
+    template: str | None = Field(default=None, max_length=140)
+    empty: bool = False
+
+
+class ExtraRepos(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    repositories: list[str] = Field(max_length=MAX_EXTRA_REPOS)
+
+
+class TokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bot: str = Field(min_length=1, max_length=100)
+
+
+def manifest(settings, name, administration):
+    public = settings.public_url
+    permissions = dict(TURN_PERMISSIONS)
+    if administration:
+        permissions["administration"] = "write"
+    return {"name": name[:34], "url": public, "redirect_url": public + "/api/v2/github/app/callback",
+            "setup_url": public + "/api/v2/github/app/installed",
+            # Nothing here needs GitHub to call us, so the hook stays off; the required url is a placeholder.
+            "hook_attributes": {"url": public + "/api/v2/github/webhook", "active": False},
+            "public": False, "default_permissions": permissions, "default_events": []}
+
+
+def extra_repos(c, bot):
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (EXTRA_KEY,)).fetchone()
+    try:
+        value = json.loads(row[0]).get(bot, []) if row else []
+    except (ValueError, AttributeError):
+        value = []
+    return [r for r in value if isinstance(r, str)]
+
+
+def save_extra_repos(c, bot, repos):
+    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (EXTRA_KEY,)).fetchone()
+    every = json.loads(row[0]) if row else {}
+    if repos:
+        every[bot] = repos
+    else:
+        every.pop(bot, None)
+    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+              (EXTRA_KEY, json.dumps(every, sort_keys=True)))
+
+
+def install_github_app(app, settings, store):
+    service = app.state.github_app = GitHubApp(settings, store, getattr(app.state, "vault", None))
+
+    def owner(request):
+        who = request.state.identity
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner connects GitHub", 403)
+        return who
+
+    @app.get("/api/v2/github/app")
+    def status(request: Request):
+        owner(request)
+        row = service.row()
+        if not row:
+            return {"connected": False}
+        return {"connected": True, "slug": row["slug"], "org": row["org"], "app_id": row["app_id"],
+                "administration": bool(row["administration"]), "installed": bool(row["installation_id"]),
+                "install_url": f"https://github.com/apps/{row['slug']}/installations/new",
+                "settings_url": f"https://github.com/organizations/{row['org']}/settings/apps/{row['slug']}",
+                "uninstall_url": f"https://github.com/organizations/{row['org']}/settings/installations"}
+
+    @app.get("/api/v2/github/app/manifest")
+    def manifest_form(request: Request, org: str, name: str = "", administration: bool = False, html: bool = False):
+        who = owner(request)
+        if not ORG.match(org):
+            raise Problem("github_org", "Enter the GitHub organization's name (letters, digits and hyphens)", 422)
+        if service.row():
+            raise Problem("github_connected", "GitHub is already connected; disconnect it first to start over", 409)
+        nonce = secrets.token_urlsafe(24)
+        with store.transaction() as c:
+            c.execute("DELETE FROM github_app_states WHERE created<?", (time.time() - STATE_TTL,))
+            c.execute("INSERT INTO github_app_states VALUES(?,?,?,?,?)", (nonce, who.actor, org, int(administration), time.time()))
+        body = manifest(settings, (name or f"{settings.company_name} Tico").strip(), administration)
+        action = f"https://github.com/organizations/{org}/settings/apps/new?state={nonce}"
+        if html:
+            page = ("<!doctype html><meta charset=utf-8><title>Connecting GitHub</title>"
+                    f"<form id=f method=post action='{action}'><input type=hidden name=manifest value='"
+                    + json.dumps(body).replace("&", "&amp;").replace("'", "&#39;") + "'></form>"
+                    "<script>document.getElementById('f').submit()</script>")
+            return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+        return {"action": action, "manifest": body, "state": nonce}
+
+    @app.get("/api/v2/github/app/callback")
+    def callback(request: Request, code: str = "", state: str = ""):
+        who = owner(request)
+        with store.transaction() as c:
+            row = c.execute("SELECT * FROM github_app_states WHERE nonce=?", (state,)).fetchone()
+            # Single use, and only in the session that started it.
+            if row:
+                c.execute("DELETE FROM github_app_states WHERE nonce=?", (state,))
+        if (not row or row["actor"] != who.actor or time.time() - row["created"] > STATE_TTL
+                or not secrets.compare_digest(row["nonce"], state)):
+            raise Problem("github_state", "This GitHub setup link is not valid or has expired; start again from Settings", 400)
+        if not code:
+            raise Problem("github_exchange", "GitHub did not send a setup code", 400)
+        conversion = service.exchange(code)
+        with store.transaction() as c:
+            service.save(c, who.actor, row["org"], row["administration"], conversion)
+            H.event(c, who.actor, "github.app_connected", conversion["slug"], {"org": row["org"], "app_id": conversion["id"]})
+        return RedirectResponse(f"https://github.com/apps/{conversion['slug']}/installations/new", status_code=302)
+
+    @app.get("/api/v2/github/app/installed")
+    def installed(request: Request):
+        who = owner(request)
+        found = service.installation(refresh=True)
+        with store.transaction() as c:
+            H.event(c, who.actor, "github.app_installed", "", {"installed": bool(found)})
+        return RedirectResponse("/#/settings?github=" + ("connected" if found else "pending"), status_code=302)
+
+    @app.post("/api/v2/github/app/disconnect")
+    def disconnect(request: Request):
+        who = owner(request)
+        with store.transaction() as c:
+            row = service.row(c)
+            service.forget(c)
+            H.event(c, who.actor, "github.app_disconnected", row["slug"] if row else "", {})
+        return {"ok": True, "note": "Forgotten here. Uninstall or delete the app on GitHub to revoke it there."}
+
+    @app.post("/api/v2/github/token")
+    def token(request: Request, body: TokenRequest):
+        who = request.state.identity
+        with store.transaction() as c:
+            validate_identity(c, who)
+            row = service.row(c)
+            if not row:
+                return {"configured": False}
+            # A turn may ask only for its own bot; a runner only for a bot assigned to it.
+            if who.role == "bot":
+                allowed = H.actor_id(who.actor) == body.bot
+            elif who.role == "runner":
+                allowed = c.execute("SELECT 1 FROM assignments WHERE bot=? AND runner_id=?",
+                                    (body.bot, who.runner_id)).fetchone() is not None
+            else:
+                allowed = False
+            if not allowed:
+                raise Problem("forbidden", "This credential does not run that bot", 403)
+            config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (body.bot,)).fetchone()
+            # A bare emp-<slug> means the connected org, whatever the default owner is.
+            repo = repo_of(config["repo"] if config else "", row["org"] or settings.github_owner)
+            if not repo or repo.split("/")[0].lower() != row["org"].lower():
+                raise Problem("forbidden", f"That bot's repository is not in the connected organization ({row['org']})", 403)
+            # The owner's list, re-checked against the organization in case the connection changed since.
+            extras = [r for r in extra_repos(c, body.bot) if r.split("/")[0].lower() == row["org"].lower()]
+        repos = [repo] + [r for r in extras if r.lower() != repo.lower()]
+        try:
+            value, expires = service.mint(repos, TURN_PERMISSIONS)
+        except Problem as problem:
+            note_github_token(store, problem.detail)
+            raise
+        note_github_token(store)
+        with store.transaction() as c:
+            H.event(c, who.actor, "github.token", body.bot, {"repository": repo, "repositories": repos})
+        return {"configured": True, "token": value, "expires_at": expires, "repository": repo, "repositories": repos}
+
+    def bot_repos(c, bot):
+        if not c.execute("SELECT 1 FROM bot_config WHERE bot=?", (bot,)).fetchone():
+            raise Problem("not_found", "No such bot", 404)
+        row = service.row(c)
+        own = repo_of((c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone() or {"repo": ""})["repo"],
+                      settings.github_owner or (row["org"] if row else ""))
+        return row, own
+
+    @app.get("/api/v2/bots/{bot}/github-repos")
+    def extra_get(request: Request, bot: str):
+        owner(request)
+        with store.read() as c:
+            row, own = bot_repos(c, bot)
+            return {"connected": bool(row), "org": row["org"] if row else "", "repository": own or "",
+                    "repositories": extra_repos(c, bot)}
+
+    @app.put("/api/v2/bots/{bot}/github-repos")
+    def extra_put(request: Request, bot: str, body: ExtraRepos):
+        who = owner(request)
+        with store.transaction() as c:
+            row, own = bot_repos(c, bot)
+            if not row:
+                raise Problem("github_not_connected", "Connect GitHub first (Settings, Cloud services)", 409)
+            wanted = []
+            for value in body.repositories:
+                repo = repo_of(value, row["org"])
+                if not repo or repo.split("/")[0].lower() != row["org"].lower():
+                    raise Problem("github_repo", f"'{value}' is not a repository in {row['org']}; extra repositories "
+                                  "must be in the connected organization", 422)
+                if (own or "").lower() != repo.lower() and repo.lower() not in [w.lower() for w in wanted]:
+                    wanted.append(repo)
+            before = extra_repos(c, bot)
+            if wanted != before:
+                save_extra_repos(c, bot, wanted)
+                H.event(c, who.actor, "github.bot_repos_changed", bot, {"before": before, "after": wanted})
+        return {"connected": True, "org": row["org"], "repository": own or "", "repositories": wanted}
+
+    @app.post("/api/v2/github/repos")
+    def create_repo(request: Request, body: Repo):
+        who = request.state.identity
+        slug = body.slug.removeprefix("emp-")
+        if who.role != "owner":
+            # BotOps materializes bot repositories the owner allowed when connecting the app; nobody else may.
+            if not (who.role == "bot" and H.actor_id(who.actor) == BOTOPS):
+                raise Problem("forbidden", "Only the owner, or the BotOps bot for a bot on the roster, creates "
+                              "bot repositories", 403)
+            with store.read() as c:
+                validate_identity(c, who)
+                row, bot = service.row(c), H.bot(c, slug)
+            if not row or not row["administration"]:
+                raise Problem("forbidden", "GitHub was connected without permission to create repositories; "
+                              "the owner must reconnect it with that allowed", 403)
+            if not bot or bot.get("state") == "archived":
+                raise Problem("forbidden", f"{slug} is not a planned or active bot, so no repository is created for it", 403)
+            if body.slug != slug and body.slug != "emp-" + slug:
+                raise Problem("forbidden", "BotOps creates only emp-<slug> for a bot", 403)
+            if body.template and body.template != DEFAULT_TEMPLATE and body.template.split("/")[0].lower() != row["org"].lower():
+                raise Problem("forbidden", "BotOps generates from the default template or one in the connected organization", 403)
+        template = body.template or DEFAULT_TEMPLATE
+        if body.empty and body.template:
+            raise Problem("github_repo", "An empty repository has no template; give one or the other", 422)
+        if not SLUG.match(slug) or not re.match(r"^[\w.-]+/[\w.-]+$", template):
+            raise Problem("github_repo", "Use a lowercase bot name (letters, digits, hyphens) and an owner/name template", 422)
+        result = service.create_repo(slug, template, empty=body.empty)
+        with store.transaction() as c:
+            H.event(c, who.actor, "github.repo_created", result["repository"],
+                    {"empty": True} if body.empty else {"template": template})
+        return result

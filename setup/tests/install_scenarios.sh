@@ -1,0 +1,129 @@
+#!/bin/sh
+# Runs inside a distro container (see test_install_sh.py): scripts/install.sh against local release files, with
+# docker, systemctl, ss, df and uname stubbed so nothing on the host or the network (beyond apt) is touched.
+S=/stubs
+mkdir -p $S /work
+printf 'MemTotal:        2000000 kB\n' > $S/meminfo
+: > $S/health
+cat > $S/docker <<'STUB'
+#!/bin/sh
+echo "docker $*" >> /stubs/docker.log
+case "$*" in
+  "compose version --short") echo 2.29.7 ;;
+  "compose version") echo "Docker Compose version v2.29.7" ;;
+  "version --format"*) echo 27.0.0 ;;
+esac
+exit 0
+STUB
+printf '#!/bin/sh\necho "systemctl $*" >> /stubs/docker.log\n' > $S/systemctl
+cat > $S/id <<'STUB'
+#!/bin/sh
+if [ "$1" = -u ]; then echo "${STUB_UID:-0}"; else exec /usr/bin/id "$@"; fi
+STUB
+cat > $S/uname <<'STUB'
+#!/bin/sh
+case "$1" in -s) echo "${STUB_OS:-Linux}" ;; -m) echo "${STUB_ARCH:-x86_64}" ;; *) exec /usr/bin/uname "$@" ;; esac
+STUB
+cat > $S/df <<'STUB'
+#!/bin/sh
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfake 100000000 1 %s 1%% /\n' "${STUB_DF:-50000000}"
+STUB
+cat > $S/ss <<'STUB'
+#!/bin/sh
+[ -f /stubs/ss.out ] && cat /stubs/ss.out
+exit 0
+STUB
+chmod +x $S/*
+export PATH=$S:$PATH
+export TICO_INSTALL_RELEASES_URL=file:///rel TICO_INSTALL_MEMINFO=$S/meminfo TICO_INSTALL_HEALTH_URL=file://$S/health TICO_INSTALL_HEALTH_TRIES=1
+export TICO_INSTALL_LATEST_URL=file:///rel/latest.json
+
+ok() { echo "ok $1"; }
+bad() { echo "not ok $1: $2"; }
+code_is() { if [ "$3" = "$2" ]; then ok "$1"; else bad "$1" "exit $3, wanted $2: $4"; fi; }
+has() { case $3 in *"$2"*) ok "$1" ;; *) bad "$1" "missing '$2' in: $3" ;; esac; }
+lacks() { case $3 in *"$2"*) bad "$1" "found '$2' in: $3" ;; *) ok "$1" ;; esac; }
+sum() { sha256sum "$1" | cut -d' ' -f1; }
+inst() { sh /rel/download/v0.2.0/install.sh "$@"; }
+
+# --- preflight -------------------------------------------------------------------------------------
+D=/work/pre
+out=$(STUB_OS=Darwin inst --dir $D 2>&1); code_is preflight-not-linux 3 $? "$out"
+out=$(STUB_ARCH=s390x inst --dir $D 2>&1); code_is preflight-arch 3 $? "$out"
+out=$(STUB_UID=1000 inst --dir $D 2>&1); code_is preflight-needs-root-or-sudo 3 $? "$out"; has preflight-needs-root-msg "root" "$out"
+printf 'MemTotal:         500000 kB\n' > $S/meminfo_small
+out=$(TICO_INSTALL_MEMINFO=$S/meminfo_small inst --dir $D 2>&1); code_is preflight-memory 3 $? "$out"; has preflight-memory-msg "1 GB of memory" "$out"
+out=$(STUB_DF=200000 inst --dir $D 2>&1); code_is preflight-disk 3 $? "$out"; has preflight-disk-msg "free disk" "$out"
+printf 'LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*\n' > $S/ss.out
+out=$(inst --dir $D 2>&1); code_is preflight-port-80 3 $? "$out"; has preflight-port-msg "Port 80" "$out"
+out=$(inst --dir /work/pre-tunnel --tunnel -- --non-interactive 2>&1); lacks preflight-tunnel-skips-ports "Port 80" "$out"
+rm -f $S/ss.out
+out=$(inst --dir relative/path 2>&1); code_is usage-dir-absolute 2 $? "$out"
+out=$(inst --bogus 2>&1); code_is usage-unknown-flag 2 $? "$out"
+out=$(inst --version latest --dir $D 2>&1); code_is usage-version-shape 2 $? "$out"
+[ ! -e $D/compose.yaml ] && ok preflight-changed-nothing || bad preflight-changed-nothing "$D/compose.yaml exists"
+
+# --- fresh install ---------------------------------------------------------------------------------
+D=/work/fresh
+: > $S/docker.log
+out=$(TICO_OIDC_CLIENT_SECRET=SEKRET-VALUE-123 inst --dir $D --yes -- --domain tico.example.com --company Acme 2>&1); code_is fresh-exit 0 $? "$out"
+lacks fresh-secret-not-echoed SEKRET-VALUE "$out"
+[ "$(cat $D/.bundle-version)" = v0.2.0 ] && ok fresh-pins-baked-version || bad fresh-pins-baked-version "$(cat $D/.bundle-version 2>&1)"
+grep -q 'marker v0.2.0' $D/compose.yaml && ok fresh-compose-from-bundle || bad fresh-compose-from-bundle "no marker"
+args=$(cat $D/wizard-args.txt)
+has fresh-wizard-target "--target local --tico-version v0.2.0" "$args"
+has fresh-wizard-yes "--yes" "$args"
+has fresh-wizard-noninteractive-without-tty "--non-interactive" "$args"
+has fresh-wizard-passthrough "--domain tico.example.com --company Acme" "$args"
+[ "$(stat -c %a $D/.env)" = 600 ] && ok fresh-env-private || bad fresh-env-private "$(stat -c %a $D/.env)"
+[ "$(stat -c %a $D/.setup)" = 700 ] && ok fresh-wizard-state-private || bad fresh-wizard-state-private "$(stat -c %a $D/.setup)"
+has fresh-next-steps "Add computer" "$out"
+out=$(inst --dir /work/tun --tunnel --yes -- --domain t.example.com 2>&1); has tunnel-front-door "--front-door cloudflared" "$(cat /work/tun/wizard-args.txt)"
+
+# --- idempotent re-run: repair, keep .env ------------------------------------------------------------
+printf 'MY_CUSTOM_SETTING=keep-me\n' >> $D/.env
+before=$(sum $D/.env)
+: > $S/docker.log
+out=$(inst --dir $D --yes 2>&1); code_is rerun-exit 0 $? "$out"
+[ "$(sum $D/.env)" = "$before" ] && ok rerun-env-untouched || bad rerun-env-untouched "changed"
+[ "$(wc -l < $D/wizard-args.txt)" = 1 ] && ok rerun-skips-wizard || bad rerun-skips-wizard "wizard ran again"
+has rerun-restarts-stack "compose up -d" "$(cat $S/docker.log)"
+has rerun-says-repair "repairing" "$out"
+rm -f $D/compose.yaml
+out=$(inst --dir $D --yes 2>&1); code_is repair-exit 0 $? "$out"
+[ -f $D/compose.yaml ] && ok repair-restores-compose || bad repair-restores-compose "missing"
+
+# --- upgrade and no silent downgrade -----------------------------------------------------------------
+out=$(inst --dir $D --version v0.3.0 --yes 2>&1); code_is upgrade-exit 0 $? "$out"
+grep -q 'marker v0.3.0' $D/compose.yaml && ok upgrade-new-compose || bad upgrade-new-compose "no marker"
+grep -q '^TICO_TAG=v0.3.0$' $D/.env && ok upgrade-pins-tag || bad upgrade-pins-tag "$(cat $D/.env | grep TICO_TAG)"
+grep -q '^MY_CUSTOM_SETTING=keep-me$' $D/.env && ok upgrade-keeps-settings || bad upgrade-keeps-settings "lost"
+[ "$(grep -c '^TICO_TAG=' $D/.env)" = 1 ] && ok upgrade-single-tag || bad upgrade-single-tag "duplicate"
+[ "$(stat -c %a $D/.env)" = 600 ] && ok upgrade-env-private || bad upgrade-env-private "mode"
+[ -f $D/compose.yaml.previous ] && ok upgrade-keeps-previous-compose || bad upgrade-keeps-previous-compose "missing"
+out=$(inst --dir $D --yes 2>&1); code_is older-installer-exit 0 $? "$out"; has older-installer-holds "newer than this installer" "$out"
+grep -q '^TICO_TAG=v0.3.0$' $D/.env && ok older-installer-keeps-tag || bad older-installer-keeps-tag "changed"
+out=$(inst --dir $D --version v0.2.0 --yes 2>&1); code_is explicit-downgrade 0 $? "$out"
+grep -q '^TICO_TAG=v0.2.0$' $D/.env && ok explicit-downgrade-applies || bad explicit-downgrade-applies "not applied"
+
+# --- checksum ----------------------------------------------------------------------------------------
+D=/work/tampered
+out=$(inst --dir $D --version v0.9.0 --yes 2>&1); code_is checksum-mismatch-refused 4 $? "$out"; has checksum-msg "Checksum mismatch" "$out"
+[ ! -e $D/compose.yaml ] && [ ! -e $D/.env ] && ok checksum-installs-nothing || bad checksum-installs-nothing "files exist"
+out=$(inst --dir $D --version v0.8.0 --yes 2>&1); code_is missing-release 4 $? "$out"
+
+# --- version pinning ---------------------------------------------------------------------------------
+D=/work/unpinned
+out=$(sh /rel/unpinned/install.sh --dir $D --yes -- --domain a.example.com 2>&1); code_is unpinned-exit 0 $? "$out"
+[ "$(cat $D/.bundle-version)" = v0.3.0 ] && ok unpinned-uses-latest-release || bad unpinned-uses-latest-release "$(cat $D/.bundle-version)"
+has unpinned-warns "not pinned to a release" "$out"
+D=/work/plain
+out=$(inst --dir $D --version 0.3.0 --yes -- --domain b.example.com 2>&1); code_is version-flag-without-v 0 $? "$out"
+[ "$(cat $D/.bundle-version)" = v0.3.0 ] && ok version-flag-overrides-baked || bad version-flag-overrides-baked "$(cat $D/.bundle-version)"
+grep -q '"' /rel/download/v0.2.0/install.sh && grep -q "^TICO_VERSION_BAKED='v0.2.0'" /rel/download/v0.2.0/install.sh && ok baked-line || bad baked-line "not baked"
+
+# --- docker-only and help -----------------------------------------------------------------------------
+out=$(inst --docker-only --dir /work/d 2>&1); code_is docker-only 0 $? "$out"
+[ ! -e /work/d/compose.yaml ] && ok docker-only-downloads-nothing || bad docker-only-downloads-nothing "bundle fetched"
+out=$(inst --help 2>&1); code_is help 0 $? "$out"; has help-text "--tunnel" "$out"
+echo done

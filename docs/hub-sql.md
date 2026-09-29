@@ -1,0 +1,191 @@
+# Querying the hub with SQL
+
+Read-only SQL over the production database (`/var/lib/tico/hub.sqlite`), for people, bots and
+scripts alike. One `SELECT` per call; what it may see is decided in the database layer, not by
+the caller and not by prompt text. 
+
+## Three ways in
+
+- **The SQL page** (`#/sql`, under your email next to Credentials; owner only). Type, press
+  ⌘↩, read the rows. The last query is remembered in the browser.
+- **`hub sql "<select>"`** from a bot turn or from a Mac. Prints an aligned table and a
+  trailing `N rows (M ms)` line; `--json` for the API response, `--csv` for CSV, `--max-rows N`
+  to ask for fewer rows, `--param key=value` to bind `:key` (numbers bind as numbers). Inside a
+  turn it is the bot. Outside a turn, `hub sql` alone falls back to the Mac's runner credential
+  (`~/.config/tico/runner.json`) and queries as the person who registered the machine, so a
+  script or an agent on Ana's Mac needs no browser session. From any other machine, a
+  personal API token (Settings, Devices, API tokens; the owner and bot administrators) makes
+  `hub` you: `export HUB_API_URL=https://hub.acme.example HUB_TOKEN=tico_pt_...` and no
+  `HUB_EMPLOYEE` ([How Tico works](how-it-works.md), "Calling the API from a script").
+- **`POST /api/v2/sql`** with `{"sql": "...", "params": [...] | {...}, "max_rows": N}` →
+  `{"columns": [...], "rows": [[...]], "row_count": N, "truncated": bool, "ms": N}`. Errors are
+  the usual `{"error": {"code", "detail"}}` with SQLite's own message (`no such column: x`,
+  `access to credentials.id is prohibited`). `BLOB` values come back base64-encoded and the
+  response says so in `note`.
+
+Limits: 500 rows and 5 seconds per query (the owner: 5,000 rows and 20 seconds). A query that
+hits the row cap returns `truncated: true`; one that hits the clock fails with `timeout`. Every
+call is written to `events` as `sql.query` with the statement, the row count, the time and any
+error, so the log answers "who looked at what".
+
+## What you may read
+
+The rules are the same ones the JSON API applies (`backend/auth.py`), built into the connection
+that runs your query (`backend/sql.py`): each guarded table is replaced, for that one request,
+by a view that already carries your visibility, and SQLite's authorizer refuses everything
+else. `SELECT * FROM messages` therefore means "the messages you may read". In plain words:
+
+- **The owner** (Ana) sees everything that is not a secret, with one exception: another
+  person's private Tico room (`conversations.scope = 'personal'`) and its messages stay
+  private to that person.
+- **A person on the roster** sees the company: every bot except the private ones (`ana`,
+  `inbox`, `legal`: `registry/hub-access.yaml`), every task except those a private bot
+  owns or requested, their own private Tico room, the shared rooms they are a member of, and
+  the direct conversations they take part in. Their own typed and voice notes, files and
+  connector snapshots; nobody else's. Mail copies (`mail_messages`, `mail_mailboxes`,
+  `mail_fts`) are owner-only in SQL; people browse their visible mail on the Mail page.
+  Meetings are the exception: every company meeting is
+  theirs to read, and a private one only if the invite names them
+  ([Meetings](meetings.md), Who can do what).
+- **A bot** sees itself and every other non-private bot; its own tasks (owner or requester) and
+  tasks delegated to it while the delegation lasts; the conversation of the turn it is running
+  in and the conversations of its tasks, with their messages, jobs, runs and output; its own
+  audit events and refusals; people as `humans(id, name)` and no email addresses. Never another
+  person's private room, never a private bot's tasks, runs or messages, never the roster file.
+- **A Mac's runner credential** queries as the person who registered the Mac, on this
+  endpoint only.
+- **A personal API token** is the person it belongs to, here and on every other endpoint,
+  with that person's visibility. The one thing it cannot do is make or revoke tokens.
+
+Everyone may read `sqlite_master` (the schema) and use `json_each`/`json_tree` on JSON
+columns. Nobody may read the tables below, nor `attempts.token_hash`, `bots.token_hash`,
+or `service_jobs.token_hash`; the columns simply do not exist in
+the view (`no such column`). Writes, `PRAGMA`, `ATTACH`, transactions, `EXPLAIN` (plain) and
+multiple statements are refused; `EXPLAIN QUERY PLAN` is allowed.
+
+Reserved, never readable through SQL: `credentials`, `credential_keys`, `credential_grants`,
+`idempotency` (stored request and response bodies), `runners` (credential hashes),
+`human_tokens` (personal API token hashes), `enrollments`, `session_epochs`, `settings_changes`, `backup_verified_blobs`, every
+`_litestream_*` table and every `sqlite_*` internal other than `sqlite_master`.
+
+## The useful tables
+
+Timestamps are ISO-8601 UTC text (`2026-09-15T21:40:12.931675Z`); compare them with
+`strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days')`. Actors are `human:<id>` or `bot:<slug>`.
+
+| Table | Columns worth knowing | Notes |
+|---|---|---|
+| `bots` | `slug, display_name, runtime, model, effort, state, created, last_turn_at` | `state`: active, paused, planned, quarantined |
+| `bot_config` | `bot, team, operator, description, reports_to, repo, thread_mode, revision` | the org chart |
+| `bot_status` | `bot, state, focus, task_id, since, last_turn_at, last_result, next_due, open_tasks, needs_human` | live status; history in `bot_status_history(bot, state, focus, since, until, reason, by)` |
+| `humans` | `id, name, email, slack_id, teams_json` | bots do not get `email` |
+| `conversations` | `id, kind, scope, subject, task_id, participants_json, owner_actor, room_key, created, last_message_at, closed_at` | `scope`: direct, personal, shared, task |
+| `messages` | `id, conversation_id, from_actor, to_actor, kind, body, refs_json, in_reply_to, created, delivered_at, read_at, wait_s` | `kind`: say, ask, answer, notice, steer |
+| `tasks` | `id, title, body, requester, owner, status, due, parent_id, goal_id, conversation_id, created, updated, done_at, closed_at, closed_by, note, version, acceptance_json` | `status`: open, doing, waiting, done, closed, declined |
+| `task_events` | `task_id, ts, actor, field, old, new, note` | every change to a task |
+| `goals` | `id, title, owner, parent_id, body, status, status_note, status_by, status_at, rank, last_read_at, last_read_by, created, created_by, updated` | what every person and bot is for; `status`: red, yellow, green, done, dropped, or NULL while proposed; `parent_id` is the goal it serves (NULL = a company goal); `tasks.goal_id` names the goal a task serves |
+| `goal_events` | `goal_id, ts, actor, field, old, new, note` | every change to a goal, readings included |
+| `kpis` | `id, goal_id, name, unit, target, created, created_by` | a measure on a goal |
+| `kpi_readings` | `kpi_id, ts, value, actor, source, note, created` | appended, never edited; `ts` is when the value was true; `source`: measured, estimate, or a connector name — an estimate never counts as measured |
+| `task_delegations` | `task_id, delegate, requested_by, message_id, expires` | |
+| `approvals` | `id, kind, task_id, message_id, payload_json, requested_by, decided_by, decision, decided_at, consumed_at, created` | `kind`: send, spend, publish, merge |
+| `jobs` | `id, message_id, bot, state, created, attempt_id` | one per message a bot has to act on; `state`: queued, leased, running, input, completed, failed, uncertain, cancelled |
+| `attempts` | `id, job_id, bot, runner_id, state, lease_until, created, started, finished, result_json, final_text` | a run (`state`: leased, running, input, completed, failed, interrupted, expired); its streamed output is `attempt_events(attempt_id, seq, kind, payload_json, created)` |
+| `turns` | `id, bot, started, finished, trigger, message_id, task_id, exit, tokens_in, tokens_out, cost, summary` | one per run (`id` = the attempt id); `exit` is null while running |
+| `schedules` | `id, bot, routine_key, title, cron, event_name, playbook, timezone and enabled (schedule_config), last_fired, next_due, deleted_at` | routines (`docs/routines.md`); `schedule_occurrences(schedule_id, occurrence, task_id, outcome)` says what each firing did |
+| `events` | `ts, actor, action, target, detail_json` | the audit log; `action` such as `task.create`, `sql.query` |
+| `refusals` | `ts, actor, rule, detail_json, severity` | the rule a bot broke |
+| `meetings` | `id, title, owner, recorded_by, transcript_readable, notes, created, updated` | your notes; every company meeting |
+| `meeting_items` | `id, meeting_id, section, text, detail_json, quote, at_ms, status, created_by, updated_by, pushed_at, result_ref, created, updated` | a meeting's action items; `section`: doc, task, feature (older rows may say decision or question); `status`: proposed, pushed, dismissed; `result_ref` is the hub task a push made. Visible exactly where its meeting is ([Meetings](meetings.md), What a meeting turns into) |
+| `meeting_comments` | `id, meeting_id, author, text, at_ms, created` | the thread beside a meeting: anyone who can open it can add to it ([Meetings](meetings.md)). Visible exactly where its meeting is |
+| `import_refs` | `source, external_id, meeting_id, runner_id, created` | which outside record a meeting was imported from — one row per Close call imported before the transcript-only worker ([Meetings](meetings.md), Close). Visible exactly where its meeting is |
+| `documents` | `id, visibility, collection, payload_json, updated` | the company docs mirror |
+| `learnings` | `id, integration, actor, text, created, deleted_at` | what bots and people learned about an integration (`integrations/`, `hub learn`) |
+
+`sqlite_master` lists the rest (`SELECT name, sql FROM sqlite_master WHERE type='table'`).
+
+## Examples
+
+Queued work, oldest first:
+
+```sql
+SELECT bot, count(*) AS queued, min(created) AS oldest
+FROM jobs WHERE state='queued' GROUP BY bot ORDER BY queued DESC
+```
+
+My open tasks (a bot's own; a person swaps in `human:<id>`):
+
+```sql
+SELECT id, status, title, requester, due, updated
+FROM tasks WHERE owner=:me AND status IN ('open','doing','waiting') ORDER BY due, updated
+```
+
+What is waiting on a person, and for how long:
+
+```sql
+SELECT t.owner, t.title, t.updated, substr(m.body, 1, 100) AS question
+FROM tasks t JOIN messages m ON m.conversation_id=t.conversation_id AND m.kind='ask'
+WHERE t.status='waiting' ORDER BY t.updated
+```
+
+The last turn of every bot, with the week's count and failures:
+
+```sql
+SELECT bot, max(started) AS last_turn, count(*) AS turns,
+       sum(exit IS NOT NULL AND exit!='ok') AS failed
+FROM turns WHERE started > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days')
+GROUP BY bot ORDER BY last_turn DESC
+```
+
+Who asked what today:
+
+```sql
+SELECT created, from_actor, to_actor, substr(body, 1, 90) AS ask
+FROM messages WHERE kind='ask' AND created >= strftime('%Y-%m-%d', 'now') ORDER BY created DESC
+```
+
+Routine outcomes, most recent first:
+
+```sql
+SELECT s.bot, s.title, o.occurrence, o.outcome, t.status
+FROM schedule_occurrences o JOIN schedules s ON s.id=o.schedule_id
+LEFT JOIN tasks t ON t.id=o.task_id ORDER BY o.occurrence DESC LIMIT 50
+```
+
+A task's history in order:
+
+```sql
+SELECT ts, actor, field, old, new, note FROM task_events WHERE task_id=:task ORDER BY ts
+```
+
+What a run said (its streamed output, in order):
+
+```sql
+SELECT seq, kind, json_extract(payload_json, '$.text') AS text
+FROM attempt_events WHERE attempt_id=:attempt ORDER BY seq
+```
+
+Bots that have not finished a turn in two days:
+
+```sql
+SELECT b.slug, b.state, s.state AS live, s.focus, s.last_turn_at
+FROM bots b LEFT JOIN bot_status s ON s.bot=b.slug
+WHERE b.state='active' AND coalesce(s.last_turn_at, '') < strftime('%Y-%m-%dT%H:%M:%S', 'now', '-2 days')
+ORDER BY s.last_turn_at
+```
+
+Refusals by rule this week:
+
+```sql
+SELECT actor, rule, count(*) AS n FROM refusals
+WHERE ts > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days') GROUP BY actor, rule ORDER BY n DESC
+```
+
+Who queried what (the audit of this very feature):
+
+```sql
+SELECT ts, actor, json_extract(detail_json, '$.rows') AS rows, json_extract(detail_json, '$.sql') AS sql
+FROM events WHERE action='sql.query' ORDER BY ts DESC LIMIT 20
+```
+
+From a bot: `hub sql "SELECT ..." --param me=bot:seo`. From Ana's Mac: `scripts/hub sql "SELECT ..."`.

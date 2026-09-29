@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+.venv
+__pycache__
+.pytest_cache
+.tmp-*
+.env
+*.env
+!docker/versions.env
+app
+reports
+software
+runtime
+compose.yaml
+.env.example

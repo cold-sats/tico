@@ -1,0 +1,52 @@
+{
+  "id": "mail-triage",
+  "version": 1,
+  "owner": "ana",
+  "summary": "One inbox message from its brief listing (sender, subject, snippet, headers; no body): which bucket it belongs in, whether it asks for something, whether money or legal risk is involved, and how urgent. Run before any thread is opened (`mail inbox --decisions`).",
+  "state": ["mailbox", "from", "from_name", "to", "date", "subject", "snippet", "unsubscribe", "list_id", "attachments", "is_internal", "is_calendar_invite", "labels"],
+  "questions": {
+    "bucket": {
+      "type": "choice",
+      "instructions": "This message arrived in a founder's inbox and the deterministic rules did not settle it. Where does it belong? Pick the one that fits best.",
+      "criteria": {
+        "needs-owner": "Only the owner can act: a legal matter, money, an investor, press, a regulator, an acquisition, a personal matter, a relationship only the owner holds, or a decision only the owner can make",
+        "reply": "A real person is waiting on an answer that a careful assistant could draft from what is already known",
+        "route": "It belongs to another team: a sales lead, a customer or pro about a job, a vendor or partner with an existing relationship, product feedback, a candidate",
+        "archive": "Nothing is asked of him: a receipt, a notification, a cold pitch, a thread already answered, a newsletter the rules missed",
+        "watch": "Nothing to do now, but it may need something later: a heads-up, a pending delivery, a meeting note"
+      }
+    },
+    "is_ask": {
+      "type": "noul",
+      "instructions": "Someone is asking the founder for something specific: an answer, a decision, a meeting, a payment, a document."
+    },
+    "money": {
+      "type": "noul",
+      "instructions": "This involves a payment, an invoice, a price, a refund, a chargeback, a renewal or a discount."
+    },
+    "legal": {
+      "type": "noul",
+      "instructions": "This involves legal risk: a lawyer, a subpoena, a demand, a dispute, a regulator, a contract term, a complaint that threatens action."
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "How soon does this need a human's attention?",
+      "criteria": [
+        "No attention needed, or none in the foreseeable future",
+        "Sometime this week",
+        "Today",
+        "Right now: a deadline, a live problem, a person waiting"
+      ]
+    }
+  },
+  "thresholds": {
+    "archive": 0.85,
+    "needs_owner": 0.7,
+    "reply": 0.7,
+    "route": 0.7,
+    "is_ask": 0.6,
+    "money": 0.8,
+    "legal": 0.5,
+    "urgent_score": 2.0
+  }
+}

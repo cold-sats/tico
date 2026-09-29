@@ -1,0 +1,486 @@
+/* After the wizard: the tour, the Getting started page and the cards at the top of each section
+   (docs/onboarding.md). Every tick on the checklist comes from GET /api/v2/getting-started; the
+   only things kept per person are their own choices (tour seen, card closed, checklist hidden). */
+let GS = null;                     // the last answer, or null when the server has no checklist to give
+let GS_LOAD = 0;
+let GS_SENT = null;                // the confirmation a card keeps showing after its form was sent
+let GS_ASK = null;                 // the market answers waiting on "yes, add the Market Analyst"
+// "Not now" on a card lasts for this browser session; the server only keeps "don't show again".
+const GS_LATER_KEY = 'tico.gs.later';
+const gsLater = () => { try { return JSON.parse(sessionStorage.getItem(GS_LATER_KEY) || '[]'); } catch { return []; } };
+const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.stringify([...new Set([...gsLater(), section])])); } catch { /* the card returns on reload */ } };
+
+const gsCards = {
+  docs: {owner: true, title: 'Where do your docs live?'},
+  market: {owner: true, title: 'Tell us about your market'},
+  tasks: {title: 'Tasks', text: 'Work you hand to a bot or a person. Every task has an owner and a status, and bots pick theirs up on their own.',
+          action: ['Create a task', '#task-new']},
+  updates: {title: 'Updates', text: 'Each bot posts a few bullets every day, and a fuller look on Fridays. They land here as they arrive.'},
+  goals: {title: 'Goals', text: 'A goal says, in plain English, what a bot or a person is going for, with a colour for how it is going.',
+          action: ['Set a first goal', '[data-goal-add]']},
+  meetings: {title: 'Meetings', text: 'Import a meeting transcript and your bots pick out the tasks and follow-ups.',
+             action: ['Import a transcript', '#notes-import']},
+};
+
+const gsRoute = () => {
+  const r = S.route || '';
+  const at = (base) => r === base || r.startsWith(base + '?') || r.startsWith(base + '/');
+  if (at('#/updates')) return 'updates';
+  if (['#/tasks', '#/board', '#/issues', '#/recurring'].includes(r) || r.startsWith('#/task/')) return 'tasks';
+  if (at('#/goals')) return 'goals';
+  if (at('#/meetings')) return 'meetings';
+  if (at('#/market')) return 'market';
+  if (at('#/docs')) return 'docs';
+  return '';
+};
+
+async function gsRefresh() {
+  if (!S.me?.cloud) return null;
+  const seq = ++GS_LOAD;
+  const data = await v2Get('/v2/getting-started');
+  if (seq !== GS_LOAD) return GS;
+  GS = data && Array.isArray(data.items) ? data : null;
+  gsDraw();
+  return GS;
+}
+
+function gsDraw() {
+  gsNav();
+  window.hlNav?.();
+  gsCard();
+  gsOrgCard();
+  if (S.route === '#/getting-started') gsPageDraw();
+}
+
+async function gsState(change) {
+  try {
+    const next = await post('/v2/getting-started/state', change);
+    if (GS && next) {
+      GS = {...GS, tour_seen: next.tour, dismissed: next.checklist, cards_dismissed: next.cards};
+      const skipped = new Set(next.skipped || []);
+      GS.items = GS.items.map(item => ({...item, skipped: item.optional && !item.done && skipped.has(item.id)}));
+      const settled = GS.items.filter(item => item.done || item.skipped).length;
+      GS = {...GS, done: settled, complete: settled === GS.total};
+    }
+  } catch { /* a choice that did not save is asked again next time */ }
+  gsDraw();
+}
+
+// ---------------------------------------------------------------- the rail
+function gsNav() {
+  const link = $('#nav-getting-started');
+  if (!link) return;
+  const shown = !!GS && !GS.complete && !GS.dismissed;
+  link.hidden = !shown && S.route !== '#/getting-started';
+  const count = $('#gs-count');
+  if (count && GS) count.textContent = `${GS.done}/${GS.total}`;
+}
+
+function gsOrgCard() {
+  const host = $('#gs-org-card');
+  if (!host) return;
+  const bot = GS?.items.find(item => item.id === 'first_bot');
+  const shown = !!bot && !bot.done && GS.can_build && !GS.cards_dismissed.includes('bots');
+  host.hidden = !shown;
+  if (!shown) { host.innerHTML = ''; return; }
+  host.innerHTML = `<p><strong>No bots of your own yet.</strong></p>
+    <div class="gs-org-actions">
+      <button class="ghost" type="button" data-gs-connect>Connect a bot you already have</button>
+      <button class="ghost" type="button" data-gs-build>Build one with BotOps</button>
+    </div>
+    <button class="ghost gs-x" type="button" data-gs-dismiss="bots" aria-label="Close this">✕</button>`;
+}
+
+// ---------------------------------------------------------------- cards at the top of a section
+function gsWhenReady(selector) {
+  let tries = 0;
+  const look = () => {
+    const el = document.querySelector('#main ' + selector);
+    if (el) el.click();
+    else if (++tries < 30) setTimeout(look, 100);
+  };
+  look();
+}
+
+function gsCard() {
+  const host = $('#gs-card');
+  if (!host) return;
+  const section = gsRoute();
+  const spec = gsCards[section];
+  const sent = GS_SENT && GS_SENT.section === section ? GS_SENT : null;
+  // A card stays while its section is empty, and goes once the section has content.
+  const empty = GS?.empty?.[section] !== false;
+  const ask = GS_ASK && GS_ASK.section === section && GS_ASK.confirming ? GS_ASK : null;
+  const shown = !!spec && (!!sent || (!!GS && empty && !GS.cards_dismissed.includes(section)
+    && !gsLater().includes(section) && (!spec.owner || GS.owner)));
+  if (!shown) { host.hidden = true; host.innerHTML = ''; host.dataset.mode = ''; return; }
+  const mode = `${section}:${sent ? 'sent' : ask ? 'ask' : 'form'}`;
+  if (host.dataset.mode === mode && !host.hidden) return;   // a half-typed form is left alone
+  host.dataset.mode = mode;
+  host.hidden = false;
+  let body;
+  if (sent) body = `<strong>${esc(spec.title)}</strong><p role="status">${sent.html}</p>`;
+  else if (ask) body = gsMarketAsk();
+  else if (section === 'docs') body = gsDocsForm();
+  else if (section === 'market') body = gsMarketForm();
+  else body = `<strong>${esc(spec.title)}</strong><p>${esc(spec.text)}</p>${spec.action
+    ? `<div class="gs-card-actions"><button class="primary" type="button" data-gs-run="${esc(spec.action[1])}">${esc(spec.action[0])}</button></div>` : ''}`;
+  host.innerHTML = `<aside class="gs-card" data-gs-card="${section}" aria-label="${esc(spec.title)}">
+    <div class="gs-card-body">${body}</div>
+    <div class="gs-card-side"><button class="ghost gs-x" type="button" data-gs-later="${section}" aria-label="Not now">✕</button>
+      ${sent ? '' : `<button class="ghost gs-never" type="button" data-gs-dismiss="${section}">Don't show again</button>`}</div></aside>`;
+  const market = host.querySelector('[data-gs-market]');
+  if (market && GS_ASK?.section === 'market') for (const [name, value] of Object.entries(GS_ASK.answers)) market[name].value = value;
+  const docs = host.querySelector('[data-gs-docs]');
+  if (docs) gsDocsValue(docs);          // the form opens on Google Drive, so its link field is set up now
+}
+
+const GS_DOC_CHOICES = [
+  ['drive', 'Google Drive', 'Link to the folder', 'https://drive.google.com/…'],
+  ['notion', 'Notion', 'Link to the workspace or page', 'https://www.notion.so/…'],
+  ['github', 'A GitHub repository', 'Repository, as owner/name', 'your-org/handbook'],
+  ['website', 'A website', 'Address of the site', 'https://…'],
+  ['upload', 'Files I will upload', '', ''],
+  ['none', 'We do not have docs yet', '', ''],
+];
+
+function gsDocsForm() {
+  return `<strong>Where do your docs live?</strong>
+    <p>A bot will connect them and index them so Docs can search them.</p>
+    <form data-gs-docs>
+      <fieldset><legend class="sr-only">Where your docs live</legend>
+        ${GS_DOC_CHOICES.map(([value, label], i) => `<label class="gs-choice"><input type="radio" name="kind" value="${value}"${i ? '' : ' checked'}><span>${esc(label)}</span></label>`).join('')}
+      </fieldset>
+      <label class="gs-field" data-gs-value><span></span><input name="value" maxlength="500" autocomplete="off"></label>
+      <p class="err" data-gs-error hidden></p>
+      <div class="gs-card-actions"><button class="primary" type="submit">Connect my docs</button></div>
+    </form>`;
+}
+
+function gsMarketForm() {
+  const field = (name, label, required) => `<label class="gs-field"><span>${esc(label)}</span>
+    <input name="${name}" maxlength="2000"${required ? ' required' : ''} autocomplete="off"></label>`;
+  return `<strong>Tell us about your market</strong>
+    <p>Four short answers start the research. If the Market Analyst is not set up yet, we ask before BotOps adds it.</p>
+    <form data-gs-market>
+      ${field('sells', 'What do you sell?', true)}
+      ${field('customers', 'Who do you sell to?', true)}
+      ${field('competitors', 'Who are your main competitors?', false)}
+      ${field('channels', 'Where do your customers talk online?', false)}
+      <p class="err" data-gs-error hidden></p>
+      <div class="gs-card-actions"><button class="primary" type="submit">Start the research</button></div>
+    </form>`;
+}
+
+function gsMarketAsk() {
+  return `<strong>Add the Market Analyst?</strong>
+    <p>There is no Market Analyst yet. If you go ahead, BotOps sets one up first and it starts the research once it is running.</p>
+    <div class="gs-card-actions"><button class="primary" type="button" data-gs-ask="yes">Add it and start the research</button>
+      <button class="ghost" type="button" data-gs-ask="back">Back</button></div>
+    <p class="err" data-gs-error hidden></p>`;
+}
+
+function gsDocsValue(form) {
+  const [, , label, placeholder] = GS_DOC_CHOICES.find(row => row[0] === form.kind.value);
+  const host = form.querySelector('[data-gs-value]');
+  host.hidden = !label;
+  host.querySelector('span').textContent = label;
+  host.querySelector('input').placeholder = placeholder;
+  host.querySelector('input').required = !!label;
+}
+
+function gsFail(form, error) {
+  const line = form.querySelector('[data-gs-error]');
+  line.textContent = error.message || 'That did not go through.';
+  line.hidden = false;
+  form.querySelector('[type=submit]').disabled = false;
+}
+
+function gsSent(section, html) {
+  GS_SENT = {section, html};
+  gsDraw();
+  void gsState({card: section});
+}
+
+const gsTaskLink = (id, text) => id ? `<a href="#/task/${esc(id)}">${text}</a>` : '';
+
+async function gsSubmitDocs(form) {
+  form.querySelector('[type=submit]').disabled = true;
+  try {
+    const result = await post('/v2/getting-started/docs', {kind: form.kind.value, value: form.value.value.trim()});
+    gsSent('docs', result.task_id
+      ? `Sent to ${esc(botDisplayName(result.bot))} to connect and index them. ${gsTaskLink(result.task_id, 'Open the task')}`
+      : 'Fine for now. Add docs here whenever you have some.');
+  } catch (error) { gsFail(form, error); }
+}
+
+async function gsSendMarket(answers, add) {
+  const result = await post('/v2/getting-started/market', {...answers, add_analyst: add});
+  GS_ASK = null;
+  gsSent('market', (result.needs_analyst
+    ? `Saved. BotOps will add the Market Analyst first, then it starts researching. `
+    : `Saved. The Market Analyst is starting the research. `) + gsTaskLink(result.task_id, 'Open the task'));
+}
+
+async function gsSubmitMarket(form) {
+  form.querySelector('[type=submit]').disabled = true;
+  const answers = {sells: form.sells.value.trim(), customers: form.customers.value.trim(),
+    competitors: form.competitors.value.trim(), channels: form.channels.value.trim()};
+  try { await gsSendMarket(answers, false); }
+  catch (error) {
+    if (error.body?.error?.code === 'confirm_analyst') { GS_ASK = {section: 'market', answers, confirming: true}; gsDraw(); }
+    else gsFail(form, error);
+  }
+}
+
+async function gsAnswerAsk(choice, button) {
+  if (!GS_ASK) return;
+  if (choice === 'back') { GS_ASK = {...GS_ASK, confirming: false}; gsDraw(); return; }
+  button.disabled = true;
+  try { await gsSendMarket(GS_ASK.answers, true); }
+  catch (error) {
+    button.disabled = false;
+    const line = document.querySelector('#gs-card [data-gs-error]');
+    if (line) { line.textContent = error.message || 'That did not go through.'; line.hidden = false; }
+  }
+}
+
+// ---------------------------------------------------------------- "What should your bot do?"
+function gsBotForm() {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'tmodal gs-form';
+  dialog.setAttribute('aria-labelledby', 'gs-bot-title');
+  dialog.innerHTML = `<form data-gs-bot>
+    <header><h2 id="gs-bot-title">What should your bot do?</h2>
+      <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
+    <label class="gs-field"><span>What should it do?</span>
+      <textarea name="what" rows="4" maxlength="2000" required placeholder="Answer the support inbox every morning and flag anything urgent."></textarea></label>
+    <label class="gs-field"><span>Name (optional)</span><input name="name" maxlength="80" autocomplete="off" placeholder="Help Desk"></label>
+    <p role="status" data-gs-status></p>
+    <div class="gs-card-actions"><button class="ghost" type="button" data-close data-gs-close>Cancel</button>
+      <button class="ghost" type="button" data-gs-another hidden>Build another</button>
+      <button class="primary" type="submit">Ask BotOps</button></div></form>`;
+  document.body.appendChild(dialog);
+  // The dialog belongs to the page it was opened on; going elsewhere (the task link, a rail item) ends it.
+  const leave = () => dialog.close();
+  window.addEventListener('hashchange', leave);
+  dialog.addEventListener('close', () => { window.removeEventListener('hashchange', leave); dialog.remove(); });
+  dialog.addEventListener('click', event => {
+    if (event.target === dialog || event.target.closest('[data-close]')) dialog.close();
+  });
+  dialog.querySelector('form').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.target, status = form.querySelector('[data-gs-status]');
+    form.querySelector('[type=submit]').disabled = true;
+    try {
+      const made = await post('/v2/getting-started/bot', {what: form.what.value.trim(), name: form.name.value.trim()});
+      status.innerHTML = `Sent to BotOps. ${gsTaskLink(made.task_id, 'Open the task')}`;
+      form.querySelector('[type=submit]').hidden = true;
+      form.querySelector('[data-gs-close]').textContent = 'Done';
+      form.querySelector('[data-gs-another]').hidden = false;
+      void gsRefresh();
+    } catch (error) {
+      status.textContent = error.message;
+      form.querySelector('[type=submit]').disabled = false;
+    }
+  };
+  dialog.querySelector('[data-gs-another]').onclick = event => {
+    const form = dialog.querySelector('form');
+    form.reset();
+    form.querySelector('[data-gs-status]').textContent = '';
+    form.querySelector('[type=submit]').hidden = false;
+    form.querySelector('[type=submit]').disabled = false;
+    form.querySelector('[data-gs-close]').textContent = 'Cancel';
+    event.target.hidden = true;
+    form.what.focus();
+  };
+  dialog.showModal();
+  dialog.querySelector('textarea').focus();
+}
+
+// ---------------------------------------------------------------- the checklist page
+function gsItemHtml(item) {
+  const state = item.done ? 'done' : item.skipped ? 'skipped' : 'todo';
+  const icon = item.done ? 'check_circle' : item.skipped ? 'remove_circle' : 'radio_button_unchecked';
+  const login = item.login && !item.done && !item.skipped
+    ? `<button class="primary" type="button" data-model-login data-runner="${esc(item.login.runner_id)}" data-runtime="${esc(item.login.runtime)}" data-machine="${esc(item.login.machine)}">Sign in</button>` : '';
+  const fix = item.done || item.skipped ? '' : item.action === 'create-bot'
+    ? '<button class="primary" type="button" data-gs-build>Create a bot</button>'
+    : item.href ? `<a class="ghost gs-link" href="${esc(item.href)}"${item.tab ? ` data-gs-tab="${esc(item.tab)}"` : ''}>${item.id === 'first_bot' || item.id === 'bot_task' ? 'Open' : 'Fix this'}</a>` : '';
+  const skip = item.optional && !item.done && !item.skipped
+    ? `<button class="ghost" type="button" data-gs-skip="${esc(item.id)}">Skip</button>` : '';
+  return `<li class="gs-item ${state}" data-gs-item="${esc(item.id)}" data-state="${state}">
+    <span class="nav-icon gs-tick" aria-hidden="true">${icon}</span>
+    <div class="gs-item-main"><strong>${esc(item.label)}</strong>${item.optional ? ' <span class="muted">optional</span>' : ''}
+      ${item.why ? `<p class="muted">${esc(item.why)}</p>` : ''}</div>
+    <div class="gs-item-actions">${login}${fix}${skip}</div></li>`;
+}
+
+function gsPageDraw() {
+  const host = $('#gs-page');
+  if (!host) return;
+  if (!GS) { host.innerHTML = '<div class="empty">Nothing to show yet.</div>'; return; }
+  host.innerHTML = `<h1>Getting started</h1>
+    <p class="muted" id="gs-progress">${GS.done} of ${GS.total} done${GS.complete ? '. All set.' : ''}</p>
+    <ul class="gs-list">${GS.items.map(gsItemHtml).join('')}</ul>
+    <div class="gs-page-actions">
+      <button class="ghost" type="button" data-gs-tour>Take the tour</button>
+      <button class="ghost" type="button" data-gs-hide>${GS.dismissed ? 'Show in the sidebar' : 'Hide this'}</button>
+    </div>`;
+}
+
+window.pageGettingStarted = function pageGettingStarted() {
+  $('#main').innerHTML = '<div class="gs-page" id="gs-page"><div class="empty">Loading…</div></div>';
+  void gsRefresh().then(() => { if (!GS) gsPageDraw(); });
+};
+
+// ---------------------------------------------------------------- the tour
+const GS_STEPS = [
+  ['[data-nav="updates"]', 'Updates', 'Every bot posts a short update each day, and a fuller one on Fridays.'],
+  ['[data-nav="tasks"]', 'Tasks', 'Work for bots and people. Give a task an owner and it gets done, or comes back with a question.'],
+  ['#nav-organisation', 'Your bots', 'Your bots are listed here. Open one to chat, see its work and change its settings.'],
+  ['[data-nav="docs"]', 'Docs', 'Your company docs, searchable, with questions answered from them.'],
+  ['[data-nav="market"]', 'Market', 'A map of your competitors, customers and channels that a bot keeps current.'],
+  ['[data-nav="meetings"]', 'Meetings', 'Import a transcript and bots pull out the tasks and follow-ups.'],
+];
+let GS_TOUR = null;
+
+function gsTourStart() {
+  if (GS_TOUR) return;
+  const phone = drawerMedia.matches;
+  if (phone) setDrawer(true, false, $('#mobile-more'));
+  const steps = GS_STEPS.filter(([selector]) => {
+    const el = $('#side ' + selector);
+    return el && el.getClientRects().length;
+  });
+  if (!steps.length) { if (phone) setDrawer(false); return; }
+  const root = document.createElement('div');
+  root.className = 'gs-tour';
+  root.setAttribute('role', 'dialog');
+  root.setAttribute('aria-modal', 'true');
+  root.setAttribute('aria-labelledby', 'gs-tour-title');
+  root.innerHTML = `<div class="gs-tour-hole"></div><div class="gs-tour-card">
+    <p class="gs-tour-count muted"></p><h2 id="gs-tour-title"></h2><p class="gs-tour-text"></p>
+    <div class="gs-tour-actions"><button class="ghost" type="button" data-tour-skip>Skip</button>
+      <button class="primary" type="button" data-tour-next>Next</button></div></div>`;
+  document.body.appendChild(root);
+  const opener = document.activeElement;
+  GS_TOUR = {root, steps, at: 0, phone, opener};
+  const onKey = event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); gsTourEnd(); }
+    else if (event.key === 'Tab') {
+      const buttons = [...root.querySelectorAll('button')];
+      const i = buttons.indexOf(document.activeElement);
+      event.preventDefault();
+      buttons[(i + (event.shiftKey ? buttons.length - 1 : 1)) % buttons.length].focus();
+    }
+  };
+  const onFocus = event => { if (!root.contains(event.target)) root.querySelector('[data-tour-next]').focus(); };
+  document.addEventListener('keydown', onKey, true);
+  document.addEventListener('focusin', onFocus);
+  window.addEventListener('resize', gsTourPlace);
+  GS_TOUR.off = () => {
+    document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('focusin', onFocus);
+    window.removeEventListener('resize', gsTourPlace);
+  };
+  root.querySelector('[data-tour-skip]').onclick = () => gsTourEnd();
+  root.querySelector('[data-tour-next]').onclick = () => {
+    if (GS_TOUR.at === steps.length - 1) gsTourEnd(); else { GS_TOUR.at++; gsTourShow(); }
+  };
+  gsTourShow();
+  root.querySelector('[data-tour-next]').focus();
+}
+
+function gsTourShow() {
+  const {root, steps, at} = GS_TOUR;
+  const [selector, title, text] = steps[at];
+  root.querySelector('.gs-tour-count').textContent = `${at + 1} of ${steps.length}`;
+  root.querySelector('#gs-tour-title').textContent = title;
+  root.querySelector('.gs-tour-text').textContent = text;
+  root.querySelector('[data-tour-next]').textContent = at === steps.length - 1 ? 'Done' : 'Next';
+  $('#side ' + selector)?.scrollIntoView({block: 'nearest'});
+  gsTourPlace();
+}
+
+function gsTourPlace() {
+  if (!GS_TOUR) return;
+  const {root, steps, at} = GS_TOUR;
+  const target = $('#side ' + steps[at][0]);
+  if (!target) return;
+  const box = target.getBoundingClientRect(), pad = 4;
+  const hole = root.querySelector('.gs-tour-hole'), card = root.querySelector('.gs-tour-card');
+  Object.assign(hole.style, {left: box.left - pad + 'px', top: box.top - pad + 'px',
+    width: box.width + pad * 2 + 'px', height: Math.min(box.height, innerHeight - box.top) + pad * 2 + 'px'});
+  const width = card.offsetWidth, height = card.offsetHeight;
+  if (GS_TOUR.phone) {
+    // The list is in the drawer, so the card takes whichever end of the screen the row is not at.
+    const low = box.top + box.height / 2 > innerHeight / 2;
+    Object.assign(card.style, {left: '12px', right: '12px', width: 'auto', top: low ? '12px' : 'auto', bottom: low ? 'auto' : '12px'});
+    return;
+  }
+  Object.assign(card.style, {right: 'auto', bottom: 'auto', width: '',
+    left: Math.min(box.right + 16, innerWidth - width - 12) + 'px',
+    top: Math.max(12, Math.min(box.top, innerHeight - height - 12)) + 'px'});
+}
+
+function gsTourEnd() {
+  if (!GS_TOUR) return;
+  const {root, phone, opener} = GS_TOUR;
+  GS_TOUR.off();
+  root.remove();
+  GS_TOUR = null;
+  if (phone) setDrawer(false, true);
+  else if (opener && opener.isConnected) opener.focus();
+  void gsState({tour: true});
+}
+
+window.gsStartTour = gsTourStart;
+// The wizard's last screen: the first look around, once per person.
+window.gsTourAfterSetup = async function () {
+  const seen = await gsRefresh();
+  if (!seen?.tour_seen) gsTourStart();
+};
+window.gsRoute = function () { gsCard(); gsNav(); };
+window.gsBoot = function () {
+  // Someone who joins later gets the same first look, once, unless the wizard is about to run.
+  void gsRefresh().then(seen => {
+    if (seen && !seen.tour_seen && !S.config?.onboarding_needed && S.route !== '#/welcome') gsTourStart();
+  });
+  setInterval(() => { if (!document.hidden && S.me?.cloud) void gsRefresh(); }, 60000);
+};
+
+// ---------------------------------------------------------------- one listener for all of it
+document.addEventListener('click', event => {
+  const t = event.target;
+  const later = t.closest('[data-gs-later]');
+  if (later) { gsLaterAdd(later.dataset.gsLater); gsDraw(); return; }
+  const ask = t.closest('[data-gs-ask]');
+  if (ask) { void gsAnswerAsk(ask.dataset.gsAsk, ask); return; }
+  const dismiss = t.closest('[data-gs-dismiss]');
+  if (dismiss) { void gsState({card: dismiss.dataset.gsDismiss}); return; }
+  const run = t.closest('[data-gs-run]');
+  if (run) { gsWhenReady(run.dataset.gsRun); return; }
+  if (t.closest('[data-gs-build]')) { gsBotForm(); return; }
+  if (t.closest('[data-gs-connect]')) { connectAgent(); return; }
+  if (t.closest('[data-gs-tour]')) { gsTourStart(); return; }
+  const skip = t.closest('[data-gs-skip]');
+  if (skip) { void gsState({skip: skip.dataset.gsSkip}); return; }
+  if (t.closest('[data-gs-hide]')) { void gsState({checklist: !GS?.dismissed}); return; }
+  const link = t.closest('[data-gs-tab]');
+  if (link) {
+    event.preventDefault();
+    SETTINGS_TAB = link.dataset.gsTab;
+    if (location.hash === link.getAttribute('href')) route(); else location.hash = link.getAttribute('href');
+  }
+});
+document.addEventListener('change', event => {
+  const form = event.target.closest('[data-gs-docs]');
+  if (form) gsDocsValue(form);
+});
+document.addEventListener('submit', event => {
+  const docs = event.target.closest('[data-gs-docs]'), market = event.target.closest('[data-gs-market]');
+  if (!docs && !market) return;
+  event.preventDefault();
+  if (docs) void gsSubmitDocs(docs); else void gsSubmitMarket(market);
+});

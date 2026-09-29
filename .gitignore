@@ -1,0 +1,14 @@
+.env
+*.env
+.DS_Store
+runtime/
+__pycache__/
+app/target/
+app/gen/
+
+node_modules/
+.venv/
+.tmp-*
+.pytest_cache/
+app/.build/
+!docker/versions.env

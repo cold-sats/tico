@@ -1,0 +1,21 @@
+# Google Gemini CLI, with a Gemini API key.
+id = "gemini-cli"
+name = "Gemini CLI"
+host = "gemini"
+executable = "gemini"
+providers = ["google"]
+
+[install]
+method = "npm"
+package = "@google/gemini-cli"
+
+[version]
+args = ["--version"]
+pattern = '(\d+\.\d+\.\d+)'
+
+[update]
+policy = "latest"
+
+[auth]
+methods = ["api-key"]
+api_key_env = ["GEMINI_API_KEY"]

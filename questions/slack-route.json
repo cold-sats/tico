@@ -1,0 +1,22 @@
+{
+  "id": "slack-route",
+  "version": 1,
+  "owner": "ana",
+  "summary": "One Slack message to Tico (a DM or an @Tico): does it ask for anything, is it a reply to the bot that last asked in the thread, does it name a bot. The gateway adds one noul per active bot ('should this go to <bot>?') from the roster at run time (backend/slack_gateway.py); the thresholds are the gateway's settings (TICO_SLACK_ROUTE_THRESHOLD, TICO_SLACK_ASK_THRESHOLD, TICO_SLACK_MAX_RECIPIENTS).",
+  "state": ["message", "thread", "previous_routing", "roster"],
+  "questions": {
+    "reply_to_last": {
+      "type": "noul",
+      "instructions": "This message is a reply to the bot that last asked something in this thread (see previous_routing)."
+    },
+    "asks": {
+      "type": "noul",
+      "instructions": "This message asks for something, or gives an answer or instruction somebody is waiting for. Thanks, an aside, or a remark that needs no action is not an ask."
+    },
+    "names_bot": {
+      "type": "noul",
+      "instructions": "The message names a specific bot or team from the roster explicitly (for example 'ask Legal')."
+    }
+  },
+  "thresholds": {}
+}

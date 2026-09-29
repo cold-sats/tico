@@ -1,0 +1,45 @@
+name: inbox                     # the slug: it matches the repository emp-<id>-inbox and the label owner:<slug>
+display_name: "Inbox"
+labels: [owner:inbox]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 60
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# the bot puts the draft on the task and asks for an approval.
+outbound_send: false
+
+# The routines this bot starts with; `hub bot create` seeds them into the hub, and from then on
+# the hub's rows are the routines (docs/routines.md). Weekdays three passes, weekends one.
+schedules:
+  - id: weekday-inbox-pass
+    title: Weekday inbox pass
+    cron: "0 7,12,16 * * 1-5"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/inbox-pass.md
+    labels: [priority:p2]
+  - id: weekend-inbox-pass
+    title: Weekend inbox pass
+    cron: "0 9 * * 0,6"
+    timezone: America/Los_Angeles
+    template: playbooks/inbox-pass.md
+    labels: [priority:p2]
+
+# What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
+# arrives in, never the value; the value lives in the workspace secrets directory on the machine
+# that runs the bot. Declaring access here does not create it. BotOps replaces {{mailbox}} from
+# the Mailbox: line in the reviewed instructions. org_read covers people who report to that person.
+access:
+  - service: gmail
+    identity: "{{mailbox}}"
+    can: [read, draft]          # send only with outbound_send: true and an approval
+    org_read: true
+    env: GOOGLE_SA_KEY
+    note: "reads and drafts on its assigned mailbox plus reports; never files a send"
+  - service: google-calendar
+    identity: "{{mailbox}}"
+    can: [read]
+    env: GOOGLE_SA_KEY
+    note: "reads the assigned calendar so a pass can see what is already booked"

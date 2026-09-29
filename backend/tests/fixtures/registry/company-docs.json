@@ -1,0 +1,6 @@
+{
+  "proposal_repos": {"acme/atlas": "product-docs"},
+  "current_tico_docs": {},
+  "note_categories": {"docs/architecture.md": "Notes / Historical records"},
+  "technical_docs": []
+}

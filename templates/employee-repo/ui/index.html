@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>employee</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font:15px/1.5 -apple-system,system-ui,sans-serif;max-width:860px;margin:32px auto;padding:0 20px;color:#1a222c;background:#fff}
+header{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #ddd;padding-bottom:10px;margin-bottom:20px}
+header h1{font-size:20px;margin:0}
+header nav a{margin-left:14px}
+a{color:#0b5fa5}
+h2{font-size:16px;margin:28px 0 8px;color:#444}
+pre{background:#f4f6f8;padding:12px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,monospace}
+.err{color:#b00}
+</style>
+<header>
+  <h1><span id="name">employee</span></h1>
+  <nav id="nav"></nav>
+</header>
+<h2>State</h2><pre id="state">…</pre>
+<h2>Instructions (AGENT.md)</h2><pre id="agent">…</pre>
+<h2>Learnings</h2><pre id="learnings">…</pre>
+<script src="vendor/js-yaml.min.js"></script>
+<script>
+(async () => {
+  const get = async (p) => { try { const r = await fetch('../' + p); return r.ok ? await r.text() : `(${p} not found)`; } catch { return `(could not load ${p}; serve via scripts/ui.sh in the hub)`; } };
+  const put = async (id, p) => document.getElementById(id).textContent = await get(p);
+  try {
+    const m = jsyaml.load(await get('employee.yaml'));
+    document.title = m.display_name; document.getElementById('name').textContent = m.display_name;
+    // `repo` is a URL only once the company has published this bot; a local-only bot has none.
+    const repo = String(m.repo || '').startsWith('http') ? `<a href="${m.repo}">Repo</a>` : '';
+    document.getElementById('nav').innerHTML = `${repo} <a href="../reports/">Reports</a>`;
+  } catch {}
+  put('state', 'state.md'); put('agent', 'AGENT.md'); put('learnings', 'memory/learnings.md');
+})();
+</script>

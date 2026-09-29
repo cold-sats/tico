@@ -1,0 +1,129 @@
+# The desktop app (app/, Tauri) for macOS, Windows and Linux, built when app/ changes on main or
+# by hand, signed for the updater, and published to your hub (scripts/app_release.py) when the repository variables TICO_HUB_URL,
+# TICO_RUNNER_URL, TICO_DEPLOY_ROLE and TICO_DEPLOY_BUCKET are set: the site
+# offers the download and installed apps update themselves. Secrets: TAURI_SIGNING_PRIVATE_KEY
+# (the update signing key; its public half is in app/tauri.conf.json), and for a notarized Mac
+# build APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+# APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID. Without the Apple secrets the Mac build is ad-hoc
+# signed and Gatekeeper needs "Open Anyway" once.
+name: Desktop app
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "scripts/app_release.py", ".github/workflows/app.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: universal-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    env:
+      TICO_HUB_URL: ${{ vars.TICO_HUB_URL }}
+      TICO_APP_NAME: Tico
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libpulse-dev
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Apple signing identity
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm certificate.p12
+      - name: Apple signing and notarization, only when the secrets exist
+        if: runner.os == 'macOS'
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ID: ${{ secrets.APPLE_ID }}
+          PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # An empty APPLE_SIGNING_IDENTITY makes the bundler try to sign with nothing; only a
+          # real identity goes into the environment. Without one, tauri.conf.json signs ad hoc.
+          [ -n "$IDENTITY" ] && echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          [ -n "$ID" ] && echo "APPLE_ID=$ID" >> "$GITHUB_ENV"
+          [ -n "$PASSWORD" ] && echo "APPLE_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+          [ -n "$TEAM" ] && echo "APPLE_TEAM_ID=$TEAM" >> "$GITHUB_ENV"
+          true
+      - name: Build
+        working-directory: app
+        run: cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir -p out
+          find app/target/${{ matrix.target }}/release/bundle -type f \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o -name '*-setup.exe' -o -name '*-setup.exe.sig' -o -name '*.AppImage' -o -name '*.AppImage.sig' -o -name '*.deb' \) -exec cp {} out/ \;
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.target }}
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    # Only for a hub that configured its release role and bucket (repository variables).
+    if: ${{ vars.TICO_DEPLOY_ROLE != '' && vars.TICO_DEPLOY_BUCKET != '' }}
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TICO_DEPLOY_BUCKET: ${{ vars.TICO_DEPLOY_BUCKET }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+      - name: Authenticate to AWS with short-lived GitHub identity
+        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ vars.TICO_DEPLOY_ROLE }}
+          aws-region: us-west-2
+          role-session-name: tico-app-${{ github.run_id }}
+      - run: pip install "$(grep '^boto3==' backend/requirements.txt)"
+      - name: Publish
+        run: |
+          version=$(python3 -c 'import json;print(json.load(open("app/tauri.conf.json"))["version"])')
+          flags=""
+          [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ] && flags="--signed"
+          [ -n "${{ secrets.APPLE_ID }}" ] && flags="$flags --notarized"
+          python3 scripts/app_release.py --version "$version" --bucket "$TICO_DEPLOY_BUCKET" \
+            --base "${{ vars.TICO_RUNNER_URL }}" --notes "Built from ${GITHUB_SHA::7}" $flags bundles/*
