@@ -1,6 +1,7 @@
 """The running version, the update notice and the owner's "Update now"."""
 
 import json
+import threading
 from pathlib import Path
 
 import httpx
@@ -206,7 +207,8 @@ def test_update_is_forwarded_to_the_updater_with_the_token(environment, monkeypa
     assert seen[0] == ("POST", "/update", "Bearer s3cret", {"version": "0.2.0"})
     assert seen[1][:3] == ("GET", "/status", "Bearer s3cret")
     got = api.get("/api/v2/system/update", headers=signed_in()).json()
-    assert got == {"configured": True, "state": "pulling", "from": "0.1.0", "to": "0.2.0", "message": ""}
+    assert got == {"configured": True, "state": "pulling", "from": "0.1.0", "to": "0.2.0", "message": "",
+                   "snapshot": "", "restored": False}
 
 
 def test_bad_version_and_dead_updater(environment, monkeypatch):
@@ -290,3 +292,22 @@ def test_docker_updater_speaks_the_servers_contract(environment, monkeypatch, tm
     import time
     time.sleep(0.2)
     assert started == ["v0.2.0"]
+
+
+def test_check_now_waits_for_the_fresh_answer_then_says_still_checking(monkeypatch):
+    gate = threading.Event()
+    calls = []
+
+    def handler(request):
+        calls.append(request.headers.get("if-none-match"))
+        if len(calls) == 3:
+            gate.wait(5)
+        return httpx.Response(200, json=RELEASE, headers={"etag": "x"})
+    network(monkeypatch, handler)
+    checker = releases.Checker()
+    checker.refresh()
+    assert checker.check_now() is True and calls[1] is None     # forced: not answered from a 304
+    monkeypatch.setattr(releases, "CHECK_WAIT", 0.05)
+    checker.forced = 0.0
+    assert checker.check_now() is False                          # slow lookup: still checking
+    gate.set()

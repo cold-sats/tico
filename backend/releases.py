@@ -23,6 +23,7 @@ log = logging.getLogger("tico.releases")
 ROOT = Path(__file__).resolve().parents[1]
 LATEST_URL = "https://api.github.com/repos/ticoteam/tico/releases/latest"
 TTL = 6 * 3600
+CHECK_WAIT = 10          # the owner's "Check for updates" waits this long for the fresh answer
 FORCE_GAP = 60           # the owner's "Check for updates" may reach GitHub at most this often
 RETRY = 15 * 60          # after a failed check; a rate-limited or offline box should not hammer GitHub
 MANUAL_COMMAND = "docker compose pull && docker compose up -d"
@@ -76,14 +77,16 @@ class Checker:
     def enabled():
         return os.environ.get("TICO_UPDATE_CHECK", "").strip().lower() not in ("off", "0", "false", "no")
 
-    def refresh(self):
-        """One conditional request. Runs in the background thread; tests call it directly."""
+    def refresh(self, force=False):
+        """One request, conditional unless `force`. Runs in a background thread; tests call it directly."""
         url = os.environ.get("TICO_RELEASES_URL", "").strip() or LATEST_URL
         headers = {"Accept": "application/vnd.github+json", "User-Agent": "tico-update-check"}
-        if self.etag and self.release:
+        if force:
+            headers["Cache-Control"] = "no-cache"   # the owner asked because a release just went out
+        elif self.etag and self.release:
             headers["If-None-Match"] = self.etag
         try:
-            with _client() as http:
+            with _client(CHECK_WAIT if force else 5) as http:
                 r = http.get(url, headers=headers)
             if r.status_code == 304:
                 pass
@@ -103,7 +106,10 @@ class Checker:
             self.running = False
 
     def check_now(self):
-        """The owner's "Check for updates": one request now, however fresh the cache is."""
+        """The owner's "Check for updates": one request now, however fresh the cache is, and the answer to it.
+
+        Waits up to CHECK_WAIT seconds for the lookup. Returns True when it finished, False when it is still
+        running (the caller says "still checking"; a later view() has the answer)."""
         if not self.enabled():
             raise Problem("check_disabled", "Update checks are turned off on this server (TICO_UPDATE_CHECK).", 409)
         with self.lock:
@@ -112,11 +118,18 @@ class Checker:
                 raise Problem("rate_limited", "Checked a moment ago. Try again in %d seconds." % (int(wait) + 1), 429,
                               retryable=True, extra={"retry_after": int(wait) + 1})
             self.forced = self.clock()
-        self.refresh()
+        with self.lock:
+            self.running = True
+        worker = threading.Thread(target=self.refresh, kwargs={"force": True}, daemon=True, name="release-check-now")
+        worker.start()
+        worker.join(CHECK_WAIT)
+        if worker.is_alive():
+            return False
         # refresh() swallows failures and schedules a retry; that is how a failed check shows here.
         if self.retry_at > self.clock():
             raise Problem("check_failed", "Could not reach GitHub to look for a new release. Try again later.", 502,
                           retryable=True)
+        return True
 
     def _refresh_if_stale(self):
         now = self.clock()
@@ -150,8 +163,8 @@ def notice():
 
 
 def check_now():
-    CHECKER.check_now()
-    return notice()
+    done = CHECKER.check_now()
+    return {**notice(), "checking": not done}
 
 
 def _updater():
@@ -178,7 +191,8 @@ def status():
         return {"configured": False, "state": "unavailable", "command": MANUAL_COMMAND}
     data = _call("GET", "/status")
     return {"configured": True, "state": str(data.get("state") or ""), "from": str(data.get("from") or ""),
-            "to": str(data.get("to") or ""), "message": str(data.get("message") or "")}
+            "to": str(data.get("to") or ""), "message": str(data.get("message") or ""),
+            "snapshot": str(data.get("snapshot") or ""), "restored": bool(data.get("restored"))}
 
 
 def start(target):

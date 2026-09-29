@@ -88,7 +88,8 @@ async function hlCheckUpdates() {
     if (!reply.ok) throw apiFailure(notice, reply);
     await hlRefresh();
     // An available update is already the Version line, refreshed above: say it once, not twice.
-    HL_CHECK_MSG = notice?.available ? null
+    HL_CHECK_MSG = notice?.checking ? {text: 'Still checking. Look again in a moment.'}
+      : notice?.available ? null
       : {text: notice?.latest ? `You are on the latest release, ${nvVersion(notice.current)}.`
         : 'Checked. No release information came back.'};
   } catch (error) {
