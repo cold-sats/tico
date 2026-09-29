@@ -48,7 +48,7 @@ def register(api, attempt, slug, **fields):
 
 def test_a_member_registers_a_bot_through_botops_and_owns_it(api, botops):
     attempt = turn(api, botops)
-    made = register(api, attempt, "jira-manager", description="Keeps Jira tidy")
+    made = register(api, attempt, "jira-manager", description="Files and updates Jira tickets")
     assert made.status_code == 200, made.text
     bot = made.json()
     assert bot["created"] is True and bot["status"] == "planned" and bot["bot_owners"] == ["cara"]
