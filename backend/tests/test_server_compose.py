@@ -25,5 +25,6 @@ def test_a_server_update_recreates_only_the_server_never_the_updater(monkeypatch
     (tmp_path / ".env").write_text("TICO_URL=x\n")
     updater.update("v0.2.0")
     assert updater.status["state"] == "healthy"
-    assert all(a[-1] == "server" for a in calls) and not any("updater" in a for a in calls)
+    # the snapshot (`exec server python ...`) and the switch (`up ... server`) touch the server, never the updater service
+    assert all("server" in a for a in calls) and not any("updater" in a for a in calls)
     assert "TICO_TAG=v0.2.0" in (tmp_path / ".env").read_text()

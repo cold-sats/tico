@@ -61,7 +61,7 @@ def release_server():
 def load(monkeypatch, tmp_path, base, mode="server"):
     for key, value in {"TICO_UPDATER_MODE": mode, "TICO_PROJECT_DIR": str(tmp_path / "project"),
                        "TICO_COMPOSE_FILE": "runner.compose.yaml" if mode == "runner" else "",
-                       "TICO_UPDATER_TOKEN_FILE": str(tmp_path / "token"), "TICO_RELEASES_URL": base,
+                       "TICO_UPDATER_TOKEN_FILE": str(tmp_path / "token"), "TICO_UPDATER_SELF": "never", "TICO_RELEASES_URL": base,
                        "TICO_LATEST_URL": base + "/latest.json"}.items():
         monkeypatch.setenv(key, value)
     (tmp_path / "project").mkdir(exist_ok=True)
@@ -196,5 +196,5 @@ def test_a_runner_box_takes_only_its_compose_file(monkeypatch, tmp_path, release
     updater.update("v0.2.0")
     assert updater.status["state"] == "healthy", updater.status
     assert (project / "runner.compose.yaml").read_text() == "new runner\n"
-    assert sorted(p.name for p in project.iterdir() if p.is_file()) == [".bundle-version", ".env", "runner.compose.yaml"]
+    assert sorted(p.name for p in project.iterdir() if p.is_file()) == [".bundle-version", ".env", ".updater-status.json", "runner.compose.yaml"]
     assert "TICO_TAG=evil" not in (project / ".env").read_text()

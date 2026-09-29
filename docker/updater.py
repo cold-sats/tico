@@ -17,8 +17,15 @@ tico-bundle-vX.Y.Z.tar.gz and SHA256SUMS (the URLs scripts/install.sh uses), che
 bundle's files in the install directory (compose.yaml, .env.example, docker/runner.compose.yaml, ...; a runner box
 only runner.compose.yaml; never .env) one atomic rename at a time, keeping the old copies in .bundle-previous/.
 A bad checksum or download refuses the update and changes nothing. If the new version does not turn healthy, the
-image and the bundle are both put back. The updater itself keeps running its old image until the next
-`docker compose up -d` on the host: it cannot recreate itself mid-run.
+image and the bundle are both put back. 
+The server's database is snapshotted first (a consistent SQLite copy in /data/snapshots, the last few kept): a new
+version may migrate the schema before it fails its health check, and an old image cannot read a newer schema. When
+the update is rolled back the snapshot is restored too, and /status says so (`snapshot`, `restored`).
+
+The updater then replaces itself: an updater that never moves would keep its own bugs on every install. After a
+successful update it pulls its new image and starts a short-lived helper container from that image, which recreates
+the `updater` service and checks that the new one stays up; if it does not, the helper puts the old updater back. An
+install whose updater is pinned to a local-only tag (TICO_UPDATER_PULL=never, docker/smoke.sh) is left alone.
 """
 
 import hashlib
@@ -29,6 +36,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -48,6 +56,11 @@ PULL = os.environ.get("TICO_UPDATER_PULL", "always")   # "never" only in docker/
 RELEASES = os.environ.get("TICO_RELEASES_URL", "https://github.com/ticoteam/tico/releases")
 LATEST_API = os.environ.get("TICO_LATEST_URL", "https://api.github.com/repos/ticoteam/tico/releases/latest")
 BUNDLE = os.environ.get("TICO_UPDATER_BUNDLE", "always")   # "never" only in docker/smoke.sh, whose releases exist only as local tags
+SNAPSHOTS = "/data/snapshots"   # inside the server container: the data volume
+KEEP_SNAPSHOTS = int(os.environ.get("TICO_UPDATER_KEEP_SNAPSHOTS", "3"))
+SELF_UPDATE = os.environ.get("TICO_UPDATER_SELF", "always")   # "never" leaves this updater on its image
+SWAP_HELPER = "tico-updater-swap"
+STATUS_FILE = ".updater-status.json"   # the outcome survives the updater being replaced
 PREVIOUS = ".bundle-previous"
 NEVER_TOUCH = {".env"}
 MAX_BUNDLE = 20 * 1024 * 1024
@@ -62,8 +75,8 @@ def set_status(**fields):
         status.update(fields)
 
 
-def compose(*args, tag=None, timeout=600):
-    env = {**os.environ, **({"TICO_TAG": tag} if tag else {})}
+def compose(*args, tag=None, timeout=600, extra_env=None):
+    env = {**os.environ, **({"TICO_TAG": tag} if tag else {}), **(extra_env or {})}
     files = ["-f", os.path.join(PROJECT, COMPOSE_FILE)] if COMPOSE_FILE else []
     result = subprocess.run(["docker", "compose", *files, "--project-directory", PROJECT, *args], env=env,
                             capture_output=True, text=True, timeout=timeout)
@@ -279,12 +292,179 @@ def other_services():
     return [n for n in names if n not in (SERVICE, "updater")]
 
 
+SNAPSHOT_SCRIPT = """
+import glob, os, sqlite3, sys
+folder, name, keep = sys.argv[1], sys.argv[2], int(sys.argv[3])
+os.makedirs(folder, exist_ok=True)
+part, final = os.path.join(folder, name + ".part"), os.path.join(folder, name)
+source, target = sqlite3.connect("/data/hub.sqlite", timeout=30), sqlite3.connect(part)
+source.backup(target)     # a consistent copy while the server keeps writing
+ok = target.execute("PRAGMA integrity_check").fetchone()[0]
+target.close(); source.close()
+if ok != "ok":
+    os.remove(part); sys.exit("the snapshot fails its integrity check")
+os.replace(part, final)
+for old in sorted(glob.glob(os.path.join(folder, "pre-update-*.sqlite")))[:-keep]:
+    os.remove(old)
+"""
+
+RESTORE_SCRIPT = """
+import os, sqlite3, sys
+snapshot, db = sys.argv[1], "/data/hub.sqlite"
+if sqlite3.connect(snapshot).execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+    sys.exit("the snapshot fails its integrity check")
+if os.path.exists(db):
+    os.replace(db, db + ".failed-update")     # kept for inspection, never deleted here
+for extra in ("-wal", "-shm"):
+    if os.path.exists(db + extra):
+        os.remove(db + extra)
+with open(snapshot, "rb") as source, open(db + ".restoring", "wb") as target:
+    target.write(source.read())
+    target.flush(); os.fsync(target.fileno())
+os.replace(db + ".restoring", db)
+"""
+
+
+def take_snapshot(previous):
+    """A consistent copy of the database, made by the running server's own container. Returns its file name."""
+    name = "pre-update-%s-%s.sqlite" % (re.sub(r"[^0-9A-Za-z.-]", "", previous) or "unknown", time.strftime("%Y%m%d%H%M%S"))
+    compose("exec", "-T", SERVICE, "python", "-c", SNAPSHOT_SCRIPT, SNAPSHOTS, name, str(KEEP_SNAPSHOTS))
+    return name
+
+
+def restore_snapshot(name, previous):
+    """Server stopped, the old image's own container puts the snapshot back in place of the migrated database."""
+    compose("stop", SERVICE)
+    compose("run", "--rm", "--no-deps", "-T", "--entrypoint", "python", SERVICE, "-c", RESTORE_SCRIPT,
+            SNAPSHOTS + "/" + name, tag=previous)
+
+
+def save_status():
+    try:
+        with lock:
+            data = json.dumps(status)
+        temp = os.path.join(PROJECT, STATUS_FILE + ".tmp")
+        with open(temp, "w") as stream:
+            stream.write(data)
+        os.replace(temp, os.path.join(PROJECT, STATUS_FILE))
+    except OSError:
+        pass
+
+
+def load_status():
+    """After this updater replaced its predecessor, keep answering with the last update's outcome."""
+    try:
+        saved = json.load(open(os.path.join(PROJECT, STATUS_FILE)))
+    except (OSError, ValueError):
+        return
+    if isinstance(saved, dict) and saved.get("state") in ("healthy", "rolled_back", "failed"):
+        with lock:
+            status.update({k: v for k, v in saved.items() if isinstance(v, (str, bool))})
+
+
+def inspect(ref):
+    result = subprocess.run(["docker", "inspect", ref], capture_output=True, text=True, timeout=60)
+    if result.returncode:
+        raise RuntimeError("docker inspect %s failed" % ref)
+    return json.loads(result.stdout)[0]
+
+
+def image_tag(ref):
+    return ref.rsplit(":", 1)[1] if ":" in ref.rsplit("/", 1)[-1] else "latest"
+
+
+def replace_updater(tag):
+    """After a good update: start a helper from the new updater image to recreate this container. Returns a note
+    for the status line ("" when there is nothing to say)."""
+    if SELF_UPDATE == "never" or PULL == "never":
+        return ""
+    try:
+        me = inspect(os.environ.get("HOSTNAME", ""))
+        ref = me["Config"]["Image"]
+        host_dir = next(m["Source"] for m in me["Mounts"] if m["Destination"] == PROJECT)
+        if image_tag(ref) == tag:
+            return ""
+        new_ref = ref.rsplit(":", 1)[0] + ":" + tag if ":" in ref.rsplit("/", 1)[-1] else ref + ":" + tag
+        pulled = subprocess.run(["docker", "pull", new_ref], capture_output=True, text=True, timeout=600)
+        if pulled.returncode:
+            return "The updater itself stayed on %s: could not pull %s." % (image_tag(ref), new_ref)
+        subprocess.run(["docker", "rm", "-f", SWAP_HELPER], capture_output=True, timeout=60)
+        env = {"TICO_UPDATER_MODE": MODE, "TICO_PROJECT_DIR": host_dir, "TICO_COMPOSE_FILE": COMPOSE_FILE,
+               "TICO_SWAP_TAG": tag, "TICO_SWAP_OLD_ID": me["Image"], "TICO_SWAP_OLD_REF": ref,
+               "TICO_SWAP_NAME": me["Name"].lstrip("/"), "DOCKER_CONFIG": "/tmp/.docker",
+               "TICO_IMAGE": IMAGE, "TICO_UPDATER_PULL": "never", "TICO_UPDATER_BUNDLE": "never"}
+        argv = ["docker", "run", "-d", "--name", SWAP_HELPER, "--network", "none", "--read-only", "--tmpfs", "/tmp",
+                "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
+                "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", "%s:%s" % (host_dir, host_dir)]
+        for key, value in env.items():
+            argv += ["-e", "%s=%s" % (key, value)]
+        subprocess.run([*argv, new_ref, "python", "/usr/local/bin/tico-updater", "replace-self"],
+                       capture_output=True, text=True, timeout=120, check=True)
+        return "The updater is replacing itself with %s." % tag
+    except (StopIteration, KeyError, IndexError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        return "The updater itself stayed on its current version (%s)." % (str(exc) or type(exc).__name__)
+
+
+def updater_stays_up(old_id, seconds=12):
+    """The recreated updater is running, on a different image, and still running a few seconds later."""
+    container = compose("ps", "-q", "updater").split()
+    if not container:
+        return False
+    deadline = time.time() + seconds
+    while True:
+        state = inspect(container[0])
+        if not state["State"]["Running"] or state["State"].get("Restarting") or state["Image"] == old_id:
+            return False
+        if time.time() >= deadline:
+            return True
+        time.sleep(2)
+
+
+def pin_updater_tag(tag):
+    """The compose files read TICO_UPDATER_TAG from .env when the install pinned it; move the pin along."""
+    path = os.path.join(PROJECT, ".env")
+    try:
+        lines = open(path).read().splitlines()
+        if not any(line.startswith("TICO_UPDATER_TAG=") for line in lines):
+            return
+        lines = [("TICO_UPDATER_TAG=" + tag) if line.startswith("TICO_UPDATER_TAG=") else line for line in lines]
+        with open(path, "w") as stream:
+            stream.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
+def replace_self():
+    """Runs in the helper container, from the NEW updater image. The old updater is recreated as this one's twin;
+    if the new one does not stay up, the old image goes back. Exit status 0 only when an updater is running."""
+    tag, old_id, old_ref = os.environ["TICO_SWAP_TAG"], os.environ["TICO_SWAP_OLD_ID"], os.environ["TICO_SWAP_OLD_REF"]
+    up = ["up", "-d", "--no-deps", "--pull", "never", "updater"]
+    try:
+        compose(*up, extra_env={"TICO_UPDATER_TAG": tag})
+        if updater_stays_up(old_id):
+            pin_updater_tag(tag)
+            print("tico-updater: replaced by %s" % tag, flush=True)
+            return 0
+        print("tico-updater: the new updater did not stay up", flush=True)
+    except (RuntimeError, OSError, subprocess.SubprocessError, KeyError, ValueError) as exc:
+        print("tico-updater: replacing the updater failed: %s" % exc, flush=True)
+    subprocess.run(["docker", "tag", old_id, old_ref], check=False)
+    try:
+        compose(*up, extra_env={"TICO_UPDATER_TAG": image_tag(old_ref)})
+    except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        print("tico-updater: could not restart the old updater: %s" % exc, flush=True)
+        return 2
+    print("tico-updater: went back to %s" % old_ref, flush=True)
+    return 1
+
+
 def update(version):
     staging = None
     bundled = False
+    snapshot, switched = "", False
     try:
         image_id, previous = running_image()
-        set_status(state="pulling", **{"from": previous, "to": version}, message="")
+        set_status(state="pulling", **{"from": previous, "to": version}, message="", snapshot="", restored=False)
         if BUNDLE != "never":
             # Everything that can refuse the update happens here, before any file or container changes.
             try:
@@ -294,27 +474,47 @@ def update(version):
             except BundleError as exc:
                 set_status(state="failed", message="Not updated: %s." % exc)
                 return
+        if BUNDLE != "never":
             apply_bundle(files, release)
             bundled = True
         try:
             if PULL != "never":
                 compose("pull", SERVICE, tag=version)
+            if MODE == "server":
+                # Last thing before the switch, so little is lost if it is undone: a new version may migrate the
+                # schema and then fail its health check, and the old image cannot read a newer schema.
+                try:
+                    snapshot = take_snapshot(previous)
+                except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    raise RuntimeError("could not snapshot the database first (%s)" % exc)
+                set_status(snapshot=snapshot)
             set_status(state="restarting")
+            switched = True
             compose("up", "-d", "--no-deps", "--pull", "never", SERVICE, tag=version)
             if not healthy(HEALTH_SECONDS):
                 raise RuntimeError(("the runner" if MODE == "runner" else "the server") + " did not come up healthy within %d seconds" % HEALTH_SECONDS)
         except RuntimeError as exc:
             # The old image is still on disk; point its tag back at it and start it again, with the old bundle.
             subprocess.run(["docker", "tag", image_id, IMAGE + ":" + previous], check=False)
+            restored = ""
             try:
                 if bundled:
                     restore_bundle()
+                if switched and snapshot:
+                    # The new version may have migrated the database; put back the copy taken just before.
+                    try:
+                        restore_snapshot(snapshot, previous)
+                        restored = " Restored the database from the snapshot taken before the update (%s); changes made since then are not in it." % snapshot
+                        set_status(restored=True)
+                    except (RuntimeError, OSError, subprocess.SubprocessError) as snap_exc:
+                        restored = " Could not restore the database snapshot %s (%s); it is in %s." % (snapshot, snap_exc, SNAPSHOTS)
+                    print("tico-updater: rollback:" + restored, flush=True)
                 compose("up", "-d", "--no-deps", "--pull", "never", SERVICE, tag=previous)
                 back = healthy(HEALTH_SECONDS)
             except (RuntimeError, OSError):
                 back = False
             set_status(state="rolled_back" if back else "failed",
-                       message=str(exc) + (". Went back to " + previous + "." if back else ". The old version did not start either."))
+                       message=str(exc) + (". Went back to " + previous + "." if back else ". The old version did not start either.") + restored)
             return
         remember(version)
         message = ""
@@ -326,9 +526,14 @@ def update(version):
                 except RuntimeError as exc:
                     message = "Updated, but %s did not restart: %s" % (name, exc)
         set_status(state="healthy", message=message)
+        save_status()
+        note = replace_updater(version)   # last: this container may be gone a moment after it starts the helper
+        if note:
+            set_status(message=(message + " " + note).strip())
     except Exception as exc:  # anything unexpected must show in /status rather than kill the thread
         set_status(state="failed", message=str(exc))
     finally:
+        save_status()
         if staging:
             shutil.rmtree(staging, ignore_errors=True)
 
@@ -395,5 +600,8 @@ def ensure_token():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["replace-self"]:
+        sys.exit(replace_self())
+    load_status()
     ensure_token()
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()

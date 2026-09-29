@@ -12,7 +12,7 @@ SOURCE = Path(__file__).resolve().parents[2] / "docker/updater.py"
 def load(monkeypatch, mode, tmp_path):
     for key, value in {"TICO_UPDATER_MODE": mode, "TICO_PROJECT_DIR": str(tmp_path),
                        "TICO_COMPOSE_FILE": "runner.compose.yaml" if mode == "runner" else "",
-                       "TICO_UPDATER_TOKEN_FILE": str(tmp_path / "token"), "TICO_UPDATER_BUNDLE": "never"}.items():
+                       "TICO_UPDATER_TOKEN_FILE": str(tmp_path / "token"), "TICO_UPDATER_SELF": "never", "TICO_UPDATER_BUNDLE": "never"}.items():
         monkeypatch.setenv(key, value)
     spec = importlib.util.spec_from_file_location("tico_updater_" + (mode or "server"), SOURCE)
     module = importlib.util.module_from_spec(spec)

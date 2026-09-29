@@ -56,9 +56,20 @@ The previous files are kept in `.bundle-previous/`. A download or checksum failu
 changes; a release that does not turn healthy is rolled back, image and bundle together. Slack and the front door are
 recreated from the new file when it changes them.
 
-The updater cannot replace itself while it is running the update, so it stays on its old image, which keeps working,
-until the next `docker compose up -d` on the host, which reads the `TICO_TAG` the update wrote to `.env` and moves it.
-The bundle logic that runs is therefore the one from the updater's release, one update behind.
+Before it switches the server image, the updater takes a consistent SQLite snapshot (`sqlite3` backup API, run in the
+server container) into `/data/snapshots/pre-update-<version>-<time>.sqlite` and keeps the last three. A new version can
+migrate the database and then fail its health check, and the old image cannot read a newer schema, so a rollback also
+stops the server, puts the snapshot back (the migrated database stays beside it as `hub.sqlite.failed-update`) and starts
+the old image. Changes made between the snapshot and the rollback are not in it. The update status says which snapshot
+was taken and whether it was restored (`snapshot`, `restored`, and the message). If the snapshot cannot be taken the
+update does not go ahead.
+
+After a successful update the updater replaces itself, so updater fixes reach existing installs. It pulls the new updater
+image and starts a short-lived helper container (`tico-updater-swap`) from it, which recreates the `updater` service,
+checks that the new one stays running, and moves `TICO_UPDATER_TAG` in `.env` if the install pinned it. If the new
+updater does not stay up the helper puts the old one back, so the install is never left without an updater; its log is
+`docker logs tico-updater-swap`. `TICO_UPDATER_SELF=never` turns this off. The same applies to the runner box's updater
+sidecar. The last update's outcome is kept in `.updater-status.json` so the new updater still reports it.
 
 Settings still reach the server through the explicit `environment:` list in `compose.yaml`, not `env_file: .env`, which
 would also pass secrets that belong to other services (such as `CLOUDFLARE_TUNNEL_TOKEN`) into the server.
