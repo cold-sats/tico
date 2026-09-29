@@ -692,7 +692,7 @@ def files_publish(api, args):
     return api.post("files/uploads", body, key=_key(args))
 
 
-@tool("hub_files_add_link", "List a document you created or edited in another tool (a Google Doc, Sheet or "
+@tool("hub_files_add-link", "List a document you created or edited in another tool (a Google Doc, Sheet or "
       "Slides, a Notion page, a Figma file, any https link) on your page. Tico keeps the address, never the "
       "document; whoever opens it needs access there. Adding it again, or `hub_files_touch`, moves it to the top.",
       {"url": _s("An https:// link"), "title": _s("What people see"), "task": _s("The task it is for"),

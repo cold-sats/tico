@@ -45,7 +45,7 @@ def run(args, who=None):
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
         if args.fn == "files publish":
             return hubtools.files_publish_path(client, fields)
-        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_").replace("-", "_")]["fn"](client, fields)
+        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
     if args.cmd == "db":
         # Runs here, beside the credential; the hub only checks who is asking and keeps the audit.
         from clients import dbquery
