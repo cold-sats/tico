@@ -1953,11 +1953,10 @@ def auto_close_done(conn, at=None):
     at = at or now()
     cutoff = shift(at, days=-AUTO_CLOSE_DAYS)
     closed = []
-    for row in tasks(conn, status="done"):
-        if not is_bot(row["requester"]) or not row.get("done_at"):
-            continue
-        if str(row["done_at"]) > cutoff:
-            continue
+    # Exactly the rows this rule needs, not the first page of a listing: past a page of tasks a
+    # listing cap silently stopped closing them.
+    for row in _rows(conn.execute("SELECT * FROM tasks WHERE status='done' AND requester LIKE 'bot:%' "
+                                  "AND done_at IS NOT NULL AND done_at<=? ORDER BY done_at,id", (cutoff,))):
         closed.append(task_close(conn, KEEPER, row["id"],
                                  f"closed automatically after {AUTO_CLOSE_DAYS} days"))
     return closed
@@ -2844,6 +2843,20 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
         raise ValueError("task order is queue or finished")
     return _rows(conn.execute(sql + f" ORDER BY {ordering} LIMIT ? OFFSET ?",
                               (*args, max(1, int(limit)), max(0, int(offset)))))
+
+
+def tasks_due_for_bots(conn, through):
+    """Live tasks a bot owns whose due date may have arrived by `through` (a "YYYY-MM-DD").
+
+    Due dates are text in more than one shape (an offset, a bare date, an old local time), so this
+    is a day-level bound with a day of slack; the caller compares the exact instant. No row cap:
+    the reminder pass needs every one of them, however many tasks the hub holds.
+    """
+    return _rows(conn.execute(
+        f"SELECT * FROM tasks WHERE status IN ({','.join(repr(x) for x in ACTIVE_STATUSES)}) "
+        "AND owner LIKE 'bot:%' AND due IS NOT NULL AND due!='' AND substr(due,1,10)<=? "
+        "AND NOT EXISTS (SELECT 1 FROM task_reminders r WHERE r.task_id=tasks.id AND r.due=tasks.due) "
+        "ORDER BY created,id", (through,)))
 
 
 def task_history(conn, task_id):

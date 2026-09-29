@@ -319,50 +319,8 @@ class Execution:
                 bot["problems"] = [row["detail"]]
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps(ready), runner_id))
 
-    def claim(self, c, who, body):
-        runner = self.runner(c, who)
-        self.expire(c)
-        now = H.now()
-        self.served_at = now
-        # A claim is contact too, and on a machine waking for a few seconds it is the first
-        # contact: the heartbeat behind it is up to 15 s away. Recording the waking period here
-        # is what keeps a brief wake from taking work on a stale one.
-        # A claim is contact, and on a machine waking for seconds it is the only contact: its
-        # heartbeat runs on a fifteen-second timer that a wake this short never reaches. Until
-        # this was recorded, the next wake compared itself against a heartbeat from before the
-        # sleep, read the gap as one long stretch of presence, and took the work.
-        awake_since = self.waking(runner, now)
-        if awake_since != runner["awake_since"]:
-            H.event(c, H.KEEPER, "runner.waking", who.runner_id,
-                    {"last_seen": runner["last_seen"], "awake_since": awake_since})
-        if awake_since != runner["awake_since"] or not runner["last_seen"] \
-                or runner["last_seen"] <= H.shift(now, seconds=-CONTACT_EVERY):
-            c.execute("UPDATE runners SET last_seen=?,awake_since=? WHERE id=?",
-                      (now, awake_since, who.runner_id))
-        # An initial task notice can sit in the queue while another turn finishes
-        # that task. Suppress only this obsolete wake, never a later human follow-up.
-        obsolete = c.execute("SELECT j.id,j.message_id,t.id AS task_id FROM jobs j "
-            "JOIN assignments x ON x.bot=j.bot JOIN messages m ON m.id=j.message_id "
-            f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
-            "WHERE x.runner_id=? AND j.state='queued' AND m.from_actor=? AND m.kind='notice' "
-            "AND m.body LIKE 'New task from %' AND t.status IN ('done','closed') "
-            "AND m.to_actor=t.owner AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
-            "AND r.attempt_id=j.attempt_id AND r.decision='resume')", (who.runner_id,H.KEEPER)).fetchall()
-        for old in obsolete:
-            c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (old['id'],))
-            c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),old['message_id']))
-            H.event(c,H.KEEPER,'job.suppress',old['id'],{'reason':'Task completed before initial notice delivery','task_id':old['task_id']})
-        why = runner_versions.paused(c, who.runner_id)
-        if why:
-            return {"attempt": None, "paused": why}
-        count = c.execute("SELECT count(*) FROM attempts WHERE runner_id=? AND state IN ('leased','running')",
-                          (who.runner_id,)).fetchone()[0]
-        if count >= runner["capacity"]:
-            return {"attempt": None}
-        # A machine that has only just come back cannot be trusted with a 90 s lease yet.
-        # Its work keeps its place in the queue and goes out once the machine is really up.
-        if not self.awake(awake_since, now):
-            return {"attempt": None}
+    def candidate(self, c, who, body, runner):
+        """The queued job this runner would be given next, or None. Reads only."""
         ready = readiness_document(runner["readiness_json"])
         # Unconfirmed effects hold the interrupted conversation and task until review. Other
         # tasks and routines for the same bot can continue. A person's unrelated chat also
@@ -410,7 +368,96 @@ class Execution:
                 cooling[job['bot']] = (status.get('state') == 'limited' and status.get('since')
                                        and status['since'] > H.shift(H.now(), seconds=-limit_cooldown(c, job['bot'])))
             return not cooling[job['bot']]
-        row = next((r for r in row if claimable(r)), None)
+        return next((r for r in row if claimable(r)), None)
+
+    def idle_claim(self, c, who, body, key=None):
+        """The answer to a claim that changes nothing, from a read-only connection, or None when
+        the claim has something to write or to hand out and must run in the write transaction.
+
+        Runners ask every fraction of a second, so an idle fleet would otherwise take the
+        database's one write lock several times a second for nothing. Everything `claim` writes
+        before it looks for work is checked here: a lapsed lease to expire, a contact stamp that
+        is due, an obsolete notice to suppress. Any of them, or a job to hand out, sends the claim
+        on to `claim`, which repeats every check under the lock."""
+        # A retry of a claim that took a job is answered from the record of it, not from here.
+        if not key or c.execute("SELECT 1 FROM idempotency WHERE actor=? AND operation='/api/v2/jobs/claim' AND key=?",
+                                (who.actor, key)).fetchone():
+            return None
+        answer = self._idle_claim(c, who, body)
+        if answer is not None:
+            self.served_at = H.now()        # answering a runner is what `stalled` measures
+        return answer
+
+    def _idle_claim(self, c, who, body):
+        runner = self.runner(c, who)
+        if not runner:
+            return None
+        now = H.now()
+        if c.execute("SELECT 1 FROM attempts WHERE state IN ('leased','running') AND lease_until<=? LIMIT 1",
+                     (now,)).fetchone():
+            return None
+        awake_since = self.waking(runner, now)
+        if (awake_since != runner["awake_since"] or not runner["last_seen"]
+                or runner["last_seen"] <= H.shift(now, seconds=-CONTACT_EVERY)):
+            return None
+        if c.execute("SELECT 1 FROM jobs j JOIN messages m ON m.id=j.message_id JOIN assignments x ON x.bot=j.bot "
+                     "WHERE x.runner_id=? AND j.state='queued' AND m.from_actor=? AND m.kind='notice' "
+                     "AND m.body LIKE 'New task from %' LIMIT 1", (who.runner_id, H.KEEPER)).fetchone():
+            return None
+        why = runner_versions.paused(c, who.runner_id)
+        if why:
+            return {"attempt": None, "paused": why}
+        count = c.execute("SELECT count(*) FROM attempts WHERE runner_id=? AND state IN ('leased','running')",
+                          (who.runner_id,)).fetchone()[0]
+        if count >= runner["capacity"] or not self.awake(awake_since, now):
+            return {"attempt": None}
+        return None if self.candidate(c, who, body, runner) else {"attempt": None}
+
+    def claim(self, c, who, body):
+        runner = self.runner(c, who)
+        self.expire(c)
+        now = H.now()
+        self.served_at = now
+        # A claim is contact too, and on a machine waking for a few seconds it is the first
+        # contact: the heartbeat behind it is up to 15 s away. Recording the waking period here
+        # is what keeps a brief wake from taking work on a stale one.
+        # A claim is contact, and on a machine waking for seconds it is the only contact: its
+        # heartbeat runs on a fifteen-second timer that a wake this short never reaches. Until
+        # this was recorded, the next wake compared itself against a heartbeat from before the
+        # sleep, read the gap as one long stretch of presence, and took the work.
+        awake_since = self.waking(runner, now)
+        if awake_since != runner["awake_since"]:
+            H.event(c, H.KEEPER, "runner.waking", who.runner_id,
+                    {"last_seen": runner["last_seen"], "awake_since": awake_since})
+        if awake_since != runner["awake_since"] or not runner["last_seen"] \
+                or runner["last_seen"] <= H.shift(now, seconds=-CONTACT_EVERY):
+            c.execute("UPDATE runners SET last_seen=?,awake_since=? WHERE id=?",
+                      (now, awake_since, who.runner_id))
+        # An initial task notice can sit in the queue while another turn finishes
+        # that task. Suppress only this obsolete wake, never a later human follow-up.
+        obsolete = c.execute("SELECT j.id,j.message_id,t.id AS task_id FROM jobs j "
+            "JOIN assignments x ON x.bot=j.bot JOIN messages m ON m.id=j.message_id "
+            f"JOIN conversations cv ON cv.id=m.conversation_id JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
+            "WHERE x.runner_id=? AND j.state='queued' AND m.from_actor=? AND m.kind='notice' "
+            "AND m.body LIKE 'New task from %' AND t.status IN ('done','closed') "
+            "AND m.to_actor=t.owner AND NOT EXISTS (SELECT 1 FROM job_recovery r WHERE r.job_id=j.id "
+            "AND r.attempt_id=j.attempt_id AND r.decision='resume')", (who.runner_id,H.KEEPER)).fetchall()
+        for old in obsolete:
+            c.execute("UPDATE jobs SET state='cancelled' WHERE id=?", (old['id'],))
+            c.execute("UPDATE messages SET delivered_at=coalesce(delivered_at,?) WHERE id=?", (H.now(),old['message_id']))
+            H.event(c,H.KEEPER,'job.suppress',old['id'],{'reason':'Task completed before initial notice delivery','task_id':old['task_id']})
+        why = runner_versions.paused(c, who.runner_id)
+        if why:
+            return {"attempt": None, "paused": why}
+        count = c.execute("SELECT count(*) FROM attempts WHERE runner_id=? AND state IN ('leased','running')",
+                          (who.runner_id,)).fetchone()[0]
+        if count >= runner["capacity"]:
+            return {"attempt": None}
+        # A machine that has only just come back cannot be trusted with a 90 s lease yet.
+        # Its work keeps its place in the queue and goes out once the machine is really up.
+        if not self.awake(awake_since, now):
+            return {"attempt": None}
+        row = self.candidate(c, who, body, runner)
         if not row:
             return {"attempt": None}
         msg = H.message(c, row["message_id"])

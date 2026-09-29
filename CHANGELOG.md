@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Idle runners no longer keep the database's write lock busy. Each runner asked for work four times a second and every ask
+  was a write transaction, so a fleet of 8 to 12 idle runners made 32 to 48 writes a second and starved the scheduler,
+  backups and lease renewals. The server now checks with a read and writes only when there is something to do, and an idle
+  runner backs off from 0.25 s to 2 s between asks. The API's database wait is 30 s, as the scheduler's already was.
+- Due reminders and the three-day auto-close stopped for every task past the first 500: they read a capped task listing. They
+  now query exactly the tasks they need.
+
 ## [0.2.9] - 2026-09-29
 
 ### Fixed

@@ -107,7 +107,7 @@ class Scheduler:
             closed = H.auto_close_done(c, stamp(at))
             for task in closed:
                 c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task["id"],))
-            for row in H.tasks(c, status=H.ACTIVE_STATUSES):
+            for row in H.tasks_due_for_bots(c, stamp(at + timedelta(days=1))[:10]):
                 due = H.parse_ts(row.get("due"))
                 if due and due.tzinfo is None:
                     # Legacy rows allowed dates/local timestamps. New API writes require an

@@ -476,10 +476,12 @@ class Store:
         self.settings = settings
 
     def connect(self):
-        c = sqlite3.connect(str(self.settings.db_path), timeout=5, isolation_level=None)
+        c = sqlite3.connect(str(self.settings.db_path), timeout=30, isolation_level=None)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA foreign_keys=ON")
-        c.execute("PRAGMA busy_timeout=5000")
+        # As hubdb.connect: a writer waits out a backup checkpoint or a long scheduler pass
+        # rather than answering storage_unavailable.
+        c.execute("PRAGMA busy_timeout=30000")
         c.execute("PRAGMA synchronous=FULL")
         return c
 
