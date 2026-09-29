@@ -529,6 +529,21 @@ class BotOwners(Contract):
     expected_revision: int = Field(ge=1)
 
 
+class AccessAudience(Contract):
+    """One level of a bot's access: everyone, or these people, teams and bots."""
+    everyone: bool = False
+    people: list[ID] = Field(default_factory=list, max_length=500)
+    teams: list[ID] = Field(default_factory=list, max_length=500)
+    bots: list[Slug] = Field(default_factory=list, max_length=500)
+
+
+class BotAccess(Contract):
+    see: AccessAudience
+    read: AccessAudience
+    write: AccessAudience
+    revision: int = Field(ge=1)
+
+
 class BotDefinitionCreate(Contract):
     slug: Slug
     display_name: str = Field(min_length=1, max_length=100)
@@ -541,7 +556,9 @@ class BotDefinitionCreate(Contract):
     effort: ID
     harness: ID | None = None
     operator: ID | None = None
-    owners: list[ID] = Field(min_length=1, max_length=50)
+    # Who the bot works for (shared-room members). Left out, that is its operator; who may use it is
+    # its access (docs/permissions.md), which starts Open.
+    owners: list[ID] = Field(default_factory=list, max_length=50)
     runner_id: ID | None = None
     # "Add from catalog": the template this bot is built from and the instructions a person
     # reviewed for it. Both are empty for a bot typed in by hand.

@@ -618,8 +618,9 @@ def install(app, store, auth, mutate, onboarding):
         return who
 
     def bots_for(c, who):
+        access = auth.bot_accesses(c, who)
         return [{"slug": r["slug"], "name": r["display_name"] or r["slug"]} for r in H.bots(c)
-                if r["state"] not in ("archived",) and auth.visible_bot(who, r["slug"])]
+                if r["state"] not in ("archived",) and access.get(r["slug"], auth.FULL)["see"]]
 
     def view(c, who, room):
         from .views import conversation_snapshot
@@ -652,6 +653,7 @@ def install(app, store, auth, mutate, onboarding):
             info = availability(c, settings, who)
             if not info["available"]:
                 raise Problem("assistant_off", "The " + settings.assistant_name + " is off", 409)
+            auth.require_write(c, who, settings.assistant_bot)
             room = ensure_room(c, who.actor, settings.assistant_bot)
             refs = {"assistant": True}
             if reply is not None:

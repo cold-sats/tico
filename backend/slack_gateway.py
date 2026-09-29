@@ -450,6 +450,7 @@ class Gateway:
         self.next_digest = self.clock()     # the first pass sets the readers' cursors
         self.pin_workspace = False          # tokens the owner pasted into Tico define the workspace
         self.heartbeat = None               # called every loop turn; the process uses it for health
+        self._auth = None                   # who may write to which bot (backend/bot_access.py)
 
     # ------------------------------------------------------------------ start-up
     @property
@@ -626,12 +627,29 @@ class Gateway:
         return {"kind": "channel", "name": "#" + name.lstrip("#"), "purpose": registry.get("purpose") or ""}, None
 
     # ------------------------------------------------------------------ the state the decision model reads
-    def fleet(self, c):
-        """Active bots only: slug, display name, team, description, reports_to."""
+    def blocked(self, c, person):
+        """The bots this person may not send requests to. A Slack message reaches a bot as the
+        person's own message, so it needs the same Write on the bot that their chat in Tico does."""
+        from .auth import Auth, Problem
+        if self._auth is None:
+            self._auth = Auth(self.store)
+        self._auth.sync_access(c)
+        try:
+            who = self._auth.identity_for_actor(c, "human:" + person["id"])
+        except Problem:
+            return {row[0] for row in c.execute("SELECT bot FROM bot_config")}
+        return {slug for slug, level in self._auth.bot_accesses(c, who).items() if not level["write"]}
+
+    def fleet(self, c, person=None):
+        """Active bots only: slug, display name, team, description, reports_to. With `person`, only
+        the ones they may write to: the decision model never hears of the others."""
         people = roster(c)
         configs = entries(c)
+        blocked = self.blocked(c, person) if person is not None else set()
         out = []
         for row in c.execute("SELECT slug,display_name FROM bots WHERE state='active' ORDER BY slug LIMIT ?", (MAX_BOTS,)):
+            if row["slug"] in blocked:
+                continue
             config = configs.get(row["slug"]) or {}
             out.append({"slug": row["slug"], "name": row["display_name"] or row["slug"],
                         "team": P.team_of(row["slug"], configs, people.get("teams")),
@@ -693,7 +711,7 @@ class Gateway:
                             "where": channel},
                 "thread": self.exchanges(c, event["channel"], event["thread_ts"]),
                 "previous_routing": self.previous_routing(c, event["channel"], event["thread_ts"]),
-                "roster": self.fleet(c)}
+                "roster": self.fleet(c, person)}
 
     # ------------------------------------------------------------------ the rules
     def decide(self, answers, fleet):
@@ -774,8 +792,14 @@ class Gateway:
         """Each recipient gets the message in its own thread conversation. Returns the decision."""
         actor = "human:" + person["id"]
         delivered, refs = [], self.refs_for(event, channel, decision, thread, person)
+        blocked = self.blocked(c, person)
         for one in list(decision["recipients"]):
             bot = one["bot"]
+            if bot in blocked:
+                decision["dropped"].append({"bot": bot, "confidence": one.get("confidence"),
+                                            "reason": "access: the sender may not send this bot requests"})
+                decision["recipients"] = [r for r in decision["recipients"] if r["bot"] != bot]
+                continue
             try:
                 cid, opened = self.conversation_for(c, actor, bot, event)
                 # A follow-up answers the bot's last line: an unanswered `ask` is closed with an
@@ -805,7 +829,8 @@ class Gateway:
             delivered.append({"bot": bot, "conversation_id": cid, "message_id": message["id"], "opened": opened})
         if not delivered and not decision["fallback"] and decision["dropped"]:
             # Everyone the decision model chose is unreachable: the assistant gets it, with the reasons on it.
-            asker = self.fallback_bot([r["slug"] for r in c.execute("SELECT slug FROM bots WHERE state='active'")])
+            asker = self.fallback_bot([r["slug"] for r in c.execute("SELECT slug FROM bots WHERE state='active'")
+                                       if r["slug"] not in blocked])
             if asker:
                 decision["fallback"] = True
                 decision["reason"] = "every recipient was dropped; " + ("the assistant" if asker == self.settings.assistant_bot

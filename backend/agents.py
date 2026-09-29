@@ -103,7 +103,7 @@ def listing(c, who, auth):
     """Every external agent this person may see, for Settings."""
     out = []
     for record in c.execute("SELECT a.*,b.display_name FROM agents a JOIN bots b ON b.slug=a.bot ORDER BY a.bot"):
-        if not auth.visible_bot(who, record["bot"]):
+        if not auth.bot_access(c, who, record["bot"])["read"]:
             continue
         config = c.execute("SELECT operator FROM bot_config WHERE bot=?", (record["bot"],)).fetchone()
         if who.role != "owner" and not (config and who.actor == "human:" + config["operator"]):

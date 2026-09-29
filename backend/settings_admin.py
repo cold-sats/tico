@@ -4,8 +4,10 @@ import json
 import re
 from types import SimpleNamespace
 
+from . import bot_access as BA
 from . import models as M
 from . import providers
+from . import rooms
 from .auth import Identity
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
@@ -33,13 +35,11 @@ class SettingsAdmin:
             raise Problem("forbidden", "Only the owner or a bot administrator may add bots", 403)
 
     def _manager(self, c, who, bot):
-        if who.role == "owner":
-            return
+        """The owner, a bot administrator for their own bots, or a person the bot reports up to:
+        the same people who always have full access to it (`Auth.bot_manager`)."""
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
-        if row and self.auth.bot_admin(who) and row["operator"] == H.actor_id(who.actor):
+        if who.role == "owner" or (row and self.auth.bot_manager(c, who, bot, row["operator"])):
             return
-        if row and self.auth.manages(c, who, "bot", bot):
-            return                          # the bot sits under this person on the org chart
         raise Problem("forbidden", "You may change only bots that report up to you", 403)
 
     @staticmethod
@@ -159,7 +159,6 @@ class SettingsAdmin:
         effort = self._effort(choice, body.effort)
         harness = self._harness(choice, getattr(body, "harness", None))
         self._parent(c, body.slug, body.reports_to)
-        owners, _ = self._people(c, body.owners)
         runner = None
         if body.runner_id and harness in EXTERNAL_HARNESSES:
             raise Problem("harness", "A bot run by an external agent has no computer; leave the "
@@ -174,6 +173,7 @@ class SettingsAdmin:
             parent["operator"] if parent else H.actor_id(who.actor))
         if not H.human(c, operator):
             raise Problem("not_found", "Computer operator is not on the roster", 404)
+        owners, _ = self._people(c, body.owners or [operator])
         if who.role != "owner" and operator != H.actor_id(who.actor):
             raise Problem("forbidden", "Bot administrators may add bots only for their own operator account", 403)
         if who.role != "owner" and parent and parent["operator"] != operator:
@@ -291,6 +291,8 @@ class SettingsAdmin:
         config = self._config(c, bot)
         if field == "owners":
             return _json(config["owner_ids_json"], []) if config["owner_ids_json"] is not None else None
+        if field == "access":
+            return BA.document(config["access_json"])
         if field == "model":
             declared, row = _json(config["config_json"], {}), H.bot(c, bot)
             runtime = declared.get("runtime") or row.get("runtime") or ""
@@ -518,7 +520,7 @@ class SettingsAdmin:
             except (ValueError, Problem, TypeError, KeyError):
                 # A field an older release wrote, or a bot deleted since: history still shows it.
                 current = None
-            value["can_undo"] = (row["field"] in ("owners", "model", "placement", "fallback")
+            value["can_undo"] = (row["field"] in ("owners", "model", "placement", "fallback", "access")
                                  and not row["undone_at"] and current == value["after"])
             changes.append(value)
         transitions = [self.get(c, who, row[0]) for row in c.execute(
@@ -550,6 +552,14 @@ class SettingsAdmin:
             H.event(c, who.actor, "settings.undo", bot, {"change": change_id, "field": change["field"]})
             return {"undone": True, "bot": bot, "field": change["field"],
                     "revision": config["revision"] + 1}
+        if change["field"] == "access":
+            c.execute("UPDATE bot_config SET access_json=?,revision=revision+1 WHERE bot=?",
+                      (BA.stored(BA.document(before)), bot))
+            restored = self.snapshot(c, bot, "access")
+            self.record(c, who.actor, bot, "access", after, restored)
+            c.execute("UPDATE settings_changes SET undone_by=?,undone_at=? WHERE id=?", (who.actor, H.now(), change_id))
+            H.event(c, who.actor, "settings.undo", bot, {"change": change_id, "field": change["field"]})
+            return {"undone": True, "bot": bot, "field": change["field"], "revision": config["revision"] + 1}
         if change["field"] == "model":
             if before.get("model") not in self.models:
                 raise Problem("not_reversible", "The previous model is no longer in the supported model list", 409)
@@ -573,6 +583,47 @@ class SettingsAdmin:
                 fallback=SimpleNamespace(**before) if before else None,
                 expected_revision=body.expected_revision), undo_change_id=change_id)
         raise Problem("not_reversible", "This settings change cannot be undone", 409)
+
+    def team_names(self, c):
+        """{team id: name}: the teams and org-chart departments a person can be on."""
+        roster = self._roster(c)
+        names = {tid: tid.replace("-", " ").title() for tid in roster.get("teams") or {}}
+        for gid, group in (roster.get("org_groups") or {}).items():
+            names[gid] = group.get("name") or gid
+        for person in roster.get("people") or []:
+            if person.get("team"):
+                names.setdefault(person["team"], person["team"].replace("-", " ").title())
+        return names
+
+    def access(self, c, who, bot):
+        """Who may see, read and write to this bot, for the people who manage it."""
+        self._manager(c, who, bot)
+        config = self._config(c, bot)
+        return {"bot": bot, **BA.document(config["access_json"]), "revision": config["revision"],
+                "you": self.auth.bot_access(c, who, bot),
+                "teams": [{"id": tid, "name": name} for tid, name in sorted(self.team_names(c).items())]}
+
+    def set_access(self, c, who, bot, body):
+        self._manager(c, who, bot)
+        config = self._config(c, bot)
+        if config["revision"] != body.revision:
+            raise Problem("version_conflict", "Bot configuration changed; refresh before saving access", 409)
+        roster = self._roster(c)
+        people = {p["id"] for p in roster.get("people") or []} | {h["id"] for h in H.humans(c)}
+        doc = BA.parse(body.model_dump(exclude={"revision"}), people, set(self.team_names(c)),
+                       {row["slug"] for row in H.bots(c)})
+        before = self.snapshot(c, bot, "access")
+        if before == doc:
+            raise Problem("unchanged", "That is already who has access", 409)
+        c.execute("UPDATE bot_config SET access_json=?,revision=revision+1 WHERE bot=?", (BA.stored(doc), bot))
+        if rooms.thread_mode(c, bot) == rooms.SHARED:
+            rooms.sync_shared_room(c, self.auth, bot)
+        self.record(c, who.actor, bot, "access", before, doc)
+        H.event(c, who.actor, "bot.access_changed", bot, {"before": BA.summary(before), "after": BA.summary(doc)})
+        if who.role == "owner":
+            from . import access as owner_access
+            owner_access.clear_bot_access_notice(c)
+        return {"bot": bot, **doc, "revision": config["revision"] + 1}
 
     def set_fallback(self, c, who, bot, body, undo_change_id=None):
         self._manager(c, who, bot)

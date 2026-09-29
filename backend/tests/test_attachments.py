@@ -26,7 +26,7 @@ def upload(api, path, fields, token="ana-test", key=None, data=b"Original materi
     ("tasks", {"title": "Private task", "body": "Private", "owner": "inbox"}),
 ])
 def test_forbidden_upload_never_publishes_file_or_work(api, path, fields):
-    upload(api, path, fields, "ben-test", expected=403)
+    upload(api, path, fields, "ben-test", expected=404)      # a bot he cannot see
     with api.app.state.store.read() as c:
         for table in ("blobs", "messages", "tasks", "jobs", "message_assets", "task_assets"):
             assert c.execute("SELECT count(*) FROM " + table).fetchone()[0] == 0

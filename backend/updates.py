@@ -335,10 +335,22 @@ def thread(c, uid):
     return sorted(replies + answers, key=lambda m: m["created"])
 
 
-def listing(c, actor, visible, kind=None, bot=None, unread=False, before=None, limit=40):
+def _only(bots, column="u.bot"):
+    """The SQL for "updates of these bots" (`bots` is the slugs the caller may read), so pages and
+    counts are cut in the query and a hidden bot's updates leave no gap or number behind."""
+    return f"{column} IN ({','.join('?' * len(bots))})", list(bots)
+
+
+def listing(c, actor, readable, kind=None, bot=None, unread=False, before=None, limit=40):
     """The feed, newest first, with this person's read state, reply counts, and the requests that
-    ended without an update (so a silent bot shows)."""
+    ended without an update (so a silent bot shows). `readable` is the set of bots to show."""
     where, args = ["1=1"], []
+    if not readable:
+        where.append("0")
+    else:
+        clause, values = _only(sorted(readable))
+        where.append(clause)
+        args += values
     if kind:
         where.append("u.kind=?"); args.append(kind)
     if bot:
@@ -349,39 +361,37 @@ def listing(c, actor, visible, kind=None, bot=None, unread=False, before=None, l
         where.append("r.read_at IS NULL")
     rows = c.execute(
         "SELECT u.*, r.read_at FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
-        "WHERE " + " AND ".join(where) + " ORDER BY u.created DESC LIMIT ?", (actor, *args, limit * 2)).fetchall()
+        "WHERE " + " AND ".join(where) + " ORDER BY u.created DESC LIMIT ?", (actor, *args, limit)).fetchall()
     items = []
     for row in rows:
-        if not visible(row["bot"]):
-            continue
         item = dict(row)
         item["read"] = bool(item.pop("read_at"))
         item["replies"] = c.execute("SELECT count(*) FROM messages WHERE json_extract(refs_json,'$.update')=?",
                                     (row["id"],)).fetchone()[0]
         items.append(item)
-        if len(items) >= limit:
-            break
     missed = []
     if not unread and not before:
         for row in c.execute("SELECT bot, kind, day, reason, done_at FROM update_queue WHERE state='missed' "
                              "AND day>=? ORDER BY done_at DESC", (H.shift(H.now(), days=-2)[:10],)).fetchall():
             late = c.execute("SELECT 1 FROM updates WHERE bot=? AND kind=? AND day=?",
                              (row["bot"], row["kind"], row["day"])).fetchone()
-            if not late and visible(row["bot"]) and (not kind or row["kind"] == kind) and (not bot or row["bot"] == bot):
+            if not late and row["bot"] in readable and (not kind or row["kind"] == kind) and (not bot or row["bot"] == bot):
                 missed.append(dict(row))
-    unread_count = count_unread(c, actor, visible, kind)
+    unread_count = count_unread(c, actor, readable, kind)
     queue = c.execute("SELECT state, count(*) n FROM update_queue WHERE day=? GROUP BY state", (today(),)).fetchall()
     return {"updates": items, "missed": missed, "unread": unread_count,
             "next_before": items[-1]["created"] if len(items) >= limit else None,
             "today": {r["state"]: r["n"] for r in queue}}
 
 
-def count_unread(c, actor, visible, kind=None):
+def count_unread(c, actor, readable, kind=None):
     """How many updates of the last two weeks this person has not read (the badge)."""
-    rows = c.execute("SELECT u.bot FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
-                     "WHERE r.read_at IS NULL AND u.created>=?" + (" AND u.kind=?" if kind else ""),
-                     (actor, H.shift(H.now(), days=-14), *([kind] if kind else []))).fetchall()
-    return sum(1 for r in rows if visible(r["bot"]))
+    if not readable:
+        return 0
+    clause, values = _only(sorted(readable))
+    return c.execute("SELECT count(*) FROM updates u LEFT JOIN update_reads r ON r.update_id=u.id AND r.actor=? "
+                     f"WHERE r.read_at IS NULL AND u.created>=? AND {clause}" + (" AND u.kind=?" if kind else ""),
+                     (actor, H.shift(H.now(), days=-14), *values, *([kind] if kind else []))).fetchone()[0]
 
 
 def mark(c, actor, ids, read=True):

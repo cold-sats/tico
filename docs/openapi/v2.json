@@ -525,7 +525,7 @@
     },
     "/api/v2/bots": {
       "get": {
-        "summary": "Bots the caller can see, with status",
+        "summary": "Bots the caller can see, each with the caller's own access; ?can=read|write keeps the ones they can read or write to",
         "operationId": "listBots",
         "parameters": [
           {
@@ -543,6 +543,22 @@
               ],
               "title": "Include Archived"
             }
+          },
+          {
+            "name": "can",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Can"
+            }
           }
         ],
         "responses": {
@@ -552,6 +568,104 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BotList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/access": {
+      "get": {
+        "summary": "Who may see, read and write to a bot (its managers only; docs/permissions.md)",
+        "operationId": "getBotAccess",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotAccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      },
+      "put": {
+        "summary": "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)",
+        "operationId": "setBotAccess",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotAccess"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotAccess"
                 }
               }
             }
@@ -2523,7 +2637,7 @@
     },
     "/api/v2/org": {
       "get": {
-        "summary": "People, bots and reports_to",
+        "summary": "People, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to",
         "operationId": "getOrg",
         "parameters": [
           {
@@ -2556,6 +2670,22 @@
                 }
               ],
               "title": "Team"
+            }
+          },
+          {
+            "name": "can",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Can"
             }
           }
         ],
@@ -3590,6 +3720,69 @@
   },
   "components": {
     "schemas": {
+      "Access": {
+        "type": "object",
+        "properties": {
+          "see": {
+            "type": "boolean"
+          },
+          "read": {
+            "type": "boolean"
+          },
+          "write": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "read",
+          "see",
+          "write"
+        ],
+        "additionalProperties": true
+      },
+      "AccessAudience": {
+        "properties": {
+          "everyone": {
+            "type": "boolean",
+            "title": "Everyone",
+            "default": false
+          },
+          "people": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "People"
+          },
+          "teams": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Teams"
+          },
+          "bots": {
+            "items": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Bots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AccessAudience",
+        "description": "One level of a bot's access: everyone, or these people, teams and bots."
+      },
       "Answer": {
         "properties": {
           "text": {
@@ -3859,17 +4052,46 @@
               "object",
               "null"
             ]
+          },
+          "access": {
+            "$ref": "#/components/schemas/Access"
           }
         },
         "required": [
+          "access",
           "display_name",
-          "online",
           "owners",
-          "queued",
           "slug",
           "state"
         ],
         "additionalProperties": true
+      },
+      "BotAccess": {
+        "properties": {
+          "see": {
+            "$ref": "#/components/schemas/AccessAudience"
+          },
+          "read": {
+            "$ref": "#/components/schemas/AccessAudience"
+          },
+          "write": {
+            "$ref": "#/components/schemas/AccessAudience"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "see",
+          "read",
+          "write",
+          "revision"
+        ],
+        "title": "BotAccess"
       },
       "BotFile": {
         "type": "object",
@@ -4816,9 +5038,13 @@
           },
           "status": {
             "type": "string"
+          },
+          "access": {
+            "$ref": "#/components/schemas/Access"
           }
         },
         "required": [
+          "access",
           "display_name",
           "id",
           "org_parent",

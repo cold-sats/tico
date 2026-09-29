@@ -9,6 +9,7 @@ from http.cookies import SimpleCookie, CookieError
 
 import yaml
 
+from . import bot_access as A
 from . import identity_proxy
 from . import people as P
 from . import rooms
@@ -126,13 +127,8 @@ class Auth:
         self.settings = store.settings
         acl_path = self.settings.registry_dir / "hub-access.yaml"
         self.acl = yaml.safe_load(acl_path.read_text()) if acl_path.exists() else {}
-        self.private = set(self.acl.get("private_owners", []))
         self.bot_admins = set()
         self.allowed_emails, self.allowed_domains = set(), set()
-        self.routing_permissions = {
-            str(target).strip().lower(): {str(s).strip().lower() for s in (senders or [])}
-            for target, senders in (self.acl.get("routing_permissions") or self.acl.get("dispatch_permissions") or {}).items()
-        }
         self.owner_email = self.settings.owner_email
         self._owner_id = ""
         self._access_seen = None
@@ -366,14 +362,157 @@ class Auth:
             row = c.execute("SELECT id FROM humans WHERE lower(email)=?", (email,)).fetchone()
             return row["id"] if row else access.join_on_sign_in(c, email)
 
-    def visible_bot(self, who, slug):
-        if who.role == "owner" or slug not in self.private or who.actor == "bot:" + slug:
+    # ------------------------------------------------------------------ per-bot access
+    # See, Read and Write are decided here and nowhere else (backend/bot_access.py has the stored
+    # shape, docs/permissions.md the model). Always full, whatever the audiences say: the company
+    # owner, the bot itself, a person above the bot on the org chart (`manages`), a bot
+    # administrator for the bots run under their own identity (the rule that lets them change
+    # the bot's settings, `SettingsAdmin._manager`), and, for a bot caller, a bot above it in
+    # the `reports_to` chain. Every other credential (a runner) keeps the reach it always had.
+    FULL = {"see": True, "read": True, "write": True}
+
+    def bot_manager(self, c, who, slug, operator=None):
+        """Whether this person may change the bot's settings: the owner, a bot administrator whose
+        own bot it is, or a person above it on the org chart."""
+        if who.role == "owner":
             return True
+        if who.role != "human":
+            return False
+        if operator is None:
+            row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (slug,)).fetchone()
+            operator = row["operator"] if row else None
+        if operator is not None and self.bot_admin(who) and operator == H.actor_id(who.actor):
+            return True
+        return self.manages(c, who, "bot", slug)
+
+    def bot_accesses(self, c, who, slugs=None):
+        """{slug: {see, read, write}} for this caller, for `slugs` (default every bot with a
+        configuration). One pass, so a list answers with the same rules as a single check."""
+        wanted = list(dict.fromkeys(slugs)) if slugs is not None else None
+        sql = "SELECT bot,access_json,operator,reports_to FROM bot_config"
+        if wanted is not None:
+            sql += " WHERE bot IN (" + ",".join("?" * len(wanted)) + ")"
+        rows = {r["bot"]: r for r in c.execute(sql, tuple(wanted or ()) if wanted is not None else ())}
+        out = {}
+        if who.role not in ("human", "owner", "bot") or who.role == "owner":
+            return {slug: dict(self.FULL) for slug in (wanted if wanted is not None else rows)}
+        shared = {}     # the roster, org-chart inputs and reports_to map, read once and only when needed
+
+        def context():
+            if not shared:
+                from . import views
+                roster = views.roster(c)
+                shared.update(
+                    roster=roster, entries=views.entries(c),
+                    archived={r["slug"] for r in H.bots(c) if r.get("state") == "archived"},
+                    parents={r["bot"]: r["reports_to"] or "" for r in c.execute("SELECT bot,reports_to FROM bot_config")})
+                pid = H.actor_id(who.actor)
+                shared["person"] = pid
+                shared["team"] = (P.person(pid, roster) or {}).get("team") or ""
+            return shared
+
+        for slug in (wanted if wanted is not None else rows):
+            row = rows.get(slug)
+            doc = A.document(row["access_json"]) if row else None
+            if doc is None or A.is_open(doc):
+                out[slug] = dict(self.FULL)
+                continue
+            if who.role == "bot":
+                me = H.actor_id(who.actor)
+                above, seen, parent = False, {slug}, context()["parents"].get(slug, "")
+                while parent and parent not in seen:
+                    if parent == me:
+                        above = True
+                        break
+                    seen.add(parent)
+                    parent = shared["parents"].get(parent, "")
+                if me == slug or above:
+                    out[slug] = dict(self.FULL)
+                    continue
+                levels = {level: A.names(doc[level], bot=me) for level in A.LEVELS}
+                # A bot may answer one that wrote to it, or that holds work it asked for, so a
+                # private bot can still be replied to: nothing else about it opens up.
+                if not levels["write"] and (
+                        c.execute("SELECT 1 FROM messages WHERE to_actor=? AND from_actor=? LIMIT 1",
+                                  (who.actor, "bot:" + slug)).fetchone()
+                        or c.execute("SELECT 1 FROM tasks WHERE requester=? AND owner=? AND status NOT IN "
+                                     "('done','closed','declined') LIMIT 1", ("bot:" + slug, who.actor)).fetchone()):
+                    levels["write"] = True
+            else:
+                ctx = context()
+                pid = ctx["person"]
+                managed = False
+                if row["operator"] and self.bot_admin(who) and row["operator"] == pid:
+                    managed = True
+                elif P.manages(pid, "bot", slug, ctx["roster"], ctx["entries"], ctx["archived"]):
+                    managed = True
+                if managed:
+                    out[slug] = dict(self.FULL)
+                    continue
+                levels = {level: A.names(doc[level], person=pid, team=ctx["team"]) for level in A.LEVELS}
+            levels["see"] = levels["see"] or levels["read"] or levels["write"]
+            out[slug] = levels
+        return out
+
+    def bot_access(self, c, who, slug):
+        """`{see, read, write}` for this caller on one bot. A slug with no configuration is Open."""
+        return self.bot_accesses(c, who, [slug])[slug]
+
+    def person_can(self, c, actor, slug, level):
+        """Whether the person `human:<id>` holds `level` on the bot: for a room's members, not a request."""
+        try:
+            who = self.identity_for_actor(c, actor)
+        except Problem:
+            return False
+        return self.bot_access(c, who, slug)[level]
+
+    def visible_bot(self, c, who, slug):
+        return self.bot_access(c, who, slug)["see"]
+
+    def require(self, c, who, slug, level, missing="Bot not found"):
+        """Refuse unless the caller has `level` on the bot: 404 when they cannot even see it, 403
+        `forbidden` naming what is missing when they can. The one gate every route uses."""
+        access = self.bot_access(c, who, slug)
+        if not access["see"]:
+            raise Problem("not_found", missing, 404)
+        if not access[level]:
+            raise Problem("forbidden", {
+                "read": f"You can see {slug} but not read its activity. Ask the person who runs it for Read access.",
+                "write": f"You can see {slug} but not send it requests. Ask the person who runs it for Write access.",
+            }[level], 403)
+        return access
+
+    def require_see(self, c, who, slug, missing="Bot not found"):
+        return self.require(c, who, slug, "see", missing)
+
+    def require_read(self, c, who, slug, missing="Bot not found"):
+        return self.require(c, who, slug, "read", missing)
+
+    def require_write(self, c, who, slug, missing="Bot not found"):
+        return self.require(c, who, slug, "write", missing)
+
+    def unreadable_bots(self, c, who):
+        """The slugs whose activity this caller may not read: tasks that involve one are hidden
+        from them unless they are a party to the task."""
+        if who.role == "owner" or who.role not in ("human", "bot"):
+            return set()
+        return {slug for slug, level in self.bot_accesses(c, who).items() if not level["read"]}
+
+    def task_sql(self, c, who, delegations="task_delegations"):
+        """The tasks this caller may read, as a WHERE fragment over `tasks` (owner, requester, id).
+
+        The same rule as `task_row`, for lists: a task that involves a bot the caller cannot read
+        is theirs only as a party to it. `delegations` names the table a bot's delegations are
+        read from (the SQL endpoint reads a guarded view of it)."""
+        if who.role == "owner" or who.role not in ("human", "bot"):
+            return "1"
+        hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
+        clear = ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
+        me = A.q(who.actor)
         if who.role == "bot":
-            caller_slug = H.actor_id(who.actor)
-            if caller_slug in self.routing_permissions.get(slug, set()):
-                return True
-        return False
+            return (f"({me} IN (owner,requester) OR ({clear} AND id IN (SELECT task_id FROM {delegations} "
+                    f"WHERE delegate={me} AND expires>{A.q(H.now())})))")
+        return f"({clear} OR {me} IN (owner,requester))"
 
     def operator(self, c, who, bot):
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
@@ -484,13 +623,15 @@ class Auth:
                                      "manager or a person to pass this on, or reply on a task or "
                                      "conversation it opened with you.", 403)
 
-    def target(self, c, who, target):
+    def target(self, c, who, target, need="see"):
+        """The actor a request names. `need` is the level the caller must hold on it when it is a
+        bot: `see` to name it at all, `write` to send it something, `read` to look at its work."""
         self.domain(who)
         actor = H.resolve_actor(c, target)
         if not actor or actor == H.KEEPER:
             raise Problem("not_found", "Unknown recipient", 404)
-        if actor.startswith("bot:") and not self.visible_bot(who, H.actor_id(actor)):
-            raise Problem("forbidden", "This bot is private", 403)
+        if actor.startswith("bot:"):
+            self.require(c, who, H.actor_id(actor), need, missing="Unknown recipient")
         return actor
 
     def conversation(self, c, who, conversation_id):
@@ -526,7 +667,7 @@ class Auth:
                 raise Problem("forbidden", "This personal conversation belongs to another person", 403)
         elif scope == rooms.SHARED:
             bot = rooms.room_bot(row)
-            if not bot or not rooms.shared_member(c, self, who.actor, bot):
+            if not bot or not rooms.shared_member(c, self, who.actor, bot) or not self.bot_access(c, who, bot)["read"]:
                 raise Problem("forbidden", "You are not a member of this shared bot room", 403)
         elif who.role != "owner" and who.actor not in row["participants"]:
             raise Problem("forbidden", "This conversation is private", 403)
@@ -562,8 +703,14 @@ class Auth:
         if who.role == "owner":
             return row
         participants = (row["owner"], row["requester"])
-        if any(a.startswith("bot:") and H.actor_id(a) in self.private for a in participants) and who.actor not in participants:
-            raise Problem("forbidden", "This task is private", 403)
+        if who.actor not in participants:
+            # A party to a task always sees it; anyone else needs Read on every bot it involves.
+            bots = [H.actor_id(a) for a in participants if str(a).startswith("bot:")]
+            for slug, level in (self.bot_accesses(c, who, bots).items() if bots else ()):
+                if not level["see"]:
+                    raise Problem("not_found", "Task not found", 404)
+                if not level["read"]:
+                    raise Problem("forbidden", f"This task involves {slug}, whose activity you cannot read", 403)
         if who.role == "bot" and who.actor not in participants:
             delegated = c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND delegate=? AND expires>?",
                                   (row["id"], who.actor, H.now())).fetchone()

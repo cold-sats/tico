@@ -1,6 +1,6 @@
 """The Health page: what needs attention right now, computed from real state on every read.
 
-Nothing here is stored. A check is `ok`, `warn`, `bad`, `info` or `unknown`; `unknown` means the thing
+Nothing here is stored but one note the owner still has to read (backend/access.py). A check is `ok`, `warn`, `bad`, `info` or `unknown`; `unknown` means the thing
 that would tell us is not reporting, which is not the same as fine, and `info` is an optional thing
 that is not set up (neither fine nor a problem). Each check may carry fixes,
 which the page turns into one-click links. People who are not administrators see counts only.
@@ -8,9 +8,9 @@ which the page turns into one-click links. People who are not administrators see
 
 import json
 
-from . import inbox_isolation, model_login, providers, releases, runner_versions
+from . import access, inbox_isolation, model_login, providers, releases, runner_versions
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
-from .store import H, readiness_document
+from .store import H, Problem, readiness_document
 from .views import roster
 
 QUEUE_MINUTES = 10          # work that has waited this long on a computer that is up is stuck
@@ -218,6 +218,12 @@ def view(c, who, settings, auth, github, config):
             checks.append(_check("version", "Version", "ok", f"Running {_v(releases.version())}, the latest we know of."
                                  if notice.get("latest") else f"Running {_v(releases.version())}."))
 
+    notice = access.bot_access_notice(c) if kind == "owner" else None
+    if notice:
+        # Stays until the owner dismisses it or saves any bot's access: the change reset every bot to Open.
+        checks.append(_check("bot_access", "Bot access", "info", str(notice.get("message") or ""),
+                             [_fix("Open bots", "#/settings", "bots")]))
+
     unpublished = _unpublished(c) if full else []
     if unpublished:
         checks.append(_check("publish", "Bot history", "warn",
@@ -326,7 +332,20 @@ def note_github_token(store, error=None):
 def install(app, store, auth, settings):
     from fastapi import Request
 
+    from . import models as M
     from . import onboarding
+
+    @app.post("/api/v2/health/bot-access/dismiss")
+    def dismiss_bot_access(request: Request, body: M.Empty):
+        """The owner has read the note about the retired private/routing lists."""
+        who = request.state.identity
+        def work(c):
+            if who.role != "owner":
+                raise Problem("forbidden", "Only the owner reads this note", 403)
+            access.clear_bot_access_notice(c)
+            return {"dismissed": True}
+        result = store.mutate(who, request.url.path, request.headers.get("idempotency-key"), body.model_dump(), work)
+        return result
 
     @app.get("/api/v2/health")
     def read(request: Request):

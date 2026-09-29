@@ -12,6 +12,7 @@ address on `allowed`, or at an allowed domain, joins the roster on its first ver
 """
 
 import json
+import logging
 import re
 
 import yaml
@@ -94,6 +95,41 @@ def seed(c, settings, now):
         c.execute("INSERT INTO registry_metadata VALUES(?,?)",
                   (ACCESS, json.dumps({**_access_seed(settings), "revision": 1, "updated": now,
                                        "updated_by": "environment", "source": "environment"}, sort_keys=True)))
+
+
+# ----------------------------------------------------------------------------- per-bot access
+# Who may see, read and write to a bot is stored on the bot (backend/bot_access.py). The old
+# `private_owners` and `routing_permissions` lists in hub-access.yaml are no longer read for
+# enforcement: the first start after they stopped counting resets every bot to Open and leaves the
+# owner one note on Health saying so.
+BOT_ACCESS = "bot_access"
+BOT_ACCESS_NOTICE = "bot_access_notice"
+RETIRED_LISTS = ("private_owners", "routing_permissions", "dispatch_permissions")
+RETIRED_NOTICE = ("hub-access.yaml private/routing lists are no longer used; bots are now Open; "
+                  "set access in Settings > Bots")
+
+
+def retire_bot_lists(c, settings, now):
+    """Once per database: note that the file's private/routing lists are retired. Returns the
+    names of the lists that were present (empty when there was nothing to warn about)."""
+    if _load_json(c, BOT_ACCESS) is not None:
+        return []
+    document = _file_access(settings)
+    present = [name for name in RETIRED_LISTS if document.get(name)]
+    _store(c, BOT_ACCESS, {"migrated": now, "retired": present})
+    if present:
+        logging.getLogger("tico.access").warning("%s (found: %s)", RETIRED_NOTICE, ", ".join(present))
+        _store(c, BOT_ACCESS_NOTICE, {"message": RETIRED_NOTICE, "lists": present, "created": now})
+    return present
+
+
+def bot_access_notice(c):
+    """The note the owner still has to read on Health, or None."""
+    return _load_json(c, BOT_ACCESS_NOTICE)
+
+
+def clear_bot_access_notice(c):
+    c.execute("DELETE FROM registry_metadata WHERE key=?", (BOT_ACCESS_NOTICE,))
 
 
 def _store(c, key, record):

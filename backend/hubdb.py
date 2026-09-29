@@ -2165,7 +2165,7 @@ def next_run_tasks(conn, bot, exclude=None):
         "ORDER BY t.created,t.id", ("bot:" + bot, exclude)))
 
 
-def stuck_tasks(conn, hours=STUCK_HOURS, private=()):
+def stuck_tasks(conn, hours=STUCK_HOURS, hidden=()):
     """Open work on an active bot that has not moved in `hours` and is waiting on nobody: no person
     owes an answer, no open task blocks it, it is not a quiet task, and no run for its bot is queued
     or going. One BotOps sweep finds these instead of a daily run per bot."""
@@ -2182,7 +2182,7 @@ def stuck_tasks(conn, hours=STUCK_HOURS, private=()):
     out = []
     for row in rows:
         slug = actor_id(row["owner"])
-        if slug in private or slug in busy or unanswered_ask(conn, row):
+        if slug in hidden or slug in busy or unanswered_ask(conn, row):
             continue
         if not_yet_due(row, now()):     # parked until its due date, like the stall watcher
             continue
@@ -2874,17 +2874,22 @@ def task_labels(row):
     return _json((row or {}).get("labels_json"), []) or []
 
 
-def labels_in_use(conn):
-    """Every label on a task that is still on the board, most used first."""
+def labels_in_use(conn, visible="1"):
+    """Every label on a task that is still on the board, most used first. `visible` limits it to
+    the tasks the caller may read (`Auth.task_sql`)."""
     marks = ",".join("?" * len(ACTIVE_STATUSES))
     return [r[0] for r in conn.execute(
         f"SELECT value, COUNT(*) n FROM tasks, json_each(tasks.labels_json) "
-        f"WHERE status IN ({marks}) GROUP BY value ORDER BY n DESC, value", ACTIVE_STATUSES)]
+        f"WHERE status IN ({marks}) AND ({visible}) GROUP BY value ORDER BY n DESC, value", ACTIVE_STATUSES)]
 
 
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
-          offset=0, order="queue"):
+          offset=0, order="queue", visible=None):
+    """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
+    `Auth.task_sql`), so a caller's page and its `offset` are cut in the query."""
     sql, args, where = "SELECT * FROM tasks", [], []
+    if visible and visible != "1":
+        where.append("(" + visible + ")")
     if owner:
         where.append("owner=?")
         args.append(owner)

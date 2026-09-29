@@ -301,7 +301,7 @@ class Files:
             managing = who.role in ("owner", "human")
             if managing:
                 bot = H.actor_id(body.bot)
-                if not H.bot(c, bot) or not self.auth.visible_bot(who, bot):
+                if not H.bot(c, bot) or not self.auth.visible_bot(c, who, bot):
                     raise Problem("not_found", "Bot not found", 404)
                 self.require_manager(who)
                 scope, task, conversation, attempt = "bot", None, None, ""
@@ -408,7 +408,7 @@ class Files:
                     self.auth.task(c, who, ident)
                 elif kind == "conversation":
                     self.auth.conversation(c, who, ident)
-                elif not self.auth.visible_bot(who, row["bot"]):
+                elif not self.auth.bot_access(c, who, row["bot"])["read"]:
                     raise Problem("forbidden", "private", 403)
                 cache[key] = True
             except Problem:
@@ -416,10 +416,11 @@ class Files:
         return cache[key]
 
     def bot_row(self, c, who, bot):
+        """The bot's files page: a bot the caller may see. What is listed is only what they may read:
+        its own files need Read, the files of a task or chat they are part of they always see."""
         if not H.bot(c, bot):
             raise Problem("not_found", "Bot not found", 404)
-        if not self.auth.visible_bot(who, bot):
-            raise Problem("forbidden", "This bot is private", 403)
+        self.auth.require_see(c, who, bot)
 
     def brief(self, c, row):
         return {"id": row["id"], "title": row["title"], "state": row["state"], "version": row["current_version"],

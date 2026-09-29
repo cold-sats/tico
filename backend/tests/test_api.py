@@ -20,7 +20,7 @@ def api(tmp_path):
     registry = tmp_path / "hub-registry"
     registry.mkdir()
     (registry / "hub-access.yaml").write_text(yaml.safe_dump({
-        "owner": "ana@acme.example", "private_owners": ["inbox"], "bot_admins": ["ben@acme.example"]}))
+        "owner": "ana@acme.example", "bot_admins": ["ben@acme.example"]}))
     app = create_app(Settings(db_path=tmp_path / "hub.db", registry_dir=registry, test_identities={
         "ana-test": Identity("human:ana", "owner", "ana@acme.example"),
         "ben-test": Identity("human:ben", "human", "ben@acme.example"),
@@ -40,11 +40,23 @@ def api(tmp_path):
                 product = slug in ("cpo", "product-design")
                 c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES(?,?,?,?)",
                           (slug, encode(config), "product" if product else None, "ben" if product else "ana"))
+            # The company's mail bot is Ana's alone: nobody else sees it, reads it or writes to it.
+            restrict(c, "inbox", people=["ana"])
             # A company with a fleet this size is long past first run; the wizard belongs to
             # backend/tests/test_onboarding.py, not to every other test's front page.
             c.execute("INSERT INTO registry_metadata VALUES('onboarding',?)",
                       (encode({"completed": "2026-01-01T00:00:00Z"}),))
         yield client
+
+
+def restrict(c, bot, **audience):
+    """Set a bot's access straight in the database: see, read and write all go to `audience`
+    (people, teams, bots), or per level with see=, read=, write= each an audience dict."""
+    from backend import bot_access as BA
+    levels = {level: audience.pop(level) for level in BA.LEVELS if level in audience}
+    every = {level: levels.get(level, audience) for level in BA.LEVELS}
+    c.execute("UPDATE bot_config SET access_json=? WHERE bot=?",
+              (BA.stored(BA.document({level: BA.audience(value) for level, value in every.items()})), bot))
 
 
 def headers(token="ana-test", key=None):
@@ -188,8 +200,8 @@ def test_shared_room_membership_updates_and_revokes_history_access(api):
 
 def test_private_task_reference_is_denied(api):
     task = post(api, "tasks", {"owner": "inbox", "title": "Review inbox", "body": "Review private messages."})
-    get(api, "tasks/" + task["id"], "ben-test", expected=403)
-    post(api, "chat/cpo", {"text": "Read this", "refs": {"task": task["id"]}}, token="ben-test", expected=403)
+    get(api, "tasks/" + task["id"], "ben-test", expected=404)
+    post(api, "chat/cpo", {"text": "Read this", "refs": {"task": task["id"]}}, token="ben-test", expected=404)
 
 
 def test_steven_manages_product_subtree_only(api):

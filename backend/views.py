@@ -65,18 +65,25 @@ def human_only(who):
 
 
 def may_chat(c, auth, who, bot):
-    if not auth.visible_bot(who, bot):
+    """Whether the caller may send this bot messages: Write on it (backend/bot_access.py). Who a
+    bot "works for" (Can use) no longer decides it."""
+    if not auth.bot_access(c, who, bot)["write"]:
         return False
     if who.role == "bot":
         return True
     # The assistant is chatted with in one place only: each person's own Assistant room, through
     # /api/v2/assistant (backend/assistant.py). It has no chat with anyone else and no shared or
     # per-bot chat, so every other route that asks "may I chat with it" says no.
-    if bot == auth.settings.assistant_bot:
-        return False
-    if who.role == "owner":
-        return True
-    return any(p["id"] == H.actor_id(who.actor) for p in P.primary_users(bot, roster(c), entries(c)))
+    return bot != auth.settings.assistant_bot
+
+
+def require_chat(c, auth, who, bot):
+    """Write on the bot, and a bot that has a chat of its own (the Assistant has only the room
+    /api/v2/assistant gives each person)."""
+    auth.require_write(c, who, bot)
+    if not may_chat(c, auth, who, bot):
+        raise Problem("forbidden", auth.settings.assistant_name + " chats only in your own Assistant "
+                      "(/api/v2/assistant); message one of your bots here", 403)
 
 
 def default_bot(c, settings, botops="botops"):
@@ -91,9 +98,9 @@ def default_bot(c, settings, botops="botops"):
 
 
 def may_hand_work(c, auth, who, bot):
-    """A person may hand this bot work (a task, a meeting) though not chat with it: the
-    assistant still takes work nobody else was named for, and BotOps does when there is none."""
-    return may_chat(c, auth, who, bot) or (bot == default_bot(c, auth.settings) and auth.visible_bot(who, bot))
+    """A person may hand this bot work (a task, a meeting): Write on it, which includes the
+    assistant, who takes chat only in the Assistant room but takes work like any bot."""
+    return auth.bot_access(c, who, bot)["write"]
 
 
 def docs_room(conv, who):
@@ -160,9 +167,10 @@ def operation_issues(c, who, auth):
                            "needs_person": needs_person, "action": action, **extra})
 
     offline = {}    # runner_id -> {label, since, bots: [display names], queued}
+    readable = auth.bot_accesses(c, who)
     for bot in H.bots(c):
         slug = bot["slug"]
-        if not auth.visible_bot(who, slug):
+        if not readable.get(slug, auth.FULL)["read"]:
             continue
         if bot["state"] == "archived":
             continue
@@ -449,9 +457,10 @@ def _clip(text, n=280):
 def recent_bots(c, auth, who, since, limit, needs):
     """The bots `who` exchanged messages or tasks with since `since`, most recent first."""
     me, seen = who.actor, {}
+    access = auth.bot_accesses(c, who)
 
     def touch(slug, ts):
-        if slug and auth.visible_bot(who, slug) and ts and ts > seen.get(slug, ""):
+        if slug and access.get(slug, auth.FULL)["see"] and ts and ts > seen.get(slug, ""):
             seen[slug] = ts
     for row in c.execute("SELECT from_actor, to_actor, created FROM messages WHERE created>=? AND "
                          "((from_actor=? AND to_actor LIKE 'bot:%') OR (to_actor=? AND from_actor LIKE 'bot:%'))",
@@ -470,7 +479,9 @@ def recent_bots(c, auth, who, since, limit, needs):
     out = []
     for slug, last in sorted(seen.items(), key=lambda kv: kv[1], reverse=True)[:limit]:
         bot = H.bot(c, slug) or {}
-        status = H.status(c, slug) or {}
+        # The bot's status is its activity: a person who may only write to it hears what it said
+        # to them, not what it is doing.
+        status = (H.status(c, slug) or {}) if access.get(slug, auth.FULL)["read"] else {}
         actor = H.bot_actor(slug)
         mine = c.execute("SELECT body, created, conversation_id FROM messages WHERE from_actor=? AND to_actor=? "
                          "ORDER BY created DESC LIMIT 1", (me, actor)).fetchone()
@@ -545,11 +556,18 @@ def fleet_snapshot_cached(c, auth, identity, task_view, ttl=FLEET_CACHE_S):
 def fleet_snapshot(c, auth, identity, task_view):
     """One live, actor-scoped control-plane snapshot for Tico's private room."""
     principal = auth.tico_principal(c, identity)
-    allowed = {row["slug"] for row in H.bots(c) if may_hand_work(c, auth, principal, row["slug"])}
+    access = auth.bot_accesses(c, principal)
+    allowed = {row["slug"] for row in H.bots(c) if access.get(row["slug"], auth.FULL)["write"]}
     bots = []
     for row in H.bots(c):
         slug = row["slug"]
         if slug not in allowed:
+            continue
+        if not access.get(slug, auth.FULL)["read"]:
+            # A bot the person may only send requests to: its name and that it exists, not its work.
+            bots.append({"slug": slug, "name": row["display_name"], "state": row["state"], "focus": "",
+                         "task_id": None, "online": None, "ready": None, "queued": None,
+                         "active_attempt": None})
             continue
         status = H.status(c, slug) or {}
         location = machine(c, slug)
@@ -614,13 +632,17 @@ def _product_updates(c, settings):
 def install_views(app, store, auth, mutate, task_view):
     def visible_turns(c, who, bot=None, limit=200):
         auth.domain(who)
+        readable = None
         if bot:
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
-            if not auth.visible_bot(who, bot):
-                raise Problem("forbidden", "This bot is private", 403)
+            auth.require_read(c, who, bot)
+        else:
+            readable = {slug for slug, level in auth.bot_accesses(c, who).items() if level["read"]}
         rows = []
         for turn in H.turns(c, bot, limit=limit):
+            if readable is not None and turn["bot"] not in readable:
+                continue
             message = H.message(c, turn["message_id"])
             if not message:
                 continue
@@ -648,9 +670,27 @@ def install_views(app, store, auth, mutate, task_view):
         archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
         company = providers.load(c, store.settings)
         rows = []
+        access = auth.bot_accesses(c, who)
         for bot in H.bots(c):
             slug = bot["slug"]
-            if bot.get("state") == "archived" or not auth.visible_bot(who, slug):
+            level = access.get(slug, auth.FULL)
+            if bot.get("state") == "archived" or not level["see"]:
+                continue
+            if not level["read"]:
+                # Seen, not read: the name, role, who runs it, who it reports to. Its
+                # configuration, routines, machine and goals are its activity.
+                registry = c.execute("SELECT operator,revision FROM bot_config WHERE bot=?", (slug,)).fetchone()
+                reports = (configs.get(slug, {}) or {}).get("reports_to") or ""
+                if reports and not str(reports).startswith("human:") and not access.get(reports, auth.FULL)["see"]:
+                    reports = ""
+                rows.append({"name": slug, "display_name": bot["display_name"], "state": bot["state"],
+                             "status": bot["state"], "description": (configs.get(slug, {}) or {}).get("description") or "",
+                             "reports_to": reports, "access": level,
+                             "team": P.team_of(slug, configs, people["teams"]),
+                             "org_parent": P.org_parent("bot", slug, people, configs, archived),
+                             "operator": registry["operator"] if registry else None,
+                             "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
+                             "can_chat": may_chat(c, auth, who, slug)})
                 continue
             config = configs.get(slug, {})
             # Configuration contains connector requirements, never connector credentials.
@@ -676,7 +716,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "goals": (registry["goals"] if registry else "") or "",
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
-                         "can_chat": may_chat(c, auth, who, slug)})
+                         "access": level, "can_chat": may_chat(c, auth, who, slug)})
         return rows
 
     @app.get("/api/me")
@@ -718,11 +758,12 @@ def install_views(app, store, auth, mutate, task_view):
             r, configs = roster(c), entries(c)
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
             view = P.org_view(r, configs, archived)
+            access = auth.bot_accesses(c, who)
             return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
                 "photo_url": "/api/people/" + p["id"] + "/photo",
                 "bots": [b for b in P.bots_of(p["id"], r, configs)
-                         if auth.visible_bot(who, b) and b not in archived]}
+                         if access.get(b, auth.FULL)["see"] and b not in archived]}
                 for p in r["people"]]}
 
     @app.get("/api/people/{pid}/photo")
@@ -792,11 +833,12 @@ def install_views(app, store, auth, mutate, task_view):
             active, queued, schedules = [], [], []
             # Cancelled and uncertain jobs are not "up next": uncertain work already
             # surfaces as a health issue, cancelled work is history.
+            readable = auth.bot_accesses(c, who)
             for row in c.execute("SELECT j.*,a.started,t.title AS task_title,m.from_actor FROM jobs j "
                                  "LEFT JOIN attempts a ON a.id=j.attempt_id JOIN messages m ON m.id=j.message_id "
                                  f"JOIN conversations cv ON cv.id=m.conversation_id LEFT JOIN tasks t ON t.id={H.MESSAGE_TASK_SQL} "
                                  "WHERE j.state IN ('queued','leased','running','input') ORDER BY j.created"):
-                if auth.visible_bot(who, row["bot"]):
+                if readable.get(row["bot"], auth.FULL)["read"]:
                     # Never the message text: a shared bot's private chats belong to their people.
                     title = row["task_title"] or "Message from " + H.actor_id(row["from_actor"])
                     item = {"employee": row["bot"], "bot": row["bot"], "id": row["id"], "started": row["started"],
@@ -804,7 +846,7 @@ def install_views(app, store, auth, mutate, task_view):
                             "title": title if len(title) <= 80 else title[:79].rstrip() + "\u2026"}
                     (queued if row["state"] == "queued" else active).append(item)
             from .routines import listing
-            schedules = [{**row, 'last_checked': tick} for row in listing(c, summary=True) if auth.visible_bot(who, row['bot'])]
+            schedules = [{**row, 'last_checked': tick} for row in listing(c, summary=True) if readable.get(row['bot'], auth.FULL)['read']]
             return {"cloud": True, "last_tick": tick, "active": active, "queued": queued,
                     "recent_runs": [], "keeper_alive": age is not None and age < 60,
                     "dispatcher_alive": False, "tick_age_s": age, "server_time": H.now(), "schedules": schedules,
@@ -893,8 +935,7 @@ def install_views(app, store, auth, mutate, task_view):
         with store.read() as c:
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
-            if not auth.visible_bot(who, bot):
-                raise Problem("forbidden", "This bot is private", 403)
+            auth.require_read(c, who, bot)
             row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
             config = json.loads(row[0]) if row else {}
             safe = {k: v for k, v in config.items() if k not in ("cwd", "env", "token", "secrets", "secrets_file")}
@@ -977,7 +1018,7 @@ def install_views(app, store, auth, mutate, task_view):
         candidates = [task["owner"], task["requester"], H.task_origin(c, task)]
         # No assistant fallback since its chat was retired: a task with no bot has nobody to chat to.
         slug = next((H.actor_id(p) for p in candidates if str(p).startswith("bot:")
-                     and auth.visible_bot(who, H.actor_id(p)) and H.bot(c, H.actor_id(p))), None)
+                     and auth.visible_bot(c, who, H.actor_id(p)) and H.bot(c, H.actor_id(p))), None)
         bot = (H.bot(c, slug) if slug else None) or {}
         allowed = bool(slug) and may_chat(c, auth, who, slug)
         conv = rooms.chat_room(c, auth, who, slug) if allowed else None
@@ -989,7 +1030,8 @@ def install_views(app, store, auth, mutate, task_view):
                 raise Problem("no_bot", "No bot owns or asked for this task; assign it to a bot "
                               "to discuss it, or comment on the task", 409)
             if not allowed:
-                raise Problem("forbidden", "You are not assigned to this bot", 403)
+                auth.require_write(c, who, slug)
+                raise Problem("forbidden", "This bot takes requests in its own Assistant room, not here", 403)
             message = H.say(c, who.actor, "bot:" + slug, text, conversation_id=conv["id"], refs={"task": tid})
             c.execute("INSERT INTO task_delegations(task_id,delegate,requested_by,message_id,expires) VALUES(?,?,?,?,?)",
                       (tid, "bot:" + slug, who.actor, message["id"], H.shift(H.now(), hours=24)))
@@ -1012,8 +1054,7 @@ def install_views(app, store, auth, mutate, task_view):
         who = request.state.identity
         human_only(who)
         def work(c):
-            if not may_chat(c, auth, who, bot):
-                raise Problem("forbidden", "You are not assigned to this bot", 403)
+            require_chat(c, auth, who, bot)
             conv = next((row for row in H.conversations_for(c, who.actor) if row["kind"] == "chat"
                          and not row.get("task_id") and not row["closed_at"]
                          and set(row["participants"]) == {who.actor, "bot:" + bot}), None)

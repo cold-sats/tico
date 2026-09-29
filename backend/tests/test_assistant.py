@@ -57,7 +57,7 @@ def test_the_assistant_acts_as_the_person_and_never_more(api):
     token = attempt["token"]
     assert get(api, "me", token)["actor"] == "human:ben"           # its tools are ben's, not the bot's
     # What ben may not see or touch, his Assistant may not.
-    get(api, "tasks/" + secret, token, expected=403)
+    get(api, "tasks/" + secret, token, expected=404)
     post(api, "tasks/" + secret + "/comments", {"text": "Looking"}, token=token, expected=403)
     # Nothing that changes settings, people or bots runs on its own, whoever it acts for.
     post(api, "bots/ops/archive", {"expected_revision": 1}, token=token, expected=403)
