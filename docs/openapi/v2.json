@@ -4493,9 +4493,13 @@
             ]
           },
           "execution": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Execution"
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "The assistant's current run: state, label, text so far; null when it is not working (show a thinking state while it is)"
           },
@@ -5389,6 +5393,74 @@
         "type": "object",
         "title": "Empty"
       },
+      "Execution": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "bot": {
+            "type": "string"
+          },
+          "attempt_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "progress",
+                    "reply",
+                    "tool"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "at",
+                "kind",
+                "text"
+              ],
+              "additionalProperties": true
+            },
+            "description": "The run's pieces so far, in order, while it is leased or running (empty otherwise). `reply` and `progress` are what the bot wrote (`progress` when a tool call follows it); `tool` is a short label such as \"Ran hub task create\", never its arguments or output"
+          }
+        },
+        "required": [
+          "attempt_id",
+          "bot",
+          "job_id",
+          "label",
+          "message_id",
+          "parts",
+          "state",
+          "text"
+        ],
+        "additionalProperties": true
+      },
       "FileActivity": {
         "type": "object",
         "properties": {
@@ -6091,6 +6163,32 @@
           "body_raw": {
             "type": "string",
             "description": "A notice the hub wrote, as stored (with actor ids); `body` shows names to people"
+          },
+          "run": {
+            "type": "object",
+            "description": "The run that handled this message, once one has: on a person's message `{job_id, attempt_id, state}` where `state` is `started_run` (it started the run) or `added_to_run` (it was folded into a run already working); on a bot's reply `{job_id, attempt_id}` (the run that wrote it, plus a summary of what it did). Absent until a run takes the message",
+            "properties": {
+              "job_id": {
+                "type": "string"
+              },
+              "attempt_id": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "started_run",
+                  "added_to_run"
+                ]
+              }
+            }
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "A message id"
+            },
+            "description": "On a bot's reply: the ids of every message its run handled, the one that started it first, then those folded in. Absent on replies from before it existed"
           }
         },
         "required": [
@@ -6598,11 +6696,15 @@
             ]
           },
           "execution": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Execution"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "description": "The latest run: state, label, text (the reply so far), bot"
+            "description": "The latest run: state, label, text (the reply so far; separate messages are joined by a blank line), parts, bot"
           }
         },
         "required": [

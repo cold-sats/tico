@@ -9,6 +9,7 @@ the reader could not open on its own (a task or a conversation outside their rea
 """
 
 import json
+import re
 
 from fastapi import Request
 
@@ -21,6 +22,11 @@ TOOL_QUIET = {"", "completed", "done", "success", "succeeded", "tool_execution_e
 # Text deltas are the reply being typed and tokens/status are bookkeeping: none is a step.
 STEP_EVENTS = ("(kind IN ('tool','message','error') OR "
                "(kind='delta' AND json_extract(payload_json,'$.delta_kind')='thought'))")
+
+
+# A tool event that reports a call's end (or its failure) is the same call the start already listed.
+TOOL_ENDED = TOOL_QUIET | {"failed", "error", "cancelled", "canceled"}
+TOOL_LABEL_CHARS = 60
 
 
 def clip(text, limit):
@@ -63,6 +69,61 @@ def build_steps(rows):
     return steps[:STEP_LIMIT]
 
 
+def tool_label(payload):
+    """"Ran hub task create" from a tool event: the tool's own name and nothing else. An event can
+    carry a call's arguments or output; neither is read, so neither can reach a frontend."""
+    words = " ".join(re.sub(r"[^A-Za-z0-9]+", " ", str(payload.get("tool") or payload.get("name") or "")).split())
+    if words.lower().startswith("mcp "):
+        words = words[4:]
+    return "Ran " + (words[:TOOL_LABEL_CHARS].strip() or "a tool")
+
+
+def reply_parts(rows):
+    """The pieces of a run's live reply, in order: [{kind, text, at}], from its attempt events
+    (kind, payload, created).
+
+    A message is one piece however it arrived. Its deltas type into a piece as they come, so they
+    join with nothing between them; the message that ends it (which holds its whole text) replaces
+    what they typed; and the next delta or message starts a new piece. A closing message that only
+    repeats the piece before it adds nothing. A tool call is a short piece of its own (its label,
+    never its arguments or output) and ends the piece being typed. A text piece the bot wrote just
+    before a tool call is `progress`; the others are `reply`. A model's thinking is not the reply.
+    """
+    parts, typing, called = [], None, set()
+    for kind, payload, at in rows:
+        if kind == "delta":
+            if payload.get("delta_kind") == "thought":
+                continue
+            if typing is None:
+                typing = {"kind": "reply", "text": "", "at": at}
+                parts.append(typing)
+            typing["text"] += str(payload.get("text", ""))
+        elif kind == "message":
+            text = str(payload.get("text", ""))
+            if typing is not None:
+                if text.strip():
+                    typing["text"] = text
+                typing = None
+            elif text.strip():
+                last = next((p for p in reversed(parts) if p["kind"] != "tool"), None)
+                if not last or last["text"].strip() != text.strip():
+                    parts.append({"kind": "reply", "text": text, "at": at})
+        elif kind == "tool":
+            status = str(payload.get("status") or payload.get("state") or payload.get("phase") or "").lower()
+            key = payload.get("item_id")
+            if status in TOOL_ENDED or (key and key in called):
+                continue
+            called.add(key)
+            typing = None
+            parts.append({"kind": "tool", "text": tool_label(payload), "at": at})
+    parts = [{**p, "text": p["text"].strip()} for p in parts]
+    parts = [p for p in parts if p["text"]]
+    for here, after in zip(parts, parts[1:]):
+        if here["kind"] == "reply" and after["kind"] == "tool":
+            here["kind"] = "progress"
+    return parts
+
+
 def seconds(start, end):
     a, b = H.parse_ts(start), H.parse_ts(end)
     return int((b - a).total_seconds()) if a and b else None
@@ -82,8 +143,41 @@ def task_refs(message):
             yield from (v for v in (values if isinstance(values, list) else [values]) if isinstance(v, str) and v)
 
 
+def mark_runs(c, messages):
+    """Say which run handled each message, on the message itself.
+
+    A message a bot's run was started for is `run.state` "started_run"; one that was folded into a
+    run already working is "added_to_run", and `run` names that run's job and attempt either way.
+    A bot's reply carries `run` (the run that wrote it) and `answers`, every message that run
+    handled, both saved with the reply when the run completed (`refs.run`, `refs.answers`).
+    Who was folded in is `attempt_inputs`, which the hub keeps, so it needs nothing new stored;
+    a message from before this, or one no run has taken yet, simply has no `run`.
+    """
+    ids = [m["id"] for m in messages]
+    taken = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        for row in c.execute(
+                "SELECT j.message_id,j.id AS job_id,j.attempt_id,a.job_id AS run_job,"
+                " EXISTS(SELECT 1 FROM attempt_inputs i WHERE i.message_id=j.message_id AND i.attempt_id=j.attempt_id) AS folded"
+                " FROM jobs j JOIN attempts a ON a.id=j.attempt_id WHERE j.message_id IN (%s)" % ",".join("?" * len(chunk)),
+                tuple(chunk)):
+            if row["folded"] or row["run_job"] == row["job_id"]:      # not a notice another run merely coalesced
+                taken[row["message_id"]] = {"job_id": row["run_job"], "attempt_id": row["attempt_id"],
+                                            "state": "added_to_run" if row["folded"] else "started_run"}
+    for m in messages:
+        refs = m.get("refs") or {}
+        if isinstance(refs.get("run"), dict) and isinstance(refs.get("answers"), list):
+            m["run"], m["answers"] = dict(refs["run"]), list(refs["answers"])
+        elif m["id"] in taken:
+            m["run"] = taken[m["id"]]
+    return messages
+
+
 def annotate(c, auth, who, messages):
-    """Add `ref_tasks` and, on a bot's reply, `run` to messages this reader may already see."""
+    """Add `run` (which run handled it), `ref_tasks` and, on a bot's reply, what the run did to
+    messages this reader may already see."""
+    mark_runs(c, messages)
     titles = {}
     for tid in {v for m in messages for v in task_refs(m)}:
         row = H.task(c, tid)
@@ -144,9 +238,9 @@ def annotate(c, auth, who, messages):
         events[row["attempt_id"]].append((row["kind"], json.loads(row["payload_json"]), row["created"]))
     for aid, t in turns.items():
         steps = build_steps(events[aid])
-        replies[aid]["run"] = {"did": sorted(did[aid], key=lambda d: d["at"]), "steps": len(steps),
-                               "tool_calls": sum(s["kind"] == "tool" for s in steps),
-                               "took_s": seconds(t["started"], t["finished"])}
+        replies[aid].setdefault("run", {}).update(
+            did=sorted(did[aid], key=lambda d: d["at"]), steps=len(steps),
+            tool_calls=sum(s["kind"] == "tool" for s in steps), took_s=seconds(t["started"], t["finished"]))
     return messages
 
 

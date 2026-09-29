@@ -8,8 +8,21 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Live replies for custom frontends: `execution.parts` in `/watch` and `/snapshot` lists the pieces of the run's reply so
+  far, in order, as `{kind: "progress"|"reply"|"tool", text, at}`. A tool call is one short label ("Ran hub task create"),
+  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#streaming).
+- Messages say which run handled them. On the `messages`, `snapshot` and `watch` routes a message a run has taken carries
+  `run: {job_id, attempt_id, state}`, with `state` `started_run` or, for a follow-up delivered into a run already working,
+  `added_to_run`. A bot's reply carries `run: {job_id, attempt_id}` and `answers`, the ids of every message that run
+  handled (the one that started it, then the folded-in ones). Older replies have no `answers`.
+- A Grok run now reports its tool calls (by kind only, never the title or input), which is what lets a frontend see where one
+  message ends and the next begins.
 
 ### Changed
+- `execution.text` puts a blank line (`"\n\n"`) between a run's separate messages; it ran them together
+  ("planned.I've filed"). Deltas within one message still join directly, the run's closing message no longer replaces the
+  progress notes before it, and a model's thinking is no longer part of the text. Tico's own chat shows each message
+  as its own paragraph.
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
   inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the

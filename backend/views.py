@@ -353,16 +353,13 @@ def conversation_snapshot(c, cid):
                                                   or "a registered machine") + " to stay awake"
             elif not location["ready"]:
                 label = "Saved — waiting for runner setup"
-        live = ""
+        parts = []
         if state in ("leased", "running"):
-            for event in c.execute("SELECT kind,payload_json FROM attempt_events WHERE attempt_id=? ORDER BY seq", (job["attempt_id"],)):
-                payload = json.loads(event["payload_json"])
-                if event["kind"] == "delta":
-                    live += str(payload.get("text", ""))
-                elif event["kind"] == "message" and payload.get("final"):
-                    live = str(payload.get("text", live))
+            parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(
+                "SELECT kind,payload_json,created FROM attempt_events WHERE attempt_id=? ORDER BY seq", (job["attempt_id"],))])
         execution = {"job_id": job["id"], "message_id": job["message_id"], "bot": job["bot"],
-                     "attempt_id": job["attempt_id"], "state": state, "label": label, "text": live, **location}
+                     "attempt_id": job["attempt_id"], "state": state, "label": label,
+                     "text": "\n\n".join(p["text"] for p in parts if p["kind"] != "tool"), "parts": parts, **location}
     return {**page, "execution": execution}
 
 

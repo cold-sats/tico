@@ -197,7 +197,7 @@ routes. Every `POST` also needs an `Idempotency-Key` header. Answers below are t
 | Org chart | `GET /api/v2/org` | `{"people": [{"id", "name", "email", "title", "reports_to", "org_parent": "p:ana"}], "bots": [{"id", "display_name", "description", "reports_to", "org_parent": "b:coo", "status"}], "org_groups": [...]}`. `org_parent` is `p:<person>`, `b:<bot>`, `g:<group>` or `""` (top): build the tree from it. |
 | Bots and status | `GET /api/v2/bots` | `[{"slug", "display_name", "state", "online": true, "queued": 0, "status": {"state", "focus"}, "owners": [...]}]`. `state` is `active`, `paused`...; `online` says whether its computer is connected. Archived bots are left out (add `?include_archived=1` for an admin view that needs them). |
 | My chats | `GET /api/v2/conversations?chat_with=ops` | `{"conversations": [{"id", "participants", "last_message_at"}]}`: my open chat with that bot (none yet is an empty list). |
-| Messages | `GET /api/v2/conversations/{id}/messages` | `{"messages": [{"id", "from_actor": "human:ana", "from_name": "Ana", "to_actor": "bot:ops", "to_name": "Ops", "body", "created", "refs"}], "actors": {...}, "has_more", "next_before"}`. Oldest first, up to 200; `?before=<next_before>` pages back. |
+| Messages | `GET /api/v2/conversations/{id}/messages` | `{"messages": [{"id", "from_actor": "human:ana", "from_name": "Ana", "to_actor": "bot:ops", "to_name": "Ops", "body", "created", "refs", "run": {"job_id", "attempt_id", "state": "started_run"\|"added_to_run"}}], "actors": {...}, "has_more", "next_before"}`. Oldest first, up to 200; `?before=<next_before>` pages back. `run` says which run took a message and is absent until one has; a bot's reply carries `run` and `answers` too ([below](#which-run-took-a-message)). |
 | Send to a bot | `POST /api/v2/chat/ops` `{"text": "Hello"}` | `{"conversation": {"id"}, "message": {"id", "body"}}`. Opens the chat if needed; the reply arrives [live](#streaming). |
 | Send in a chat | `POST /api/v2/conversations/{id}/messages` `{"text": "Again"}` | `{"message": {...}}` |
 | Tasks | `GET /api/v2/tasks?status=open,doing&owner=human:ana&limit=100` | `{"tasks": [{"id", "title", "body", "owner", "owner_name", "requester", "requester_name", "status", "due", "version", "labels"}], "actors": {...}, "next_offset": null}`. Statuses: `open doing waiting review ready done declined`. `?offset=` pages. |
@@ -242,7 +242,11 @@ by a blank line.
 ```
 event: snapshot
 data: {"messages": [...newest 200...], "has_more": false, "next_before": null,
-       "execution": {"state": "running", "label": "Working", "text": "Hello from ops. The reply", "bot": "ops", "job_id": "...", ...}}
+       "execution": {"state": "running", "label": "Working", "bot": "ops", "job_id": "...",
+                     "text": "I'll file the task.\n\nFiled it. The reply so far",
+                     "parts": [{"kind": "progress", "text": "I'll file the task.", "at": "2026-09-29T10:00:01.120Z"},
+                               {"kind": "tool", "text": "Ran hub task create", "at": "2026-09-29T10:00:02.410Z"},
+                               {"kind": "reply", "text": "Filed it. The reply so far", "at": "2026-09-29T10:00:04.870Z"}], ...}}
 
 : keepalive
 ```
@@ -253,6 +257,18 @@ data: {"messages": [...newest 200...], "has_more": false, "next_before": null,
   far**. When the run completes, the final message is in `messages` and `execution.text` is no longer needed. Show
   `text` as a growing bubble, then let it be replaced by the stored message. `execution` is `null` before the first
   message.
+- **`execution.text` and `execution.parts`.** A run can write several messages ("I'll look into it", then a tool call,
+  then the answer). `text` joins them with a blank line (`"\n\n"`), so rendering it as Markdown gives one paragraph
+  each, while the pieces of one message (the token deltas as it is typed) join with nothing between them. `parts`
+  is the same run as a list, in order, for a frontend that wants to style them apart. Each is `{"kind", "text", "at"}`:
+  - `reply`: what the bot wrote;
+  - `progress`: what the bot wrote just before a tool call, as a note on what it is about to do;
+  - `tool`: a short label such as `Ran hub task create`. It is the tool's name only; the call's arguments and output are never
+    in a snapshot. A bot's tool calls appear here when its runtime reports them (Cursor, Gemini, Pi, Grok and Antigravity
+    do; Claude and Codex do not, so their pieces are all `reply`).
+
+  `text` leaves the tool labels out. Like `text`, `parts` is filled while the state is `leased` or `running`. `at` is when
+  the piece began. Show a `tool` piece as a quiet line; it is not part of the answer.
 - A new snapshot is sent when something changed (a new message, a new piece of the reply, a computer going offline);
   `: keepalive` comment lines fill the time between. They carry no data.
 - **`event: expired`** means the session ended: sign in again.
@@ -275,6 +291,31 @@ blocks with an `id:` line (the cursor) and the run's raw events as they are writ
 resume, pass the last `id` you saw as `after` (the `Last-Event-ID` header is not read by the server: a `fetch` client
 sets `after` itself). It ends after about a minute as well. Use `/watch` unless you are building a step-by-step view of
 what a bot is doing.
+
+### Which run took a message
+
+Messages sent while a bot is working are folded into its current run (`execution.label` reads "Working - follow-up
+added"). The messages say so themselves, on the routes that return them (`/messages`, `/snapshot` and `/watch`):
+
+```json
+{"messages": [
+  {"id": "m1", "from_actor": "human:ana", "body": "Draft the launch plan",
+   "run": {"job_id": "j1", "attempt_id": "a1", "state": "started_run"}},
+  {"id": "m2", "from_actor": "human:ana", "body": "Also cover pricing",
+   "run": {"job_id": "j1", "attempt_id": "a1", "state": "added_to_run"}},
+  {"id": "m3", "from_actor": "bot:ops", "in_reply_to": "m1", "body": "The plan is in the task.",
+   "run": {"job_id": "j1", "attempt_id": "a1", "did": [...], "steps": 4, "tool_calls": 2, "took_s": 38},
+   "answers": ["m1", "m2"]}]}
+```
+
+- A person's message that starts a run has `run.state` `started_run`; one delivered into a run that was already working
+  has `added_to_run`. Either way `job_id` and `attempt_id` name that run, so `m2` above belongs to the run of `m1`.
+- A message no run has taken yet (it is still queued) has no `run`. A reply written before this existed has `run` only when it was answering a turn, and no `answers`.
+- The reply the run wrote carries `run` (the same `job_id` and `attempt_id`, with a summary of what it did) and `answers`,
+  the ids of every message in that conversation the run handled: the one that started it first, then the ones folded in.
+  Use it to show one reply under both messages, and to tell "answered" from "waiting for the next run".
+- These are stored with the run, so they are the same after a restart or a reconnect. If a run fails and its
+  messages are queued again, they get a new `run` when the next run takes them.
 
 ## Errors
 

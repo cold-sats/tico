@@ -188,7 +188,22 @@ SCHEMAS = {
                     "created": "s", "in_reply_to": "n", "refs": "o"}, required=["id", "conversation_id", "from_actor", "to_actor", "kind", "body", "created", "in_reply_to", "refs"],
                    from_name={"type": "string", "description": "Display name of from_actor, when it is a person or a bot"},
                    to_name={"type": "string", "description": "Display name of to_actor"},
-                   body_raw={"type": "string", "description": "A notice the hub wrote, as stored (with actor ids); `body` shows names to people"}),
+                   body_raw={"type": "string", "description": "A notice the hub wrote, as stored (with actor ids); `body` shows names to people"},
+                   run={"type": "object", "description": "The run that handled this message, once one has: on a person's message "
+                        "`{job_id, attempt_id, state}` where `state` is `started_run` (it started the run) or `added_to_run` "
+                        "(it was folded into a run already working); on a bot's reply `{job_id, attempt_id}` (the run that "
+                        "wrote it, plus a summary of what it did). Absent until a run takes the message",
+                        "properties": {"job_id": {"type": "string"}, "attempt_id": {"type": "string"},
+                                       "state": {"enum": ["started_run", "added_to_run"]}}},
+                   answers=items({"type": "string", "description": "A message id"}) | {
+                       "description": "On a bot's reply: the ids of every message its run handled, the one that started it "
+                                      "first, then those folded in. Absent on replies from before it existed"}),
+    "Execution": obj({"job_id": "s", "message_id": "s", "bot": "s", "attempt_id": "n", "state": "s", "label": "s", "text": "s"},
+                     required=["job_id", "message_id", "bot", "attempt_id", "state", "label", "text", "parts"],
+                     parts=items(obj({"kind": {"enum": ["progress", "reply", "tool"]}, "text": "s", "at": "s"})) | {
+                         "description": "The run's pieces so far, in order, while it is leased or running (empty otherwise). "
+                                        "`reply` and `progress` are what the bot wrote (`progress` when a tool call follows it); "
+                                        "`tool` is a short label such as \"Ran hub task create\", never its arguments or output"}),
     "Conversation": obj({"id": "s", "kind": "s", "subject": "s", "participants": items({"type": "string"}),
                          "created": "s", "last_message_at": "s", "closed_at": "n"}),
     "Task": obj({"id": "s", "title": "s", "body": "s", "requester": "s", "owner": "s", "status": "s", "created": "s",
@@ -217,7 +232,8 @@ SCHEMAS = {
                         "next_before": "n"},
                        required=["conversation", "messages", "has_more", "next_before"], actors=ACTORS),
     "Snapshot": obj({"messages": items(ref("Message")), "has_more": "b", "next_before": "n",
-                     "execution": {"type": ["object", "null"], "description": "The latest run: state, label, text (the reply so far), bot"}}),
+                     "execution": {"oneOf": [ref("Execution"), {"type": "null"}], "description": "The latest run: state, label, "
+                                   "text (the reply so far; separate messages are joined by a blank line), parts, bot"}}),
     "MessageResult": obj({"message": ref("Message")}),
     "ChatResult": obj({"conversation": ref("Conversation"), "message": ref("Message")}),
     "TaskList": obj({"tasks": items(ref("Task")), "next_offset": {"type": ["integer", "null"]}},
@@ -273,7 +289,7 @@ SCHEMAS = {
     "FileVersions": obj({"file": "s", "versions": "a"}),
     "Assistant": obj({"available": "b", "state": "s", "bot": "s", "name": "s", "can_turn_on": "b", "room_id": "n",
                       "messages": items(ref("Message")), "has_more": "b", "next_before": "n",
-                      "execution": {"type": ["object", "null"], "description": "The assistant's current run: state, label, "
+                      "execution": {"oneOf": [ref("Execution"), {"type": "null"}], "description": "The assistant's current run: state, label, "
                                     "text so far; null when it is not working (show a thinking state while it is)"},
                       "actions": {"type": "object", "description": "{action id: proposal} for every card in `messages` "
                                   "(a message whose refs.action names one is a Confirm / Cancel card)"},

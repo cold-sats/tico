@@ -182,6 +182,16 @@ class GrokAcp(unittest.TestCase):
         response = [m for m in proc.sent if m.get("id") == "permission-2" and "method" not in m][0]
         self.assertEqual(response["result"]["outcome"], {"outcome": "cancelled"})
 
+    def test_a_tool_call_is_reported_by_its_kind_only(self):
+        host, _ = make_grok()
+        host._turn["sess-1"] = "turn-1"
+        host._on_notification("session/update", {"sessionId": "sess-1", "update": {
+            "sessionUpdate": "tool_call", "kind": "execute", "toolCallId": "c1",
+            "title": "curl -H 'Authorization: hunter2' https://example.com", "rawInput": {"command": "hunter2"}}})
+        tools = self.drain(host, "tool")
+        self.assertEqual([(e["tool"], e["status"], e["item_id"]) for e in tools], [("execute", "started", "c1")])
+        self.assertNotIn("hunter2", json.dumps(tools))
+
 # ----------------------------------------------------------------------------- Claude (stream-json)
 class ClaudeProcess:
     """Popen's surface for one `claude -p` run: the prompt arrives on stdin, stream-json leaves
