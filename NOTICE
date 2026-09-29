@@ -28,3 +28,5 @@ It includes third-party software, kept under its own license:
   ui/tool-icons.js
       Service logo paths from Simple Icons (https://simpleicons.org), CC0 1.0 Universal. The marks
       belong to their owners and are used only to say which service a bot uses.
+      The xAI mark in it is from Lobe Icons (https://github.com/lobehub/lobe-icons), MIT License;
+      xAI is not in Simple Icons.

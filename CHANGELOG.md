@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **The org panel shows a bot's harness as a small icon.** Where it said "Codex" or "Claude" beside a bot's name there is now the
+  OpenAI, Anthropic, Google, xAI, Cursor or OpenRouter mark, muted and about 13px, with "Runs on Codex" as its title and label. The
+  name truncates before the mark, and a bot with no harness shows nothing. The same mark sits beside the name on a bot's page.
+
 ## [0.2.13] - 2026-09-29
 
 ### Added

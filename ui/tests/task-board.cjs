@@ -25,7 +25,8 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     page.on('pageerror', e => errors.push(e.message));
     const bots = [['coo', 'COO', 'leadership'], ['cpo', 'AI CPO', 'product'], ['cmo', 'AI CMO', 'marketing'],
       ['cto', 'CTO', 'engineering']].map(([name, display_name, team]) =>
-      ({name, display_name, host: 'keeper', status: 'active', can_chat: true, team}));
+      ({name, display_name, host: 'keeper', status: 'active', can_chat: true, team,
+        runtime: {cpo: 'codex', cmo: 'claude'}[name]}));
     const now = new Date().toISOString();
     const task = (id, over) => ({id, title: id, body: 'Details.', owner: 'bot:cmo', requester: 'human:reviewer', status: 'open',
       lane: 'company', rank: 1, labels: [], links: [], parts: {total: 0, done: 0}, version: 3, created: now, updated: now, ...over});
@@ -367,6 +368,15 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.goto('http://tico-ui.test/?bot=cmo&tab=tasks');
     await page.waitForFunction(() => location.hash === '#/bot/cmo/tasks');
     assert.equal(new URL(page.url()).search, '', 'the entry query is removed after routing');
+    // The org panel shows a bot's harness as a small mark, not a word; a bot with no harness shows none.
+    const rt = name => page.locator(`#tree a.node[href="#/bot/${name}"] .rt`);
+    assert.equal(await rt('cpo').getAttribute('aria-label'), 'Runs on Codex');
+    assert.equal(await rt('cmo').getAttribute('aria-label'), 'Runs on Claude Code');
+    assert.equal(await rt('cpo').locator('svg').count(), 1);
+    assert.equal((await rt('cpo').innerText()).trim(), '', 'the mark has no text');
+    assert.equal(await rt('cto').count(), 0, 'no harness, no mark');
+    const mark = await rt('cpo').boundingBox();
+    assert(mark.width >= 12 && mark.width <= 14, 'about 13px: ' + mark.width);
     await page.goto('http://tico-ui.test/#/goals');
     await page.locator('.tasks-head h1').waitFor();
     assert.equal(await page.locator('.tasks-head h1').innerText(), 'Goals');

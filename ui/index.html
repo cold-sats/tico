@@ -165,11 +165,12 @@ body.native #rail{display:block}
 .person-mail-link{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;margin-left:2px;border-radius:6px;color:var(--muted);font-family:"Material Symbols Outlined";font-size:19px;text-decoration:none}
 .person-mail-link:hover,.person-mail-link.cur{background:var(--surface2);color:var(--accent);text-decoration:none}
 .tree .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Which harness runs a bot: a whisper beside the name. The name keeps its width; this yields first. */
-.rt{flex:0 100 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px;font-weight:400;line-height:1;margin-left:2px}
+/* Which harness runs a bot: a small muted mark beside the name. The name truncates before the mark does. */
+.rt{flex:none;display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;margin-left:3px;color:var(--muted);opacity:.8}
+.rt svg{width:100%;height:100%;display:block}
+.rt .tool-initials{font-size:8px;font-weight:600;line-height:1;letter-spacing:0}
 .tree a.node .nm{flex:0 1 auto}
-.botid h1 .rt{margin-left:8px;vertical-align:middle}
-@media (max-width:520px){.tree .rt{display:none}}
+.botid h1 .rt{width:16px;height:16px;margin-left:8px;vertical-align:middle}
 .tree .cnt{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;background:var(--surface2);padding:0 6px;border-radius:9px}
 .tree .cnt.needs{color:var(--wait);background:var(--wait-bg);font-weight:600;border:1px solid color-mix(in srgb,var(--wait) 35%,transparent);min-width:18px;height:18px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
 .tree-alert{margin-left:auto;margin-right:2px;flex:none;width:16px;height:16px;border-radius:50%;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;line-height:1;color:var(--wait);background:var(--wait-bg);border:1px solid color-mix(in srgb,var(--wait) 35%,transparent)}
@@ -3058,17 +3059,20 @@ const isTempBot = e => !!e?.temp || TEMP_RE.test(e?.display_name || '');
 const shownName = e => isTempBot(e)
   ? `<span class="proj" title="temporary: expected to end">\u2691</span>${esc(e.display_name.replace(TEMP_RE, ''))}`
   : esc(e.display_name || '');
-// The harness a bot runs on, in plain words, as a muted tag beside its name. One rule: the
-// harness (runtime), never the provider or model; the model rides in the tooltip. No runtime, no tag.
-const RUNTIME_LABELS = {codex: 'Codex', claude: 'Claude', gemini: 'Gemini', antigravity: 'Antigravity', grok: 'Grok',
-  pi: 'OpenRouter', openrouter: 'OpenRouter', hermes: 'Hermes', grokbot: 'Grok Bot', 'grok-bot': 'Grok Bot'};
+// The harness a bot runs on, as a small muted mark beside its name (ui/tool-icons.js). One rule: the
+// harness (runtime), never the provider or model; the model rides in the tooltip. No runtime, nothing shown.
+const RUNTIME_LABELS = {codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini', antigravity: 'Antigravity', grok: 'Grok',
+  cursor: 'Cursor', pi: 'OpenRouter', openrouter: 'OpenRouter', hermes: 'Hermes', grokbot: 'Grok Bot', 'grok-bot': 'Grok Bot'};
+const RUNTIME_MARKS = {codex: 'openai', claude: 'anthropic', gemini: 'google', antigravity: 'google', grok: 'xai',
+  grokbot: 'xai', 'grok-bot': 'xai', cursor: 'cursor', pi: 'openrouter', openrouter: 'openrouter'};
 function runtimeTag(e) {
   const raw = String(e?.harness || e?.resolved_runtime || e?.runtime || '').trim().toLowerCase();
   if (!raw) return '';
   const label = RUNTIME_LABELS[raw] || raw.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const model = e.resolved_model || e.model || '';
   const source = !model ? '' : e.model_source === 'company' ? ' (company default)' : e.model_source === 'bot' ? " (this bot's own choice)" : '';
-  return `<span class="rt" aria-hidden="true" title="${esc(label + (model ? ' \u00b7 ' + model : '') + source)}">${esc(label)}</span>`;
+  const mark = window.toolIcons?.markup({logo_key: RUNTIME_MARKS[raw], name: label}) || '';
+  return `<span class="rt" role="img" aria-label="Runs on ${esc(label)}" title="${esc('Runs on ' + label + (model ? ' \u00b7 ' + model : '') + source)}">${mark}</span>`;
 }
 // A bot's `order` (its definition, Settings or registry) puts a pipeline in sequence without
 // numbering the names: siblings with an order come first, lowest first; the rest keep A-Z.
