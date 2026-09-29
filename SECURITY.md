@@ -113,16 +113,21 @@ share a computer (see above).
 ### Roles, members' bots and BotOps
 
 Company roles are Owner, Admin and Member ([docs/permissions.md](docs/permissions.md)). Members may create bots (up to a limit),
-own them and add coworkers in the company's email domain; admins manage every bot, people, computers and credentials; only owners
-make admins. Because bots on one computer are not isolated from each other (above), a bot a member created goes only on a computer
-an admin has opened to members' bots, Health warns when such a bot shares a computer with `secrets/_shared.env` keys, and an
-admin's placement of one on a closed computer needs their own click.
+own them and add coworkers in the company's email domain; admins manage every bot except the built-in ones (the Assistant, BotOps
+and the Librarian are the owner's alone), people and computers; only owners make admins. Admins are not credential administrators:
+the shared credential vault belongs to the owner and `TICO_CREDENTIAL_ADMINS`. Because bots on one computer are not isolated from
+each other (above), a bot a member created goes only on its member's own computer or one an admin has opened to members' bots (never
+another member's), setup never places one elsewhere, Health warns when such a bot shares a computer with `secrets/_shared.env`
+keys, and an admin's placement of one on any other computer through BotOps needs their own click. SQL shows a member the
+`events` that are their own or concern what they may read, no roster or sign-in records, and no goals of bots they may not read.
 
 BotOps builds bots for people by acting as the person whose own chat message started its turn: checked with their rights,
-recorded "via BotOps", and never for a message a bot or the Assistant wrote, words inside a task or document, or a message over a week old,
-since any of those can carry injected instructions. What widens who can get in or what a bot can hold (adding a person, making an
-admin, granting add_people, giving a bot a stored credential, a closed computer) is proposed as a Confirm card and runs only when that
-person clicks, as them.
+recorded "via BotOps", and never for a message a bot or the Assistant wrote, a message routed from Slack, words inside a task or
+document, or a message over a week old, since any of those can carry injected instructions. A message cited by id must be the
+requester's own, in their own room with BotOps, within a day. BotOps holds no authority of its own over other bots: routines and
+quarantine follow the requester's management of the bot too. What widens who can get in or what a bot can hold (adding a person,
+making an admin, granting add_people, changing a person's email or team, giving a bot a stored credential, a closed computer) is
+proposed as a Confirm card, showing every field it carries, and runs only when that person clicks, as them.
 
 ### GitHub tokens
 

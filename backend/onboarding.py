@@ -369,11 +369,16 @@ class Onboarding:
         same call Settings makes, so generations, refusals and audit events are identical."""
         who = self.auth.owner_identity(c)
         placed = []
-        for row in c.execute("SELECT bot,config_json FROM bot_config ORDER BY bot").fetchall():
+        computer = c.execute("SELECT operator,accepts_member_bots FROM runners WHERE id=? AND revoked_at IS NULL",
+                             (runner_id,)).fetchone()
+        for row in c.execute("SELECT bot,config_json,operator FROM bot_config ORDER BY bot").fetchall():
             if not (_json(row["config_json"], {}) or {}).get("template"):
                 continue
             if c.execute("SELECT 1 FROM assignments WHERE bot=?", (row["bot"],)).fetchone():
                 continue                     # a bot a person already placed is never moved
+            if self.auth.member_bot(c, row["bot"]) and not (
+                    computer and (computer["accepts_member_bots"] or computer["operator"] == row["operator"])):
+                continue                     # a member's bot goes on its member's computer, or one open to members' bots
             try:
                 self.execution.assign(c, who, row["bot"], SimpleNamespace(
                     runner_id=runner_id, expected_generation=0))

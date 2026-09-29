@@ -124,16 +124,11 @@ class Execution:
                     raise Problem("enrollment", "Enrollment code was already used", 409)
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
-            # A computer a member enrolls is theirs and holds only their own credentials, so it takes members'
-            # bots from the start; one an owner or an admin enrolls holds the company's, so an admin opens it.
-            try:
-                enrolled_by = self.auth.company_role(self.auth.identity_for_actor(c, "human:" + row["operator"]))
-            except Problem:
-                enrolled_by = "owner"
+            # No computer takes other people's bots until an admin says so (Settings > Devices): a member's own
+            # computer hosts their bots because they are its operator, and is not open to other members.
             c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
-                      "VALUES(?,?,?,?,?,?,?)",
-                      (rid, body.label, row["operator"], digest(token), H.now(), body.platform,
-                       1 if enrolled_by == "member" else 0))
+                      "VALUES(?,?,?,?,?,?,0)",
+                      (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
             c.execute("UPDATE enrollments SET consumed_at=?,runner_id=? WHERE code_hash=?",
                       (H.now(), rid, digest(body.code)))
             H.event(c, "human:" + row["operator"], "runner.enrolled", rid)
@@ -260,8 +255,10 @@ class Execution:
             raise Problem("not_found", "Runner is not registered", 404)
         operator = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()[0]
         member_bot = self.auth.member_bot(c, bot)
-        if member_bot and not runner["accepts_member_bots"] and not self.auth.bot_admin(who):
-            # A member's bot goes only on a computer an admin has opened to members' bots.
+        if (member_bot and not runner["accepts_member_bots"] and runner["operator"] != operator
+                and not self.auth.bot_admin(who)):
+            # A member's bot goes on its own operator's computer, or on one an admin has opened to members' bots:
+            # never on another member's.
             raise Problem("computer_closed", "That computer does not take bots members create. Ask an admin to place "
                           "this bot, or to let the computer accept members' bots (Settings > Devices)", 409)
         # A computer hosts its operator's bots and the owner's; a member's bot may also go on a computer an

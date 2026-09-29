@@ -152,13 +152,13 @@ class Auth:
         self.allowed_emails, self.allowed_domains = set(lists["allowed"]), set(lists["allowed_domains"])
         # Everything that still reads the settings sees the owner in force.
         previous, self.settings.owner_email = self.settings.owner_email, self.owner_email
-        # The company's Admins keep the credential vault with the owner, unless the server names its own list.
+        # The credential vault stays with the owner (and TICO_CREDENTIAL_ADMINS, when the server names its own
+        # list): being an Admin of the company's bots does not make anyone a credential administrator.
         if getattr(self.settings, "credential_admins_follow_owner", False):
             expected = self._credential_followed if self._credential_followed is not None else (
                 (previous,) if previous else ())
             if tuple(self.settings.credential_admins) == expected:
-                self._credential_followed = tuple(dict.fromkeys(
-                    e for e in (self.owner_email, *sorted(self.bot_admins)) if e))
+                self._credential_followed = tuple(e for e in (self.owner_email,) if e)
                 self.settings.credential_admins = self._credential_followed
 
     def admits(self, email):
@@ -379,13 +379,18 @@ class Auth:
     # the `reports_to` chain. Every other credential (a runner) keeps the reach it always had.
     FULL = {"see": True, "read": True, "write": True}
 
+    def system_bot(self, slug):
+        """The built-in bots (the Assistant, BotOps, the Librarian): they act for the whole company, so only the
+        company owner changes them. Admins manage every other bot."""
+        return slug in (self.settings.assistant_bot, "assistant", "botops", "librarian")
+
     def bot_manager(self, c, who, slug, operator=None):
         """Whether this person may manage the bot: the one "can manage this bot" rule (docs/permissions.md).
         The owner, an Admin, one of the bot's owners (its creator and any co-owner, and its operator),
-        or a person above it on the org chart."""
+        or a person above it on the org chart. A built-in bot is the owner's alone."""
         if who.role == "owner":
             return True
-        if who.role != "human":
+        if who.role != "human" or self.system_bot(slug):
             return False
         if self.bot_admin(who):
             return True
@@ -554,7 +559,7 @@ class Auth:
     def operator(self, c, who, bot):
         row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
         return bool(row and (who.role == "owner" or
-                            who.role == "human" and who.actor == "human:" + row["operator"]))
+                            who.role == "human" and not self.system_bot(bot) and who.actor == "human:" + row["operator"]))
 
     def manages(self, c, who, kind, ident):
         """The owner, or a person above this person or bot on the org chart (backend/people.py
@@ -574,7 +579,7 @@ class Auth:
     def identity_for_actor(self, c, actor):
         """Rebuild a human identity for deferred work without elevating its permissions."""
         human = H.human(c, H.actor_id(actor)) if str(actor).startswith("human:") else None
-        if not human:
+        if not human or has_left(c, human["id"]):
             raise Problem("identity", "The person who requested this change is no longer on the roster", 403)
         email = str(human.get("email") or "").lower()
         role = "owner" if email and email == self.owner_email else "human"

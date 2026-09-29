@@ -146,6 +146,17 @@ def describe(c, method, path, body):
         return who(resolved) if resolved and resolved != a else a
     body = body if isinstance(body, dict) else {}
 
+    def fields(names):
+        return ", ".join(str(n) for n in names) or "nothing"
+
+    def computer(request):
+        """The computer a placement names and whether it takes members' bots, from the database."""
+        row = c.execute("SELECT label,accepts_member_bots FROM runners WHERE id=?", (str(request.get("runner_id") or ""),)).fetchone()
+        if not row:
+            return "a computer"
+        return row["label"] + (", a computer that takes members' bots" if row["accepts_member_bots"]
+                               else ", a computer that does not take members' bots")
+
     def approval_line(aid):
         row = H.approval(c, aid)
         verb = str(body.get("decision") or "decide").title()
@@ -174,16 +185,17 @@ def describe(c, method, path, body):
         (r"/api/v2/updates/[^/]+/reply", lambda g: "Reply to a bot's update"),
         (r"/api/v2/bots", lambda g: f"Add bot “{body.get('display_name', '')}”"),
         (r"/api/v2/bots/([^/]+)/archive", lambda g: f"Archive bot {bot(g[0])}"),
-        (r"/api/v2/bots/([^/]+)/definition", lambda g: f"Change settings of bot {bot(g[0])}"
-         + ((" to status " + str(body["status"])) if body.get("status") else "")),
-        (r"/api/v2/bots/([^/]+)/(owners|co-owners|updates|goals)", lambda g: f"Change {g[1]} of bot {bot(g[0])}"),
-        (r"/api/v2/bots/([^/]+)/(assignment|placement)", lambda g: f"Place bot {bot(g[0])} on a computer that does not "
-         "take members' bots"),
+        (r"/api/v2/bots/([^/]+)/definition", lambda g: f"Change settings of bot {bot(g[0])}: "
+         + fields(k for k in body if k != "expected_revision")),
+        (r"/api/v2/bots/([^/]+)/(owners|co-owners|updates|goals)", lambda g: f"Change {g[1]} of bot {bot(g[0])}: "
+         + fields(body)),
+        (r"/api/v2/bots/([^/]+)/(assignment|placement)", lambda g: f"Place bot {bot(g[0])} on {computer(body)}"),
         (r"/api/v2/credentials/([^/]+)/grants", lambda g: "Give " + who(body.get("subject")) + " a stored credential"),
-        (r"/api/v2/people/([^/]+)", lambda g: f"Edit person {who(g[0])}"),
+        (r"/api/v2/people/([^/]+)", lambda g: f"Edit person {who(g[0])}: " + fields(body)),
         (r"/api/v2/access/people", lambda g: f"Add {body.get('name') or body.get('email', '')} ({body.get('email', '')}) "
-         "to the roster, and let them sign in"),
-        (r"/api/v2/access/people/([^/]+)", lambda g: "Change the role or what " + who("human:" + g[0]) + " may do"),
+         "to the roster, and let them sign in" + "".join(f"; {k} {body[k]}" for k in ("team", "reports_to", "title") if body.get(k))),
+        (r"/api/v2/access/people/([^/]+)", lambda g: "Change " + who("human:" + g[0]) + ": "
+         + ", ".join(f"{k} to {v}" for k, v in body.items())),
         (r"/api/v2/providers", lambda g: "Change the company's AI providers"),
         (r"/api/v2/files/([^/]+)", lambda g: "Change a file's listing"),
     )
@@ -208,6 +220,10 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
         raise Problem("too_many", "Too many proposals are waiting; confirm or cancel some first", 409)
     body = {k: v for k, v in (body or {}).items() if k != "on_behalf_of"}
     what, diff = describe(c, method, path, body)
+    if not re.fullmatch(r"/api/v2/tasks/[^/]+", path):
+        # The card lists every field the request carries, so nothing that runs is missing from what is confirmed.
+        # (A task update lists what changes: its old and new values.)
+        diff = [{"field": k, "new": v} for k, v in body.items()]
     row = {"id": H.new_id(), "owner": who.actor, "conversation_id": room["id"], "summary": summary,
            "method": method, "path": path, "body_json": json.dumps(body),
            "status": "pending", "proposed_via": proposer, "created": H.now(),

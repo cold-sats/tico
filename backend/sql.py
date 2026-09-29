@@ -98,6 +98,17 @@ def guarded(c, auth, who, inner):
                     f"json_each(json_extract(metadata_json,'$.calendar.attendees')) WHERE lower(value)={email}) "
                     "OR EXISTS (SELECT 1 FROM json_each(json_extract(metadata_json,'$.participants')) "
                     f"WHERE lower(json_extract(value,'$.email'))={email})))")
+    goals = f"owner NOT IN {qlist(['bot:' + slug for slug in hidden])}" if hidden else "id IS NOT NULL"
+    admin = who.role == "owner" or auth.bot_admin(who)
+    # What happened is for whoever it involved: their own actions and what they may read. The rest is the
+    # company's audit trail, which the owner reads whole.
+    if owner:
+        events = "1"
+    elif bot:
+        events = mine
+    else:
+        events = (f"actor={me} OR target IN (SELECT id FROM tasks) OR target IN (SELECT id FROM conversations) "
+                  "OR target IN (SELECT slug FROM bots) OR target IN (SELECT 'bot:'||slug FROM bots)")
     rules = {
         "conversations": conversations,
         "messages": "conversation_id IN (SELECT id FROM conversations)",
@@ -118,9 +129,10 @@ def guarded(c, auth, who, inner):
         "attempt_events": by_attempt, "attempt_inputs": by_attempt, "attempt_conversations": by_attempt,
         "bot_transition_checkpoints": "conversation_id IN (SELECT id FROM conversations)",
         "humans": "1",
-        # Goals are the company's: every goal, measure and reading is readable by anyone signed in
-        # and by every bot.
-        "goals": "1", "goal_events": "1", "kpis": "1", "kpi_readings": "1",
+        # Goals are the company's, except a bot's own: a caller reads those of bots they may read. Never a
+        # bare "1" (the same reason as intake_items below).
+        "goals": goals, "goal_events": "goal_id IN (SELECT id FROM goals)", "kpis": "goal_id IN (SELECT id FROM goals)",
+        "kpi_readings": "kpi_id IN (SELECT id FROM kpis)",
         # The market graph is the company's, the same way goals are.
         "market_entities": "1", "market_edges": "1", "market_evidence": "1",
         "market_citations": "1", "market_insights": "1", "market_events": "1",
@@ -134,8 +146,9 @@ def guarded(c, auth, who, inner):
                          if mine_inboxes else "id IS NULL"),
         "listen_items": "id IS NOT NULL" if listener else "id IN (SELECT item_id FROM intake_items)",
         "listen_judgments": "id IS NOT NULL" if listener else "item_id IN (SELECT id FROM listen_items)",
-        "registry_metadata": "0" if bot else "1",
-        "events": mine, "refusals": mine,
+        # The roster, the sign-in lists and roles, onboarding: for the owner and the Admins.
+        "registry_metadata": "1" if admin and not bot else "0",
+        "events": events, "refusals": "1" if owner else mine if bot else f"actor={me}",
         "meetings": f"({meetings}) AND id NOT IN (SELECT meeting_id FROM {inner('media_control')} WHERE deleted_at IS NOT NULL)",
         "meeting_versions": by_meeting, "meeting_deliveries": by_meeting, "media_assets": by_meeting, "media_control": by_meeting,
         "meeting_items": by_meeting, "meeting_brain": by_meeting, "meeting_comments": by_meeting,

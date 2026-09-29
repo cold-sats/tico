@@ -188,15 +188,14 @@ def test_a_members_bot_goes_only_on_a_computer_that_accepts_members_bots(api, bo
     assert call(api, "post", f"runners/{closed['runner_id']}/member-bots", "cara-test", {"accepts": True}).status_code == 403
     assert call(api, "post", f"runners/{closed['runner_id']}/member-bots", "ben-test", {"accepts": True}).status_code == 200
     assert call(api, "post", "bots/jira-manager/assignment", "cara-test", body).status_code == 200
-    # A computer a member enrols is open to members' bots from the start; the owner's is not.
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT accepts_member_bots FROM runners WHERE id=?", (closed["runner_id"],)).fetchone()[0] == 1
+    # No computer is open to members' bots until an admin says so, including one a member enrols: it hosts its
+    # operator's own bots and nobody else's.
     code = post(api, "enrollments", {"operator": "cara"}, token="cara-test")["code"]
     enroll = api.post("/api/v2/runners/enroll", json={"code": code, "label": "Cara Mac", "platform": "test"},
                       headers={"Idempotency-Key": "k-cara-mac"})
     assert enroll.status_code == 200
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT accepts_member_bots FROM runners WHERE label='Cara Mac'").fetchone()[0] == 1
+        assert c.execute("SELECT accepts_member_bots FROM runners WHERE label='Cara Mac'").fetchone()[0] == 0
     # An admin's placement of a member's bot on a closed computer, asked of BotOps, is a Confirm card.
     other = runner(api, label="Closed Mac")
     finish(api, botops, attempt)

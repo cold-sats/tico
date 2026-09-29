@@ -162,6 +162,9 @@ class SettingsAdmin:
             return self._restore(c, who, body)
         if existing:
             raise Problem("duplicate", "That bot slug already exists", 409)
+        if not privileged and (self.auth.system_bot(body.slug) or body.slug == "coo"):
+            # The company's own bots (the Assistant, BotOps, the Librarian, the COO) are added by an owner or an Admin.
+            raise Problem("forbidden", "That name is reserved for the company's own bots; ask an owner or an admin", 403)
         manager = self._default_manager(c, body)
         if not manager and not privileged and not body.reports_to and body.slug != self.settings.assistant_bot:
             manager = "human:" + pid           # a member's bot hangs under them until they say otherwise
@@ -194,8 +197,8 @@ class SettingsAdmin:
             operator = pid
             if parent and not self.auth.bot_manager(c, who, body.reports_to):
                 raise Problem("forbidden", "You may put a bot only under a bot you manage, or under yourself", 403)
-            if runner and not runner["accepts_member_bots"]:
-                # A member's bot goes only on a computer an admin has opened to members' bots.
+            if runner and not runner["accepts_member_bots"] and runner["operator"] != pid:
+                # A member's bot goes on their own computer, or one an admin has opened to members' bots.
                 runner, note = None, ("That computer does not take bots members create, so " + body.display_name
                                       + " is registered but not placed. Ask an admin to place it, or to let that "
                                         "computer accept members' bots (Settings > Devices)")

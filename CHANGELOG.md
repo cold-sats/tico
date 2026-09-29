@@ -27,13 +27,14 @@ All notable changes to Tico are recorded here. The format follows
   Members may create bots (up to 5 active each by default, an admin sets it) and add people, and owners and admins switch either off per
   person in Settings > People. Adding people is on by default for coworkers in the company's email domain (the allowed sign-in domain, else the
   owner's own unless it is a public mail address); outside it needs an owner or admin. A new person goes on the roster and the sign-in list.
-  Admins manage every bot, people, computers and credentials; only owners make admins.
+  Admins manage every bot but the built-in ones (the Assistant, BotOps and the Librarian are the owner's alone), people and computers; only
+  owners make admins. Admins are not credential administrators: the vault stays with the owner and `TICO_CREDENTIAL_ADMINS`.
 - **Bot owners.** A bot's creator and co-owners (and its operator, whoever it reports to and the admins) own it, and one rule now says who may
   manage a bot. Owners edit its configuration, access, status and routines, archive it and add co-owners (Settings > Bots, **Owned by**;
   `POST /api/v2/bots/{bot}/co-owners`).
-- **Computers for members' bots.** A computer has **Accepts members' bots** (Settings > Devices). A bot a member created is placed only on one
-  that accepts them (off for existing computers and ones an owner or admin enrols; on for one a member enrols themselves); admins may place it
-  anywhere. Health warns when members' bots share a computer that holds `secrets/_shared.env` keys.
+- **Computers for members' bots.** A computer has **Accepts members' bots** (Settings > Devices, off until an owner or admin turns it on). A
+  bot a member created is placed only on its operator's own computer or one that accepts them, never on another member's; admins may place it
+  anywhere, and placing it never changes who operates it. Health warns when members' bots share a computer that holds `secrets/_shared.env` keys.
 - **BotOps acts for the person who asked.** `hub bot register`, `hub bot access`, `hub bot owners`, `hub people add` and `hub people list` (and
   MCP tools), and `hub bot create` registers the bot with the server in a turn a person started: all as that person, checked with their rights,
   recorded "via BotOps". Adding people, roles, granting add_people, a stored-credential grant and a placement on a closed computer come back as a
@@ -86,6 +87,18 @@ All notable changes to Tico are recorded here. The format follows
   MCP tools and personal API tokens, lists and SQL are cut in the query (so counts and pages leak nothing), and Slack routing
   follows the sender's Write. The old file lists could not do any of this per bot and are retired (see Changed).
 - A person who may only write to a bot no longer sees, under its replies, the steps it took to answer, or the live output of its runs.
+- BotOps borrows a person's authority only from their own chat message: not from one routed from Slack, from another person's message id
+  or a room someone else spoke in, or from one over a day old when cited by id; someone who has left lends none. BotOps no longer changes
+  routines or clears quarantine on any bot with its own authority: it does both as the requester, who must manage the bot.
+- A member's bot can no longer be placed on another member's computer, and a computer a member enrols is not open to other members. Setup
+  never places a member's bot on a computer that is not its operator's or open to members' bots, and placing one never makes the computer's
+  operator its operator.
+- SQL `events` and `refusals` show a member their own rows and what concerns what they may read; `registry_metadata` is for owners and
+  admins; goals of a bot you cannot read are hidden from the goals tree, list and SQL, and the tree's counts follow the tasks you can read.
+- Setting a bot's goals needs someone who manages it, not anyone who may write to it. A member cannot register the names `assistant`,
+  `botops`, `librarian` or `coo`, and only the owner changes a built-in bot.
+- A Confirm card shows every field the request carries, its server-written description names each field it changes (and, for a
+  placement, whether the computer takes members' bots), and changing a person's email or team through BotOps needs their click.
 
 ### Tests
 - The Python suite is about 46% smaller and runs in parallel (`pytest-xdist`, set in `pytest.ini`); the browser suite keeps one

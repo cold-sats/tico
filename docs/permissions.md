@@ -51,7 +51,7 @@ Everyone on the roster has one company role:
 | Role | Who | Can |
 | --- | --- | --- |
 | **Owner** | whoever the company was set up for (one at a time) | everything: sign-in domains, ownership, providers, roles |
-| **Admin** | people the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot, people, computers (enrol, revoke, open to members' bots) and credentials; set what members may do and the bot limit. They cannot make or remove admins or owners |
+| **Admin** | people the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot but the built-in ones (below), people and computers (enrol, revoke, open to members' bots); set what members may do and the bot limit. They cannot make or remove admins or owners, and they are not credential administrators |
 | **Member** | everyone else | create and manage their own bots, add coworkers, and use the bots they are allowed to |
 
 Settings > People (owners and admins) shows each person's role and two capabilities, editable per member:
@@ -65,6 +65,13 @@ The **company domain** is the domain(s) the owner allows to sign in (Settings > 
 the owner's own email domain, unless that is a public mail service such as gmail.com, in which case there is none and members add
 nobody until the owner sets one. It is shown at the top of Settings > People. A newly added person goes on the roster and on the
 sign-in list, so they can actually sign in.
+
+**Credential administrators** are the owner and whoever `TICO_CREDENTIAL_ADMINS` names, nobody else: being an Admin does not
+let someone write shared credentials, whatever an earlier version did. Add a person to that list to give them the vault.
+
+**The built-in bots** (the Assistant, BotOps and the Librarian) act for the whole company, so only the owner changes their settings,
+routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
+`librarian` or `coo`; an Admin can, and manages every other bot.
 
 A member may have at most **5 active bots** by default; owners and admins have no limit. An admin changes the number in
 Settings > People. Past it, adding a bot answers `409 bot_limit` with what to do.
@@ -89,10 +96,14 @@ Every bot on a computer shares that computer's trust: the same OS user, workspac
 created by a member has instructions the company has not reviewed, so it does not go on just any computer. Each computer has
 **Accepts members' bots** (Settings > Devices, owners and admins):
 
-- **Off** for every computer that existed before this release, and for any an owner or admin enrols. **On** from the start for a computer a
-  member enrols themselves: it is theirs and holds only their credentials.
-- A bot created by a member can only be placed on a computer that accepts members' bots. Otherwise it stays planned, and the
-  answer says to ask an admin to place it or to open a computer. Admins may place a member's bot on any computer.
+- **Off** for every computer that existed before this release and for every new one, whoever enrols it: only an owner or an admin
+  turns it on. A computer a member enrols is theirs, and hosts their own bots because they are its operator; it is not open to other
+  members' bots.
+- A bot created by a member can only be placed on **its own operator's computer, or a computer an admin has opened to members' bots**.
+  Otherwise it stays planned, and the answer says to ask an admin to place it or to open a computer. Admins may place a member's
+  bot on any computer. Placing a member's bot never hands it to the computer's operator: it stays theirs.
+- Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its operator's
+  or open to members' bots.
 - Settings > Health warns when bots members created run on a computer whose `secrets/_shared.env` holds keys, since the bot
   instructions could ask a run for them. Give members a computer with no shared keys and open only that one.
 
@@ -105,7 +116,14 @@ person whose own chat message started its current turn**, checked with that pers
 (events, settings history). Not more than they may do: a member cannot edit another person's bot through BotOps any more than by hand.
 
 BotOps never acts for a message a **bot** wrote, one the **Assistant** wrote for a person (`refs.via`), a person's words
-**inside a task** or a document, or a message more than a week old. A refused request answers `on_behalf_of`; BotOps reports it and stops.
+**inside a task** or a document, a message **routed from Slack** (anyone in the thread can shape it), or a message more than a week old.
+A message cited by id (`on_behalf_of`) must be the requester's own, in their own chat with BotOps rather than a room another person
+spoke in, and under a day old, and it must be the same person whose message started the turn. Someone who has left lends nothing.
+A refused request answers `on_behalf_of`; BotOps reports it and stops.
+
+The same goes for routines and quarantine: BotOps sets a bot's routines only as the person who asked, who must manage that bot (a
+turn no person started, such as setup, may seed routines on a bot still being built from its template and nothing else), and clears
+a quarantine only citing that person's message and their management of the bot. BotOps has no authority of its own over other bots.
 
 The commands (with MCP tools of the same names):
 
@@ -126,9 +144,13 @@ These are proposed instead: the command answers `needs_confirm: true` and a **Co
 BotOps, the owner and the admins cannot confirm for them.
 
 - adding a person (any), including anyone outside the company domain (owners and admins only);
-- making someone an Admin, granting `add_people`, or changing roles;
+- making someone an Admin, granting `add_people`, changing roles, or changing a person's email (it decides who is an Admin) or team
+  (it is an access audience);
 - giving a bot a stored credential (a tool registration that uses a shared credential or another bot's);
-- placing a member's bot on a computer that does not accept members' bots (admins only).
+- placing a member's bot on a computer that is neither its operator's nor open to members' bots (admins only).
+
+The card shows every field the request carries, and its description, written by the server and never by the bot, names each field it
+changes and, for a placement, the computer and whether it takes members' bots.
 
 BotOps reports "there is a card waiting in this chat" instead of asking the person to go to Settings.
 
