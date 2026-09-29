@@ -547,19 +547,21 @@ class Runner:
     def bootstrap_template(self, bot, config, cards):
         """The catalog template the runner may set this bot up from itself, or "".
 
-        Onboarding puts the chosen template in the bot's server-side config, and only a card that
-        says `bootstrap: true` is the runner's to materialize. A registration made before the
-        catalog existed carries no template, so the assistant and BotOps are recognized by their
-        own slugs as well.
+        Onboarding puts the chosen template in the bot's server-side config. The runner materializes
+        a card that says `bootstrap: true`, and a starter bot that first run created (its config says
+        `materialize: true`, which only onboarding writes): those are set up the moment they are
+        placed, not on first use. A registration made before the catalog existed carries no template,
+        so the assistant and BotOps are recognized by their own slugs as well.
         """
         named = str((config or {}).get("template") or "")
         if named:
-            return named if (cards.get(named) or {}).get("bootstrap") else ""
+            card = cards.get(named) or {}
+            return named if card.get("bootstrap") or (card and (config or {}).get("materialize") is True) else ""
         template = BOOTSTRAP_TEMPLATES.get(bot, "")
         return template if template in cards else ""
 
     def bootstrap(self, bot, config, path):
-        """Set one of the two bootstrap bots up from the catalog. Returns (note, problem).
+        """Set a bootstrap bot, or a starter bot first run created, up from the catalog. Returns (note, problem).
 
         Called from readiness, so a fresh installation is a working assistant and a working
         BotOps without anyone copying a folder. An existing repository is never touched, and a
@@ -831,8 +833,8 @@ class Runner:
             repository_present = (path / "AGENT.md").is_file()
             materialized, failure = "", ""
             if not repository_present:
-                # The assistant and BotOps are the runner's to set up from the catalog; every
-                # other bot is BotOps's, and stays missing until BotOps has set it up.
+                # The assistant, BotOps and the starters first run created are the runner's to set up
+                # from the catalog; every other bot is BotOps's, and stays missing until BotOps has.
                 if self.assigned_here(entry):
                     materialized, failure = self.bootstrap(bot, entry.get("config"), path)
                 repository_present = (path / "AGENT.md").is_file()

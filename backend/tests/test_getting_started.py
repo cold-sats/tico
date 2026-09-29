@@ -49,8 +49,8 @@ def test_a_fresh_company_has_only_the_first_step(environment):
     body, rows = items(api)
     assert rows["signed_in"]["done"] is True
     assert not any(rows[k]["done"] for k in ("computer", "model", "github", "botops", "first_bot",
-                                               "bot_task", "first_update"))
-    assert (body["done"], body["total"], body["complete"]) == (1, 8, False)
+                                               "first_output", "first_update"))
+    assert (body["done"], body["total"], body["complete"]) == (2, 9, False)     # signed in, and nothing waits for setup
     assert rows["first_bot"]["action"] == "create-bot"
     assert rows["computer"]["why"] and rows["computer"]["tab"] == "devices"
 
@@ -66,15 +66,18 @@ def test_botops_first_bot_task_and_update_follow_the_database(environment):
     assert items(api)[1]["first_bot"]["done"] is False
     add_bot(api, "support")
     assert items(api)[1]["first_bot"]["done"] is True
-    assert items(api)[1]["bot_task"]["done"] is False
+    assert items(api)[1]["first_output"]["done"] is False
 
+    # A starter that is parked is the next thing to set up; the first approved output is the bot saying so.
     with api.app.state.store.transaction() as c:
-        task = H.task_create(c, "human:morgan", "Answer the queue", "Reply to today's tickets.",
-                             "bot:support", allow_planned=True)
-    assert items(api)[1]["bot_task"]["done"] is False
+        c.execute("INSERT INTO bot_config(bot,config_json,operator,onboarding_state) VALUES('support',?,'morgan','needs_onboarding')",
+                  (encode({"name": "support", "template": "support", "setup_rank": 0}),))
+    waiting = items(api)[1]["next_bot"]
+    assert waiting["done"] is False and waiting["href"] == "#/bot/support" and "Start setup" in waiting["why"]
+    assert items(api)[1]["first_output"]["done"] is False
     with api.app.state.store.transaction() as c:
-        c.execute("UPDATE tasks SET status='done' WHERE id=?", (task["id"],))
-    assert items(api)[1]["bot_task"]["done"] is True
+        c.execute("UPDATE bot_config SET onboarding_state='onboarded' WHERE bot='support'")
+    assert items(api)[1]["first_output"]["done"] is True and items(api)[1]["next_bot"]["done"] is True
 
     assert items(api)[1]["first_update"]["done"] is False
     with api.app.state.store.transaction() as c:
@@ -88,10 +91,10 @@ def test_each_person_sees_only_what_they_can_act_on(environment):
     riley = as_person(api, "riley")                # a bot administrator
     quinn = as_person(api, "quinn")                # neither
     assert [r["id"] for r in items(api)[0]["items"]] == [
-        "signed_in", "computer", "model", "github", "botops", "first_bot", "bot_task", "first_update"]
+        "signed_in", "computer", "model", "github", "botops", "first_bot", "next_bot", "first_output", "first_update"]
     assert [r["id"] for r in items(api, riley)[0]["items"]] == [
-        "signed_in", "botops", "first_bot", "bot_task", "first_update"]
-    assert [r["id"] for r in items(api, quinn)[0]["items"]] == ["signed_in", "bot_task", "first_update"]
+        "signed_in", "botops", "first_bot", "next_bot", "first_output", "first_update"]
+    assert [r["id"] for r in items(api, quinn)[0]["items"]] == ["signed_in", "first_output", "first_update"]
 
 
 def test_a_bot_or_runner_cannot_read_it(environment):

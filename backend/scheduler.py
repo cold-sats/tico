@@ -40,7 +40,10 @@ class Scheduler:
             rows = c.execute("SELECT s.*,coalesce(sc.timezone,'America/Los_Angeles') AS timezone "
                              "FROM schedules s JOIN bots b ON b.slug=s.bot LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
                              "WHERE b.state='active' AND coalesce(sc.enabled,1)=1 AND s.deleted_at IS NULL "
-                             "AND s.event_name IS NULL").fetchall()   # `on:` routines fire from routines.emit
+                             "AND s.event_name IS NULL "
+                             # a starter bot runs nothing on its own until a person has approved its first routine
+                             "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
+                             "AND pc.onboarding_state='needs_onboarding')").fetchall()   # `on:` routines fire from routines.emit
             for row in rows:
                 c.execute("SAVEPOINT scheduled_work")
                 try:

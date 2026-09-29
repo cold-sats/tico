@@ -357,6 +357,10 @@ class Execution:
                         "AND j.state='queued' AND (? IS NULL OR j.bot=?) "
                         "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running')) "
                         "AND NOT EXISTS(SELECT 1 FROM bot_control bc WHERE bc.bot=j.bot AND bc.draining=1) "
+                        # A starter bot that still needs onboarding answers a person's message and nothing else:
+                        # no routine, task notice, Slack route or bot request wakes it (backend/onboarding.py).
+                        "AND (queued_message.from_actor LIKE 'human:%' OR NOT EXISTS("
+                        "SELECT 1 FROM bot_config pc WHERE pc.bot=j.bot AND pc.onboarding_state='needs_onboarding')) "
                         "ORDER BY CASE WHEN queued_message.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
                         (who.runner_id, body.bot, body.bot)).fetchall()
         cooling = {}

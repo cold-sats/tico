@@ -424,6 +424,14 @@ def install_connectors(app, store, execution, mutate):
             start = instant(body.start)
             if start.astimezone(timezone.utc) < datetime.now(timezone.utc):
                 raise Problem("start", "Calendar appointments must start in the future", 422)
+            if who.role == "bot":
+                # An invitation is an email from the company's calendar. A bot may invite the people on the
+                # roster; inviting anyone else is a person's act, so it is refused here rather than trusted to a prompt.
+                known = {str(row["email"] or "").lower() for row in c.execute("SELECT email FROM humans")}
+                outside = [address for address in body.attendees if address.lower() not in known]
+                if outside:
+                    raise Problem("external_attendee", "A bot may invite only people on the company roster; "
+                                  + ", ".join(outside[:3]) + " is not. Put the time in a draft for a person to send", 403)
             action_id, now = H.new_id(), H.now()
             c.execute("INSERT INTO calendar_actions(id,requested_by,calendar_email,summary,start,end,"
                       "attendees_json,description,add_meet,status,result_json,error,created,updated) "

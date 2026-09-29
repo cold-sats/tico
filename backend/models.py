@@ -821,6 +821,14 @@ class OnboardingAnswers(Contract):
     repetitive_work: str = Field(default="", max_length=2000)
     never_without_person: list[Literal["send", "spend", "publish", "hire"]] = Field(
         default_factory=list, max_length=4)
+    # The first-run questions behind the local chooser (backend/onboarding.py `choose`). `pains` are
+    # phrases ticked from the starter cards, `pains_text` is the person's own words, and `tools` is
+    # what the company already uses: it decides which starters can work at all.
+    pains: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=8)
+    pains_text: str = Field(default="", max_length=1000)
+    tools: list[Literal["mail", "chat", "crm", "github", "meetings", "docs"]] = Field(
+        default_factory=list, max_length=6)
+    software_product: Literal["yes", "no", ""] = ""
 
 
 class OnboardingSelection(Contract):
@@ -828,6 +836,8 @@ class OnboardingSelection(Contract):
     template: str = Field(min_length=1, max_length=80)
     display_name: str = Field(min_length=1, max_length=100)
     instructions: str = Field(default="", max_length=20_000)
+    # Who it reports to: `human:<id>` or a bot slug. Empty is the company owner.
+    reports_to: str = Field(default="", max_length=120)
 
 
 class OnboardingDraft(Contract):

@@ -1,5 +1,6 @@
 """Regressions for the pre-pilot security review (reports/2026-09-29-security-review.md)."""
 import asyncio
+import uuid
 
 from backend.store import encode
 from backend.tests.test_api import api, post, setup_attempt  # noqa: F401
@@ -110,6 +111,13 @@ def test_a_bot_reads_only_the_owner_and_its_operator_calendars(api):
     assert ok.status_code == 200
     other = api.get("/api/v2/calendar/appointments", params={"calendar": "cara@acme.example"}, headers=bearer)
     assert other.status_code == 403
+    # An invitation is an email from the company: a bot invites people on the roster, never anyone outside it.
+    booking = {"calendar": "ana@acme.example", "title": "Sync", "start": "2099-01-01T09:00:00+00:00",
+               "end": "2099-01-01T09:30:00+00:00", "attendees": ["ben@acme.example"]}
+    with_key = lambda: {**bearer, "Idempotency-Key": str(uuid.uuid4())}
+    assert api.post("/api/v2/calendar/appointments", json=booking, headers=with_key()).status_code == 200
+    outside = api.post("/api/v2/calendar/appointments", json={**booking, "attendees": ["someone@evil.example"]}, headers=with_key())
+    assert outside.status_code == 403 and outside.json()["error"]["code"] == "external_attendee"
 
 
 def test_leaving_revokes_a_persons_api_tokens(api):

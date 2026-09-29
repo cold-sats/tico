@@ -809,6 +809,70 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/onboarded": {
+      "post": {
+        "summary": "A starter bot's own call, or its manager's, once a person approved its first routine: `onboarding_state` goes from `needs_onboarding` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
+        "operationId": "markBotOnboarded",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotOnboarded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/routines": {
       "get": {
         "summary": "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)",
@@ -5230,6 +5294,9 @@
           },
           "access": {
             "$ref": "#/components/schemas/Access"
+          },
+          "onboarding_state": {
+            "type": "string"
           }
         },
         "required": [
@@ -5340,6 +5407,15 @@
           },
           "access": {
             "$ref": "#/components/schemas/Access"
+          },
+          "onboarding_state": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          },
+          "template_version": {
+            "type": "string"
           }
         },
         "required": [
@@ -5539,6 +5615,26 @@
         "items": {
           "$ref": "#/components/schemas/Bot"
         }
+      },
+      "BotOnboarded": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "onboarding_state": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bot",
+          "changed",
+          "onboarding_state"
+        ],
+        "additionalProperties": true
       },
       "BotTool": {
         "type": "object",
@@ -7281,6 +7377,9 @@
           },
           "access": {
             "$ref": "#/components/schemas/Access"
+          },
+          "onboarding_state": {
+            "type": "string"
           }
         },
         "required": [

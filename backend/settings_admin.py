@@ -40,11 +40,18 @@ class SettingsAdmin:
         if who.role != "human" or not Access.can_create_bots(P.person(pid, self._roster(c)), "member"):
             raise Problem("forbidden", "You may not add bots. Ask an owner or an admin to let you", 403)
         limit = Access.load_access(c, self.settings)["member_bot_limit"]
-        have = c.execute("SELECT count(*) FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
-                         "WHERE bc.created_by=? AND b.state<>'archived'", (who.actor,)).fetchone()[0]
+        have = self.counted_bots(c, who.actor)
         if have >= limit:
             raise Problem("bot_limit", f"You already have {have} active bots, the most a member may have ({limit}). "
                           "Archive one you no longer need, or ask an admin to raise the limit", 409)
+
+    @staticmethod
+    def counted_bots(c, actor, excluding=""):
+        """The bots that count toward a member's limit: theirs that are not archived. A starter bot
+        that is still `needs_onboarding` is parked, so it does not count until it is onboarded."""
+        return c.execute("SELECT count(*) FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
+                         "WHERE bc.created_by=? AND b.state<>'archived' AND bc.bot<>? "
+                         "AND COALESCE(bc.onboarding_state,'')<>'needs_onboarding'", (actor, excluding)).fetchone()[0]
 
     def _manager(self, c, who, bot):
         """The one "may manage this bot" check (`Auth.bot_manager`): the owner, an Admin, one of the bot's

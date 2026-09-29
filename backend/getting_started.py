@@ -108,6 +108,33 @@ def own_bots(c, settings):
             if row["slug"] not in bootstrap]
 
 
+def _next_bot(c, settings):
+    """The starter bot to set up next: parked (`needs_onboarding`), in the order first run put them, which
+    puts the one matching the top pain first. Returns (slug, name, why), or None when nothing is waiting."""
+    from . import onboarding
+    rows = c.execute("SELECT bc.bot,b.display_name,bc.config_json FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
+                     "WHERE bc.onboarding_state='needs_onboarding' AND b.state!='archived'").fetchall()
+    if not rows:
+        return None
+    ranked = sorted(((json.loads(row["config_json"] or "{}"), row) for row in rows),
+                    key=lambda pair: (pair[0].get("setup_rank", 999), pair[1]["bot"]))
+    config, row = ranked[0]
+    answers = onboarding.load(c)["answers"]
+    card = next((card for card in onboarding.read_cards(settings) if card["template"] == config.get("template")), None)
+    score, pain = onboarding.pain_match(card, answers.get("pains"), " ".join(
+        [answers.get("pains_text") or "", answers.get("repetitive_work") or ""])) if card else (0, "")
+    why = ("It matches what hurts most: \"" + pain + "\". " if pain else "") \
+        + "Press Start setup on its page and answer its questions; it drafts a first result for you to approve."
+    return row["bot"], row["display_name"], why
+
+
+def _first_output(c):
+    """A starter bot has been onboarded: a person approved its first routine, which is its first
+    reviewed output. The bot says so itself (`hub bot onboarded`), so this is what the database records."""
+    return c.execute("SELECT bc.bot FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
+                     "WHERE bc.onboarding_state='onboarded' AND b.state!='archived' LIMIT 1").fetchone()
+
+
 def _item(key, label, done, why, href="", tab="", optional=False, action="", login=None):
     return {"id": key, "label": label, "done": bool(done), "optional": optional,
             "why": "" if done else why, "href": href, "tab": tab, "action": action,
@@ -122,14 +149,11 @@ def checklist(c, who, settings, github):
     login = (providers.PROVIDER_BY_RUNTIME.get(next(iter(sorted(wanted)), ""), {}) or {}).get("login", "")
     botops = H.bot(c, BOTOPS)
     mine = own_bots(c, settings)
-    marks = ",".join("?" * len(mine))
-    finished = bool(mine) and c.execute(
-        f"SELECT 1 FROM tasks WHERE status='done' AND owner IN ({marks}) LIMIT 1",
-        ["bot:" + slug for slug in mine]).fetchone()
     building = c.execute("SELECT id FROM tasks WHERE owner=? AND title LIKE 'Build a bot:%' "
                          "AND status NOT IN ('done','closed','declined') ORDER BY created DESC LIMIT 1",
                          ("bot:" + BOTOPS,)).fetchone()
     installed = bool(github and github["installation_id"])
+    waiting = _next_bot(c, settings)
     items = [
         _item("signed_in", "Signed in", True, ""),
         _item("computer", "A computer is online", runners,
@@ -145,8 +169,11 @@ def checklist(c, who, settings, github):
         _item("first_bot", "Create your first bot", mine,
               "BotOps is building it." if building else "Say what it should do and BotOps builds it.",
               "#/task/" + building["id"] if building else "", action="" if building else "create-bot"),
-        _item("bot_task", "Your new bot finished a task", finished,
-              "Give it something small to do from its page.", "#/bot/" + mine[0] if mine else "#/tasks"),
+        _item("next_bot", "Set up " + waiting[1] if waiting else "No bot is waiting for setup", not waiting,
+              waiting[2] if waiting else "", "#/bot/" + waiting[0] if waiting else ""),
+        _item("first_output", "First approved output", _first_output(c),
+              "Set up a starter bot and approve the first thing it drafts. That is the point of the team.",
+              "#/bot/" + waiting[0] if waiting else "#/tasks"),
         _item("first_update", "Your first update arrived",
               c.execute("SELECT 1 FROM updates LIMIT 1").fetchone(),
               "Each active bot posts a short update every day.", "#/updates"),
@@ -157,8 +184,8 @@ def checklist(c, who, settings, github):
 # What each kind of person needs to see: the owner all of it, bot administrators what involves
 # bots, everyone else only what they can act on or read.
 AUDIENCE = {"owner": None,
-            "admin": {"signed_in", "botops", "first_bot", "bot_task", "first_update"},
-            "human": {"signed_in", "bot_task", "first_update"}}
+            "admin": {"signed_in", "botops", "first_bot", "next_bot", "first_output", "first_update"},
+            "human": {"signed_in", "first_output", "first_update"}}
 
 
 def empty_sections(c):

@@ -390,7 +390,7 @@ def bots(client, args):
             return hubtools.BY_NAME["hub_bot_set"]["fn"](client, fields)
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
-    if args.sub in ("register", "access", "owners"):
+    if args.sub in ("register", "access", "owners", "onboarded"):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v not in (None, [])}
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")

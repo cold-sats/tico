@@ -1035,6 +1035,19 @@ def bot_owners(api, args):
     return api.post(f"bots/{args['slug']}/co-owners", body, key=_key(args))
 
 
+@tool("hub_bot_onboarded", "A starter bot's own call, once a person has approved its first routine: it stops "
+      "being `needs_onboarding`, its routines may run and its work is claimed. Call it on yourself, after "
+      "`hub routine update <id> --enable`; a person who manages the bot may call it for the bot. Repeating it "
+      "changes nothing. A member's bot counts toward their limit of active bots from here on, so this can "
+      "answer `bot_limit`: tell the person to archive a bot or ask an admin.",
+      {"slug": _s("The bot; you, when you leave it out")}, writes=True)
+def bot_onboarded(api, args):
+    slug = args.get("slug") or str(api.get("me").get("actor", "")).removeprefix("bot:")
+    if not slug:
+        raise ValueError("Say which bot: hub bot onboarded <slug>")
+    return api.post(f"bots/{slug}/onboarded", {}, key=_key(args))
+
+
 @tool("hub_people_add", "Add a person to the company roster and the sign-in list, as the person who asked you. A "
       "member may add a coworker in the company's email domain, an owner or admin anyone. The person always has to "
       "click Confirm first: this answers with `needs_confirm: true` and a card in their chat with you, and nothing "

@@ -1035,14 +1035,14 @@ def create_app(settings=None):
     # What a caller who may only see a bot is told about it: its name, role, who runs it and who it
     # reports to. Its status, machine, queue and configuration are its activity, which is Read.
     SEE_ONLY = ("slug", "display_name", "state", "description", "team", "operator", "reports_to", "owners",
-                "thread_mode", "temp", "access", "bot_owners")
+                "thread_mode", "temp", "access", "bot_owners", "onboarding_state")
 
     def bot_view(c, bot, level, access, registry_roster, registry_entries):
         """One bot as the bot list and the bot detail show it: everything for a caller who may read
         it, only its profile for one who may only see it."""
         row = {k: v for k, v in bot.items() if k not in ("token_hash", "cwd", "thread_id")}
         config = c.execute("SELECT team,operator,owner_ids_json,revision,description,reports_to,repo,"
-                           "thread_mode,config_json FROM bot_config WHERE bot=?",
+                           "thread_mode,config_json,onboarding_state FROM bot_config WHERE bot=?",
                            (bot["slug"],)).fetchone()
         assignment = c.execute("SELECT a.bot,a.runner_id,a.generation,r.label,r.operator,r.last_seen,"
                                "r.revoked_at FROM assignments a JOIN runners r ON r.id=a.runner_id "
@@ -1051,6 +1051,9 @@ def create_app(settings=None):
         row["team"] = config["team"] if config else None
         row["operator"] = config["operator"] if config else None
         row["revision"] = config["revision"] if config else None
+        # `needs_onboarding` for a starter bot until it says a person approved its first routine, then
+        # `onboarded`; empty for every other bot (backend/onboarding.py).
+        row["onboarding_state"] = (config["onboarding_state"] or "") if config else ""
         if config:
             repo = config["repo"] or ("emp-" + bot["slug"])
             declared = json.loads(config["config_json"]) if config["config_json"] else {}
@@ -1058,6 +1061,8 @@ def create_app(settings=None):
                         "reports_to": config["reports_to"], "repo": repo,
                         "repo_url": repo_url(repo, settings.github_owner),
                         "bot_contact": declared.get("bot_contact") or "open",
+                        "template": declared.get("template") or "",
+                        "template_version": declared.get("template_version") or "",
                         "temp": bool(declared.get("temp")),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
@@ -1158,7 +1163,8 @@ def create_app(settings=None):
                     continue
                 bot = live.get(row["id"]) or {}
                 shown = {**row, "display_name": bot.get("display_name") or row["display_name"],
-                         "status": bot.get("state") or "", "access": level}
+                         "status": bot.get("state") or "", "access": level,
+                         "onboarding_state": configs.get(row["id"], {}).get("onboarding_state") or ""}
                 # A bot the caller may not see is not in the chart, so those under it hang from
                 # the nearest thing above it that is: another bot, else its person or department.
                 parent, seen = row["org_parent"], set()
@@ -2208,6 +2214,13 @@ def create_app(settings=None):
                                                           body.instructions))
             return created
         return mutate(request, body, work)
+
+    @app.post("/api/v2/bots/{bot}/onboarded")
+    def bot_onboarded(request: Request, bot: str, body: M.Empty):
+        """A starter bot's own call (`hub bot onboarded`), or its manager's, once a person approved its first
+        routine: the bot stops being `needs_onboarding`. Repeating it changes nothing."""
+        who = request.state.identity
+        return mutate(request, body, lambda c: onboarding.onboarded(c, who, bot))
 
     @app.post("/api/v2/bots/{bot}/archive")
     def archive_bot(request: Request, bot: str, body: M.BotArchive):

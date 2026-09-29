@@ -3,9 +3,11 @@
 A company starts with three built-in bots: the assistant, which is each person's private Assistant
 chat (backend/assistant.py) and works in the background (Slack routing, meetings' Auto delivery),
 BotOps, which builds every other bot, and the Librarian, which answers questions from the company's
-docs (backend/librarian.py). Onboarding names the company, asks six questions, recommends templates
-against those answers, and on completion defines the chosen bots and hands BotOps one task
-per bot it has to set up. Nothing here reaches a machine: it writes definitions and tasks.
+docs (backend/librarian.py). Onboarding names the company, asks the first-run questions, chooses at most
+five starter templates against the answers (`choose`), and on completion defines the chosen bots. A
+starter is created at once, `needs_onboarding`, and its repository is materialized by the computer;
+every other template is still a task for BotOps. Nothing here reaches a machine: it writes definitions
+and tasks.
 """
 
 import json
@@ -19,6 +21,7 @@ from . import models as M
 from . import providers
 from . import releases, replication, runner_versions
 from . import rooms, routines
+from . import access as Access
 from .store import H, Problem, encode, readiness_document
 
 KEY = "onboarding"
@@ -37,13 +40,40 @@ WORK_ARRIVES = {"email": ("uses_email",), "slack": ("uses_slack",), "crm": ("use
                 # A ticket queue is a support inbox; one answer earns both tags.
                 "tickets": ("uses_tickets", "has_support_inbox")}
 SMALL_TEAM = 10
+# The starter team is the best pain matches, what a ticked tool names outright and the always-useful
+# Chief of Staff: about three to five bots. It is a starting point, not a limit: the full org chart
+# proposes every template that fits, and either can be edited freely before Create.
+STARTER_TEAM_MAX = 5
+MAX_PAIN_PICKS = 2
+# A card's `pack` is the team it sits in on the org chart. Teams appear in this order.
+TEAMS = {"basics": "Leadership", "sales": "Sales", "marketing": "Marketing", "support": "Support",
+         "operations": "Operations", "engineering": "Engineering"}
+OTHER_TEAM = "Other"
+NEEDS_ONBOARDING = "needs_onboarding"
+ONBOARDED = "onboarded"
+# What each ticked tool implies, as catalog tags (`recommend_when`) and as a prerequisite a card lists.
+TOOL_TAGS = {"mail": ("uses_email",), "chat": ("uses_slack",), "crm": ("uses_crm", "has_pipeline"),
+             "github": ("uses_github",), "meetings": ("uses_meetings",), "docs": ("uses_docs",)}
+# A ticked tool that names a starter outright: it recommends the card even with no matching pain.
+SIGNAL_TAGS = {"uses_github": "You use GitHub", "uses_meetings": "You use a meetings importer"}
+# Tools every company has whatever it ticked (Tico itself, the public web and its calendar).
+ALWAYS_TOOLS = ("hub", "web", "calendar")
+# Older answers said where work arrives; each implies a tool.
+WORK_TOOLS = {"email": "mail", "slack": "chat", "crm": "crm", "tickets": "mail"}
+STOP_WORDS = frozenset("""a an and are as at be but by can do does for from get gets had has have how i if in into is it its
+just like more most much my no not of on one or our out over so than that the their them then there these they this those
+to too up us was we were what when where which who why will with without you your really still every again things thing
+going about people""".split())
 
 EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": ""}
 EMPTY_ANSWERS = {"what_we_do": "", "customers": "", "team_size": "", "work_arrives": [],
-                 "repetitive_work": "", "never_without_person": []}
+                 "repetitive_work": "", "never_without_person": [], "pains": [], "pains_text": "",
+                 "tools": [], "software_product": ""}
 ANSWER_LABELS = (("what_we_do", "What we do"), ("customers", "Customers"),
                  ("team_size", "Team size"), ("work_arrives", "Work arrives by"),
-                 ("repetitive_work", "Repetitive work"),
+                 ("repetitive_work", "Repetitive work"), ("pains", "Top pains"),
+                 ("pains_text", "In their words"), ("tools", "Tools they use"),
+                 ("software_product", "Software is the product"),
                  ("never_without_person", "Never without a person"))
 
 
@@ -85,6 +115,21 @@ def render(card, names, bot_name=""):
             "never": [fill(item, names, name) for item in card["never"]]}
 
 
+def _prerequisites(value):
+    """`{tool, why, required}` rows; anything else in the list is left out rather than guessed at."""
+    rows = []
+    for item in value if isinstance(value, list) else []:
+        if isinstance(item, dict) and str(item.get("tool") or "").strip():
+            rows.append({"tool": str(item["tool"]).strip(), "why": str(item.get("why") or ""),
+                         "required": bool(item.get("required"))})
+    return rows[:12]
+
+
+def _routine(value):
+    value = value if isinstance(value, dict) else {}
+    return {"title": str(value.get("title") or ""), "cadence": str(value.get("cadence") or "")} if value else {}
+
+
 def _card(document, instructions):
     """One card.yaml as the API serves it: every field present, nothing extra."""
     template = str(document.get("template") or "").strip()
@@ -98,6 +143,13 @@ def _card(document, instructions):
             "runtime": str(document.get("runtime") or ""), "model": str(document.get("model") or ""),
             "reasoning_effort": str(document.get("reasoning_effort") or ""),
             "recommend_when": _strings(document.get("recommend_when")),
+            # What a chooser reads from a starter template (docs/starter-bots.md). A card with a first
+            # routine and an onboarding conversation is a starter; the others are built by BotOps.
+            "pack": str(document.get("pack") or ""), "pains": _strings(document.get("pains")),
+            "prerequisites": _prerequisites(document.get("prerequisites")),
+            "first_routine": _routine(document.get("first_routine")),
+            "approval_required": _strings(document.get("approval_required")),
+            "starter": bool(document.get("first_routine")) and bool(document.get("onboarding")),
             "instructions": instructions}
 
 
@@ -174,6 +226,17 @@ def config_view(c, settings, who=None):
     return value
 
 
+def tools_of(answers):
+    """What the company already uses: the tools it ticked, plus what an older answer to "where does
+    work arrive" implies, plus the three every company has (ALWAYS_TOOLS)."""
+    have = set(ALWAYS_TOOLS) | set(answers.get("tools") or [])
+    for value in answers.get("work_arrives") or []:
+        tool = WORK_TOOLS.get(re.sub(r"^uses_", "", str(value)))
+        if tool:
+            have.add(tool)
+    return have
+
+
 def tags(answers):
     """The catalog tags an answer set implies; `always` matches any card that asks for it."""
     derived = {"always"}
@@ -184,6 +247,10 @@ def tags(answers):
         derived.add("sells_to_consumers")
     for value in answers.get("work_arrives") or []:
         derived.update(WORK_ARRIVES.get(re.sub(r"^uses_", "", str(value)), ()))
+    for tool in tools_of(answers):
+        derived.update(TOOL_TAGS.get(tool, ()))
+    if str(answers.get("software_product") or "") == "yes":
+        derived.add("sells_software")
     # "1-5", "6-10", "12 people": the largest number the person wrote is the team's size.
     sizes = [int(n) for n in re.findall(r"\d+", str(answers.get("team_size") or ""))]
     if sizes and max(sizes) <= SMALL_TEAM:
@@ -197,9 +264,179 @@ def tags(answers):
     return derived
 
 
+def _stem(word):
+    for suffix in ("ing", "ed", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[:-len(suffix)]
+    return word
+
+
+def _stems(text):
+    return {_stem(word) for word in re.findall(r"[a-z']+", str(text).lower().replace("'", ""))
+            if len(word) > 2 and word not in STOP_WORDS}
+
+
+def pain_match(card, chips, text):
+    """How well a company's stated pains match a card's `pains`: (score, the card's phrase that matched).
+
+    A chip ticked from the card's own phrases is a strong match. Free text matches a phrase when it
+    shares all of the phrase's words, at least two of them, or its one or two keywords."""
+    score, best = 0, ""
+    phrases = {" ".join(sorted(_stems(phrase))): phrase for phrase in card.get("pains") or []}
+    for chip in chips or []:
+        hit = phrases.get(" ".join(sorted(_stems(chip))))
+        if hit:
+            score, best = score + 10, best or hit
+    words = _stems(text)
+    for phrase in card.get("pains") or []:
+        wanted = _stems(phrase)
+        shared = wanted & words
+        if shared and (len(shared) >= 2 or len(shared) == len(wanted) or len(wanted) <= 2):
+            score, best = score + len(shared), best or phrase
+    return score, best
+
+
+def _first_sentence(text, limit=190):
+    first = re.split(r"(?<=[.!?])\s", str(text or "").strip(), maxsplit=1)[0]
+    return first if len(first) <= limit else first[:limit - 1].rstrip() + "…"
+
+
+def _prerequisite_rows(card, have):
+    return [{**row, "met": row["tool"] in have} for row in card.get("prerequisites") or []]
+
+
+def choose(cards, answers, limit=STARTER_TEAM_MAX):
+    """The starter team: about three to five bots for these answers, best first, each with why.
+
+    The best one or two pain matches, then the starters a ticked tool names outright (GitHub, a
+    meetings importer), then every starter that asks for `always` (Chief of Staff). A card whose
+    required tool the company did not tick is never proposed; it is `held_back` with what it needs,
+    because a bot that cannot read anything only disappoints. The built-ins (required cards) are
+    always there and are not part of this. Returns (recommendations, held_back). `full_chart` is the
+    other starting point.
+    """
+    derived, have = tags(answers), tools_of(answers)
+    chips, text = answers.get("pains") or [], " ".join(
+        str(answers.get(key) or "") for key in ("pains_text", "repetitive_work"))
+    eligible, held = [], []
+    for card in (card for card in cards if not card["required"]):
+        missing = [row for row in card.get("prerequisites") or [] if row["required"] and row["tool"] not in have]
+        (held if missing else eligible).append((card, missing))
+    scored = []
+    for card, _ in eligible:
+        score, phrase = pain_match(card, chips, text)
+        hits = len((set(card["recommend_when"]) & derived) - {"always"})
+        scored.append({"card": card, "pain": score, "phrase": phrase, "tags": hits})
+    scored.sort(key=lambda row: (-row["pain"], -row["tags"], row["card"]["name"].lower()))
+    picks, why = [], {}
+
+    def take(row, reason):
+        if row["card"]["template"] not in why:
+            picks.append(row["card"])
+            why[row["card"]["template"]] = reason
+
+    for row in [row for row in scored if row["pain"] > 0][:MAX_PAIN_PICKS]:
+        take(row, {"matched_pain": row["phrase"], "signal": ""})
+    if not picks:
+        # Nothing said matches a card's words: the best fit for who they sell to and how work arrives.
+        for row in [row for row in scored if row["tags"] > 0 and "always" not in row["card"]["recommend_when"]][:1]:
+            take(row, {"matched_pain": "", "signal": "it fits how you described the company"})
+    for row in scored:
+        signals = [SIGNAL_TAGS[tag] for tag in sorted(set(row["card"]["recommend_when"]) & derived & set(SIGNAL_TAGS))]
+        if signals:
+            take(row, {"matched_pain": "", "signal": signals[0]})
+    for row in scored:
+        if "always" in row["card"]["recommend_when"]:
+            take(row, {"matched_pain": "", "signal": ""})
+    # An always-useful card keeps its slot: trim the weakest earlier pick rather than lose it.
+    keepers = [card for card in picks if "always" in card["recommend_when"]]
+    rest = [card for card in picks if card not in keepers]
+    chosen = rest[:max(0, limit - len(keepers))] + keepers[:limit]
+    recommendations = []
+    for card in (card for card in picks if card in chosen):
+        reason = why[card["template"]]
+        recommendations.append({
+            "template": card["template"], "slug": card["slug"], "name": card["name"],
+            "why": _why(reason, card["summary"]),
+            "matched_pain": reason["matched_pain"],
+            "prerequisites": _prerequisite_rows(card, have)})
+    held_back = []
+    for card, missing in held:
+        score, phrase = pain_match(card, chips, text)
+        if score > 0 or set(card["recommend_when"]) & derived & set(SIGNAL_TAGS):
+            held_back.append(_held(card, phrase, missing))
+    return recommendations, held_back[:3]
+
+
+def _why(reason, summary):
+    story = ("You said \"" + reason["matched_pain"] + "\". " if reason.get("matched_pain")
+             else reason["signal"][:1].upper() + reason["signal"][1:] + ". " if reason.get("signal") else "")
+    return story + _first_sentence(summary)
+
+
+def full_chart(cards, answers, home=""):
+    """The other starting point: every template that fits these answers, grouped into the teams of a
+    real org chart, each team with a lead and the rest reporting to it. Leads report to `home` (the
+    company owner). A template whose required tool the company did not tick is left out, and named in
+    `held_back` with what it needs. It fits when it matches a pain, names a ticked tool or one of the
+    answers' tags, or is for every company. Returns {"teams": [...], "held_back": [...]}.
+    """
+    derived, have = tags(answers), tools_of(answers)
+    chips, text = answers.get("pains") or [], " ".join(
+        str(answers.get(key) or "") for key in ("pains_text", "repetitive_work"))
+    teams, held = {}, []
+    for card in (card for card in cards if not card["required"]):
+        missing = [row for row in card.get("prerequisites") or [] if row["required"] and row["tool"] not in have]
+        score, phrase = pain_match(card, chips, text)
+        overlap = set(card["recommend_when"]) & derived
+        if missing:
+            if score > 0 or overlap & set(SIGNAL_TAGS):
+                held.append(_held(card, phrase, missing))
+            continue
+        if not (score > 0 or overlap):
+            continue
+        signals = [SIGNAL_TAGS[tag] for tag in sorted(overlap & set(SIGNAL_TAGS))]
+        reason = {"matched_pain": phrase, "signal": signals[0] if signals else ""}
+        teams.setdefault(TEAMS.get(card.get("pack") or "", OTHER_TEAM), []).append({
+            "template": card["template"], "slug": card["slug"], "name": card["name"],
+            "why": _why(reason, card["summary"]), "matched_pain": phrase,
+            "prerequisites": _prerequisite_rows(card, have),
+            "_order": (0 if "always" in card["recommend_when"] else 1, -score, -len(overlap - {"always"}),
+                       card["name"].lower())})
+    ordered = []
+    for team in [*TEAMS.values(), OTHER_TEAM]:
+        members = sorted(teams.get(team, []), key=lambda row: row["_order"])
+        if not members:
+            continue
+        lead = members[0]["slug"]
+        for row in members:
+            row.pop("_order")
+            row["lead"] = row["slug"] == lead
+            row["reports_to"] = home if row["lead"] else lead
+        ordered.append({"team": team, "lead": lead, "members": members})
+    return {"teams": ordered, "held_back": held[:5]}
+
+
+def _held(card, phrase, missing):
+    needs = " and ".join(row["tool"] for row in missing)
+    return {"template": card["template"], "name": card["name"], "needs": [row["tool"] for row in missing],
+            "why": (("It matches \"" + phrase + "\" but it needs ") if phrase else "It needs ")
+                   + needs + ", which you did not tick."}
+
+
 def recommend(cards, answers):
-    derived = tags(answers)
-    return [card["template"] for card in cards if derived & set(card["recommend_when"])]
+    return [row["template"] for row in choose(cards, answers)[0]]
+
+
+def pain_options(cards):
+    """The phrases a person can tick as their pains: every starter card's own, each with its template."""
+    seen, options = set(), []
+    for card in sorted(cards, key=lambda card: (card.get("pack") or "~", card["name"].lower())):
+        for phrase in card.get("pains") or []:
+            if phrase not in seen:
+                seen.add(phrase)
+                options.append({"text": phrase, "template": card["template"]})
+    return options
 
 
 def _answer_lines(answers):
@@ -274,13 +511,20 @@ class Onboarding:
     # ------------------------------------------------------------------ reads
     def view(self, c, who):
         record = load(c)
-        return {**record, "recommended": recommend(self.catalog(c, rendered=False), record["answers"]),
+        cards = self.catalog(c)
+        recommendations, held_back = choose(cards, record["answers"])
+        owner = self.auth.owner_id(c)
+        home = "human:" + owner if owner and H.human(c, owner) else ""
+        return {**record, "recommended": [row["template"] for row in recommendations],
+                "recommendations": recommendations, "held_back": held_back,
+                "full_chart": full_chart(cards, record["answers"], home), "home": home,
+                "pain_options": pain_options(cards),
                 "bots": self._bots(c), "machine": self._machine(c),
                 "needed": needed(c, who, record)}
 
     def _bots(self, c):
         rows = []
-        for row in c.execute("SELECT bot,config_json FROM bot_config ORDER BY bot").fetchall():
+        for row in c.execute("SELECT bot,config_json,onboarding_state,reports_to FROM bot_config ORDER BY bot").fetchall():
             declared = _json(row["config_json"], {}) or {}
             bot = H.bot(c, row["bot"]) or {}
             if bot.get("state") == "archived":          # the assistant a company chose not to have
@@ -289,6 +533,8 @@ class Onboarding:
             rows.append({"slug": row["bot"], "display_name": bot.get("display_name") or row["bot"],
                          "status": bot.get("state") or "", "template": declared.get("template") or "",
                          "setup_task_id": declared.get("setup_task_id") or None,
+                         "onboarding_state": row["onboarding_state"] or "",
+                         "reports_to": row["reports_to"] or "",
                          "assigned_to": machine, "repository_present": present})
         return rows
 
@@ -321,12 +567,23 @@ class Onboarding:
         for slug, choice in body.selected.items():
             self._template(choice.template)
             selected[slug] = {"template": choice.template, "display_name": choice.display_name,
-                              "instructions": choice.instructions}
+                              "instructions": choice.instructions, "reports_to": choice.reports_to}
+            self._reports_to_valid(c, slug, choice.reports_to)
         record.update(names=body.names.model_dump(), answers=body.answers.model_dump(),
                       selected=selected)
         self._store(c, record, who.actor)
         H.event(c, who.actor, "onboarding.saved", "", {"selected": sorted(selected)})
         return self.view(c, who)
+
+    def _reports_to_valid(self, c, slug, reports_to):
+        """A person on the chart (`human:<id>`), or a bot that exists now or is being created with it."""
+        if not reports_to:
+            return
+        if reports_to.startswith("human:"):
+            if not H.human(c, reports_to[6:]):
+                raise Problem("not_found", "Reports-to person was not found: " + reports_to[6:], 404)
+        elif reports_to == slug:
+            raise Problem("hierarchy", "A bot cannot report to itself", 422)
 
     def complete(self, c, who):
         self._owner(who)
@@ -336,19 +593,75 @@ class Onboarding:
         names = display_names(self.settings, record)
         cards = {card["template"]: card for card in read_cards(self.settings)}
         plan = self._plan(record, cards, names)
+        owner = self.auth.owner_id(c)
+        home = "human:" + owner if owner and H.human(c, owner) else ""
+        rank, parents = 0, {}
         for slug, choice in plan.items():
             raw = cards.get(choice["template"])
             card = render(raw, names, choice["display_name"]) if raw else {}
-            self._define(c, who, slug, choice, card)
-            self._setup_task(c, who, slug, choice, card, record["answers"])
+            starter = bool(card.get("starter")) and not card.get("bootstrap")
+            reports_to = str(choice.get("reports_to") or "") or (home if starter else "")
+            now = reports_to if reports_to.startswith("human:") or (reports_to and H.bot(c, reports_to)) else ""
+            self._define(c, who, slug, choice, card, reports_to=now)
+            if reports_to != now:
+                parents[slug] = reports_to          # it reports to a bot that is created later in this plan
+            if starter:
+                # A starter is created whole, now: parked until its first conversation, no BotOps task.
+                self._make_starter(c, who, slug, choice["template"], rank)
+                rank += 1
+            else:
+                self._setup_task(c, who, slug, choice, card, record["answers"])
             if card.get("bootstrap"):
                 self._seed_routines(c, who, slug, choice["template"])
+        for slug, parent in parents.items():
+            row = c.execute("SELECT revision,reports_to FROM bot_config WHERE bot=?", (slug,)).fetchone()
+            if row["reports_to"] != parent:
+                self.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(
+                    reports_to=parent, expected_revision=row["revision"]))
         # Completing twice keeps the moment the company actually finished.
         record.update(selected=plan, completed=record["completed"] or H.now())
         self._wire(c, record, who.actor)
         self._store(c, record, who.actor)
         H.event(c, who.actor, "onboarding.completed", "", {"bots": sorted(plan)})
         return self.view(c, who)
+
+    def _make_starter(self, c, who, slug, template, rank=None):
+        """A starter template's bot, as first run creates it: it records the template and its version,
+        waits for the computer to materialize its repository (`materialize`), keeps its first routine
+        paused, and is `needs_onboarding` until it says the person approved that routine. Nothing
+        claims work for it before then except a message from a person (execution.candidate)."""
+        declared = self._declared(c, slug)
+        declared.update(template=template, template_version=releases.version(), materialize=True)
+        if rank is not None:
+            declared["setup_rank"] = rank
+        self._write_config(c, slug, declared)
+        c.execute("UPDATE bot_config SET onboarding_state=? WHERE bot=? AND COALESCE(onboarding_state,'')<>?",
+                  (NEEDS_ONBOARDING, slug, ONBOARDED))
+        self._seed_routines(c, who, slug, template)
+        H.event(c, who.actor, "bot.needs_onboarding", slug, {"template": template})
+
+    def onboarded(self, c, who, slug):
+        """The bot's own word, or its manager's, that a person approved its first routine: it stops being
+        parked, its routines may run and its work is claimed. A member's bot counts toward their
+        limit from here on, so the limit is checked now."""
+        if not H.bot(c, slug):
+            raise Problem("not_found", "Bot not found", 404)
+        if not (who.role == "bot" and H.actor_id(who.actor) == slug):
+            self.admin._manager(c, who, slug)
+        row = c.execute("SELECT onboarding_state,created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        if row["onboarding_state"] != NEEDS_ONBOARDING:
+            return {"bot": slug, "onboarding_state": row["onboarding_state"] or "", "changed": False}
+        if self.auth.member_bot(c, slug):
+            limit = Access.load_access(c, self.settings)["member_bot_limit"]
+            if self.admin.counted_bots(c, row["created_by"], excluding=slug) >= limit:
+                raise Problem("bot_limit", "The person who owns this bot already has the most active bots a member may "
+                              f"have ({limit}). Archive one they no longer need, or ask an admin to raise the limit", 409)
+        declared = self._declared(c, slug)
+        declared.update(onboarded_at=H.now(), onboarded_by=who.actor)
+        self._write_config(c, slug, declared)
+        c.execute("UPDATE bot_config SET onboarding_state=? WHERE bot=?", (ONBOARDED, slug))
+        H.event(c, who.actor, "bot.onboarded", slug, {})
+        return {"bot": slug, "onboarding_state": ONBOARDED, "changed": True}
 
     def attach_template(self, c, who, slug, template, instructions):
         """Settings' "add from catalog": the same record and the same BotOps task as the wizard."""
@@ -359,6 +672,11 @@ class Onboarding:
         choice = {"template": template, "display_name": display,
                   "instructions": instructions or card["instructions"]}
         declared.update(template=template, instructions=choice["instructions"])
+        self._write_config(c, slug, declared)
+        if card.get("starter") and not card.get("bootstrap"):
+            self._make_starter(c, who, slug, template)
+            return {"template": template, "setup_task_id": None, "onboarding_state": NEEDS_ONBOARDING}
+        declared["template_version"] = releases.version()
         self._write_config(c, slug, declared)
         return {"template": template,
                 "setup_task_id": self._setup_task(c, who, slug, choice, card, record["answers"])}
@@ -529,16 +847,17 @@ class Onboarding:
         return placed
 
     def _activate_bootstrap(self, c, actor):
-        """Activate the bootstrap bots (the assistant, BotOps) once a machine hosts them. Every
-        other bot is set up by BotOps, and BotOps cannot be handed a task while it is planned,
-        so leaving these two to a separate click strands the whole setup."""
+        """Activate the bootstrap bots (the assistant, BotOps) and the starters once a machine hosts
+        them. Every other bot is set up by BotOps, and BotOps cannot be handed a task while it is
+        planned, so leaving these to a separate click strands the whole setup."""
         cards = {card["template"]: card for card in read_cards(self.settings)}
         who = self.auth.owner_identity(c)
         for row in c.execute("SELECT bc.bot,bc.revision,bc.config_json FROM bot_config bc "
                              "JOIN assignments a ON a.bot=bc.bot JOIN bots b ON b.slug=bc.bot "
                              "WHERE b.state='planned' ORDER BY bc.bot").fetchall():
-            template = (_json(row["config_json"], {}) or {}).get("template")
-            if not (cards.get(template) or {}).get("bootstrap"):
+            declared = _json(row["config_json"], {}) or {}
+            # A starter is parked (`needs_onboarding`), so activating it lets it answer a person and nothing else.
+            if not ((cards.get(declared.get("template")) or {}).get("bootstrap") or declared.get("materialize")):
                 continue
             self.admin.update_bot(c, who, row["bot"], M.BotDefinitionUpdate(
                 status="active", expected_revision=row["revision"]))
@@ -596,7 +915,7 @@ class Onboarding:
         return choice["id"], (effort if effort in tuple(choice.get("efforts") or ())
                               else choice.get("default_effort") or "")
 
-    def _define(self, c, who, slug, choice, card):
+    def _define(self, c, who, slug, choice, card, reports_to=""):
         """Create the bot, or bring an existing definition up to the chosen name. A bot that
         is already running is never demoted back to planned."""
         summary = str(card.get("summary") or "")
@@ -606,6 +925,7 @@ class Onboarding:
             self.admin.create_bot(c, who, M.BotDefinitionCreate(
                 slug=slug, display_name=choice["display_name"], description=summary,
                 status="planned", repo="emp-" + slug, thread_mode="personal",
+                reports_to=reports_to or None,
                 model=model, effort=effort, owners=[H.actor_id(who.actor)]))
         else:
             before = self.admin.definition(c, slug)
@@ -614,7 +934,8 @@ class Onboarding:
                     display_name=choice["display_name"], description=summary,
                     expected_revision=existing["revision"]))
         declared = self._declared(c, slug)
-        declared.update(template=choice["template"], instructions=choice["instructions"])
+        declared.update(template=choice["template"], instructions=choice["instructions"],
+                        template_version=releases.version())
         self._write_config(c, slug, declared)
 
     def _setup_task(self, c, who, slug, choice, card, answers):

@@ -48,8 +48,11 @@ def roster(c):
 
 def entries(c, github_owner=""):
     result = {}
-    for row in c.execute("SELECT bot,config_json,owner_ids_json,description,reports_to,repo,thread_mode FROM bot_config"):
+    for row in c.execute("SELECT bot,config_json,owner_ids_json,description,reports_to,repo,thread_mode,"
+                         "onboarding_state FROM bot_config"):
         config = json.loads(row["config_json"])
+        if row["onboarding_state"]:
+            config["onboarding_state"] = row["onboarding_state"]
         repo = row["repo"] or ("emp-" + row["bot"])
         config.update({"description": row["description"] or "", "reports_to": row["reports_to"],
                        "repo": repo, "repo_url": repo_url(repo, github_owner)})
