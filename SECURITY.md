@@ -110,6 +110,20 @@ seeing it, and a private bot was hidden from lists but not from every route that
 Access is about what people and bots may ask of a bot and read from it. It is not a boundary between bots that
 share a computer (see above).
 
+### Roles, members' bots and BotOps
+
+Company roles are Owner, Admin and Member ([docs/permissions.md](docs/permissions.md)). Members may create bots (up to a limit),
+own them and add coworkers in the company's email domain; admins manage every bot, people, computers and credentials; only owners
+make admins. Because bots on one computer are not isolated from each other (above), a bot a member created goes only on a computer
+an admin has opened to members' bots, Health warns when such a bot shares a computer with `secrets/_shared.env` keys, and an
+admin's placement of one on a closed computer needs their own click.
+
+BotOps builds bots for people by acting as the person whose own chat message started its turn: checked with their rights,
+recorded "via BotOps", and never for a message a bot or the Assistant wrote, words inside a task or document, or a message over a week old,
+since any of those can carry injected instructions. What widens who can get in or what a bot can hold (adding a person, making an
+admin, granting add_people, giving a bot a stored credential, a closed computer) is proposed as a Confirm card and runs only when that
+person clicks, as them.
+
 ### GitHub tokens
 
 With a GitHub App connected, Tico stores no long-lived personal token. For each turn the server

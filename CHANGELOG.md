@@ -25,6 +25,23 @@ All notable changes to Tico are recorded here. The format follows
   `/api/employees`) and `GET /api/v2/bots/{bot}/routines`; `GET /api/v2/bots` and `/api/v2/org` return only the bots the caller
   can see, each with `access: {see, read, write}`, and take `?can=read|write`.
 
+- **Roles and members.** Company roles are Owner, Admin (the old bot administrators, read from either key for one release) and Member.
+  Members may create bots (up to 5 active each by default, an admin sets it) and add people, and owners and admins switch either off per
+  person in Settings > People. Adding people is on by default for coworkers in the company's email domain (the allowed sign-in domain, else the
+  owner's own unless it is a public mail address); outside it needs an owner or admin. A new person goes on the roster and the sign-in list.
+  Admins manage every bot, people, computers and credentials; only owners make admins.
+- **Bot owners.** A bot's creator and co-owners (and its operator, whoever it reports to and the admins) own it, and one rule now says who may
+  manage a bot. Owners edit its configuration, access, status and routines, archive it and add co-owners (Settings > Bots, **Owned by**;
+  `POST /api/v2/bots/{bot}/co-owners`).
+- **Computers for members' bots.** A computer has **Accepts members' bots** (Settings > Devices). A bot a member created is placed only on one
+  that accepts them (off for existing computers and ones an owner or admin enrols; on for one a member enrols themselves); admins may place it
+  anywhere. Health warns when members' bots share a computer that holds `secrets/_shared.env` keys.
+- **BotOps acts for the person who asked.** `hub bot register`, `hub bot access`, `hub bot owners`, `hub people add` and `hub people list` (and
+  MCP tools), and `hub bot create` registers the bot with the server in a turn a person started: all as that person, checked with their rights,
+  recorded "via BotOps". Adding people, roles, granting add_people, a stored-credential grant and a placement on a closed computer come back as a
+  Confirm card in their chat with BotOps that runs only on their click. New BotOps playbook: build-me-a-bot. Fixes `hub bot set` on a bot with
+  no server record, and adding a colleague no longer needs the owner in Settings.
+
 ### Changed
 - Who may use a bot no longer depends on the "Can use" list (`owner_ids`), which now only says who a bot works for and who is in
   its shared room; adding a bot no longer asks for people. Everyone can chat with and give tasks to every bot unless its Write

@@ -84,7 +84,7 @@ const bot = (name, display_name, extra = {}) => ({name, display_name, org_parent
     assert.equal(await summary('legal'), 'See: Everyone · Read: Legal · Write: Everyone');
     assert.equal(await summary('intake'), 'You: See · Write', 'someone who may only use a bot sees what they can do');
     assert.equal(await page.locator('tr[data-settings-bot=intake] [data-edit-access]').count(), 0, 'only managers edit access');
-    assert.match(await page.locator('tr[data-settings-bot=legal] .settings-works-for').innerText(), /Works for/);
+    assert.match(await page.locator('tr[data-settings-bot=legal] .settings-works-for').first().innerText(), /Works for/);
 
     const dialog = page.locator('#access-editor');
     const preset = () => dialog.locator('[name=preset]:checked').getAttribute('value');

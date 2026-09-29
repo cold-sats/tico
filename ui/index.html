@@ -3415,7 +3415,7 @@ function renderAccount() {
   el.title = `Signed in as ${me.email}${me.local ? ' (local app)' : ''}`;
   el.innerHTML = `<span class="account-email">${esc(me.email || 'Not signed in')}</span><span class="hl-alert" data-hl-alert hidden></span>`;
   window.hlNav?.();
-  $('#connect-agent').hidden = !settingsCanCreateBots();
+  $('#connect-agent').hidden = !settingsIsAdmin();
   renderInboxNav();
   renderNewVersion();
   renderDownloadLink();
@@ -4591,6 +4591,8 @@ async function v2StepsOpen(state, el) {
 }
 // Tico Live was retired; the lines it left in rooms (refs.live) read as plain messages.
 function v2MessageHTML(m) {
+  // A Confirm card a bot left for you (BotOps: adding a person, a role, a shared credential): filled in from the action.
+  if (m.refs?.action) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-action-host="${esc(m.refs.action)}"><div class="asst-state">Loading the card…</div></div></div>`;
   if (m.kind === 'notice' || m.refs?.note) {
     const when = `<div class="chat-meta"><time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>`;
     return `<div class="chat-system"><b>${m.refs?.note ? 'Note' : 'Task'}</b> ${esc(plainActors(m.body))}${when}</div>`;
@@ -4693,6 +4695,8 @@ function v2ChatRender(state) {
     : pending ? `<div class="conv-run chat">${pending}</div>` : '';
   thread.innerHTML = (groups + live) || (state.failed ? '<div class="empty">Could not load the conversation yet; trying again…</div>'
     : !state.loaded ? '<div class="empty">Loading the thread…</div>' : '<div class="empty">Nothing yet. Say something below.</div>');
+  if (thread.querySelector('[data-action-host]')) void window.assistantChat?.cards(thread, {get, post, esc, toast,
+    reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
   if (atEnd) thread.scrollTop = thread.scrollHeight;
   else thread.scrollTop = wasTop + (state.prepending ? thread.scrollHeight - wasHeight : 0);
   state.prepending = false;
@@ -9043,8 +9047,11 @@ const SETTINGS_TAB_KEY = 'tico.settings.tab';
 // Remembered per browser tab so a reload lands where the owner was, not back on Devices.
 let SETTINGS_TAB = (() => { try { return sessionStorage.getItem(SETTINGS_TAB_KEY) || 'devices'; } catch { return 'devices'; } })();
 let SETTINGS_TRANSITION_TIMER = null;
-const settingsCanCreateBots = () => S.me?.role === 'owner' || !!S.me?.bot_admin;
-const settingsCanManageBot = e => S.me?.role === 'owner' || (!!S.me?.bot_admin && e?.operator === S.me?.id);
+// Owners and admins always; a member unless an admin switched create_bots off (the server decides, and counts the limit).
+const settingsCanCreateBots = () => S.me?.role === 'owner' || !!S.me?.bot_admin || S.me?.can_create_bots !== false;
+// The owner, an admin, one of the bot's owners, or someone it reports up to: what the server says (`can_manage`).
+const settingsCanManageBot = e => S.me?.role === 'owner' || !!S.me?.bot_admin || !!e?.can_manage;
+const settingsIsAdmin = () => S.me?.role === 'owner' || !!S.me?.bot_admin;
 function pageSettings() {
   clearInterval(SETTINGS_TRANSITION_TIMER);
   if (SETTINGS_TAB === 'credentials') { location.hash = INTEGRATIONS; return; }
@@ -9058,7 +9065,7 @@ function pageSettings() {
       <button type="button" data-settings-tab="bots" role="tab">Bots</button>
       <button type="button" data-settings-tab="devices" role="tab">Devices</button>
       <button type="button" data-settings-tab="health" role="tab">Health<span class="hl-alert" data-hl-alert hidden></span></button>
-      ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="people" role="tab">People</button>' : ''}
+      ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">People</button>' : ''}
       <button type="button" data-settings-tab="providers" role="tab">AI providers</button>
       <button type="button" data-settings-tab="recurring" role="tab">Recurring</button>
       <button type="button" data-settings-tab="cloud" role="tab">Cloud services</button>
@@ -9068,14 +9075,14 @@ function pageSettings() {
       <section class="card"><div class="settings-toolbar"><p>Add the computer that runs your bots: a Mac, or a Linux or cloud server. Add a new bot from here; change an existing bot on its page.</p>
         <div class="row">${settingsCanCreateBots() ? '<button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from catalog</button>' : ''}</div></div>
         <div id="set-machines"><div class="empty">Loading…</div></div></section>
-      ${settingsCanCreateBots() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2><span class="sub">call ${esc(appName())} from a script as yourself; a token is you for everything except making more tokens</span></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
+      ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2><span class="sub">call ${esc(appName())} from a script as yourself; a token is you for everything except making more tokens</span></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
       <div id="settings-assistant"></div>
       <section class="card"><header><h2>Bots</h2><span class="sub">people, model, and computer</span></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div></div>
-    ${S.me?.role === 'owner' ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
+    ${settingsIsAdmin() ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
     <div class="settings-pane" id="settings-providers" role="tabpanel" hidden>
       <section class="card"><header><h2>AI providers</h2><span class="sub">which vendors bots may use, and the default model</span></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
     </div>
@@ -9106,7 +9113,7 @@ function pageSettings() {
 }
 function settingsShow(tab) {
   if (tab === 'credentials') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'people' && S.me?.role === 'owner' ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'cloud' ? 'cloud' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
+  SETTINGS_TAB = tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'cloud' ? 'cloud' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   document.querySelectorAll('[data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
@@ -9451,7 +9458,46 @@ function settingsAccessCell(e) {
   const summary = e.access_policy ? accessSummary(e.access_policy) : `You: ${yours || 'See'}`;
   return `<div class="settings-access"><div class="settings-access-line"><span data-access-summary>${esc(summary)}</span>${e.can_manage
     ? `<button class="ghost" type="button" data-edit-access="${esc(e.name)}" aria-label="Edit access for ${esc(e.display_name)}">Edit</button>` : ''}</div>
-    <div class="settings-works-for"><span>Works for</span>${settingsOwnerList(e)}</div></div>`;
+    <div class="settings-works-for"><span>Works for</span>${settingsOwnerList(e)}</div>
+    <div class="settings-works-for" data-bot-owners><span>Owned by</span>${(e.bot_owners || []).map(o => `<span class="pchip">${personCircle(o.name || o.id, 16)}<span>${esc(firstName(o.name) || o.id)}</span></span>`).join('') || '<span class="muted">Its operator</span>'}${
+      e.can_manage ? `<button class="ghost" type="button" data-edit-bot-owners="${esc(e.name)}" aria-label="Edit who owns ${esc(e.display_name)}">Edit</button>` : ''}</div></div>`;
+}
+// Who owns a bot: its creator and co-owners (and its operator). Whoever it reports up to and the admins own it too,
+// without being listed. Any owner adds or removes people here; the server checks it (docs/permissions.md).
+async function settingsEditBotOwners(slug) {
+  const e = S.emps.find(row => row.name === slug);
+  if (!e) return;
+  let dialog = $('#bot-owners-editor');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.className = 'owner-picker'; dialog.id = 'bot-owners-editor'; dialog.setAttribute('aria-labelledby', 'bot-owners-title');
+    document.body.append(dialog);
+  }
+  const listed = new Set((e.bot_owners || []).map(o => o.id));
+  const people = SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.people || []).filter(p => !p.hidden);
+  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-owners-title">Who owns ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-owners-close aria-label="Close">✕</button></div>
+    <div class="owner-picker-body"><p class="muted">Owners may change this bot: its instructions, model, routines, who can see it, and who else owns it. Whoever it reports up to and the admins are owners too. ${e.operator ? `${esc(settingsPersonName(e.operator))} runs its computer and is always an owner.` : ''}</p>
+      <div class="owner-options">${people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${listed.has(person.id) || person.id === e.operator ? 'checked' : ''} ${person.id === e.operator ? 'disabled' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
+      <div class="row"><button class="primary" type="submit">Save owners</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
+  dialog.querySelectorAll('[data-owners-close]').forEach(button => button.onclick = () => dialog.close());
+  dialog.querySelector('form').onsubmit = async event => {
+    event.preventDefault();
+    const chosen = new Set([...dialog.querySelectorAll('input[name=owner]:checked:not(:disabled)')].map(input => input.value));
+    const add = [...chosen].filter(id => !listed.has(id) && id !== e.operator), remove = [...listed].filter(id => !chosen.has(id) && id !== e.operator);
+    const status = dialog.querySelector('[data-owners-status]');
+    if (!add.length && !remove.length) { dialog.close(); return; }
+    dialog.querySelectorAll('button,input').forEach(control => { control.disabled = true; }); status.textContent = 'Saving…';
+    try {
+      await post(`/v2/bots/${encodeURIComponent(slug)}/co-owners`, {add, remove});
+      dialog.close(); await loadSettings(); toast(`Updated who owns ${e.display_name}`);
+    } catch (error) {
+      status.innerHTML = `<span class="err">${esc(error.message)}</span>`;
+      dialog.querySelectorAll('button,input').forEach(control => { control.disabled = false; });
+      dialog.querySelectorAll('input[name=owner][value]').forEach(input => { if (input.value === e.operator) input.disabled = true; });
+    }
+  };
+  dialog.onclose = () => { dialog.innerHTML = ''; };
+  dialog.showModal();
 }
 // Which preset a stored policy is: Open, Visible-requests-only (See and Write Everyone, Read chosen),
 // Private (all three the same chosen audience), else Custom.
@@ -9976,6 +10022,8 @@ function renderSettingsBots() {
     const credential = event.target.closest('[data-agent-credential]');
     const revoke = event.target.closest('[data-agent-revoke]');
     const access = event.target.closest('[data-edit-access]');
+    const botOwners = event.target.closest('[data-edit-bot-owners]');
+    if (botOwners) void settingsEditBotOwners(botOwners.dataset.editBotOwners);
     if (owners) settingsEditOwners(owners.dataset.editOwners);
     if (access) void settingsEditAccess(access.dataset.editAccess);
     if (bot) settingsEditBot(bot.dataset.editBot);
@@ -10130,11 +10178,23 @@ function renderSettingsMachines() {
     const harnesses = Object.entries(machine.readiness?.harnesses || {}).filter(([, value]) => value.installed || value.wanted || value.state !== 'idle').map(harnessChip).join('');
     const failures = Object.values(machine.readiness?.bots || {}).filter(value => !value.ready).length;
     return `<tr class="machine-card"><td><strong>${esc(machine.label)}</strong><span class="settings-cell-note">${esc(machine.version || 'version not reported')}${machine.platform ? ` · ${esc(machine.platform)}` : ''}</span>${window.runnerUpdateHtml?.(machine.update) || ''}</td>
-      <td>${esc(settingsPersonName(machine.operator))}</td>
+      <td>${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
+        ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
+        : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
       <td>${machine.bots.length}${failures ? ` <span class="err">· ${failures} not ready</span>` : ''}</td>
       <td><div class="machine-runtime">${runtime || '<span class="muted">—</span>'}</div>${harnesses ? `<div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div>` : ''}</td>
       <td>${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}</td></tr>`;
   }).join('');
+  el.onchange = async event => {
+    const box = event.target.closest('[data-member-bots]');
+    if (!box) return;
+    box.disabled = true;
+    try {
+      await post(`/v2/runners/${encodeURIComponent(box.dataset.memberBots)}/member-bots`, {accepts: box.checked});
+      toast(box.checked ? 'Members\' bots may now go on this computer' : 'Members\' bots no longer go on this computer');
+      await loadSettings();
+    } catch (error) { toast(error.message, true); box.checked = !box.checked; box.disabled = false; }
+  };
   el.onclick = async event => {
     const button = event.target.closest('[data-harness-action]');
     if (!button || button.disabled) return;
@@ -10250,11 +10310,12 @@ function settingsEditBot(slug = '') {
   const modelOptions = settingsAllChoices().map(choice =>
     `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === currentModel ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('');
   const parentOptions = S.emps.filter(row => row.name !== slug &&
-    (S.me?.role === 'owner' || row.operator === S.me?.id)).map(row =>
+    (S.me?.role === 'owner' || settingsCanManageBot(row))).map(row =>
     `<option value="${esc(row.name)}" ${e?.reports_to === row.name ? 'selected' : ''}>${esc(row.display_name || row.name)}</option>`).join('');
   const operator = e?.operator || S.me?.id || SETTINGS_DATA.people[0]?.id || '';
+  // A member's bot goes on a computer an admin has opened to members' bots (the server refuses the rest).
   const machineOptions = SETTINGS_DATA.machines.filter(machine => !machine.revoked_at &&
-    (S.me?.role === 'owner' || machine.operator === S.me?.id)).map(machine =>
+    (settingsIsAdmin() || machine.accepts_member_bots)).map(machine =>
     `<option value="${esc(machine.id)}" data-operator="${esc(machine.operator)}">${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('');
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close">✕</button></div>
     <div class="bot-editor-body"><p class="muted">This definition is saved directly in the ${esc(appName())} backend. No application deploy is required.</p>
@@ -10360,6 +10421,7 @@ function settingsEditBot(slug = '') {
   form.onsubmit = async event => {
     event.preventDefault();
     const submit = form.querySelector('[type=submit]'); submit.disabled = true; status.textContent = 'Saving…';
+    let added = null;
     try {
       if (editing) {
         await post(`/v2/bots/${encodeURIComponent(slug)}/definition`, {
@@ -10372,7 +10434,7 @@ function settingsEditBot(slug = '') {
           await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {
         const choice = settingsChoiceFromValue(form.elements.model_effort.value);
-        await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
+        added = await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
           description: form.elements.description.value, reports_to: form.elements.reports_to.value || null,
           status: form.elements.status.value, repo: form.elements.repo.value,
           thread_mode: form.elements.thread_mode.value, model: choice.model, effort: choice.effort,
@@ -10380,7 +10442,7 @@ function settingsEditBot(slug = '') {
           runner_id: form.elements.runner_id.value || null});
       }
       dialog.close(); await loadSettings(); settingsShow('bots');
-      toast(editing ? `Updated ${form.elements.display_name.value}` : `Added ${form.elements.display_name.value}`);
+      toast(editing ? `Updated ${form.elements.display_name.value}` : added?.note || `Added ${form.elements.display_name.value}`);
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; submit.disabled = false; }
   };
   dialog.onclose = () => { dialog.innerHTML = ''; };
@@ -10870,9 +10932,23 @@ function peopleFormRows(p = {}) {
     `<label class="onb-field"><span class="k">${label}</span><input name="${name}" type="${type}" value="${esc(value || '')}" ${name === 'name' || name === 'email' ? 'required' : ''}></label>`;
   return row('name', 'Name', p.name) + row('email', 'Email', p.email, 'email') + row('title', 'Title', p.title) + row('team', 'Team', p.team);
 }
+// What a member may do: create bots (on unless switched off) and add people (by default coworkers in the
+// company's email domain). Owners and admins always may, so these are shown for members only.
+function peopleCapabilityRows(p) {
+  if (p.role !== 'member') return '<p class="muted">An owner or admin may add bots and people without limit.</p>';
+  const add = p.add_people_default ? 'default' : p.add_people ? 'yes' : 'no';
+  return `<label class="onb-field"><span class="k"><input type="checkbox" name="create_bots" ${p.create_bots ? 'checked' : ''}> Can add bots</span></label>
+    <label class="onb-field"><span class="k">Can add people</span><select name="add_people">
+      <option value="default" ${add === 'default' ? 'selected' : ''}>Default: coworkers in the company domain</option>
+      <option value="yes" ${add === 'yes' ? 'selected' : ''}>Yes: coworkers in the company domain</option>
+      <option value="no" ${add === 'no' ? 'selected' : ''}>No</option></select></label>
+    <p class="muted">Adding someone outside the company domain always needs an owner or an admin.</p>`;
+}
+const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
 function peopleAccessLabel(p) {
   if (p.left) return '<span class="muted">Left</span>';
-  return [p.owner ? '<b>Owner</b>' : '', p.bot_admin ? 'Bot admin' : '', p.can_sign_in ? 'Can sign in' : 'No email']
+  const can = p.role === 'member' ? [p.create_bots ? 'adds bots' : '', p.add_people ? 'adds people' : ''].filter(Boolean).join(', ') : '';
+  return [`<b data-role="${esc(p.role)}">${PEOPLE_ROLE[p.role] || 'Member'}</b>`, p.can_sign_in ? 'Can sign in' : 'No email', can]
     .filter(Boolean).join(' · ');
 }
 async function renderSettingsPeople() {
@@ -10887,10 +10963,10 @@ async function renderSettingsPeople() {
       <td>${peopleAccessLabel(p)}</td>
       <td class="row-actions">
         <button class="ghost" type="button" data-person-act="edit">Edit</button>
-        ${p.owner || p.left ? '' : `<button class="ghost" type="button" data-person-act="admin">${p.bot_admin ? 'Remove bot admin' : 'Make bot admin'}</button>`}
+        ${p.owner || p.left || S.me?.role !== 'owner' ? '' : `<button class="ghost" type="button" data-person-act="admin">${p.bot_admin ? 'Remove admin' : 'Make admin'}</button>`}
         ${p.owner ? '' : p.left ? '<button class="ghost" type="button" data-person-act="restore">Restore</button>'
           : '<button class="ghost" type="button" data-person-act="left">Mark as left</button>'}
-        ${p.owner || p.left || !p.email ? '' : '<button class="ghost" type="button" data-person-act="owner">Make owner</button>'}
+        ${p.owner || p.left || !p.email || S.me?.role !== 'owner' ? '' : '<button class="ghost" type="button" data-person-act="owner">Make owner</button>'}
       </td></tr>`).join('');
     el.innerHTML = `
       ${proxy ? `<div class="card" id="people-proxy-note"><p class="muted" style="margin:0">Sign-in goes through ${esc(proxy)}. Adding someone here does not let them past it: also allow their email in that policy, or they will be stopped before they reach this app.</p></div>` : ''}
@@ -10899,12 +10975,19 @@ async function renderSettingsPeople() {
         <div class="table-scroll"><table class="settings-table settings-people"><thead><tr><th>Person</th><th>Title · team</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
         <p class="muted">Marking someone as left removes them from the chart, ends their API tokens and stops them signing in.</p>
       </section>
-      <section class="card"><header><h2>Who may join</h2><span class="sub">people not on the roster who sign in for the first time</span></header>
+      <section class="card" id="people-domain"><header><h2>Company domain</h2><span class="sub">who counts as a coworker</span></header>
+        <p><strong data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'None'}</strong>
+          <span class="muted">${{allowed: ' · from the allowed domains below', owner: ' · taken from the owner\'s email; set allowed domains below to change it', none: ' · the owner uses a public mail address, so no one counts as a coworker until a domain is set below'}[view.company_domain_source]}</span></p>
+        <p class="muted">A member may add a coworker whose email is at this domain (unless switched off for them); adding anyone else needs an owner or an admin. A new person is put on the roster and the sign-in list, so they can sign in.</p>
+        <div class="onb-actions"><label class="onb-field" style="max-width:260px"><span class="k">Most active bots one member may have</span><input id="member-bot-limit" type="number" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+          <button class="ghost" type="button" id="member-bot-limit-save">Save limit</button><span class="spacer"></span><span class="muted" id="member-bot-limit-status"></span></div>
+      </section>
+      <section class="card"><header><h2>Who may join</h2><span class="sub">people not on the roster who sign in for the first time${S.me?.role === 'owner' ? '' : ' · the owner sets this'}</span></header>
         <div id="people-allow">
           <label class="onb-field"><span class="k">Allowed emails</span><textarea id="allow-emails" rows="3" placeholder="one per line">${esc(view.allowed.join('\n'))}</textarea></label>
           <label class="onb-field"><span class="k">Allowed domains</span><textarea id="allow-domains" rows="2" placeholder="company.com">${esc(view.allowed_domains.join('\n'))}</textarea></label>
           <p class="muted">Anyone at these addresses or domains who signs in is added to the roster as a normal person. Leave both empty to add people by hand only.</p>
-          <div class="onb-actions"><button class="primary" type="button" id="allow-save">Save</button><span class="spacer"></span><span class="muted" id="allow-status"></span></div>
+          <div class="onb-actions"><button class="primary" type="button" id="allow-save"${S.me?.role === 'owner' ? '' : ' disabled'}>Save</button><span class="spacer"></span><span class="muted" id="allow-status"></span></div>
         </div>
       </section>
       <section class="card" id="directory-sync"></section>`;
@@ -10926,6 +11009,11 @@ async function renderSettingsPeople() {
       const d = peopleDialog('Add a person', `<form>${peopleFormRows()}${actions('Add')}</form>`);
       submit(d, f => post('/v2/access/people', Object.fromEntries(f)), 'Person added');
     };
+    $('#member-bot-limit-save').onclick = async () => {
+      const status = $('#member-bot-limit-status'); status.textContent = 'Saving…';
+      try { await put('/v2/access/limits', {member_bot_limit: Number($('#member-bot-limit').value)}); status.textContent = 'Saved'; }
+      catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
+    };
     $('#allow-save').onclick = async () => {
       const status = $('#allow-status'); status.textContent = 'Saving…';
       try {
@@ -10938,12 +11026,19 @@ async function renderSettingsPeople() {
       const p = person(button.closest('[data-person]').dataset.person), act = button.dataset.personAct;
       const path = `/v2/access/people/${encodeURIComponent(p.id)}`;
       if (act === 'admin' || act === 'restore') {
-        try { await post(path, act === 'admin' ? {bot_admin: !p.bot_admin} : {left: false}); await renderSettingsPeople(); }
+        try { await post(path, act === 'admin' ? {role: p.role === 'admin' ? 'member' : 'admin'} : {left: false}); await renderSettingsPeople(); }
         catch (error) { toast(error.message, true); }
       } else if (act === 'edit') {
-        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${p.owner ? '<p class="muted">To change the owner, make someone else the owner first.</p>' : ''}${actions('Save')}</form>`);
+        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${peopleCapabilityRows(p)}${p.owner ? '<p class="muted">To change the owner, make someone else the owner first.</p>' : ''}${actions('Save')}</form>`);
         if (p.owner) d.querySelector('[name=email]').readOnly = true;
-        submit(d, f => post(path, Object.fromEntries(f)), 'Saved');
+        submit(d, f => {
+          const body = Object.fromEntries([...f].filter(([k]) => !['create_bots', 'add_people'].includes(k)));
+          if (p.role === 'member') {
+            body.create_bots = f.get('create_bots') === 'on';
+            const add = f.get('add_people'); body.add_people = add === 'default' ? 'default' : add === 'yes';
+          }
+          return post(path, body);
+        }, 'Saved');
       } else if (act === 'left') {
         const d = peopleDialog('Mark ' + p.name + ' as left?', `<form><p>${esc(p.name)} drops off the org chart, their API tokens stop working and they can no longer sign in. Their history stays.</p>${actions('Mark as left', true)}</form>`);
         submit(d, () => post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}), p.name + ' marked as left');
