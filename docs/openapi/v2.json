@@ -649,6 +649,16 @@
               "type": "string",
               "title": "Bot"
             }
+          },
+          {
+            "name": "on_behalf_of",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "On Behalf Of"
+            }
           }
         ],
         "responses": {

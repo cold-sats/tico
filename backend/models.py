@@ -467,6 +467,7 @@ class StructuredReadiness(Contract):
     bots: dict[str, BotReadiness] = Field(default_factory=dict)
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
     mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
+    shared_env: Literal[True] | None = None         # secrets/_shared.env holds keys every bot there receives
 
 
 class Heartbeat(Contract):

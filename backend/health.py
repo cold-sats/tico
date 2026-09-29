@@ -73,6 +73,26 @@ def _unpublished(c):
     return sorted(set(out))
 
 
+def _member_bots_beside_shared_keys(c):
+    """Computers whose `_shared.env` holds keys every bot there receives, and that also host bots members
+    created: a member's bot instructions could ask a run for them."""
+    out = []
+    for r in c.execute("SELECT id,label,readiness_json FROM runners WHERE revoked_at IS NULL ORDER BY label"):
+        if not readiness_document(r["readiness_json"]).get("shared_env"):
+            continue
+        members = [a["bot"] for a in c.execute(
+            "SELECT a.bot FROM assignments a JOIN bot_config bc ON bc.bot=a.bot WHERE a.runner_id=? "
+            "AND bc.created_by LIKE 'human:%'", (r["id"],)) if _made_by_member(c, a["bot"])]
+        if members:
+            out.append((r["label"], members))
+    return out
+
+
+def _made_by_member(c, bot):
+    from .auth import Auth
+    return Auth.member_bot_row(c, bot)
+
+
 def _rejected(computers):
     """Online computers whose wanted harness refused its key or login: (computer, runtime, when, why)."""
     return [(x["label"], r["name"], r["rejected_at"], r["rejected_reason"])
@@ -291,6 +311,14 @@ def view(c, who, settings, auth, github, config):
                              + ". Its mail key can open every mailbox, so any bot there could read it. "
                              "Add a computer for the inbox bot and move it there.",
                              [_fix("Add a computer", "#/settings", "devices")]))
+    beside = _member_bots_beside_shared_keys(c) if full else []
+    if beside:
+        checks.append(_check("member_bots", "Members' bots", "warn",
+                             "Bots members created run on a computer that holds keys every bot there receives "
+                             "(secrets/_shared.env): " + "; ".join(f"{label}: {', '.join(bots[:3])}" for label, bots in beside[:3])
+                             + ". A member's bot instructions could ask a run for them. Move those bots to a computer "
+                             "with no shared keys and open only that one to members' bots (Settings > Devices).",
+                             [_fix("Open Devices", "#/settings", "devices")]))
     exposed = _mail_key_exposed(c) if full else []
     if exposed:
         checks.append(_check("mail_key", "Mail key", "warn",

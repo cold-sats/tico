@@ -395,6 +395,20 @@ class Auth:
             return True
         return self.manages(c, who, "bot", slug)
 
+    @staticmethod
+    def member_bot_row(c, slug):
+        """The same as `member_bot`, from the database alone (Health has no Auth): the creator's role."""
+        row = c.execute("SELECT created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        creator = H.human(c, H.actor_id(row["created_by"])) if row and str(row["created_by"] or "").startswith("human:") else None
+        if not creator:
+            return False
+        from . import access
+        email = str(creator.get("email") or "").lower()
+        stored = access._load_json(c, access.ACCESS) or {}
+        admins = access.emails(stored["admins"] if "admins" in stored else stored.get("bot_admins"))
+        owner_row = access._load_json(c, access.OWNER) or {}
+        return email not in admins and email != str(owner_row.get("email") or "").lower()
+
     def member_bot(self, c, slug):
         """Whether a member (not an owner or an Admin) created this bot: those go only on computers that
         accept members' bots. A bot with no recorded creator is the company's."""

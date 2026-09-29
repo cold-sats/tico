@@ -27,6 +27,11 @@ def run(args, who=None):
         return client.post("github/repos", {"slug": args.slug, **({"empty": True} if args.empty else {"template": args.template})})
     if args.cmd in ("catalog", "bot"):
         return bots(client, args)
+    if args.cmd == "people":
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        return hubtools.BY_NAME["hub_people_" + args.sub]["fn"](client, fields)
     if args.cmd in ("decisions", "judge"):     # `judge` is the old name
         return judge(client, args)
     if args.cmd in ("context", "meetings"):
@@ -362,24 +367,46 @@ def bots(client, args):
             return catalog.cards()
     if args.sub == "set":
         # The server checks the change as the person who sent the cited message (backend/app.py).
-        row = next((b for b in client.get("bots") if (b.get("slug") or b.get("name")) == args.slug), None)
-        if not row:
-            raise APIError("not_found", "No bot " + args.slug)
-        change = {k: v for k, v in (("reports_to", args.reports_to), ("display_name", args.display_name),
-                                    ("description", args.description), ("status", args.status)) if v is not None}
-        return client.post("bots/" + args.slug + "/definition",
-                           {**change, "expected_revision": row["revision"], "on_behalf_of": args.on_behalf_of})
+        from clients import hubtools
+        fields = {k: v for k, v in (("slug", args.slug), ("reports_to", args.reports_to), ("display_name", args.display_name),
+                                    ("description", args.description), ("status", args.status), ("repo", args.repo),
+                                    ("on_behalf_of", args.on_behalf_of)) if v is not None}
+        try:
+            return hubtools.BY_NAME["hub_bot_set"]["fn"](client, fields)
+        except ValueError as exc:
+            raise APIError("not_found", str(exc)) from None
+    if args.sub in ("register", "access", "owners"):
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v not in (None, [])}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        return hubtools.BY_NAME["hub_bot_" + args.sub]["fn"](client, fields)
     if args.sub == "check":
         problems = catalog.check(workspace / ("emp-" + args.slug), args.slug)
         return {"ready": not problems, "problems": problems}
     record = onboarding(client)
     chosen = (record.get("selected") or {}).get(args.slug) or {}
+    registered = register_for_requester(client, args, chosen)
     path = catalog.materialize(args.template, args.slug, workspace, client.get("config"),
                                record.get("answers") or {},
                                display_name=args.name or chosen.get("display_name"),
                                instructions=chosen.get("instructions"))
     return {"path": str(path), "template": args.template, "slug": args.slug,
-            "committed": catalog.committed(path), "routines": seed_routines(client, args.slug, path)}
+            "committed": catalog.committed(path), "routines": seed_routines(client, args.slug, path),
+            **({"registered": registered} if registered else {})}
+
+
+def register_for_requester(client, args, chosen):
+    """`hub bot create` in a turn a person's chat message started also registers the bot with the server as
+    them (planned, they own it), so `hub bot set` and its routines have a bot to act on. A refusal for what that
+    person may not do (no create_bots, the limit) stops the build; a turn no person started (onboarding, a
+    routine) registers nothing here, as before."""
+    try:
+        return client.post("bots/register", {"slug": args.slug, "template": args.template, "on_behalf_of": "turn",
+                                             "display_name": args.name or chosen.get("display_name") or ""})
+    except APIError as exc:
+        if exc.code == "on_behalf_of":
+            return None
+        raise
 
 
 def seed_routines(client, slug, path):

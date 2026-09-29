@@ -19,7 +19,7 @@ from clients import hubcli
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "say", "ask", "answer", "notice", "note", "notes", "unnote", "files", "assistant", "task", "goals", "goal", "kpi", "market", "listen", "intake", "history", "routine", "approval", "status", "turns",
                "inbox", "ack", "board", "org", "fleet", "update", "updates", "grokbot", "recent", "calendar", "sql", "db", "github", "integrations", "integration", "queries", "learn",
-               "decisions", "judge", "catalog", "bot"]
+               "decisions", "judge", "catalog", "bot", "people"]
 SUBCOMMANDS[SUBCOMMANDS.index("approval") + 1:SUBCOMMANDS.index("approval") + 1] = ["live", "batch"]
 SUBCOMMANDS[1:1] = ["context", "meetings"]
 
@@ -230,6 +230,8 @@ class BotSetup(unittest.TestCase):
 
         def post(self, path, body, key=None):
             self.posted.append((path, body))
+            if path == "bots/register":
+                return {"created": True, "status": "planned", "bot_owners": ["cara"]}
             return {"routine": {"id": path.split("/")[1] + ":" + body["key"]}}
 
         def get(self, path, **query):
@@ -267,6 +269,24 @@ class BotSetup(unittest.TestCase):
         with self.assertRaises(ValueError) as refused:
             self.run_command("bot", "create", "seo", "--template", "specialist")
         self.assertIn("already exists", str(refused.exception))
+
+    def test_creating_a_bot_in_a_persons_turn_registers_it_with_the_server_first(self):
+        made = self.run_command("bot", "create", "seo", "--template", "specialist")
+        self.assertEqual(self.client.posted[0][0], "bots/register")
+        self.assertEqual(self.client.posted[0][1]["on_behalf_of"], "turn")
+        self.assertEqual(made["registered"]["bot_owners"], ["cara"])
+
+    def test_the_new_commands_parse_and_carry_what_the_tools_need(self):
+        args = hubcli.parser().parse_args(["bot", "access", "seo", "--read", "team:legal,ben", "--write", "everyone"])
+        self.assertEqual((args.fn, args.slug, args.read, args.write, args.see), ("bot access", "seo", "team:legal,ben", "everyone", None))
+        args = hubcli.parser().parse_args(["bot", "owners", "seo", "--add", "ben", "cara"])
+        self.assertEqual((args.fn, args.add, args.remove), ("bot owners", ["ben", "cara"], []))
+        args = hubcli.parser().parse_args(["people", "add", "sean@acme.example", "--name", "Sean"])
+        self.assertEqual((args.fn, args.email, args.name), ("people add", "sean@acme.example", "Sean"))
+        from clients import hubtools
+        self.assertEqual(hubtools.audience("everyone"), {"everyone": True})
+        self.assertEqual(hubtools.audience("ben,team:legal,bot:analyst,human:dee"),
+                         {"people": ["ben", "dee"], "teams": ["legal"], "bots": ["analyst"]})
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

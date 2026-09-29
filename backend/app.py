@@ -2227,7 +2227,6 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
-        H.event(c, who.actor, "botops.acting_for", person.actor, {"message": message_id})
         return replace(person, via="botops")
 
     def propose_card(c, acting, method, path, body, summary):
@@ -2620,16 +2619,19 @@ def create_app(settings=None):
         return mutate(request, body, work)
 
     @app.get("/api/v2/bots/{bot}/access")
-    def bot_access_read(request: Request, bot: str):
+    def bot_access_read(request: Request, bot: str, on_behalf_of: str = ""):
         """Who may see, read and write to this bot (docs/permissions.md). For the people who manage it."""
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
+            if on_behalf_of:
+                who = delegated_identity(c, who, on_behalf_of)
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
             auth.require_see(c, who, bot)
             return settings_admin.access(c, who, bot)
 
+    @app.post("/api/v2/bots/{bot}/access")     # the same write for the tools, whose client only posts
     @app.put("/api/v2/bots/{bot}/access")
     def bot_access_write(request: Request, bot: str, body: M.BotAccess):
         caller = request.state.identity

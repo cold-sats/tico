@@ -109,6 +109,15 @@ the server (`backend/hubdb.py`), never here.
     hub bot create <slug> --template T [--name "Display"]
                                            set a chosen bot up in the workspace (BotOps only)
     hub bot check <slug>                   what preflight would still refuse about that repository
+    hub bot register <slug> [--name N] [--description D] [--reports-to R] [--template T]
+                                           register a new bot with the server (planned), as the requester (BotOps)
+    hub bot access <slug> [--see V] [--read V] [--write V]
+                                           show or set who sees, reads, writes (V: everyone, or ben,team:legal,bot:x)
+    hub bot owners <slug> [--add P ...] [--remove P ...]
+                                           add or remove the people who own a bot, as the requester (BotOps)
+    hub people add <email> [--name N] [--title T] [--reports-to P]
+                                           add a person to the roster and sign-in list (a Confirm card first)
+    hub people list                        the people on the roster
 
 Exit codes: 0 fine, 2 `{"refused": <rule>, "detail": "..."}` or a non-retryable API error,
 1 `{"error": "..."}` (bad arguments, no identity, or the API could not be reached).
@@ -806,16 +815,42 @@ def parser():
     s.set_defaults(fn="bot create")
     s = bot.add_parser("set", help="apply a person's bot-settings request as them (BotOps)")
     s.add_argument("slug")
-    s.add_argument("--on-behalf-of", required=True, metavar="MESSAGE_ID",
-                   help="the person's message to BotOps asking for this change")
+    s.add_argument("--on-behalf-of", metavar="MESSAGE_ID",
+                   help="the person's message to BotOps asking for this change; by default the one that started this turn")
     s.add_argument("--reports-to", help="a bot slug, or human:<id>")
     s.add_argument("--display-name")
     s.add_argument("--description")
+    s.add_argument("--repo", help="its GitHub repository: <org>/emp-<slug>")
     s.add_argument("--status", choices=("active", "paused", "planned"))
     s.set_defaults(fn="bot set")
     s = bot.add_parser("check", help="what preflight would still refuse about that repository")
     s.add_argument("slug")
     s.set_defaults(fn="bot check")
+    s = bot.add_parser("register", help="register a bot with the server, planned, as the person who asked (BotOps)")
+    s.add_argument("slug")
+    s.add_argument("--name", help="what people call it")
+    s.add_argument("--description")
+    s.add_argument("--reports-to", help="a bot slug, or human:<id>; the requester by default")
+    s.add_argument("--template", help="a template from `hub catalog`")
+    s.set_defaults(fn="bot register")
+    s = bot.add_parser("access", help="show or set who may see, read and write to a bot")
+    s.add_argument("slug")
+    for level in ("see", "read", "write"):
+        s.add_argument("--" + level, help="everyone, or a comma list: person ids, team:<name>, bot:<slug>")
+    s.set_defaults(fn="bot access")
+    s = bot.add_parser("owners", help="add or remove the people who own a bot")
+    s.add_argument("slug")
+    s.add_argument("--add", nargs="+", default=[], metavar="PERSON")
+    s.add_argument("--remove", nargs="+", default=[], metavar="PERSON")
+    s.set_defaults(fn="bot owners")
+    people = sub.add_parser("people", help="the roster: add someone, list who is on it").add_subparsers(dest="sub")
+    s = people.add_parser("add", help="add a person to the roster and the sign-in list")
+    s.add_argument("email")
+    s.add_argument("--name")
+    s.add_argument("--title")
+    s.add_argument("--reports-to")
+    s.set_defaults(fn="people add")
+    people.add_parser("list", help="the people on the roster").set_defaults(fn="people list")
     return p
 
 
