@@ -476,7 +476,8 @@ class Onboarding:
                 continue
             routines.create(c, who.actor, slug, {"title": entry["title"], "text": entry["instructions"],
                                                  "cron": entry["cron"], "on": entry["on"],
-                                                 "timezone": entry["timezone"]}, key=entry["id"])
+                                                 "timezone": entry["timezone"],
+                                                 "enabled": entry["enabled"]}, key=entry["id"])
             made.append(entry["id"])
         return made
 

@@ -1,6 +1,7 @@
 # Research an account
 
-Triggered by a task that names one account. Budget 25 minutes. The outcome is one file in
+Triggered by a task that names one account, and used for each lead in `playbooks/weekly-outreach-drafts.md`.
+Budget 25 minutes for an account, ten for a lead. The outcome is one file in
 `knowledge/accounts/` a salesperson can read in the minute before a call, and a task note that says
 what is worth knowing and what could not be found.
 
@@ -51,15 +52,18 @@ Every fact carries its date. A fact from last year and a fact from last week are
 
 ## 5. Draft, if the task asked for one
 
-A draft is one message, on the task, for a person to send. It says one specific true thing from the
-research, it asks for one thing, and it leaves a marked gap wherever it would need a price, a
-discount, a term, or a date. You never send it. When the owner wants it sent, that is
-`hub approval request` with the exact text and the exact recipient.
+A draft is one message, on the task, for a person to send, written to `knowledge/voice.md`. A first
+touch is under 120 words, plain text, one ask, no attachment. It says one specific true thing from the
+research, and it leaves a marked gap wherever it would need a price, a discount, a term, or a date. A
+follow-up gives a new reason to reply. You never send it. When the owner wants it sent, that is
+`hub approval request --kind send` with the exact text and the exact recipient. Check the person is not in
+`knowledge/do-not-contact.md` first.
 
 ## 6. Finish
 
-Commit, then `hub task update <id> --status done --note`: what you learned in two lines, the path to
-the file, the draft if there is one, and which sources you could not read. A source that refused you
+Update the account's line in `knowledge/pipeline.md`. Commit, then `hub task update <id> --status done
+--note`: what you learned in two lines, the path to the file, the draft if there is one, and which
+sources you could not read. A source that refused you
 is a named gap, never silence.
 
 ## When a source fails

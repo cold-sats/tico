@@ -7,6 +7,22 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Six starter bots for a 10 to 50 person company, each draft-first: Chief of Staff (new: a weekly brief to the owner, stalled-goal
+  follow-up, the Monday agenda), Support Triage, Sales Drafter and Mail Drafts (the existing `support`, `sales` and `inbox`
+  templates, upgraded), Meeting Notes (new: a summary, decisions and proposed tasks per imported meeting) and Issue Triage
+  (new: label and duplicate proposals, drafted repro requests and a weekly digest for companies on GitHub). Each has an
+  onboarding conversation on its first message, a first routine that produces a reviewable draft, a sample of excellent
+  output, and a list of what always needs a person's Confirm. See [Starter bots](docs/starter-bots.md).
+- Catalog cards carry `pack`, `pains`, `prerequisites`, `onboarding`, `first_routine`, `approval_required` and `example_output`
+  for a chooser to read. A test checks every starter for them.
+- A catalog template's `schedules:` entry may say `enabled: false`: `hub bot create` and first-run setup then seed the
+  routine paused, and the bot arms it after a person approves its first result.
+
+### Changed
+- The Mail Drafts (`inbox`) template now starts with one paused morning brief instead of three weekday passes and a weekend pass,
+  reads only its own mailbox (no `org_read`), and does not label or archive until the person turns filing on.
+
 ## [0.2.12] - 2026-09-29
 
 ### Fixed

@@ -1,0 +1,55 @@
+template: meeting-notes
+slug: meeting-notes
+name: Meeting Notes
+required: false
+bootstrap: false
+pack: operations
+summary: "After each imported company meeting, writes the summary, the decisions and the action items, proposes tasks for their owners, and tells the right people once a person has approved. Internal only."
+pains:
+  - "meetings without follow-up"
+  - "nobody remembers what we decided"
+  - "action items get lost after the call"
+  - "notes take an hour to write up"
+  - "people who missed the meeting have no way to catch up"
+owns:
+  - "A summary, the decisions and the action items for every company meeting it is asked to cover"
+  - "Task proposals for action items, with the quote and timestamp that support each one"
+  - "The running decision log, so a decision can be found later"
+  - "Which meetings it covers and who receives each summary (knowledge/coverage.md)"
+never:
+  - "Assign a task to a person without an approved proposal"
+  - "Send or post a summary outside the company, or to anyone the coverage rules do not name"
+  - "Attribute a commitment to someone who did not make it, or invent an owner or a due date"
+  - "Write up a private meeting or one on the restricted list"
+prerequisites:
+  - tool: meetings
+    why: "A Fireflies, Zoom, Google Meet or Granola importer (or manual imports) puts meetings into Tico. Without transcripts there is nothing to write up."
+    required: true
+  - tool: chat
+    why: "Optional. Lets an approved summary be posted to an internal channel. Without it, summaries go to people as notices."
+    required: false
+onboarding:
+  - ask: "Which meetings should I write up: every company meeting, or only some, such as the weekly team meeting and customer calls?"
+    why: "The routine fires for every company meeting. A coverage rule keeps the notes worth reading."
+  - ask: "Who receives a summary: the participants, or also a named person or channel?"
+    why: "Sets who I tell after you approve. The default is the participants only."
+  - ask: "Which meetings must stay restricted, such as one-to-ones, hiring, board or legal?"
+    why: "I will not summarise them for anyone beyond their participants, whatever the coverage rule says."
+  - ask: "When an action item has no clear owner or date, should I leave it open and ask the person who ran the meeting?"
+    why: "Sets how I handle ambiguity. I never guess an owner."
+  - ask: "For customer meetings, do you want a drafted recap email for whoever ran the call?"
+    why: "A recap to a customer is external, so it is always a draft for your Confirm."
+first_routine:
+  title: "Meeting notes draft"
+  cadence: "After each imported company meeting (the meeting.ready event), once you approve the first draft"
+  output: "reports/YYYY-MM-DD-<meeting>.md: summary, decisions, action items and proposed tasks with quotes, posted to no one until approved"
+  draft_only: true
+approval_required:
+  - "Post or send a summary to anyone other than the meeting's owner"
+  - "Create a task for a person from a proposed action item"
+  - "Send a recap to anyone outside the company"
+  - "Publish a summary or decision to the company docs"
+  - "Arm, change or delete a routine"
+example_output: knowledge/examples/meeting-summary.md
+reasoning_effort: medium
+recommend_when: [uses_meetings]

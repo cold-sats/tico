@@ -110,5 +110,48 @@ class Materialize(unittest.TestCase):
         self.assertIn("already exists", str(caught.exception))
         self.assertIn("A turn happened here.", (path / "state.md").read_text())
 
+
+STARTERS = ("chief-of-staff", "support", "sales", "meeting-notes", "inbox", "issue-triage")
+PACKS = ("basics", "sales", "support", "operations", "engineering")
+
+
+class StarterBots(unittest.TestCase):
+    """The six starter templates (docs/starter-bots.md) carry the fields a chooser and a first
+    session depend on, and none of them starts a routine before a person has approved it."""
+
+    def test_every_starter_is_complete_and_draft_first(self):
+        directory = catalog.ROOT / "templates/catalog"
+        for name in STARTERS:
+            folder, where = directory / name, f"template {name}"
+            card = catalog.card(name, directory)
+            self.assertTrue(card, where)
+            self.assertIn(card.get("pack"), PACKS, where)
+            for field in ("pains", "owns", "never", "approval_required"):
+                self.assertTrue(card.get(field) and all(isinstance(x, str) for x in card[field]), f"{where}: {field}")
+            self.assertTrue(card["recommend_when"], where)
+            for need in card["prerequisites"]:
+                self.assertTrue(need["tool"] and need["why"] and isinstance(need["required"], bool), where)
+            self.assertTrue(any(need["required"] for need in card["prerequisites"]), where)
+            self.assertTrue(4 <= len(card["onboarding"]) <= 7, where)
+            self.assertTrue(all(q.get("ask") and q.get("why") for q in card["onboarding"]), where)
+            first = card["first_routine"]
+            self.assertTrue(first["title"] and first["cadence"] and first["output"], where)
+            self.assertIs(first["draft_only"], True, where)
+            self.assertTrue((folder / card["example_output"]).is_file(), where)
+            agent = (folder / "AGENT.md").read_text()
+            self.assertLessEqual(len(agent.splitlines()), 150, where)
+            for heading in ("## Owns", "## Never without approval", "## First message: onboarding"):
+                self.assertIn(heading, agent, where)
+            playbooks = [p for p in (folder / "playbooks").glob("*.md") if p.name != "README.md"]
+            self.assertGreaterEqual(len(playbooks), 3, where)
+            self.assertTrue((folder / "playbooks/onboarding.md").is_file(), where)
+            manifest = yaml.safe_load((folder / "employee.yaml").read_text())
+            self.assertIs(manifest["outbound_send"], False, where)
+            routines = validate_schedules(manifest["schedules"], lambda rel: (folder / rel).read_text())
+            self.assertEqual(len(routines), 1, where)
+            self.assertIs(routines[0]["enabled"], False, f"{where}: the first routine waits for a person's yes")
+            for access in manifest["access"]:
+                self.assertNotIn("send", access.get("can", []), where)
+
 if __name__ == "__main__":
     unittest.main()

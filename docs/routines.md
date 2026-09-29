@@ -73,10 +73,13 @@ it ran, and a link to the task. `hub sql` reads the same rows: `schedules`,
 ## Catalog templates
 
 A catalog template's `employee.yaml` may declare `schedules:` (`id`, `title`, `cron` or `on`,
-`timezone`, `template:` a playbook path). That block is a seed: when BotOps runs
+`timezone`, `template:` a playbook path, and optionally `enabled: false`). That block is a seed: when BotOps runs
 `hub bot create`, the rendered playbooks become the new bot's first routines in the hub, keyed by
 their `id`. After that the hub's rows are the routines. Editing the file in the bot's repository
-changes nothing; `hub routine set` does. `clients/preflight.py` still validates the block so a
+changes nothing; `hub routine set` does. A seeded routine with `enabled: false` is created paused and
+visible; the bot (or a person, on the site) turns it on with `hub routine update <id> --enable`. The
+starter templates use this so no routine fires before a person has approved its first result
+([Starter bots](starter-bots.md)). `clients/preflight.py` still validates the block so a
 broken template is caught before a bot is made from it.
 
 ## What this replaced

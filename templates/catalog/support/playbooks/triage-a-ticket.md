@@ -1,18 +1,17 @@
 # Triage a ticket
 
-Triggered by a task that hands you one ticket, or a pass over everything new since the last one.
-Budget 20 minutes for a pass, five minutes for a single ticket. The outcome is a draft reply for
-every ticket you can answer, a task for every one you cannot, and a note saying what the queue
-looked like.
+Triggered by a task that hands you one ticket, and used for each ticket in
+`playbooks/daily-support-triage.md`. Budget five minutes for a single ticket. The outcome is a draft
+reply if you can answer it, a task if you cannot, and a bucket either way.
 
 ---
 
-## 1. Read the queue
+## 1. Read the ticket
 
     hub task show <id>
 
-Read what arrived since the last pass and nothing older. If you cannot reach the source at all, say
-so and stop: an unread queue and an empty queue must never read the same.
+Read the whole thread, not the subject. If you cannot reach the source at all, say so and stop: an
+unread queue and an empty queue must never read the same.
 
 ## 2. Sort each one
 
@@ -36,7 +35,9 @@ One draft per ticket, on the task, never in the support tool. Each draft:
 - answers from a source you can point at, not from a policy you assembled;
 - leaves a marked gap wherever it would need a refund, a credit, a discount, a fix, or a date, and
   says on the task what the gap needs;
-- carries no personal detail beyond what the person approving already has.
+- carries no personal detail beyond what the person approving already has;
+- matches `knowledge/voice.md`, is short enough to read on a phone, and ends with what happens next
+  or what you need from them.
 
 ## 4. Route what is left
 
@@ -48,12 +49,12 @@ decided. Never two tasks for the same thing, and never a second escalation of so
 already names. If the same problem has now arrived three times, that is one line in
 `knowledge/known-issues.md` and one task for whoever owns the fix, not three escalations.
 
-## 5. Finish the pass
+## 5. Finish
 
-Commit, then `hub task update <id> --status done --note`, in this order: how many arrived, how many
-you drafted, how many went to a person and to whom, and anything you could not read. Numbers you
-actually counted. Then, in the same run, add any answer you had to work out from scratch to
-`knowledge/answers.md` with today's date, so the next pass does not work it out again.
+Commit, then `hub task update <id> --status done --note`: the bucket, whether a draft is on the task,
+and who you routed it to. Then, in the same run, add any answer you had to work out from scratch to
+`knowledge/answers.md` with today's date, so the next ticket does not work it out again. A draft
+that stated something not in `knowledge/answers.md` says so on the task so a person confirms it.
 
 ## When the source is unreadable
 
