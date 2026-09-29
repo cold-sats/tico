@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from clients.tico import APIError, Client
-from . import credential_socket, git_credentials, harness_tools, isolation, op, profiles
+from . import credential_socket, files_publish, git_credentials, harness_tools, isolation, op, profiles
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -1512,7 +1512,8 @@ class Runner:
                 self.state.phase(aid, "synced")
                 if outcome == "completed":
                     self.publish(bot, self.local_path(bot), env)
-                    self.push(self.local_path(bot), env)
+                    pushed = self.push(self.local_path(bot), env)
+                    files_publish.after_turn(self, attempt, self.local_path(bot), pushed)
             except APIError as exc:
                 if not exc.retryable:
                     # This Mac holds the only copy of the result until the cloud takes it, so a
@@ -1542,6 +1543,7 @@ class Runner:
                 renewer.join(timeout=2)
 
     def recover_output(self):
+        files_publish.drain(self)           # files a restart or an outage left queued (runner/files_publish.py)
         for row in self.state.unfinished():
             if row["id"] in self.active:
                 continue

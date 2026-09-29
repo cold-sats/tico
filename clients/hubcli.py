@@ -21,6 +21,13 @@ the server (`backend/hubdb.py`), never here.
     hub task close <id> [--note "..."]
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
+    hub files publish <path> [--title T] [--task ID] [--scope task|bot]
+                                           list a file from this checkout on your page (reports/x.md);
+                                           publishing it again adds a version (docs/files.md)
+    hub files add-link <https-url> [--title T] [--task ID]   a Google Doc, Notion page, Figma file
+    hub files touch <file-id|url>          you edited a linked document again: it moves to the top
+    hub files import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
+    hub files list [--bot X] [--limit N]   what is on the page, newest activity first
     hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done]
     hub task show <id>
     hub goals [--owner me|X] [--all]      what you are for: your goals in order, the chain above
@@ -311,6 +318,32 @@ def parser():
     s.add_argument("id")
     s.set_defaults(fn="unnote")
 
+    files = sub.add_parser("files", help="what you publish for people: reports, documents, imported objects").add_subparsers(dest="sub")
+    s = files.add_parser("list", help="the files on your page, newest activity first")
+    s.add_argument("--bot")
+    s.add_argument("--limit", type=int)
+    s.add_argument("--cursor")
+    s.set_defaults(fn="files list")
+    s = files.add_parser("publish", help="upload a file from this checkout (reports/x.md); again adds a version")
+    s.add_argument("path")
+    s.add_argument("--title")
+    s.add_argument("--task", help="the task it is for; defaults to the one you are working on")
+    s.add_argument("--scope", choices=["task", "bot"])
+    s.set_defaults(fn="files publish")
+    s = files.add_parser("add-link", help="list a Google Doc, Notion page, Figma file or any https link")
+    s.add_argument("url")
+    s.add_argument("--title")
+    s.add_argument("--task")
+    s.add_argument("--scope", choices=["task", "bot"])
+    s.set_defaults(fn="files add-link")
+    s = files.add_parser("touch", help="you edited a linked document again: move it to the top")
+    s.add_argument("target", help="a file id or its https link")
+    s.set_defaults(fn="files touch")
+    s = files.add_parser("import", help="copy an s3:// object with this computer's credentials into Tico")
+    s.add_argument("uri")
+    s.add_argument("--title")
+    s.add_argument("--task")
+    s.set_defaults(fn="files import")
     task = sub.add_parser("task").add_subparsers(dest="sub")
     s = task.add_parser("create")
     s.add_argument("--owner", required=True)

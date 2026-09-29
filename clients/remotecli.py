@@ -39,6 +39,13 @@ def run(args, who=None):
         from clients import hubtools
         body = json.loads(Path(args.file).read_text())
         return hubtools.BY_NAME["hub_grokbot_sync"]["fn"](client, body)
+    if args.cmd == "files":
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        if args.fn == "files publish":
+            return hubtools.files_publish_path(client, fields)
+        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_").replace("-", "_")]["fn"](client, fields)
     if args.cmd == "db":
         # Runs here, beside the credential; the hub only checks who is asking and keeps the audit.
         from clients import dbquery

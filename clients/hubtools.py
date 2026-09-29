@@ -659,6 +659,90 @@ def task_attach(api, args):
     return api.post(f"tasks/{args['id']}/files", body, key=_key(args))
 
 
+# ----------------------------------------------------------------------------- files
+# What a bot publishes so people find it on the bot's page (docs/files.md). The bot is the caller:
+# no tool takes a bot argument for a write, and only a bot's own files can be written.
+def _files_fields(args, *names):
+    return {n: args[n] for n in names if args.get(n)}
+
+
+@tool("hub_files_list", "The files on your page (or another bot's, if you may see it), newest activity first: "
+      "id, title, kind, where each opens and when it last changed.",
+      {"bot": _s("Bot slug; defaults to you"), "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+       "cursor": _s("next_cursor from the previous page")})
+def files_list(api, args):
+    slug = args.get("bot") or str(api.get("me")["actor"]).split(":", 1)[-1]
+    return api.get(f"bots/{slug}/files", limit=args.get("limit"), cursor=args.get("cursor"))
+
+
+@tool("hub_files_publish", "Publish a file you created or changed so people can open it from your page: "
+      "a report, a draft, a spreadsheet. Send its text, or content_base64 for a binary file (up to about 1.4 MB "
+      "here; `hub files publish <path>` sends up to 25 MB). Publishing the same name again adds a version. "
+      "Documents, images, csv, json, md, html, pdf and office files only; never credentials.",
+      {"name": _s("File name with its extension, e.g. 2026-09-15-pipeline-review.md"),
+       "text": _s("The file's text"), "content_base64": _s("The bytes, base64-encoded, for anything not text"),
+       "title": _s("What people see; defaults to the name"),
+       "task": _s("The task this is for; defaults to the task you are working on"),
+       "scope": {"enum": ["task", "bot"], "description": "bot makes it visible to everyone who sees this bot "
+                 "(refused from inside a private chat)"},
+       "path": _s("The file's path in your repository, so an edit later is the same file")},
+      required=("name",), writes=True)
+def files_publish(api, args):
+    body = _files_fields(args, "name", "text", "content_base64", "title", "task", "scope", "path")
+    return api.post("files/uploads", body, key=_key(args))
+
+
+@tool("hub_files_add_link", "List a document you created or edited in another tool (a Google Doc, Sheet or "
+      "Slides, a Notion page, a Figma file, any https link) on your page. Tico keeps the address, never the "
+      "document; whoever opens it needs access there. Adding it again, or `hub_files_touch`, moves it to the top.",
+      {"url": _s("An https:// link"), "title": _s("What people see"), "task": _s("The task it is for"),
+       "scope": {"enum": ["task", "bot"]}}, required=("url",), writes=True)
+def files_add_link(api, args):
+    return api.post("files/links", _files_fields(args, "url", "title", "task", "scope"), key=_key(args))
+
+
+@tool("hub_files_touch", "Say you edited a linked document again, so it moves to the top of your files. "
+      "Give its file id or its https link.", {"target": _s("A file id or an https:// link")}, required=("target",),
+      writes=True)
+def files_touch(api, args):
+    target = str(args["target"])
+    return api.post("files/links", {"url": target} if target.startswith("https://") else {"file": target},
+                    key=_key(args))
+
+
+@tool("hub_files_import", "Copy an S3 object into Tico so people can open it. Only where the bot's own computer "
+      "runs the tool (the `hub files import` command): it reads the object with the credentials that computer "
+      "has, within the size and type limits.",
+      {"uri": _s("s3://bucket/key"), "title": _s("What people see"), "task": _s("The task it is for")},
+      required=("uri",), writes=True)
+def files_import(api, args):
+    from clients import bot_files as BF
+    from clients.tico import Client
+    if not isinstance(api, Client):
+        return {"refused": "import", "detail": "Run `hub files import` on the bot's computer; the hub never "
+                "reads your buckets with its own credentials."}
+    try:
+        name, _, data, etag = BF.fetch_s3(args["uri"], client=args.get("_s3"))
+    except BF.Refused as exc:
+        return {"refused": "import", "detail": str(exc)}
+    query = {"source": args["uri"], "etag": etag, "name": name, **_files_fields(args, "title", "task")}
+    return api.request("POST", "/api/v2/files/imports?" + BF.urlencode(query), raw=data, key=_key(args))
+
+
+def files_publish_path(client, args):
+    """`hub files publish <path>`: the CLI reads the file (inside this checkout only) and sends the bytes."""
+    from clients import bot_files as BF
+    try:
+        name, _, data, relative = BF.read_local(BF.checkout_root(), args["path"])
+    except BF.Refused as exc:
+        return {"refused": "file", "detail": str(exc)}
+    query = {"name": name, "path": relative, **_files_fields(args, "title", "task", "scope")}
+    commit = BF.pushed_commit(BF.checkout_root(), relative)
+    if commit:
+        query["commit"] = commit
+    return client.request("POST", "/api/v2/files/uploads?" + BF.urlencode(query), raw=data, key=_key(args))
+
+
 @tool("hub_task_close", "Close a task you requested. Never close a task you did not request.",
       {"id": _s("Task id"), "note": _s("Why it is closed")}, required=("id",), writes=True)
 def task_close(api, args):
