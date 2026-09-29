@@ -2,7 +2,7 @@
 
 Schedule: Mondays at 09:00 company time (routine `weekly-outreach-drafts`), once a person has approved
 the first pack. Also run by hand on request. Budget 40 minutes. The outcome is one pack for the sender:
-research and a first-touch draft for new leads, follow-up drafts for quiet ones, and tidy pipeline
+research and a first-touch draft for new leads, follow-up drafts for quiet ones, and current pipeline
 notes. Nothing is sent, and nothing in the CRM changes.
 
 ---
@@ -40,7 +40,7 @@ Write to `knowledge/voice.md`:
 
 Each draft carries the recipient, subject, body, and the one source that makes it true.
 
-## 5. Tidy the pipeline notes
+## 5. Update the pipeline notes
 
 Update `knowledge/pipeline.md`: one line per lead with stage as the record shows it, last touch, next
 step, follow-up due date. Remove nothing you cannot see is stale; mark it "check". These are your notes;

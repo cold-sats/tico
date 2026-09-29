@@ -17,7 +17,7 @@ that is answer two, and a task for the owner if they want it connected. Never wo
 
 ## 2. Introduce yourself in three lines
 
-What you do (research, first-touch and follow-up drafts, tidy pipeline notes), that you never send or
+What you do (research, first-touch and follow-up drafts, current pipeline notes), that you never send or
 change the CRM, and that a person approves every message.
 
 ## 3. Ask, in one message

@@ -11,7 +11,7 @@ company already has, and none of them acts outside the company on its own. The c
 |---|---|---|---|---|
 | `chief-of-staff` | Chief of Staff | basics | A weekly brief to the owner from goals, tasks, updates and meetings; stalled-goal follow-up; the Monday agenda | Tico only |
 | `support` | Support Triage | support | A triage digest, a draft reply per ticket for a person to approve, standing answers and product issues from repeats | Support mail or tickets routed as tasks |
-| `sales` | Sales Drafter | sales | Account research, first-touch and follow-up drafts, tidy pipeline notes | Public web; a CRM and mail are optional |
+| `sales` | Sales Drafter | sales | Account research, first-touch and follow-up drafts, current pipeline notes | Public web; a CRM and mail are optional |
 | `meeting-notes` | Meeting Notes | operations | A summary, decisions and action items per imported meeting, with tasks proposed for their owners | A meeting importer (Fireflies, Zoom, Google Meet, Granola) or manual imports |
 | `inbox` | Mail Drafts | basics | A morning brief for one person's mailbox, drafted replies, what needs them | A Google Workspace mailbox for that person |
 | `issue-triage` | Issue Triage | engineering | Label and duplicate proposals, drafted requests for missing repro steps, a weekly digest | GitHub connected; offer it only then |
@@ -58,7 +58,7 @@ template: sales
 slug: sales
 name: Sales Drafter
 pack: sales
-summary: "Researches leads and accounts, drafts first-touch and follow-up emails for a person to approve, and keeps the pipeline notes tidy. It never sends."
+summary: "Researches leads and accounts, drafts first-touch and follow-up emails for a person to approve, and keeps the pipeline notes current. It never sends."
 pains:
   - "leads go cold"
   - "follow-ups fall through the cracks"

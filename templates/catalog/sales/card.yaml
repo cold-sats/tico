@@ -4,7 +4,7 @@ name: Sales Drafter
 required: false
 bootstrap: false
 pack: sales
-summary: "Researches leads and accounts, drafts first-touch and follow-up emails for a person to approve, and keeps the pipeline notes tidy. It never sends."
+summary: "Researches leads and accounts, drafts first-touch and follow-up emails for a person to approve, and keeps the pipeline notes current. It never sends."
 pains:
   - "leads go cold"
   - "follow-ups fall through the cracks"
