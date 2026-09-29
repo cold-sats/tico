@@ -4,6 +4,22 @@ A release is a version tag. Pushing `vX.Y.Z` runs `.github/workflows/release.yml
 installer bundle, checks the tag against [CHANGELOG.md](../CHANGELOG.md) and publishes the GitHub
 release. Running installations look for that release to show "New version" in the sidebar.
 
+Before a deploy, run the journey check on a laptop with Docker (it is not part of CI, and takes about ten minutes):
+
+```
+scripts/journey-test.sh                  # this checkout is the candidate; starts from the newest release tag
+scripts/journey-test.sh --tag vX.Y.Z     # a published candidate (its images and bundle must exist)
+```
+
+It installs the previous release into a throwaway directory (auth none), enrolls a runner with a one-time code, runs one
+bot turn through a fake `codex` (`scripts/journey-fake-codex.py`), restarts the server, upgrades to the candidate with
+"Update now", rolls back an update that migrates the database and never turns healthy (checking the pre-update snapshot
+is restored), and finishes with `docker/backup-test.sh` (MinIO and a file replica, wipe, restore). It prints a table of
+PASS, FAIL or SKIP per step and exits non-zero on a failure. `scripts/install.sh` itself needs Linux and root, so the
+script does what the installer does after its preflight (checksummed bundle, `.env`, `docker compose up -d`). For a
+release that adds updater or migration behavior, the upgrade step is done by the *previous* updater, so also read the
+rollback step: it runs on the candidate's updater.
+
 1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh empty
    `## [Unreleased]` above it, and update the link references at the bottom.
 2. Commit that to `main` once CI is green.

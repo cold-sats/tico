@@ -7,6 +7,23 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A server started on an empty data volume no longer becomes a blank company when its backup cannot be restored. It records an
+  environment marker outside the database (`.tico-environment` in the volume, `environment.json` beside the backup) and refuses
+  to start, with a clear message, when a company exists (or may exist) and the restore failed. Starting a new company over an
+  existing backup needs `TICO_INITIALIZE_EMPTY=1` or `server --initialize-empty`; a genuinely fresh install starts as before.
+- "Check for updates" waits (up to 10 seconds) for the fresh answer instead of returning the cached one, bypasses the cache
+  for it, and says "still checking" when GitHub is slow.
+- Updates snapshot the database (`/data/snapshots`, last three kept) before switching the server image and restore it when the
+  new version fails its health check and is rolled back; the update status reports the snapshot and whether it was restored.
+- The server's updater and the runner box's updater replace themselves after a successful update (a short-lived helper
+  recreates the service and puts the old updater back if the new one does not stay up), so updater fixes reach existing installs.
+
+### Added
+
+- `scripts/journey-test.sh`: an on-demand install-to-rollback check to run against Docker before a deploy (docs/releasing.md).
+
 ## [0.2.5] - 2026-09-29
 
 ### Fixed
