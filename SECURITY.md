@@ -45,10 +45,27 @@ computer in **Settings > Devices**.
 
 ### Bots on one computer share a trust boundary, on purpose
 
-Tico does not isolate bots from each other on the same computer. They run as the same OS user, in the
-same workspace, with the same model logins and the same shared secrets. One bot can read another's files
-and credentials on that machine. This is a design choice, not a bug: it keeps setup simple and lets
+Tico does not isolate bots from each other on the same computer. By default they run as the same OS user,
+in the same workspace, with the same model logins and the same shared secrets. One bot can read another's
+files and credentials on that machine. This is a design choice, not a bug: it keeps setup simple and lets
 bots on a team cooperate.
+
+What is separated: the computer's own credential. The runner's registration (`runner.json`) can claim the
+work of any bot assigned to that computer, so code a bot runs must not be able to read it.
+
+- **Docker runner** (`docker/runner.compose.yaml`, the installer's default): the supervisor keeps the runner's
+  own user, which owns `runner.json` (mode 0600), its state and the tools directory, and runs every process
+  that executes bot code (the model CLI of a turn, `git` in a bot's checkout, sign-in flows) as the unprivileged `bot` user. A
+  turn gets its own attempt token and the environment the runner passes it, nothing of the registration.
+  Its GitHub token comes from a local socket that answers only "a token for the bot this attempt belongs
+  to", given the attempt token; the registration never crosses it.
+- **Mac runner:** one user runs the runner and the bots, so the registration sits in the same account the
+  bots run as: treat the Mac as one trust group. A second macOS account for the bots is possible by hand but
+  not built in.
+- **Still shared, by default:** the `bot` user's workspace, secrets and model logins, so one bot can read
+  another's repository and credentials, and read the environment of another bot's running turn. Separate OS
+  users per bot are not built (a future opt-in); separate computers or separate containers are the boundary
+  today.
 
 Practical guidance:
 

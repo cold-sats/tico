@@ -21,6 +21,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from .. import isolation
 from .base import Host, HostError, is_limit
 
 PROVIDER = "openrouter"
@@ -93,7 +94,7 @@ def session_dir(bot, settings):
     env = (settings or {}).get("env") or {}
     root = Path(env.get("HUB_WORKSPACE") or (settings or {}).get("cwd") or ".")
     path = root / "runtime" / "pi-sessions" / str(bot or "pi")
-    path.mkdir(parents=True, exist_ok=True)
+    isolation.mkdir(path, 0o777)     # the bot user's, when the supervisor makes it
     return path
 
 
@@ -106,7 +107,7 @@ class PiHost(Host):
         self.bot = bot
         self.cmd = list(cmd)
         self.stderr_path = stderr_path
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self._up = False
         self.proc = None
         self._reader = None

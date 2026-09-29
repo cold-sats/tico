@@ -7,8 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### Added
+- `scripts/journey-test.sh`: an on-demand install-to-rollback check to run against Docker before a deploy (docs/releasing.md).
 
+### Fixed
 - A server started on an empty data volume no longer becomes a blank company when its backup cannot be restored. It records an
   environment marker outside the database (`.tico-environment` in the volume, `environment.json` beside the backup) and refuses
   to start, with a clear message, when a company exists (or may exist) and the restore failed. Starting a new company over an
@@ -20,9 +22,22 @@ All notable changes to Tico are recorded here. The format follows
 - The server's updater and the runner box's updater replace themselves after a successful update (a short-lived helper
   recreates the service and puts the old updater back if the new one does not stay up), so updater fixes reach existing installs.
 
-### Added
+### Security
+- The Docker runner keeps its own credential away from bot code. The supervisor stays the runner's own user (`ticorun`, 10002, as in every earlier image) and owns `runner.json` (0600), holding
+  five ambient capabilities (`CHOWN`, `DAC_OVERRIDE`, `KILL`, `SETGID`, `SETUID`); each turn's model CLI, `git` in a
+  bot's checkout and the sign-in flows run as an unprivileged `bot` user (uid 10003). A turn's git credential helper gets
+  the bot's GitHub token from a supervisor socket with its attempt token, never from the registration. The current
+  `runner.compose.yaml` sets `user: "0"` and the capabilities; an older compose file, or a bare `docker run` without them,
+  keeps running as one user, and so does the previous image if an update is rolled back on a migrated volume. Bots still share the `bot` user with each other. SECURITY.md says what is and is not separated.
+  On the first start of an existing volume the entrypoint changes its ownership once (logins and dotfiles to `bot`, group-writable; the workspace keeps its owner and
+  the supervisor's files stay with `ticorun`); use `docker exec -u bot` to sign a model in.
 
-- `scripts/journey-test.sh`: an on-demand install-to-rollback check to run against Docker before a deploy (docs/releasing.md).
+### Tests
+- `POST /api/v2/sql` and the JSON API are checked against each other for tasks, private rooms, messages and meetings, for the
+  owner, a member, a person with a private room, a bot and a bot whose turn was reassigned.
+- A Docker test starts the runner image on a volume from an older release and shows a turn cannot read the registration but can
+  still run its harness and push through the credential helper.
+
 
 ## [0.2.5] - 2026-09-29
 

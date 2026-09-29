@@ -20,7 +20,7 @@ import termios
 import threading
 import time
 
-from . import harness_tools, profiles
+from . import harness_tools, isolation, profiles
 from .outage import log
 
 # argv after the executable, and whether the command insists on a terminal. Claude Code's
@@ -169,7 +169,7 @@ class Session:
         argv, terminal = COMMANDS[self.runtime]
         env = self.environment()
         if not terminal:
-            self.proc = subprocess.Popen([executable, *argv], env=env, stdin=subprocess.DEVNULL,
+            self.proc = isolation.popen([executable, *argv], env=env, stdin=subprocess.DEVNULL,
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                          start_new_session=True)
             return self.proc.stdout.fileno(), None
@@ -179,7 +179,7 @@ class Session:
         attributes[3] &= ~termios.ECHO       # a pasted code is not echoed back into the output
         termios.tcsetattr(slave, termios.TCSANOW, attributes)
         try:
-            self.proc = subprocess.Popen([executable, *argv], env=env, stdin=slave, stdout=slave,
+            self.proc = isolation.popen([executable, *argv], env=env, stdin=slave, stdout=slave,
                                          stderr=slave, start_new_session=True, close_fds=True)
         finally:
             os.close(slave)

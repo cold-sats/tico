@@ -17,6 +17,7 @@ import subprocess
 import threading
 import uuid
 
+from .. import isolation
 from .base import Host, HostError, is_limit
 
 PROTOCOL_VERSION = 1
@@ -48,7 +49,7 @@ class GrokHost(Host):
                                           "--reasoning-effort", self.effort,
                                           "--always-approve", "--no-leader", "stdio"]
         self.stderr_path = stderr_path
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self.proc = None
         self._reader = None
         self._next_id = 0

@@ -26,6 +26,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from .. import isolation
 from .base import Host, HostError, hub_mcp_server, is_limit
 
 CLIENT_INFO = {"name": "tico-keeper", "title": "Tico keeper", "version": "0.1"}
@@ -101,7 +102,7 @@ class CodexHost(Host):
         # and a bot has no use for them.
         self.base_config = dict(config) if config is not None else mcp_disable_config()
         self.cli_overrides = list(cli_overrides)
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self.proc = None
         self._reader = None
         self._stderr_reader = None

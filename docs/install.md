@@ -255,11 +255,26 @@ now has its updater.
 
 ```
 docker run -d --name tico-runner --restart unless-stopped -v tico-runner:/home/runner \
-  ghcr.io/ticoteam/tico-runner:v0.2.3 join --url https://tico.example.com --code <code> --label "Build box"
+  --user 0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add KILL --cap-add SETGID --cap-add SETUID \
+  --security-opt no-new-privileges:true \
+  ghcr.io/ticoteam/tico-runner:v0.2.6 join --url https://tico.example.com --code <code> --label "Build box"
 ```
 
-It has no updater: it stays on the release you pinned until you pull a newer image and recreate the container, and
+The `--user 0` and capabilities are what keep the runner's own login out of the bots' reach (below); without them the
+container runs as one user, as it did before. It has no updater: it stays on the release you pinned until you pull a newer image and recreate the container, and
 Settings > Health says so.
+
+**Who runs what.** The container's entrypoint starts as root, with five capabilities and nothing else, only to prepare
+the volume; the runner itself is the `ticorun` user that owns `/home/runner/runner.json`, its state and the tools
+directory, as in every earlier release. Everything a bot runs (each turn's model CLI,
+its `git`, the sign-in flows) runs as the unprivileged `bot` user, whose home holds the workspace, `secrets/` and the
+model logins. So a bot cannot read the runner's own credential, which could claim any bot's work; a turn gets its
+attempt token, and asks the runner for its bot's GitHub token over a local socket. Bots still share the `bot` user with
+one another ([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-boundary-on-purpose)). The first start of a volume from an older image
+changes its ownership to match (one time, a minute on a large workspace). If an update is rolled back, the previous
+image still starts on the migrated volume and reads its own files; the bots then run as the runner's user again until
+the next update. Use `docker exec -u bot` for what a bot should
+own (logins, secrets); the runner hands root-made files in `secrets/` to `bot` itself.
 
 The image holds no model CLI. Once the company has enabled a provider (Settings > AI providers), the runner installs
 that provider's CLI into `/home/runner/tools` in the volume (a minute or two; Settings > Devices shows the progress),
@@ -268,14 +283,14 @@ keeps it current between turns, and lets the owner pin a version. See [harnesses
 Sign the bots in to a model once, from Settings > Devices or inside the container (the login stays in the volume):
 
 ```
-docker exec -it tico-runner codex login --device-auth      # ChatGPT subscription: open the URL, enter the code
-docker exec -it tico-runner claude setup-token             # Claude: prints a long-lived token
+docker exec -it -u bot tico-runner codex login --device-auth      # ChatGPT subscription: open the URL, enter the code
+docker exec -it -u bot tico-runner claude setup-token             # Claude: prints a long-lived token
 ```
 
 API keys and other secrets go in the runner's shared file, readable by the runner only:
 
 ```
-docker exec tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUTH_TOKEN=<token>" "GH_TOKEN=<fine-grained token>" >> /home/runner/workspace/secrets/_shared.env'
+docker exec -u bot tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUTH_TOKEN=<token>" "GH_TOKEN=<fine-grained token>" >> /home/runner/workspace/secrets/_shared.env'
 ```
 
 `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `OPENROUTER_API_KEY` work the same way; `GH_TOKEN` is used by `git` and `gh`
