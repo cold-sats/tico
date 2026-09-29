@@ -47,6 +47,12 @@ All notable changes to Tico are recorded here. The format follows
 - A database file that has Tico's tables but no version record is refused with a clear message instead of being
   migrated blind. An empty file still starts.
 - The one-time removal of the old routine-manifest tables keeps what they held in `routine_*_retired` tables.
+- Idle runners no longer keep the database's write lock busy. Each runner asked for work four times a second and every ask
+  was a write transaction, so a fleet of 8 to 12 idle runners made 32 to 48 writes a second and starved the scheduler,
+  backups and lease renewals. The server now checks with a read and writes only when there is something to do, and an idle
+  runner backs off from 0.25 s to 2 s between asks. The API's database wait is 30 s, as the scheduler's already was.
+- Due reminders and the three-day auto-close stopped for every task past the first 500: they read a capped task listing. They
+  now query exactly the tasks they need.
 
 ### Security
 - Files auto-publish and `hub files publish` refuse a regular file with more than one hard link, so a bot cannot hard-link a

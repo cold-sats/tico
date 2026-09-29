@@ -39,3 +39,61 @@ def test_due_reminder_deduplicates_across_scheduler_restart(api):
     with store.read() as c:
         assert c.execute("SELECT count(*) FROM task_reminders").fetchone()[0] == 1
         assert c.execute("SELECT count(*) FROM messages WHERE conversation_id=?", (task["conversation_id"],)).fetchone()[0] == 2
+
+
+def test_reminders_and_auto_close_reach_past_the_first_500_tasks(api):
+    store = api.app.state.store
+    with store.transaction() as c:
+        # 600 newer tasks that are neither due nor done sort ahead of the two that are.
+        c.executemany("INSERT INTO tasks(id,title,owner,requester,status,created,updated,conversation_id) "
+                      "VALUES(?,?,?,?,?,?,?,?)",
+                      [(f"filler{i}", "Filler", "human:ana", "human:ana", "open", "2026-09-01T00:00:00Z",
+                        "2026-09-01T00:00:00Z", None) for i in range(600)])
+    due = post(api, "tasks", {"owner": "coo", "title": "Late one", "body": "Due long ago", "due": "2026-09-10T15:00:00Z"})
+    done = post(api, "tasks", {"owner": "human:ana", "title": "Old done", "body": "Finished"})
+    with store.transaction() as c:
+        c.execute("UPDATE tasks SET requester='bot:coo',status='done',done_at='2026-09-01T00:00:00Z',"
+                  "created='2026-10-01T00:00:00Z',rank=NULL WHERE id=?", (done["id"],))
+        c.execute("UPDATE tasks SET created='2026-10-01T00:00:00Z',rank=NULL WHERE id=?", (due["id"],))
+    Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 20, 17, tzinfo=timezone.utc))
+    with store.read() as c:
+        assert c.execute("SELECT count(*) FROM task_reminders WHERE task_id=?", (due["id"],)).fetchone()[0] == 1
+        assert c.execute("SELECT status FROM tasks WHERE id=?", (done["id"],)).fetchone()[0] == "closed"
+
+
+def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):
+    import threading, time
+    from backend.tests.test_api import assign, headers, ready, runner
+    runners = []
+    for bot in ("ops", "finance", "cpo"):
+        r = runner(api, label=bot)
+        assign(api, r, bot)
+        ready(api, r, [bot])
+        runners.append(r)
+        post(api, "jobs/claim", {"next_run": True}, token=r["token"])      # first contact stamps last_seen
+    store = api.app.state.store
+    # Another writer holds the lock for a second; an idle claim answers at once anyway.
+    with store.read() as holder:
+        holder.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        assert post(api, "jobs/claim", {"next_run": True}, token=runners[0]["token"]) == {"attempt": None}
+        assert time.monotonic() - started < 1
+        holder.execute("ROLLBACK")
+    post(api, "chat/ops", {"text": "Anything today?"})
+    statuses, got = [], []
+    def loop(r):
+        for _ in range(15):
+            res = api.post("/api/v2/jobs/claim", json={"next_run": True}, headers=headers(r["token"]))
+            statuses.append(res.status_code)
+            got.append(res.json().get("attempt"))
+    threads = [threading.Thread(target=loop, args=(r,)) for r in runners]
+    for t in threads:
+        t.start()
+    for _ in range(3):
+        Scheduler(store, api.app.state.execution).tick()
+    for t in threads:
+        t.join()
+    assert set(statuses) == {200}, "no storage_unavailable"
+    assert len([a for a in got if a]) == 1
+    with store.read() as c:
+        assert c.execute("SELECT count(*) FROM attempts WHERE state='expired'").fetchone()[0] == 0

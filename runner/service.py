@@ -127,6 +127,8 @@ def checkout_status(root=None, running=None, run=subprocess.run):
 # SELF_UPDATE_DRAIN_S it stops claiming so one comes), and exits; the supervisor (launchd KeepAlive, the Docker restart policy) starts it
 # again on the new code. The same guards as `scripts/tico update`. A dependency change is left
 # for a person (it needs a pip install), and so is anything not run by a supervisor.
+CLAIM_EVERY = 0.25       # seconds between claims while work is arriving
+CLAIM_IDLE_MAX = 2       # and the most an idle runner leaves between them
 SELF_UPDATE_DRAIN_S = 20 * 60
 # One long turn held every bot on a Mac for half an hour after a UI-only merge.
 # The runner process loads only these; everything else (bot repos, registry, prompts, the web UI,
@@ -1644,10 +1646,18 @@ class Runner:
         except (OSError, ValueError):
             pass
 
+    def claim_wait(self, got):
+        """Seconds to leave between claims: 0.25 after work arrives, doubling to 2 while idle. Each claim
+        is a request the server answers even when the queue is empty, and a fleet of runners asking four
+        times a second adds up. Only claims wait on this; the loop still ticks every 0.25 s."""
+        self.idle_claims = 0 if got else getattr(self, "idle_claims", 0) + 1
+        return min(CLAIM_IDLE_MAX, CLAIM_EVERY * 2 ** min(self.idle_claims, 3))
+
     def tick(self):
         for aid, future in list(self.active.items()):
             if future.done():
                 del self.active[aid]
+                self.next_claim = 0         # capacity came free: look for the next job now
                 self.attempt_runtimes.pop(aid, None)
                 try:
                     future.result()
@@ -1678,14 +1688,16 @@ class Runner:
                 return        # a person asked: stop claiming so the running turns finish
         if self.follower.blocks_claims(bool(self.active)):
             return
-        while len(self.active) < self.capacity:
+        while len(self.active) < self.capacity and time.monotonic() >= getattr(self, "next_claim", 0):
             result = self.client.post("jobs/claim", {"next_run": True})   # prompt() carries them
+            self.next_claim = time.monotonic() + self.claim_wait(bool(result.get("attempt")))
             if result.get("paused") and result["paused"] != getattr(self, "_paused_note", None):
                 self._paused_note = result["paused"]
                 log(f"Tico runner: the server is not giving this computer work: {result['paused']}")
             if not result["attempt"]:
                 break
             attempt = result["attempt"]
+            self.next_claim = 0             # one job often means more: ask again at once
             self.state.record(attempt)
             config = attempt.get("config") or {}
             self.attempt_runtimes[attempt["id"]] = {config.get("runtime") or "",

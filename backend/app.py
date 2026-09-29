@@ -2546,6 +2546,12 @@ def create_app(settings=None):
 
     @app.post("/api/v2/jobs/claim")
     def claim(request: Request, body: M.Claim):
+        # A read first: an idle runner asks every fraction of a second and must not take the write lock.
+        with store.read() as c:
+            idle = execution.idle_claim(c, request.state.identity, body,
+                                        request.headers.get("idempotency-key"))
+        if idle is not None:
+            return idle
         return mutate(request, body, lambda c: execution.claim(c, request.state.identity, body))
 
     @app.post("/api/v2/attempts/{aid}/renew")

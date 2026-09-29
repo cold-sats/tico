@@ -107,6 +107,7 @@ class Execution(unittest.TestCase):
         # An automatic update never stops the other bots on this Mac; it waits for
         # a moment with nothing running, however long that takes.
         client.posts.clear()
+        runner.next_claim = 0           # the idle back-off is not what this test is about
         runner.restart_due = time.monotonic() - service.SELF_UPDATE_DRAIN_S
         with mock.patch("runner.service.log"):
             runner.tick()
@@ -115,6 +116,7 @@ class Execution(unittest.TestCase):
         # Only a restart a person asked for drains after a while.
         client.posts.clear()
         runner.restart_forced = True
+        runner.next_claim = 0
         with mock.patch("runner.service.log"):
             runner.tick()
         self.assertFalse(any(path == "jobs/claim" for path, _ in client.posts), "a requested restart stops claiming after a while")
