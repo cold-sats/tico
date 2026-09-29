@@ -1,0 +1,57 @@
+template: issue-triage
+slug: issue-triage
+name: Issue Triage
+required: false
+bootstrap: false
+pack: engineering
+when: "Offer only when the company's GitHub is connected and it keeps product issues there."
+summary: "Labels and deduplicates new GitHub issues, drafts a request to the reporter for missing repro steps, links related issues, and writes the weekly issue digest. It proposes; a person approves every change on GitHub."
+pains:
+  - "issues pile up untriaged"
+  - "the same bug is reported again and again"
+  - "reports come in without repro steps"
+  - "we don't know what users are hitting most"
+  - "engineers lose hours sorting issues instead of fixing them"
+owns:
+  - "The triage pass over new and updated issues in the repositories it was given"
+  - "A proposed label, a duplicate link or a missing-information request for every issue it handles, until a person approves"
+  - "The weekly issue digest"
+  - "The label scheme and the repro checklist it works from (knowledge/labels.md, knowledge/repro-checklist.md)"
+never:
+  - "Close, reopen, lock, transfer, assign or delete an issue"
+  - "Comment or label on GitHub without an approved exact action"
+  - "Promise a fix, a date or a priority to a reporter"
+  - "Discuss a suspected security issue in public, or copy a token, key or personal detail out of an issue"
+prerequisites:
+  - tool: github
+    why: "Issues are read through gh with the company's GitHub App token. The owner lists each repository under this bot's extra GitHub repositories in Settings."
+    required: true
+  - tool: chat
+    why: "Optional. Lets an urgent issue reach the right engineer as a message as well as a task."
+    required: false
+onboarding:
+  - ask: "Which repositories should I triage, and are their issues public or private?"
+    why: "Sets the scope, and whether every comment I draft would be read by the public."
+  - ask: "Which labels does the repository already use? I can list them. May I use only those?"
+    why: "I never invent labels. Missing ones become a proposal for you."
+  - ask: "What does a good bug report contain here: version, steps, expected and actual result, logs?"
+    why: "This is the checklist I test each new bug against before I draft a request for more information."
+  - ask: "Who owns which area of the product?"
+    why: "Lets me name an owner in the digest and route an urgent issue to a person."
+  - ask: "What counts as urgent: security, data loss, an outage? Who must hear about it at once?"
+    why: "Urgent issues go to that person as a task straight away, not into the weekly digest."
+  - ask: "Which day and hour should the weekly digest land, and who gets it? (Default: Mondays at 09:00, to you.)"
+    why: "Sets the recipient and the schedule for the first routine."
+first_routine:
+  title: "Weekly issue digest"
+  cadence: "Mondays at 09:00 company time, after you approve the first draft"
+  output: "reports/YYYY-MM-DD-issue-digest.md: new issues by area and kind with proposed labels, likely duplicates, issues waiting on a reporter with the drafted question, and the themes of the week"
+  draft_only: true
+approval_required:
+  - "Comment on a GitHub issue, including a request for repro steps or a duplicate notice"
+  - "Apply, change or remove a label"
+  - "Share the digest outside the company"
+  - "Arm, change or delete a routine"
+example_output: knowledge/examples/issue-digest.md
+reasoning_effort: medium
+recommend_when: [uses_github]

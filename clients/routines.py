@@ -33,7 +33,7 @@ def validate_schedules(entries, read_file=None):
     for index, entry in enumerate(entries, 1):
         if not isinstance(entry, dict):
             raise ValueError(f'Schedule {index} must be an object')
-        if set(entry) - {'id', 'cron', 'on', 'title', 'template', 'labels', 'timezone', 'instructions'}:
+        if set(entry) - {'id', 'cron', 'on', 'title', 'template', 'labels', 'timezone', 'instructions', 'enabled'}:
             raise ValueError(f'Schedule {index} has unsupported fields')
         # A validated entry carries both keys, one of them empty; empty means absent.
         title, cron, on = entry.get('title'), entry.get('cron') or None, entry.get('on') or None
@@ -58,6 +58,11 @@ def validate_schedules(entries, read_file=None):
                 croniter(cron, datetime(2026, 1, 1, tzinfo=tz), day_or=False).get_next(datetime)
         except (ValueError, ZoneInfoNotFoundError, KeyError) as exc:
             raise ValueError(f'Schedule {index} has an invalid timezone or impossible cron') from exc
+        # A catalog template may declare a routine and leave it off (`enabled: false`) until a person
+        # approves the first result; the seed then creates it paused.
+        enabled = entry.get('enabled', True)
+        if not isinstance(enabled, bool):
+            raise ValueError(f'Schedule {index} needs enabled to be true or false')
         key = entry.get('id')
         if key is None:
             key = 'title-' + hashlib.sha256(title.encode()).hexdigest()[:32]
@@ -79,5 +84,5 @@ def validate_schedules(entries, read_file=None):
         if total > MAX_SNAPSHOT:
             raise ValueError('Routine instructions exceed the 1 MB snapshot limit')
         result.append(dict(id=key, title=title, cron=cron.strip(), on=on or '', timezone=zone,
-                           template=template, labels=labels, instructions=instructions))
+                           template=template, labels=labels, instructions=instructions, enabled=enabled))
     return result

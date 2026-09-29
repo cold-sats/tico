@@ -155,6 +155,8 @@ def check_schedules(r, d, m):
         return
     for row in rows:
         where = row["title"]
+        if not row.get("enabled", True):
+            r.ok(f"schedule {where!r}: declared, not armed (enabled: false); a person arms it after the first result")
         if row.get("on"):
             r.ok(f"schedule {where!r}: on {row['on']}")
         else:

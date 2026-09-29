@@ -19,6 +19,10 @@ and a task goes to **BotOps**, the bot engineer every environment has (built in,
 repository, puts the reviewed instructions in, runs the readiness check, and finishes the task with
 the one thing to read before you activate the bot. Activation stays a person's decision.
 
+The six starter templates (Chief of Staff, Support Triage, Sales Drafter, Meeting Notes, Mail Drafts
+and Issue Triage) are described in [Starter bots](starter-bots.md), with the card fields and the
+quality bar this page's advice is measured against.
+
 Read this page when you are writing those instructions, tailoring what BotOps produced, or standing
 a bot up outside that flow. The wizard, the catalog folder format and the ways to add a bot later
 are in [First run](onboarding.md).
@@ -28,10 +32,11 @@ are in [First run](onboarding.md).
 An inbox bot is assigned to one person on the roster. **Settings → Bots → Add from catalog** (and
 the first-run cards) show a person picker when the template is `inbox`. The chosen address is
 appended to the instructions as `Mailbox: <email>`, and BotOps fills `{{mailbox}}` in
-`employee.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, two
-inbox-pass routines (weekdays at 07:00 / 12:00 / 16:00 and weekends at 09:00 in the company
-timezone), and gmail `read`/`draft` plus calendar `read` on that mailbox, with `org_read: true` so
-it also reads everyone who reports to that person.
+`employee.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
+routine, the weekday 07:30 mail brief, declared but not armed until the person approves the first
+brief, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
+`org_read: true`, which also reads everyone who reports to the person, is added by the owner
+deliberately. It starts with filing off (no labels, no archive) and shows what it would do.
 
 There is no per-user OAuth. One Google service account acts as every mailbox; the access block
 names the address, never a personal login. Calendar access is broader than Gmail access: every
@@ -39,9 +44,9 @@ bot can read and create events on every address in `registry/people.yaml`, wheth
 manifest includes that mailbox and even when Gmail is read-only. After the first inbox bot, pick
 another person to create another (`<id>-inbox`).
 
-A pass runs `mail rules run --all-mailboxes`, then `mail inbox --untriaged --all-mailboxes
---format brief`. What still needs a person is labelled `hub/needs-owner`. Nothing is sent. See
-[Mail](mail.md) and [Routines](routines.md).
+A brief runs `mail rules run`, then `mail inbox --untriaged --format brief --decisions`, and sorts
+each message by the answer of the `mail-triage` decision set. What still needs a person is labelled
+`hub/needs-owner` once filing is on. Nothing is sent. See [Mail](mail.md) and [Routines](routines.md).
 
 ## 1. What a bot is here
 
@@ -294,8 +299,12 @@ hub routine set daily-stock-pass --title "Daily stock pass" --cron "0 7 * * 1-5"
 ```
 
 A catalog template may declare the same thing under `schedules:` in its `employee.yaml`
-(`id`, `title`, `cron`, `timezone`, `template: playbooks/<file>.md`); `hub bot create` seeds the
-new bot's routines from it once, and from then on the hub's rows are the routines.
+(`id`, `title`, `cron` or `on`, `timezone`, `template: playbooks/<file>.md`, and optionally
+`enabled: false`); `hub bot create` seeds the new bot's routines from it once, and from then on the
+hub's rows are the routines. The starter templates declare their first routine with `enabled: false`:
+it exists and is visible under Tasks, Recurring, but does not fire until the bot arms it
+(`hub routine update <id> --enable`) after a person approves the first draft. Quote `"on":` in the
+YAML; an unquoted `on` is read as a boolean.
 
 - **`key`** (the `id` in a template) is stable. Keep it when you change the title: setting the
   same key again updates the routine in place, and the server keeps its settings and history.

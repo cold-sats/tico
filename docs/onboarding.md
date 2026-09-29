@@ -256,7 +256,10 @@ the same template is one of the two command line routes, with a slug of your own
 
 - `card.yaml` describes the template to whoever is choosing. It is never copied into a bot's
   repository. Fields: `template`, `slug` (the default bot slug), `name`, `required`, `bootstrap`,
-  `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`.
+  `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`. The starter
+  templates add `pack`, `pains`, `prerequisites`, `onboarding`, `first_routine`, `approval_required` and
+  `example_output`; the server serves the fields above and ignores those, which a chooser reads from the
+  card ([Starter bots](starter-bots.md)).
 - Everything else in the folder is the repository the bot starts from: `AGENT.md`,
   `employee.yaml`, `playbooks/`, `knowledge/`, `memory/`, `state.md`, `.env.example`, `.gitignore`.
 - `{{company_name}}`, `{{app_name}}`, `{{assistant_name}}` and `{{bot_name}}` are filled in every

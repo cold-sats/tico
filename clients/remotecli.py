@@ -439,7 +439,8 @@ def seed_routines(client, slug, path):
     for entry in entries:
         seeded.append(client.post(f"bots/{slug}/routines", {
             "key": entry["id"], "title": entry["title"], "text": entry["instructions"],
-            "cron": entry["cron"], "on": entry["on"], "timezone": entry["timezone"]})["routine"]["id"])
+            "cron": entry["cron"], "on": entry["on"], "timezone": entry["timezone"],
+            "enabled": entry["enabled"]})["routine"]["id"])
     return seeded
 
 
