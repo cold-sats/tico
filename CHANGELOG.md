@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-09-29
+
 ### Added
 - `scripts/journey-test.sh`: an on-demand install-to-rollback check to run against Docker before a deploy (docs/releasing.md).
 
@@ -286,7 +288,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/ticoteam/tico/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/ticoteam/tico/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/ticoteam/tico/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/ticoteam/tico/releases/tag/v0.2.3
