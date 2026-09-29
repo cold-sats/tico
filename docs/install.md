@@ -319,13 +319,15 @@ and only while they are wanted:
 shows on its Settings card and the Meetings Sources strip.
 
 *Mail and calendar (`connectors`)* run on a Linux runner the same way, from the company's Google service-account
-key ([mail](mail.md#works-on-linux-runners) has the Google Workspace setup). Put the key in the runner's secrets folder
-and keep it on one computer only:
-`docker exec -i tico-runner sh -c 'umask 077; tee /home/runner/workspace/secrets/google-sa.json >/dev/null' < google-sa.json`
-(the runner refuses a key that is not mode 0600).
+key ([mail](mail.md#works-on-linux-runners) has the Google Workspace setup). Put the key in the runner's state directory,
+where only the runner can read it, and keep it on one computer only:
+`docker exec -i -u ticorun tico-runner sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`
+(the runner refuses a key that is not mode 0600). A key an older install kept in `workspace/secrets/google-sa.json` is moved
+there once, automatically. Bots cannot read it; an inbox bot asks the runner for a token for its own mailbox, and an inbox bot
+gets a computer to itself ([mail](mail.md#who-can-read-the-key)).
 The job starts within a minute of the file appearing, builds its Python environment into the volume the first time
 (about a minute; `docker logs` shows it), and stops when the file is removed. On a VM the key goes to
-`/var/lib/tico-runner/workspace/secrets/google-sa.json` (mode 0600, owner `ticorun`). Instead of the key, an owner who
+`/var/lib/tico-runner/state-<id>/google-sa.json` (mode 0600, owner `ticorun`). Instead of the key, an owner who
 sets `TICO_PROCESSING_OPERATORS` on the server assigns the job to that operator's runners. `docker exec tico-runner
 python -m runner --config /home/runner/runner.json connectors-doctor` says whether the key is found.
 `TICO_SIDE_JOBS=0` in the container's environment turns the supervisor off.

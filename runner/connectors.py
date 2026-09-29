@@ -29,10 +29,14 @@ def owner_handle(config=None):
 
 
 def mail_secret_path(config=None):
-    """The Google service-account key: GOOGLE_SA_KEY, else <projects_dir>/secrets/google-sa.json."""
+    """The Google service-account key: GOOGLE_SA_KEY, else the supervisor's own copy where bots cannot
+    read it (runner/mail_key.py), else <projects_dir>/secrets/google-sa.json."""
     named = os.environ.get("GOOGLE_SA_KEY")
     if named:
         return Path(named).expanduser()
+    from . import isolation, mail_key
+    if isolation.enabled():
+        return mail_key.protected_path(config or {})
     return Path((config or {}).get("projects_dir") or "") / "secrets" / "google-sa.json"
 
 
@@ -86,6 +90,13 @@ class ConnectorPublisher:
         if not self.script.stat().st_mode & 0o100:
             raise RuntimeError("The local calendar connector script is not executable")
 
+    def mail_env(self):
+        """The environment of the local mail CLI: the runner's, without its hub token, and with the
+        key where the supervisor keeps it."""
+        env = {key: value for key, value in os.environ.items() if key != "HUB_TOKEN"}
+        env.setdefault("GOOGLE_SA_KEY", str(mail_secret_path(self.config)))
+        return env
+
     def mail_secret(self):
         path = mail_secret_path(self.config)
         return path if path.is_file() else None
@@ -103,7 +114,8 @@ class ConnectorPublisher:
     def calendar(self, email, hours):
         result = subprocess.run([str(self.script), "upcoming", "--as", self.owner, "--for", email,
                                  "--hours", str(hours), "--json"], cwd=self.script.parents[1],
-                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40,
+                                env=self.mail_env())
         if result.returncode:
             # The CLI's own error stays on this Mac; failure_reason reads it for the kind only.
             raise RuntimeError("Local calendar lookup failed: " + (result.stdout or result.stderr or "")[-400:])
@@ -120,7 +132,7 @@ class ConnectorPublisher:
         return [{key: event[key] for key in CALENDAR_FIELDS if key in event} for event in events if isinstance(event, dict)]
 
     def calendar_event(self, action):
-        env = {key: value for key, value in os.environ.items() if key != "HUB_TOKEN"}
+        env = self.mail_env()
         result = subprocess.run(
             [str(self.script), "connector-event", "--as", self.owner, "--json"],
             cwd=self.script.parents[1], input=json.dumps(action), capture_output=True,
@@ -160,7 +172,7 @@ class ConnectorPublisher:
 
     def mail_cli(self, args):
         # The CLI talks to Gmail only. The runner holds HUB_TOKEN and posts the batch itself.
-        env = {key: value for key, value in os.environ.items() if key != "HUB_TOKEN"}
+        env = self.mail_env()
         timeout = 40
         if args and args[0] == "sync" and (len(args) < 2 or args[1] not in ("export", "ack")):
             timeout = 300

@@ -13,6 +13,11 @@ All notable changes to Tico are recorded here. The format follows
   inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
   operator allows it (`POST /api/v2/runners/{id}/inbox-sharing`). Onboarding leaves such a bot unplaced rather than failing.
   Settings > Health warns about installs that already mix them; nothing running is moved.
+- On a Docker runner with the two-user layout, the Google Workspace mail key no longer sits in `workspace/secrets`, where any
+  bot could read it. The runner moves it (once, on its own) to its state directory, closed to bots, and an inbox bot's turn asks
+  the runner over the credential socket for a one-hour token for its own person's mailbox (and the people below them). Any other
+  bot, or another mailbox, is refused. A Mac, or Docker started the old way, keeps reading the key file, and Settings > Health
+  warns ("Mail key") that bots there can read it. See docs/mail.md, "Who can read the key".
 
 ## [0.2.9] - 2026-09-29
 

@@ -158,6 +158,8 @@ class Execution:
                 row.pop('rejected_at', None), row.pop('rejected_reason', None)
         if not readiness.get('harnesses'):
             readiness.pop('harnesses', None)
+        if not readiness.get('mail_key'):
+            readiness.pop('mail_key', None)
         # The platform named at enrollment stands: backend/sql.py decides on it (a heartbeat
         # from a stolen credential must not turn a shared server into a personal Mac).
         c.execute("UPDATE runners SET last_seen=?,awake_since=?,version=?,platform=coalesce(nullif(platform,''),?),"
@@ -471,7 +473,12 @@ class Execution:
                               "text": item["body"]})
             if notes:
                 H.event(c, H.KEEPER, "note.carried", aid, {"bot": row["bot"], "notes": [n["id"] for n in notes]})
-        return {"attempt": {"routine": routine, "id": aid, "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
+        from .views import roster
+        people = roster(c)
+        inbox = P.inbox_person(row["bot"], people)
+        return {"attempt": {"routine": routine, "id": aid,
+                            # The mailboxes an inbox bot's turn may ask its runner for mail access to.
+                            "mailboxes": P.mailboxes_below(inbox["id"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
                             "credential_vault": bool(self.store.settings.credential_kms_key),
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,

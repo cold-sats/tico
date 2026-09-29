@@ -64,3 +64,14 @@ def test_health_warns_about_a_mix_that_already_exists(environment):
     _, checks = health_of(api)
     assert checks["inbox"]["status"] == "warn" and "mail" in checks["inbox"]["summary"]
 
+
+def test_health_warns_while_bots_can_read_the_mail_key(environment):
+    api = environment()
+    runner = setup(api)
+    _, checks = health_of(api)
+    assert "mail_key" not in checks
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET readiness_json=? WHERE id=?",
+                  ('{"schema_version": 1, "runtimes": {}, "bots": {}, "mail_key": "exposed"}', runner))
+    _, checks = health_of(api)
+    assert checks["mail_key"]["status"] == "warn" and "every bot" in checks["mail_key"]["summary"]

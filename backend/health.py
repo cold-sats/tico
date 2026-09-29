@@ -56,6 +56,12 @@ def _computers(c, runners_online, settings):
     return rows
 
 
+def _mail_key_exposed(c):
+    """Labels of the computers that report holding the mail key where their bots can read it."""
+    return [r["label"] for r in c.execute("SELECT label,readiness_json FROM runners WHERE revoked_at IS NULL ORDER BY label")
+            if readiness_document(r["readiness_json"]).get("mail_key") == "exposed"]
+
+
 def _unpublished(c):
     """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
     out = []
@@ -279,6 +285,13 @@ def view(c, who, settings, auth, github, config):
                              + ". Its mail key can open every mailbox, so any bot there could read it. "
                              "Add a computer for the inbox bot and move it there.",
                              [_fix("Add a computer", "#/settings", "devices")]))
+    exposed = _mail_key_exposed(c) if full else []
+    if exposed:
+        checks.append(_check("mail_key", "Mail key", "warn",
+                             "The company's Google mail key can be read by every bot on " + ", ".join(exposed[:3])
+                             + ". A bot talked into it could read every mailbox. Use a Linux Docker runner with the "
+                             "current runner.compose.yaml, where the runner keeps the key to itself (docs/mail.md).",
+                             [_fix("Open Devices", "#/settings", "devices")]))
     if full:
         checks.append(_github(c, github))
         slack = _slack(c)

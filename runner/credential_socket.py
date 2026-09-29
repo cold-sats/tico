@@ -8,6 +8,11 @@ name a bot, so an attempt never gets another bot's token, an attempt that has en
 and the runner's own token never crosses it.
 
 One JSON line each way: {"token": "<attempt token>"} then {"token": "<github token>"} or {"error": "..."}.
+
+The same socket serves an inbox bot's mail access (runner/mail_key.py holds the Google key, which
+bots cannot read): {"token": "<attempt token>", "mail": {"service": "gmail", "mailbox": "ana@..."}}
+answers {"token": "<Gmail access token>", "expiry": "..."}. The hub named the mailboxes this attempt's
+bot may open when it handed the attempt out; any other mailbox, and any attempt of any other bot, gets an error.
 """
 import json
 import os
@@ -21,33 +26,40 @@ from .outage import log
 SOCKET_ENV = "TICO_CRED_SOCKET"
 DEFAULT_PATH = "/run/tico-runner/git-credential.sock"
 MAX_LINE = 4096
+MAIL_SERVICES = ("gmail", "calendar")
 
 
 class Server:
     """Serves `mint(bot)` to whoever presents the attempt token registered for that bot."""
 
-    def __init__(self, path, mint):
-        self.path, self.mint = str(path), mint
-        self.attempts, self.lock = {}, threading.Lock()
+    def __init__(self, path, mint, mail=None):
+        self.path, self.mint, self.mail = str(path), mint, mail
+        self.attempts, self.mailboxes, self.lock = {}, {}, threading.Lock()
         self.server = None
 
-    def register(self, attempt_token, bot):
+    def register(self, attempt_token, bot, mailboxes=()):
         with self.lock:
             self.attempts[attempt_token] = bot
+            self.mailboxes[attempt_token] = {str(m).strip().lower() for m in mailboxes or ()}
 
     def unregister(self, attempt_token):
         with self.lock:
             self.attempts.pop(attempt_token, None)
+            self.mailboxes.pop(attempt_token, None)
 
     def answer(self, line):
         try:
-            token = json.loads(line).get("token")
+            asked = json.loads(line)
+            token = asked.get("token")
         except (ValueError, AttributeError):
             return {"error": "bad request"}
         with self.lock:
             bot = self.attempts.get(token) if isinstance(token, str) and token else None
+            allowed = self.mailboxes.get(token, set())
         if not bot:
             return {"error": "unknown attempt"}
+        if "mail" in asked:
+            return self.answer_mail(bot, allowed, asked["mail"])
         try:
             granted = self.mint(bot)
         except Exception as exc:
@@ -55,6 +67,19 @@ class Server:
         if not granted:
             return {"error": "no token"}
         return {"token": granted}
+
+    def answer_mail(self, bot, allowed, asked):
+        service = asked.get("service") if isinstance(asked, dict) else None
+        mailbox = str(asked.get("mailbox") or "").strip().lower() if isinstance(asked, dict) else ""
+        if not self.mail or service not in MAIL_SERVICES:
+            return {"error": "no mail access"}
+        if mailbox not in allowed:
+            return {"error": "not this bot's mailbox"}
+        try:
+            granted = self.mail(service, mailbox)
+        except Exception as exc:
+            return {"error": type(exc).__name__}
+        return {"token": granted["token"], "expiry": granted.get("expiry", "")} if granted else {"error": "no token"}
 
     def start(self):
         outer = self
@@ -89,8 +114,9 @@ class Server:
             Path(self.path).unlink(missing_ok=True)
 
 
-def serve(client, path=None):
-    """The supervisor's server when isolation is on (else None): `client` is the runner's own."""
+def serve(client, path=None, mail=None):
+    """The supervisor's server when isolation is on (else None): `client` is the runner's own, `mail`
+    (service, mailbox) -> {"token", "expiry"} mints Gmail access."""
     from . import isolation
     if not isolation.enabled():
         return None
@@ -100,7 +126,7 @@ def serve(client, path=None):
         granted = client.post("github/token", {"bot": bot})
         return granted.get("token") if granted.get("configured") else ""
     try:
-        return Server(path, mint).start()
+        return Server(path, mint, mail).start()
     except OSError as exc:
         log(f"Tico runner: no credential socket at {path} ({type(exc).__name__}); turns keep their start-of-turn token")
         return None
@@ -117,3 +143,16 @@ def request(path, attempt_token, timeout=20):
     if not reply.get("token"):
         raise ValueError(reply.get("error") or "refused")
     return reply["token"]
+
+
+def request_mail(path, attempt_token, service, mailbox, timeout=60):
+    """{"token", "expiry"} to act as `mailbox` in `service`, for the attempt's inbox bot. Raises OSError/ValueError."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(timeout)
+        connection.connect(str(path))
+        connection.sendall(json.dumps({"token": attempt_token, "mail": {"service": service, "mailbox": mailbox}}).encode() + b"\n")
+        line = connection.makefile("rb").readline(MAX_LINE)
+    reply = json.loads(line)
+    if not reply.get("token"):
+        raise ValueError(reply.get("error") or "refused")
+    return reply

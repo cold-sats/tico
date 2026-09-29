@@ -36,7 +36,9 @@ def close_wanted(client, config):
 
 def connectors_wanted(client, config):
     from clients.tico import APIError
+    from . import mail_key
     from .connectors import mail_secret_path
+    mail_key.protect(config)
     if mail_secret_path(config).is_file():
         return ["mail", "calendar"]
     try:
