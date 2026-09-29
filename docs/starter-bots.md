@@ -31,6 +31,26 @@ that would send, post, pay, change a record or delete.
    `hub routine update <id> --enable` only after a person says yes on the task, and logs the decision.
 4. **An approval before anything external.** The card's `approval_required` list is what the bot never
    does alone. The platform's own gates still apply (`outbound_send: false`, the approvals policy).
+5. **Parked until then.** First run creates every starter `needs_onboarding`: it answers a person's message and nothing else
+   (no routine, task notice, Slack route or bot request wakes it) until its onboarding playbook ends with `hub bot onboarded`,
+   which it calls only after a person says yes to its first routine. **Start setup** on its page, or any first message, begins the
+   conversation. Parked starters do not count toward a member's bot limit. See [First run](onboarding.md#needs-onboarding).
+
+## What stops a starter sending things outside the company
+
+A starter's own prompt is not the gate. What the platform does, checked for these six templates:
+
+| It might | The gate | Where |
+|---|---|---|
+| Send, reply to or forward mail | The mail connector downgrades a send to a Gmail draft unless the mailbox declares the `send` verb, `outbound_send: true` is set and the recipient is internal, allowed or covered by an approval. The starters declare `read` and `draft` only and `outbound_send: false`; a test refuses `send` in any starter's `access:` | `connectors/mail/policy.py`, `clients/tests/test_catalog.py` |
+| Post to Slack | A post needs `post: true` for that channel in `registry/slack-channels.yaml`, and reading grants no posting right. The starters declare Slack read only, commented out until the owner connects it | [Slack gateway](slack-gateway.md) |
+| Comment on or label a GitHub issue | **Added in this release.** The company's GitHub App token carries Issues: write, so nothing but a prompt stood between Issue Triage and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a person runs them. Turning writing on is the owner's edit of `employee.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
+| Invite someone to a calendar event | **Added in this release.** `hub calendar schedule` was open to every bot and sent invitations to any address. A bot may now invite only people on the company roster (`403 external_attendee` otherwise); an invitation to anyone else is a person's act | `backend/connectors.py`, `backend/tests/test_security_review.py` |
+| Message a person inside the company | Bot-to-person messages are linted and capped at three unsolicited a day | `hub say` |
+| Change a record in a CRM, the support tool or a repository | The starters declare no such access. A CRM stage change is on `approval_required`, and a tool the company adds is the owner's decision | the card |
+
+Chief of Staff, Support Triage, Sales Drafter and Meeting Notes declare no write access at all. A starter's `.claude/settings.json` allows
+only its own repository's `git`, and none of them allows `gh issue *`.
 
 ## The card
 
@@ -40,18 +60,17 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 
 | Field | What it holds |
 |---|---|
-| `pack` | `basics`, `sales`, `support`, `operations` or `engineering`: how a chooser groups templates |
-| `pains` | Plain phrases a person might say ("too much email", "leads go cold", "meetings without follow-up"). A local chooser matches a company's stated pains against them |
-| `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. A missing required tool means do not offer the template |
+| `pack` | `basics`, `sales`, `marketing`, `support`, `operations` or `engineering`: the team the template sits in on the full org chart (Leadership, Sales, Marketing, Support, Operations, Engineering), and how a chooser groups templates. The four catalog templates that are not starters carry `marketing` |
+| `pains` | Plain phrases a person might say ("too much email", "leads go cold", "meetings without follow-up"). They are the chips on the first-run screen, and the local chooser matches a company's stated pains against them |
+| `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. A required tool the company did not tick means the chooser does not propose the template (it says what it needs); a person can still add it |
 | `onboarding` | Four to seven `{ask, why}` questions the bot asks on its first message |
 | `first_routine` | `{title, cadence, output, draft_only: true}`: the reviewable internal artifact the bot produces first |
 | `approval_required` | Actions that always need a person's Confirm: send, post, comment on GitHub, change a CRM stage, arm a routine |
 | `example_output` | Path, inside the template, to a short sample of excellent output under `knowledge/examples/` |
 | `when` | Optional, existing: one sentence saying who wants the template |
 
-`recommend_when` tags come from [First run](onboarding.md#the-recommendations) plus two the
-current wizard does not derive yet, `uses_meetings` and `uses_github`, which a chooser can set from
-"which tools does the company use". Until then those two are never pre-ticked; a person picks them.
+`recommend_when` tags come from [First run](onboarding.md#the-chooser). `uses_meetings` and `uses_github` are derived from the tools a
+company ticks (a meetings importer, GitHub), and a ticked tool that names a starter outright recommends it even with no matching pain.
 
 ```yaml
 template: sales

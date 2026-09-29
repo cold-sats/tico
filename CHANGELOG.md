@@ -8,6 +8,33 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **First run asks what hurts, then proposes a team.** The wizard now asks what the company does, its top one or two pains (chips taken
+  from the starter cards, plus free text), the tools it already uses (mail, chat, CRM, GitHub, a meetings importer, docs), who it sells to
+  and whether software is its product, and stores them in the onboarding record. A local chooser (no network call) matches them to the
+  cards' `pains`, `recommend_when` and `prerequisites` and offers two starting points: a **starter team** (the best one or two pain matches,
+  what a ticked GitHub or meetings tool names outright, and Chief of Staff; about three to five bots, each with a one-line why and its
+  prerequisites) or a **full org chart** (every template that fits, grouped into Leadership, Sales, Marketing, Support, Operations and
+  Engineering with a lead for each team). A template whose required tool was not ticked is held back and says what it needs. Both are fully
+  editable before anything exists: rename a bot, choose who it reports to (a person or a bot, the owner by default), add or remove any
+  template. There is no cap. Nothing is created until **Create my team**.
+- **Starter bots are created parked.** Create makes every starter at once, `needs_onboarding`, with its template version recorded
+  (`template_version`), its first routine seeded paused, and no BotOps task: its computer materializes the repository as soon as the bot
+  is placed, and the screen shows *setting up* until it exists (25 bots take a fraction of a second to create and about two seconds to
+  materialize). While parked a bot runs nothing on its own: the scheduler skips it and only a person's chat message is claimed for it.
+  It does not count toward a member's bot limit; onboarding it counts it, and answers `bot_limit` when the member is at their limit.
+  `onboarding_state` is on `GET /api/v2/bots`, `/api/v2/bots/{bot}` and `/api/v2/org`, and a **Needs onboarding** mark shows on the org
+  chart, the bot's page and after Create.
+- **Start setup, and `hub bot onboarded`.** **Start setup** on a parked bot's page sends it "Let's set you up.", which starts the
+  onboarding conversation its `AGENT.md` describes (any first message from a person does too). When a person approves its first routine
+  the bot calls `hub bot onboarded` (MCP `hub_bot_onboarded`, `POST /api/v2/bots/{bot}/onboarded`), which clears the mark; every starter's
+  onboarding playbook now ends with it.
+- **One screen after Create**: each bot's setup progress, an admin to invite (`people add`), a human owner to name for each bot (bot
+  owners), and where to connect tools once. Secrets are entered in the hub's own fields, never in chat: the screen and the BotOps playbook
+  say so.
+- **Coaching**: Getting started names the next bot to set up (the one matching the top pain first) and a **First approved output** step,
+  which completes when a starter bot's first routine is approved, in place of "Your new bot finished a task".
+- `docs/onboarding-guide.md`: picking your first bots, writing a good brief, approval gates, what good looks like and reviewing a bot's
+  first week.
 - Six starter bots for a 10 to 50 person company, each draft-first: Chief of Staff (new: a weekly brief to the owner, stalled-goal
   follow-up, the Monday agenda), Support Triage, Sales Drafter and Mail Drafts (the existing `support`, `sales` and `inbox`
   templates, upgraded), Meeting Notes (new: a summary, decisions and proposed tasks per imported meeting) and Issue Triage
@@ -20,6 +47,9 @@ All notable changes to Tico are recorded here. The format follows
   routine paused, and the bot arms it after a person approves its first result.
 
 ### Changed
+- First run has seven steps (names, about, what hurts and what you use, your team, a computer, your agent, review) and finishes with **Create
+  my team**. The catalog cards' `pack` is the team a template sits in; content, listening, market and reputation are `marketing`.
+  The sample outputs in the starter templates are fenced as stand-ins.
 - The Mail Drafts (`inbox`) template now starts with one paused morning brief instead of three weekday passes and a weekend pass,
   reads only its own mailbox (no `org_read`), and does not label or archive until the person turns filing on.
 
@@ -30,6 +60,14 @@ All notable changes to Tico are recorded here. The format follows
   each entry into `allowed` or `allowed_domains` (the stored shape is unchanged) and refuses, naming the entry, anything that could
   never match (`a*@company.com`, a malformed address) and a public mail domain such as gmail.com, which would let anyone with such an
   account join.
+
+### Security
+- A bot may invite only people on the company roster to a calendar event (`hub calendar schedule`); an invitation to any other address is
+  refused (`403 external_attendee`). It was open to every bot and sent invitations, which are email from the company's calendar, to anyone.
+- Issue Triage no longer relies on a prompt to keep public GitHub comments behind an approval: the company's GitHub App token can write
+  issues, so its access is now read-only and its harness settings deny `gh issue edit` and `gh issue comment`. It proposes, with the exact
+  commands on the task, and a person runs them until the owner turns writing on. The audit of what each starter can send is in
+  [Starter bots](docs/starter-bots.md#what-stops-a-starter-sending-things-outside-the-company).
 
 ## [0.2.13] - 2026-09-29
 

@@ -74,7 +74,9 @@ routines, access or place, and only the owner may add them. A member cannot regi
 `librarian` or `coo`; an Admin can, and manages every other bot.
 
 A member may have at most **5 active bots** by default; owners and admins have no limit. An admin changes the number in
-Settings > People. Past it, adding a bot answers `409 bot_limit` with what to do.
+Settings > People. Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
+([First run](onboarding.md#what-create-does)) is parked, does nothing on its own and costs nothing, so it does not count; it counts once
+it says it is onboarded, and that call answers `bot_limit` when the member is already at their limit.
 
 ## Bot owners
 
@@ -133,6 +135,7 @@ The commands (with MCP tools of the same names):
 | `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,team:legal,bot:analyst`) |
 | `hub bot owners <slug> [--add P ...] [--remove P ...]` | co-owners |
 | `hub bot set <slug> ...` | name, description, reports-to, status, repository |
+| `hub bot onboarded [slug]` | a starter bot's own call, once a person approved its first routine: it stops being `needs_onboarding` (its manager may call it for it) |
 | `hub people add <email> [--name] [--title] [--reports-to]`, `hub people list` | the roster |
 
 Everyday edits to a bot the person owns happen at once, and each is undoable from Settings > Bots history.
