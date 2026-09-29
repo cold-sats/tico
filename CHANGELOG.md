@@ -7,6 +7,25 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **The Librarian**, a built-in bot that answers questions from the company's docs, with a citation for every claim and a plain
+  "Not in the docs." when they do not say ([docs/librarian.md](docs/librarian.md)). Like the assistant and BotOps it is required in
+  setup, cannot be archived or deleted (`409 system_bot`), and is shown as Built in in Settings > Bots. A company that already
+  exists gets it on update, without a click, once a model is chosen and a computer is enrolled (checked at startup and when a
+  computer enrolls); until then the owner gets **Turn on the Librarian** on Ask AI. It keeps a map of the docs under `_librarian/`
+  and refreshes it daily (a routine seeded once), and logs the gaps and the repeated questions.
+- **Ask AI** on the Docs page is a right-side drawer (a full-screen sheet on a phone): matching internal and linked docs show at once,
+  then the Librarian's answer streams in with clickable citations. `POST /api/v2/docs/ask` puts the question in the person's own
+  private docs conversation with the Librarian, which no one else can read, the owner included. It replaces the old docs chat, which
+  called a route that did not exist.
+- `hub docs ask "question"` and the MCP tool `hub_docs_ask`: ask the Librarian from a bot or the Assistant and get
+  `{answer, citations, covered}`.
+- `hub docs fetch <url>` and `hub_docs_fetch`: read a public web page, Google Doc, Drive folder, GitHub repository or sitemap as
+  text. It runs on the bot's computer, never on the server, and refuses private, loopback, link-local and metadata addresses on
+  every redirect, limits redirects, size and time, and never sends a credential to a host that does not own it.
+- `scripts/docs-eval.sh`: an on-demand eval of the Librarian's answers (citation hit rate and correct "not in the docs") over a
+  small fixture of docs.
+
 ### Changed
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
