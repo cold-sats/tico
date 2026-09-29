@@ -1,0 +1,216 @@
+"""Files: visibility first (a private chat leaks nothing), versions, refusals, the runner outbox,
+S3 imports and link rules. See docs/files.md."""
+
+import os
+import uuid
+
+import pytest
+
+from backend.tests.test_api import api, assign, claim, headers, post, ready, runner  # noqa: F401  (fixtures)
+from backend.tests.test_runner import live  # noqa: F401  (a real server on a port)
+from clients import bot_files as BF
+from clients.tico import APIError, Client
+from runner import files_publish
+from runner.state import State
+
+
+def turn(api, bot="ops", who="ben-test", machine=None):
+    """A person chats with the bot and a runner claims it: (machine, the attempt with the bot's token)."""
+    machine = machine or runner(api)
+    assign(api, machine, bot)
+    ready(api, machine, [bot])
+    post(api, "chat/" + bot, {"text": "Write the plan"}, who)
+    return machine, claim(api, machine, bot)
+
+
+def publish(api, attempt, name="plan.md", text="# Plan", **fields):
+    return api.post("/api/v2/files/uploads", json={"name": name, "text": text, **fields},
+                    headers=headers(attempt["token"]))
+
+
+def listing(api, bot="ops", who="ben-test"):
+    r = api.get(f"/api/v2/bots/{bot}/files", headers=headers(who))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_a_private_chats_file_is_invisible_to_everyone_else(api):
+    _, attempt = turn(api)
+    made = publish(api, attempt)
+    assert made.status_code == 200, made.text
+    fid = made.json()["file"]["id"]
+    assert listing(api)["total"] == 1
+    for other in ("ana-test", "cara-test"):        # the company owner included: a personal chat is not theirs
+        page = listing(api, who=other)
+        assert page["total"] == 0 and page["files"] == []
+        for path in ("", "/activity", "/versions", "/versions/1", "/meta"):
+            assert api.get("/api/v2/files/" + fid + path, headers=headers(other)).status_code == 404, path
+        assert "plan" not in api.get(f"/api/v2/bots/ops/files?limit=100", headers=headers(other)).text
+    # Promote is the owner's or a bot administrator's, explicit and audited; then everyone who sees the bot sees it.
+    assert api.patch("/api/v2/files/" + fid, json={"promote": True}, headers=headers("cara-test")).status_code == 404
+    assert api.patch("/api/v2/files/" + fid, json={"promote": True}, headers=headers(attempt["token"])).status_code == 403
+    assert api.patch("/api/v2/files/" + fid, json={"promote": True}, headers=headers("ben-test")).status_code == 200
+    assert listing(api, who="cara-test")["total"] == 1
+    assert api.get("/api/v2/files/" + fid, headers=headers("cara-test")).content == b"# Plan"
+    log = api.get("/api/v2/files/" + fid + "/activity", headers=headers("cara-test")).json()["activity"]
+    assert [a["action"] for a in log] == ["promoted", "created"]
+
+
+def test_publishing_twice_is_one_row_two_entries_and_open_serves_the_latest(api):
+    _, attempt = turn(api)
+    first = publish(api, attempt, "pipeline.md", "# v1", path="reports/pipeline.md").json()
+    second = publish(api, attempt, "pipeline.md", "# v2 with changes", path="reports/pipeline.md").json()
+    assert first["file"]["id"] == second["file"]["id"] and second["changed"]
+    page = listing(api)
+    assert page["total"] == 1 and page["files"][0]["version"] == 2
+    row = page["files"][0]
+    assert row["open"] == {"type": "tico", "url": "/api/v2/files/" + row["id"]} and "s3://" not in str(row)
+    assert api.get(row["open"]["url"], headers=headers("ben-test")).content == b"# v2 with changes"
+    assert api.get(row["open"]["url"] + "/versions/1", headers=headers("ben-test")).content == b"# v1"
+    activity = api.get(f"/api/v2/files/{row['id']}/activity", headers=headers("ben-test")).json()["activity"]
+    assert [a["action"] for a in activity] == ["modified", "created"]
+    versions = api.get(f"/api/v2/files/{row['id']}/versions", headers=headers("ben-test")).json()["versions"]
+    assert [v["version"] for v in versions] == [2, 1]
+    # The same bytes again change nothing but the activity.
+    again = publish(api, attempt, "pipeline.md", "# v2 with changes", path="reports/pipeline.md").json()
+    assert not again["changed"] and listing(api)["files"][0]["version"] == 2
+
+
+def test_refusals_and_a_bot_writes_only_its_own_files(api):
+    machine, attempt = turn(api, "ops")
+    for name in (".env", "prod-credentials.csv", "id_rsa.txt", "tool.exe", "notes"):
+        assert publish(api, attempt, name).status_code == 422, name
+    assert publish(api, attempt, "x.md", path="../x.md").status_code == 422
+    big = api.post("/api/v2/files/uploads?name=big.csv", content=b"x" * (BF.MAX_BYTES + 1),
+                   headers={**headers(attempt["token"]), "Content-Type": "application/octet-stream"})
+    assert big.status_code == 422, big.text
+    assert listing(api)["total"] == 0
+    # A bot cannot pick another bot's page: the authenticated identity decides.
+    assign(api, machine, "finance")
+    ready(api, machine, ["ops", "finance"])
+    mine = publish(api, attempt, "mine.md", bot="finance", scope="bot")
+    assert mine.status_code == 403                      # inside a chat: not bot-wide
+    mine = publish(api, attempt, "mine.md", bot="finance").json()["file"]
+    assert listing(api, "finance", "ana-test")["total"] == 0
+    post(api, "chat/finance", {"text": "hello"}, "ana-test")
+    other = claim(api, machine, "finance")
+    assert api.patch("/api/v2/files/" + mine["id"], json={"title": "stolen"}, headers=headers(other["token"])).status_code == 404
+    assert api.post("/api/v2/files/uploads", json={"name": "a.md", "text": "a"}, headers=headers("ana-test")).status_code == 403
+
+
+def test_local_rules_refuse_traversal_links_env_and_oversize(tmp_path):
+    root = tmp_path / "checkout"
+    (root / "reports").mkdir(parents=True)
+    (root / "reports" / "ok.md").write_text("fine")
+    (root / "reports" / ".env").write_text("KEY=1")
+    (tmp_path / "outside.md").write_text("secret")
+    os.symlink(tmp_path / "outside.md", root / "reports" / "link.md")
+    with open(root / "reports" / "huge.csv", "wb") as stream:
+        stream.truncate(BF.MAX_BYTES + 1)
+    assert BF.local_file(root, "reports/ok.md")[1] == "reports/ok.md"
+    for bad in ("../outside.md", str(tmp_path / "outside.md"), "reports/../../outside.md", "reports/link.md",
+                "reports/.env", "reports/huge.csv", "reports"):
+        with pytest.raises(BF.Refused):
+            BF.local_file(root, bad)
+
+
+def test_runner_upload_is_retried_after_a_restart_and_lands_once(api, live, tmp_path):
+    machine, attempt = turn(api)
+    checkout = tmp_path / "bot"
+    (checkout / "reports").mkdir(parents=True)
+    (checkout / "reports" / "weekly.md").write_text("# Weekly")
+
+    class Lossy(Client):
+        """Delivers the upload, then loses the reply: the runner cannot know it landed."""
+        lose = True
+
+        def request(self, *args, **kwargs):
+            reply = super().request(*args, **kwargs)
+            if Lossy.lose and "sync=failed" not in args[1]:
+                raise APIError("unavailable", "reply lost", retryable=True)
+            return reply
+
+    class Box:
+        pass
+    before = Box()
+    before.state, before.client = State(tmp_path / "state"), Client(live, machine["token"])
+    files_publish.Client = Lossy
+    try:
+        files_publish.after_turn(before, {"id": attempt["id"], "bot": "ops", "config": {}}, checkout)
+        with before.state.connect() as c:
+            assert c.execute("SELECT phase FROM file_outbox").fetchone()[0] == "pending"
+        Lossy.lose = False
+        after = Box()                                   # the runner restarted: a new process, the same disk
+        after.state, after.client = State(tmp_path / "state"), Client(live, machine["token"])
+        assert files_publish.drain(after) == 1
+        assert files_publish.drain(after) == 0
+    finally:
+        files_publish.Client = Client
+    page = listing(api)
+    assert page["total"] == 1 and page["files"][0]["version"] == 1 and page["files"][0]["synced"]
+    log = api.get(f"/api/v2/files/{page['files'][0]['id']}/activity", headers=headers("ben-test")).json()["activity"]
+    assert len(log) == 1
+
+
+def test_s3_import_adds_a_version_only_when_the_etag_changes(api):
+    class Body:
+        def __init__(self, data):
+            self.data = data
+
+        def read(self, limit=None):
+            return self.data
+
+    class S3:
+        etag, data = "aaa", b"a,b\n1,2\n"
+
+        def head_object(self, **kw):
+            return {"ContentLength": len(self.data), "ETag": '"' + self.etag + '"'}
+
+        def get_object(self, **kw):
+            return {"Body": Body(self.data)}
+
+    stub = S3()
+    _, attempt = turn(api)
+
+    def run():
+        name, _, data, etag = BF.fetch_s3("s3://acme-reports/2026/q3.csv", client=stub)
+        return api.post("/api/v2/files/imports?" + BF.urlencode({"source": "s3://acme-reports/2026/q3.csv", "etag": etag,
+                        "name": name}), content=data, headers={**headers(attempt["token"]), "Content-Type": "application/octet-stream"})
+    assert run().json()["file"]["version"] == 1
+    assert run().json()["changed"] is False
+    stub.etag, stub.data = "bbb", b"a,b\n1,3\n"
+    assert run().json()["file"]["version"] == 2
+    row = listing(api)["files"][0]
+    assert row["source"] == "s3" and "acme-reports" not in str(row)
+    with pytest.raises(BF.Refused):
+        BF.fetch_s3("s3://acme-reports/key.exe", client=stub)
+    with pytest.raises(BF.Refused):
+        BF.fetch_s3("https://example.com/x.csv", client=stub)
+
+
+@pytest.mark.parametrize("url", [
+    "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit?usp=sharing",
+    "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/view#heading=h.1",
+    "https://drive.google.com/open?id=1AbCdEfGhIjKlMnOp"])
+def test_google_links_share_one_identity(url):
+    assert BF.normalize_link(url)[1] == "google-drive:1AbCdEfGhIjKlMnOp"
+
+
+def test_link_validation_and_registration(api):
+    assert BF.normalize_link("https://www.notion.so/Plan-abc?utm_source=x#top")[1:2] == ("url:https://www.notion.so/Plan-abc",)
+    for bad in ("http://docs.google.com/document/d/1AbCdEfGhIjKlMnOp", "javascript:alert(1)", "https://localhost/x",
+                "https://10.0.0.1/x", "https://user:pw@example.com/x", "ftp://example.com/x", "//example.com/x"):
+        with pytest.raises(BF.Refused):
+            BF.normalize_link(bad)
+    url = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOp/edit"
+    added = api.post("/api/v2/files/links", json={"bot": "ops", "url": url, "title": "Budget"}, headers=headers("ben-test"))
+    assert added.status_code == 200, added.text
+    assert api.post("/api/v2/files/links", json={"bot": "ops", "url": "http://x.example/doc"},
+                    headers=headers("ben-test")).status_code == 422
+    assert api.post("/api/v2/files/links", json={"bot": "ops", "url": url}, headers=headers("cara-test")).status_code == 403
+    _, attempt = turn(api, "ops", "ana-test")
+    bot_touch = api.post("/api/v2/files/links", json={"file": added.json()["file"]["id"]}, headers=headers(attempt["token"]))
+    assert bot_touch.status_code == 200, bot_touch.text     # the bot moves its own link to the top
+    row = listing(api, who="cara-test")["files"][0]
+    assert row["open"] == {"type": "external", "url": url} and row["note"] == "Link opens in Google (requires access)"
+    assert row["scope"] == "bot" and row["kind"] == "spreadsheet" and row["action"] == "link_updated"
