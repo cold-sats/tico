@@ -1,20 +1,19 @@
-# Builds the Tico images (server, runner and updater; linux/amd64 and linux/arm64), checks them with the
-# compose smoke test, and publishes to ghcr.io/ticoteam: vX.Y.Z and latest on a v* tag, edge on main.
-# Pull requests build and test only.
+# Builds the Tico images (server, runner and updater; linux/amd64 and linux/arm64) and publishes them to
+# ghcr.io/ticoteam: vX.Y.Z and latest on a v* tag. A manual run (Actions tab) first checks the images with the
+# compose smoke test, then publishes edge from the branch it ran on. Nothing else triggers it.
 name: Docker
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
-    paths: [Dockerfile, .dockerignore, compose.yaml, docker/**, runner/harnesses/**, backend/requirements.txt, .github/workflows/docker.yml]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   smoke:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -56,8 +55,9 @@ jobs:
           TICO_TAG: ci
 
   build:
+    # The smoke test is skipped on a tag; a manual run must pass it.
     needs: smoke
-    if: github.event_name != 'pull_request'
+    if: ${{ !cancelled() && (needs.smoke.result == 'success' || needs.smoke.result == 'skipped') }}
     strategy:
       fail-fast: true
       matrix:

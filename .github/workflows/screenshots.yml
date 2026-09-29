@@ -1,12 +1,10 @@
-# The screenshots in docs/images come from demo mode (docs/demo.md). On every release tag they are taken
-# again from that release, and a pull request offers the new pictures. The script fails, rather than
+# The screenshots in docs/images come from demo mode (docs/demo.md). They are taken
+# again by hand (Actions tab, Run workflow), and a pull request offers the new pictures. The script fails, rather than
 # saving a bad picture, on any console error, error banner or icon that did not load.
 # Needs the repository setting "Allow GitHub Actions to create and approve pull requests".
 name: Screenshots
 
 on:
-  push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
   workflow_dispatch:
 
 permissions:
