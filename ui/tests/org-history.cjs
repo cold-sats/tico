@@ -18,7 +18,7 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
       status: 'active', can_chat: true, users: [{id: 'ana', name: 'Ana'}], ...extra});
     const bots = [
       bot('coo', 'Tico', ''), bot('botops', 'BotOps', 'b:coo'), bot('bug-triage', 'Bug Triage', 'b:coo'),
-      bot('doc-updater', 'Doc Updater', 'b:coo'), bot('cmo', 'AI CMO', ''), bot('seo', 'AI SEO', 'b:cmo'),
+      bot('librarian', 'Librarian', 'b:coo'), bot('cmo', 'AI CMO', ''), bot('seo', 'AI SEO', 'b:cmo'),
     ];
     const conv = {id: 'cmo-chat', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:cmo']};
     await page.route('**/*', route => {

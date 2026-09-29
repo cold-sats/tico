@@ -56,7 +56,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       if (p === '/api/v2/updates/unread') return json({unread: 0});
       if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
       if (p === '/api/v2/tasks') return json({tasks: []});
-      if (p === '/api/company-docs') return json({documents: [], docs: [], sources: [], refresh: {running: false}});
+      if (p === '/api/v2/docs') return json({docs: [], next_cursor: null});
+      if (p === '/api/v2/linked-docs') return json({linked: []});
       if (p === '/api/v2/getting-started' && req.method() === 'GET') return json(view());
       if (p === '/api/v2/getting-started/state') {
         const body = req.postDataJSON(); calls.push({p, body});
@@ -67,7 +68,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
         return json({tour: dismissed.tour, checklist: dismissed.checklist, cards: dismissed.cards, skipped: dismissed.skipped});
       }
       if (p === '/api/v2/getting-started/bot') { calls.push({p, body: req.postDataJSON()}); return json({task_id: 't-bot', slug: 'help-desk', name: 'Help Desk'}); }
-      if (p === '/api/v2/getting-started/docs') { calls.push({p, body: req.postDataJSON()}); return json({task_id: 't-docs', bot: 'botops'}); }
+      if (p === '/api/v2/getting-started/docs') { calls.push({p, body: req.postDataJSON()}); return json({linked: [{id: 'link-1', title: 'github.com/acme/handbook', kind: 'github'}], skipped: []}); }
       if (p === '/api/v2/getting-started/market') {
         const body = req.postDataJSON(); calls.push({p, body});
         if (!body.add_analyst) return json({error: {code: 'confirm_analyst', detail: 'The Market Analyst is not set up yet.', needs_analyst: true}}, 409);
@@ -168,20 +169,21 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.locator('#task-modal[open], dialog[open]').first().waitFor();
     await page.close();
 
-    // ---- Docs: pick where they live, and the ask goes to a bot
+    // ---- Docs: paste where they live; each link becomes a linked doc
     page = await open('#/docs');
     await page.locator('[data-gs-card=docs]').waitFor();
-    assert.deepEqual(await page.locator('[data-gs-docs] input[name=kind]').evaluateAll(els => els.map(el => el.value)),
-      ['drive', 'notion', 'github', 'website', 'upload', 'none']);
-    assert.equal(await page.locator('[data-gs-docs] [data-gs-value]').isVisible(), true);
+    assert.match(await page.locator('[data-gs-card=docs]').textContent(), /Where do your current docs live\?/);
+    assert.equal(await page.locator('[data-gs-card=docs] a[href="#/docs/new"]').count(), 1);
+    assert.equal(await page.locator('[data-gs-card=docs] a[href="#/docs?import=1"]').count(), 1);
     await shot(page, 'docs-card');
-    await page.locator('[data-gs-docs] input[value=github]').check();
-    assert.equal(await page.locator('[data-gs-docs] [data-gs-value] span').textContent(), 'Repository, as owner/name');
-    await page.locator('[data-gs-docs] input[name=value]').fill('acme/handbook');
+    await page.locator('[data-gs-docs] [type=submit]').click();          // nothing pasted yet
+    assert.match(await page.locator('[data-gs-docs] [data-gs-error]').textContent(), /Paste at least one link/);
+    await page.locator('[data-gs-docs] input[name=url]').fill('https://github.com/acme/handbook');
+    assert.match(await page.locator('[data-gs-kind]').textContent(), /GitHub/);
     await page.locator('[data-gs-docs] [type=submit]').click();
-    await page.locator('#gs-card [role=status] a[href="#/task/t-docs"]').waitFor();
-    assert.deepEqual(calls.at(-2), {p: '/api/v2/getting-started/docs', body: {kind: 'github', value: 'acme/handbook'}});
-    assert.match(await page.locator('#gs-card [role=status]').textContent(), /Sent to BotOps to connect and index them/);
+    await page.locator('#gs-card [role=status] a[href="#/docs"]').waitFor();
+    assert.deepEqual(calls.at(-2), {p: '/api/v2/getting-started/docs', body: {links: [{url: 'https://github.com/acme/handbook', description: ''}]}});
+    assert.match(await page.locator('#gs-card [role=status]').textContent(), /Linked 1 doc/);
     // ...and the server now holds it closed for this person.
     await page.waitForFunction(() => document.querySelector('#gs-card [role=status]'));
     assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {card: 'docs'}});

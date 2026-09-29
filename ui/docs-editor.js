@@ -1,0 +1,242 @@
+/* Docs: writing and the dialogs around it (docs/docs.md). The editor (a Markdown textarea and a preview
+   toggle), the history panel with restore, the linked-doc dialog and the import dialog. Text a person or
+   a bot wrote is only ever shown through safeMd (which sanitizes) or textContent, never as raw HTML. */
+(function () {
+  'use strict';
+  const IMPORT_TYPES = '.md,.markdown,.txt,.html,.htm,.docx,.pdf';
+  const errorCode = error => error?.body?.error?.code || '';
+  const errorInfo = error => error?.body?.error || {};
+
+  function dialog(html, {className = 'gs-form docs-dialog', label} = {}) {
+    const box = document.createElement('dialog');
+    box.className = 'tmodal ' + className;
+    if (label) box.setAttribute('aria-label', label);
+    box.innerHTML = html;
+    document.body.append(box);
+    box.addEventListener('close', () => box.remove());
+    box.addEventListener('click', event => { if (event.target.closest('[data-close]')) box.close(); });
+    box.showModal();
+    return box;
+  }
+
+  // ------------------------------------------------------------------ the editor
+  function editor({doc = null, folder = '', onSaved, onCancel, onReload}) {
+    const isNew = !doc;
+    let version = doc?.version || 0;
+    const form = document.createElement('form');
+    form.className = 'docs-editor';
+    form.setAttribute('aria-label', isNew ? 'New doc' : 'Edit ' + doc.title);
+    form.innerHTML = `<div class="docs-editor-fields">
+        <label class="gs-field"><span>Title</span><input name="title" maxlength="300" required autocomplete="off" placeholder="Refund policy"></label>
+        <label class="gs-field"><span>Path <em>(folder and file)</em></span><input name="path" maxlength="300" autocomplete="off" placeholder="support/refund-policy.md"></label>
+      </div>
+      <div class="docs-editor-bar"><div class="docs-seg" role="group" aria-label="Write or preview">
+          <button type="button" data-tab="write" aria-pressed="true">Write</button><button type="button" data-tab="preview" aria-pressed="false">Preview</button></div>
+        <span class="muted">Markdown</span></div>
+      <textarea name="body" class="docs-textarea" spellcheck="true" aria-label="Markdown" placeholder="Write in Markdown. # Heading, **bold**, - lists, [links](https://…), | tables |"></textarea>
+      <div class="docs-preview md docs-content" hidden aria-label="Preview"></div>
+      <label class="gs-field"><span>What changed? <em>(optional)</em></span><input name="note" maxlength="300" autocomplete="off" placeholder="Shortened the refund window"></label>
+      <div class="docs-conflict" role="alert" hidden></div>
+      <p class="err" data-error role="alert" hidden></p>
+      <div class="docs-editor-actions"><button class="primary" type="submit">Save</button>
+        <button class="ghost" type="button" data-cancel>Cancel</button><span class="muted" data-status role="status"></span></div>`;
+    form.elements.title.value = doc?.title || '';
+    form.elements.path.value = doc?.path || (folder ? folder + '/' : '');
+    form.elements.body.value = doc?.body || '';
+    const area = form.elements.body, preview = form.querySelector('.docs-preview');
+    const say = text => { form.querySelector('[data-status]').textContent = text || ''; };
+    const fail = text => { const line = form.querySelector('[data-error]'); line.textContent = text || ''; line.hidden = !text; };
+
+    form.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => {
+      const show = button.dataset.tab === 'preview';
+      form.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+      area.hidden = show; preview.hidden = !show;
+      if (show) preview.innerHTML = area.value.trim() ? safeMd(area.value, {documentImages: true}) : '<p class="muted">Nothing to preview yet.</p>';
+    });
+    form.querySelector('[data-cancel]').onclick = () => onCancel?.();
+    form.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); form.requestSubmit(); }
+    });
+
+    const conflict = info => {
+      const box = form.querySelector('.docs-conflict');
+      box.hidden = false; box.textContent = '';
+      const who = info.updated_by_name || 'Someone';
+      const text = document.createElement('p');
+      text.textContent = `${who} saved version ${info.version} while you were editing. Your text is still here.`;
+      const keep = Object.assign(document.createElement('button'), {type: 'button', className: 'ghost', textContent: 'Keep mine and replace theirs'});
+      const drop = Object.assign(document.createElement('button'), {type: 'button', className: 'ghost', textContent: 'Discard mine and load theirs'});
+      keep.onclick = () => { version = info.version; box.hidden = true; say('Save again to replace version ' + info.version + '.'); };
+      drop.onclick = () => onReload?.();
+      const row = document.createElement('div'); row.className = 'docs-conflict-actions'; row.append(keep, drop);
+      box.append(text, row);
+      box.scrollIntoView?.({block: 'nearest'});
+    };
+
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const button = form.querySelector('[type=submit]');
+      button.disabled = true; fail(''); say('Saving…'); form.querySelector('.docs-conflict').hidden = true;
+      const title = form.elements.title.value.trim(), path = form.elements.path.value.trim(), note = form.elements.note.value.trim();
+      try {
+        let saved;
+        if (isNew) saved = await post('/v2/docs', {title, body: area.value, ...(path && !path.endsWith('/') ? {path} : {}), note});
+        else saved = await writeRequest('PATCH', '/v2/docs/' + encodeURIComponent(doc.id),
+          {version, title, body: area.value, ...(path && path !== doc.path ? {path} : {}), note});
+        say('');
+        onSaved?.(saved.doc);
+      } catch (error) {
+        say('');
+        if (errorCode(error) === 'version_conflict') conflict(errorInfo(error));
+        else if (errorCode(error) === 'locked') fail('This doc was locked while you were editing. Only an owner or bot administrator can change it now.');
+        else if (errorCode(error) === 'path_taken') fail('Another doc already uses that path. Choose a different one.');
+        else fail(error.message || 'That did not save.');
+        button.disabled = false;
+      }
+    };
+    return form;
+  }
+
+  // ------------------------------------------------------------------ history and restore
+  async function history(doc, {canRestore, onRestored}) {
+    const box = dialog(`<div class="docs-history-shell"><header><h2>History</h2>
+        <button class="ghost tmodal-x" type="button" data-close aria-label="Close history">✕</button></header>
+      <p class="muted docs-history-sub"></p>
+      <div class="docs-history-body"><ol class="docs-history-list" aria-label="Versions"></ol>
+        <section class="docs-history-view" aria-live="polite"><p class="muted">Loading…</p></section></div></div>`,
+      {className: 'docs-history', label: 'History of ' + doc.title});
+    box.querySelector('.docs-history-sub').textContent = doc.title + ' · ' + doc.path;
+    const list = box.querySelector('.docs-history-list'), view = box.querySelector('.docs-history-view');
+    let versions = [];
+    const show = async number => {
+      list.querySelectorAll('button').forEach(b => b.setAttribute('aria-current', String(Number(b.dataset.version) === number)));
+      view.replaceChildren(Object.assign(document.createElement('p'), {className: 'muted', textContent: 'Loading…'}));
+      try {
+        const {version} = await get(`/v2/docs/${encodeURIComponent(doc.id)}/versions/${number}`);
+        const meta = versions.find(v => v.version === number) || {};
+        const head = document.createElement('div'); head.className = 'docs-history-head';
+        const title = document.createElement('div');
+        const strong = Object.assign(document.createElement('strong'), {textContent: `Version ${number}${meta.current ? ' (current)' : ''}`});
+        const by = Object.assign(document.createElement('span'), {className: 'muted',
+          textContent: ` · by ${version.actor_name || version.actor} · ${fmt(version.created)}${version.note ? ' · ' + version.note : ''}`});
+        title.append(strong, by);
+        head.append(title);
+        if (!meta.current) {
+          const restore = Object.assign(document.createElement('button'), {type: 'button', className: 'primary', textContent: 'Restore this version'});
+          restore.disabled = !canRestore;
+          restore.title = canRestore ? '' : 'This doc is locked: only an owner or bot administrator can restore it';
+          restore.onclick = async () => {
+            restore.disabled = true;
+            try { const result = await post(`/v2/docs/${encodeURIComponent(doc.id)}/restore`, {version: number}); box.close(); onRestored?.(result.doc); }
+            catch (error) { restore.disabled = false; view.querySelector('.err').textContent = error.message; view.querySelector('.err').hidden = false; }
+          };
+          head.append(restore);
+        }
+        const err = Object.assign(document.createElement('p'), {className: 'err', hidden: true});
+        err.setAttribute('role', 'alert');
+        const body = document.createElement('div'); body.className = 'md docs-content docs-history-text';
+        body.innerHTML = version.body.trim() ? safeMd(version.body, {documentImages: true}) : '<p class="muted">This version is empty.</p>';
+        view.replaceChildren(head, err, body);
+      } catch (error) { view.replaceChildren(Object.assign(document.createElement('p'), {className: 'err', textContent: error.message})); }
+    };
+    try {
+      versions = (await get(`/v2/docs/${encodeURIComponent(doc.id)}/versions`)).versions || [];
+      for (const v of versions) {
+        const li = document.createElement('li'), button = document.createElement('button');
+        button.type = 'button'; button.dataset.version = v.version;
+        const top = document.createElement('span'); top.className = 'docs-history-top';
+        top.append(Object.assign(document.createElement('strong'), {textContent: 'v' + v.version}));
+        if (v.current) top.append(Object.assign(document.createElement('span'), {className: 'docs-badge internal', textContent: 'Current'}));
+        const who = Object.assign(document.createElement('span'), {className: 'docs-history-who',
+          textContent: `${v.actor_name || v.actor} · ${ago(v.created)}`});
+        who.title = fmt(v.created);
+        button.append(top, who);
+        if (v.note) button.append(Object.assign(document.createElement('span'), {className: 'docs-history-note', textContent: v.note}));
+        button.onclick = () => show(v.version);
+        li.append(button); list.append(li);
+      }
+      if (versions.length) await show((versions.find(v => !v.current) || versions[0]).version);
+    } catch (error) { view.replaceChildren(Object.assign(document.createElement('p'), {className: 'err', textContent: error.message})); }
+    return box;
+  }
+
+  // ------------------------------------------------------------------ linked docs
+  function linkDialog({link = null, onDone}) {
+    const box = dialog(`<form data-link-form novalidate><header><h2>${link ? 'Edit linked doc' : 'Add a link'}</h2>
+        <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
+      <p class="muted docs-dialog-lead">Tico keeps only the address. Opening it goes to where the doc lives, so people need access there.</p>
+      <label class="gs-field"><span>Address</span><input name="url" maxlength="2000" required autocomplete="off" inputmode="url" placeholder="https://drive.google.com/drive/folders/…"></label>
+      <p class="docs-detected muted" data-detected aria-live="polite"></p>
+      <label class="gs-field"><span>Title <em>(optional)</em></span><input name="title" maxlength="300" autocomplete="off" placeholder="Defaults to the address"></label>
+      <label class="gs-field"><span>What is in it? <em>(optional, one line)</em></span><input name="description" maxlength="300" autocomplete="off" placeholder="Help centre articles customers read"></label>
+      <p class="err" data-error role="alert" hidden></p>
+      <div class="gs-card-actions"><button class="primary" type="submit">${link ? 'Save' : 'Add link'}</button>
+        <button class="ghost" type="button" data-close>Cancel</button>
+        ${link ? '<button class="ghost docs-danger" type="button" data-remove>Remove link</button>' : ''}</div></form>`, {label: link ? 'Edit linked doc' : 'Add a link'});
+    const form = box.querySelector('form'), detected = box.querySelector('[data-detected]');
+    form.elements.url.value = link?.url || ''; form.elements.title.value = link?.title || ''; form.elements.description.value = link?.description || '';
+    const detect = () => {
+      const kind = DocsSearch.kindOf(form.elements.url.value);
+      detected.textContent = kind ? `Filed as ${DocsSearch.kind(kind).label} · ${DocsSearch.hostOf(form.elements.url.value)}` : '';
+    };
+    form.elements.url.oninput = detect; detect(); form.elements.url.focus();
+    const fail = text => { const line = form.querySelector('[data-error]'); line.textContent = text; line.hidden = !text; };
+    const send = async body => {
+      form.querySelector('[type=submit]').disabled = true; fail('');
+      try {
+        if (link) await writeRequest('PATCH', '/v2/linked-docs/' + encodeURIComponent(link.id), body);
+        else await post('/v2/linked-docs', body);
+        box.close(); onDone?.();
+      } catch (error) {
+        form.querySelector('[type=submit]').disabled = false;
+        fail(errorCode(error) === 'already_linked' ? 'That address is already linked.' : error.message || 'That did not save.');
+      }
+    };
+    form.onsubmit = event => {
+      event.preventDefault();
+      send({url: form.elements.url.value.trim(), title: form.elements.title.value.trim() || (link ? link.title : ''), description: form.elements.description.value.trim()});
+    };
+    box.querySelector('[data-remove]')?.addEventListener('click', () => { if (confirm('Remove this link? The doc it points to is not touched.')) send({archived: true}); });
+    return box;
+  }
+
+  // ------------------------------------------------------------------ import
+  function importDialog({onDone}) {
+    const box = dialog(`<form data-import-form><header><h2>Import a file</h2>
+        <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
+      <p class="muted docs-dialog-lead">The file becomes an internal doc in Markdown, so the whole company can read, search and edit it. Word, PDF, HTML, Markdown and text files, up to 20 MB.</p>
+      <label class="gs-field"><span>File</span><input type="file" name="file" accept="${IMPORT_TYPES}" required></label>
+      <label class="gs-field"><span>Title <em>(optional)</em></span><input name="title" maxlength="300" autocomplete="off" placeholder="Defaults to the first heading or the file name"></label>
+      <label class="gs-field"><span>Path <em>(optional)</em></span><input name="path" maxlength="300" autocomplete="off" placeholder="sales/pricing.md"></label>
+      <p class="err" data-error role="alert" hidden></p><p class="muted" data-status role="status"></p>
+      <div class="gs-card-actions"><button class="primary" type="submit">Import</button><button class="ghost" type="button" data-close>Cancel</button></div></form>`,
+      {label: 'Import a file'});
+    const form = box.querySelector('form');
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const file = form.elements.file.files[0], line = form.querySelector('[data-error]');
+      line.hidden = true;
+      if (!file) return;
+      if (file.size > 20_000_000) { line.textContent = 'That file is larger than 20 MB.'; line.hidden = false; return; }
+      form.querySelector('[type=submit]').disabled = true;
+      form.querySelector('[data-status]').textContent = 'Importing…';
+      const body = new FormData();
+      body.append('file', file);
+      if (form.elements.title.value.trim()) body.append('title', form.elements.title.value.trim());
+      if (form.elements.path.value.trim()) body.append('path', form.elements.path.value.trim());
+      try {
+        const response = await formFetch(API + '/v2/docs/import', body);
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(apiError(result, response));
+        box.close(); onDone?.(result.doc);
+      } catch (error) {
+        form.querySelector('[data-status]').textContent = '';
+        line.textContent = error.message || 'That file could not be imported.'; line.hidden = false;
+        form.querySelector('[type=submit]').disabled = false;
+      }
+    };
+    return box;
+  }
+
+  window.DocsEditor = {editor, history, linkDialog, importDialog};
+})();
