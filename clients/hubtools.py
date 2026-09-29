@@ -374,8 +374,7 @@ def task_link(api, args):
 
 
 # ----------------------------------------------------------------------------- goals
-@tool("hub_goals", "What you are for: your goals in order, the chain of goals above them up to the "
-      "company goal, and your reports' goals. Read this before you read a task. `all` is every "
+@tool("hub_goals", "What you are for: your goals in order, the goals they support, and your reports' goals. Read this before you read a task. `all` is every "
       "live goal in the company.",
       {"owner": _s("Someone else's: a bot slug or a person id; default is yourself"),
        "all": {"type": "boolean", "default": False},
@@ -392,12 +391,12 @@ def goal_show(api, args):
     return api.get("goals/" + args["id"])["goal"]
 
 
-@tool("hub_goal_create", "Propose a goal for yourself, under a goal you own, or for someone below "
-      "you on the org chart. It has no colour until whoever owns the parent gives it one; that is "
-      "the acceptance. Only the company owner creates a goal with no parent.",
-      {"owner": _s("`me`, a bot slug, or a person id"),
+@tool("hub_goal_create", "Set a goal for yourself, under a goal you own, or for someone below "
+      "you on the org chart. A parent is optional: with none the goal is simply not linked. With one "
+      "it has no colour until whoever owns the parent gives it one; that is the acceptance.",
+      {"owner": _s("`me`, a bot slug, or a person id (`company` is the owner's)"),
        "title": _s("Plain English: what you are going for"),
-       "parent_id": _s("The goal this one serves"),
+       "parent_id": _s("The goal this one supports, if any; leave it out when there is none"),
        "body": _s("What it means, what counts, what does not", default=""),
        "top": {"type": "boolean", "default": False, "description": "Put it first in the owner's order"}},
       required=("owner", "title"), writes=True)
@@ -422,7 +421,7 @@ def goal_status(api, args):
 @tool("hub_goal_update", "Edit a goal: title, body, the goal it serves, its owner, or its place in "
       "the owner's order. Moving it is for the parent's owner or someone above.",
       {"id": _s("Goal id"), "title": _s("New title"), "body": _s("New body"),
-       "parent_id": _s("The goal it serves; an empty string makes it a company goal"),
+       "parent_id": _s("The goal it supports; an empty string unlinks it"),
        "owner": _s("New owner: a bot slug or a person id"),
        "rank": {"type": "integer", "description": "Position in the owner's order"},
        "top": {"type": "boolean", "default": False}},

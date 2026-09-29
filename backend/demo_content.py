@@ -363,7 +363,7 @@ INSIGHTS = [
 
 # key, title, owner, parent key, colour, why, [(kpi name, unit, target, readings oldest first)]
 GOALS = [
-    ("grow", "Grow to 200 paying studios by December", "human:ana", None, "green",
+    ("grow", "Grow to 200 paying studios by December", "company", None, "green",
      "148 studios today and adding about ten a week.", [("Paying studios", "studios", 200, [131, 139, 148])]),
     ("tickets", "Answer every support ticket the same day", "bot:support", "grow", "green",
      "91 percent answered the same day this week.", [("Tickets answered the same day", "%", 95, [86, 89, 91])]),

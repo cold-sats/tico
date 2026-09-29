@@ -209,12 +209,13 @@ class Builder:
             for key, title, owner, parent, colour, why, measures in D.GOALS:
                 row = G.create(c, "human:ana", title, owner, keys.get(parent))
                 keys[key] = row["id"]
-                G.set_status(c, owner, row["id"], colour, why)
+                who = "human:ana" if owner == G.COMPANY else owner
+                G.set_status(c, who, row["id"], colour, why)
                 for name, unit, target, values in measures:
-                    kpi = G.kpi_add(c, owner, row["id"], name, unit, target)
+                    kpi = G.kpi_add(c, who, row["id"], name, unit, target)
                     for index, value in enumerate(values):
                         self.at(days=6 - index * 2.5)
-                        G.kpi_log(c, owner, kpi["id"], value, source="measured")
+                        G.kpi_log(c, who, kpi["id"], value, source="measured")
         self.write(work)
 
     def docs(self):

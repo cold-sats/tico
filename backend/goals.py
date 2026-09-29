@@ -1,8 +1,9 @@
 """Goals: what every person and bot on the org chart is for, and how it says it is going.
 
-A goal has an owner (a person or a bot, one field), the goal it serves (`parent_id`; NULL is a
-company goal), a colour the owner sets with one sentence, and KPIs whose readings anyone may
-log at any time. No number lives on a goal, no colour is derived from children, and nothing
+A goal has an owner (a person, a bot, or `company`; one field), the goal it serves (`parent_id`,
+optional: a goal with none is simply not linked), a colour the owner sets with one sentence, and
+KPIs whose readings anyone may log at any time. What level a goal is at comes from its owner: `company`
+is a company goal, `human:x` a person's, `bot:x` a bot's. A company goal is optional. No number lives on a goal, no colour is derived from children, and nothing
 goes stale on its own. Bots read theirs with `hub goals`;
 nothing is pushed into a run.
 
@@ -18,6 +19,7 @@ from . import people as P
 COLOURS = ("red", "yellow", "green")
 STATUSES = COLOURS + ("done", "dropped")
 LIVE = ("red", "yellow", "green")         # statuses a goal is still worked under; None is proposed
+COMPANY = "company"                       # the owner of a company goal
 SOURCES = ("measured", "estimate")        # or a connector name; only these two are checked
 
 
@@ -48,7 +50,7 @@ def goals(conn, owner=None, parent_id=None, status=None, live_only=False):
 
 
 def chain(conn, goal_id):
-    """The goal's parents, nearest first, up to the company goal. Cycles stop at the repeat."""
+    """The goal's parents, nearest first, up to the top one. Cycles stop at the repeat."""
     out, seen, row = [], {goal_id}, goal(conn, goal_id)
     while row and row.get("parent_id") and row["parent_id"] not in seen:
         seen.add(row["parent_id"])
@@ -113,7 +115,7 @@ def for_actor(conn, actor, roster=None, entries=None, archived=()):
     below = []
     for report in reports_of(actor, roster, entries, archived):
         below.extend(goals(conn, owner=report, live_only=True))
-    company = goals(conn, parent_id="", live_only=True) if not mine and not above else []
+    company = goals(conn, owner=COMPANY, live_only=True) if not mine and not above else []
     return {"owner": actor, "goals": mine, "chain": above, "reports": below, "company": company}
 
 
@@ -189,13 +191,16 @@ def _next_rank(conn, owner, top=False):
 
 
 def create(conn, actor, title, owner, parent_id=None, body="", top=False):
-    """A new goal, proposed: `status` is NULL until whoever owns the parent sets its first colour."""
+    """A new goal. With a parent it is proposed: `status` is NULL until whoever owns the parent sets
+    its first colour. With none it is only unlinked."""
     H._writer(conn, actor)
     title = str(title or "").strip()
     if not title:
         H.refuse(conn, actor, "lint", "give the goal a title that says what you are going for")
     if parent_id and not goal(conn, parent_id):
         H.refuse(conn, actor, "not-found", f"no goal {parent_id}")
+    if parent_id and owner == COMPANY:
+        H.refuse(conn, actor, "kind", "a company goal does not support another goal")
     ts = H.now()
     row = {"id": H.new_id(), "title": title, "owner": owner, "parent_id": parent_id or None,
            "body": str(body or ""), "rank": _next_rank(conn, owner, top), "created": ts,
@@ -259,12 +264,20 @@ def update(conn, actor, goal_id, title=None, body=None, parent_id=None, owner=No
                 H.refuse(conn, actor, "not-found", f"no goal {new_parent}")
             if goal_id in {g["id"] for g in chain(conn, new_parent)}:
                 H.refuse(conn, actor, "kind", "a goal cannot serve one of its own children")
+        if new_parent and (owner or row["owner"]) == COMPANY:
+            H.refuse(conn, actor, "kind", "a company goal does not support another goal")
         sets.append("parent_id=:parent_id")
         args["parent_id"] = new_parent
         _event(conn, goal_id, actor, "parent_id", row["parent_id"], new_parent)
     if owner is not None and owner != row["owner"]:
         sets.append("owner=:owner")
         args["owner"] = owner
+        if owner == COMPANY and (row["parent_id"] or args.get("parent_id")):
+            # A company goal supports nothing.
+            if "parent_id=:parent_id" not in sets:
+                sets.append("parent_id=:parent_id")
+                _event(conn, goal_id, actor, "parent_id", row["parent_id"], None)
+            args["parent_id"] = None
         sets.append("rank=:rank")
         args["rank"] = _next_rank(conn, owner)
         _event(conn, goal_id, actor, "owner", row["owner"], owner)

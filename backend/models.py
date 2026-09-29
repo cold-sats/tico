@@ -177,8 +177,8 @@ class GettingStartedMarket(Contract):
     add_analyst: bool = False
 
 
-# Goals (backend/goals.py). `owner` is a bot slug, a person id
-# or `me`; the colour is the owner's word with one sentence; a reading is a fact with an author.
+# Goals (backend/goals.py). `owner` is a bot slug, a person id,
+# `me` or `company`; the colour is the owner's word with one sentence; a reading is a fact with an author.
 class GoalCreate(Contract):
     title: str = Field(min_length=1, max_length=300)
     owner: ID
@@ -195,7 +195,7 @@ class GoalStatus(Contract):
 class GoalUpdate(Contract):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     body: str | None = Field(default=None, max_length=100_000)
-    parent_id: str | None = Field(default=None, max_length=200)   # "" makes it a company goal
+    parent_id: str | None = Field(default=None, max_length=200)   # "" unlinks it
     owner: ID | None = None
     rank: int | None = None
     top: bool = False

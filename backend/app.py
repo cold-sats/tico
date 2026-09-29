@@ -1936,10 +1936,14 @@ def create_app(settings=None):
         return roster, entries, archived
 
     def goal_owner(c, who, value):
-        """A slug, a person id or `me`, as the actor string a goal is owned by."""
+        """A slug, a person id, `me` or `company`, as the actor string a goal is owned by."""
         if value in ("me", "self", None, ""):
             auth.domain(who)
             return who.actor
+        if value == G.COMPANY:
+            if who.role != "owner":
+                raise Problem("forbidden", "A company goal is the owner's to set", 403)
+            return G.COMPANY
         return auth.target(c, who, value)
 
     def stands_above(c, who, owner):
@@ -2000,7 +2004,10 @@ def create_app(settings=None):
             for row in rows:
                 if row["owner"] in names:
                     continue
-                if H.is_bot(row["owner"]):
+                if row["owner"] == G.COMPANY:
+                    names[row["owner"]] = {"kind": "company", "id": G.COMPANY,
+                                           "name": settings.company_name or "Company"}
+                elif H.is_bot(row["owner"]):
                     bot = H.bot(c, H.actor_id(row["owner"])) or {}
                     names[row["owner"]] = {"kind": "bot", "id": H.actor_id(row["owner"]),
                                            "name": bot.get("display_name") or H.actor_id(row["owner"]),
@@ -2044,11 +2051,10 @@ def create_app(settings=None):
         def work(c):
             owner = goal_owner(c, who, body.owner)
             parent = goal_or_404(c, body.parent_id) if body.parent_id else None
+            # A goal needs no parent: a person or a bot may set their own, and it is simply unlinked.
             if who.role != "owner":
-                if parent is None:
-                    raise Problem("forbidden", "A company goal is the owner's to set", 403)
-                if not (owner == who.actor or parent["owner"] == who.actor or stands_above(c, who, owner)):
-                    raise Problem("forbidden", "You can propose a goal for yourself, under a goal you own, "
+                if not (owner == who.actor or (parent and parent["owner"] == who.actor) or stands_above(c, who, owner)):
+                    raise Problem("forbidden", "You can set a goal for yourself, under a goal you own, "
                                   "or for someone below you on the org chart", 403)
             row = G.create(c, who.actor, body.title, owner, body.parent_id, body.body, top=body.top)
             return {"goal": G.view(c, row)}
@@ -2092,8 +2098,6 @@ def create_app(settings=None):
             if not structural and not may_colour(c, who, row):
                 raise Problem("forbidden", "You cannot edit this goal", 403)
             owner = goal_owner(c, who, body.owner) if body.owner else None
-            if body.parent_id == "" and who.role != "owner":
-                raise Problem("forbidden", "A company goal is the owner's to set", 403)
             return {"goal": G.view(c, G.update(c, who.actor, gid, title=body.title, body=body.body,
                                                parent_id=body.parent_id, owner=owner, rank=body.rank,
                                                top=body.top))}

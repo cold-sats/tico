@@ -66,7 +66,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
       if (p === '/api/v2/goals/tree') return json({goals: treeGoals, owners: {}});
       if (p === '/api/v2/goals' && req.method() === 'POST') {
         const body = req.postDataJSON(); posted.push({path: p, body});
-        const goal = {id: 'g-new', status: null, rank: 5, ...body, owner: body.owner === 'me' ? 'human:reviewer' : body.owner};
+        const goal = {id: 'g-new-' + treeGoals.length, status: null, rank: 5, ...body, owner: body.owner === 'me' ? 'human:reviewer' : body.owner};
         treeGoals.push(goal); return json({goal});
       }
       const goalPost = p.match(/^\/api\/v2\/goals\/([^/]+)$/);
@@ -381,44 +381,77 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('.tasks-head h1').waitFor();
     assert.equal(await page.locator('.tasks-head h1').innerText(), 'Goals');
     assert.equal(await page.locator('.tasks-head').evaluate(el => getComputedStyle(el).flexWrap), 'wrap', 'Tasks CSS does not change Goals');
-    // The Goals page is the org chart with icon, name and goal as plain words.
-    // Tapping one edits it in place and shows what it supports and what supports it.
-    treeGoals.push({id: 'g-top', title: 'Grow revenue 30% this year', owner: 'human:reviewer', parent_id: null, status: null, rank: 0},
-                   {id: 'g-cmo', title: 'Double organic signups', owner: 'bot:cmo', parent_id: 'g-top', status: 'green', rank: 0});
+    // A bot's own goal with no parent is that bot's goal, not a company goal: it shows under the bot
+    // and there is no company section.
+    treeGoals.push({id: 'g-solo', title: 'Keep every permission grant narrow', owner: 'bot:cmo', parent_id: null, status: null, rank: 0});
+    await page.evaluate(async () => { await goalsRefresh(); goalsRender(GOALS_ST); });
+    await page.locator('#goal-body [data-goal="g-solo"]').waitFor();
+    assert.equal(await page.locator('#goal-body .goal-card[data-goal-owner="bot:cmo"] [data-goal="g-solo"]').count(), 1);
+    assert.equal(await page.locator('#goal-body .goal-card[data-goal-owner="company"]').count(), 0, 'no company section');
+    assert.doesNotMatch(await page.locator('#goal-body').innerText(), /company goal|link it|supports/i);
+    treeGoals.splice(0);
+    // The Goals page lists company goals first, then each person and bot with goals. Tapping a goal
+    // opens one form: Goal, Supports (Nothing unless linked), Save.
+    treeGoals.push({id: 'g-top', title: 'Grow revenue 30% this year', owner: 'company', parent_id: null, status: null, rank: 0},
+                   {id: 'g-cmo', title: 'Double organic signups', owner: 'bot:cmo', parent_id: 'g-top', status: 'green', rank: 0,
+                    kpis: [{name: 'Signups', unit: 'signups', target: 200, latest: {value: 148}}]});
     await page.goto('http://tico-ui.test/#/goals/g-top');
-    await page.locator('.goal-open [data-goal-ed="g-top"]').waitFor();
-    assert.equal(await page.locator('#goal-body .goal-dot, .goal-modal, .kpi-row').count(), 0, 'no colour, modal or measures');
-    assert.match(await page.locator('.goal-open').innerText(), /A company goal[\s\S]*Supported by[\s\S]*Double organic signups/);
+    await page.locator('.goal-open [data-goal-form="g-top"]').waitFor();
+    assert.equal(await page.locator('#goal-body .goal-dot, .goal-modal, .kpi-row').count(), 0, 'no modal or measures');
+    assert.equal(await page.locator('.goal-open select[name=parent]').count(), 0, 'a company goal supports nothing');
+    assert.match(await page.locator('.goal-open').innerText(), /Supported by[\s\S]*Double organic signups/);
+    assert.doesNotMatch(await page.locator('#goal-body').innerText(), /a company goal/i);
     await page.locator('.goal-open [data-goal-go="g-cmo"]').click();
-    await page.locator('.goal-open [data-goal-ed="g-cmo"]').waitFor();
+    await page.locator('.goal-open [data-goal-form="g-cmo"]').waitFor();
     assert.equal(new URL(page.url()).hash, '#/goals/g-cmo');
-    assert.match(await page.locator('.goal-open .goal-ed-supports').innerText(), /Supports Grow revenue 30% this year/);
+    assert.equal(await page.locator('.goal-open select[name=parent]').inputValue(), 'g-top');
     // A viewer who neither owns it nor the goal it supports reads it; the owner edits it.
-    assert.equal(await page.locator('.goal-open .goal-ed-text').getAttribute('readonly'), '');
-    assert.equal(await page.locator('#goal-body [data-goal-add]').count(), 0);
+    assert.equal(await page.locator('.goal-open input[name=title]').getAttribute('readonly'), '');
+    assert.equal(await page.locator('.goal-open [type=submit]').count(), 0);
     me = {...me, role: 'owner', mover: true};
     await page.evaluate(() => { S.me = {...S.me, role: 'owner', mover: true}; goalsRender(GOALS_ST); });
-    const words = page.locator('.goal-open [data-goal-ed="g-cmo"] .goal-ed-text');
+    // The row says what it supports, its status and its progress.
+    await page.evaluate(() => goalOpen(GOALS_ST, ''));
+    const line = await page.locator('#goal-body [data-goal="g-cmo"]').innerText();
+    assert.match(line, /On track[\s\S]*148 \/ 200 signups[\s\S]*supports Grow revenue 30% this year/);
+    assert.equal(await page.locator('#goal-body .goal-card').first().getAttribute('data-goal-owner'), 'company', 'company goals come first');
+    await page.locator('#goal-body [data-goal="g-cmo"]').click();
+    const words = page.locator('.goal-open [data-goal-form="g-cmo"] input[name=title]');
     await words.waitFor();
+    assert.equal(await words.getAttribute('type'), 'text');
     await words.fill('Double organic signups by December');
-    await words.press('Enter');
+    await page.locator('.goal-open [type=submit]').click();
     await page.waitForFunction(() => GOALS_ST.goals.some(g => g.title === 'Double organic signups by December'));
-    assert.equal(await words.inputValue(), 'Double organic signups by December');
     assert.deepEqual(posted.at(-1), {path: '/api/v2/goals/g-cmo', body: {title: 'Double organic signups by December'}});
-    // Tapping "Supports …" changes it, offering goals above on the org chart or alongside.
-    await page.locator('.goal-open [data-goal-ed="g-cmo"] .goal-ed-change').click();
-    const pick = page.locator('.goal-open [data-goal-ed="g-cmo"] .goal-ed-pick');
-    assert.equal(await pick.isVisible(), true);
-    const groups = await pick.evaluate(sel => [...sel.querySelectorAll('optgroup')].map(o => [o.label, [...o.children].map(c => c.value)]));
-    assert.deepEqual(groups.find(([l]) => l === 'Above on the org chart')?.[1], ['g-top'], 'the company goal is above');
-    assert(!groups.flatMap(([, v]) => v).includes('g-cmo'), 'never itself');
-    // A new goal is one line; it supports the nearest goal above its owner unless linked elsewhere.
-    await page.locator('#goal-body [data-goal-add="bot:cpo"]').click();
-    const fresh = page.locator('#goal-body .goal-add-text');
-    await fresh.fill('Ship the pricing page');
-    await fresh.press('Enter');
-    await page.locator('.goal-open [data-goal-ed="g-new"]').waitFor();
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals', body: {title: 'Ship the pricing page', owner: 'bot:cpo', parent_id: 'g-top'}});
+    // Supports is a select: Nothing, then company goals and goals above or alongside on the org chart.
+    await page.locator('#goal-body [data-goal="g-cmo"]').click();
+    const pick = page.locator('.goal-open select[name=parent]');
+    const options = await pick.evaluate(sel => [...sel.children].map(o => o.tagName === 'OPTGROUP' ? [o.label, [...o.children].map(c => c.value)] : ['', [o.value, o.textContent]]));
+    assert.deepEqual(options[0], ['', ['', 'Nothing']]);
+    assert.deepEqual(options.find(([l]) => l === 'Company')?.[1], ['g-top']);
+    assert(!JSON.stringify(options).includes('"g-cmo"'), 'never itself');
+    await pick.selectOption('');
+    await page.locator('.goal-open [type=submit]').click();
+    await page.waitForFunction(() => GOALS_ST.goals.find(g => g.id === 'g-cmo').parent_id === '');
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals/g-cmo', body: {parent_id: ''}});
+    // A new goal: Owner and an optional Supports, Nothing by default.
+    await page.locator('#goal-tools [data-goal-new="new"]').click();
+    const fresh = page.locator('#goal-body [data-goal-form="new"]');
+    await fresh.locator('input[name=title]').fill('Ship the pricing page');
+    await fresh.locator('select[name=owner]').selectOption('bot:cpo');
+    assert.equal(await fresh.locator('select[name=parent]').inputValue(), '', 'Nothing is the default');
+    await fresh.locator('[type=submit]').click();
+    await page.waitForFunction(() => GOALS_ST.goals.some(g => g.title === 'Ship the pricing page'));
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals', body: {title: 'Ship the pricing page', owner: 'bot:cpo'}});
+    await page.locator('#goal-body .goal-card[data-goal-owner="bot:cpo"] [data-goal]').waitFor();
+    // Only the owner writes a company goal: Owner and Supports do not apply.
+    await page.locator('#goal-tools [data-goal-new="company"]').click();
+    const co = page.locator('#goal-body [data-goal-form="company"]');
+    assert.equal(await co.locator('select').count(), 0);
+    await co.locator('input[name=title]').fill('Reach 500 studios');
+    await co.locator('[type=submit]').click();
+    await page.waitForFunction(() => GOALS_ST.goals.some(g => g.title === 'Reach 500 studios'));
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals', body: {title: 'Reach 500 studios', owner: 'company'}});
     // A goal written on a person's profile opens in place too, and saves back to the profile.
     people.push({id: 'ben', name: 'Ben Park', goals: 'Keep the board honest.'});
     await page.evaluate(() => { location.hash = '#/tasks'; });
@@ -426,27 +459,17 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#goal-body [data-goal-standing="ben"]').click();
     const standing = page.locator('#goal-body [data-standing-ed="ben"] input');
     assert.equal(await standing.inputValue(), 'Keep the board honest.');
-    assert.match(await page.locator('#goal-body [data-standing-ed="ben"]').innerText(), /On Ben's profile/);
     await standing.fill('Keep the board honest every week.');
     await standing.press('Enter');
     await page.waitForFunction(() => S.people.find(x => x.id === 'ben')?.goals === 'Keep the board honest every week.');
-    // People and sections fold (remembered on this device), and on a phone the
-    // goals are taller and further apart so they are easy to tap.
+    assert.deepEqual(posted.at(-1), {path: '/api/v2/people/ben', body: {goals: 'Keep the board honest every week.'}});
+    // On a phone the goals are taller and further apart so they are easy to tap.
     await page.evaluate(() => goalOpen(GOALS_ST, ''));
-    const cmoFold = page.locator('#goal-body [data-goal-fold="b:cmo"]').first();
-    await cmoFold.click();
-    await page.locator('#goal-body .goal-folded-sum[data-goal-fold="b:cmo"]').waitFor();
-    assert.match(await page.locator('#goal-body .goal-folded-sum[data-goal-fold="b:cmo"]').innerText(), /1 goal/);
-    assert.equal(await page.locator('#goal-body [data-goal="g-cmo"]').count(), 0, 'a folded bot hides its goals');
-    await page.reload();
-    await page.locator('#goal-body .goal-folded-sum[data-goal-fold="b:cmo"]').waitFor();
-    await page.locator('#goal-body [data-goal-fold="b:cmo"]').first().click();
-    await page.locator('#goal-body [data-goal="g-cmo"]').waitFor();
     await page.setViewportSize({width: 390, height: 844});
     const tap = await page.locator('#goal-body [data-goal="g-cmo"]').boundingBox();
     assert(tap.height >= 40, 'a goal is at least 40px tall on a phone: ' + tap.height);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
     await page.setViewportSize({width: 1200, height: 900});
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/people/ben', body: {goals: 'Keep the board honest every week.'}});
     assert.deepEqual(errors, []);
     console.log('PASS: toolbar layout, search, filter menu, persistence, recurring search, company only, labels, comments, mobile.');
   } finally { await browser.close(); }

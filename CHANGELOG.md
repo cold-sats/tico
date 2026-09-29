@@ -7,7 +7,20 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **A bot's own goal is no longer shown as the company goal.** The Goals page treated every goal with no parent as a company goal, so a
+  goal a bot set for itself sat under the company's name, and bots were told to ask a person for a parent goal. A goal's level now comes
+  from its owner (`company`, a person or a bot), and a goal needs no parent: a person or a bot sets its own with none, and it is simply
+  not linked. `hub goal create --owner me --title "..."` works with no `--parent`; only `--owner company` is the owner's. Goals that
+  were company goals before (a person's goal with no parent and goals under it) become company goals owned by `company` on upgrade.
+- **The bot page's update history icon matches the Updates icon** in the left rail, and the Recurring card no longer has an icon the
+  other cards lack.
+
 ### Changed
+- **The Goals page is simpler.** Company goals come first and only when there are some (the owner adds one with **+ Company goal**), then
+  each person and bot that has goals in org-chart order, each goal with its status, progress and a "supports" chip when it is linked.
+  Tapping a goal opens one form: Goal, an optional **Supports** select (Nothing by default) and Save; **+ Goal** makes a new one for
+  anyone you may set goals for. It works on a phone and in both themes.
 - **The org panel shows a bot's harness as a small icon.** Where it said "Codex" or "Claude" beside a bot's name there is now the
   OpenAI, Anthropic, Google, xAI, Cursor or OpenRouter mark, muted and about 13px, with "Runs on Codex" as its title and label. The
   name truncates before the mark, and a bot with no harness shows nothing. The same mark sits beside the name on a bot's page.

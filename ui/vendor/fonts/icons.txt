@@ -25,7 +25,6 @@ person
 power
 radio_button_unchecked
 remove_circle
-repeat
 replay
 schedule
 search

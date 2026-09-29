@@ -22,8 +22,8 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
   `merge`. Only a person decides; an approval is spent once. Rules: `policies/approvals.md`.
 - **Routine** — a cron schedule owned by a bot: `id`, `title`, `cron`, `timezone`, `template`
   (a playbook file) or inline `instructions`, `labels`. Each occurrence becomes a task.
-- **Goal** — what a person or a bot is for: a title, an owner, the goal it serves (`parent_id`;
-  none for a company goal), a colour the owner sets with one sentence (`red`, `yellow`, `green`;
+- **Goal** — what a person or a bot is for: a title, an owner, the goal it supports (`parent_id`,
+  optional), a colour the owner sets with one sentence (`red`, `yellow`, `green`;
   `done` or `dropped` when it ends; none while proposed) and KPIs whose readings anyone logs at
   any time. A task may name the goal it serves. Bots read theirs with `hub goals`; nothing is
   pushed into a run.
