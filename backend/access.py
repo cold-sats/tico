@@ -355,21 +355,51 @@ def edit_person(c, actor, roster, pid, body, access, owner_email):
     return row, admins, changed
 
 
+_DOMAIN = re.compile(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}")
+
+
+def sort_allowed(*lists):
+    """What a person typed into "who may join", sorted into the two lists that are stored.
+
+    An address (`ana@company.com`) lets that person in. A domain, written `company.com`, `@company.com` or
+    `*@company.com`, lets anyone at it in. Anything else is refused by name: a wildcard inside an address
+    (`a*@company.com`) or a malformed one would otherwise be stored and silently never match, and a public mail
+    domain would let anyone with such an account join. Returns (addresses, domains), lowercased and unique."""
+    people, found = [], []
+    for raw in (value for values in lists for value in values or []):
+        item = str(raw or "").strip().lower()
+        if not item:
+            continue
+        local, at, rest = item.rpartition("@")
+        if at and local not in ("", "*"):
+            if "*" in local or not _EMAIL.match(item):
+                raise Problem("allow_entry", f"{item!r} is not an address like name@company.com, or a domain like company.com", 422)
+            target = people
+        else:
+            rest = rest if at else item
+            if not _DOMAIN.fullmatch(rest):
+                raise Problem("allow_entry", f"{item!r} is not an address like name@company.com, or a domain like company.com", 422)
+            if rest in PUBLIC_MAIL:
+                raise Problem("allow_entry", f"{rest} is a public mail domain: that would let anyone with a "
+                              f"{rest.split('.')[0].title()} account join. List the people's addresses instead", 422)
+            item, target = rest, found
+        if item not in target:
+            target.append(item)
+    return people, found
+
+
 def save_access(c, actor, body, now, *, bot_admins=None, settings=None):
     """Replace the allow list (and optionally the Admins) at the revision read."""
     before = load_access(c, settings)
     if before["revision"] != int(body.get("expected_revision") or 0):
         raise Problem("conflict", "The access list changed since you opened it; reload and try again", 409)
-    after = {"allowed": emails(body.get("allowed", before["allowed"])),
-             "allowed_domains": domains(body.get("allowed_domains", before["allowed_domains"])),
+    # Only what was submitted is sorted and checked: changing the Admins alone leaves who may join as it was.
+    people, found = (sort_allowed(body.get("allowed"), body.get("allowed_domains"))
+                     if "allowed" in body or "allowed_domains" in body else (before["allowed"], before["allowed_domains"]))
+    after = {"allowed": people, "allowed_domains": found,
              "admins": before["admins"] if bot_admins is None else emails(bot_admins),
              "member_bot_limit": before["member_bot_limit"],
              "revision": before["revision"] + 1, "updated": now, "updated_by": actor, "source": "owner"}
-    for domain in after["allowed_domains"]:
-        if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}", domain):
-            raise Problem("domain", f"{domain!r} is not a domain like company.com", 422)
-    for email in after["allowed"]:
-        _valid_email(email)
     _store(c, ACCESS, after)
     return before, after
 

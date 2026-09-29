@@ -1984,6 +1984,10 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .onb-field small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
 .onb-field textarea{min-height:92px;resize:vertical}
 .onb-choices{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:4px}
+.allow-chips{list-style:none;margin:0 0 var(--s3);padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.allow-chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:12.5px;overflow-wrap:anywhere}
+.allow-chip .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.allow-chip[data-allow-kind=domain]{border-color:var(--accent)}
 .onb-choices label{display:flex;align-items:center;gap:6px;font-size:13.5px}
 .onb-choices input{width:auto;flex:none}
 .onb-actions{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)}
@@ -11034,6 +11038,13 @@ function peopleCapabilityRows(p) {
       <option value="no" ${add === 'no' ? 'selected' : ''}>No</option></select></label>
     <p class="muted">Adding someone outside the company domain always needs an owner or an admin.</p>`;
 }
+// What "who may join" understood, as chips: a domain lets anyone at it in, an address only that person.
+function allowChips(people, found) {
+  const rows = [...(found || []).map(d => ['Domain', d]), ...(people || []).map(p => ['Person', p])];
+  if (!rows.length) return '<p class="muted" data-allow-empty>Nobody joins by signing in: people are added by hand.</p>';
+  const chip = ([kind, value]) => `<li class="allow-chip" data-allow-kind="${kind.toLowerCase()}"><span class="k">${kind}</span>${esc(value)}</li>`;
+  return `<ul class="allow-chips" aria-label="What was understood">${rows.slice(0, 14).map(chip).join('')}${rows.length > 14 ? `<li class="allow-chip more">+${rows.length - 14} more</li>` : ''}</ul>`;
+}
 const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
 function peopleAccessLabel(p) {
   if (p.left) return '<span class="muted">Left</span>';
@@ -11074,9 +11085,9 @@ async function renderSettingsPeople() {
       </section>
       <section class="card"><header><h2>Who may join</h2><span class="sub">people not on the roster who sign in for the first time${S.me?.role === 'owner' ? '' : ' · the owner sets this'}</span></header>
         <div id="people-allow">
-          <label class="onb-field"><span class="k">Allowed emails</span><textarea id="allow-emails" rows="3" placeholder="one per line">${esc(view.allowed.join('\n'))}</textarea></label>
-          <label class="onb-field"><span class="k">Allowed domains</span><textarea id="allow-domains" rows="2" placeholder="company.com">${esc(view.allowed_domains.join('\n'))}</textarea></label>
-          <p class="muted">Anyone at these addresses or domains who signs in is added to the roster as a normal person. Leave both empty to add people by hand only.</p>
+          <label class="onb-field"><span class="k">Who may join</span><textarea id="allow-list" rows="3" placeholder="ana@company.com, company.com">${esc([...view.allowed_domains, ...view.allowed].join(', '))}</textarea>
+            <small>An address lets that person join; a domain (company.com or *@company.com) lets anyone at it join. Leave empty to add people by hand only.</small></label>
+          <div id="allow-understood">${allowChips(view.allowed, view.allowed_domains)}</div>
           <div class="onb-actions"><button class="primary" type="button" id="allow-save"${S.me?.role === 'owner' ? '' : ' disabled'}>Save</button><span class="spacer"></span><span class="muted" id="allow-status"></span></div>
         </div>
       </section>
@@ -11107,8 +11118,9 @@ async function renderSettingsPeople() {
     $('#allow-save').onclick = async () => {
       const status = $('#allow-status'); status.textContent = 'Saving…';
       try {
-        await put('/v2/access/allow', {allowed: peopleLines($('#allow-emails').value),
-          allowed_domains: peopleLines($('#allow-domains').value), expected_revision: view.revision});
+        // The server sorts each entry into an address or a domain; the page re-reads what it understood.
+        await put('/v2/access/allow', {allowed: peopleLines($('#allow-list').value),
+          allowed_domains: [], expected_revision: view.revision});
         toast('Who may join saved'); await renderSettingsPeople();
       } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
     };

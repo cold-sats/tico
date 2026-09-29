@@ -894,7 +894,8 @@ def create_app(settings=None):
             H.event(c, who.actor, "access.allow_updated", "",
                     {"before": {k: before[k] for k in ("allowed", "allowed_domains", "revision")},
                      "after": {k: after[k] for k in ("allowed", "allowed_domains", "revision")}})
-            return {"revision": after["revision"]}
+            return {"revision": after["revision"], "allowed": after["allowed"],
+                    "allowed_domains": after["allowed_domains"]}
         result = mutate(request, body, work)
         with store.read() as c:
             auth.sync_access(c)

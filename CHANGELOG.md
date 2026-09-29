@@ -23,6 +23,14 @@ All notable changes to Tico are recorded here. The format follows
 - The Mail Drafts (`inbox`) template now starts with one paused morning brief instead of three weekday passes and a weekend pass,
   reads only its own mailbox (no `org_read`), and does not label or archive until the person turns filing on.
 
+### Fixed
+- **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched
+  anyone. It is now one box: an address lets that person join, a domain (`company.com`, `@company.com` or `*@company.com`) lets anyone
+  at it join, and after saving the page shows what it understood ("Domain: company.com", "Person: ana@company.com"). The server sorts
+  each entry into `allowed` or `allowed_domains` (the stored shape is unchanged) and refuses, naming the entry, anything that could
+  never match (`a*@company.com`, a malformed address) and a public mail domain such as gmail.com, which would let anyone with such an
+  account join.
+
 ## [0.2.13] - 2026-09-29
 
 ### Added

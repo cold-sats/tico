@@ -18,6 +18,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     const context = await browser.newContext({viewport: {width: 1200, height: 900}, serviceWorkers: 'block'});
     const calls = [];
     let owner = 'ana@acme.example', proxy = 'cloudflare', revision = 3;
+    let allowedPeople = ['ana@acme.example'], allowedDomains = [];
     let people = [
       {id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example', title: 'CEO', team: 'leadership'},
       {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example', title: '', team: ''}];
@@ -29,7 +30,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
                 add_people: p.add_people === undefined ? true : !!p.add_people, add_people_default: p.add_people === undefined,
                 can_sign_in: !p.left && !!p.email};
       }),
-      allowed: ['ana@acme.example'], allowed_domains: [], admins: [], bot_admins: [], member_bot_limit: 5,
+      allowed: allowedPeople, allowed_domains: allowedDomains, admins: [], bot_admins: [], member_bot_limit: 5,
       company_domains: ['acme.example'], company_domain_source: 'owner', revision, proxy});
     const me = {id: 'ana', name: 'Ana Rivera', role: 'owner', cloud: true, email: 'ana@acme.example', credential_access: false, config: CONFIG};
     await context.route('**/*', async route => {
@@ -71,7 +72,12 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       }
       if (p === '/api/v2/access/limits') { calls.push(['limits', request.postDataJSON()]); return json({}); }
       if (p === '/api/v2/access/allow') {
-        calls.push(['allow', request.postDataJSON()]); revision += 1; return json({revision});
+        // What the server does: an entry is an address, or a domain written `d`, `@d` or `*@d`.
+        const body = request.postDataJSON(); calls.push(['allow', body]); revision += 1;
+        const items = [...body.allowed, ...body.allowed_domains];
+        allowedDomains = items.filter(x => !/^[^*@]+@/.test(x)).map(x => x.replace(/^\*?@/, ''));
+        allowedPeople = items.filter(x => /^[^*@]+@/.test(x));
+        return json({revision, allowed: allowedPeople, allowed_domains: allowedDomains});
       }
       if (p === '/api/v2/access/owner') {
         calls.push(['owner', request.postDataJSON()]); owner = people.find(x => x.id === request.postDataJSON().person).email;
@@ -133,11 +139,15 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     assert.deepEqual(calls.shift(), ['edit', 'cy', {left: false}]);
 
     // The allow list saves with the revision it was read at.
-    await page.locator('#allow-domains').fill('acme.example, partner.example');
+    // One box: an address, a domain, or *@domain, and the page shows what it understood.
+    assert.equal(await page.locator('#allow-domains, #allow-emails').count(), 0);
+    await page.locator('#allow-list').fill('ana@acme.example, *@acme.example, partner.example');
     await page.locator('#allow-save').click();
-    await page.waitForFunction(() => document.querySelector('#allow-save') && !document.querySelector('#allow-status').textContent.includes('Saving'));
-    assert.deepEqual(calls.shift(), ['allow', {allowed: ['ana@acme.example'],
-      allowed_domains: ['acme.example', 'partner.example'], expected_revision: 3}]);
+    await page.locator('[data-allow-kind=domain]', {hasText: 'partner.example'}).waitFor();
+    assert.deepEqual(calls.shift(), ['allow', {allowed: ['ana@acme.example', '*@acme.example', 'partner.example'],
+      allowed_domains: [], expected_revision: 3}]);
+    assert.deepEqual(await page.locator('[data-allow-kind=domain]').allTextContents(), ['Domainacme.example', 'Domainpartner.example']);
+    assert.deepEqual(await page.locator('[data-allow-kind=person]').allTextContents(), ['Personana@acme.example']);
 
     // Ownership moves only after the new owner's email is typed.
     await page.locator('tr[data-person=ben] [data-person-act=owner]').click();
