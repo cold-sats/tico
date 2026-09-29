@@ -53,9 +53,9 @@ bots on a team cooperate.
 What is separated: the computer's own credential. The runner's registration (`runner.json`) can claim the
 work of any bot assigned to that computer, so code a bot runs must not be able to read it.
 
-- **Docker runner** (`docker/runner.compose.yaml`, the installer's default): the supervisor is root, owns
-  `runner.json` (mode 0600), its state and the tools directory, and runs every process that executes bot
-  code (the model CLI of a turn, `git` in a bot's checkout, sign-in flows) as the unprivileged `bot` user. A
+- **Docker runner** (`docker/runner.compose.yaml`, the installer's default): the supervisor keeps the runner's
+  own user, which owns `runner.json` (mode 0600), its state and the tools directory, and runs every process
+  that executes bot code (the model CLI of a turn, `git` in a bot's checkout, sign-in flows) as the unprivileged `bot` user. A
   turn gets its own attempt token and the environment the runner passes it, nothing of the registration.
   Its GitHub token comes from a local socket that answers only "a token for the bot this attempt belongs
   to", given the attempt token; the registration never crosses it.

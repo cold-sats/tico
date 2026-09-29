@@ -15,8 +15,9 @@ services:
     command: ["join", "--url", "${TICO_URL:-}", "--code", "${TICO_CODE:-}", "--label", "${TICO_RUNNER_LABEL:-runner}"]
     init: true
     restart: unless-stopped
-    # The supervisor starts as root and owns runner.json; every process that runs bot code drops to the
-    # unprivileged `bot` user, which is why it needs these five capabilities and no more (SECURITY.md).
+    # The entrypoint starts as root only to prepare the volume, then runs the supervisor as the runner's own
+    # user (which owns runner.json) holding these five capabilities, so that every process that runs bot code
+    # can drop to the unprivileged `bot` user with none (SECURITY.md).
     user: "0"
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]

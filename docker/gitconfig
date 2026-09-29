@@ -3,3 +3,6 @@
 	helper = "!f() { [ -n \"$GH_TOKEN\" ] && { echo username=x-access-token; echo \"password=$GH_TOKEN\"; }; }; f"
 [init]
 	defaultBranch = main
+# The workspace may belong to the supervisor while a turn (another user, same group) works in it.
+[safe]
+	directory = *

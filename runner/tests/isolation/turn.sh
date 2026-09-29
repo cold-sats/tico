@@ -2,6 +2,7 @@
 remote="$1"
 say() { printf '%s=%s\n' "$1" "$2"; }
 say uid "$(id -u)"
+say caps "$(grep CapEff /proc/self/status | tr -d '\t ')"
 cat /home/runner/runner.json >/dev/null 2>&1 && say read_registration yes || say read_registration no
 ls /home/runner/state-* >/dev/null 2>&1 && say read_state yes || say read_state no
 rm -f /home/runner/runner.json 2>/dev/null; [ -e /home/runner/runner.json ] && say delete_registration no || say delete_registration yes

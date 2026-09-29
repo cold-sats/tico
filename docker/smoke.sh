@@ -119,7 +119,7 @@ retry 120 online || fail "the runner did not enroll and come online"
 [ "$(runners)" = 1 ] || fail "expected one runner"
 
 step "bot code cannot read the runner's registration"
-[ "$(docker exec smoke-runner stat -c '%U:%a' /home/runner/runner.json)" = "root:600" ] || fail "runner.json is not root-only"
+[ "$(docker exec smoke-runner stat -c '%U:%a' /home/runner/runner.json)" = "ticorun:600" ] || fail "runner.json is not the runner's alone"
 ! docker exec -u bot smoke-runner cat /home/runner/runner.json >/dev/null 2>&1 || fail "the bot user can read runner.json"
 docker exec -u bot smoke-runner sh -c 'git config --global user.name && test -w /home/runner/workspace/secrets' >/dev/null || fail "the bot user has no working home"
 

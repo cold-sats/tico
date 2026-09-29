@@ -1,55 +1,60 @@
 """Keep the runner's own credential away from the code a bot runs (Linux, Docker runner).
 
 The runner's registration (runner.json) can claim any bot's work, so it must not sit where a turn
-can read it. In the Docker image the supervisor starts as root with a handful of capabilities (see
-docker/runner.compose.yaml), owns the registration file (mode 0600) and drops every process that
-runs bot-controlled code to an unprivileged user (`bot`, TICO_RUNNER_BOT_UID): the model CLI of a
-turn, the login relay, `git` in a bot's checkout and any model CLI the runner probes. That user's
-HOME holds the workspace, the secrets the turns need and the model logins; the supervisor's
-files are root-only or read-only to it. A turn gets its attempt token and the environment the
-runner already passes, and asks for its GitHub token over a socket (runner/credential_socket.py).
+can read it. In the Docker image the supervisor is the same unprivileged user every earlier image
+ran as (`ticorun`, 10002) and owns runner.json (0600), its state (0700) and the tools directory. It
+holds a few capabilities as ambient ones (docker/runner.compose.yaml) so it can drop every process
+that runs bot-controlled code to another user (`bot`, 10003, TICO_RUNNER_BOT_UID) with none: the model
+CLI of a turn, the login relay, `git` in a bot's checkout, any model CLI the runner probes. `bot` shares
+the group, so the workspace, the secrets the turns need and the model logins (all in HOME) work for both
+users, and an older image can still run on the same volume. A turn gets its attempt token and the
+environment the runner already passes, and asks for its GitHub token over a socket
+(runner/credential_socket.py).
 
-It stays off wherever the supervisor is not root or TICO_RUNNER_BOT_UID is unset: a Mac runner is a
-trust group of one user (SECURITY.md), and so is an image started the way it was before this.
-Bots still share the one `bot` user with each other.
+It stays off wherever TICO_RUNNER_BOT_UID is unset: a Mac runner is a trust group of one user
+(SECURITY.md), and so is an image started the way it was before this. Bots still share the `bot` user.
 """
 import os
 import subprocess
 from pathlib import Path
 
 UID_ENV, GID_ENV = "TICO_RUNNER_BOT_UID", "TICO_RUNNER_BOT_GID"
+SETPRIV = "/usr/bin/setpriv"
 
 
 def identity():
     """(uid, gid) that bot code runs as, or None when this process is not separating them."""
-    if not hasattr(os, "geteuid") or os.geteuid() != 0:
-        return None
     try:
         uid = int(os.environ[UID_ENV])
         gid = int(os.environ.get(GID_ENV) or uid)
     except (KeyError, ValueError):
         return None
-    return (uid, gid) if uid > 0 else None
+    return (uid, gid) if uid > 0 and hasattr(os, "geteuid") and os.geteuid() != uid else None
 
 
 def enabled():
     return identity() is not None
 
 
-def demote(kwargs):
-    """`subprocess` keyword arguments with the bot user added when isolation is on."""
+def wrap(args, kwargs):
+    """(args, kwargs) that run `args` as the bot user with no capabilities: the supervisor keeps
+    SETUID and friends as ambient capabilities (docker/runner-entrypoint.sh), and `setpriv` switches
+    user and empties them before the bot's program starts. The bot's files are group-writable."""
     who = identity()
-    if not who:
-        return kwargs
-    return {**kwargs, "user": who[0], "group": who[1], "extra_groups": []}
+    if not who or not isinstance(args, (list, tuple)):
+        return args, kwargs
+    prefix = [SETPRIV, f"--reuid={who[0]}", f"--regid={who[1]}", "--clear-groups", "--inh-caps=-all", "--ambient-caps=-all"]
+    return [*prefix, *args], {**kwargs, "umask": 0o002}
 
 
-def run(*args, **kwargs):
-    return subprocess.run(*args, **demote(kwargs))
+def run(args, **kwargs):
+    args, kwargs = wrap(args, kwargs)
+    return subprocess.run(args, **kwargs)
 
 
-def popen(*args, **kwargs):
-    return subprocess.Popen(*args, **demote(kwargs))
+def popen(args, **kwargs):
+    args, kwargs = wrap(args, kwargs)
+    return subprocess.Popen(args, **kwargs)
 
 
 def chown(path, *, recursive=False):

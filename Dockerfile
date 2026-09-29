@@ -63,20 +63,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10002 ticorun \
     && useradd --uid 10002 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash ticorun \
-    && groupadd --gid 10003 bot \
-    && useradd --uid 10003 --gid bot --home-dir /home/runner --no-create-home --shell /bin/bash bot
+    && useradd --uid 10003 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
 # node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
 COPY docker/runner-entrypoint.sh /usr/local/bin/tico-runner-entrypoint
 COPY docker/gitconfig /etc/gitconfig
-# Two users share /home/runner (SECURITY.md, runner/isolation.py). Started as root with the capabilities
-# of docker/runner.compose.yaml, the entrypoint makes the supervisor (root) the owner of runner.json, its
-# state and the tools directory, and `bot` (10003) the owner of everything a turn works in and the user
-# every process that runs bot code drops to. Without that (a bare `docker run`, an older compose file)
-# the image runs as `ticorun` (10002) alone, as before. A named volume copies the ownership of the
-# directory it first covers, so a new volume starts out in that single-user layout and is migrated.
+# Two users share /home/runner (SECURITY.md, runner/isolation.py). The supervisor stays `ticorun` (10002,
+# what every earlier image ran as, so runner.json, state-* and tools/ keep their owner and an older image
+# can still start on the volume). Every process that runs bot code is `bot` (10003), in the same group so
+# the workspace and model logins work for both, but with no access to the supervisor's 0600/0700 files.
+# Started as root with the capabilities of docker/runner.compose.yaml, the entrypoint migrates the volume
+# once and re-executes itself as ticorun with those capabilities as ambient ones; without them (a bare
+# `docker run`, an older compose file) the image runs as `ticorun` alone, as before. A named volume copies
+# the ownership of the directory it first covers, so a new volume starts single-user and is migrated.
 RUN chmod 0755 /usr/local/bin/tico-runner-entrypoint \
     && install -d -m 0700 -o ticorun -g ticorun /home/runner /home/runner/workspace /home/runner/workspace/secrets
 # The tools directory is in the volume, so installed model CLIs survive a restart or a new image. It is

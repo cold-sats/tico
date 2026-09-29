@@ -264,13 +264,16 @@ The `--user 0` and capabilities are what keep the runner's own login out of the 
 container runs as one user, as it did before. It has no updater: it stays on the release you pinned until you pull a newer image and recreate the container, and
 Settings > Health says so.
 
-**Who runs what.** The container starts as root, with five capabilities and nothing else, and owns
-`/home/runner/runner.json`, the runner's state and the tools directory. Everything a bot runs (each turn's model CLI,
+**Who runs what.** The container's entrypoint starts as root, with five capabilities and nothing else, only to prepare
+the volume; the runner itself is the `ticorun` user that owns `/home/runner/runner.json`, its state and the tools
+directory, as in every earlier release. Everything a bot runs (each turn's model CLI,
 its `git`, the sign-in flows) runs as the unprivileged `bot` user, whose home holds the workspace, `secrets/` and the
 model logins. So a bot cannot read the runner's own credential, which could claim any bot's work; a turn gets its
 attempt token, and asks the runner for its bot's GitHub token over a local socket. Bots still share the `bot` user with
 one another ([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-boundary-on-purpose)). The first start of a volume from an older image
-changes its ownership to match (one time, a minute on a large workspace). Use `docker exec -u bot` for what a bot should
+changes its ownership to match (one time, a minute on a large workspace). If an update is rolled back, the previous
+image still starts on the migrated volume and reads its own files; the bots then run as the runner's user again until
+the next update. Use `docker exec -u bot` for what a bot should
 own (logins, secrets); the runner hands root-made files in `secrets/` to `bot` itself.
 
 The image holds no model CLI. Once the company has enabled a provider (Settings > AI providers), the runner installs

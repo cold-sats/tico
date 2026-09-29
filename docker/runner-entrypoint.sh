@@ -7,15 +7,21 @@
 set -euo pipefail
 
 CONFIG="$HOME/runner.json"
-# Two users (SECURITY.md, runner/isolation.py): started as root, this script and the supervisor own
-# runner.json, the runner's state and the tools directory, and every process that runs bot code is `bot`.
-BOT_UID=10003 BOT_GID=10003
+# Two users (SECURITY.md, runner/isolation.py). The supervisor is `ticorun` (10002), as in every earlier
+# image, and owns runner.json, its state and the tools directory. Every process that runs bot code is `bot`
+# (10003), in the same group so the workspace and the model logins work for both, and so an older image
+# can still run on a migrated volume (an update that is rolled back). Started as root with the
+# capabilities in docker/runner.compose.yaml, this script prepares the volume and runs itself again as
+# ticorun holding them as ambient capabilities, which is how the supervisor drops bot code to `bot`.
+SUPERVISOR_UID=10002 SUPERVISOR_GID=10002 BOT_UID=10003
 LAYOUT="$HOME/.tico-two-user-layout"
+CAPS=+chown,+dac_override,+kill,+setgid,+setuid
 
 die() { printf 'tico-runner: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'tico-runner: %s\n' "$*"; }
 
-as_bot() { setpriv --reuid="$BOT_UID" --regid="$BOT_GID" --clear-groups "$@"; }
+as_supervisor() { setpriv --reuid="$SUPERVISOR_UID" --regid="$SUPERVISOR_GID" --clear-groups "$@"; }
+as_bot() { setpriv --reuid="$BOT_UID" --regid="$SUPERVISOR_GID" --clear-groups --inh-caps=-all --ambient-caps=-all "$@"; }
 
 have_caps() {  # CHOWN DAC_OVERRIDE KILL SETGID SETUID: what the supervisor keeps (docker/runner.compose.yaml)
   local mask bit
@@ -23,36 +29,44 @@ have_caps() {  # CHOWN DAC_OVERRIDE KILL SETGID SETUID: what the supervisor keep
   for bit in 0 1 5 6 7; do [ $(( (mask >> bit) & 1 )) -eq 1 ] || return 1; done
 }
 
-# One time, and again whenever something new was put where the supervisor's files belong.
+# What bot code works in is shared by group, so an older image can still use it; what is the
+# supervisor's is 0600/0700 for ticorun alone, and `bot` (same group, no bits for it) cannot open it.
 separate_users() {
   have_caps || die "started as root without the capabilities the runner needs: use the current runner.compose.yaml (user: \"0\", cap_add CHOWN DAC_OVERRIDE KILL SETGID SETUID)"
   if [ ! -e "$LAYOUT" ]; then
     log "moving this volume to the two-user layout (one time): the runner's login stays out of the bots' reach"
-    chown -R -h "$BOT_UID:$BOT_GID" "$HOME"
-    find "$HOME" -maxdepth 1 -type d -name 'state-*' -exec chown -R -h 0:0 {} + -exec chmod 0700 {} +
-    [ ! -d "$HOME/tools" ] || chown -R -h 0:0 "$HOME/tools"
-    : > "$LAYOUT"
+    # Everything at the top of the home directory that is not the supervisor's is the bot user's, so it can
+    # replace it (the directory is sticky), and group-writable, so an older image can still use it. The
+    # workspace stays with its old owner: git refuses a checkout another user owns, and an older image
+    # runs git there; `bot` works in it through the group.
+    as_supervisor find "$HOME" -mindepth 1 -maxdepth 1 ! -type l ! -name 'state-*' ! -name tools ! -name 'runner.json*' ! -name .ssh \
+      ! -name '.enroll.*' ! -name '.tico-two-user-layout' -exec chmod -R g+rwX {} +
+    find "$HOME" -mindepth 1 -maxdepth 1 ! -type l ! -name workspace ! -name 'state-*' ! -name tools ! -name 'runner.json*' \
+      ! -name '.enroll.*' ! -name '.tico-two-user-layout' -exec chown -R -h "$BOT_UID:$SUPERVISOR_GID" {} +
+    : > "$LAYOUT"; chown "$SUPERVISOR_UID:$SUPERVISOR_GID" "$LAYOUT"
   fi
-  # The registration and what it opens belong to the supervisor alone. The home directory is sticky, so
-  # a turn (group bot, may create files here) cannot delete or replace what root owns.
-  chown 0:"$BOT_GID" "$HOME" && chmod 1770 "$HOME"
+  # The home directory is sticky: a turn may create files here but cannot delete or replace the supervisor's.
+  chown "$SUPERVISOR_UID:$SUPERVISOR_GID" "$HOME" && as_supervisor chmod 1770 "$HOME"
   local file
   for file in "$HOME"/runner.json "$HOME"/runner.json.*; do
-    [ -f "$file" ] && [ ! -L "$file" ] && chown 0:0 "$file" && chmod 0600 "$file"
+    [ -f "$file" ] && [ ! -L "$file" ] && chown "$SUPERVISOR_UID:$SUPERVISOR_GID" "$file" && as_supervisor chmod 0600 "$file"
   done
   # What a turn works in: the workspace, its secrets and the model logins are the bot user's.
-  as_bot mkdir -p "$HOME/workspace/secrets"
-  as_bot chmod 0700 "$HOME/workspace" "$HOME/workspace/secrets"
-  mkdir -p /run/tico-runner && chmod 0755 /run/tico-runner
-  export TICO_RUNNER_BOT_UID="$BOT_UID" TICO_RUNNER_BOT_GID="$BOT_GID"
-  ISOLATED=1
+  as_supervisor mkdir -p "$HOME/workspace/secrets"
+  as_supervisor chmod 0770 "$HOME/workspace" "$HOME/workspace/secrets"
+  mkdir -p /run/tico-runner && chown "$SUPERVISOR_UID:$SUPERVISOR_GID" /run/tico-runner && as_supervisor chmod 0755 /run/tico-runner
+  export TICO_RUNNER_BOT_UID="$BOT_UID" TICO_RUNNER_BOT_GID="$SUPERVISOR_GID"
+  exec setpriv --reuid="$SUPERVISOR_UID" --regid="$SUPERVISOR_GID" --clear-groups --inh-caps="$CAPS" --ambient-caps="$CAPS" \
+    /usr/local/bin/tico-runner-entrypoint "$@"
 }
 
 ISOLATED=0
 if [ "$(id -u)" = 0 ]; then
-  separate_users
+  separate_users "$@"
+elif [ -n "${TICO_RUNNER_BOT_UID:-}" ]; then
+  ISOLATED=1                # the second pass: ticorun with ambient capabilities
 elif [ -e "$LAYOUT" ]; then
-  die "this volume is set up for two users (bots run apart from the runner's login): start the container as root with the capabilities in the current runner.compose.yaml"
+  log "warning: this volume has the two-user layout but the container is not starting as root, so bot code runs as the runner's own user (start it with the current runner.compose.yaml to separate them)"
 fi
 
 # ok, rejected (the server does not know this token) or unreachable (it may just be restarting)

@@ -1,4 +1,4 @@
-"""Runs inside the runner image as the supervisor (root), for test_isolation_docker.py.
+"""Runs inside the runner image as the supervisor (ticorun with ambient capabilities, via the entrypoint), for test_isolation_docker.py.
 
 It plays the runner: a credential socket for one attempt, a fake GitHub that only accepts that bot's
 token, and a "turn" process dropped to the bot user exactly as runner/isolation.py does it. It prints
@@ -79,9 +79,8 @@ def main():
     # git matches the helper by the remote's host; the fake GitHub is not github.com.
     for key in ("GIT_CONFIG_KEY_0", "GIT_CONFIG_KEY_1"):
         env[key] = f"credential.http://{host}.helper"
-    turn = subprocess.run(["sh", "/turn.sh", f"http://{host}/alpha.git"], env=env, cwd=HOME + "/workspace",
-                          capture_output=True, text=True, user=isolation.identity()[0],
-                          group=isolation.identity()[1], extra_groups=[])
+    turn = isolation.run(["sh", "/turn.sh", f"http://{host}/alpha.git"], env=env, cwd=HOME + "/workspace",
+                         capture_output=True, text=True)
     print(json.dumps({"turn": turn.stdout.splitlines(), "stderr": turn.stderr[-800:],
                       "registration": subprocess.run(["stat", "-c", "%U %a", HOME + "/runner.json"],
                                                      capture_output=True, text=True).stdout.strip(),

@@ -8,14 +8,14 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Security
-- The Docker runner keeps its own credential away from bot code. The supervisor runs as root with five capabilities
-  (`CHOWN`, `DAC_OVERRIDE`, `KILL`, `SETGID`, `SETUID`) and owns `runner.json` (0600); each turn's model CLI, `git` in a
+- The Docker runner keeps its own credential away from bot code. The supervisor stays the runner's own user (`ticorun`, 10002, as in every earlier image) and owns `runner.json` (0600), holding
+  five ambient capabilities (`CHOWN`, `DAC_OVERRIDE`, `KILL`, `SETGID`, `SETUID`); each turn's model CLI, `git` in a
   bot's checkout and the sign-in flows run as an unprivileged `bot` user (uid 10003). A turn's git credential helper gets
   the bot's GitHub token from a supervisor socket with its attempt token, never from the registration. The current
   `runner.compose.yaml` sets `user: "0"` and the capabilities; an older compose file, or a bare `docker run` without them,
-  keeps running as one user. Bots still share the `bot` user with each other. SECURITY.md says what is and is not separated.
-  On the first start of an existing volume the entrypoint changes its ownership once (the workspace and logins to `bot`,
-  `runner.json`, `state-*` and `tools/` to root); use `docker exec -u bot` to sign a model in.
+  keeps running as one user, and so does the previous image if an update is rolled back on a migrated volume. Bots still share the `bot` user with each other. SECURITY.md says what is and is not separated.
+  On the first start of an existing volume the entrypoint changes its ownership once (logins and dotfiles to `bot`, group-writable; the workspace keeps its owner and
+  the supervisor's files stay with `ticorun`); use `docker exec -u bot` to sign a model in.
 
 ### Tests
 - `POST /api/v2/sql` and the JSON API are checked against each other for tasks, private rooms, messages and meetings, for the

@@ -68,11 +68,15 @@ def test_it_falls_back_to_the_turn_token_when_the_supervisor_is_gone(monkeypatch
     assert G.credential(None, "alpha", "/tmp/no-such.sock") == "ghs_start"
 
 
-def test_bot_code_is_demoted_only_when_the_supervisor_is_root_and_told_to(monkeypatch):
+def test_bot_code_is_wrapped_only_when_told_to_and_only_as_another_user(monkeypatch):
     monkeypatch.delenv(isolation.UID_ENV, raising=False)
-    assert isolation.demote({"cwd": "x"}) == {"cwd": "x"}
+    assert isolation.wrap(["git", "status"], {"cwd": "x"}) == (["git", "status"], {"cwd": "x"})
     monkeypatch.setenv(isolation.UID_ENV, "10003")
-    with mock.patch("os.geteuid", return_value=1000):
+    monkeypatch.setenv(isolation.GID_ENV, "10002")
+    with mock.patch("os.geteuid", return_value=10003):       # already the bot user: nothing to drop to
         assert isolation.identity() is None
-    with mock.patch("os.geteuid", return_value=0):
-        assert isolation.demote({}) == {"user": 10003, "group": 10003, "extra_groups": []}
+    with mock.patch("os.geteuid", return_value=10002):
+        argv, kwargs = isolation.wrap(["codex", "app-server"], {})
+    assert argv[:1] == [isolation.SETPRIV] and argv[-2:] == ["codex", "app-server"]
+    assert "--reuid=10003" in argv and "--regid=10002" in argv and "--ambient-caps=-all" in argv
+    assert kwargs == {"umask": 0o002}
