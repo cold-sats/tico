@@ -9,8 +9,12 @@ files on the server. The owner manages them in **Settings > People**; nothing ne
 - **Mark someone as left.** They drop off the org chart, their API tokens are revoked, and they can
   no longer sign in. **Restore** brings them back (their old tokens stay revoked).
 - **See who can sign in.** Everyone on the roster with an email who has not left.
-- **Who may join.** A list of allowed emails and allowed domains. Someone who is not on the roster
-  but whose verified sign-in matches the list joins as a normal person on first sign-in
+- **Who may join.** One box for addresses and domains. An address (`ana@company.com`) lets that
+  person join; a domain (`company.com`, `@company.com` or `*@company.com`) lets anyone at it join. The
+  server sorts each entry into `allowed` or `allowed_domains`, the page shows what it understood, and it
+  refuses, naming the entry, a wildcard inside an address (`a*@company.com`), a malformed address and a
+  public mail domain such as gmail.com (that would let anyone with such an account join). Someone who is
+  not on the roster but whose verified sign-in matches joins as a normal person on first sign-in
   (audit event `person.joined`). Narrowing the list stops new people; it does not remove anyone
   already on the roster, so mark them as left for that.
 - **Transfer ownership** to another active person.
