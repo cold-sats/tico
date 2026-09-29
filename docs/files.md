@@ -64,7 +64,7 @@ files:
 ```
 
 Only documents, images, csv, tsv, json, yaml, md, html, pdf and office files go, at most 25 MB each.
-A `.env`, anything with a credential-like name, a symbolic link, and any path that resolves outside
+A `.env`, anything with a credential-like name, a symbolic link, a file with more than one hard link, and any path that resolves outside
 the checkout is refused. Uploads go through a durable outbox in the runner's own state with an
 idempotency key per file and content, so a restart or a lost reply retries safely and lands once. A
 file that could not be uploaded shows **not synced** and never an Open link that opens nothing.
@@ -79,8 +79,9 @@ A bot's deliverable attached to a task (`hub task attach`) is listed as a file f
 A file inherits the visibility of where it came from:
 
 - made for a **task**: whoever can see the task;
-- made in a **conversation**: whoever can see the conversation. A private chat's files are visible
-  only to its participants, and someone else does not learn a file name, a count, a version or an
+- made in a **conversation**: whoever can see the conversation. A direct chat's files are visible
+  to its participants and to the company owner, who can open direct chats. Personal Assistant rooms are the exception:
+  only their person sees them, the owner included. In a shared bot room, only its members do. Anyone else does not learn a file name, a count, a version or an
   activity entry from it, on the bot's page or anywhere else;
 - **bot-wide**: anyone who can see the bot.
 
@@ -101,5 +102,6 @@ activity, with the visible `total`), `POST /api/v2/files/uploads`, `/links`, `/i
 
 ## Retention
 
-Every version is kept for now: versions are immutable and nothing prunes them. Removing a file
-archives the row and keeps the bytes. A retention policy will come as a later, explicit setting.
+Every version is kept: versions are immutable and nothing prunes them. The owner or a bot administrator
+removes a file from the bot's page (**Remove**, or `PATCH /api/v2/files/{id}` with `archived: true`). That hides the row
+and keeps the bytes; the file returns when the bot publishes a changed version. A bot cannot remove a file.

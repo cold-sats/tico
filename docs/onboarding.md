@@ -1,9 +1,9 @@
 # First run
 
 The first time the owner opens a new environment, the app is a wizard at `#/welcome`: name the
-company, say what it does, pick bots from a catalog, enroll a Mac, optionally connect your own
-agent, finish. Finishing defines the
-bots on the server and hands the building work to two places. The Mac sets up the assistant and
+company, say what it does, pick bots from a catalog, add a computer (a Linux Docker runner or a Mac), optionally connect your own
+agent, finish. Every company gets the assistant and BotOps, and neither can be archived. Finishing defines the
+bots on the server and hands the building work to two places. The computer sets up the assistant and
 BotOps by itself, and BotOps sets up everything else.
 
 The wizard is the first of four pieces, all described below: the wizard, a short tour, the Getting

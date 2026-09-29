@@ -22,7 +22,7 @@ One command, run on the Linux server itself. It takes about 15 minutes, most of 
 
 ### Before you start
 
-- [ ] **A Linux server**, about 2 GB of memory and 10 GB of disk (1 GB is the minimum). Ubuntu 24.04 or Debian 12 on
+- [ ] **A Linux server**, about 2 GB of memory and 20 GB of disk (1 GB of memory is the minimum; see [sizing](sizing.md)). Ubuntu 24.04 or Debian 12 on
       x86_64 or arm64 is what is tested. You need root or `sudo`. See "Where to get a server" below.
 - [ ] **A domain name** you can add a DNS record to, such as `tico.yourcompany.com`. The wizard tells you which
       provider serves it and the exact record to add.
@@ -257,7 +257,7 @@ now has its updater.
 docker run -d --name tico-runner --restart unless-stopped -v tico-runner:/home/runner \
   --user 0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add KILL --cap-add SETGID --cap-add SETUID \
   --security-opt no-new-privileges:true \
-  ghcr.io/ticoteam/tico-runner:v0.2.6 join --url https://tico.example.com --code <code> --label "Build box"
+  ghcr.io/ticoteam/tico-runner:vX.Y.Z join --url https://tico.example.com --code <code> --label "Build box"
 ```
 
 The `--user 0` and capabilities are what keep the runner's own login out of the bots' reach (below); without them the
@@ -287,7 +287,7 @@ docker exec -it -u bot tico-runner codex login --device-auth      # ChatGPT subs
 docker exec -it -u bot tico-runner claude setup-token             # Claude: prints a long-lived token
 ```
 
-API keys and other secrets go in the runner's shared file, readable by the runner only:
+API keys and other secrets go in the runner's shared file. Every bot on that computer can read it (bots share the `bot` user); the runner's own credential is not in it:
 
 ```
 docker exec -u bot tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUTH_TOKEN=<token>" "GH_TOKEN=<fine-grained token>" >> /home/runner/workspace/secrets/_shared.env'
@@ -324,8 +324,7 @@ and keep it on one computer only:
 `docker exec -i tico-runner sh -c 'umask 077; tee /home/runner/workspace/secrets/google-sa.json >/dev/null' < google-sa.json`
 (the runner refuses a key that is not mode 0600).
 The job starts within a minute of the file appearing, builds its Python environment into the volume the first time
-(about a minute; `docker logs` shows it), and stops when the file is removed. On a VM the key goes to
-`/var/lib/tico-runner/workspace/secrets/google-sa.json` (mode 0600, owner `ticorun`). Instead of the key, an owner who
+(about a minute; `docker logs` shows it), and stops when the file is removed. Instead of the key, an owner who
 sets `TICO_PROCESSING_OPERATORS` on the server assigns the job to that operator's runners. `docker exec tico-runner
 python -m runner --config /home/runner/runner.json connectors-doctor` says whether the key is found.
 `TICO_SIDE_JOBS=0` in the container's environment turns the supervisor off.

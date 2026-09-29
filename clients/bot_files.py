@@ -74,7 +74,7 @@ def local_file(root, rel):
     """(real path, relative posix name) of a file inside `root` a bot may publish, or Refused.
 
     Refuses a path that leaves the root, any symlink on the way, anything that is not a regular
-    file, a credential-like name, a type outside the list and a file over the size cap.
+    file, a hard-linked file, a credential-like name, a type outside the list and a file over the size cap.
     """
     root = Path(root).resolve()
     text = str(rel)
@@ -99,7 +99,10 @@ def local_file(root, rel):
     if root not in walk.resolve().parents:
         raise Refused("That path is outside the bot's checkout")
     check_name(walk.name)
-    check_size(walk.stat().st_size)
+    info = walk.stat()
+    if info.st_nlink > 1:
+        raise Refused(f"{'/'.join(parts)} has more than one hard link, so it may be another file under a new name")
+    check_size(info.st_size)
     return walk, "/".join(parts)
 
 

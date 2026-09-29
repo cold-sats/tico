@@ -114,6 +114,17 @@ def test_local_rules_refuse_traversal_links_env_and_oversize(tmp_path):
             BF.local_file(root, bad)
 
 
+def test_local_rules_refuse_a_hard_link(tmp_path):
+    root = tmp_path / "checkout"
+    (root / "reports").mkdir(parents=True)
+    (tmp_path / "secrets.md").write_text("secret")
+    os.link(tmp_path / "secrets.md", root / "reports" / "innocent.md")
+    with pytest.raises(BF.Refused, match="hard link"):
+        BF.local_file(root, "reports/innocent.md")
+    (root / "reports" / "own.md").write_text("mine")
+    assert BF.local_file(root, "reports/own.md")[1] == "reports/own.md"
+
+
 def test_runner_upload_is_retried_after_a_restart_and_lands_once(api, live, tmp_path):
     machine, attempt = turn(api)
     checkout = tmp_path / "bot"

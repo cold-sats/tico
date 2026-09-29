@@ -27,8 +27,11 @@ losing it costs you. See [docs/architecture.md](docs/architecture.md) for the pi
 ### The server
 
 The server holds the company's data: people, bots, tasks, chats, approvals, schedules, files, meeting
-notes, and the shared credential store (encrypted with the key you configure). It runs no bots and
-never calls a model, so it holds no model logins and no bots' working files. It does hold the sign-in
+notes, and the shared credential store (encrypted with the key you configure). It never runs a bot or a model CLI, so it holds no bot model logins and no bots' working files.
+When decisions (or Slack routing) are on, it sends the text of each question to the decision provider you configured
+(the optional hosted decisions service, or OpenAI, Anthropic, Gemini, xAI or OpenRouter with a key stored on the server). That text can include mail.
+Someone who takes over the server in that case can read the stored provider key and use it, and can see the
+questions as they are sent. It does hold the sign-in
 secrets (OIDC client secret, session secret) and, if you connect GitHub, the GitHub App's private key.
 Someone who takes over the server can read and change company data and can mint GitHub tokens, so
 treat it like any internal application server: patch it, keep the data volume private, and restrict

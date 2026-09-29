@@ -67,7 +67,7 @@ Model, effort, computer, people and status are changed in **Settings → Bots**.
 Files you attach to a task or a chat are stored privately by hub.acme.example and the bot downloads them
 for that conversation (up to ten files of 10 MB). A file a bot produces for you is attached to the
 task the same way (`hub task attach`) and linked from its note; open it from the task or the link
-while signed in. Bot-to-bot files stay in `s3://acme-tico-hub/<slug>/deliverables/`; a bot's own
+while signed in. Other files a bot publishes are listed on its page under Files ([Files](files.md)); a bot's own
 record stays in its repo's `reports/`. Meeting transcripts come from the tools that made them ([Meetings](meetings.md)).
 
 **How do I review messaging bots?**
