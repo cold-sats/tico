@@ -90,11 +90,23 @@ warn_backups() {
   esac
 }
 
+# An empty volume never quietly becomes a new company when a company exists (or may exist) behind it. The restore
+# result is kept, not ignored; and markers outside the database (backend/replication.py) say what was here before.
+# --initialize-empty (or TICO_INITIALIZE_EMPTY=1) is the explicit way to start over.
 seed() {
-  if [ ! -s "$TICO_DB" ] && backup_configuration; then
-    log "restoring the database from its backup, if there is one"
-    litestream restore -if-db-not-exists -if-replica-exists -config "$LITESTREAM_CONFIG" "$TICO_DB" || true
-    [ ! -s "$TICO_DB" ] || python -m backend.replication restore-blobs || log "could not restore attachments; run: docker compose run --rm server restore --force"
+  local restore_failed=() guard=()
+  case "${TICO_INITIALIZE_EMPTY:-}" in 1|true|yes) guard+=(--initialize-empty) ;; esac
+  if [ ! -s "$TICO_DB" ]; then
+    if backup_configuration; then
+      log "restoring the database from its backup, if there is one"
+      litestream restore -if-db-not-exists -if-replica-exists -config "$LITESTREAM_CONFIG" "$TICO_DB" || restore_failed=(--restore-failed)
+    fi
+    if [ -s "$TICO_DB" ]; then
+      python -m backend.replication restore-blobs || log "could not restore attachments; run: docker compose run --rm server restore --force"
+    else
+      python -m backend.replication check-new-company "$DATA" ${restore_failed[@]+"${restore_failed[@]}"} ${guard[@]+"${guard[@]}"} \
+        || die "refusing to start with an empty data volume (see above)"
+    fi
   fi
   mkdir -p "$DATA/blobs" "$DATA/seed-projects"
   if [ ! -d "$TICO_REGISTRY_DIR" ]; then
@@ -132,13 +144,21 @@ PY
   export TICO_ENVIRONMENT_ID
 }
 
-server() {
+prepare() {  # everything `server` does before it starts serving: also what the tests run
   server_environment
+  for arg in "$@"; do
+    case "$arg" in --initialize-empty) export TICO_INITIALIZE_EMPTY=1 ;; *) die "unknown option $arg" ;; esac
+  done
   seed
   environment_identity
+  backup_configuration || true
+  python -m backend.replication mark-environment "$DATA" "$TICO_ENVIRONMENT_ID"
+}
+
+server() {
+  prepare "$@"
   local serve=(uvicorn backend.app:create_app --factory --host 0.0.0.0 --port 8765 --workers 1 --no-access-log
                --timeout-graceful-shutdown 2)
-  backup_configuration || true
   warn_backups
   if [ "$TICO_BACKUP_MODE" != off ]; then
     log "backing up the database and attachments to ${TICO_BACKUP_URL:-the tico-backups volume ($BACKUPS)}"
@@ -215,7 +235,8 @@ demo() {
 }
 
 case "${1:-server}" in
-  server) server ;;
+  server) shift; server "$@" ;;
+  prepare) shift; prepare "$@" ;;
   demo) demo "$@" ;;
   restore) shift; restore "$@" ;;
   slack-gateway) slack_gateway ;;

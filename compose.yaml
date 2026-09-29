@@ -41,6 +41,7 @@ services:
       TICO_BACKUP_URL:
       TICO_BACKUP_ENDPOINT:
       TICO_BACKUP_REGION:
+      TICO_INITIALIZE_EMPTY:
       LITESTREAM_ACCESS_KEY_ID:
       LITESTREAM_SECRET_ACCESS_KEY:
       OPENAI_API_KEY:
@@ -120,8 +121,9 @@ services:
   # Behind the in-app "Update now" button. It holds the Docker socket, which is root on this host; the
   # server runs no bots, so nothing untrusted shares the host. On through COMPOSE_PROFILES and
   # TICO_UPDATER_URL in .env; it has no published port. An update also replaces this file and the rest of the
-  # release's bundle (never .env). It does not restart itself (it cannot replace itself mid-run), so the updater
-  # moves to TICO_TAG, which it records in .env, at the next `docker compose up -d` on this host.
+  # release's bundle (never .env), snapshots the database first (restored if the update is rolled back), and then
+  # replaces the updater itself: a short-lived helper from the new updater image recreates this service and puts the
+  # old one back if the new one does not stay up. TICO_UPDATER_TAG pins it (default TICO_TAG).
   # Settings reach the server through the explicit list above rather than `env_file: .env`, which would also
   # hand it secrets meant for other services (CLOUDFLARE_TUNNEL_TOKEN).
   updater:

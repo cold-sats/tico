@@ -392,6 +392,13 @@ limited to it, on Cloudflare an R2 bucket (with an API token that has Workers R2
 already have. Turn on bucket versioning yourself if you make one by hand; a deleted or overwritten backup is then
 still recoverable. With `TICO_BLOB_BUCKET` set, attachments already live in S3 and are not copied again.
 
+**A lost volume never becomes a blank company.** The server records that it is an existing company outside the
+database: a `.tico-environment` file in the data volume and an `environment.json` object beside the backup. When it
+starts with an empty volume it first restores; if the restore fails (wrong key, no network) and a company is known
+to exist, or the backup cannot be read at all, it refuses to start and says why, instead of creating an empty company
+and replicating it over your backup. A genuinely new install (nothing anywhere) starts as usual. To begin a new
+company over an existing backup on purpose, set `TICO_INITIALIZE_EMPTY=1` (or run `server --initialize-empty`).
+
 **Restore** into an empty data volume, from the bucket or, with no `TICO_BACKUP_URL`, from `tico-backups`:
 
 ```

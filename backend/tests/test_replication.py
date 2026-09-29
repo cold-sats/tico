@@ -124,7 +124,7 @@ def test_the_loop_survives_a_failing_sync_and_repeats_its_warning(tmp_path, caps
     assert capsys.readouterr().out.count("WARNING") == 2
 
 
-def entrypoint(tmp_path, *args):
+def entrypoint(tmp_path, *args, command="restore", env=None):
     data, backups, bin_dir = tmp_path / "data", tmp_path / "backups", tmp_path / "bin"
     data.mkdir(exist_ok=True)
     backups.mkdir(exist_ok=True)
@@ -134,7 +134,10 @@ def entrypoint(tmp_path, *args):
     stub.write_text(textwrap.dedent("""\
         #!/bin/sh
         echo "$@" >> "$STUB_LOG"
-        [ "$1" = restore ] && cp "$STUB_DB" "$(eval echo \\${$#})"
+        if [ "$1" = restore ]; then
+          [ -z "$STUB_FAIL" ] || { echo "AccessDenied" >&2; exit 1; }
+          [ -f "$STUB_DB" ] && cp "$STUB_DB" "$(eval echo \\${$#})"
+        fi
         exit 0
     """))
     stub.chmod(0o755)
@@ -144,9 +147,9 @@ def entrypoint(tmp_path, *args):
         db.execute("INSERT INTO t VALUES(1)")
     env = {**os.environ, "PATH": f"{bin_dir}:{Path(__import__('sys').executable).parent}:{os.environ['PATH']}",
            "TICO_DATA_DIR": str(data), "TICO_BACKUP_DIR": str(backups), "PYTHONPATH": str(ROOT),
-           "STUB_LOG": str(tmp_path / "stub.log"), "STUB_DB": str(source)}
+           "STUB_LOG": str(tmp_path / "stub.log"), "STUB_DB": str(source), **(env or {})}
     env.pop("TICO_BACKUP_URL", None)
-    return subprocess.run(["bash", str(ENTRYPOINT), "restore", *args], env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run(["bash", str(ENTRYPOINT), command, *([] if command == "prepare" else args)], env=env, capture_output=True, text=True, timeout=60)
 
 
 def test_restore_refuses_a_non_empty_volume_without_force(tmp_path):
@@ -173,3 +176,50 @@ def test_restore_with_backups_off_says_there_is_nothing_to_restore(tmp_path, mon
     monkeypatch.setenv("TICO_BACKUP", "off")
     result = entrypoint(tmp_path)
     assert result.returncode != 0 and "nothing to restore" in result.stderr
+
+
+def prepare(tmp_path, restore_fails=False, **extra):
+    """`docker/entrypoint.sh prepare` on a file replica (the tico-backups directory), with a fake litestream."""
+    env = {"TICO_COMPANY_NAME": "Acme", "TICO_OWNER_EMAIL": "owner@example.com", "TICO_AUTH_PROXY": "none",
+           "TICO_LOCAL_OWNER_TOKEN_FILE": str(tmp_path / "token"), "STUB_FAIL": "1" if restore_fails else "",
+           "STUB_DB": str(tmp_path / "no-replica"), **extra}
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    result = entrypoint(tmp_path, "prepare", command="prepare", env=env)
+    return result, data
+
+
+def test_a_failed_restore_of_an_existing_company_refuses_to_start(tmp_path):
+    (tmp_path / "backups").mkdir()
+    (tmp_path / "backups" / replication.MARKER).write_text('{"environment_id": "acme1"}')
+    result, data = prepare(tmp_path, restore_fails=True)
+    assert result.returncode != 0 and "existing company" in result.stderr and "TICO_INITIALIZE_EMPTY" in result.stderr
+    assert not (data / "hub.sqlite").exists() and not (data / replication.LOCAL_MARKER).exists()
+
+
+def test_an_unreadable_backup_refuses_even_with_no_marker(tmp_path):
+    result, data = prepare(tmp_path, restore_fails=True)
+    assert result.returncode != 0 and "unknown whether" in result.stderr and not (data / "hub.sqlite").exists()
+
+
+def test_a_new_company_over_an_existing_backup_needs_initialize_empty(tmp_path):
+    level = tmp_path / "backups" / "ltx" / "0"
+    level.mkdir(parents=True)
+    (level / "0000000000000001-0000000000000001.ltx").write_bytes(b"x")      # a replica holds a database, no marker yet
+    refused, data = prepare(tmp_path)
+    assert refused.returncode != 0 and "existing company" in refused.stderr and not (data / "hub.sqlite").exists()
+    allowed, _ = prepare(tmp_path, TICO_INITIALIZE_EMPTY="1")
+    assert allowed.returncode == 0, allowed.stderr
+    assert (data / "hub.sqlite").exists() and (data / replication.LOCAL_MARKER).exists()
+    assert (tmp_path / "backups" / replication.MARKER).exists()
+
+
+def test_a_fresh_install_starts_and_leaves_markers_a_later_empty_volume_respects(tmp_path):
+    fresh, data = prepare(tmp_path)
+    assert fresh.returncode == 0, fresh.stderr
+    marker = json.loads((tmp_path / "backups" / replication.MARKER).read_text())["environment_id"]
+    assert json.loads((data / replication.LOCAL_MARKER).read_text())["environment_id"] == marker
+    for item in data.iterdir():                     # the volume is lost; the backup location keeps the marker
+        subprocess.run(["rm", "-rf", str(item)])
+    again, _ = prepare(tmp_path, restore_fails=True)
+    assert again.returncode != 0 and not (data / "hub.sqlite").exists()

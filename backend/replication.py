@@ -24,6 +24,11 @@ OFF_WARNING = "Backups are off (TICO_BACKUP=off). Losing the data volume loses e
 # cheap however many attachments there are.
 DB_LEVELS = tuple(prefix + str(level).rjust(width, "0") for prefix, width in (("", 4), ("ltx/", 1)) for level in (0, 1, 2, 3, 9))
 FILES_PREFIX = "files"
+# The environment marker: a small file OUTSIDE the database that says "this is an existing company, with this id".
+# One in the data volume, one beside the replica. A start with an empty volume reads them before it may begin a
+# new company, so an unreachable backup can never turn into a blank company replicating over the real one.
+MARKER = "environment.json"
+LOCAL_MARKER = ".tico-environment"
 
 
 def target_kind(url="", endpoint=""):
@@ -88,6 +93,9 @@ class LocalMirror:
             while chunk := src.read(1 << 20):
                 out.write(chunk)
 
+    def exists(self, key):
+        return (self.root / key).is_file()
+
     def newest(self, prefixes):
         times = [p.stat().st_mtime for prefix in prefixes if (self.root / prefix).is_dir()
                  for p in (self.root / prefix).rglob("*") if p.is_file()]
@@ -115,6 +123,16 @@ class S3Mirror:
 
     def get(self, key, destination):
         self.s3.download_file(self.bucket, self._key(key), str(destination))
+
+    def exists(self, key):
+        from botocore.exceptions import ClientError
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=self._key(key))
+            return True
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
 
     def newest(self, prefixes):
         times = [modified.timestamp() for prefix in prefixes for _, modified in self._objects(prefix)]
@@ -182,6 +200,60 @@ def is_empty(data_dir):
     return not root.is_dir() or not any(root.iterdir())
 
 
+def _marker_text(environment_id):
+    return json.dumps({"environment_id": environment_id, "written_at": _now()}) + "\n"
+
+
+def write_markers(data_dir, environment_id, mirror=None):
+    """Records that this install is an existing company. The volume marker is required; the backup one is best effort
+    (a warning, because a bucket that is down must not stop a running company from starting)."""
+    path = Path(data_dir) / LOCAL_MARKER
+    path.write_text(_marker_text(environment_id))
+    if mirror is not None:
+        fd, temporary = tempfile.mkstemp(prefix=".marker-")
+        try:
+            with os.fdopen(fd, "w") as out:
+                out.write(_marker_text(environment_id))
+            mirror.put(MARKER, temporary)
+        except Exception as exc:
+            print("tico: warning: could not write the environment marker to the backup location: "
+                  + type(exc).__name__ + ": " + str(exc)[:200], file=sys.stderr, flush=True)
+        finally:
+            os.unlink(temporary)
+
+
+def check_new_company(data_dir, mirror, restore_failed=False, initialize_empty=False):
+    """Run when the database is missing after the restore attempt. Returns None when starting a new company is
+    safe, else the message to refuse with. Safe means: nothing anywhere says a company already exists, and the
+    backup location could be read to find that out."""
+    have_local = (Path(data_dir) / LOCAL_MARKER).exists()
+    problem = None
+    where = "the backup location"
+    if mirror is None:
+        found = False
+    else:
+        try:
+            found = mirror.exists(MARKER) or mirror.newest(DB_LEVELS) is not None
+        except Exception as exc:
+            found, problem = False, "could not read " + where + " (" + type(exc).__name__ + ": " + str(exc)[:160] + ")"
+    if initialize_empty:
+        if found or have_local:
+            print("tico: WARNING: TICO_INITIALIZE_EMPTY is set: starting a NEW company although an existing one was "
+                  "found. Its backup will be overwritten.", file=sys.stderr, flush=True)
+        return None
+    if found or have_local:
+        return ("an existing company was found in " + ("the backup location" if found else "this data volume's marker")
+                + " but the database could not be restored" + (" (the restore command failed)" if restore_failed else "")
+                + ". Starting would create a blank company and replicate it over the real backup. Fix the backup "
+                "settings (TICO_BACKUP_URL, keys, network) and start again, or run `docker compose run --rm server "
+                "restore`. To knowingly start a new company anyway, set TICO_INITIALIZE_EMPTY=1.")
+    if problem or restore_failed:
+        return ((problem or "the restore command failed") + ", so it is unknown whether a company already lives there. "
+                "Refusing to start a blank one over it. Fix the backup settings and start again; for a genuinely new "
+                "install with an unreachable bucket, set TICO_INITIALIZE_EMPTY=1.")
+    return None
+
+
 def write_status(mirror, path):
     newest = mirror.newest(DB_LEVELS)
     if newest is None:
@@ -225,8 +297,16 @@ def main(argv=None):
         print("tico: restored %d attachment file(s)" % n)
     elif command == "is-empty":
         return 0 if is_empty(argv[1]) else 1
+    elif command == "check-new-company":   # DIR [--restore-failed] [--initialize-empty]; backups off: no mirror
+        mirror = None if env.get("TICO_BACKUP_MODE") == "off" else mirror_from_env(env)
+        message = check_new_company(argv[1], mirror, "--restore-failed" in argv, "--initialize-empty" in argv)
+        if message:
+            print("tico: error: " + message, file=sys.stderr)
+            return 1
+    elif command == "mark-environment":    # DIR ID
+        write_markers(argv[1], argv[2], None if env.get("TICO_BACKUP_MODE") == "off" else mirror_from_env(env))
     else:
-        print("usage: python -m backend.replication loop|restore-blobs|is-empty DIR", file=sys.stderr)
+        print("usage: python -m backend.replication loop|restore-blobs|is-empty DIR|check-new-company DIR|mark-environment DIR ID", file=sys.stderr)
         return 2
     return 0
 
