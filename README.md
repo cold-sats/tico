@@ -2,12 +2,13 @@
 
 Tico is an open-source operating system for a company's human and AI team (Apache-2.0). People file
 work, answer bots and approve actions in a web app; AI employee bots pick the work up, run it with
-the company's own model subscriptions, and report back. It is built for companies from a handful to
-hundreds of bots.
+the company's own model subscriptions, and report back. It is built for companies from a handful of bots up.
+A small pilot is what has been measured ([sizing](docs/sizing.md)).
 
 - **A small server holds the company.** One Docker install (the server, HTTPS through Caddy or a
   Cloudflare Tunnel, Litestream backups, an optional updater) keeps tasks, chats, approvals,
-  schedules, files and people in SQLite. It runs no bots and never calls a model.
+  schedules, files and people in SQLite. The server never runs a bot or a model CLI; when decisions (or Slack routing) are on, it sends the text of each
+  question to the decision provider you configured (TypeSafe, or OpenAI, Anthropic, Gemini, xAI or OpenRouter with a key stored on the server).
 - **Computers run the bots.** A Mac (the native runner) or any Linux or cloud machine (the
   `tico-runner` image) joins with a one-time code, claims work over HTTPS, and runs each bot's turn
   in that bot's own git repository. Model logins and bot credentials stay on the computer.
@@ -38,8 +39,8 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | Read | For |
 |---|---|
 | [docs/install.md](docs/install.md) | Installing the server, adding computers, updates and backups |
-| [docs/architecture.md](docs/architecture.md) | What runs where, how a bot turn flows, why the server never calls models |
-| [docs/sizing.md](docs/sizing.md) | Server and computer sizes for 20, 100 and 300 bots |
+| [docs/architecture.md](docs/architecture.md) | What runs where, how a bot turn flows, why the server runs no bots or model CLIs |
+| [docs/sizing.md](docs/sizing.md) | Server and computer sizes; what was measured and what is a guess |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability and the threat model |
 | [docs/harnesses.md](docs/harnesses.md) | Installing and choosing model harnesses per computer |
 | [docs/github-app.md](docs/github-app.md) | The per-company GitHub App and token scoping |
@@ -48,6 +49,9 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | [docs/meetings.md](docs/meetings.md) | Meetings and call transcripts |
 | [docs/creating-bots.md](docs/creating-bots.md), [docs/onboarding.md](docs/onboarding.md) | Creating bots and the first-run flow |
 | [docs/environments.md](docs/environments.md) | Sign-in options, environments, profiles, removal |
+| [docs/files.md](docs/files.md) | What bots publish, versions, who can see a file |
+| [docs/updates.md](docs/updates.md) | Updating the server and its computers |
+| [docs/assistant.md](docs/assistant.md) | The built-in Assistant: what it does at once and what it proposes |
 
 ## Hosting modes
 
@@ -145,9 +149,9 @@ Rust and the Tauri CLI (`cargo install tauri-cli`) are needed only for the deskt
    for BotOps per bot it has to build. The progress screen that follows shows each bot, a link to
    its setup task, and an **Activate** button as soon as its repository exists.
 
-9. **Activate the assistant and BotOps.** Once the Mac is enrolled and running, it materializes
-   those two repositories from the catalog by itself. Only an active bot is given work, so
-   activate them, and BotOps then sets up every other bot you chose and finishes each task with the
+9. **The assistant and BotOps.** Every company has both, and neither can be archived. Once the Mac is enrolled and
+   running, it materializes those two repositories from the catalog by itself, and finishing setup activates them.
+   BotOps then sets up every other bot you chose and finishes each task with the
    one thing to read before activating it. `scripts/tico -e acme doctor` inspects repositories,
    runtime installation and profile sign-in, and makes no model call.
 

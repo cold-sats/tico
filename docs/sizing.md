@@ -5,8 +5,8 @@ capacity is).
 
 ## The server
 
-**1 to 2 GB of RAM and 1 to 2 vCPUs is plenty, even with hundreds of bots.** The server holds state in
-SQLite, replicated by Litestream, and does no model calls or agent work. Give it 20 GB or more of disk
+**1 to 2 GB of RAM and 1 to 2 vCPUs has been enough for a small pilot.** Larger numbers are untested. The server holds state in
+SQLite, replicated by Litestream, and runs no agent work; its only model calls are decision questions, when those are on. Give it 20 GB or more of disk
 for the database, files and Docker images, and more if you store many meeting recordings or
 attachments (or point blob storage at an S3 bucket).
 
@@ -37,7 +37,7 @@ Concurrency is the number to estimate: how many bots will realistically be mid-t
 | 100 | 20 to 30 | 2 GB, 2 vCPUs | Three or four computers of 16 GB and 4 to 8 vCPUs each, 250 GB disk each |
 | 300 | 60 to 90 | 2 GB, 2 vCPUs (4 GB if uploads are heavy) | Eight to twelve computers of 16 GB, or five or six of 32 GB, 250 to 500 GB disk each |
 
-These are starting points. Watch memory on the computers and add another when they run hot.
+Only the smallest row resembles anything measured. The 100 and 300 rows are estimates and untested. They are starting points. Watch memory on the computers and add another when they run hot.
 
 ## Adding computers and spreading bots
 

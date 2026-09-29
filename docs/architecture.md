@@ -14,7 +14,8 @@ starts the conversation.
   | SQLite + Litestream backups, files          |
   | tasks, chats, approvals, schedules, people  |
   | optional updater                            |
-  | runs NO bots, calls NO models               |
+  | runs NO bots; sends questions to the        |
+  | decision provider, when that is on          |
   +---------------------------------------------+
         ^                    ^                   ^
         | HTTPS: claim work, stream results, heartbeat
@@ -39,7 +40,7 @@ starts the conversation.
 |---|---|
 | Server | The web app and API, sign-in, the people roster, tasks, chats, approvals, the routine scheduler (the clock), files, the credential store, Litestream backups, and the optional updater. |
 | Each computer | The runner, the harnesses installed on it, the workspace with one `emp-<slug>` git repository per bot, the bots' secrets, and the model logins. |
-| Model providers | Reached only from computers, using that computer's logins. |
+| Model providers | Bots reach them from computers, using that computer's logins. The server reaches only the decision provider, when decisions or Slack routing are on. |
 | GitHub | Reached from computers with short-lived tokens the server mints per bot. |
 
 A bot is one git repository plus one row on the server, assigned to one computer. Harnesses are
@@ -63,12 +64,15 @@ installed on a computer when a bot there needs one; the server does not need to 
 If the computer is asleep or offline, the server keeps accepting work and shows the computer as
 offline; the work waits and runs when it returns.
 
-## Why the server never calls models
+## Why the server runs no bots or model CLIs
 
-- **Credentials stay with the company's machines.** Model subscriptions and API keys are signed in on
-  computers you control. A compromised server does not hand over model logins.
+The server never runs a bot or a model CLI; when decisions (or Slack routing) are on, it sends the text of each question to the decision provider you configured (the optional hosted decisions service, or OpenAI, Anthropic, Gemini, xAI or OpenRouter with a key stored on the server).
+
+- **Bot credentials stay with the company's machines.** Model subscriptions and API keys for bots are signed in on
+  computers you control. A compromised server does not hand over those logins. It does hold the decision
+  provider's key, if you stored one.
 - **The server stays small.** It does bookkeeping, not inference or long-running agent processes, so
-  1 to 2 GB of RAM serves hundreds of bots ([sizing](sizing.md)).
+  1 to 2 GB of RAM has served a small pilot ([sizing](sizing.md)).
 - **Bots run next to their work.** A harness needs a shell, git, build tools and the bot's files, which
   belong on a computer, not in a web server.
 - **Any harness, any provider.** Adding one is a runner change; the server only sees turns and results.

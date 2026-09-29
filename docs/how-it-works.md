@@ -123,9 +123,8 @@ Mac that runs it (`~/tico-work` on Ana's Mac). The contract (`templates/employee
 
 Bots commit directly to `main`; the runner pushes after each completed turn and once at start-up
 for every assigned bot, and leaves a diverged checkout for a person (one log line an hour). Files
-bots produce for the company go to the private S3 bucket `acme-tico-hub` under
-`<slug>/deliverables/`, `<slug>/working/` (30-day expiry) or `shared/`
-(`policies/shared-rules.md`, "Files and deliverables").
+bots produce for the company are published to Tico's private store and listed on the bot's page
+([Files](files.md)).
 
 ## What happens when
 

@@ -34,6 +34,13 @@ All notable changes to Tico are recorded here. The format follows
   work to the right bot, to answer briefly with links, never to act beyond the person and to ask before any side effect.
 
 
+### Changed
+- Docs match the code. "The server calls no models" is replaced by what is true: with decisions or Slack routing on, the
+  server sends the text of each question to the decision provider you configured, and SECURITY.md says what a compromised
+  server exposes then. The bare `docker run` sample follows the release placeholder, the shared secrets file is described as
+  readable by every bot on the computer, the removed VM path is gone, the Files page states who removes a file and that the
+  owner sees direct chats (not personal Assistant rooms), and sizing says only a small pilot was measured.
+
 ## [0.2.9] - 2026-09-29
 
 ### Fixed
