@@ -338,3 +338,100 @@ def test_provider_details_match_what_each_harness_accepts():
     by_id = {row["id"]: row["detail"] for row in providers.PROVIDERS}
     assert by_id["openai"] == "Codex CLI, with a ChatGPT subscription or an OpenAI API key (OPENAI_API_KEY)"
     assert "Claude subscription or an Anthropic API key (ANTHROPIC_API_KEY)" in by_id["anthropic"]
+
+
+LIBRARIAN_CARD = {
+    "template": "librarian", "slug": "librarian", "name": "Librarian", "required": True,
+    "bootstrap": True, "summary": "Answers from the docs.", "owns": ["the map"], "never": ["invents"],
+    "reasoning_effort": "medium", "recommend_when": ["always"]}
+LIBRARIAN_MANIFEST = {"name": "librarian", "schedules": [{
+    "id": "refresh-the-map", "title": "Refresh the map", "cron": "30 3 * * *", "timezone": "America/Los_Angeles",
+    "template": "playbooks/refresh-the-map.md"}]}
+
+
+def with_librarian_template(api):
+    """The catalog a release ships the Librarian in: its card, and the routine it starts with."""
+    folder = Path(api.app.state.store.settings.catalog_dir) / "librarian"
+    (folder / "playbooks").mkdir(parents=True)
+    (folder / "card.yaml").write_text(yaml.safe_dump(LIBRARIAN_CARD))
+    (folder / "AGENT.md").write_text("# {{bot_name}}\n")
+    (folder / "employee.yaml").write_text(yaml.safe_dump(LIBRARIAN_MANIFEST))
+    (folder / "playbooks/refresh-the-map.md").write_text("Refresh {{company_name}}'s map of the docs.\n")
+
+
+def _routines(api):
+    with api.app.state.store.read() as c:
+        return [dict(row) for row in c.execute(
+            "SELECT id,cron,playbook,deleted_at FROM schedules WHERE bot='librarian'")]
+
+
+def test_the_librarian_is_always_built_with_its_daily_routine_seeded_once(environment):
+    api = environment(seed={}, cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, ""), (LIBRARIAN_CARD, "# L\n")])
+    machine(api)
+    folder = Path(api.app.state.store.settings.catalog_dir) / "librarian"
+    (folder / "playbooks").mkdir()
+    (folder / "employee.yaml").write_text(yaml.safe_dump(LIBRARIAN_MANIFEST))
+    (folder / "playbooks/refresh-the-map.md").write_text("Refresh {{company_name}}'s map of the docs.\n")
+    draft(api)
+    record = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).json()
+    assert sorted(row["slug"] for row in record["bots"]) == ["botops", "coo", "librarian"]
+    assert all(row["setup_task_id"] is None for row in record["bots"])         # the runner sets it up, not BotOps
+    assert _states(api)["librarian"] == "active"
+    (routine,) = _routines(api)
+    assert routine["id"] == "librarian:refresh-the-map" and routine["cron"] == "30 3 * * *"
+    assert routine["playbook"].strip() == "Refresh Acme's map of the docs."      # the company's words, filled in
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert len(_routines(api)) == 1                                              # twice is still one
+    with api.app.state.store.transaction() as c:                                 # a person deleted it
+        c.execute("UPDATE schedules SET deleted_at=? WHERE bot='librarian'", (H.now(),))
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert [r["deleted_at"] is not None for r in _routines(api)] == [True]       # and it stays deleted
+
+
+def test_a_company_from_before_the_librarian_gets_it_by_itself_once_it_can_run_it(environment):
+    api = environment(seed={})
+    draft(api)
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    with_librarian_template(api)                                                 # the update ships the template
+    off = api.get("/api/v2/librarian", headers=signed_in()).json()
+    assert off["state"] == "missing" and off["can_turn_on"] and not off["available"]
+    machine(api)                                                                 # a computer enrolls: it is built
+    assert _states(api)["librarian"] == "active"
+    assert [r["id"] for r in _routines(api)] == ["librarian:refresh-the-map"]
+    assert api.get("/api/v2/librarian", headers=signed_in()).json()["available"]
+
+
+def test_a_company_that_updates_with_a_computer_already_enrolled_gets_it_at_startup(environment):
+    api = environment(seed={})
+    machine(api)
+    draft(api)
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert "librarian" not in _states(api)
+    with_librarian_template(api)
+    api.__exit__(None, None, None)                                               # the update restarts the server
+    api.__enter__()
+    assert _states(api)["librarian"] == "active"
+    api.__exit__(None, None, None)
+    api.__enter__()
+    assert len(_routines(api)) == 1                                              # a second start adds nothing
+
+
+def test_with_no_computer_or_no_model_nothing_is_built_and_the_owner_can_turn_it_on_later(environment):
+    api = environment(seed={}, enabled_providers=())
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())         # refused: no provider yet
+    with_librarian_template(api)
+    api.__exit__(None, None, None)
+    api.__enter__()
+    assert "librarian" not in _states(api)
+    other = environment(seed={})
+    draft(other)
+    other.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    with_librarian_template(other)
+    other.__exit__(None, None, None)
+    other.__enter__()
+    assert "librarian" not in _states(other)                                     # a model, but no computer
+    machine_less = other.post("/api/v2/librarian/turn-on", json={}, headers=signed_in())
+    assert machine_less.status_code == 200 and machine_less.json()["state"] == "planned"
+    assert other.post("/api/v2/librarian/turn-on", json={}, headers=as_person(other, "riley")).status_code == 403
+    machine(other)
+    assert _states(other)["librarian"] == "active"

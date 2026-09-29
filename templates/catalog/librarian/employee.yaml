@@ -1,0 +1,27 @@
+name: librarian                  # the slug: it matches the repository emp-librarian and the label owner:librarian
+display_name: "Librarian"
+labels: [owner:librarian]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 45
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. The Librarian
+# sends nothing: it answers the person or bot that asked, and reads public links.
+outbound_send: false
+
+# The routines this bot starts with. The server seeds them once, when the Librarian is built in; from
+# then on the hub's rows are the routines and `hub routine set` changes them (docs/routines.md).
+schedules:
+  - id: refresh-the-map
+    title: Refresh the map of the docs
+    cron: "30 3 * * *"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/refresh-the-map.md
+    labels: [priority:p3]
+
+# What this bot may touch. It reads the docs through `hub docs` and public links through `hub docs fetch`,
+# and needs no credential of its own. A GitHub token, if the company gives it one, lets it read private
+# repositories that are linked as docs; it is only ever sent to api.github.com.
+access: []

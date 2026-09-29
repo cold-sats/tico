@@ -51,7 +51,7 @@ Pages: **Tasks** (where the app opens), **Meetings** (imported transcripts, sour
 action items), **Docs**,
 **Integrations**, **Changelog**, the **Org** tree, and under your email **Runs**, **Settings**, **Credentials**
 and, for the owner, **SQL**. Tasks has List, Board, Recurring and Done. A bot's page has **Chat**,
-**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`) and BotOps are built in to every company and cannot be archived or deleted (`409 system_bot`); the assistant
+**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps and the Librarian are built in to every company and cannot be archived or deleted (`409 system_bot`); the assistant
 and Doc Updater work in the background and are not listed for people. Each person has one private **Assistant** chat, the first tab on their own page
 and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that person, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared

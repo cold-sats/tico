@@ -105,8 +105,8 @@ def _login_target(runners, wanted):
 
 
 def own_bots(c, settings):
-    """Bots the company added, as opposed to the two it starts with."""
-    bootstrap = {settings.assistant_bot, BOTOPS}
+    """Bots the company added, as opposed to the three built in."""
+    bootstrap = {settings.assistant_bot, BOTOPS, "librarian"}
     return [row["slug"] for row in c.execute("SELECT slug FROM bots WHERE state!='archived' ORDER BY slug")
             if row["slug"] not in bootstrap]
 
