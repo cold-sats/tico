@@ -228,6 +228,10 @@ class GrokHost(Host):
             # invocation separates responses; tool_call_update may arrive late and must
             # not split a final answer. Keep progress in deltas, not concatenated into it.
             self._reply_boundary.add(turn)
+            # The hub cannot tell where one message ends from the text alone, so the call is
+            # reported too, by its kind (read, execute, ...) and never its title or input.
+            self.emit("tool", sid, turn, tool=str(u.get("kind") or "tool"), status="started",
+                      item_id=u.get("toolCallId"))
         elif what == "agent_thought_chunk" and text:
             self.emit("delta", sid, turn, text=text, delta_kind="thought")
 

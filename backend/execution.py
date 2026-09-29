@@ -759,6 +759,15 @@ class Execution:
                     reply = H.answer(c, actor, msg["id"], body.text) if msg["kind"] == "ask" else H.say(
                         c, actor, target, body.text, conversation_id=conv["id"],
                         in_reply_to=msg["id"], refs=refs)
+        if reply:
+            # Which run wrote this and which messages it took in (the one it was started for and
+            # what was folded into it), kept in the reply's refs for the frontends to show.
+            handled = [msg["id"]] + [r[0] for r in c.execute(
+                "SELECT i.message_id FROM attempt_inputs i JOIN messages m ON m.id=i.message_id "
+                "WHERE i.attempt_id=? AND m.conversation_id=? ORDER BY m.rowid", (aid, msg["conversation_id"]))]
+            refs = {**(H.message(c, reply["id"]).get("refs") or {}),
+                    "run": {"job_id": row["job_id"], "attempt_id": aid}, "answers": handled}
+            c.execute("UPDATE messages SET refs_json=? WHERE id=?", (encode(refs), reply["id"]))
         c.execute("UPDATE attempts SET state=?,finished=?,final_text=?,result_json=? WHERE id=?",
                   (body.outcome, H.now(), body.text, encode(body.model_dump()), aid))
         # A usage-limited turn did nothing and had no effects, so the job goes back in the

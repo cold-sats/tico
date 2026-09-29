@@ -8,18 +8,6 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-### Fixed
-- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
-  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
-- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
-  send keeps the text and shows the error.
-- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
-  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
-  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
-- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
-  the existing config poll), a small banner offers Reload. It never reloads by itself.
-
-
 ### Changed
 - Tico's icon and wordmark now match tico.team; the old robot icon is gone. The favicon, app icon (web, desktop, macOS menu bar, Slack) and the assistant's avatar use the new mark, the first-run setup and sign-in pages show the wordmark (reversed in dark mode, replaced by the app's name when a company has named its app), and the installed web app gains a maskable icon. `scripts/build-brand-icons.sh` regenerates every image from the SVGs in `ui/assets/tico/`.
 - Who may use a bot no longer depends on the "Can use" list (`owner_ids`), which now only says who a bot works for and who is in
@@ -33,8 +21,23 @@ All notable changes to Tico are recorded here. The format follows
   others); one they can see but not read or write to is a `403 forbidden` that says which.
 - `bot_contact` (Other bots: replies only, tasks only) now also limits notes and comments that wake a bot.
 - Hub SQL holds the bots the caller can read, and tasks that involve a bot they cannot read only when the task is theirs.
+- `execution.text` puts a blank line (`"\n\n"`) between a run's separate messages; it ran them together
+  ("planned.I've filed"). Deltas within one message still join directly, the run's closing message no longer replaces the
+  progress notes before it, and a model's thinking is no longer part of the text. Tico's own chat shows each message
+  as its own paragraph.
 
 ### Fixed
+- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
+  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
+- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
+  send keeps the text and shows the error.
+- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
+  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
+  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
+- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
+  the existing config poll), a small banner offers Reload. It never reloads by itself.
+
+
 - A runner box's updater (0.2.10 and 0.2.11) stopped on every start after its first: it locked its token to the runner's
   user and then, without the right to change another user's file, failed changing it again ("PermissionError ... updater-token")
   and restarted in a loop, so the box could not update. It now leaves a token that is already locked alone and never stops over
