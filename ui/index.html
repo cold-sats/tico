@@ -2083,6 +2083,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 <script src="/tico/ui/getting-started.js"></script>
 <script src="/tico/ui/runner-updates.js"></script>
 <script src="/tico/ui/health.js"></script>
+<script src="/tico/ui/assistant.js"></script>
 <script>
 'use strict';
 const API = '/api';
@@ -2917,8 +2918,8 @@ document.querySelectorAll('[data-section-toggle]').forEach(button => button.oncl
   renderNavSections();
 });
 renderNavSections();
-// The assistant (Tico) and Doc Updater work in the background and nobody chats
-// with them, so no list a person reads shows them: the org panel, search, bot pickers and a
+// The assistant (Tico) and Doc Updater work in the background and nobody chats with them as a bot
+// (each person's private Assistant is a tab on their own page, ui/assistant.js), so no list a person reads shows them: the org panel, search, bot pickers and a
 // person's page. Settings → Bots still lists them for whoever manages bots, #/bot/<slug> still
 // opens, and Doc Updater stays one click away from the Docs nav row (renderLibrarians).
 const isHiddenBot = slug => slug === assistantBot() || slug === 'doc-updater';
@@ -5899,6 +5900,9 @@ async function meetComments(state, rec, quiet) {
 
 // ----------------------------------------------------------------- person page (org tree)
 const PERSON_TABS = ['profile', 'slack'];
+// The Assistant tab is first, and only on your own page: your private chat with the assistant (ui/assistant.js).
+const personTabs = p => S.me?.id === p.id ? ['assistant', ...PERSON_TABS] : PERSON_TABS;
+const PERSON_TAB_LABELS = {assistant: 'Assistant', profile: 'Profile', slack: 'Slack'};
 function personCanEdit(p) {
   return S.me?.role === 'owner' || S.me?.id === p.id;
 }
@@ -5935,7 +5939,8 @@ function pagePerson(id, tab) {
   const p = (S.people || []).find(row => row.id === id && !row.hidden);
   if (!p) { $('#main').innerHTML = `<div class="empty">Unknown person.</div>`; return; }
   orgHistoryVisit('p:' + p.id);
-  tab = PERSON_TABS.includes(tab) ? tab : 'profile';
+  const tabs = personTabs(p);
+  tab = tabs.includes(tab) ? tab : 'profile';
   const reports = (S.people || []).filter(row => row.reports_to === p.id && !row.hidden);
   const bots = (p.bots || []).map(slug => S.emps.find(e => e.name === slug)).filter(Boolean);
   const under = shownEmps().filter(e => e.org_parent === 'p:' + p.id);
@@ -5948,8 +5953,11 @@ function pagePerson(id, tab) {
       ${String(p.goals || '').trim() ? `<div class="role" id="head-standing">${esc(String(p.goals).trim())}</div>` : ''}
     </div></div>
   <div class="tabs bottabs" id="ptabs" role="tablist">
-    ${PERSON_TABS.map(t => `<button data-pt="${t}" role="tab" class="${t === tab ? 'cur' : ''}">${t === 'slack' ? 'Slack' : 'Profile'}</button>`).join('')}
+    ${tabs.map(t => `<button data-pt="${t}" role="tab" class="${t === tab ? 'cur' : ''}">${PERSON_TAB_LABELS[t]}</button>`).join('')}
   </div>
+  ${tabs.includes('assistant') ? `<div id="pane-assistant" ${tab === 'assistant' ? '' : 'hidden'}>
+    <section class="card conv"><header><h2>Assistant</h2><span class="sub">private to you; acts as you, never more</span></header>
+      <div id="assistant-chat"></div></section></div>` : ''}
   <div id="pane-profile" ${tab === 'profile' ? '' : 'hidden'}>
     <section class="card"><header><h2>Contact</h2></header>
       <dl class="bot-setup">
@@ -6030,6 +6038,8 @@ function pagePerson(id, tab) {
   $('#person-task-add').onclick = () => personTaskModal(p);
   void personTasksLoad(p);
   if (tab === 'slack') personSlackLoad(p);
+  if (tab === 'assistant') window.assistantChat?.mount($('#assistant-chat'), {get, post, esc, toast, me: S.me});
+  else window.assistantChat?.stop();
 }
 // The person's hub tasks: what they own, active first, finished behind a toggle. The rows are
 // the same as a keeper bot's (v2TaskRow), so Done/Close and the chat button work unchanged;
@@ -6130,7 +6140,7 @@ async function personSlackLoad(p) {
 // The session view is a card inside More; #/bot/<slug>/session still opens it
 // there and scrolls to it, so every link a run row wrote keeps working.
 const BOT_TABS = ['chat', 'tasks', 'history', 'docs', 'more'];   // history: its updates
-// The assistant works in the background and nobody chats with it, so its page has no Chat.
+// The assistant is chatted with only in each person's own Assistant tab, so its bot page has no Chat.
 const botTabs = slug => slug === assistantBot() ? BOT_TABS.filter(t => t !== 'chat') : BOT_TABS;
 let BOT = null;
 function botStopped() {
@@ -7378,9 +7388,11 @@ function taskChatStop() {
   TASK_CHAT = null;
 }
 function taskChatCurrent(state) { return TASK_CHAT === state && state.dialog.open; }
-const commentAuthor = a => {
+const commentAuthor = (a, via) => {
   const pid = actorPerson(a);
-  if (pid) return `${personCircle(personDisplay(pid), 16)}<span class="who">${esc(pid === S.me?.id ? 'You' : personDisplay(pid))}</span>`;
+  // The Assistant acted for this person (docs/assistant.md): "<name> (via Assistant)".
+  const by = via === 'assistant' ? ' (via Assistant)' : '';
+  if (pid) return `${personCircle(personDisplay(pid), 16)}<span class="who">${esc((pid === S.me?.id ? 'You' : personDisplay(pid)) + by)}</span>`;
   if (a === 'keeper') return `<span class="who">${esc(assistantName())}</span>`;
   const slug = actorSlug(a);
   return `${slug ? avatar(slug, 16, stateOf(slug)) : ''}<span class="who">${esc(actorLabel(a))}</span>`;
@@ -7394,12 +7406,12 @@ function commentLineHTML(x) {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
     const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new) : `changed ${x.field}`;
-    return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
+    return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
       <time class="muted tnum" title="${esc(fmt(x.ts))}">${esc(ago(x.ts))}</time></div>`;
   }
   const m = x.message;
   const kind = m.kind === 'ask' ? '<span class="pill needs">question</span>' : m.kind === 'answer' ? '<span class="pill">answer</span>' : '';
-  return `<div class="tcomment"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor)}</span>${kind}
+  return `<div class="tcomment"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}
       ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next turn on this task">saved</span>' : ''}
       <span class="spacer"></span><time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
     <div class="md">${safeMd(m.body || '')}</div>
@@ -8981,6 +8993,7 @@ function pageSettings() {
       ${settingsCanCreateBots() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2><span class="sub">call ${esc(appName())} from a script as yourself; a token is you for everything except making more tokens</span></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
+      <div id="settings-assistant"></div>
       <section class="card"><header><h2>Bots</h2><span class="sub">people, model, and computer</span></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div></div>
@@ -9023,6 +9036,8 @@ function settingsShow(tab) {
   });
   const devices = $('#settings-devices'), history = $('#settings-history'), cloud = $('#settings-cloud'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
+  // The owner's one click when the company has no Assistant (ui/assistant.js): restore it or add it.
+  if (bots && SETTINGS_TAB === 'bots' && S.me?.role === 'owner') window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }});
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
   if (cloud) cloud.hidden = SETTINGS_TAB !== 'cloud';
   if (history) history.hidden = SETTINGS_TAB !== 'history';
@@ -10754,7 +10769,7 @@ async function renderSettingsPeople() {
 // and the company; say what the company does; read the catalog and pick the bots; enroll this
 // Mac; connect your own agent if you have one; finish. BotOps then builds every chosen bot.
 // Every Next saves a draft, so a closed tab loses nothing. There is no assistant
-// to name: it works in the background, and people act through their own agent or a bot's Chat tab.
+// to name in the wizard: people talk to it in the Assistant tab on their own page, act through their own agent, or use a bot's Chat tab.
 const ONB_STEPS = ['names', 'about', 'bots', 'machine', 'agent', 'review'];
 // A company that has not chosen its AI providers starts there; state.steps is fixed at load, so the
 // step does not vanish from the list the moment it is saved.
@@ -11991,28 +12006,36 @@ function searchRank(entry, q) {
   if (alias.includes(q)) return 3;
   return -1;
 }
+// "Ask the Assistant..." closes every list: the words typed go to your private Assistant chat, prefilled
+// (ui/assistant.js), so anything the names above do not answer is one Enter away.
+function searchAsk(q) {
+  return S.me?.id ? [{kind: 'assistant', label: 'Ask the Assistant…', alias: 'assistant', ask: q.trim(), icon: 'auto_awesome',
+    href: `#/person/${encodeURIComponent(S.me.id)}/assistant`}] : [];
+}
 function searchResults(q) {
+  const raw = q;
   q = q.trim().toLowerCase();
   const all = searchEntries();
-  if (!q) return all.filter(e => e.kind === 'page');
-  return all.map(e => [searchRank(e, q), e]).filter(([r]) => r >= 0)
-    .sort((a, b) => a[0] - b[0] || a[1].label.localeCompare(b[1].label)).slice(0, 14).map(([, e]) => e);
+  if (!q) return [...all.filter(e => e.kind === 'page'), ...searchAsk(raw)];
+  return [...all.map(e => [searchRank(e, q), e]).filter(([r]) => r >= 0)
+    .sort((a, b) => a[0] - b[0] || a[1].label.localeCompare(b[1].label)).slice(0, 14).map(([, e]) => e), ...searchAsk(raw)];
 }
 let SEARCH_SEL = 0;
 function searchRender() {
   const list = $('#search-results'), q = $('#search-input').value;
   const rows = searchResults(q);
   SEARCH_SEL = Math.min(SEARCH_SEL, Math.max(0, rows.length - 1));
-  list.innerHTML = rows.length ? rows.map((e, i) => `<li role="option" data-href="${esc(e.href)}" aria-selected="${i === SEARCH_SEL}">${
+  list.innerHTML = rows.length ? rows.map((e, i) => `<li role="option" data-href="${esc(e.href)}"${e.kind === 'assistant' ? ` data-ask="${esc(e.ask)}"` : ''} aria-selected="${i === SEARCH_SEL}">${
       e.avatar || `<span class="nav-icon" aria-hidden="true">${esc(e.icon)}</span>`}<span>${esc(e.label)}</span><span class="search-kind">${
       e.kind === 'page' ? 'page' : e.kind === 'bot' ? 'bot' : esc(e.alias || 'person')}</span></li>`).join('')
     : `<li class="search-empty">Nothing named “${esc(q.trim())}”.</li>`;
   list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
 }
-function searchGo(href) {
+function searchGo(href, ask) {
   if (!href) return;
   $('#search-modal').close();
   setDrawer(false);
+  if (ask !== undefined) window.assistantChat?.prefill(ask);
   location.hash = href;
 }
 function searchOpen() {
@@ -12092,14 +12115,14 @@ window.addEventListener('hashchange', orgFanClose);
 $('#search-close').onclick = () => $('#search-modal').close();
 $('#search-modal').addEventListener('click', ev => {
   if (ev.target === $('#search-modal')) return $('#search-modal').close();
-  const li = ev.target.closest('li[data-href]'); if (li) searchGo(li.dataset.href);
+  const li = ev.target.closest('li[data-href]'); if (li) searchGo(li.dataset.href, li.dataset.ask);
 });
 $('#search-input').oninput = () => { SEARCH_SEL = 0; searchRender(); };
 $('#search-input').onkeydown = ev => {
   const n = $('#search-results').querySelectorAll('li[data-href]').length;
   if (ev.key === 'ArrowDown') { ev.preventDefault(); SEARCH_SEL = Math.min(SEARCH_SEL + 1, n - 1); searchRender(); }
   else if (ev.key === 'ArrowUp') { ev.preventDefault(); SEARCH_SEL = Math.max(SEARCH_SEL - 1, 0); searchRender(); }
-  else if (ev.key === 'Enter') { ev.preventDefault(); searchGo($('#search-results [aria-selected=true]')?.dataset.href); }
+  else if (ev.key === 'Enter') { ev.preventDefault(); const li = $('#search-results [aria-selected=true]'); searchGo(li?.dataset.href, li?.dataset.ask); }
 };
 document.addEventListener('keydown', ev => {
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); searchOpen(); }
