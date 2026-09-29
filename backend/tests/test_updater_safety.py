@@ -56,6 +56,22 @@ def test_a_failed_health_check_restores_the_snapshot_because_migrations_may_have
     assert json.loads((tmp_path / ".updater-status.json").read_text())["restored"] is True
 
 
+def test_the_restore_script_swaps_the_database_and_clears_litestreams_tracking(monkeypatch, tmp_path):
+    import sqlite3, subprocess, sys
+    updater = load(monkeypatch, "", tmp_path)
+    for name, value in (("snap.sqlite", "before"), ("hub.sqlite", "migrated")):
+        db = sqlite3.connect(tmp_path / name)
+        db.execute("CREATE TABLE t(v)"); db.execute("INSERT INTO t VALUES(?)", (value,)); db.commit(); db.close()
+    (tmp_path / ".hub.sqlite-litestream").mkdir()
+    (tmp_path / ".hub.sqlite-litestream" / "ltx").write_text("x")
+    (tmp_path / "hub.sqlite-wal").write_text("stale")
+    subprocess.run([sys.executable, "-c", updater.RESTORE_SCRIPT, str(tmp_path / "snap.sqlite"), str(tmp_path / "hub.sqlite")], check=True)
+    value = lambda name: sqlite3.connect(tmp_path / name).execute("SELECT v FROM t").fetchone()[0]
+    assert value("hub.sqlite") == "before" and value("hub.sqlite.failed-update") == "migrated"
+    assert not (tmp_path / ".hub.sqlite-litestream").exists() and not (tmp_path / "hub.sqlite-wal").exists()
+    assert not (tmp_path / "hub.sqlite.restoring").exists()
+
+
 def test_a_pull_failure_or_snapshot_failure_does_not_touch_the_database(monkeypatch, tmp_path):
     updater = load(monkeypatch, "", tmp_path)
     docker = Fake(updater, monkeypatch, [True], fail=["exec"])

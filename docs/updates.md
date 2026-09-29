@@ -59,7 +59,7 @@ recreated from the new file when it changes them.
 Before it switches the server image, the updater takes a consistent SQLite snapshot (`sqlite3` backup API, run in the
 server container) into `/data/snapshots/pre-update-<version>-<time>.sqlite` and keeps the last three. A new version can
 migrate the database and then fail its health check, and the old image cannot read a newer schema, so a rollback also
-stops the server, puts the snapshot back (the migrated database stays beside it as `hub.sqlite.failed-update`) and starts
+stops the server (Litestream runs inside it), puts the snapshot back through a temporary file, clears Litestream's tracking directory so it does not take the restored file for a break (the migrated database stays beside it as `hub.sqlite.failed-update`) and starts
 the old image. Changes made between the snapshot and the rollback are not in it. The update status says which snapshot
 was taken and whether it was restored (`snapshot`, `restored`, and the message). If the snapshot cannot be taken the
 update does not go ahead.
@@ -109,8 +109,21 @@ falls below the minimum it is paused, so pin only while you plan to update by ha
 
 Automatic rollback covers a release that does not come up. To go back by choice:
 
-- **Server:** `docker compose pull` after setting `TICO_TAG=vX.Y.Z` in `.env`, then `docker compose up -d`. Computers newer
-  than the server are left as they are (they still work, as long as they are at or above the minimum).
+- **Server:** if the release you are leaving changed the database, the older one cannot read it, so put back a snapshot
+  from before that update (`/data/snapshots`, above) with the server stopped and Litestream's record of the file cleared,
+  or the next start can upload the restored file as if it were newer than the migrated one:
+
+  ```
+  docker compose stop server
+  docker compose run --rm --no-deps --entrypoint sh server -c '
+    ls /data/snapshots    # pick one, then:
+    cp /data/snapshots/pre-update-....sqlite /data/hub.sqlite.restoring && sync &&
+    rm -rf /data/.hub.sqlite-litestream /data/hub.sqlite-wal /data/hub.sqlite-shm &&
+    mv /data/hub.sqlite /data/hub.sqlite.failed-update && mv /data/hub.sqlite.restoring /data/hub.sqlite'
+  ```
+
+  Then set `TICO_TAG=vX.Y.Z` in `.env`, `docker compose pull` and `docker compose up -d`. Without a database change,
+  skip the middle step. Computers newer than the server are left as they are (they still work, as long as they are at or above the minimum).
 - **Mac:** `git -C <checkout> checkout vX.Y.Z`, `scripts/tico restart`, and pin it (above) or the next heartbeat moves it
   back to the server's release.
 - **Docker runner:** set `TICO_TAG=vX.Y.Z` and `TICO_RUNNER_PINNED=1` in `.env`, then `docker compose -f runner.compose.yaml up -d`.

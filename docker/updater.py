@@ -323,18 +323,25 @@ for old in sorted(glob.glob(os.path.join(folder, "pre-update-*.sqlite")))[:-keep
 """
 
 RESTORE_SCRIPT = """
-import os, sqlite3, sys
-snapshot, db = sys.argv[1], "/data/hub.sqlite"
+import os, shutil, sqlite3, sys
+snapshot, db = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "/data/hub.sqlite"
 if sqlite3.connect(snapshot).execute("PRAGMA integrity_check").fetchone()[0] != "ok":
     sys.exit("the snapshot fails its integrity check")
+# The copy is finished on disk before the database is touched, so a crash leaves the migrated one, never none.
+with open(snapshot, "rb") as source, open(db + ".restoring", "wb") as target:
+    shutil.copyfileobj(source, target)
+    target.flush(); os.fsync(target.fileno())
+# Litestream's record of the file it followed is the migrated database's; left in place it would treat the
+# restored file as a break and could upload it as the newest copy. Removed, it starts from what is on disk.
+shutil.rmtree(os.path.join(os.path.dirname(db), "." + os.path.basename(db) + "-litestream"), ignore_errors=True)
+failed = db + ".failed-update"    # kept for inspection, never deleted here
 if os.path.exists(db):
-    os.replace(db, db + ".failed-update")     # kept for inspection, never deleted here
+    if os.path.exists(failed):
+        os.remove(failed)
+    os.link(db, failed)
 for extra in ("-wal", "-shm"):
     if os.path.exists(db + extra):
         os.remove(db + extra)
-with open(snapshot, "rb") as source, open(db + ".restoring", "wb") as target:
-    target.write(source.read())
-    target.flush(); os.fsync(target.fileno())
 os.replace(db + ".restoring", db)
 """
 
@@ -347,7 +354,8 @@ def take_snapshot(previous):
 
 
 def restore_snapshot(name, previous):
-    """Server stopped, the old image's own container puts the snapshot back in place of the migrated database."""
+    """Server stopped (and Litestream with it, which runs inside the server container), the old image's own container
+    puts the snapshot back in place of the migrated database and clears Litestream's tracking directory."""
     compose("stop", SERVICE)
     compose("run", "--rm", "--no-deps", "-T", "--entrypoint", "python", SERVICE, "-c", RESTORE_SCRIPT,
             SNAPSHOTS + "/" + name, tag=previous)
