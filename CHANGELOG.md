@@ -8,8 +8,61 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Per-bot permissions.** Every bot has three: **See** (the org chart and bot lists: name, role, who runs it, who it reports
+  to), **Read** (its activity: tasks, updates, files, status and run log, routines, shared rooms, its page's activity) and
+  **Write** (messages, chat, asking it, tasks, notes and comments that wake it). Each is Everyone, or chosen people, teams
+  (the org chart's departments) and bots. Set them in Settings > Bots: the **Access** column shows
+  `See: Everyone · Read: Legal · Write: Everyone`, and its editor has the presets **Open**, **Visible, requests only**
+  (See and Write Everyone, Read chosen) and **Private**, or a custom mix per level. Changes are revisioned and undoable from
+  the settings history. The owner, the bot itself, the people above it on the org chart and the bot's owners always have full
+  access, and someone who may write without reading still sees their own conversations and tasks with the bot. A bot's page
+  for someone who cannot read it shows its name, role, who runs it and a **Send a request** box, no activity. The org panel
+  has a person icon beside the clock: on, it shows only the bots you can read or write to; it combines with the Recent sort
+  and is kept with your account. See docs/permissions.md.
+- Stable v2: `GET/PUT /api/v2/bots/{bot}/access` (owner, bot administrators and the people the bot reports up to),
+  `GET /api/v2/bots/{bot}` (a bot's profile, and its status, queue and goals for whoever can read it, in place of the internal
+  `/api/employees`) and `GET /api/v2/bots/{bot}/routines`; `GET /api/v2/bots` and `/api/v2/org` return only the bots the caller
+  can see, each with `access: {see, read, write}`, and take `?can=read|write`.
+- **Roles and members.** Company roles are Owner, Admin (the old bot administrators, read from either key for one release) and Member.
+  Members may create bots (up to 5 active each by default, an admin sets it) and add people, and owners and admins switch either off per
+  person in Settings > People. Adding people is on by default for coworkers in the company's email domain (the allowed sign-in domain, else the
+  owner's own unless it is a public mail address); outside it needs an owner or admin. A new person goes on the roster and the sign-in list.
+  Admins manage every bot, people, computers and credentials; only owners make admins.
+- **Bot owners.** A bot's creator and co-owners (and its operator, whoever it reports to and the admins) own it, and one rule now says who may
+  manage a bot. Owners edit its configuration, access, status and routines, archive it and add co-owners (Settings > Bots, **Owned by**;
+  `POST /api/v2/bots/{bot}/co-owners`).
+- **Computers for members' bots.** A computer has **Accepts members' bots** (Settings > Devices). A bot a member created is placed only on one
+  that accepts them (off for existing computers and ones an owner or admin enrols; on for one a member enrols themselves); admins may place it
+  anywhere. Health warns when members' bots share a computer that holds `secrets/_shared.env` keys.
+- **BotOps acts for the person who asked.** `hub bot register`, `hub bot access`, `hub bot owners`, `hub people add` and `hub people list` (and
+  MCP tools), and `hub bot create` registers the bot with the server in a turn a person started: all as that person, checked with their rights,
+  recorded "via BotOps". Adding people, roles, granting add_people, a stored-credential grant and a placement on a closed computer come back as a
+  Confirm card in their chat with BotOps that runs only on their click. New BotOps playbook: build-me-a-bot. Fixes `hub bot set` on a bot with
+  no server record, and adding a colleague no longer needs the owner in Settings.
+- A Tools row at the top of a bot's page (the right column beside the chat, above it on a phone): a small round icon for the
+  model and harness it runs on, its repository, and each `access:` entry of its `employee.yaml`, as the service's logo when Tico
+  bundles one and the name's first two letters otherwise. Hover, focus or tap opens the identity it acts as, what it may do, its
+  scope (database, channels, project, mailbox), the note and its status, such as "Credential missing on Test Mac"; past eight
+  tools "+N" opens the whole list. The runner reports the declared access on its heartbeat (names, verbs and whether each
+  variable is set, never a value; a runner from before it shows the model and repository only), and
+  `GET /api/v2/bots/{bot}/tools` serves it to whoever can read the bot. See "What people see about a bot's tools" in `docs/creating-bots.md`.
+- A bot's managers can register or remove a tool without opening its repository: `POST /api/v2/bots/{bot}/tools`,
+  `DELETE /api/v2/bots/{bot}/tools/{id}` and the MCP tools and `hub tools` commands `hub_tools_add`, `hub_tools_list` and
+  `hub_tools_remove`. The entry is checked against the `employee.yaml` access schema and kept as a pending request, and BotOps
+  gets a task with the exact YAML to commit; the row shows it as pending until the bot's computer reports it. A credential
+  value, or anything that looks like a key or token, is refused (`422 secret`): `env` is only a variable's name, and the
+  operator installs the value on the bot's computer.
+- Live replies for custom frontends: `execution.parts` in `/watch` and `/snapshot` lists the pieces of the run's reply so
+  far, in order, as `{kind: "progress"|"reply"|"tool", text, at}`. A tool call is one short label ("Ran hub task create"),
+  never its arguments or output. See [custom-frontend.md](docs/custom-frontend.md#streaming).
+- Messages say which run handled them. On the `messages`, `snapshot` and `watch` routes a message a run has taken carries
+  `run: {job_id, attempt_id, state}`, with `state` `started_run` or, for a follow-up delivered into a run already working,
+  `added_to_run`. A bot's reply carries `run: {job_id, attempt_id}` and `answers`, the ids of every message that run
+  handled (the one that started it, then the folded-in ones). Older replies have no `answers`.
+- A Grok run now reports its tool calls (by kind only, never the title or input), which is what lets a frontend see where one
+  message ends and the next begins.
+
 ### Changed
-- Tico's icon and wordmark now match tico.team; the old robot icon is gone. The favicon, app icon (web, desktop, macOS menu bar, Slack) and the assistant's avatar use the new mark, the first-run setup and sign-in pages show the wordmark (reversed in dark mode, replaced by the app's name when a company has named its app), and the installed web app gains a maskable icon. `scripts/build-brand-icons.sh` regenerates every image from the SVGs in `ui/assets/tico/`.
 - Who may use a bot no longer depends on the "Can use" list (`owner_ids`), which now only says who a bot works for and who is in
   its shared room; adding a bot no longer asks for people. Everyone can chat with and give tasks to every bot unless its Write
   says otherwise. A person who writes to a shared-room bot without being one of the people it works for talks to it in a room of
@@ -19,25 +72,28 @@ All notable changes to Tico are recorded here. The format follows
   private/routing lists are no longer used; bots are now Open; set access in Settings > Bots"). Set the access you meant there.
 - A bot the caller cannot see is a `404` everywhere (it used to be a `403` "This bot is private" on some routes and invisible on
   others); one they can see but not read or write to is a `403 forbidden` that says which.
-- `bot_contact` (Other bots: replies only, tasks only) now also limits notes and comments that wake a bot.
-- Hub SQL holds the bots the caller can read, and tasks that involve a bot they cannot read only when the task is theirs.
+- `bot_contact` (Other bots: replies only, tasks only) now also limits notes and comments that wake a bot. Hub SQL holds the bots
+  the caller can read, and tasks that involve a bot they cannot read only when the task is theirs.
 - `execution.text` puts a blank line (`"\n\n"`) between a run's separate messages; it ran them together
   ("planned.I've filed"). Deltas within one message still join directly, the run's closing message no longer replaces the
   progress notes before it, and a model's thinking is no longer part of the text. Tico's own chat shows each message
   as its own paragraph.
 
+### Security
+- Bot privacy was decided in a handful of places and left gaps: a task, a note or a comment to a private bot needed only that the
+  caller could see it (a comment even woke it), a Slack message reached any bot its sender could name, and a page of tasks, updates
+  or files could shrink or count differently for someone who was not allowed some of them. One check now covers every route, the
+  MCP tools and personal API tokens, lists and SQL are cut in the query (so counts and pages leak nothing), and Slack routing
+  follows the sender's Write. The old file lists could not do any of this per bot and are retired (see Changed).
+- A person who may only write to a bot no longer sees, under its replies, the steps it took to answer, or the live output of its runs.
+
+### Tests
+- The Python suite is about 46% smaller and runs in parallel (`pytest-xdist`, set in `pytest.ini`); the browser suite keeps one
+  script per surface (`npm run test:ui`, three at a time). The two together run in a few minutes on a laptop.
+
+## [0.2.12] - 2026-09-29
+
 ### Fixed
-- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
-  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
-- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
-  send keeps the text and shows the error.
-- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
-  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
-  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
-- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
-  the existing config poll), a small banner offers Reload. It never reloads by itself.
-
-
 - A runner box's updater (0.2.10 and 0.2.11) stopped on every start after its first: it locked its token to the runner's
   user and then, without the right to change another user's file, failed changing it again ("PermissionError ... updater-token")
   and restarted in a loop, so the box could not update. It now leaves a token that is already locked alone and never stops over
@@ -46,6 +102,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [0.2.11] - 2026-09-29
 
+### Added
+
+### Changed
+- Tico's icon and wordmark now match tico.team; the old robot icon is gone. The favicon, app icon (web, desktop, macOS menu bar, Slack) and the assistant's avatar use the new mark, the first-run setup and sign-in pages show the wordmark (reversed in dark mode, replaced by the app's name when a company has named its app), and the installed web app gains a maskable icon. `scripts/build-brand-icons.sh` regenerates every image from the SVGs in `ui/assets/tico/`.
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
   inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
@@ -79,14 +139,6 @@ All notable changes to Tico are recorded here. The format follows
   updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
 - A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
   the existing config poll), a small banner offers Reload. It never reloads by itself.
-
-### Security
-- Bot privacy was decided in a handful of places and left gaps: a task, a note or a comment to a private bot needed only that the
-  caller could see it (a comment even woke it), a Slack message reached any bot its sender could name, and a page of tasks, updates
-  or files could shrink or count differently for someone who was not allowed some of them. One check now covers every route, the
-  MCP tools and personal API tokens, lists and SQL are cut in the query (so counts and pages leak nothing), and Slack routing
-  follows the sender's Write. The old file lists could not do any of this per bot and are retired (see Changed).
-- A person who may only write to a bot no longer sees, under its replies, the steps it took to answer, or the live output of its runs.
 
 ## [0.2.10] - 2026-09-29
 
