@@ -269,3 +269,39 @@ def test_the_librarian_is_always_built_with_its_daily_routine_seeded_once(enviro
     api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
     assert [r["deleted_at"] is not None for r in _routines(api)] == [True]       # and it stays deleted
 
+
+
+def _botops_goals(api):
+    with api.app.state.store.read() as c:
+        return [dict(row) for row in c.execute("SELECT * FROM goals WHERE owner='bot:botops'")]
+
+
+def test_botops_starts_with_one_goal_of_its_own_and_never_gets_it_back(environment):
+    api = environment(seed={})
+    machine(api)
+    draft(api)
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    (goal,) = _botops_goals(api)
+    assert goal["title"] == "Keep the bots running smoothly" and goal["parent_id"] is None
+    assert goal["body"].startswith("Help people and bots create new bots") and goal["created_by"] == "keeper"
+    # Another start, or completing again, adds nothing.
+    api.app.state.store.initialize(seed_market=False)
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert len(_botops_goals(api)) == 1
+    # Removed on purpose, it stays removed.
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM goals")
+    api.app.state.store.initialize(seed_market=False)
+    assert _botops_goals(api) == []
+
+
+def test_a_company_from_before_gets_the_botops_goal_once_unless_botops_has_goals(environment):
+    api = environment()                          # BotOps is on the roster; the wizard is not involved
+    api.app.state.store.initialize(seed_market=False)
+    api.app.state.store.initialize(seed_market=False)
+    assert len(_botops_goals(api)) == 1
+    other = environment()
+    made = other.post("/api/v2/goals", json={"title": "Own goal", "owner": "botops"}, headers=signed_in())
+    assert made.status_code == 200, made.text
+    other.app.state.store.initialize(seed_market=False)
+    assert [g["title"] for g in _botops_goals(other)] == ["Own goal"]

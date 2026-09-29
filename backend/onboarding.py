@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import yaml
 
+from . import goals as G
 from . import models as M
 from . import providers
 from . import releases, replication, runner_versions
@@ -343,6 +344,8 @@ class Onboarding:
             self._setup_task(c, who, slug, choice, card, record["answers"])
             if card.get("bootstrap"):
                 self._seed_routines(c, who, slug, choice["template"])
+            if slug == BOTOPS:
+                G.ensure_botops_goal(c)
         # Completing twice keeps the moment the company actually finished.
         record.update(selected=plan, completed=record["completed"] or H.now())
         self._wire(c, record, who.actor)

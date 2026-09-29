@@ -16,6 +16,11 @@ All notable changes to Tico are recorded here. The format follows
 - **The bot page's update history icon matches the Updates icon** in the left rail, and the Recurring card no longer has an icon the
   other cards lack.
 
+### Added
+- **BotOps starts with a goal.** "Keep the bots running smoothly": help people and bots create new bots and edit existing ones so they
+  run smoothly, and watch for bot issues and resolve them. It is BotOps's own goal with no parent, set by the keeper (the actor the seeded
+  goals use) when BotOps is set up, and once on start for a company that already has BotOps and no goal for it. Deleting it keeps it gone.
+
 ### Changed
 - **The Goals page is simpler.** Company goals come first and only when there are some (the owner adds one with **+ Company goal**), then
   each person and bot that has goals in org-chart order, each goal with its status, progress and a "supports" chip when it is linked.

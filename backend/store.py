@@ -857,6 +857,7 @@ class Store:
                 access.seed(c, self.settings, H.now())
                 access.retire_bot_lists(c, self.settings, H.now())
                 self.seed_goals(c)
+                G.ensure_botops_goal(c)
                 from . import routines as R
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=41").fetchone():
                     # No daily open-tasks run per bot; one BotOps sweep instead.
