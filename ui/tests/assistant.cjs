@@ -34,6 +34,7 @@ async function open(browser, viewport, state) {
     if (p === '/api/v2/conversations') return json({conversations: []});
     if (p === '/api/v2/assistant' && method === 'GET') { state.reads++; return json(state.view()); }
     if (p === '/api/v2/assistant/messages') {
+      if (state.fail) return route.fulfill({status: 500, contentType: 'application/json', body: JSON.stringify({detail: 'The Assistant could not be reached'})});
       state.sent.push(JSON.parse(route.request().postData()).text);
       return json(state.reply());
     }
@@ -50,7 +51,7 @@ function fixture() {
   const state = {reads: 0, sent: [], decided: [], messages: [], card: null};
   state.card = {id: 'act1', summary: 'Archive the Ops bot', method: 'POST', path: '/api/v2/bots/ops/archive', status: 'pending', result: null,
     description: 'Archive bot Ops', diff: [], body: {expected_revision: 3, text: 'Long message. '.repeat(30) + 'THE-END'}, proposed_via: 'assistant'};
-  state.view = () => ({available: true, state: 'active', bot: 'coo', name: 'Tico', can_turn_on: false, room_id: 'room1',
+  state.view = () => ({available: true, state: 'active', bot: 'coo', name: 'Acme', can_turn_on: false, room_id: 'room1',
     messages: state.messages, has_more: false, next_before: null, execution: null, actions: {act1: state.card}, pending: []});
   state.reply = () => {
     const user = msg('u' + state.sent.length, 'human:ana', state.sent.at(-1));
@@ -106,6 +107,17 @@ function fixture() {
       const link = page.locator('.asst-msg.bot a[href="#/task/t1"]');
       await link.waitFor();
       assert.deepEqual(state.sent, ['what is waiting on me'], tag + ': sent once');
+      assert.equal(await page.locator('[data-assistant] textarea').inputValue(), '', tag + ': the box is empty after a send');
+      assert.ok(await page.evaluate(() => document.activeElement === document.querySelector('[data-assistant] textarea')), tag + ': and keeps focus');
+      assert.equal(await page.locator('[data-assistant] textarea').getAttribute('placeholder'), 'Ask the Assistant…', tag + ': the copy says Assistant, not the bot\'s name');
+      // A failed send keeps the words and shows the error.
+      state.fail = true;
+      await page.locator('[data-assistant] textarea').fill('second try');
+      await page.locator('[data-assistant] textarea').press('Enter');
+      await page.locator('.toast, #toast, [role=alert]').first().waitFor({state: 'attached'}).catch(() => {});
+      await page.waitForFunction(() => document.querySelector('[data-assistant] textarea')?.value === 'second try');
+      state.fail = false;
+      await page.locator('[data-assistant] textarea').fill('');
       assert.equal(await page.locator('[data-thinking]').count(), 0, tag + ': a fast answer has no thinking state');
 
       // It fits: no sideways scroll, the box and Send are on screen.

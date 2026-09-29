@@ -15,7 +15,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
       const ctx = context || await browser.newContext({viewport: {width: 1440, height: 900}, serviceWorkers: 'block'});
       const page = await ctx.newPage();
       const errors = [], posts = [];
-      let reloads = 0, polls = 0;
+      let reloads = 0, polls = 0, served = null;
       page.on('pageerror', e => errors.push(e.message));
       await page.route('**/*', route => {
         const req = route.request(), p = new URL(req.url()).pathname;
@@ -27,7 +27,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
         if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
         const config = {version: update ? update.current : '0.1.0', update, app_name: 'Tico'};
         if (p === '/api/me') return json({id: 'ana', role, name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
-        if (p === '/api/v2/config') return json({...config, version: polls > 1 ? '0.2.0' : '0.1.0'});
+        if (p === '/api/v2/config') return json({...config, version: served || (polls > 1 ? '0.2.0' : '0.1.0')});
         if (p === '/api/v2/system/update' && req.method() === 'POST') {
           posts.push(req.postDataJSON());
           return updater === 'manual'
@@ -46,7 +46,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
       await page.goto('https://tico-ui.test/#/help');
       await page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
       page.on('framenavigated', () => reloads++);
-      return {page, ctx, errors, posts};
+      return {page, ctx, errors, posts, serve: version => { served = version; }};
     };
 
     // Nothing available, nothing shown.
@@ -81,6 +81,20 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
     await again.page.reload();
     await again.page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
     assert.equal(await again.page.locator('#new-version-wrap').isVisible(), true, 'a newer version shows again');
+    await v.ctx.close();
+
+    // A tab left open through an update: the next config answer carries a different version, so a banner
+    // offers a reload (never reloads by itself); the same version shows nothing.
+    v = await visit({update: {...UPDATE, available: false}});
+    assert.equal(await v.page.locator('#stale-banner').isVisible(), false, 'no banner on the version the page loaded with');
+    await v.page.evaluate(() => get('/v2/config').then(applyConfig));
+    assert.equal(await v.page.locator('#stale-banner').isVisible(), false, 'no banner while the version is unchanged');
+    v.serve('0.3.0');
+    await v.page.evaluate(() => get('/v2/config').then(applyConfig));
+    assert.equal((await v.page.locator('#stale-banner span').innerText()).trim(), 'Tico was updated to v0.3.0. Reload to get the new version.');
+    await v.page.locator('#stale-reload').waitFor();
+    await v.page.waitForTimeout(300);
+    assert.equal(await v.page.locator('#stale-banner').isVisible(), true, 'it stays until the person reloads');
     await v.ctx.close();
 
     // Without an updater the owner is shown the command to run.

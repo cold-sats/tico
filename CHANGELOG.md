@@ -7,6 +7,17 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
+  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
+- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
+  send keeps the text and shows the error.
+- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
+  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
+  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
+- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
+  the existing config poll), a small banner offers Reload. It never reloads by itself.
+
 ### Changed
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an

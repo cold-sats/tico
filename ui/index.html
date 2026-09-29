@@ -34,6 +34,8 @@
   --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:#232b34;color-scheme:dark}
 /* Demo mode (python -m backend.demo): a strip nobody can close, and the page below it shortened to fit. */
 #demo-banner{display:none}
+#stale-banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+#stale-banner[hidden]{display:none}
 html.demo{--demo-h:30px;padding-top:var(--demo-h)}
 html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:12.5px;line-height:1.2;white-space:nowrap;overflow:hidden}
 html.demo #demo-banner strong{color:var(--ink);font-weight:650}
@@ -1977,6 +1979,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 </head>
 <body>
 <div id="side-backdrop" hidden></div>
+<div id="stale-banner" role="status" hidden><span></span><button class="primary" type="button" id="stale-reload">Reload</button></div>
 <div id="demo-banner" role="note" hidden><strong>Demo — sample data</strong><span>A fictional company. Bots do not run here and nothing leaves this machine.</span></div>
 <aside id="side" aria-label="Primary navigation">
   <header class="side-head">
@@ -2674,8 +2677,23 @@ function applyConfig(config) {
   $('#demo-banner').hidden = !S.config.demo;
   renderOnboardingNav();
   renderNewVersion();
+  noticeUpdatedServer();
   return S.config;
 }
+// A tab left open through an update keeps running the old UI. The config poll already runs, so the
+// version this page loaded with is compared to the server's on every answer. A banner offers the
+// reload; it never reloads by itself, since the person may be typing.
+let LOADED_VERSION = '';
+function noticeUpdatedServer() {
+  const v = String(S.config.version || '');
+  if (!v) return;
+  if (!LOADED_VERSION) LOADED_VERSION = v;
+  const bar = $('#stale-banner');
+  if (!bar) return;
+  bar.hidden = v === LOADED_VERSION;
+  if (!bar.hidden) bar.firstElementChild.textContent = `${appName()} was updated to ${nvVersion(v)}. Reload to get the new version.`;
+}
+document.addEventListener('click', ev => { if (ev.target.closest('#stale-reload')) location.reload(); });
 // "Finish setup" tops the nav while the owner has an unfinished first run, and disappears the
 // moment the server stops asking for one. Everyone else never sees it.
 function renderOnboardingNav() {

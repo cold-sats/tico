@@ -128,7 +128,7 @@
     function draw() {
       const d = state.data;
       if (!d.available) {
-        root.innerHTML = `<div class="asst-off"><p><strong>The ${esc(d.name)} is off.</strong> ${d.can_turn_on
+        root.innerHTML = `<div class="asst-off"><p><strong>The Assistant is off.</strong> ${d.can_turn_on
           ? `Turn it on to get a private assistant that finds things in ${esc(document.title || 'Tico')} and does them for you.`
           : `Ask the owner of this company to turn it on.`}</p>
           ${d.can_turn_on ? '<button class="primary" type="button" data-turn-on>Turn on the Assistant</button> <span class="asst-state" data-turn-status></span>' : ''}</div>`;
@@ -147,15 +147,16 @@
         ["What's waiting on me?", 'Find the launch plan', 'How do I add a bot?'].map(t => `<button class="ghost" type="button" data-hint="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
       root.innerHTML = `<div class="asst-log" role="log" aria-live="polite" aria-label="Assistant chat">${
         d.messages.length ? d.messages.map(messageHtml).join('') : `<p class="asst-state">Ask for anything in ${esc(document.title || 'Tico')}: what is waiting on you, find a doc or a meeting, make a task, hand work to a bot, or ask how something works.</p>`}${
-        state.thinking ? `<div class="asst-think" data-thinking role="status">${esc(d.name)} is thinking<i></i><i></i><i></i></div>` : ''}</div>
+        state.thinking ? `<div class="asst-think" data-thinking role="status">Assistant is thinking<i></i><i></i><i></i></div>` : ''}</div>
         ${hints}
-        <form class="asst-form" data-form><textarea rows="2" maxlength="8000" placeholder="Ask the ${esc(d.name)}…" aria-label="Message to the ${esc(d.name)}"></textarea>
+        <form class="asst-form" data-form><textarea rows="2" maxlength="8000" placeholder="Ask the Assistant…" aria-label="Message to the Assistant"></textarea>
         <button class="primary" type="submit"${state.sending ? ' disabled' : ''}>Send</button></form>`;
       const log = root.querySelector('.asst-log');
       log.scrollTop = log.scrollHeight;
       const area = root.querySelector('textarea');
       area.value = kept;
-      if (kept) area.focus();
+      if (kept || state.refocus) area.focus();
+      state.refocus = false;
       area.onkeydown = ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); root.querySelector('[data-form]').requestSubmit(); } };
       root.querySelector('[data-form]').onsubmit = ev => { ev.preventDefault(); send(area.value); };
       root.querySelectorAll('[data-hint]').forEach(b => b.onclick = () => send(b.dataset.hint));
@@ -186,6 +187,10 @@
       try {
         const r = await post('/v2/assistant/messages', {text});
         state.thinking = !r.fast;
+        // Sent: empty the box (unless you have already typed something new) and keep the cursor in it.
+        const now = root.querySelector('textarea');
+        if (now && now.value.trim() === text) now.value = '';
+        state.refocus = true;
       } catch (e) {
         state.thinking = false;
         toast?.(e.message, true);
