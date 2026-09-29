@@ -4,7 +4,23 @@ A release is a version tag. Pushing `vX.Y.Z` runs `.github/workflows/release.yml
 installer bundle, checks the tag against [CHANGELOG.md](../CHANGELOG.md) and publishes the GitHub
 release. Running installations look for that release to show "New version" in the sidebar.
 
-Before a deploy, run the journey check on a laptop with Docker (it is not part of CI, and takes about ten minutes):
+## Before you tag
+
+Tests run on your machine, not in CI: nothing in GitHub Actions runs the suite on a push or a pull request. Before
+tagging, run the whole thing from the repository root:
+
+```
+python -m pytest -q && npm run test:ui
+```
+
+That is the full suite (pytest in parallel, then the browser scripts three at a time) and it has to finish in under
+10 minutes; that is a hard budget for any suite that runs on merge or on a schedule. Keep it by keeping few tests, the ones
+that guard security and privacy boundaries, data safety and core contracts, and by cutting one when you add one. CI only
+builds and publishes: the Docker workflow builds the three images for a `v*` tag, and the Release workflow publishes the
+GitHub release. The compose smoke test (Docker workflow) and the screenshots workflow run from the Actions tab
+(Run workflow) when you want them. The optional `ci.yml` workflow runs the same tests there on demand.
+
+Before a deploy, run the journey check on a laptop with Docker (it is not part of CI or of the ten-minute suite budget, and takes about ten minutes):
 
 ```
 scripts/journey-test.sh                  # this checkout is the candidate; starts from the newest release tag
@@ -24,7 +40,7 @@ rollback step: it runs on the candidate's updater.
 
 1. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh empty
    `## [Unreleased]` above it, and update the link references at the bottom.
-2. Commit that to `main` once CI is green.
+2. Commit that to `main` once the local suite is green.
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The workflow then:
@@ -38,7 +54,7 @@ The workflow then:
   section is missing or empty. A tag with a suffix such as `v0.2.0-rc.1` is marked a prerelease,
   which the update check ignores.
 
-Docker images are published by a separate workflow and set `TICO_VERSION` in the image, which is how the running app
+Docker images are published by a separate workflow (on the same `v*` tag, plus a manual run) and set `TICO_VERSION` in the image, which is how the running app
 knows its version (a source checkout reports `dev`). There is no source archive: the server and the runners run from
 the images, and a Mac runner is a git checkout that moves to the release's tag.
 

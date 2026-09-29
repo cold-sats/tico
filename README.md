@@ -341,18 +341,20 @@ private GitHub repositories.
 
 ## Developer notes
 
-CI runs the Python suite and the browser scripts on every push and pull request
-(`.github/workflows/ci.yml`); run both locally before you open one. The suite is kept to the
-tests that protect what matters most: the hub's write rules and identity, tasks, approvals, the
-batch and MCP, the runner's claim and lease, deploy, release and backup, and outbound-send safety.
+The suite is small on purpose and runs locally (CI runs it only when started by hand,
+`.github/workflows/ci.yml`). Write tests while you build if they help, then keep only the few that
+guard what matters most: security and privacy boundaries, data safety (migrations, backup, restore),
+the updater and release path, and core contracts (job claim and lease, task writes, chat, the API
+schema), plus one happy path per major feature. A full run, Python and browser, has to finish in
+under ten minutes on a laptop; if a new test would push it past that, cut a lower-value one.
 
 ```bash
 pip install -r backend/requirements-dev.txt
-python -m pytest -q -n auto
+python -m pytest -q          # parallel by default (pytest-xdist); add -n 0 to debug serially
 ```
 
 Browser checks need `npm ci` and a Playwright browser (`npx playwright install chromium`), then
-`npm run test:ui` (the scripts in `ui/tests/`). The UI has no build step and no runtime network
+`npm run test:ui` (the scripts in `ui/tests/`, three at a time; `node scripts/ui-tests.cjs <name>` runs one). The UI has no build step and no runtime network
 dependency: `marked` and the icon font are vendored in `ui/vendor/` with their licenses.
 
 The live checkout on an operator's Mac is what the runner executes: the launchd jobs run
