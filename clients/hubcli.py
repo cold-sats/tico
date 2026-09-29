@@ -28,6 +28,13 @@ the server (`backend/hubdb.py`), never here.
     hub files touch <file-id|url>          you edited a linked document again: it moves to the top
     hub files import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
     hub files list [--bot X] [--limit N]   what is on the page, newest activity first
+    hub docs list [--prefix sales/]        the company's internal docs by path
+    hub docs read <id|path>                one doc in full, with its version
+    hub docs search "<words>"              internal and linked docs, best first (docs/docs.md)
+    hub docs write <path> --title T (--body-file F | stdin) [--note N]
+                                           create or replace a doc; every write is a version
+    hub docs history <id|path>             its versions: who changed it, when and why
+    hub docs links                         where the company's other docs live (links, never copies)
     hub assistant propose --summary "..." --path /api/v2/... [--method POST] [--body '{...}']
                                            Assistant only: ask the person to confirm a side effect (an
                                            approval, anything outside the company, spend, settings,
@@ -348,6 +355,29 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--task")
     s.set_defaults(fn="files import")
+    docs = sub.add_parser("docs", help="the company's docs: read, search and write internal docs, list linked ones").add_subparsers(dest="sub")
+    s = docs.add_parser("list", help="internal docs by path")
+    s.add_argument("--prefix", help="only paths starting with this, e.g. sales/")
+    s.add_argument("--limit", type=int)
+    s.set_defaults(fn="docs list")
+    s = docs.add_parser("read", help="one internal doc in full")
+    s.add_argument("ref", help="a doc id or a path")
+    s.set_defaults(fn="docs read")
+    s = docs.add_parser("search", help="search internal and linked docs")
+    s.add_argument("q")
+    s.add_argument("--limit", type=int)
+    s.set_defaults(fn="docs search")
+    s = docs.add_parser("write", help="create or replace an internal doc at a path")
+    s.add_argument("path")
+    s.add_argument("--title")
+    s.add_argument("--body-file", dest="body_file", help="the Markdown file; standard input when omitted")
+    s.add_argument("--note", help="one line on what changed")
+    s.set_defaults(fn="docs write")
+    s = docs.add_parser("history", help="the versions of a doc")
+    s.add_argument("ref", help="a doc id or a path")
+    s.set_defaults(fn="docs history")
+    s = docs.add_parser("links", help="the linked docs: where the company's other docs live")
+    s.set_defaults(fn="docs links")
     assistant = sub.add_parser("assistant", help="the Assistant's proposals for a person to confirm").add_subparsers(dest="sub")
     s = assistant.add_parser("propose", help="ask the person to confirm one side-effecting operation")
     s.add_argument("--summary", required=True)

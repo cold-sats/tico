@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message=".*starlette.testclient.*")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from . import demo_content as D
-from . import documents, goals as G, hubdb, market, onboarding, routines, updates
+from . import docs, goals as G, hubdb, market, onboarding, routines, updates
 from .auth import Identity
 from .scheduler import next_due, stamp
 from .store import H, encode
@@ -219,17 +219,18 @@ class Builder:
 
     def docs(self):
         self.at(days=6.4)
-        catalog = {"updated": self.ago(hours=3).strftime("%Y-%m-%dT%H:%M:%SZ"), "versions": {}, "errors": [], "proposals": [],
-                   "documents": [{**doc, "collection": doc.get("collection") or "docs", "status": "Current",
-                                  "path": doc["id"] + ".md", "source": "acme/company-docs",
-                                  "fetched": self.ago(hours=3).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                  "rendered_commit": hashlib.sha1(doc["id"].encode()).hexdigest(),
-                                  "url": "https://github.com/acme/company-docs/blob/main/" + doc["id"] + ".md",
-                                  "search": " ".join(doc["content"].split())} for doc in D.DOCS]}
-        for doc in catalog["documents"]:
-            if doc["collection"] == "notes":
-                doc["status"] = "Reference only · not current company guidance"
-        self.write(lambda c: documents.import_catalog(c, catalog, {}))
+        service = docs.Docs(None, None, None, None)
+
+        def work(c):
+            for doc in D.DOCS:
+                if doc.get("collection") == "notes":
+                    continue
+                folder = "help" if doc["category"].startswith("External") else doc["category"].split("/")[-1].strip().lower()
+                service.insert(c, "human:ana", doc["title"], doc["content"], folder + "/" + doc["id"].split("-", 1)[-1] + ".md")
+            for url, title, note in (("https://help.acme.example", "Acme help centre", "What customers read"),
+                                     ("https://drive.google.com/drive/folders/acme-brand", "Brand assets", "Logos, colours and the tone guide")):
+                docs.add_link(c, "human:ana", docs.LinkCreate(url=url, title=title, description=note))
+        self.write(work)
 
     def market(self):
         self.at(days=6.2)

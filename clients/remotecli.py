@@ -46,6 +46,13 @@ def run(args, who=None):
         if args.fn == "files publish":
             return hubtools.files_publish_path(client, fields)
         return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
+    if args.cmd == "docs":
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn", "body_file") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        if args.fn == "docs write":
+            fields["body"] = sys.stdin.read() if not args.body_file or args.body_file == "-" else Path(args.body_file).read_text(encoding="utf-8-sig")
+        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
     if args.cmd == "assistant":
         from clients import hubtools
         try:

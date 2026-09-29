@@ -15,15 +15,12 @@ from .store import H, Problem, encode, readiness_document
 
 PREFERENCE = "onboarding.progress"
 BOTOPS = "botops"
-DOC_BOT = "doc-updater"
 MARKET_BOT = "market-analyst"
 MARKET_KEY = "market-context"
 ONLINE_SECONDS = 120
 # Sections whose card a person can close, and the checklist items a person may skip.
 CARDS = ("docs", "market", "bots", "tasks", "updates", "goals", "meetings")
 OPTIONAL = ("github",)
-DOC_SOURCES = {"drive": "Google Drive", "notion": "Notion", "github": "a GitHub repository",
-               "website": "a website", "upload": "files we will upload", "none": ""}
 EMPTY_STATE = {"tour": False, "checklist": False, "skipped": [], "cards": []}
 
 
@@ -169,7 +166,7 @@ def empty_sections(c):
     chooses "don't show again". The market counts once the company's own answers are saved."""
     def none(sql):
         return c.execute(sql).fetchone() is None
-    return {"docs": none("SELECT 1 FROM documents WHERE collection='docs' LIMIT 1"),
+    return {"docs": none("SELECT 1 FROM docs WHERE archived=0 LIMIT 1") and none("SELECT 1 FROM linked_docs WHERE archived=0 LIMIT 1"),
             "market": none("SELECT 1 FROM market_entities LIMIT 1")
             and none(f"SELECT 1 FROM registry_metadata WHERE key='{MARKET_KEY}'"),
             "tasks": none("SELECT 1 FROM tasks LIMIT 1"), "updates": none("SELECT 1 FROM updates LIMIT 1"),
@@ -281,27 +278,23 @@ def create_bot(c, auth, who, body, settings_admin=None, settings=None):
     return {"task_id": task["id"], "slug": slug, "name": name}
 
 
-def docs_source(c, auth, who, body):
-    _owner(who, "connects the company's docs")
-    if body.kind != "none" and not body.value and body.kind in ("github", "website", "drive", "notion"):
-        raise Problem("kind", "Say where they are: a link, or the repository as owner/name", 422)
-    if body.kind == "none":
-        return {"task_id": None, "bot": None}
-    what = DOC_SOURCES[body.kind]
-    lines = ["Connect our docs and index them so Docs can search them.", "",
-             "- where they live: " + what, *(["- link or name: " + body.value] if body.value else []), "",
-             "Use the company docs sync (docs/company-docs-sync.md). For a GitHub repository, that is "
-             "Docs > Link repository. If something needs a credential or a person's sign-in, say which on "
-             "this task instead of guessing."]
-    target = DOC_BOT if _active(c, DOC_BOT) else BOTOPS
-    if target == BOTOPS:
-        _botops(c)
-        lines.insert(0, "There is no docs bot yet. Set up doc-updater from the catalog if one exists, "
-                     "or handle this yourself.")
-        lines.insert(1, "")
-    task = _task(c, auth, who, target, "Connect our docs: " + what, "\n".join(lines))
-    H.event(c, who.actor, "getting_started.docs_requested", target, {"task": task["id"], "kind": body.kind})
-    return {"task_id": task["id"], "bot": target}
+def docs_links(c, who, body):
+    """The links pasted into the Docs card: each becomes a linked doc (backend/docs.py). Tico keeps no
+    copy of what they point to. A repeat, or an address that is not a web address, is reported and skipped."""
+    from . import docs
+    _owner(who, "sets up the company's docs")
+    if not body.links:
+        raise Problem("kind", "Paste at least one link", 422)
+    linked, skipped = [], []
+    for item in body.links:
+        try:
+            linked.append(docs.add_link(c, who.actor, docs.LinkCreate(url=item.url, description=item.description)))
+        except Problem as exc:
+            if exc.code not in ("already_linked", "validation"):
+                raise
+            skipped.append({"url": item.url, "reason": exc.detail})
+    H.event(c, who.actor, "getting_started.docs_linked", "docs", {"linked": len(linked), "skipped": len(skipped)})
+    return {"linked": linked, "skipped": skipped}
 
 
 def market_context(c, auth, who, body):
@@ -364,7 +357,7 @@ def install(app, store, auth, mutate, settings, settings_admin):
     def docs(request: Request, body: M.GettingStartedDocs):
         who = request.state.identity
         _person(who)
-        return mutate(request, body, lambda c: docs_source(c, auth, who, body))
+        return mutate(request, body, lambda c: docs_links(c, who, body))
 
     @app.post("/api/v2/getting-started/market")
     def market(request: Request, body: M.GettingStartedMarket):

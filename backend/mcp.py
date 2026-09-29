@@ -33,7 +33,7 @@ class ApiProblem(Exception):
 
 
 class InProcessApi:
-    """`api.get` / `api.post` for `hubtools`, answered by this application in-process.
+    """`api.get` / `api.post` / `api.patch` for `hubtools`, answered by this application in-process.
 
     Runs on a worker thread; each call is a coroutine handed to the server's event loop.
     """
@@ -72,6 +72,9 @@ class InProcessApi:
 
     def post(self, path, body=None, key=None):
         return self._run("POST", path, body=body if body is not None else {}, key=key)
+
+    def patch(self, path, body=None, key=None):
+        return self._run("PATCH", path, body=body if body is not None else {}, key=key)
 
 
 def hubtools_key():

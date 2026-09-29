@@ -1,16 +1,11 @@
 """Source discovery is identical over HTTP and MCP, with no private-source leakage."""
-from backend import documents, market, meetings
+from backend import market, meetings
 from backend.tests.test_api import api, headers, setup_attempt, runner  # noqa: F401
 from backend.tests.test_mcp import call
 
 
 def seed(api):
     with api.app.state.store.transaction() as c:
-        documents.import_catalog(c, {"documents": [
-            {"id": "public", "title": "Pricing guide", "category": "External / Product",
-             "content": "prefix " * 100 + "Cancellation policy has a seven day window.", "url": "https://example.test/policy"},
-            {"id": "private", "title": "Private", "content": "Cancellation secret"},
-        ]})
         market.create_evidence(c, market.SEED_ACTOR, quote="Cancellation terms in the market",
                                source_url="https://example.test/market")
         for rid, kind, private in (("shared", "meeting", False), ("private", "meeting", True), ("note", "note", False)):
