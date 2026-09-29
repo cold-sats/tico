@@ -132,6 +132,7 @@ class Auth:
         self.owner_email = self.settings.owner_email
         self._owner_id = ""
         self._access_seen = None
+        self._credential_followed = None
         self.proxy = identity_proxy.build(self.settings, store)
 
     def sync_access(self, c):
@@ -147,13 +148,18 @@ class Auth:
         self._access_seen = rows
         self.owner_email = owner["email"]
         self._owner_id = ""
-        self.bot_admins = set(lists["bot_admins"])
+        self.bot_admins = set(lists["admins"])
         self.allowed_emails, self.allowed_domains = set(lists["allowed"]), set(lists["allowed_domains"])
         # Everything that still reads the settings sees the owner in force.
         previous, self.settings.owner_email = self.settings.owner_email, self.owner_email
-        if (getattr(self.settings, "credential_admins_follow_owner", False)
-                and self.settings.credential_admins == ((previous,) if previous else ())):
-            self.settings.credential_admins = (self.owner_email,) if self.owner_email else ()
+        # The company's Admins keep the credential vault with the owner, unless the server names its own list.
+        if getattr(self.settings, "credential_admins_follow_owner", False):
+            expected = self._credential_followed if self._credential_followed is not None else (
+                (previous,) if previous else ())
+            if tuple(self.settings.credential_admins) == expected:
+                self._credential_followed = tuple(dict.fromkeys(
+                    e for e in (self.owner_email, *sorted(self.bot_admins)) if e))
+                self.settings.credential_admins = self._credential_followed
 
     def admits(self, email):
         email = str(email or "").strip().lower()
@@ -345,14 +351,16 @@ class Auth:
                 # only with the secret made at confirm time, for the exact method and path stored, within
                 # two minutes of the click.
                 aid, _, secret = action.partition(".")
-                row = c.execute("SELECT method,path,confirm_hash,running_since FROM assistant_actions "
+                row = c.execute("SELECT method,path,confirm_hash,running_since,proposer FROM assistant_actions "
                                 "WHERE id=? AND owner=? AND status='running'", (aid, who.actor)).fetchone()
                 if (who.role not in ("owner", "human") or who.via or who.via_token or not secret or not row
                         or not row["confirm_hash"] or not hmac.compare_digest(row["confirm_hash"], digest(secret))
                         or row["method"] != method or row["path"] != path
                         or str(row["running_since"] or "") < H.shift(H.now(), seconds=-120)):
                     raise Problem("assistant_action", "That assistant action is not being confirmed", 403)
-                who = replace(who, via="assistant", confirmed=True)
+                # Recorded via whoever proposed it (the Assistant, or BotOps for what a person asked it for).
+                who = replace(who, via=row["proposer"] if row["proposer"] in ("assistant", "botops") else "assistant",
+                              confirmed=True)
             return who
 
     def join(self, email):
@@ -372,24 +380,42 @@ class Auth:
     FULL = {"see": True, "read": True, "write": True}
 
     def bot_manager(self, c, who, slug, operator=None):
-        """Whether this person may change the bot's settings: the owner, a bot administrator whose
-        own bot it is, or a person above it on the org chart."""
+        """Whether this person may manage the bot: the one "can manage this bot" rule (docs/permissions.md).
+        The owner, an Admin, one of the bot's owners (its creator and any co-owner, and its operator),
+        or a person above it on the org chart."""
         if who.role == "owner":
             return True
         if who.role != "human":
             return False
-        if operator is None:
-            row = c.execute("SELECT operator FROM bot_config WHERE bot=?", (slug,)).fetchone()
-            operator = row["operator"] if row else None
-        if operator is not None and self.bot_admin(who) and operator == H.actor_id(who.actor):
+        if self.bot_admin(who):
+            return True
+        row = c.execute("SELECT operator,bot_owners_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        pid = H.actor_id(who.actor)
+        if row and (row["operator"] == pid or pid in A.owner_ids(row["bot_owners_json"])):
             return True
         return self.manages(c, who, "bot", slug)
+
+    def member_bot(self, c, slug):
+        """Whether a member (not an owner or an Admin) created this bot: those go only on computers that
+        accept members' bots. A bot with no recorded creator is the company's."""
+        row = c.execute("SELECT created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        if not row or not row["created_by"] or not str(row["created_by"]).startswith("human:"):
+            return False
+        try:
+            creator = self.identity_for_actor(c, row["created_by"])
+        except Problem:
+            return True
+        return self.company_role(creator) == "member"
+
+    def company_role(self, who):
+        """`owner`, `admin` or `member`: what the person is to the company."""
+        return "owner" if who.role == "owner" else "admin" if self.bot_admin(who) else "member"
 
     def bot_accesses(self, c, who, slugs=None):
         """{slug: {see, read, write}} for this caller, for `slugs` (default every bot with a
         configuration). One pass, so a list answers with the same rules as a single check."""
         wanted = list(dict.fromkeys(slugs)) if slugs is not None else None
-        sql = "SELECT bot,access_json,operator,reports_to FROM bot_config"
+        sql = "SELECT bot,access_json,operator,reports_to,bot_owners_json FROM bot_config"
         if wanted is not None:
             sql += " WHERE bot IN (" + ",".join("?" * len(wanted)) + ")"
         rows = {r["bot"]: r for r in c.execute(sql, tuple(wanted or ()) if wanted is not None else ())}
@@ -441,11 +467,8 @@ class Auth:
             else:
                 ctx = context()
                 pid = ctx["person"]
-                managed = False
-                if row["operator"] and self.bot_admin(who) and row["operator"] == pid:
-                    managed = True
-                elif P.manages(pid, "bot", slug, ctx["roster"], ctx["entries"], ctx["archived"]):
-                    managed = True
+                managed = (self.bot_admin(who) or row["operator"] == pid or pid in A.owner_ids(row["bot_owners_json"])
+                           or P.manages(pid, "bot", slug, ctx["roster"], ctx["entries"], ctx["archived"]))
                 if managed:
                     out[slug] = dict(self.FULL)
                     continue

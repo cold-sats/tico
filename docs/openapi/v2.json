@@ -4181,6 +4181,19 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Revision"
+          },
+          "on_behalf_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Behalf Of"
           }
         },
         "additionalProperties": false,

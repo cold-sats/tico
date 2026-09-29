@@ -3,6 +3,7 @@
 import asyncio
 import time
 import json
+from dataclasses import replace
 import re
 import sqlite3
 from contextlib import asynccontextmanager
@@ -183,7 +184,7 @@ def create_app(settings=None):
     AUTH_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tico-auth")
     app.state.timing = Timing()
 
-    from .assistant import write_allowed as assistant_writes, own_room as assistant_room
+    from .assistant import write_allowed as assistant_writes, own_room as assistant_room, create_proposal
 
     def assistant_owns(task_id, actor):
         """The task is the person's alone: theirs, no bot on it and none delegated."""
@@ -330,7 +331,7 @@ def create_app(settings=None):
         auth.domain(who)
         if not H.bot(c, bot):
             raise Problem("not_found", "Unknown bot", 404)
-        if who.actor in ("bot:" + bot, "bot:" + BOTOPS) or auth.operator(c, who, bot) or auth.manages(c, who, "bot", bot):
+        if who.actor in ("bot:" + bot, "bot:" + BOTOPS) or auth.bot_manager(c, who, bot) or auth.operator(c, who, bot):
             return
         raise Problem("forbidden", "You cannot change this bot's routines", 403)
 
@@ -764,40 +765,94 @@ def create_app(settings=None):
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner " + what, 403)
 
+    def admin_only(who, what):
+        auth.domain(who)
+        if not auth.bot_admin(who):
+            raise Problem("forbidden", "Only an owner or an admin " + what, 403)
+
     @app.get("/api/v2/access")
     def access_view(request: Request):
-        """Who can sign in, who owns the environment and who administers bots. Owner only."""
+        """Who can sign in, the roles, what members may do and the company domain. Owners and admins."""
         who = request.state.identity
-        owner_only(who, "sees who can sign in")
+        admin_only(who, "sees who can sign in")
         with store.read() as c:
-            return Access.view(c, settings, views.roster(c), settings.proxy_kind, auth.owner_id(c))
+            return {**Access.view(c, settings, views.roster(c), settings.proxy_kind, auth.owner_id(c)),
+                    "you": auth.company_role(who)}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
-        who = request.state.identity
-        owner_only(who, "adds people")
+        """Add a person to the roster and the sign-in allow list. An owner or admin may add anyone; a member only
+        a coworker in the company's email domain (and only if `add_people` is on for them). BotOps asking for a
+        person answers with a Confirm card first: adding someone always needs the requester's own click."""
+        caller = request.state.identity
+        auth.domain(caller)
 
         def work(c):
-            _, row = Access.add_person(c, who.actor, views.roster(c), name=body.name, email=body.email,
-                                       title=body.title, team=body.team)
-            return {"person": row["id"]}
-        return mutate(request, body, work)
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
+            if who.role not in ("owner", "human"):
+                raise Problem("forbidden", "Only people add people", 403)
+            email = Access._valid_email(body.email)
+            roster = views.roster(c)
+            Access.check_may_add(c, settings, P.person(H.actor_id(who.actor), roster), auth.company_role(who), email,
+                                 Access.company_domains(c, settings, auth.owner_email))
+            if risky(who):
+                return propose_card(c, who, "POST", "/api/v2/access/people",
+                                    {"name": body.name, "email": email, "title": body.title, "team": body.team,
+                                     "reports_to": body.reports_to},
+                                    f"Add {body.name or email} ({email}) to the roster")
+            _, row = Access.add_person(c, who.actor, roster, name=body.name, email=email, title=body.title,
+                                       team=body.team, reports_to=body.reports_to)
+            return {"person": row["id"], "email": email, "name": row["name"]}
+        result = mutate(request, body, work)
+        with store.read() as c:
+            auth.sync_access(c)
+        return result
 
     @app.post("/api/v2/access/people/{pid}")
     def access_person_edit(request: Request, pid: str, body: M.AccessPersonEdit):
-        who = request.state.identity
-        owner_only(who, "edits people here")
+        """Owners and admins edit a person, including what a member may do (create bots, add people). Only an
+        owner makes or removes an admin. Through BotOps, a role or add_people change is a Confirm card."""
+        caller = request.state.identity
+        auth.domain(caller)
 
         def work(c):
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
+            admin_only(who, "edits people here")
             if body.left:
                 raise Problem("forbidden", "Mark someone as left from their profile, which also ends their tokens", 422)
+            roles = body.role is not None or body.bot_admin is not None
+            if roles and who.role != "owner":
+                raise Problem("forbidden", "Only an owner makes or removes admins", 403)
+            if (roles or body.add_people is not None) and risky(who):
+                return propose_card(c, who, "POST", "/api/v2/access/people/" + pid,
+                                    body.model_dump(exclude_none=True, exclude={"on_behalf_of"}),
+                                    "Change the role or what " + ((H.human(c, pid) or {}).get("name") or pid)
+                                    + " may do")
             roster, lists = views.roster(c), Access.load_access(c, settings)
             row, admins, changed = Access.edit_person(c, who.actor, roster, pid, body, lists, auth.owner_email)
-            if admins != lists["bot_admins"]:
+            if admins != lists["admins"]:
                 Access.save_access(c, who.actor, {"expected_revision": lists["revision"]}, H.now(),
                                    bot_admins=admins, settings=settings)
             H.event(c, who.actor, "person.access_edited", pid, changed)
             return {"person": row["id"]}
+        result = mutate(request, body, work)
+        with store.read() as c:
+            auth.sync_access(c)
+        return result
+
+    @app.put("/api/v2/access/limits")
+    def access_limits(request: Request, body: M.AccessLimits):
+        """How many active bots one member may have. Owners and admins."""
+        who = request.state.identity
+        admin_only(who, "sets the bot limit")
+
+        def work(c):
+            stored = Access._load_json(c, Access.ACCESS) or {}
+            before = Access.load_access(c, settings)
+            Access._store(c, Access.ACCESS, {**before, **stored, "member_bot_limit": body.member_bot_limit})
+            H.event(c, who.actor, "access.limits_updated", "",
+                    {"before": before["member_bot_limit"], "after": body.member_bot_limit})
+            return {"member_bot_limit": body.member_bot_limit}
         result = mutate(request, body, work)
         with store.read() as c:
             auth.sync_access(c)
@@ -954,7 +1009,7 @@ def create_app(settings=None):
     # What a caller who may only see a bot is told about it: its name, role, who runs it and who it
     # reports to. Its status, machine, queue and configuration are its activity, which is Read.
     SEE_ONLY = ("slug", "display_name", "state", "description", "team", "operator", "reports_to", "owners",
-                "thread_mode", "temp", "access")
+                "thread_mode", "temp", "access", "bot_owners")
 
     def bot_view(c, bot, level, access, registry_roster, registry_entries):
         """One bot as the bot list and the bot detail show it: everything for a caller who may read
@@ -983,6 +1038,7 @@ def create_app(settings=None):
         owner_rows = ([H.human(c, owner) for owner in configured] if configured is not None
                       else P.primary_users(bot["slug"], registry_roster, registry_entries))
         row["owners"] = [P.brief(owner) for owner in owner_rows if owner]
+        row["bot_owners"] = settings_admin.owner_rows(c, bot["slug"]) if config else []
         if row.get("reports_to") and not str(row["reports_to"]).startswith("human:") \
                 and not access.get(row["reports_to"], auth.FULL)["see"]:
             row["reports_to"] = ""      # a bot this caller may not see is not named to them
@@ -1201,7 +1257,7 @@ def create_app(settings=None):
             auth.domain(who)
             if not H.bot(c, bot):
                 raise Problem("not_found", "Unknown bot", 404)
-            if not (auth.manages(c, who, "bot", bot) or auth.operator(c, who, bot) or views.may_chat(c, auth, who, bot)):
+            if not (auth.bot_manager(c, who, bot) or auth.operator(c, who, bot) or views.may_chat(c, auth, who, bot)):
                 raise Problem("forbidden", "You cannot set this bot's goals", 403)
             c.execute("UPDATE bot_config SET goals=? WHERE bot=?", (body.goals, bot))
             if not c.execute("SELECT 1 FROM bot_config WHERE bot=?", (bot,)).fetchone():
@@ -2130,23 +2186,37 @@ def create_app(settings=None):
 
     DELEGATION_DAYS = 7
 
-    def delegated_identity(c, who, message_id):
-        """The person whose chat message asked BotOps for a bot-settings change.
+    def delegated_identity(c, who, ref):
+        """The person BotOps is acting for: the one whose direct chat message to BotOps started this turn
+        (`ref` is "turn"), or whose message it cites by id.
 
-        For example, "set the scribe's reports to Ben and move it there":
-        a person's instruction to BotOps is enough; they should not have to click it themselves.
-        The change is checked with that person's own permissions (no more), and only for a
-        message they sent BotOps in the last week.
+        "Set the scribe's reports to Ben and move it there": a person's instruction to BotOps is enough;
+        they should not have to click it themselves. The change is checked with that person's own
+        permissions (no more), and recorded as theirs, "via BotOps". It never comes from a message a bot
+        wrote, from one the Assistant wrote for a person (`refs.via`), from text inside a task or a
+        document, or from a message more than a week old. What always needs the person's own click is
+        proposed instead (`propose_card`).
         """
         if who.actor != "bot:" + BOTOPS:
-            raise Problem("forbidden", "Only BotOps applies bot changes on a person's behalf", 403)
+            raise Problem("forbidden", "Only BotOps applies changes on a person's behalf", 403)
+        message_id = ref
+        if not ref or ref == "turn":
+            turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
+                             (who.attempt_id,)).fetchone() if who.attempt_id else None
+            if not turn:
+                raise Problem("on_behalf_of", "BotOps acts for a person only in a turn a person's chat message started", 403)
+            message_id = turn["message_id"]
         msg = H.message(c, message_id)
         if (not msg or not str(msg["from_actor"]).startswith("human:")
                 or msg["to_actor"] != "bot:" + BOTOPS or msg["kind"] not in ("say", "answer")):
             raise Problem("on_behalf_of", "Cite a message a person sent BotOps asking for this change", 403)
-        if (msg.get("refs") or {}).get("via"):
+        refs = msg.get("refs") or {}
+        if refs.get("via") or refs.get("assistant"):
             # The Assistant wrote this for the person: its writes never carry the person's authority on.
             raise Problem("on_behalf_of", "That message was written by the Assistant; ask the person to send it", 403)
+        conversation = H.conversation(c, msg["conversation_id"]) or {}
+        if conversation.get("task_id") or conversation.get("scope") == "task" or refs.get("task"):
+            raise Problem("on_behalf_of", "A person's words inside a task are not a request to BotOps; ask in chat", 403)
         if msg["created"] < H.shift(H.now(), days=-DELEGATION_DAYS):
             raise Problem("on_behalf_of", "That request is more than a week old; ask the person again", 403)
         # Only a request in a conversation this run may read: otherwise any message a bot sends
@@ -2155,7 +2225,23 @@ def create_app(settings=None):
             auth.conversation(c, who, msg["conversation_id"])
         except Problem:
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
-        return auth.identity_for_actor(c, msg["from_actor"])
+        person = auth.identity_for_actor(c, msg["from_actor"])
+        H.VIA.set("botops")           # every event and history row from here says "via BotOps"
+        H.event(c, who.actor, "botops.acting_for", person.actor, {"message": message_id})
+        return replace(person, via="botops")
+
+    def propose_card(c, acting, method, path, body, summary):
+        """What always needs the requesting person's own click: a Confirm card in their chat with BotOps,
+        and the answer BotOps reports back instead of asking them to go to Settings."""
+        room = rooms.chat_room(c, auth, acting, BOTOPS)
+        card = create_proposal(c, settings, acting, room, BOTOPS, summary, method, path, body)
+        return {"proposed": True, "needs_confirm": True, **card,
+                "detail": "This needs " + ((H.human(c, H.actor_id(acting.actor)) or {}).get("name") or "the person")
+                + "'s own OK. A Confirm card is in their chat with BotOps; nothing has changed yet."}
+
+    def risky(who):
+        """A delegated identity that has not been confirmed: BotOps acting for a person, before their click."""
+        return who.via == "botops" and not who.confirmed
 
     @app.post("/api/v2/bots/{bot}/definition")
     def update_bot(request: Request, bot: str, body: M.BotDefinitionUpdate):
@@ -2180,7 +2266,7 @@ def create_app(settings=None):
     def status_set(request: Request, bot: str, body: M.StatusUpdate):
         who = request.state.identity
         def work(c):
-            if who.actor != "bot:" + bot and not auth.operator(c, who, bot):
+            if who.actor != "bot:" + bot and not (auth.operator(c, who, bot) or auth.bot_manager(c, who, bot)):
                 raise Problem("forbidden", "You cannot manage this bot", 403)
             if body.state == "active" and (H.bot(c, bot) or {}).get("state") == "quarantined":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
@@ -2346,7 +2432,7 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
-            if not runner or not (who.role == "owner" or who.role == "human" and who.actor == "human:" + runner["operator"]):
+            if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot restart this runner", 403)
             c.execute("UPDATE runners SET restart_requested=? WHERE id=?", (H.now(), rid))
             H.event(c, who.actor, "runner.restart", rid)
@@ -2359,7 +2445,7 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
-            if not runner or not (who.role == "owner" or who.role == "human" and who.actor == "human:" + runner["operator"]):
+            if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot change this computer", 403)
             inbox_isolation.allow_shared(c, rid, body.allowed)
             H.event(c, who.actor, "runner.inbox_sharing", rid, {"allowed": body.allowed})
@@ -2423,16 +2509,44 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             runner = c.execute("SELECT * FROM runners WHERE id=?", (rid,)).fetchone()
-            if not runner or not (who.role == "owner" or who.role == "human" and who.actor == "human:" + runner["operator"]):
+            if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot revoke this runner", 403)
             c.execute("UPDATE runners SET revoked_at=? WHERE id=?", (H.now(), rid))
             H.event(c, who.actor, "runner.revoked", rid)
             return {"revoked": True}
         return mutate(request, body, work)
 
+    def closed_computer(c, who, bot, runner_id):
+        """An admin placing a member's bot on a computer that does not take members' bots: allowed, but through
+        BotOps only with the admin's own click."""
+        runner = c.execute("SELECT accepts_member_bots FROM runners WHERE id=? AND revoked_at IS NULL", (runner_id,)).fetchone()
+        return bool(runner and not runner["accepts_member_bots"] and auth.member_bot(c, bot) and auth.bot_admin(who))
+
     @app.post("/api/v2/bots/{bot}/assignment")
     def assign(request: Request, bot: str, body: M.Assignment):
-        return mutate(request, body, lambda c: execution.assign(c, request.state.identity, bot, body))
+        caller = request.state.identity
+        def work(c):
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
+            if risky(who) and closed_computer(c, who, bot, body.runner_id):
+                return propose_card(c, who, "POST", "/api/v2/bots/" + bot + "/assignment",
+                                    body.model_dump(exclude={"on_behalf_of"}),
+                                    "Place " + ((H.bot(c, bot) or {}).get("display_name") or bot)
+                                    + " on a computer that does not take members' bots")
+            return execution.assign(c, who, bot, body)
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/runners/{rid}/member-bots")
+    def runner_member_bots(request: Request, rid: str, body: M.RunnerMemberBots):
+        """Whether a computer takes the bots members create. Owners and admins."""
+        who = request.state.identity
+        def work(c):
+            admin_only(who, "says which computers take members' bots")
+            if not c.execute("SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone():
+                raise Problem("not_found", "Computer not found", 404)
+            c.execute("UPDATE runners SET accepts_member_bots=? WHERE id=?", (int(body.accepts), rid))
+            H.event(c, who.actor, "runner.member_bots", rid, {"accepts": body.accepts})
+            return {"accepts_member_bots": body.accepts}
+        return mutate(request, body, work)
 
     # An external agent (a Hermes profile) is a bot with a standing credential instead of a
     # computer: a person mints it here, the agent's box heartbeats with it, and the same token
@@ -2518,20 +2632,55 @@ def create_app(settings=None):
 
     @app.put("/api/v2/bots/{bot}/access")
     def bot_access_write(request: Request, bot: str, body: M.BotAccess):
-        who = request.state.identity
+        caller = request.state.identity
         def work(c):
-            auth.domain(who)
+            auth.domain(caller)
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
             auth.require_see(c, who, bot)
             return settings_admin.set_access(c, who, bot, body)
         return mutate(request, body, work)
 
+    @app.post("/api/v2/bots/register")
+    def bot_register(request: Request, body: M.BotRegister):
+        """Register a bot with the server (planned), as the person asking: the record BotOps then builds the
+        repository for. They become its owner. Needs `create_bots` (or Admin), and stays within the limit of
+        active bots each member may have. Registering a slug you already own answers with it (`created: false`)."""
+        caller = request.state.identity
+        def work(c):
+            auth.domain(caller)
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
+            if who.role not in ("owner", "human"):
+                raise Problem("forbidden", "Only people register bots", 403)
+            return settings_admin.register(c, who, body)
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/bots/{bot}/co-owners")
+    def bot_co_owners(request: Request, bot: str, body: M.BotCoOwners):
+        """Add or remove people who own a bot. Any of its owners may; whoever it reports up to and the Admins
+        are owners without being listed."""
+        caller = request.state.identity
+        def work(c):
+            auth.domain(caller)
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
+            if not H.bot(c, bot):
+                raise Problem("not_found", "Bot not found", 404)
+            auth.require_see(c, who, bot)
+            return settings_admin.co_owners(c, who, bot, body.add, body.remove)
+        return mutate(request, body, work)
+
     @app.post("/api/v2/bots/{bot}/placement")
     def placement(request: Request, bot: str, body: M.BotPlacement):
-        who = request.state.identity
+        caller = request.state.identity
         def work(c):
+            who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
             settings_admin._manager(c, who, bot)
+            if risky(who) and closed_computer(c, who, bot, body.runner_id):
+                return propose_card(c, who, "POST", "/api/v2/bots/" + bot + "/placement",
+                                    body.model_dump(exclude={"on_behalf_of"}),
+                                    "Place " + ((H.bot(c, bot) or {}).get("display_name") or bot)
+                                    + " on a computer that does not take members' bots")
             config = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
             if not config:
                 raise Problem("not_found", "Bot not found", 404)
@@ -2540,8 +2689,10 @@ def create_app(settings=None):
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (body.runner_id,)).fetchone()
             if not runner:
                 raise Problem("not_found", "Machine is not registered", 404)
-            if who.role != "owner" and runner["operator"] != H.actor_id(who.actor):
-                raise Problem("forbidden", "Bot administrators may use only their own registered computers", 403)
+            if (who.role != "owner" and not auth.bot_admin(who) and runner["operator"] != H.actor_id(who.actor)
+                    and not (runner["accepts_member_bots"] and auth.member_bot(c, bot))):
+                raise Problem("forbidden", "You may use only your own registered computers, or ones an admin has "
+                              "opened to members' bots", 403)
             current = c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone()
             generation = current["generation"] if current else 0
             if generation != body.expected_generation:
@@ -2656,7 +2807,7 @@ def create_app(settings=None):
     def control(request: Request, bot: str, body: M.BotControl):
         who = request.state.identity
         def work(c):
-            if not auth.operator(c, who, bot):
+            if not (auth.operator(c, who, bot) or auth.bot_manager(c, who, bot)):
                 raise Problem("forbidden", "You do not manage this bot", 403)
             config = c.execute("SELECT * FROM bot_config WHERE bot=?", (bot,)).fetchone()
             if config["revision"] != body.expected_revision:
@@ -2784,7 +2935,7 @@ def create_app(settings=None):
     from .imports import install_imports
     install_imports(app, store, auth, execution, mutate)
     from .credentials import install_credentials
-    install_credentials(app, store, delegate=delegated_identity)
+    install_credentials(app, store, delegate=delegated_identity, propose=propose_card)
     from .sql import install_sql
     install_sql(app, store, auth)
     from .judge import install_judge

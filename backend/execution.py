@@ -99,7 +99,7 @@ class Execution:
         if who.role not in ("owner", "human"):
             raise Problem("identity", "A person must enroll a machine", 403)
         operator = body.operator or H.actor_id(who.actor)
-        if who.role != "owner" and operator != H.actor_id(who.actor):
+        if not self.auth.bot_admin(who) and operator != H.actor_id(who.actor):
             raise Problem("forbidden", "You can enroll only your own machines", 403)
         if not H.human(c, operator):
             raise Problem("not_found", "Operator is not on the roster", 404)
@@ -124,8 +124,16 @@ class Execution:
                     raise Problem("enrollment", "Enrollment code was already used", 409)
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
-            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform) VALUES(?,?,?,?,?,?)",
-                      (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
+            # A computer a member enrolls is theirs and holds only their own credentials, so it takes members'
+            # bots from the start; one an owner or an admin enrolls holds the company's, so an admin opens it.
+            try:
+                enrolled_by = self.auth.company_role(self.auth.identity_for_actor(c, "human:" + row["operator"]))
+            except Problem:
+                enrolled_by = "owner"
+            c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
+                      "VALUES(?,?,?,?,?,?,?)",
+                      (rid, body.label, row["operator"], digest(token), H.now(), body.platform,
+                       1 if enrolled_by == "member" else 0))
             c.execute("UPDATE enrollments SET consumed_at=?,runner_id=? WHERE code_hash=?",
                       (H.now(), rid, digest(body.code)))
             H.event(c, "human:" + row["operator"], "runner.enrolled", rid)
@@ -226,14 +234,15 @@ class Execution:
         # company default, so changing the default moves it without editing the bot.
         company = providers.load(c, self.store.settings)
         for row in rows:
-            if row['operator'] != runner['operator'] and runner['operator'] != owner:
+            takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'])
+            if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
             result.append({**dict(row), 'config': providers.fill(company, json.loads(row['config_json'])),
                            'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
 
     def assign(self, c, who, bot, body):
-        if not self.auth.operator(c, who, bot):
+        if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
             raise Problem("forbidden", "You do not manage this bot's machines", 403)
         from .agents import external_harness
         if external_harness(c, bot):
@@ -244,7 +253,15 @@ class Execution:
         if not runner:
             raise Problem("not_found", "Runner is not registered", 404)
         operator = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()[0]
-        if runner["operator"] not in (operator, self.auth.owner_id(c)):
+        member_bot = self.auth.member_bot(c, bot)
+        if member_bot and not runner["accepts_member_bots"] and not self.auth.bot_admin(who):
+            # A member's bot goes only on a computer an admin has opened to members' bots.
+            raise Problem("computer_closed", "That computer does not take bots members create. Ask an admin to place "
+                          "this bot, or to let the computer accept members' bots (Settings > Devices)", 409)
+        # A computer hosts its operator's bots and the owner's; a member's bot may also go on a computer an
+        # admin has opened to members' bots, and an admin may put a member's bot on any computer.
+        if (runner["operator"] not in (operator, self.auth.owner_id(c))
+                and not (member_bot and (runner["accepts_member_bots"] or self.auth.bot_admin(who)))):
             raise Problem("forbidden", "This machine's operator is not authorized to host this bot", 403)
         old = c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone()
         generation = old["generation"] if old else 0

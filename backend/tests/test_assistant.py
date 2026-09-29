@@ -4,7 +4,7 @@ person's own click."""
 
 import pytest
 
-from backend.tests.test_api import api, assign, claim, get, headers, post, ready, runner  # noqa: F401
+from backend.tests.test_api import api, as_member, assign, claim, get, headers, post, ready, runner  # noqa: F401
 from backend.store import H
 
 
@@ -51,6 +51,7 @@ def test_only_the_owner_of_an_assistant_room_reads_or_posts_in_it(api):
 
 
 def test_the_assistant_acts_as_the_person_and_never_more(api):
+    as_member(api, "ben@acme.example")
     with api.app.state.store.transaction() as c:      # the private inbox bot's work: ana's, not ben's
         secret = H.task_create(c, "human:ana", "Review the private mail", "Nothing for ben.", "bot:inbox")["id"]
     r, attempt = assistant_turn(api, "ben-test")

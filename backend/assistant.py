@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS assistant_actions_owner ON assistant_actions(owner, s
 def ensure_schema(c):
     c.executescript(SCHEMA)
     have = {r[1] for r in c.execute("PRAGMA table_info(assistant_actions)")}
-    for column in ("confirm_hash", "running_since", "description", "diff_json"):
+    for column in ("confirm_hash", "running_since", "description", "diff_json", "proposer"):
         if column not in have:
             c.execute("ALTER TABLE assistant_actions ADD COLUMN %s TEXT" % column)
     if not any(r[1] == "via" for r in c.execute("PRAGMA table_info(task_events)")):
@@ -103,7 +103,8 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/tasks/[^/]+/(comments|links|labels|run-now|ask)"),
     ("POST", r"/api/v2/messages"), ("POST", r"/api/v2/chat/[^/]+"), ("POST", r"/api/v2/notes"),
     ("POST", r"/api/v2/updates/[^/]+/reply"),
-    ("POST", r"/api/v2/bots"), ("POST", r"/api/v2/bots/[^/]+/(archive|definition|owners|updates|goals)"),
+    ("POST", r"/api/v2/bots"), ("POST", r"/api/v2/bots/[^/]+/(archive|definition|owners|co-owners|updates|goals)"),
+    ("POST", r"/api/v2/bots/[^/]+/(assignment|placement)"), ("POST", r"/api/v2/credentials/[^/]+/grants"),
     ("POST", r"/api/v2/people/[^/]+"), ("POST", r"/api/v2/access/people(/[^/]+)?"),
     ("PUT", r"/api/v2/providers"), ("PATCH", r"/api/v2/files/[^/]+"),
 )]
@@ -175,9 +176,14 @@ def describe(c, method, path, body):
         (r"/api/v2/bots/([^/]+)/archive", lambda g: f"Archive bot {bot(g[0])}"),
         (r"/api/v2/bots/([^/]+)/definition", lambda g: f"Change settings of bot {bot(g[0])}"
          + ((" to status " + str(body["status"])) if body.get("status") else "")),
-        (r"/api/v2/bots/([^/]+)/(owners|updates|goals)", lambda g: f"Change {g[1]} of bot {bot(g[0])}"),
+        (r"/api/v2/bots/([^/]+)/(owners|co-owners|updates|goals)", lambda g: f"Change {g[1]} of bot {bot(g[0])}"),
+        (r"/api/v2/bots/([^/]+)/(assignment|placement)", lambda g: f"Place bot {bot(g[0])} on a computer that does not "
+         "take members' bots"),
+        (r"/api/v2/credentials/([^/]+)/grants", lambda g: "Give " + who(body.get("subject")) + " a stored credential"),
         (r"/api/v2/people/([^/]+)", lambda g: f"Edit person {who(g[0])}"),
-        (r"/api/v2/access/people(?:/([^/]+))?", lambda g: "Change who has access" + (f" for {who(g[0])}" if g[0] else "")),
+        (r"/api/v2/access/people", lambda g: f"Add {body.get('name') or body.get('email', '')} ({body.get('email', '')}) "
+         "to the roster, and let them sign in"),
+        (r"/api/v2/access/people/([^/]+)", lambda g: "Change the role or what " + who("human:" + g[0]) + " may do"),
         (r"/api/v2/providers", lambda g: "Change the company's AI providers"),
         (r"/api/v2/files/([^/]+)", lambda g: "Change a file's listing"),
     )
@@ -185,6 +191,36 @@ def describe(c, method, path, body):
         if (mm := re.fullmatch(pattern, path)):
             return fn(mm.groups()), diff
     return f"{method} {path}", diff
+
+
+def create_proposal(c, settings, who, room, proposer, summary, method, path, body):
+    """One pending action for `who` to confirm, and its card in `room`, written by the bot that proposed it.
+
+    The Assistant proposes what its turn may not do on its own; BotOps proposes what a person asked it for
+    that always needs their own click (adding people, roles, shared credentials, a computer that does not
+    take members' bots). Either way only the person's own confirm runs it, as them."""
+    path = normalize_path(path)
+    if not valid_operation(method, path, settings):
+        raise Problem("operation", "That is not something that can be proposed: it is not on the list of routes "
+                      "a person confirms", 422)
+    if c.execute("SELECT count(*) FROM assistant_actions WHERE owner=? AND status='pending'",
+                 (who.actor,)).fetchone()[0] >= MAX_PENDING:
+        raise Problem("too_many", "Too many proposals are waiting; confirm or cancel some first", 409)
+    body = {k: v for k, v in (body or {}).items() if k != "on_behalf_of"}
+    what, diff = describe(c, method, path, body)
+    row = {"id": H.new_id(), "owner": who.actor, "conversation_id": room["id"], "summary": summary,
+           "method": method, "path": path, "body_json": json.dumps(body),
+           "status": "pending", "proposed_via": proposer, "created": H.now(),
+           "description": what, "diff_json": json.dumps(diff, default=str), "proposer": proposer}
+    c.execute("INSERT INTO assistant_actions(id,owner,conversation_id,summary,method,path,body_json,status,"
+              "proposed_via,created,description,diff_json,proposer) VALUES(:id,:owner,:conversation_id,:summary,"
+              ":method,:path,:body_json,:status,:proposed_via,:created,:description,:diff_json,:proposer)", row)
+    bot = settings.assistant_bot if proposer == "assistant" else proposer
+    card = H._write_message(c, "bot:" + bot, who.actor, "Needs your OK: " + summary, room, "say",
+                            {"assistant": True, "action": row["id"]}, None, None, delivered_at=H.now())
+    H.event(c, who.actor, "assistant.action.proposed", row["id"],
+            {"summary": summary[:200], "method": method, "path": path, "proposer": proposer})
+    return {"action": action_view(row), "message_id": card["id"]}
 
 
 # ------------------------------------------------------------------ the room
@@ -224,7 +260,8 @@ def action_view(row):
     return {"id": row["id"], "owner": row["owner"], "conversation_id": row["conversation_id"],
             "summary": row["summary"], "method": row["method"], "path": row["path"],
             "body": json.loads(row["body_json"] or "{}"), "status": row["status"],
-            "proposed_via": row["proposed_via"], "created": row["created"], "decided_at": row.get("decided_at"),
+            "proposed_via": row["proposed_via"], "proposer": row.get("proposer") or row["proposed_via"],
+            "created": row["created"], "decided_at": row.get("decided_at"),
             "description": row.get("description") or "", "diff": json.loads(row.get("diff_json") or "[]"),
             "result": result}
 
@@ -694,29 +731,13 @@ def install(app, store, auth, mutate, onboarding):
         who = person(request)
 
         def work(c):
-            path = normalize_path(body.path)
-            if not valid_operation(body.method, path, settings):
+            if normalize_path(body.path) == "/api/v2/chat/" + settings.assistant_bot or not valid_operation(
+                    body.method, body.path, settings):
                 raise Problem("operation", "That is not something the " + settings.assistant_name
                               + " can propose: it is not on the list of routes a person confirms (never tokens, "
                               "sign-in, enrollment or this assistant)", 422)
-            if c.execute("SELECT count(*) FROM assistant_actions WHERE owner=? AND status='pending'",
-                         (who.actor,)).fetchone()[0] >= MAX_PENDING:
-                raise Problem("too_many", "Too many proposals are waiting; confirm or cancel some first", 409)
             room = ensure_room(c, who.actor, settings.assistant_bot)
-            what, diff = describe(c, body.method, path, body.body)
-            row = {"id": H.new_id(), "owner": who.actor, "conversation_id": room["id"], "summary": body.summary,
-                   "method": body.method, "path": path, "body_json": json.dumps(body.body),
-                   "status": "pending", "proposed_via": who.via or "person", "created": H.now(),
-                   "description": what, "diff_json": json.dumps(diff, default=str)}
-            c.execute("INSERT INTO assistant_actions(id,owner,conversation_id,summary,method,path,body_json,status,"
-                      "proposed_via,created,description,diff_json) VALUES(:id,:owner,:conversation_id,:summary,:method,"
-                      ":path,:body_json,:status,:proposed_via,:created,:description,:diff_json)", row)
-            card = H._write_message(c, "bot:" + settings.assistant_bot, who.actor,
-                                    "Needs your OK: " + body.summary, room, "say",
-                                    {"assistant": True, "action": row["id"]}, None, None, delivered_at=H.now())
-            H.event(c, who.actor, "assistant.action.proposed", row["id"],
-                    {"summary": body.summary[:200], "method": body.method, "path": path})
-            return {"action": action_view(row), "message_id": card["id"]}
+            return create_proposal(c, settings, who, room, "assistant", body.summary, body.method, body.path, body.body)
         return mutate(request, body, work)
 
     def expire(c):
@@ -745,8 +766,10 @@ def install(app, store, auth, mutate, onboarding):
             row = load(c, who, aid)
             room = H.conversation(c, row["conversation_id"]) if row["conversation_id"] else None
             if room and note:
-                H._write_message(c, "bot:" + settings.assistant_bot, who.actor, note, room, "say",
-                                 {"assistant": True, "action_result": aid}, None, None, delivered_at=H.now())
+                by = row.get("proposer") or "assistant"
+                H._write_message(c, "bot:" + (settings.assistant_bot if by == "assistant" else by), who.actor, note,
+                                 room, "say", {"assistant": True, "action_result": aid}, None, None,
+                                 delivered_at=H.now())
             return {"action": action_view(row)}
 
     @app.post("/api/v2/assistant/actions/{aid}/cancel")

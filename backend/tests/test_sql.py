@@ -12,7 +12,7 @@ import pytest
 
 from backend import sql as SQL
 from backend.store import H
-from backend.tests.test_api import api, assign, claim, headers, post, ready, runner
+from backend.tests.test_api import api, as_member, assign, claim, headers, post, ready, runner
 
 SECRET_TABLES = ("credentials", "credential_keys", "credential_grants", "idempotency", "runners",
                  "enrollments", "session_epochs", "settings_changes", "backup_verified_blobs",
@@ -129,6 +129,7 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
 
 
 def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, world):
+    as_member(api, "ben@acme.example")
     ben = "ben-test"
     tasks = column(api, "SELECT id FROM tasks", ben)
     assert tasks == sorted(world[k]["id"] for k in ("coo_task", "finance_task"))

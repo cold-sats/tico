@@ -11,6 +11,7 @@ from pydantic import ConfigDict, Field, SecretStr
 
 from .auth import validate_identity
 from .models import Contract, ID
+from .bot_access import owner_ids
 from .store import H, Problem, encode
 
 CONTEXT = {'application': 'tico-credentials'}
@@ -196,8 +197,10 @@ class Vault:
         if administrator(c, who, self.admins):
             return None
         parent = effective_grant(c,cid,who.actor) if who.role in ('human','owner') else None
-        bot = c.execute('SELECT operator FROM bot_config WHERE bot=?', (H.actor_id(subject),)).fetchone() if subject.startswith('bot:') else None
-        if not parent or not bot or bot['operator'] != H.actor_id(who.actor):
+        bot = c.execute('SELECT operator,bot_owners_json FROM bot_config WHERE bot=?', (H.actor_id(subject),)).fetchone() if subject.startswith('bot:') else None
+        # A bot's owners (its creator and co-owners, and its operator) attach credentials they hold themselves.
+        if not parent or not bot or (bot['operator'] != H.actor_id(who.actor)
+                                     and H.actor_id(who.actor) not in owner_ids(bot['bot_owners_json'])):
             raise Problem('forbidden', 'You may attach granted credentials only to bots you manage', 403)
         return parent['id']
 
@@ -236,7 +239,7 @@ class Vault:
         return {'id':cid,'value':value}
 
 
-def install_credentials(app,store,delegate=None):
+def install_credentials(app,store,delegate=None,propose=None):
     vault=app.state.vault=Vault(store)
 
     def acting(request, body, message_id=None):
@@ -295,6 +298,15 @@ def install_credentials(app,store,delegate=None):
     @app.post('/api/v2/credentials/{cid}/grants')
     def grant(request:Request,cid:str,body:CredentialGrant):
         who=acting(request,body)
+        if who.via=='botops' and not who.confirmed and propose:
+            # Giving a bot a stored credential is a tool registration on a shared or another bot's secret:
+            # through BotOps it is always the requester's own click.
+            with store.transaction() as c:
+                validate_identity(c,who)
+                vault.grant_authority(c,who,cid,body.subject)
+                name=vault.row(c,cid)['name']
+                return propose(c,who,'POST',request.url.path,{'subject':body.subject},
+                               f"Give {body.subject} the stored credential {name}")
         return vault.change(who,request.url.path,request.headers.get('idempotency-key'),body,
                             lambda c,w:vault.grant_authority(c,w,cid,body.subject),lambda c:vault.grant(c,who,cid,body.subject))
 

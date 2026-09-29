@@ -96,6 +96,15 @@ def names(level, person="", team="", bot=""):
                 or (bot and bot in level["bots"]))
 
 
+def owner_ids(raw):
+    """The people a bot's owners list names (`bot_config.bot_owners_json`); the creator and any co-owners."""
+    try:
+        value = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return []
+    return _names(value) if isinstance(value, list) else []
+
+
 def summary(doc):
     """The three levels as short words, for the audit trail: 'everyone' or a count of entries."""
     def word(level):

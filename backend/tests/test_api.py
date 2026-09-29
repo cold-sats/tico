@@ -59,6 +59,17 @@ def restrict(c, bot, **audience):
               (BA.stored(BA.document({level: BA.audience(value) for level, value in every.items()})), bot))
 
 
+def as_member(api, email):
+    """Take an Admin back to a plain member (the fixture makes Ben an admin: an admin manages every bot, so
+    a test about what a member may not see needs him to be one)."""
+    from backend import access as Access
+    with api.app.state.store.transaction() as c:
+        stored = Access._load_json(c, Access.ACCESS) or {}
+        Access._store(c, Access.ACCESS, {**stored, "admins": [e for e in Access.load_access(c, api.app.state.store.settings)["admins"] if e != email]})
+    with api.app.state.store.read() as c:
+        api.app.state.auth.sync_access(c)
+
+
 def headers(token="ana-test", key=None):
     return {"Authorization": "Bearer " + token, "Idempotency-Key": key or str(uuid.uuid4())}
 
@@ -200,8 +211,8 @@ def test_shared_room_membership_updates_and_revokes_history_access(api):
 
 def test_private_task_reference_is_denied(api):
     task = post(api, "tasks", {"owner": "inbox", "title": "Review inbox", "body": "Review private messages."})
-    get(api, "tasks/" + task["id"], "ben-test", expected=404)
-    post(api, "chat/cpo", {"text": "Read this", "refs": {"task": task["id"]}}, token="ben-test", expected=404)
+    get(api, "tasks/" + task["id"], "cara-test", expected=404)
+    post(api, "chat/cpo", {"text": "Read this", "refs": {"task": task["id"]}}, token="cara-test", expected=404)
 
 
 def test_steven_manages_product_subtree_only(api):
@@ -209,7 +220,7 @@ def test_steven_manages_product_subtree_only(api):
     assign(api, r, "cpo", operator="ben-test")
     assign(api, r, "product-design", operator="ben-test")
     post(api, "bots/finance/assignment", {"runner_id": r["runner_id"], "expected_generation": 0},
-         token="ben-test", expected=403)
+         token="cara-test", expected=403)
     post(api, "bots/finance/assignment", {"runner_id": r["runner_id"], "expected_generation": 0}, expected=403)
     post(api, "chat/cpo", {"text": "Pretend to be Ben"}, token=r["token"], expected=403)
 

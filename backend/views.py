@@ -8,6 +8,7 @@ import yaml
 from fastapi import Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response, StreamingResponse
 
+from . import access as Access
 from . import bot_access as A
 from . import models as M
 from . import providers, runner_versions
@@ -104,6 +105,14 @@ def docs_room(conv, who):
     return (conv.get("scope") == rooms.PERSONAL and conv.get("owner_actor") == who.actor
             and str(conv.get("room_key") or "").startswith("docs:")
             and "bot:" + DOC_BOT in conv["participants"])
+
+
+def bot_owner_rows(c, registry, slug, people, configs, archived):
+    """The people listed as a bot's owners: the creator and co-owners, and its operator. Whoever it reports
+    up to and the Admins own it too, without being listed."""
+    ids = list(dict.fromkeys([*A.owner_ids(registry["bot_owners_json"] if registry else None),
+                              *([registry["operator"]] if registry and registry["operator"] else [])]))
+    return [{"id": i, "name": (P.person(i, people) or {}).get("name") or i} for i in ids]
 
 
 def machine(c, bot):
@@ -671,12 +680,15 @@ def install_views(app, store, auth, mutate, task_view):
             level = access.get(slug, auth.FULL)
             if bot.get("state") == "archived" or not level["see"]:
                 continue
-            registry = c.execute("SELECT operator,revision,goals,access_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
-            # Who may change who has access (`Auth.bot_manager`), with the audiences when they may.
+            registry = c.execute("SELECT operator,revision,goals,access_json,bot_owners_json FROM bot_config WHERE bot=?",
+                                 (slug,)).fetchone()
+            # Who may manage the bot (`Auth.bot_manager`), with the audiences and its owners when they may.
+            pid = H.actor_id(who.actor)
             manager = (who.role == "owner" or (who.role == "human" and (
-                (registry and registry["operator"] == H.actor_id(who.actor) and auth.bot_admin(who))
-                or P.manages(H.actor_id(who.actor), "bot", slug, people, configs, archived))))
-            policy = {"can_manage": manager}
+                auth.bot_admin(who) or (registry and (registry["operator"] == pid
+                                                      or pid in A.owner_ids(registry["bot_owners_json"])))
+                or P.manages(pid, "bot", slug, people, configs, archived))))
+            policy = {"can_manage": manager, "bot_owners": bot_owner_rows(c, registry, slug, people, configs, archived)}
             if manager:
                 policy["access_policy"] = A.document(registry["access_json"] if registry else None)
             if not level["read"]:
@@ -732,7 +744,13 @@ def install_views(app, store, auth, mutate, task_view):
             from .onboarding import config_view
             from .mail import can_access
             admins = store.settings.credential_admins
+            role = auth.company_role(who)
+            domains_ = Access.company_domains(c, store.settings, auth.owner_email)
             return {**person, "id": H.actor_id(who.actor), "email": who.email or person.get("email"),
+                    "company_role": role, "can_create_bots": Access.can_create_bots(person, role),
+                    "can_add_people": Access.can_add_people(person, role, domains_),
+                    "company_domains": domains_,
+                    "member_bot_limit": Access.load_access(c, store.settings)["member_bot_limit"],
                     "role": "owner" if who.role == "owner" else "viewer", "local": False,
                     "cloud": True, "registered": True, "chat_bots": bots,
                     "developer": P.is_developer(H.actor_id(who.actor), r),
@@ -806,12 +824,13 @@ def install_views(app, store, auth, mutate, task_view):
         with store.read() as c:
             machines, fleet = [], runner_versions.load(c)
             wanted, assigned = providers.runtimes_needed(c, store.settings)
-            for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json "
-                                 "FROM runners ORDER BY created"):
-                if who.role != "owner" and who.actor != "human:" + row["operator"]:
+            for row in c.execute("SELECT id,label,operator,last_seen,revoked_at,platform,version,capacity,readiness_json,"
+                                 "accepts_member_bots FROM runners ORDER BY created"):
+                if not auth.bot_admin(who) and who.actor != "human:" + row["operator"]:
                     continue
                 bots = [a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (row["id"],))]
                 value = dict(row)
+                value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
                 from .harness_actions import recent
                 machines.append({**value, "bots": bots, "needed_runtimes": sorted(wanted | assigned.get(row["id"], set())),

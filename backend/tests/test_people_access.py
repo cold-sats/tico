@@ -47,13 +47,17 @@ class HeaderProxy:
         return headers.get("x-test-email")
 
 
-def test_only_the_owner_reads_or_changes_access(environment):
+def test_only_owners_and_admins_read_access_and_only_the_owner_changes_who_signs_in(environment):
     api = environment()
-    riley = person_headers(api, "riley")
-    view(api, riley, expected=403)
-    call(api, "POST", "/people", {"name": "Zed", "email": "zed@acme.example"}, riley, expected=403)
+    quinn, riley = person_headers(api, "quinn"), person_headers(api, "riley")     # a member, an admin
+    view(api, quinn, expected=403)
+    view(api, riley)
+    # A member may add a coworker in the company's domain, but not someone outside it.
+    call(api, "POST", "/people", {"name": "Zed", "email": "zed@other.example"}, quinn, expected=403)
+    call(api, "POST", "/people/riley", {"title": "CTO"}, quinn, expected=403)
     call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": ["acme.example"]}, riley, expected=403)
     call(api, "POST", "/owner", {"person": "riley", "confirm": True}, riley, expected=403)
+    call(api, "POST", "/people/quinn", {"role": "admin"}, riley, expected=403)         # only an owner makes admins
     assert view(api)["owner"]["email"] == OWNER_EMAIL
 
 
@@ -84,8 +88,9 @@ def test_transfer_changes_who_is_owner_at_once_and_the_old_owner_loses_owner_rou
     assert result["owner"] == "riley@acme.example" and result["revision"] == before["owner"]["revision"] + 1
     # No restart: the very next requests already see the new owner.
     view(api, new)
-    view(api, old, expected=403)
-    call(api, "POST", "/people", {"name": "Zed", "email": "zed@acme.example"}, old, expected=403)
+    view(api, old)                          # an admin now: may look, but the owner routes are the owner's
+    call(api, "POST", "/owner", {"person": "morgan", "confirm": True}, old, expected=403)
+    call(api, "PUT", "/allow", {"allowed": [], "allowed_domains": ["acme.example"]}, old, expected=403)
     assert api.get("/api/v2/config", headers=signed_in()).json()["owner_email"] == "riley@acme.example"
     after = view(api, new)
     assert after["owner"]["person"] == "riley"

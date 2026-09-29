@@ -57,7 +57,8 @@ def test_only_the_owner_asks_and_a_runner_cannot_ask_for_itself(api):
     ask(api, r, token=r["token"], expected=403)
     assert rows(api) == []
     # Nor may another person read the pending requests through the owner's page.
-    assert get(api, "operations", token="ben-test")["machines"] == []
+    # (An admin sees the company's computers, but only the owner sees or asks for their tool actions.)
+    assert [m["harness_actions"] for m in get(api, "operations", token="ben-test")["machines"]] == [[]]
 
 
 def test_an_action_is_relayed_to_the_runner_reported_and_audited(api):
