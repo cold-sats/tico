@@ -40,6 +40,7 @@ RUNNER=
 RUNNER_URL=
 RUNNER_CODE=
 RUNNER_LABEL=
+SERVER_NETWORK=
 DIR_GIVEN=${TICO_INSTALL_DIR:+1}
 
 say() { printf '%s\n' "$*"; }
@@ -60,6 +61,8 @@ Usage: install.sh [options] [-- tico-setup flags]
   --url URL          with --runner: the Tico server, such as https://tico.example.com
   --code CODE        with --runner: the one-time code from Settings > Devices > Add computer (15 minutes, single use)
   --label NAME       with --runner: the computer's name in Tico (default: this host's name)
+  --server-network N with --runner on the server's own machine: join its Docker network N (usually tico_default) and
+                     use --url http://server:8765, so the runner never goes through Cloudflare Access
   --help, -h         this text
 
 Run it again any time: with an existing .env it upgrades to --version or repairs and restarts, and leaves
@@ -84,6 +87,8 @@ while [ $# -gt 0 ]; do
     --code=*) RUNNER_CODE=${1#--code=}; shift ;;
     --label) [ $# -ge 2 ] || { usage >&2; die 2 "--label needs a value"; }; RUNNER_LABEL=$2; shift 2 ;;
     --label=*) RUNNER_LABEL=${1#--label=}; shift ;;
+    --server-network) [ $# -ge 2 ] || { usage >&2; die 2 "--server-network needs a value"; }; SERVER_NETWORK=$2; shift 2 ;;
+    --server-network=*) SERVER_NETWORK=${1#--server-network=}; shift ;;
     --yes|-y) YES=1; shift ;;
     --tunnel) TUNNEL=1; shift ;;
     --docker-only) DOCKER_ONLY=1; shift ;;
@@ -386,8 +391,18 @@ run_runner() {
     say "Replacing the container from an earlier docker run (its volume is kept)."
     as_root docker rm -f tico-runner >/dev/null
   fi
-  ( cd "$DIR" && as_root docker compose -f runner.compose.yaml pull --quiet && as_root docker compose -f runner.compose.yaml up -d ) \
-    || die 6 "docker compose failed in $DIR. Run 'docker compose -f runner.compose.yaml logs' there."
+  if [ -n "$SERVER_NETWORK" ]; then
+    printf '%s' "$SERVER_NETWORK" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' || die 2 "--server-network is a Docker network name."
+    as_root docker network inspect "$SERVER_NETWORK" >/dev/null 2>&1 || die 2 "No Docker network $SERVER_NETWORK on this machine (the server's is usually tico_default)."
+    # Not part of the bundle, so an update keeps it; the updater adds it to its compose calls.
+    printf 'services:\n  runner:\n    networks: [default, server]\nnetworks:\n  server:\n    external: true\n    name: %s\n' "$SERVER_NETWORK" \
+      | as_root tee "$DIR/runner.override.yaml" >/dev/null
+  fi
+  files="-f runner.compose.yaml"
+  [ -f "$DIR/runner.override.yaml" ] && files="$files -f runner.override.yaml"
+  # shellcheck disable=SC2086  # $files is two or four words on purpose
+  ( cd "$DIR" && as_root docker compose $files pull --quiet && as_root docker compose $files up -d ) \
+    || die 6 "docker compose failed in $DIR. Run 'docker compose $files logs' there."
   say ""
   say "The runner is starting and joins $RUNNER_URL as \"$RUNNER_LABEL\"; it shows online in Settings > Devices in a minute."
   say "It follows the server's release through its updater; sign the bots in to a model from Settings > Devices."

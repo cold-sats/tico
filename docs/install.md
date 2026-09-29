@@ -210,6 +210,17 @@ No open ports, and Cloudflare Access can do the sign-in. The wizard creates the 
 Computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
 service token for `/api/v2/runners/*` (the runner authenticates itself with its own token).
 
+Or run the bots' computer on the server itself and skip Access altogether: the runner joins the server's own Docker
+network and talks to it directly. With a one-time code from Settings > Devices > Add computer, on the server:
+
+```
+curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner \
+  --url http://server:8765 --server-network tico_default --code <code> --label "Server box"
+```
+
+`--server-network` writes `runner.override.yaml` in the runner's directory; updates keep it. Size the server for both
+(a t4g.medium or 4 GB is a good start for a handful of bots).
+
 ### Sizing
 
 - **Server:** 1 to 2 GiB of memory and 10 GiB of disk is plenty (it is a web app and a SQLite database).

@@ -371,9 +371,10 @@ def run(args, io: IO, deps: Deps) -> int:
         Asker(io, args, s, dry).get("server_ip", "Server's public IPv4 address (what the domain should point at)", flag="--server-ip", default=default_ip)
     if s.target == "command" and s.front_door == "caddy":
         Asker(io, args, s, dry).get("server_ip", "Server's public IPv4 address (what the domain should point at)", flag="--server-ip")
+    if args.tico_version and s.target not in cloudmod.PROVIDERS:
+        # local and AWS pin the images and fetch compose.yaml from the release, never `latest` or main
+        s.tag = s.compose_ref = args.tico_version
     if s.target == "local":
-        if args.tico_version:
-            s.tag = s.compose_ref = args.tico_version
         if s.front_door == "caddy":
             Asker(io, args, s, dry).get("server_ip", "This server's public IPv4 address (what the domain should point at)", flag="--server-ip",
                                         default="" if dry else deps.public_ip())

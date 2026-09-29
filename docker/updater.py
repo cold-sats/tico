@@ -50,6 +50,7 @@ MODE = "runner" if os.environ.get("TICO_UPDATER_MODE") == "runner" else "server"
 SERVICE = "runner" if MODE == "runner" else "server"
 IMAGE = os.environ.get("TICO_IMAGE", "ghcr.io/ticoteam/tico-runner" if MODE == "runner" else "ghcr.io/ticoteam/tico")
 COMPOSE_FILE = os.environ.get("TICO_COMPOSE_FILE", "")   # relative to PROJECT; the runner box uses runner.compose.yaml
+OVERRIDE_FILE = "runner.override.yaml"   # never part of the bundle, so an update never replaces it
 HEALTH_URL = os.environ.get("TICO_HEALTH_URL", "http://server:8765/healthz")
 HEALTH_SECONDS = int(os.environ.get("TICO_HEALTH_SECONDS", "180"))
 PULL = os.environ.get("TICO_UPDATER_PULL", "always")   # "never" only in docker/smoke.sh, whose tags exist only locally
@@ -79,6 +80,9 @@ def set_status(**fields):
 def compose(*args, tag=None, timeout=600, extra_env=None):
     env = {**os.environ, **({"TICO_TAG": tag} if tag else {}), **(extra_env or {})}
     files = ["-f", os.path.join(PROJECT, COMPOSE_FILE)] if COMPOSE_FILE else []
+    override = os.path.join(PROJECT, OVERRIDE_FILE)
+    if COMPOSE_FILE and os.path.exists(override):   # the installer's own additions (--server-network); an update keeps them
+        files += ["-f", override]
     result = subprocess.run(["docker", "compose", *files, "--project-directory", PROJECT, *args], env=env,
                             capture_output=True, text=True, timeout=timeout)
     if result.returncode:

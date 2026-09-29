@@ -194,6 +194,7 @@ def main(argv=None):
         auth = Auth(store)
         execution = Execution(store, auth)
         with store.transaction() as c:
+            auth.sync_access(c)   # the owner is stored in the database; an offline command has no request to load it
             # The offline command acts as the environment owner, never as an ambient superuser.
             code = execution.issue_enrollment(c, auth.owner_identity(c), EnrollmentRequest(operator=args.operator))
             # Never print a credential into the operator's shared logs.

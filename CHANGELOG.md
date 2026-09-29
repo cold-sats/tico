@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-09-29
+
 ### Added
 - **Per-bot permissions.** Every bot has three: **See** (the org chart and bot lists: name, role, who runs it, who it reports
   to), **Read** (its activity: tasks, updates, files, status and run log, routines, shared rooms, its page's activity) and
@@ -79,6 +81,15 @@ All notable changes to Tico are recorded here. The format follows
   ("planned.I've filed"). Deltas within one message still join directly, the run's closing message no longer replaces the
   progress notes before it, and a model's thinking is no longer part of the text. Tico's own chat shows each message
   as its own paragraph.
+
+### Fixed
+- `tico setup --cloud aws` ignored `--tico-version`: the server ran `latest` and fetched compose.yaml from `main`. It now pins
+  the images and the bundle to the release you name, as a local install does.
+- `python -m backend.manage enrollment` (a join code without the web app) failed with "the owner of this environment (unset)":
+  it now loads the stored owner first.
+- A runner on the server's own machine can join the server's Docker network (`install.sh --runner --server-network tico_default
+  --url http://server:8765`), which a Cloudflare Access install needs so its runners do not go through Access. The network
+  lives in `runner.override.yaml`, which updates keep.
 
 ### Security
 - Bot privacy was decided in a handful of places and left gaps: a task, a note or a comment to a private bot needed only that the
@@ -514,7 +525,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.12...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.13...HEAD
+[0.2.13]: https://github.com/ticoteam/tico/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/ticoteam/tico/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/ticoteam/tico/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/ticoteam/tico/compare/v0.2.9...v0.2.10

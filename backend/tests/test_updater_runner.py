@@ -94,6 +94,18 @@ def test_a_second_start_leaves_a_locked_token_alone(monkeypatch, tmp_path):
     updater.ensure_token()                                             # not locked and refused: logged, no crash
 
 
+def test_the_installers_override_rides_along_with_every_compose_call(monkeypatch, tmp_path):
+    # `install.sh --runner --server-network` writes it; an update must keep the runner on the server's network.
+    updater = load(monkeypatch, "runner", tmp_path)
+    seen = []
+    monkeypatch.setattr(updater.subprocess, "run", lambda argv, **kw: seen.append(argv) or type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+    updater.compose("ps")
+    assert "runner.override.yaml" not in " ".join(seen[-1])
+    (tmp_path / "runner.override.yaml").write_text("services: {}\n")
+    updater.compose("ps")
+    assert seen[-1][seen[-1].index(str(tmp_path / "runner.override.yaml")) - 1] == "-f"
+
+
 def test_a_downgrade_is_refused_and_an_upgrade_accepted(monkeypatch, tmp_path):
     updater = load(monkeypatch, "runner", tmp_path)
     Docker(updater, monkeypatch, [True])                               # running v0.1.0
