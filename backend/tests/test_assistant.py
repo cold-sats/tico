@@ -263,3 +263,45 @@ def test_the_assistant_and_botops_cannot_be_archived_or_deleted_but_can_be_pause
         post(api, f"bots/{bot}/definition", {"status": "paused", "expected_revision": revision})
         with api.app.state.store.read() as c:
             assert H.bot(c, bot)["state"] == "paused"
+
+
+def test_a_token_from_a_finished_turn_no_longer_acts_as_the_person(api):
+    r, attempt = assistant_turn(api, "ben-test")
+    token = attempt["token"]
+    assert get(api, "me", token)["actor"] == "human:ben"
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='completed' WHERE id=?", (attempt["id"],))
+    assert api.get("/api/v2/me", headers=headers(token)).status_code == 409      # not the person, not the bot
+
+
+def test_a_proposal_path_with_a_dot_segment_is_refused(api):
+    from backend.assistant import normalize_path
+    assert normalize_path("/api/v2/tasks/./comments") is None and normalize_path("/api/v2/tasks/x/comments")
+    post(api, "assistant/actions", {"summary": "Comment", "path": "/api/v2/tasks/./comments", "body": {"text": "x"}},
+         expected=422)
+
+
+def test_a_direct_write_never_speaks_to_a_bot(api):
+    with api.app.state.store.transaction() as c:
+        botwork = H.task_create(c, "human:ben", "Plan the launch", "For ops.", "bot:ops")
+        alone = H.task_create(c, "human:ben", "Think about my week", "Just me.", "human:ben")
+    r, attempt = assistant_turn(api, "ben-test")
+    token = attempt["token"]
+    post(api, "notes", {"to": "ops", "text": "Remember the launch"}, token=token, expected=403)      # no unmarked notes
+    post(api, f"tasks/{botwork['id']}/comments", {"text": "Please hurry"}, token=token, expected=403)  # would wake ops
+    post(api, f"tasks/{alone['id']}/comments", {"text": "Monday first"}, token=token)                # wakes nobody
+    # A bare name is not an actor id: it could be a bot's slug.
+    post(api, "tasks", {"owner": "ben", "title": "Draft my week", "body": "Monday."}, token=token, expected=403)
+
+
+def test_the_card_describes_an_approval_by_what_it_is_and_an_old_proposal_expires(api):
+    with api.app.state.store.transaction() as c:
+        approval = H.approval_request(c, "bot:ops", "send", {"to": "cus@example.com", "cc": "", "subject": "Renewal terms",
+                                                            "body_sha256": "a" * 64, "mailbox": "ops@example.com"})
+    action = post(api, "assistant/actions", {"summary": "Fine", "path": "/api/v2/approvals/" + approval["id"],
+                                             "body": {"decision": "approved"}})["action"]
+    assert "send approval requested by ops" in action["description"] and "Renewal terms" in action["description"]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE assistant_actions SET created=? WHERE id=?", (H.shift(H.now(), hours=-30), action["id"]))
+    post(api, f"assistant/actions/{action['id']}/confirm", {}, expected=409)
+    assert get(api, f"assistant/actions/{action['id']}")["action"]["status"] == "expired"       # the record survives

@@ -49,7 +49,7 @@ async function open(browser, viewport, state) {
 function fixture() {
   const state = {reads: 0, sent: [], decided: [], messages: [], card: null};
   state.card = {id: 'act1', summary: 'Archive the Ops bot', method: 'POST', path: '/api/v2/bots/ops/archive', status: 'pending', result: null,
-    description: 'Archive bot Ops', diff: [], body: {expected_revision: 3}, proposed_via: 'assistant'};
+    description: 'Archive bot Ops', diff: [], body: {expected_revision: 3, text: 'Long message. '.repeat(30) + 'THE-END'}, proposed_via: 'assistant'};
   state.view = () => ({available: true, state: 'active', bot: 'coo', name: 'Tico', can_turn_on: false, room_id: 'room1',
     messages: state.messages, has_more: false, next_before: null, execution: null, actions: {act1: state.card}, pending: []});
   state.reply = () => {
@@ -95,6 +95,7 @@ function fixture() {
       await card.waitFor();
       assert.equal(await card.locator('[data-what]').innerText(), 'Archive bot Ops', tag + ': the server\'s description leads');
       assert.match(await card.locator('.asst-body').innerText(), /expected_revision: 3/, tag + ': the body is shown');
+      assert.ok((await card.locator('.asst-long').innerHTML()).includes('THE-END') && await card.locator('.asst-long summary span').innerText() === 'Show more', tag + ': a long value is whole, behind Show more');
       assert.equal(state.decided.length, 0, tag + ': nothing ran before the click');
       await card.locator('[data-confirm]').click();
       await page.locator('.asst-card[data-status="done"]').waitFor();

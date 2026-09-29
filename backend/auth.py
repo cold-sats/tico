@@ -260,7 +260,10 @@ class Auth:
         that queued the job came from the room's owner through /api/v2/assistant/messages (the
         only door that sets the `assistant` reference). Any other turn of the assistant bot (a
         Slack route, a meeting delivery, a routine) stays the bot's own."""
-        if attempt["bot"] != self.settings.assistant_bot:
+        # Only a live lease: a token kept from a finished turn means nothing (validate_identity says the
+        # same for the plain bot identity; this repeats it where the token turns into a person).
+        if (attempt["bot"] != self.settings.assistant_bot or attempt["state"] not in ("leased", "running")
+                or str(attempt["lease_until"] or "") <= H.now()):
             return None
         row = c.execute(
             "SELECT v.owner_actor FROM jobs j JOIN messages m ON m.id=j.message_id "

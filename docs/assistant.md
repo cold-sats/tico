@@ -50,13 +50,16 @@ started in your own Assistant chat acts for you; its other work (Slack routing, 
 assistant's own. Every write it makes is recorded as yours **via assistant**: the audit `events` carry `"via":
 "assistant"`, task history rows and comments carry `via`, and the UI shows "<name> (via Assistant)".
 
-**Direct writes only ever touch you:** creating a task for yourself, updating your own task (not finishing, declining or
-closing it, and not handing it to someone else), commenting on a task you can see, marking updates read, a quiet note.
-Everything else the server refuses (`403 confirm_required`) and the assistant must propose, including a task for a bot or
-another person (how it routes work and asks BotOps for a bot), messaging or chatting any bot, and running a task now.
+**Direct writes only ever touch you, and never speak to a bot:** creating a task owned by you, updating a task that is
+yours alone (not finishing, declining or closing it, and not handing it to someone else), commenting on such a task,
+marking updates read. "Yours alone" means you own it and no bot is on it (owner, requester, origin or delegate), so nothing
+wakes a bot as you. Owners are compared as full actor ids (`human:<id>`), never bare names. Everything else the server
+refuses (`403 confirm_required`) and the assistant must propose, including a task for a bot or another person (how it
+routes work and asks BotOps for a bot), a note, message or chat to any bot, a comment on a task with a bot on it, and
+running a task now. An assistant turn's credential works only while its lease is live.
 
 **Every proposal is shown for what it is.** The card carries the server's own one-line description (route kind and target
-name, never the bot's words), the request body as a key: value list, and the exact field changes for a task update. Only routes
+name, never the bot's words), the request body as a key: value list (a long value is folded behind "Show more", never cut), for an approval its kind, requester and subject, and the exact field changes for a task update. Only routes
 on an allowlist can be proposed (never tokens, sign-in, runner enrollment, this assistant or anything that returns a secret);
 the path must be plain (`/api/v2/...` without `//`, `..`, `%` or `\`), and exactly that path runs. Only the status and an
 error's detail are kept of the result, never the answer's body.

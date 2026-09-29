@@ -105,12 +105,14 @@
       if (!action) return `<div class="asst-msg bot">${render(m.body, esc)}</div>`;
       const done = {done: 'Done.', failed: 'It did not go through' + (action.result?.error ? ': ' + action.result.error : '.'),
         cancelled: 'Cancelled.', expired: 'Expired: ask again.', running: 'Running…'}[action.status];
-      const shown = v => { const t = typeof v === 'string' ? v : JSON.stringify(v); return t.length > 300 ? t.slice(0, 300) + '…' : t; };
+      // Never cut a value: a long one is folded behind "Show more", whole.
+      const shown = v => { const t = typeof v === 'string' ? v : JSON.stringify(v); return t.length > 160
+        ? `<details class="asst-long"><summary>${esc(t.slice(0, 120))}… <span>Show more</span></summary>${esc(t)}</details>` : esc(t); };
       // What will really happen comes from the server; the assistant's own words are only its summary.
       const changes = action.diff?.length
-        ? `<ul class="asst-body" aria-label="Changes">${action.diff.map(d => `<li><strong>${esc(d.field)}</strong>: ${esc(shown(d.old ?? ''))} → ${esc(shown(d.new))}</li>`).join('')}</ul>`
+        ? `<ul class="asst-body" aria-label="Changes">${action.diff.map(d => `<li><strong>${esc(d.field)}</strong>: ${shown(d.old ?? '')} → ${shown(d.new)}</li>`).join('')}</ul>`
         : Object.keys(action.body || {}).length
-          ? `<ul class="asst-body" aria-label="Details">${Object.entries(action.body).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${esc(shown(v))}</li>`).join('')}</ul>` : '';
+          ? `<ul class="asst-body" aria-label="Details">${Object.entries(action.body).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${shown(v)}</li>`).join('')}</ul>` : '';
       return `<div class="asst-card" data-action="${esc(action.id)}" data-status="${esc(action.status)}">
         <b data-what>${esc(action.description || action.method + ' ' + action.path)}</b>
         <span class="asst-state">${esc(action.proposed_via === 'assistant' ? 'The assistant says: ' : '')}“${esc(action.summary)}”</span>

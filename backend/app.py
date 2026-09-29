@@ -186,9 +186,15 @@ def create_app(settings=None):
     from .assistant import write_allowed as assistant_writes, own_room as assistant_room
 
     def assistant_owns(task_id, actor):
+        """The task is the person's alone: theirs, no bot on it and none delegated."""
         with store.read() as c:
             row = H.task(c, task_id)
-            return bool(row and row["owner"] == actor)
+            if not row or row["owner"] != actor:
+                return False
+            if any(str(a).startswith("bot:") for a in (row["owner"], row["requester"], H.task_origin(c, row))):
+                return False
+            return not c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND expires>?",
+                                 (task_id, H.now())).fetchone()
 
     @app.middleware("http")
     async def request_guard(request, call_next):

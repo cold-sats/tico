@@ -62,18 +62,22 @@ _SETTLES = ("done", "closed", "declined")
 
 
 def _mine(actor, value):
-    return str(value or "").strip() in (actor, actor.split(":", 1)[-1])
+    """The full actor id only (`human:ben`): a bare name could be a bot's slug."""
+    return str(value or "").strip() == actor
 
 
 def write_allowed(method, path, settings=None, body=b"", actor="", owns=None):
+    """`owns(task_id)` says the task is the person's alone: they own it, no bot is on it (owner, requester,
+    origin) and none is delegated, so a comment or update wakes nobody."""
     if method in ("GET", "HEAD", "OPTIONS"):
         return True
     if method != "POST":
         return False
-    if path in ("/api/v2/updates/read", "/api/v2/notes", "/api/notes", "/api/v2/assistant/actions"):
+    if path in ("/api/v2/updates/read", "/api/notes", "/api/v2/assistant/actions"):
         return True
-    if re.fullmatch(r"/api/v2/tasks/[^/]+/comments", path):
-        return True
+    commenting = re.fullmatch(r"/api/v2/tasks/([^/]+)/comments", path)
+    if commenting:
+        return bool(owns and owns(commenting.group(1)))
     creating = path in ("/api/v2/tasks", "/api/v2/tasks/dry-run")
     updating = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
     if not (creating or updating):
@@ -113,6 +117,8 @@ def normalize_path(path):
     if (not _SHAPE.fullmatch(path) or "//" in path or ".." in path or "%" in path or "\\" in path
             or path.endswith("/")):
         return None
+    if any(seg in ("", ".", "..") for seg in path[len("/api/v2/"):].split("/")):
+        return None            # a `.` segment is collapsed by the HTTP client: what runs must be what was checked
     return path
 
 
@@ -135,8 +141,19 @@ def describe(c, method, path, body):
             return (H.human(c, a[6:]) or {}).get("name") or a[6:]
         if a.startswith("bot:"):
             return bot(a[4:])
-        return (H.human(c, a) or {}).get("name") or (bot(a) if H.bot(c, a) else a)
+        resolved = H.resolve_actor(c, a)
+        return who(resolved) if resolved and resolved != a else a
     body = body if isinstance(body, dict) else {}
+
+    def approval_line(aid):
+        row = H.approval(c, aid)
+        verb = str(body.get("decision") or "decide").title()
+        if not row:
+            return f"{verb} approval {aid}"
+        detail = "; ".join(f"{k}: {v}" for k, v in (row.get("payload") or {}).items() if k in
+                           ("subject", "to", "what", "amount", "account", "url", "repo", "pr", "title"))[:240]
+        return (f"{verb} the {row['kind']} approval requested by {who(row['requested_by'])}"
+                + (f" ({detail})" if detail else ""))
     diff = []
     m = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
     if m and (t := H.task(c, m.group(1))):
@@ -145,7 +162,7 @@ def describe(c, method, path, body):
                 diff.append({"field": k, "old": t.get(k), "new": v})
         return f"Change task “{t['title']}” ({len(diff)} field{'s' if len(diff) != 1 else ''})", diff
     rules = (
-        (r"/api/v2/approvals/([^/]+)", lambda g: f"{str(body.get('decision') or 'decide').title()} approval {g[0]}"),
+        (r"/api/v2/approvals/([^/]+)", lambda g: approval_line(g[0])),
         (r"/api/v2/messages/[^/]+/answer", lambda g: "Answer a bot's question"),
         (r"/api/v2/tasks", lambda g: f"Create task “{body.get('title', '')}” for {who(body.get('owner'))}"),
         (r"/api/v2/tasks/([^/]+)/(comments|links|labels|run-now|ask)",
@@ -757,8 +774,9 @@ def install(app, store, auth, mutate, onboarding):
                 if row["status"] != "pending":
                     raise Problem("state", "This proposal is already " + row["status"], 409)
                 if row["created"] < H.shift(H.now(), hours=-CONFIRM_TTL_H):
+                    # Recorded here, raised after the transaction commits (raising inside it rolls it back).
                     c.execute("UPDATE assistant_actions SET status='expired', decided_at=? WHERE id=?", (H.now(), aid))
-                    raise Problem("expired", "This proposal is more than a day old; ask again", 409)
+                    return None
                 # Only the run that holds this secret (the in-process call below) is "confirmed".
                 c.execute("UPDATE assistant_actions SET status='running', decided_at=?, running_since=?, "
                           "confirm_hash=? WHERE id=?", (H.now(), H.now(), digest(secret), aid))
@@ -766,6 +784,8 @@ def install(app, store, auth, mutate, onboarding):
                         {"summary": row["summary"][:200], "method": row["method"], "path": row["path"]})
                 return row
         row = await asyncio.to_thread(claim)
+        if row is None:
+            raise Problem("expired", "This proposal is more than a day old; ask again", 409)
         ok, result = False, {"status_code": 0, "error": "It did not finish; ask again"}
         try:
             path = normalize_path(row["path"])
