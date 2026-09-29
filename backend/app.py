@@ -956,6 +956,52 @@ def create_app(settings=None):
     SEE_ONLY = ("slug", "display_name", "state", "description", "team", "operator", "reports_to", "owners",
                 "thread_mode", "temp", "access")
 
+    def bot_view(c, bot, level, access, registry_roster, registry_entries):
+        """One bot as the bot list and the bot detail show it: everything for a caller who may read
+        it, only its profile for one who may only see it."""
+        row = {k: v for k, v in bot.items() if k not in ("token_hash", "cwd", "thread_id")}
+        config = c.execute("SELECT team,operator,owner_ids_json,revision,description,reports_to,repo,"
+                           "thread_mode,config_json FROM bot_config WHERE bot=?",
+                           (bot["slug"],)).fetchone()
+        assignment = c.execute("SELECT a.bot,a.runner_id,a.generation,r.label,r.operator,r.last_seen,"
+                               "r.revoked_at FROM assignments a JOIN runners r ON r.id=a.runner_id "
+                               "WHERE a.bot=?", (bot["slug"],)).fetchone() if level["read"] else None
+        row["access"] = level
+        row["team"] = config["team"] if config else None
+        row["operator"] = config["operator"] if config else None
+        row["revision"] = config["revision"] if config else None
+        if config:
+            repo = config["repo"] or ("emp-" + bot["slug"])
+            declared = json.loads(config["config_json"]) if config["config_json"] else {}
+            row.update({"description": config["description"] or "",
+                        "reports_to": config["reports_to"], "repo": repo,
+                        "repo_url": repo_url(repo, settings.github_owner),
+                        "bot_contact": declared.get("bot_contact") or "open",
+                        "temp": bool(declared.get("temp")),
+                        "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
+        configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
+        owner_rows = ([H.human(c, owner) for owner in configured] if configured is not None
+                      else P.primary_users(bot["slug"], registry_roster, registry_entries))
+        row["owners"] = [P.brief(owner) for owner in owner_rows if owner]
+        if row.get("reports_to") and not str(row["reports_to"]).startswith("human:") \
+                and not access.get(row["reports_to"], auth.FULL)["see"]:
+            row["reports_to"] = ""      # a bot this caller may not see is not named to them
+        if not level["read"]:
+            return {k: v for k, v in row.items() if k in SEE_ONLY}
+        row["draining"] = bool(c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot["slug"],)).fetchone())
+        row["status"] = H.status(c, bot["slug"])
+        row["assignment"] = dict(assignment) if assignment else None
+        row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
+                             and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
+        row["queued"] = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='queued'", (bot["slug"],)).fetchone()[0]
+        row["next_run"] = len(H.next_run_tasks(c, bot["slug"]))
+        row["notes"] = len(H.notes_waiting(c, bot["slug"], limit=500))
+        external = agents.presence(c, bot["slug"])
+        row["agent"] = external["agent"] if external else None
+        if external:
+            row["online"] = external["online"]
+        return row
+
     @app.get("/api/v2/bots")
     def bots(request: Request, include_archived: str | None = None, can: str | None = None):
         """The bots the caller may see, each with `access` (their own see, read and write on it).
@@ -976,50 +1022,36 @@ def create_app(settings=None):
                     continue
                 if bot.get("state") == "archived" and not with_archived:
                     continue
-                row = {k: v for k, v in bot.items() if k not in ("token_hash", "cwd", "thread_id")}
-                config = c.execute("SELECT team,operator,owner_ids_json,revision,description,reports_to,repo,"
-                                   "thread_mode,config_json FROM bot_config WHERE bot=?",
-                                   (bot["slug"],)).fetchone()
-                assignment = c.execute("SELECT a.bot,a.runner_id,a.generation,r.label,r.operator,r.last_seen,"
-                                       "r.revoked_at FROM assignments a JOIN runners r ON r.id=a.runner_id "
-                                       "WHERE a.bot=?", (bot["slug"],)).fetchone() if level["read"] else None
-                row["access"] = level
-                row["team"] = config["team"] if config else None
-                row["operator"] = config["operator"] if config else None
-                row["revision"] = config["revision"] if config else None
-                if config:
-                    repo = config["repo"] or ("emp-" + bot["slug"])
-                    declared = json.loads(config["config_json"]) if config["config_json"] else {}
-                    row.update({"description": config["description"] or "",
-                                "reports_to": config["reports_to"], "repo": repo,
-                                "repo_url": repo_url(repo, settings.github_owner),
-                                "bot_contact": declared.get("bot_contact") or "open",
-                                "temp": bool(declared.get("temp")),
-                                "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
-                configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
-                owner_rows = ([H.human(c, owner) for owner in configured] if configured is not None
-                              else P.primary_users(bot["slug"], registry_roster, registry_entries))
-                row["owners"] = [P.brief(owner) for owner in owner_rows if owner]
-                if row.get("reports_to") and not str(row["reports_to"]).startswith("human:") \
-                        and not access.get(row["reports_to"], auth.FULL)["see"]:
-                    row["reports_to"] = ""      # a bot this caller may not see is not named to them
-                if not level["read"]:
-                    result.append({k: v for k, v in row.items() if k in SEE_ONLY})
-                    continue
-                row["draining"] = bool(c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (bot["slug"],)).fetchone())
-                row["status"] = H.status(c, bot["slug"])
-                row["assignment"] = dict(assignment) if assignment else None
-                row["online"] = bool(assignment and not assignment["revoked_at"] and assignment["last_seen"]
-                                     and assignment["last_seen"] > H.shift(H.now(), seconds=-60))
-                row["queued"] = c.execute("SELECT count(*) FROM jobs WHERE bot=? AND state='queued'", (bot["slug"],)).fetchone()[0]
-                row["next_run"] = len(H.next_run_tasks(c, bot["slug"]))
-                row["notes"] = len(H.notes_waiting(c, bot["slug"], limit=500))
-                external = agents.presence(c, bot["slug"])
-                row["agent"] = external["agent"] if external else None
-                if external:
-                    row["online"] = external["online"]
-                result.append(row)
+                result.append(bot_view(c, bot, level, access, registry_roster, registry_entries))
             return result
+
+    @app.get("/api/v2/bots/{bot}")
+    def bot_detail(request: Request, bot: str):
+        """One bot: the profile a caller who can see it gets (name, role, who runs it, who it reports
+        to, who it works for), and for one who can read it also its status, machine, queue and goals."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            row = H.bot(c, bot)
+            if not row:
+                raise Problem("not_found", "Bot not found", 404)
+            auth.require_see(c, who, bot)
+            config = c.execute("SELECT reports_to,operator,goals FROM bot_config WHERE bot=?", (bot,)).fetchone()
+            watched = [bot] + ([config["reports_to"]] if config and config["reports_to"] else [])
+            access = auth.bot_accesses(c, who, watched)
+            level = access[bot]
+            value = bot_view(c, row, level, access, views.roster(c), views.entries(c, settings.github_owner))
+            if config and level["read"]:
+                value["goals"] = config["goals"] or ""
+            reports = value.get("reports_to") or ""
+            if reports.startswith("human:"):
+                person = H.human(c, reports[6:])
+                value["reports_to_name"] = (person or {}).get("name") or reports[6:]
+            elif reports:
+                value["reports_to_name"] = (H.bot(c, reports) or {}).get("display_name") or reports
+            if value.get("operator"):
+                value["operator_name"] = (H.human(c, value["operator"]) or {}).get("name") or value["operator"]
+            return value
 
     @app.get("/api/v2/org")
     def org(request: Request, person: str | None = None, team: str | None = None, can: str | None = None):

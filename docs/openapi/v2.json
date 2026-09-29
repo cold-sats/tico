@@ -591,6 +591,51 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}": {
+      "get": {
+        "summary": "One bot: its profile for anyone who can see it; status, machine, queue and goals too for anyone who can read it",
+        "operationId": "getBot",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/access": {
       "get": {
         "summary": "Who may see, read and write to a bot (its managers only; docs/permissions.md)",
@@ -751,6 +796,61 @@
         },
         "tags": [
           "Files"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/routines": {
+      "get": {
+        "summary": "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)",
+        "operationId": "listBotRoutines",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Deleted"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutineList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
         ]
       }
     },
@@ -4093,6 +4193,76 @@
         ],
         "title": "BotAccess"
       },
+      "BotDetail": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "status": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "reports_to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reports_to_name": {
+            "type": "string"
+          },
+          "operator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operator_name": {
+            "type": "string"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owners": {
+            "type": "array"
+          },
+          "goals": {
+            "type": "string"
+          },
+          "access": {
+            "$ref": "#/components/schemas/Access"
+          }
+        },
+        "required": [
+          "access",
+          "display_name",
+          "owners",
+          "slug",
+          "state"
+        ],
+        "additionalProperties": true
+      },
       "BotFile": {
         "type": "object",
         "properties": {
@@ -5262,6 +5432,98 @@
         },
         "required": [
           "revoked"
+        ],
+        "additionalProperties": true
+      },
+      "Routine": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "bot": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "cron": {
+            "type": "string"
+          },
+          "on": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "last_fired": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_due": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deleted_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active",
+          "bot",
+          "cron",
+          "enabled",
+          "id",
+          "kind",
+          "on",
+          "timezone",
+          "title"
+        ],
+        "additionalProperties": true
+      },
+      "RoutineList": {
+        "type": "object",
+        "properties": {
+          "routines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Routine"
+            }
+          }
+        },
+        "required": [
+          "routines"
         ],
         "additionalProperties": true
       },
