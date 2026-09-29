@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from clients.tico import APIError, Client
-from . import credential_socket, files_publish, git_credentials, harness_tools, isolation, op, profiles
+from . import credential_socket, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -408,7 +408,7 @@ class Runner:
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
-        self.credentials = credential_socket.serve(self.client)   # None unless isolated
+        self.credentials = credential_socket.serve(self.client, mail=mail_key.minter(config))   # None unless isolated
         self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
@@ -1036,6 +1036,12 @@ class Runner:
             if note:
                 bots[row["bot"]]["warnings"].append(PUBLISH_WARNING + note)
         document = {"schema_version": 1, "runtimes": runtimes, "bots": bots}
+        try:
+            held = mail_key.status(self.config)      # Health warns while bots can read the company's mail key
+        except (OSError, AttributeError, KeyError):
+            held = None
+        if held == "exposed":
+            document["mail_key"] = held
         if self.tools is not None and time.monotonic() >= self._harness_after:
             document["harnesses"] = self.tools.report(runtimes)
         return document
@@ -1312,7 +1318,9 @@ class Runner:
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.credentials.path if self.credentials else None
                 if socket_path:
-                    self.credentials.register(attempt["token"], bot)
+                    self.credentials.register(attempt["token"], bot, attempt.get("mailboxes") or ())
+                    if attempt.get("mailboxes"):
+                        env[credential_socket.SOCKET_ENV] = str(socket_path)     # the mail CLI asks for its mailbox here
                 git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 secret_values = [v for k, v in env.items() if len(v) > 8 and any(s in k.upper() for s in ("TOKEN", "SECRET", "PASSWORD", "API_KEY"))]
@@ -1616,10 +1624,11 @@ class Runner:
         except APIError as exc:
             # A server from before harness reports refuses the new field outright; the runner
             # must not go offline over it, so it reports without and asks again later.
-            if exc.status != 422 or "harnesses" not in body["readiness"]:
+            if exc.status != 422 or not {"harnesses", "mail_key"} & set(body["readiness"]):
                 raise
             self._harness_after = time.monotonic() + 600
-            del body["readiness"]["harnesses"]
+            body["readiness"].pop("harnesses", None)
+            body["readiness"].pop("mail_key", None)
             beat = self.client.post("runners/heartbeat", body)
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:

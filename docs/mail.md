@@ -340,14 +340,32 @@ on cloud Linux can sync mail and calendar with no Mac. It is the same code and b
 looks are named instead of guessed.
 
 1. Create the Google service account with domain-wide delegation once (`connectors/mail/README.md`, Setup), and download its JSON key.
-2. Put the key on **one** runner, as `secrets/google-sa.json` in that runner's workspace, mode 0600:
-   `docker exec -i tico-runner sh -c 'umask 077; tee /home/runner/workspace/secrets/google-sa.json >/dev/null' < google-sa.json`.
+2. Put the key on **one** runner, in the runner's own state directory, where only the runner can read it (owner `ticorun`, mode 0600):
+   `docker exec -i -u ticorun tico-runner sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`.
+   A key left in `workspace/secrets/google-sa.json` (an older install, or an older version of this page) is moved there within
+   a minute. Bots cannot read that place: an inbox bot's turn asks the runner for a short-lived token for one mailbox instead
+   (below).
 3. Wait a minute. `docker logs tico-runner` says `Tico side jobs: started connectors (mail, calendar)`. The first start builds
    the Python environment into the runner's volume (`/home/runner/tools/mail-venv`, or `/var/lib/tico-runner/tools/mail-venv`),
    about a minute, needing outbound access to PyPI once. It is not in the image, so the image stays slim for runners that never sync mail;
    it is rebuilt when `connectors/mail/requirements.txt` changes.
 4. Check: `python -m runner --config <runner.json> connectors-doctor`, then Settings shows the mail and calendar
    connector health.
+
+### Who can read the key
+
+The key can act as any mailbox in the company, so bots must not be able to read it.
+
+- **Docker runner with the two-user layout** (the current `runner.compose.yaml`): the key is in the runner's state directory,
+  closed to the bots' user. The `connectors` job reads it there. An inbox bot's turn gets, from the runner over its credential
+  socket, a Gmail or Calendar access token that lasts an hour for one mailbox: its person's, and the people below them in the
+  org chart. Any other bot, and any other mailbox, is refused.
+- **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
+  Health says so ("Mail key"). Keep such a computer for the inbox bot alone.
+- An inbox bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
+  for the inbox bot). Several inbox bots may share one only if the operator allows it with
+  `POST /api/v2/runners/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway.
+- Bots that are not inbox bots but declare `gmail` access do not get mail on an isolated runner.
 
 Instead of the key, the owner can set `TICO_PROCESSING_OPERATORS=<operator>` on the server: that operator's runners run
 the job (and show a sign-in problem in Settings until the key is there).
@@ -357,7 +375,7 @@ the job (and show a sign-in problem in Settings until the key is there).
 | `TICO_PROJECTS_DIR` bot repos, `secrets/` | folder above the checkout | `<home>/workspace` |
 | `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` |
 | `TICO_MAIL_RUNTIME_DIR` mail.db, audit log | `<projects>/runtime/mail` | same, under `workspace/runtime/mail` |
-| `GOOGLE_SA_KEY` | `<projects>/secrets/google-sa.json` | same |
+| `GOOGLE_SA_KEY` | `<projects>/secrets/google-sa.json` | the runner's state directory (`~/state-<id>/google-sa.json`) |
 | `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot inbox rules do |
 
 Nothing in the connectors job is Mac-only: the key is a file on both (no Keychain), and there is no browser automation

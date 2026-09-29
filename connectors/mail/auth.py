@@ -20,6 +20,8 @@ KEY_ENV = "GOOGLE_SA_KEY"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
 SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE]
+SERVICE_SCOPES = {"gmail": [GMAIL_SCOPE], "calendar": [CALENDAR_SCOPE]}
+SOCKET_ENV = "TICO_CRED_SOCKET"     # set in an isolated turn: the supervisor holds the key (runner/mail_key.py)
 REQUIRED_FIELDS = ("type", "client_email", "client_id", "private_key", "token_uri")
 
 SETUP_HINT = ("The owner creates it once: Google Cloud console > project acme-tico-hub > enable "
@@ -75,8 +77,39 @@ def delegation_hint(scope, client_id):
             "Add new, client id %s, scope %s." % (scope, client_id, scope))
 
 
-def credentials(mailbox, scopes=None, path=None):
+def mint_token(mailbox, service):
+    """(access token, ISO expiry) acting as `mailbox`, from the key file. Only the supervisor can read it."""
+    creds = credentials(mailbox, SERVICE_SCOPES[service], key_only=True)
+    from google.auth.transport.requests import Request  # noqa: PLC0415
+    creds.refresh(Request())
+    return creds.token, creds.expiry.isoformat() if creds.expiry else ""
+
+
+def supervisor_token(mailbox, scopes):
+    """A token for `mailbox` from the runner's supervisor, or None when this process has no socket
+    (a Mac, or a Docker runner without the two-user layout: the key file is read directly)."""
+    path = os.environ.get(SOCKET_ENV)
+    service = next((k for k, v in SERVICE_SCOPES.items() if list(scopes or SCOPES) == v), None)
+    if not path or not os.environ.get("HUB_TOKEN"):
+        return None
+    if not service:
+        raise Failure("mail access through the runner covers one service at a time", "Ask for gmail or calendar.")
+    from runner import credential_socket                # noqa: PLC0415
+    try:
+        return credential_socket.request_mail(path, os.environ["HUB_TOKEN"], service, mailbox)
+    except (OSError, ValueError) as e:
+        raise Failure(f"the runner would not give this turn access to {mailbox}: {e}",
+                      "Only an inbox bot may read mail on an isolated runner, and only its own person's mailbox "
+                      "and the people below them. docs/mail.md, Works on Linux runners.")
+
+
+def credentials(mailbox, scopes=None, path=None, key_only=False):
     """A credential that acts as `mailbox`. Requires the google-auth library."""
+    if not key_only and path is None:
+        granted = supervisor_token(mailbox, scopes)
+        if granted:
+            from google.oauth2.credentials import Credentials     # noqa: PLC0415
+            return Credentials(token=granted["token"])
     try:
         from google.oauth2 import service_account       # noqa: PLC0415
     except ImportError:

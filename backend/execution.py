@@ -3,7 +3,7 @@
 import json
 import secrets
 
-from . import providers, runner_versions
+from . import inbox_isolation, providers, runner_versions
 from .harnesses import reports_tool_calls
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
 
@@ -158,6 +158,8 @@ class Execution:
                 row.pop('rejected_at', None), row.pop('rejected_reason', None)
         if not readiness.get('harnesses'):
             readiness.pop('harnesses', None)
+        if not readiness.get('mail_key'):
+            readiness.pop('mail_key', None)
         # The platform named at enrollment stands: backend/sql.py decides on it (a heartbeat
         # from a stolen credential must not turn a shared server into a personal Mac).
         c.execute("UPDATE runners SET last_seen=?,awake_since=?,version=?,platform=coalesce(nullif(platform,''),?),"
@@ -252,6 +254,9 @@ class Execution:
                            "AND lease_until>?", (bot, H.now())).fetchone()
         if active:
             raise Problem("busy", "Drain the current run or wait for its lease to expire before transfer", 409)
+        if not old or old["runner_id"] != body.runner_id:
+            from .views import roster
+            inbox_isolation.check(c, bot, body.runner_id, roster(c))
         self.expire(c)
         c.execute("INSERT INTO assignments VALUES(?,?,?,?,?) ON CONFLICT(bot) DO UPDATE SET "
                   "runner_id=excluded.runner_id,generation=excluded.generation,updated=excluded.updated,"
@@ -515,7 +520,12 @@ class Execution:
                               "text": item["body"]})
             if notes:
                 H.event(c, H.KEEPER, "note.carried", aid, {"bot": row["bot"], "notes": [n["id"] for n in notes]})
-        return {"attempt": {"routine": routine, "id": aid, "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
+        from .views import roster
+        people = roster(c)
+        inbox = P.inbox_person(row["bot"], people)
+        return {"attempt": {"routine": routine, "id": aid,
+                            # The mailboxes an inbox bot's turn may ask its runner for mail access to.
+                            "mailboxes": P.mailboxes_below(inbox["id"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
                             "credential_vault": bool(self.store.settings.credential_kms_key),
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,

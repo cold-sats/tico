@@ -242,6 +242,14 @@ def cmd_e2e(args):
     return rc
 
 
+def cmd_mint_token(args):
+    """A short-lived access token for one mailbox, for the runner's supervisor to hand a turn
+    (runner/credential_socket.py). Prints the token and its expiry; the key itself never leaves."""
+    token, expiry = auth.mint_token(args.mailbox, args.service)
+    print(json.dumps({"token": token, "expiry": expiry}))
+    return 0
+
+
 def cmd_doctor(args):
     if getattr(args, "e2e", False):
         return cmd_e2e(args)
@@ -2514,6 +2522,12 @@ def build_parser():
     sc.add_argument("--summary", default=None, help="the event title")
     sc.add_argument("--approval-issue", default=None, metavar="N")
     sc.set_defaults(func=cmd_schedule)
+
+    mt = sub.add_parser("mint-token", help=argparse.SUPPRESS)
+    mt.add_argument("--mailbox", required=True)
+    mt.add_argument("--service", required=True, choices=sorted(auth.SERVICE_SCOPES))
+    mt.add_argument("--json", action="store_true")
+    mt.set_defaults(func=cmd_mint_token)
 
     ce = base(sub.add_parser("connector-event", help=argparse.SUPPRESS), mailbox=False)
     ce.set_defaults(func=cmd_connector_event)

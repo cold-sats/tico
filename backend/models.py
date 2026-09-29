@@ -466,6 +466,7 @@ class StructuredReadiness(Contract):
     runtimes: dict[str, RuntimeReadiness] = Field(default_factory=dict)
     bots: dict[str, BotReadiness] = Field(default_factory=dict)
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
+    mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
 
 
 class Heartbeat(Contract):
@@ -828,6 +829,10 @@ class AssistantAction(Contract):
     method: Literal["POST", "PUT", "PATCH", "DELETE"] = "POST"
     path: Annotated[str, Field(min_length=9, max_length=300)]
     body: dict = Field(default_factory=dict)
+
+
+class InboxSharing(Contract):
+    allowed: bool
 
 
 class LoginStart(Contract):
