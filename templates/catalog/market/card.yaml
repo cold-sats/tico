@@ -3,6 +3,7 @@ slug: market-analyst
 name: Market Analyst
 required: false
 bootstrap: false
+pack: marketing
 summary: "Keeps one shared model of the market. Other bots report what they find; this one writes the graph."
 owns:
   - The market graph: entities, edges, evidence and the change record

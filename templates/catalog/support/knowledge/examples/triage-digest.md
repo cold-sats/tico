@@ -1,3 +1,6 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
 # Acme support triage, Tue 2026-09-29, 09:00
 
 Sample output for Acme, a fictional company. Every ticket, name and address below is invented.
@@ -39,3 +42,4 @@ The Slack support channel refused access (not connected). Only the support mailb
 ## Sources
 - Support mailbox, 11 messages 2026-09-28 09:00 to 2026-09-29 08:55
 - `knowledge/answers.md`, `knowledge/known-issues.md`, read 2026-09-29
+```

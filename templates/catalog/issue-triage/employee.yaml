@@ -29,5 +29,9 @@ schedules:
 access:
   - service: github
     identity: "the product repositories the owner lists for this bot"
-    can: [read, write]
-    note: "reads issues; write is limited to labels and comments an approval named exactly; never closes, assigns or transfers"
+    can: [read]
+    note: "reads issues and proposes; a person applies labels and comments. Writing is off until the owner turns it on (below)"
+# Writing to GitHub is the owner's decision, not the template's: the company's GitHub App token can write issues, so
+# the only thing between this bot and a public comment is what its access and .claude/settings.json allow. To let it
+# apply a plan a person approved, change `can` to [read, write] and move `Bash(gh issue edit *)` and
+# `Bash(gh issue comment *)` from `deny` to `allow` in .claude/settings.json. It still never closes, assigns or transfers.

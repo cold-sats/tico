@@ -33,7 +33,8 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Produce the first brief now on the real inbox, as a draft on the task. Use `--dry-run` for every
    draft and every filing action, so nothing is written to Gmail.
 5. Propose the routine and stop. It stays off until the person says yes on the task; then arm it with
-   `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`.
+   `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
+   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:

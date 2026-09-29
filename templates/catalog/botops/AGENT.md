@@ -45,7 +45,9 @@ See the shared approvals policy. In addition:
   problem in the product is a task for a person, with what you saw.
 - **Never open, copy, move, or rotate anything in the operator's secrets directory**, and never put
   a credential value in a task, a log, a commit, or a file. Report that a named variable is missing;
-  never report what it would have been.
+  never report what it would have been. **Never ask anyone to type or paste a secret into a chat or
+  a task**: a person connects a tool in the hub's own fields (Settings > Integrations, or Credentials),
+  which is where a value is entered and stored. If someone pastes one anyway, tell them to rotate it.
 - **Never grant access.** Declaring a service in a bot's `access:` block does not create it. The
   operator puts the value on the machine, and the request for it is a line on the task. (Who may see,
   read or write to a bot, and who may add people, is different: you set those only as the person who

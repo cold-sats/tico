@@ -1,3 +1,6 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
 # Acme outreach pack, Mon 2026-09-28
 
 Sample output for Acme, a fictional studio-software company. Every lead below is invented and every
@@ -45,3 +48,4 @@ The CRM was not connected, so stages come from the leads you pasted on 2026-09-2
 - harbour-pilates.example site, read 2026-09-28
 - Sender's thread with Elm Street Studio, 2026-09-22
 - `knowledge/icp.md`, `knowledge/voice.md`, read 2026-09-28
+```

@@ -5,7 +5,7 @@ required: false
 bootstrap: false
 pack: engineering
 when: "Offer only when the company's GitHub is connected and it keeps product issues there."
-summary: "Labels and deduplicates new GitHub issues, drafts a request to the reporter for missing repro steps, links related issues, and writes the weekly issue digest. It proposes; a person approves every change on GitHub."
+summary: "Labels and deduplicates new GitHub issues, drafts a request to the reporter for missing repro steps, links related issues, and writes the weekly issue digest. It proposes; a person applies every change on GitHub."
 pains:
   - "issues pile up untriaged"
   - "the same bug is reported again and again"

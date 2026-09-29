@@ -63,8 +63,10 @@ For labels, one request for the whole pass:
     hub approval request --kind publish --payload-file plan.json --task <id>
 
 The payload lists each issue and the exact labels to add or remove. For a comment, one request per
-comment with the issue number and the exact text. Apply exactly what was approved, nothing extra, and
-record the approval id on the task.
+comment with the issue number and the exact text. Put the exact `gh issue edit` or `gh issue comment`
+commands on the task. A person runs them: writing to GitHub is off until the owner turns it on in
+`employee.yaml` and `.claude/settings.json`, and the harness refuses the commands until then. Once it is
+on, apply exactly what was approved, nothing extra. Record the approval id on the task either way.
 
 ## When GitHub refuses
 

@@ -3,6 +3,7 @@ slug: reputation
 name: Reputation
 required: false
 bootstrap: false
+pack: marketing
 summary: "Works the company's public review listings and nothing else: builds the review pages Sales can point a buyer to, and cleans the listings a buyer trips over, one approved batch per surface."
 owns:
   - "The review ledger: every review, complaint, invitation and flag on every surface, with the lever chosen and its outcome"

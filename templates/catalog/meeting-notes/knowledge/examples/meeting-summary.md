@@ -1,3 +1,6 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
 # Pricing call, Acme, 2026-09-23
 
 Sample output for Acme, a fictional company. Every name and quote is invented.
@@ -26,3 +29,4 @@ The audio dropped for about a minute at 00:18:00. Nothing was decided there that
 ## Sources
 - Meeting `20260923-160000-a3f1`, Pricing call, 2026-09-23 (Zoom import)
 - Decision log, read 2026-09-23: no earlier pricing decision found
+```

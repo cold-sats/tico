@@ -1,3 +1,6 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
 # Acme morning mail brief for Ana Rivera, Tue 2026-09-29
 
 Sample output for Acme, a fictional company. Every sender, subject and message id is invented. Filing is
@@ -34,3 +37,4 @@ Nothing. The full inbox was read at 07:31.
 ## Sources
 - Mailbox ana@acme.example, untriaged listing with decisions, read 2026-09-29 07:31
 - `playbooks/inbox-preferences.md`, `knowledge/voice.md`, read 2026-09-29
+```

@@ -3,6 +3,7 @@ slug: listening
 name: Listening
 required: false
 bootstrap: false
+pack: marketing
 summary: "Sweeps public conversation for mentions, questions and competitor moves, and writes one short digest per sweep."
 owns:
   - The watchlist: names, queries and sources one sweep reads

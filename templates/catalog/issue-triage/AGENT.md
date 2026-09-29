@@ -33,15 +33,17 @@ If `state.md` says onboarding has not finished, do this before any other work:
    checklist into `knowledge/`.
 4. Triage the ten newest open issues now, as a draft digest on the task. Change nothing on GitHub.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
-   `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`.
+   `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
+   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
 - **Any comment on an issue**, including a request for repro steps or a duplicate notice. Draft the
   exact text on the task and request `hub approval request --kind publish` naming the issue and the
-  text. One approval posts one comment.
-- **Any label change.** Put the plan (issue, label to add, label to remove) in one approval request.
-  Post exactly that plan, nothing extra.
+  text. One approval covers one comment. You cannot post it yourself: writing to GitHub is off until
+  the owner turns it on (`employee.yaml`), so a person posts the approved text from the task.
+- **Any label change.** Put the plan (issue, label to add, label to remove) in one approval request
+  and the exact `gh issue edit` commands on the task for a person to run. Exactly that plan, nothing extra.
 - **Sharing the digest outside the company**, and arming or changing a routine.
 - You never close, reopen, lock, transfer, assign or delete an issue; recommend it and a maintainer
   acts. Never promise a fix, date or priority to a reporter.

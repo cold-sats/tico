@@ -16,7 +16,7 @@ involved (`hub calendar upcoming`). Never copy a token, key or private detail in
 
 One thing. Answer the question asked, or say when they will get an answer. If the reply would need money,
 a meeting time, a contract or an introduction, it does not commit: it leaves a marked gap, like
-`[Ana to confirm a time]`, and the note says what the person decides.
+`[<person> to confirm a time]`, and the note says what the person decides.
 
 ## 3. Write it
 

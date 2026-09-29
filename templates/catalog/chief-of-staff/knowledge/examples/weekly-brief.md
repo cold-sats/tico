@@ -1,3 +1,6 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
 # Acme weekly brief, week ending Fri 2026-09-25
 
 Sample output for Acme, a fictional company. Every source below is invented.
@@ -51,3 +54,4 @@ Private meetings are not visible to me, so anything decided in one is missing fr
 - Weekly updates from all bots, 2026-09-25
 - Tasks open, doing or waiting, read 2026-09-25 15:00
 - Meetings search, since 2026-09-19
+```

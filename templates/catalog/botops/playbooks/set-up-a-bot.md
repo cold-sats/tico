@@ -71,7 +71,10 @@ elsewhere names the folders, `files: {publish: [reports/, deliverables/]}`.
 Fix everything it reports as a failure: a missing `state.md`, an `AGENT.md` still identical to the
 template, an empty `## Owns`, a `name:` that is not the slug, a schedule that would be refused. A
 warning can stand if you say in the note what it is and why it is acceptable now. A credential that
-does not resolve is not yours to create: name the variable on the task and say who supplies it.
+does not resolve is not yours to create: name the variable on the task and say who supplies it. When
+a person asks how to connect a tool, point them to Settings > Integrations (or Credentials for a key):
+the value is entered in that field, never in chat, a task or a file. A secret pasted in chat is
+treated as leaked: say so and ask them to rotate it.
 
 ## 5. Commit
 

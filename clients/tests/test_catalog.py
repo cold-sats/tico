@@ -3,6 +3,7 @@
 Nothing here talks to a server. The catalog is a temporary directory holding one card, which is
 what `TICO_CATALOG_DIR` is for, so these tests say nothing about which bots the product ships.
 """
+import json
 import os
 import subprocess
 import tempfile
@@ -112,7 +113,7 @@ class Materialize(unittest.TestCase):
 
 
 STARTERS = ("chief-of-staff", "support", "sales", "meeting-notes", "inbox", "issue-triage")
-PACKS = ("basics", "sales", "support", "operations", "engineering")
+PACKS = ("basics", "sales", "support", "operations", "engineering", "marketing")
 
 
 class StarterBots(unittest.TestCase):
@@ -151,7 +152,14 @@ class StarterBots(unittest.TestCase):
             self.assertEqual(len(routines), 1, where)
             self.assertIs(routines[0]["enabled"], False, f"{where}: the first routine waits for a person's yes")
             for access in manifest["access"]:
-                self.assertNotIn("send", access.get("can", []), where)
+                # Nothing a starter can do reaches outside the company on its own: no send, and no write to a
+                # service (a person applies what it proposes, until the owner turns writing on).
+                self.assertFalse({"send", "write", "modify", "delete"} & set(access.get("can", [])), where)
+            allowed = json.loads((folder / ".claude/settings.json").read_text())["permissions"]["allow"]
+            for entry in allowed:
+                self.assertNotRegex(entry, r"^Bash\(gh (issue|pr|api) (\*|comment|edit|create|close)", f"{where}: {entry}")
+            # The last step of onboarding tells the hub a person approved the first routine.
+            self.assertIn("hub bot onboarded", (folder / "playbooks/onboarding.md").read_text(), where)
 
 if __name__ == "__main__":
     unittest.main()

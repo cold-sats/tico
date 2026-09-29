@@ -1,3 +1,6 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
 # Acme issue digest, week ending Sun 2026-09-27
 
 Sample output for Acme, a fictional company, and its fictional repository `acme/studio-app`. Every
@@ -42,3 +45,4 @@ Nothing. All issues since #1417 were read.
 ## Sources
 - `acme/studio-app` open issues, read 2026-09-28 09:00, 14 created since 2026-09-21
 - `knowledge/themes.md` as of 2026-09-21
+```

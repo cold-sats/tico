@@ -3,6 +3,7 @@ slug: content
 name: Content
 required: false
 bootstrap: false
+pack: marketing
 summary: "Plans and drafts the company's posts and articles, and hands each one over for a person to publish."
 owns:
   - The rolling content plan

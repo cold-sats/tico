@@ -33,7 +33,8 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Write up the most recent company meeting now, as a draft on the task, so the person reacts to
    something real.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
-   `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`.
+   `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
+   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
