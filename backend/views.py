@@ -8,6 +8,7 @@ import yaml
 from fastapi import Request
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response, StreamingResponse
 
+from . import bot_access as A
 from . import models as M
 from . import providers, runner_versions
 from . import rooms, turns
@@ -676,16 +677,23 @@ def install_views(app, store, auth, mutate, task_view):
             level = access.get(slug, auth.FULL)
             if bot.get("state") == "archived" or not level["see"]:
                 continue
+            registry = c.execute("SELECT operator,revision,goals,access_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
+            # Who may change who has access (`Auth.bot_manager`), with the audiences when they may.
+            manager = (who.role == "owner" or (who.role == "human" and (
+                (registry and registry["operator"] == H.actor_id(who.actor) and auth.bot_admin(who))
+                or P.manages(H.actor_id(who.actor), "bot", slug, people, configs, archived))))
+            policy = {"can_manage": manager}
+            if manager:
+                policy["access_policy"] = A.document(registry["access_json"] if registry else None)
             if not level["read"]:
                 # Seen, not read: the name, role, who runs it, who it reports to. Its
                 # configuration, routines, machine and goals are its activity.
-                registry = c.execute("SELECT operator,revision FROM bot_config WHERE bot=?", (slug,)).fetchone()
                 reports = (configs.get(slug, {}) or {}).get("reports_to") or ""
                 if reports and not str(reports).startswith("human:") and not access.get(reports, auth.FULL)["see"]:
                     reports = ""
                 rows.append({"name": slug, "display_name": bot["display_name"], "state": bot["state"],
                              "status": bot["state"], "description": (configs.get(slug, {}) or {}).get("description") or "",
-                             "reports_to": reports, "access": level,
+                             "reports_to": reports, "my_access": level, **policy,
                              "team": P.team_of(slug, configs, people["teams"]),
                              "org_parent": P.org_parent("bot", slug, people, configs, archived),
                              "operator": registry["operator"] if registry else None,
@@ -698,7 +706,6 @@ def install_views(app, store, auth, mutate, task_view):
             from .routines import listing
             config['schedules'] = listing(c, slug, summary=True)
             location = machine(c, slug)
-            registry = c.execute("SELECT operator,revision,goals FROM bot_config WHERE bot=?", (slug,)).fetchone()
             # Read-only, for the quiet runtime label beside a bot's name; empty when nothing resolves.
             try:
                 resolved_runtime, resolved_model = providers.resolve(company, config)
@@ -716,7 +723,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "goals": (registry["goals"] if registry else "") or "",
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
-                         "access": level, "can_chat": may_chat(c, auth, who, slug)})
+                         "my_access": level, **policy, "can_chat": may_chat(c, auth, who, slug)})
         return rows
 
     @app.get("/api/me")

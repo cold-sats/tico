@@ -854,6 +854,21 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-services-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px 14px;margin-top:12px;font-size:12px}
 .owner-picker{width:min(520px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .owner-picker-body{padding:18px}
+.settings-access{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:170px}
+.settings-access-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.settings-works-for{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.access-editor{width:min(660px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
+.access-body{padding:18px;display:flex;flex-direction:column;gap:12px;max-height:82vh;overflow:auto}
+.access-body p{margin:0}
+.access-presets,.access-level{margin:0;padding:8px 12px;border:1px solid var(--line);border-radius:8px;min-width:0}
+.access-presets legend,.access-level legend{padding:0 4px;font-size:12px;color:var(--muted)}
+.access-presets label{display:flex;align-items:flex-start;gap:8px;padding:5px 0;cursor:pointer}
+.access-presets small,.access-level legend small{display:block;color:var(--muted);font-weight:400}
+.access-level .access-everyone{display:flex;align-items:center;gap:6px;padding:2px 0 6px}
+.access-group{margin:6px 0 0}.access-group>span{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+.access-list{display:flex;flex-wrap:wrap;gap:4px 14px;max-height:132px;overflow:auto;padding:2px}
+.access-list label{display:flex;align-items:center;gap:5px}
+.access-list .muted{font-size:12px}
 .bot-editor{width:min(680px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .bot-editor-body{padding:18px}.bot-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .bot-editor-grid label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
@@ -1141,6 +1156,7 @@ button:disabled{opacity:.5;cursor:default}
 .bothead .meta{display:inline-block;vertical-align:middle;margin-left:8px;font-size:13px}
 .bothead .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 .role{color:var(--muted);font-size:13.5px;line-height:1.5;max-width:72ch;white-space:pre-wrap;margin-top:6px}
+.bot-request-head{font-size:14px;margin:14px 2px 6px}
 .bot-setup{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 16px;margin:0;font-size:13px;align-items:center}
 .bot-setup dt{color:var(--muted)}.bot-setup dd{margin:0;min-width:0;overflow-wrap:anywhere}.bot-setup .pchip{margin-left:0;margin-right:4px}
 button.linkish{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline}
@@ -2006,6 +2022,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
         <button class="section-toggle" type="button" data-section-toggle="organisation" aria-expanded="true" aria-controls="nav-organisation">
           <span>Org</span><span class="section-chev" aria-hidden="true">›</span>
         </button>
+        <button class="org-history" id="org-mine" type="button" aria-pressed="false" title="Only bots I can read or write" aria-label="Only bots I can read or write"><span class="nav-icon" aria-hidden="true">person</span></button>
         <button class="org-history" id="org-history" type="button" aria-pressed="false" title="Most recently viewed first" aria-label="Sort bots and people by most recently viewed"><span class="nav-icon" aria-hidden="true">history</span></button>
       </div>
       <div class="section-body" id="nav-organisation" data-section-body="organisation">
@@ -2935,8 +2952,11 @@ function orgTreeByParent() {
   for (const p of (S.people || []).filter(p => !p.hidden)) {
     (byParent[p.org_parent || ''] ||= []).push({kind: 'person', id: p.id, person: p});
   }
-  const empIds = new Set(shownEmps().filter(e => !inboxBots.has(e.name)).map(e => e.name));
-  for (const e of shownEmps()) {
+  // "Only bots I can read or write": a bot the caller may merely see leaves the chart, and the
+  // bots under it hang from the next thing that is left.
+  const kept = shownEmps().filter(orgMineKeep);
+  const empIds = new Set(kept.filter(e => !inboxBots.has(e.name)).map(e => e.name));
+  for (const e of kept) {
     if (inboxBots.has(e.name)) continue;
     let parent = e.org_parent || '';
     // a hidden bot's reports take its place (BotOps sits where Tico sat)
@@ -3150,7 +3170,30 @@ function orgHistorySave() {
   orgHistoryTimer = setTimeout(() => { void post('/v2/preferences/' + ORG_HISTORY_PREF,
     {value: {items: orgHistory(), at: orgHistoryAt()}}).catch(() => {}); }, 800);
 }
+// "Only bots I can read or write" (the person icon beside the clock): hides the bots the caller may only
+// see. Kept like the history: on this device at once, and with the account as preference org.mine,
+// stamped with when it last changed, the newer copy winning.
+const ORG_MINE_KEY = 'tico.org.mine', ORG_MINE_AT_KEY = 'tico.org.mine.at', ORG_MINE_PREF = 'org.mine';
+function orgMineOn() { try { return localStorage.getItem(ORG_MINE_KEY) === '1'; } catch { return false; } }
+function orgMineAt() { try { return Number(localStorage.getItem(ORG_MINE_AT_KEY)) || 0; } catch { return 0; } }
+function orgMineStore(on, at) { try { localStorage.setItem(ORG_MINE_KEY, on ? '1' : '0'); localStorage.setItem(ORG_MINE_AT_KEY, String(at)); } catch {} }
+const orgMineKeep = e => !orgMineOn() || !e.my_access || e.my_access.read || e.my_access.write;
+let orgMineTimer = null;
+function orgMineSave() {
+  if (!S.me?.cloud) return;
+  clearTimeout(orgMineTimer);
+  orgMineTimer = setTimeout(() => { void post('/v2/preferences/' + ORG_MINE_PREF,
+    {value: {on: orgMineOn(), at: orgMineAt()}}).catch(() => {}); }, 800);
+}
+async function orgMineSync() {
+  if (!S.me?.cloud) return;
+  const v = (await v2Get('/v2/preferences/' + ORG_MINE_PREF))?.value;
+  const at = Number(v?.at) || 0;
+  if (v && typeof v.on === 'boolean' && at > orgMineAt()) { orgMineStore(v.on, at); renderTree(); }
+  else if (at < orgMineAt()) orgMineSave();
+}
 async function orgHistorySync() {
+  void orgMineSync();
   if (!S.me?.cloud) return;
   const v = (await v2Get('/v2/preferences/' + ORG_HISTORY_PREF))?.value;
   const items = Array.isArray(v?.items) ? v.items.filter(x => typeof x === 'string') : null;
@@ -3168,6 +3211,11 @@ function orgHistoryVisit(key) {
   if (orgHistoryOn()) renderTree();                      // the one just opened moves to the top
 }
 function orgHistoryOn() { try { return localStorage.getItem(ORG_HISTORY_ON_KEY) === '1'; } catch { return false; } }
+$('#org-mine').onclick = () => {
+  orgMineStore(!orgMineOn(), Date.now());
+  orgMineSave();
+  renderTree();
+};
 $('#org-history').onclick = () => {
   try { localStorage.setItem(ORG_HISTORY_ON_KEY, orgHistoryOn() ? '0' : '1'); } catch {}
   if (orgHistoryOn() && navCollapsed.delete('organisation')) {
@@ -3244,6 +3292,7 @@ function renderTree() {
   renderLibrarians();
   const historyOn = orgHistoryOn();
   $('#org-history').setAttribute('aria-pressed', String(historyOn));
+  $('#org-mine').setAttribute('aria-pressed', String(orgMineOn()));
   $('#tree').classList.toggle('history', historyOn);
   $('#tree').innerHTML = historyOn ? history() : rec('', 0);
   orgDragWire($('#tree'), byParent);
@@ -4322,8 +4371,12 @@ function v2ChatStop() {
 }
 async function v2ChatLoad(slug) {
   v2ChatStop();
-  const configured = S.emps.find(e => e.name === slug)?.thread_mode;
-  const mode = slug === assistantBot() ? 'personal' : (configured || (slug === 'cpo' ? 'shared' : 'personal'));
+  const bot = S.emps.find(e => e.name === slug);
+  const configured = bot?.thread_mode;
+  // A shared room belongs to the people the bot works for who may read it; anyone else talks to it in a room of their own.
+  const member = S.me?.role === 'owner' || (bot?.users || []).some(u => u.id === S.me?.id);
+  const mode = slug === assistantBot() || !member || (bot?.my_access && !bot.my_access.read) ? 'personal'
+    : (configured || (slug === 'cpo' ? 'shared' : 'personal'));
   const state = V2C = {slug, mode, conv: null, messages: [], live: null, es: null, poll: 0, rendered: false, followLatest: true,
                        loaded: false, failed: false};
   const seen = CHAT_CACHE.get(slug);
@@ -6143,7 +6196,15 @@ async function personSlackLoad(p) {
 // there and scrolls to it, so every link a run row wrote keeps working.
 const BOT_TABS = ['chat', 'tasks', 'history', 'docs', 'more'];   // history: its updates
 // The assistant is chatted with only in each person's own Assistant tab, so its bot page has no Chat.
-const botTabs = slug => slug === assistantBot() ? BOT_TABS.filter(t => t !== 'chat') : BOT_TABS;
+const botTabs = slug => {
+  const tabs = slug === assistantBot() ? BOT_TABS.filter(t => t !== 'chat') : BOT_TABS;
+  const mine = S.emps.find(e => e.name === slug)?.my_access;
+  // Seen but not read: no updates or docs, and Chat and Tasks only for someone who may write to it (the
+  // page then holds their own threads and tasks with the bot, and the request box).
+  return mine && !mine.read ? tabs.filter(t => t === 'more' || (mine.write && (t === 'chat' || t === 'tasks'))) : tabs;
+};
+const botLimited = e => !!e?.my_access && !e.my_access.read;
+const botPersonName = id => (S.people || []).find(p => p.id === id)?.name || settingsPersonName(id);
 let BOT = null;
 function botStopped() {
   BOT_CHAT_TASK_LOAD++; BOT_CHAT_TASKS = new Map(); BOT = null;
@@ -6353,9 +6414,10 @@ async function pageBot(slug, tab) {
   const keeper = isKeeper(slug);        // hosted by the keeper: hub.db is its record (docs/history/hub-v2.md)
   const boss = S.emps.find(x => x.name === e.reports_to);
   const role = String(e.role || e.description || '').trim();
+  const limited = botLimited(e);       // seen, not read: no activity anywhere on the page
   const work = botTabs(slug).filter(t => t === 'chat' || t === 'tasks');
   const base = `#/bot/${encodeURIComponent(slug)}`;
-  const tabsShown = [...work, ...(isKeeper(slug) ? ['history'] : []), 'more'];
+  const tabsShown = [...work, ...(isKeeper(slug) && !limited ? ['history'] : []), 'more'];
   // The goal leads the page; chat and tasks sit side by side under it on a
   // desktop. Narrower, one top line holds back, the bot and Chat · Tasks · More, with the goal as one
   // line under it. A status shows only when it is an alert. Docs live inside More.
@@ -6364,14 +6426,14 @@ async function pageBot(slug, tab) {
     <button class="bot-back-arrow" id="bot-back-arrow" type="button" aria-label="Back" title="Back">‹</button>
     <div class="bot-ident"><span data-tip-bot="${esc(slug)}" tabindex="0" role="img" aria-label="${esc(e.display_name || slug)} status">${avatar(slug, 36, stateOf(slug))}</span>
       <div class="botid"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1>
-        <div class="meta" id="bot-alert">${botAlertHTML(slug)}</div>
+        <div class="meta" id="bot-alert">${limited ? '' : botAlertHTML(slug)}</div>
         <div class="bot-ticker" id="bot-ticker" aria-live="polite" hidden></div></div></div>
     <div class="bot-switch" id="btabs" role="tablist" aria-label="${esc(e.display_name || slug)}">
       ${tabsShown.map(t => { const label = t[0].toUpperCase() + t.slice(1);
         return `<button type="button" data-bt="${t}" role="tab" aria-label="${label}" title="${label}"><span class="nav-icon bt-icon" aria-hidden="true">${BOT_TAB_ICONS[t] || 'more_horiz'}</span><span class="bt-label">${label}</span></button>`; }).join('')}
     </div>
-    <section class="bot-goal" id="bot-goal" aria-label="Goal"><span class="muted">Loading the goal…</span></section>
-    ${isKeeper(slug) ? `<a class="ghost bot-more-btn bot-history-btn" id="bot-history-btn" href="${base}/history" aria-label="Update history" title="Update history"><span class="nav-icon" aria-hidden="true">history</span></a>` : ''}
+    ${limited ? '' : '<section class="bot-goal" id="bot-goal" aria-label="Goal"><span class="muted">Loading the goal…</span></section>'}
+    ${isKeeper(slug) && !limited ? `<a class="ghost bot-more-btn bot-history-btn" id="bot-history-btn" href="${base}/history" aria-label="Update history" title="Update history"><span class="nav-icon" aria-hidden="true">history</span></a>` : ''}
     <a class="ghost bot-more-btn" id="bot-more-btn" href="${base}/more" aria-label="More" title="More"><span class="nav-icon" aria-hidden="true">more_vert</span></a>
   </div>
   <section class="bot-update" id="bot-update" aria-label="Latest update" hidden></section>
@@ -6387,11 +6449,12 @@ async function pageBot(slug, tab) {
       <button type="button" class="conv-jump" id="conv-jump" hidden></button>
     </section>
     <div id="conv-paused" class="conv-paused" role="status" hidden></div>
+    ${limited ? '<h2 class="bot-request-head">Send a request</h2>' : ''}
     <div id="chat-composer"></div>
   </div>
 
   <div id="pane-tasks" hidden>
-    <section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>
+    ${limited ? '' : '<section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>'}
     <section class="card tasks"><header><h2>Active <span class="cnt" id="cnt-open"></span></h2>
         <div class="tabs slim" id="ttabs"><button type="button" data-t="new" class="bot-task-new" aria-expanded="false" aria-controls="t-new">+ New</button></div>
         </header>
@@ -6412,16 +6475,26 @@ async function pageBot(slug, tab) {
     <section class="card tasks" id="bot-assigned" hidden><header><h2>Assigned to others <span class="cnt" id="cnt-assigned"></span></h2></header>
       <div id="t-assigned" class="tpane"></div></section>
     <details class="bot-done"><summary>Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane">Loading…</div></details>
-    <section class="card bot-recurring" id="bot-recurring" aria-label="Recurring work">${botRecurringHTML(e, slug)}</section>
+    ${limited ? '' : `<section class="card bot-recurring" id="bot-recurring" aria-label="Recurring work">${botRecurringHTML(e, slug)}</section>`}
   </div>
   </div>
 
-  <div id="pane-history" hidden>
+  ${limited ? '' : `<div id="pane-history" hidden>
     <section class="card"><header><h2>Updates</h2><span class="sub">what it reported, newest first</span></header>
       <div id="bot-history" class="bot-history"><div class="empty">Loading…</div></div></section>
   </div>
+  `}
   <div id="pane-more" hidden>
-    <section class="card"><header><h2>Setup</h2><span class="sub">who uses it, what runs it</span>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
+    ${limited ? `    <section class="card"><header><h2>About</h2><span class="sub">what you can see of this bot</span></header>
+      <dl class="bot-setup">
+        ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
+        <dt>Run by</dt><dd>${esc(botPersonName(e.operator))}</dd>
+        <dt>Works for</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
+        ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>`
+          : String(e.reports_to || '').startsWith('human:') ? `<dt>Reports to</dt><dd>${esc(botPersonName(e.reports_to.slice(6)))}</dd>` : ''}
+        <dt>Your access</dt><dd>${e.my_access.write ? 'You can see this bot and send it requests. Its work is not open to you: only the requests and tasks you make show here.' : 'You can see this bot. Its work is not open to you, and you cannot send it requests.'}</dd>
+      </dl></section>
+` : `    <section class="card"><header><h2>Setup</h2><span class="sub">who uses it, what runs it</span>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>People</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
@@ -6459,18 +6532,20 @@ async function pageBot(slug, tab) {
     <section class="card" id="sess-card"><header><h2>Session</h2><span class="sub">${S.me?.cloud ? 'provider thread pointer on the Hub; files stay on the Mac; recovery pack rebuilds if resume fails' : "the runtime's own file, not a replay"}</span></header>
       <div class="sess-head" id="sess-head">Loading…</div>
       <div id="sess-turns"></div></section>
+`}
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
 
   </div>
 
-  <div id="pane-docs" hidden>
+  ${limited ? '<div id="pane-docs" hidden>' : `<div id="pane-docs" hidden>
     <section class="card"><header><h2>Instructions</h2><span class="sub">${S.me?.cloud ? 'published role snapshot from the cloud registry' : "AGENT.md in the bot's repo, read-only here"}</span></header><div class="md" id="agent">Loading…</div></section>
     <section class="card"><header><h2>Working notes</h2><span class="sub">${S.me?.cloud ? 'published cloud status; local private files stay on the runner' : 'what the bot keeps for itself between runs'}</span></header>
       <div class="tabs" id="tabs"></div><div class="md" id="doc">Loading…</div></section>
+  `}
   </div>`;
 
-  BOT = {slug, tab: null, loaded: new Set()};
+  BOT = {slug, tab: null, loaded: new Set(), limited};
   orgHistoryVisit('b:' + slug);
   bindChatSwipe($('#conv-thread'));
   if (e.can_chat) {
@@ -6482,11 +6557,10 @@ async function pageBot(slug, tab) {
   } else {
     if (BOT_PILL) chatDraftSave(BOT_PILL);
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
-    const assigned = (e.users || []).map(u => firstName(u.name) || u.email).filter(Boolean);
-    $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is assigned</h2><p class="muted">Only ${esc(assigned.join(', ') || 'this bot’s assigned users')} can chat with ${esc(e.display_name || slug)}. You can still view its work and create tasks.</p></section>`;
+    $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)}${limited ? '' : ' and read its work'}, but not send it requests. Ask the person who runs it for Write access.</p></section>`;
   }
-  void botGoalLoad(slug);
-  if (isKeeper(slug)) void botTickerLoad(slug);
+  if (!limited) void botGoalLoad(slug);
+  if (isKeeper(slug) && !limited) void botTickerLoad(slug);
   $('#btabs').onclick = ev => {
     const b = ev.target.closest('[data-bt]'); if (!b) return;
     location.hash = b.dataset.bt === 'chat' ? `#/bot/${slug}` : `#/bot/${slug}/${b.dataset.bt}`;
@@ -6524,10 +6598,12 @@ async function pageBot(slug, tab) {
       ? void settingsAgentCredential(button.dataset.agentCredential)
       : void settingsAgentRevoke(button.dataset.agentRevoke);
   });
-  $('#bot-goals-add').onclick = () => botGoalAdd(slug);
-  void botUpdatesCardLoad(slug);
-  void botLatestUpdate(slug);
-  void botGoalsCardLoad(slug);
+  if (!limited) {
+    $('#bot-goals-add').onclick = () => botGoalAdd(slug);
+    void botUpdatesCardLoad(slug);
+    void botLatestUpdate(slug);
+    void botGoalsCardLoad(slug);
+  }
 
   // task tabs (inside the Tasks pane)
   // Active, then Assigned to others, Done folded away, and Recurring last;
@@ -6568,7 +6644,7 @@ async function pageBot(slug, tab) {
   };
   }
 
-  bindRoutineExpand($('#pane-more'));
+  if (!limited) bindRoutineExpand($('#pane-more'));
   showBotTab(tab);
 }
 // A desktop is wide enough for both: chat on the left, the bot's tasks on the right, each scrolling
@@ -6624,7 +6700,7 @@ function showBotTab(tab) {
     const e = S.emps.find(x => x.name === BOT.slug);                // routines change under More; redraw on return
     if (e && $('#bot-recurring')) $('#bot-recurring').innerHTML = botRecurringHTML(e, BOT.slug);
   }
-  if (view === 'more') {
+  if (view === 'more' && !BOT.limited) {
     if (isKeeper(BOT.slug)) once('history', v2HistoryLoad);
     once('docs', loadDocs);            // Routines expands playbooks
     once('runs', fillBotRuns);                                    // /status carries no recent_runs
@@ -9338,7 +9414,134 @@ async function executionReview(bot) {
 function settingsOwnerList(e) {
   return `<div class="settings-owner-list">${(e.users || []).map(person =>
     `<span class="pchip" title="${esc(person.email || '')}">${personCircle(person.name || person.id, 16)}<span>${esc(firstName(person.name) || person.id)}</span></span>`).join('') || '<span class="muted">Nobody</span>'}
-    ${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-owners="${esc(e.name)}" aria-label="Edit people for ${esc(e.display_name)}">Edit</button>` : ''}</div>`;
+    ${settingsCanManageBot(e) || e.can_manage ? `<button class="ghost" type="button" data-edit-owners="${esc(e.name)}" aria-label="Edit who ${esc(e.display_name)} works for">Edit</button>` : ''}</div>`;
+}
+// ----- Access: who may see, read and write to a bot (backend/bot_access.py, docs/permissions.md).
+// Each level is everyone, or people, teams and bots. Open is all three Everyone; the owner, the bot
+// itself and the people it reports up to always have all three.
+const ACCESS_LEVELS = [
+  ['see', 'See', 'the bot in the org chart and lists: its name, role, who runs it and who it reports to'],
+  ['read', 'Read', 'its work: tasks, updates, files, status, run log and routines'],
+  ['write', 'Write', 'send it messages, tasks, notes and comments'],
+];
+const ACCESS_PRESETS = [
+  ['open', 'Open', 'Everyone sees it, reads its work and can send it requests.'],
+  ['requests', 'Visible, requests only', 'Everyone sees it and can send it requests; only the people you choose read its work.'],
+  ['private', 'Private', 'Only the people, teams and bots you choose see it, read its work or send it requests.'],
+  ['custom', 'Custom', 'Choose who sees, reads and writes separately.'],
+];
+const accessTeamName = id => (S.orgGroups || []).find(g => g.id === id)?.name || teamLabel(id);
+const accessEmpty = () => ({everyone: false, people: [], teams: [], bots: []});
+const accessEveryone = () => ({everyone: true, people: [], teams: [], bots: []});
+function accessLevelText(level) {
+  if (!level || level.everyone) return 'Everyone';
+  const names = [...(level.teams || []).map(accessTeamName), ...(level.people || []).map(id => firstName(settingsPersonName(id)) || id),
+    ...(level.bots || []).map(settingsBotName)];
+  if (!names.length) return 'Managers only';
+  return names.length > 3 ? `${names.slice(0, 2).join(', ')} +${names.length - 2}` : names.join(', ');
+}
+function accessSummary(policy) {
+  if (!policy) return 'Open';
+  if (ACCESS_LEVELS.every(([key]) => policy[key]?.everyone)) return 'Open';
+  return ACCESS_LEVELS.map(([key, label]) => `${label}: ${accessLevelText(policy[key])}`).join(' · ');
+}
+function settingsAccessCell(e) {
+  const mine = e.my_access || {see: true, read: true, write: true};
+  const yours = ACCESS_LEVELS.filter(([key]) => mine[key]).map(([, label]) => label).join(' · ');
+  const summary = e.access_policy ? accessSummary(e.access_policy) : `You: ${yours || 'See'}`;
+  return `<div class="settings-access"><div class="settings-access-line"><span data-access-summary>${esc(summary)}</span>${e.can_manage
+    ? `<button class="ghost" type="button" data-edit-access="${esc(e.name)}" aria-label="Edit access for ${esc(e.display_name)}">Edit</button>` : ''}</div>
+    <div class="settings-works-for"><span>Works for</span>${settingsOwnerList(e)}</div></div>`;
+}
+// Which preset a stored policy is: Open, Visible-requests-only (See and Write Everyone, Read chosen),
+// Private (all three the same chosen audience), else Custom.
+function accessPresetOf(policy) {
+  const same = (a, b) => JSON.stringify([!!a.everyone, a.people, a.teams, a.bots]) === JSON.stringify([!!b.everyone, b.people, b.teams, b.bots]);
+  if (ACCESS_LEVELS.every(([key]) => policy[key].everyone)) return 'open';
+  if (policy.see.everyone && policy.write.everyone && !policy.read.everyone) return 'requests';
+  if (!policy.see.everyone && same(policy.see, policy.read) && same(policy.read, policy.write)) return 'private';
+  return 'custom';
+}
+async function settingsEditAccess(slug) {
+  const e = S.emps.find(row => row.name === slug);
+  if (!e) return;
+  let data;
+  try { data = await get(`/v2/bots/${encodeURIComponent(slug)}/access`); }
+  catch (error) { toast(error.message, true); return; }
+  let dialog = $('#access-editor');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.className = 'access-editor'; dialog.id = 'access-editor'; dialog.setAttribute('aria-labelledby', 'access-editor-title');
+    document.body.append(dialog);
+  }
+  const people = (SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.people || []).filter(p => !p.hidden));
+  const bots = S.emps.filter(row => row.name !== slug && row.status !== 'archived');
+  const teams = data.teams || [];
+  const draft = {see: {...data.see}, read: {...data.read}, write: {...data.write}};
+  let preset = accessPresetOf(draft);
+  // What the two "chosen" presets edit: the Read audience (requests only), or one audience for all three (Private).
+  const chosenOf = () => {
+    const pick = ['read', 'see', 'write'].map(key => draft[key]).find(level => !level.everyone) || accessEmpty();
+    return {everyone: false, people: [...pick.people], teams: [...pick.teams], bots: [...pick.bots]};
+  };
+  const list = (level, key, rows, label) => `<div class="access-group"><span>${label}</span><div class="access-list">${rows.length ? rows.map(row =>
+    `<label><input type="checkbox" data-access-pick="${key}" value="${esc(row.id)}" ${(level[key] || []).includes(row.id) ? 'checked' : ''}>${esc(row.name)}</label>`).join('')
+    : '<span class="muted">None</span>'}</div></div>`;
+  const picker = (levels, title, hint, withEveryone) => {
+    const level = draft[levels[0]];
+    return `<fieldset class="access-level" data-access-levels="${levels.join(',')}"><legend>${esc(title)}${hint ? `<small>${esc(hint)}</small>` : ''}</legend>
+      ${withEveryone ? `<label class="access-everyone"><input type="checkbox" data-access-everyone ${level.everyone ? 'checked' : ''}> Everyone</label>` : ''}
+      <div data-access-lists ${level.everyone ? 'hidden' : ''}>${list(level, 'people', people.map(p => ({id: p.id, name: p.name || p.id})), 'People')}
+      ${teams.length ? list(level, 'teams', teams, 'Teams') : ''}${bots.length ? list(level, 'bots', bots.map(b => ({id: b.name, name: b.display_name || b.name})), 'Bots') : ''}</div></fieldset>`;
+  };
+  const paintPickers = () => {
+    const host = dialog.querySelector('[data-access-pickers]');
+    host.innerHTML = preset === 'open' ? ''
+      : preset === 'requests' ? picker(['read'], 'Who can read its work', 'Everyone still sees it and can send it requests.', false)
+      : preset === 'private' ? picker(['see', 'read', 'write'], 'Who can use it', 'They see it, read its work and send it requests. Nobody else sees it.', false)
+      : ACCESS_LEVELS.map(([key, label, what]) => picker([key], label, what, true)).join('');
+  };
+  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="access-editor-title">Access to ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-access-close aria-label="Close">✕</button></div>
+    <div class="access-body"><p class="muted">Who may see this bot, read its work and send it requests. The owner, the bot itself and the people it reports up to always have full access. Anyone who can read or write can also see it.</p>
+      <fieldset class="access-presets"><legend>Preset</legend>${ACCESS_PRESETS.map(([value, label, hint]) =>
+        `<label><input type="radio" name="preset" value="${value}" ${value === preset ? 'checked' : ''}><span>${esc(label)}<small>${esc(hint)}</small></span></label>`).join('')}</fieldset>
+      <div data-access-pickers></div>
+      <div class="row"><button class="primary" type="submit">Save access</button><button class="ghost" type="button" data-access-close>Cancel</button><span class="muted" data-access-status role="status"></span></div></div></form>`;
+  paintPickers();
+  const form = dialog.querySelector('form'), status = dialog.querySelector('[data-access-status]');
+  dialog.querySelectorAll('[data-access-close]').forEach(button => button.onclick = () => dialog.close());
+  // Read whatever the boxes on screen say back into the draft before the preset changes or the form is saved.
+  const collect = () => dialog.querySelectorAll('.access-level').forEach(box => {
+    const level = box.querySelector('[data-access-everyone]')?.checked ? accessEveryone() : {
+      everyone: false,
+      ...Object.fromEntries(['people', 'teams', 'bots'].map(key => [key, [...box.querySelectorAll(`[data-access-pick="${key}"]:checked`)].map(input => input.value)]))};
+    box.dataset.accessLevels.split(',').forEach(key => { draft[key] = {...level}; });
+  });
+  form.onchange = event => {
+    const radio = event.target.closest('[name=preset]');
+    if (radio) {
+      collect();
+      const chosen = chosenOf();
+      if (radio.value === 'open') ACCESS_LEVELS.forEach(([key]) => { draft[key] = accessEveryone(); });
+      else if (radio.value === 'requests') { draft.see = accessEveryone(); draft.write = accessEveryone(); draft.read = chosen; }
+      else if (radio.value === 'private') ACCESS_LEVELS.forEach(([key]) => { draft[key] = {...chosen}; });
+      else ACCESS_LEVELS.forEach(([key]) => { draft[key] = draft[key] || accessEmpty(); });
+      preset = radio.value; paintPickers(); return;
+    }
+    const every = event.target.closest('[data-access-everyone]');
+    if (every) every.closest('.access-level').querySelector('[data-access-lists]').hidden = every.checked;
+  };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    collect();
+    const submit = form.querySelector('[type=submit]'); submit.disabled = true; status.textContent = 'Saving…';
+    try {
+      await put(`/v2/bots/${encodeURIComponent(slug)}/access`, {see: draft.see, read: draft.read, write: draft.write, revision: data.revision});
+      dialog.close(); await loadSettings(); toast(`Updated access to ${e.display_name}`);
+    } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; submit.disabled = false; }
+  };
+  dialog.onclose = () => { dialog.innerHTML = ''; };
+  dialog.showModal();
 }
 function settingsChoiceCombo(e, kind) {
   const fallback = kind === 'fallback';
@@ -9760,9 +9963,9 @@ function renderSettingsBots() {
   const pick = e => settingsBotSelectable(e)
     ? `<input type="checkbox" data-bot-pick="${esc(e.name)}" aria-label="Select ${esc(e.display_name)}" ${SETTINGS_BOTS_VIEW.selected.has(e.name) ? 'checked' : ''}>`
     : `<input type="checkbox" disabled aria-label="${esc(e.display_name)} cannot be changed here" title="${e.agent ? 'An external agent uses its own model' : 'You do not operate this bot'}">`;
-  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Can use</th><th>Model</th><th>Fallback</th><th>Run by</th><th>Computer</th><th>Health</th></tr></thead><tbody>
+  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Run by</th><th>Computer</th><th>Health</th></tr></thead><tbody>
     ${rows.map(e => `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td><td><div class="settings-bot-name">${avatar(e.name, 27, stateOf(e.name))}<div><a href="#/bot/${esc(e.name)}">${shownName(e)}</a>${isBuiltInBot(e.name) ? ' <span class="pill" data-built-in>Built in</span>' : ''}<small>${esc(e.team ? teamLabel(e.team) : 'No team')} · ${esc(e.status || 'planned')}</small>${botRepoHTML(e) ? `<small>${botRepoHTML(e)}</small>` : ''}${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit bot ${esc(e.display_name)}">Edit bot</button>` : ''}</div></div></td>
-      <td>${settingsOwnerList(e)}</td><td>${e.agent ? `${esc(agentKind(e.agent))}<span class="settings-cell-note">${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}</span>` : settingsChoiceCombo(e, 'model')}</td><td>${e.agent ? '<span class="muted">—</span>' : settingsChoiceCombo(e, 'fallback')}</td><td>${esc(settingsPersonName(e.operator))}<span class="settings-cell-note">${e.agent ? 'agent operator' : 'computer operator'}</span></td><td>${settingsMachineSelect(e)}</td><td>${settingsBotStatus(e)}</td></tr>`).join('')}
+      <td>${settingsAccessCell(e)}</td><td>${e.agent ? `${esc(agentKind(e.agent))}<span class="settings-cell-note">${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}</span>` : settingsChoiceCombo(e, 'model')}</td><td>${e.agent ? '<span class="muted">—</span>' : settingsChoiceCombo(e, 'fallback')}</td><td>${esc(settingsPersonName(e.operator))}<span class="settings-cell-note">${e.agent ? 'agent operator' : 'computer operator'}</span></td><td>${settingsMachineSelect(e)}</td><td>${settingsBotStatus(e)}</td></tr>`).join('')}
     </tbody></table></div>` : '<div class="empty">No bots match these filters.</div>'}`;
   settingsBotsSyncSelection(el, rows);
   el.onclick = event => {
@@ -9772,7 +9975,9 @@ function renderSettingsBots() {
     const bot = event.target.closest('[data-edit-bot]');
     const credential = event.target.closest('[data-agent-credential]');
     const revoke = event.target.closest('[data-agent-revoke]');
+    const access = event.target.closest('[data-edit-access]');
     if (owners) settingsEditOwners(owners.dataset.editOwners);
+    if (access) void settingsEditAccess(access.dataset.editAccess);
     if (bot) settingsEditBot(bot.dataset.editBot);
     if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
     if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);
@@ -9985,6 +10190,7 @@ function renderSettingsServices() {
 }
 function settingsValue(field, value) {
   if (field === 'owners') return value === null ? 'registry defaults' : (value || []).map(settingsPersonName).join(', ') || 'nobody';
+  if (field === 'access') return accessSummary(value);
   if (field === 'model') return settingsChoiceLabel(value?.harness || value?.runtime, value?.model, value?.effort);
   if (field === 'fallback') return value ? settingsChoiceLabel(value.harness, value.model, value.reasoning_effort || value.effort) : 'None (fail)';
   if (field === 'placement') return value?.label ? `${value.label} · ${settingsPersonName(value.operator)}` : 'not assigned';
@@ -10009,7 +10215,7 @@ function renderSettingsHistory() {
   const pendingRows = pending.map(t => `<div class="settings-history-row"><span>${avatar(t.bot, 24, stateOf(t.bot))}</span><div><strong>${esc(settingsBotName(t.bot))} · ${t.kind === 'model' ? 'model change' : 'computer move'}</strong><p>${esc(t.state === 'preparing' ? `Checkpointing ${t.progress.prepared} of ${t.progress.total} conversations` : t.error || t.state)}</p></div><div class="history-action"><span class="pill ${t.state === 'failed' ? 'fail' : 'waiting'}">${esc(t.state)}</span><button class="ghost" type="button" data-transition-review="${esc(t.id)}">Review</button></div></div>`).join('');
   const rows = changes.map(change => {
     const e = S.emps.find(row => row.name === change.bot), transition = transitionById.get(change.transition_id);
-    const field = {owners:'people',model:'model settings',placement:'computer',fallback:'fallback'}[change.field] || change.field;
+    const field = {owners:'who it works for',access:'access',model:'model settings',placement:'computer',fallback:'fallback'}[change.field] || change.field;
     return `<div class="settings-history-row"><span>${avatar(change.bot, 24, stateOf(change.bot))}</span><div><strong>${esc(settingsBotName(change.bot))} · ${esc(field)}</strong>
       <p>${esc(settingsValue(change.field, change.before))} → ${esc(settingsValue(change.field, change.after))}</p><p>${esc(actorLabel(change.actor))} · ${esc(fmt(change.created))}${change.undone_at ? ` · undone ${esc(ago(change.undone_at))}` : ''}</p></div>
       <div class="history-action">${change.can_undo && e ? `<button class="ghost" type="button" data-settings-undo="${esc(change.id)}" data-bot="${esc(change.bot)}" data-revision="${e.revision}">Undo</button>` : '<span class="muted">—</span>'}</div>
@@ -10043,8 +10249,6 @@ function settingsEditBot(slug = '') {
   const currentModel = settingsChoiceValue(defaultHarness, e?.model || fallbackModel.id, effort);
   const modelOptions = settingsAllChoices().map(choice =>
     `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === currentModel ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('');
-  const selectedOwners = new Set((e?.users || []).map(person => person.id));
-  if (!editing && S.me?.id) selectedOwners.add(S.me.id);
   const parentOptions = S.emps.filter(row => row.name !== slug &&
     (S.me?.role === 'owner' || row.operator === S.me?.id)).map(row =>
     `<option value="${esc(row.name)}" ${e?.reports_to === row.name ? 'selected' : ''}>${esc(row.display_name || row.name)}</option>`).join('');
@@ -10075,7 +10279,7 @@ function settingsEditBot(slug = '') {
           </div></label>
         <label>Computer operator<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
-        <div class="bot-editor-wide"><span class="muted">People who can use it</span><div class="bot-editor-owners">${SETTINGS_DATA.people.map(person => `<label><input type="checkbox" name="owner" value="${esc(person.id)}" ${selectedOwners.has(person.id) ? 'checked' : ''}>${esc(person.name || person.id)}</label>`).join('')}</div></div>`}
+        <p class="bot-editor-wide muted">Everyone can see it, read its work and send it requests. Change who can, once it is added, under Access.</p>`}
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select><button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-bot-status]');
@@ -10168,13 +10372,11 @@ function settingsEditBot(slug = '') {
           await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {
         const choice = settingsChoiceFromValue(form.elements.model_effort.value);
-        const owners = [...form.querySelectorAll('input[name=owner]:checked')].map(input => input.value);
-        if (!owners.length) throw new Error('Choose at least one person who can use this bot.');
         await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
           description: form.elements.description.value, reports_to: form.elements.reports_to.value || null,
           status: form.elements.status.value, repo: form.elements.repo.value,
           thread_mode: form.elements.thread_mode.value, model: choice.model, effort: choice.effort,
-          harness: choice.harness, operator: form.elements.operator.value || S.me?.id, owners,
+          harness: choice.harness, operator: form.elements.operator.value || S.me?.id,
           runner_id: form.elements.runner_id.value || null});
       }
       dialog.close(); await loadSettings(); settingsShow('bots');
@@ -10188,8 +10390,8 @@ function settingsEditOwners(slug) {
   const e = S.emps.find(row => row.name === slug), dialog = $('#owner-picker');
   if (!e || !dialog) return;
   const selected = new Set((e.users || []).map(person => person.id));
-  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="owner-picker-title">People for ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-owner-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body"><p class="muted">Selected people can see and talk to this bot. This does not change the machine that runs it.</p>
+  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="owner-picker-title">Who ${esc(e.display_name)} works for</h2><span class="spacer"></span><button class="ghost" type="button" data-owner-close aria-label="Close">✕</button></div>
+    <div class="owner-picker-body"><p class="muted">Selected people are who this bot works for: they share its room when it uses a shared conversation. Who may use it is its Access. This does not change the machine that runs it.</p>
       <div class="owner-options">${SETTINGS_DATA.people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${selected.has(person.id) ? 'checked' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
       <div class="row"><button class="primary" type="submit">Save people</button><button class="ghost" type="button" data-owner-close>Cancel</button><span id="owner-picker-status" class="muted"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owner-close]').forEach(button => button.onclick = () => dialog.close());
@@ -10201,7 +10403,7 @@ function settingsEditOwners(slug) {
     dialog.querySelectorAll('button,input').forEach(control => control.disabled = true); status.textContent = 'Saving…';
     try {
       await post(`/v2/bots/${encodeURIComponent(slug)}/owners`, {owners, expected_revision: e.revision});
-      dialog.close(); await loadSettings(); toast(`Updated people for ${e.display_name}`);
+      dialog.close(); await loadSettings(); toast(`Updated who ${e.display_name} works for`);
     } catch (error) {
       status.innerHTML = `<span class="err">${esc(error.message)}</span>`;
       dialog.querySelectorAll('button,input').forEach(control => control.disabled = false);
