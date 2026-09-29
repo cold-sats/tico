@@ -822,6 +822,12 @@ class AssistantMessage(Contract):
     text: Annotated[str, Field(min_length=1, max_length=8000)]
 
 
+class DocsAsk(Contract):
+    question: Annotated[str, Field(min_length=1, max_length=4000)]
+    conversation_id: Annotated[str | None, Field(max_length=100)] = None
+    new_conversation: bool = False        # close the docs conversation and start a fresh one (no context)
+
+
 class AssistantAction(Contract):
     """What the Assistant proposes: one operation on this API, run as the person only when they
     confirm it (backend/assistant.py)."""

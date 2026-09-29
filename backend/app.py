@@ -2698,6 +2698,8 @@ def create_app(settings=None):
     install_health(app, store, auth, settings)
     from .assistant import install as install_assistant
     install_assistant(app, store, auth, mutate, onboarding)
+    from .librarian import install as install_librarian
+    install_librarian(app, store, auth, mutate, onboarding)
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts from /tico/ui/ (ui/index.html), so the same directory is

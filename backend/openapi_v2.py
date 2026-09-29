@@ -107,6 +107,14 @@ STABLE = [
      "The bytes of one version (a download, never a storage address)", None),
     ("/api/v2/context/search", "get", "Docs", "searchDocs", "Search company documents", "DocSearch"),
     ("/api/v2/context/document", "get", "Docs", "getDocument", "One document", None),
+    ("/api/v2/docs/ask", "post", "Docs", "askDocs",
+     "Ask the Librarian a question about the company's docs. It goes to the caller's own private docs conversation; "
+     "`results` is the instant search (same shape as docs/search) and the answer streams on "
+     "GET /api/v2/conversations/{cid}/watch", "DocsAsked"),
+    ("/api/v2/librarian", "get", "Docs", "getLibrarian", "Whether the Librarian is on, and whether the caller can turn it on",
+     "Librarian"),
+    ("/api/v2/librarian/turn-on", "post", "Docs", "turnOnLibrarian",
+     "Owner only: add the Librarian from the catalog (or wake a planned one) and activate it", None),
     ("/api/v2/assistant", "get", "Assistant", "getAssistant",
      "The caller's Assistant: their private room id, whether it is on, the recent messages and what waits for their OK",
      "Assistant"),
@@ -227,6 +235,12 @@ SCHEMAS = {
                       "pending": "a"},
                      required=["available", "state", "bot", "name", "can_turn_on", "room_id", "messages", "has_more",
                                "next_before", "execution", "actions", "pending"], actors=ACTORS),
+    "Librarian": obj({"available": "b", "state": "s", "bot": "s", "name": "s", "can_turn_on": "b"},
+                     required=["available", "state", "bot", "name", "can_turn_on"]),
+    "DocsAsked": obj({"conversation_id": "s", "message_id": "s",
+                      "results": {"type": "array", "items": {"type": "object"},
+                                  "description": "Matching internal and linked docs, as GET /api/v2/docs/search"}},
+                     required=["conversation_id", "message_id", "results"]),
     "AssistantSent": obj({"message": ref("Message"), "reply": {"type": ["object", "null"]}, "fast": "b", "intent": "n"},
                          required=["message", "fast"]),
     "AssistantActionResult": obj({"action": {"type": "object", "description": "id, summary, method, path, body, status "

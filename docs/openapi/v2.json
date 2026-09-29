@@ -1365,6 +1365,61 @@
         ]
       }
     },
+    "/api/v2/docs/ask": {
+      "post": {
+        "summary": "Ask the Librarian a question about the company's docs. It goes to the caller's own private docs conversation; `results` is the instant search (same shape as docs/search) and the answer streams on GET /api/v2/conversations/{cid}/watch",
+        "operationId": "askDocs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocsAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocsAsked"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Docs"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
     "/api/v2/files/imports": {
       "post": {
         "summary": "Bytes the bot's computer copied from an S3 object; a changed etag is a new version",
@@ -1828,6 +1883,93 @@
         },
         "tags": [
           "Health"
+        ]
+      }
+    },
+    "/api/v2/librarian": {
+      "get": {
+        "summary": "Whether the Librarian is on, and whether the caller can turn it on",
+        "operationId": "getLibrarian",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Librarian"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Docs"
+        ]
+      }
+    },
+    "/api/v2/librarian/turn-on": {
+      "post": {
+        "summary": "Owner only: add the Librarian from the catalog (or wake a planned one) and activate it",
+        "operationId": "turnOnLibrarian",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Docs"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
         ]
       }
     },
@@ -4285,6 +4427,63 @@
         ],
         "additionalProperties": true
       },
+      "DocsAsk": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "new_conversation": {
+            "type": "boolean",
+            "title": "New Conversation",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "title": "DocsAsk"
+      },
+      "DocsAsked": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Matching internal and linked docs, as GET /api/v2/docs/search"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "message_id",
+          "results"
+        ],
+        "additionalProperties": true
+      },
       "Empty": {
         "properties": {},
         "additionalProperties": false,
@@ -4406,6 +4605,34 @@
           "audience",
           "checked",
           "checks"
+        ],
+        "additionalProperties": true
+      },
+      "Librarian": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          },
+          "bot": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "can_turn_on": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available",
+          "bot",
+          "can_turn_on",
+          "name",
+          "state"
         ],
         "additionalProperties": true
       },
