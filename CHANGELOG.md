@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-09-29
+
+### Fixed
+- An updater that replaced itself (0.2.6 to 0.2.8) came back with the helper's settings: a server's updater stopped refreshing
+  the compose file and bundle, and a runner box's updater stopped pulling images, so the runner's next update failed with
+  "No such image" and went back. The helper no longer passes them on. Updating the server to 0.2.9 repairs its updater. On a
+  runner box that shows "No such image" under Settings > Health, run once in its directory:
+  `docker compose -f runner.compose.yaml up -d --no-deps --force-recreate updater`.
+- docs/custom-frontend.md lists `PATCH` among the CORS methods (Files uses it).
+
 ## [0.2.8] - 2026-09-29
 
 ### Fixed
@@ -317,7 +327,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/ticoteam/tico/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/ticoteam/tico/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/ticoteam/tico/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/ticoteam/tico/compare/v0.2.5...v0.2.6

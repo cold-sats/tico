@@ -128,3 +128,12 @@ def test_the_helper_puts_the_old_updater_back_when_the_new_one_does_not_stay_up(
     assert ["docker", "tag", "sha256:oldupdater", "ghcr.io/ticoteam/tico-updater:v0.1.0"] in [a for a, _ in docker.calls]
     assert [e["TICO_UPDATER_TAG"] for a, e in docker.calls if "up" in a] == ["v0.2.0", "v0.1.0"]
     assert "TICO_UPDATER_TAG=v0.1.0" in (tmp_path / ".env").read_text()      # the pin never moved
+
+
+def test_the_new_updater_does_not_inherit_the_helpers_pull_and_bundle_settings(monkeypatch, tmp_path):
+    updater, docker = helper(monkeypatch, tmp_path, "sha256:newupdater")
+    monkeypatch.setenv("TICO_UPDATER_PULL", "never")     # how replace_updater starts the helper
+    monkeypatch.setenv("TICO_UPDATER_BUNDLE", "never")
+    assert updater.replace_self() == 0
+    up = next(e for a, e in docker.calls if "up" in a)
+    assert "TICO_UPDATER_PULL" not in up and "TICO_UPDATER_BUNDLE" not in up

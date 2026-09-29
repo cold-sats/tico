@@ -113,7 +113,7 @@ const res = await fetch("https://tico.example.com/api/v2/me", { headers: { Autho
 The browser sends a CORS preflight first (`OPTIONS`) for the `Authorization` header, and for a write the
 `Idempotency-Key` header; the server answers it for the origins in `TICO_CORS_ORIGINS` with
 `Access-Control-Allow-Origin: <that origin>`, `Access-Control-Allow-Credentials: true`, the methods
-`GET, POST, PUT, DELETE, OPTIONS` and the headers `Authorization, Content-Type, Idempotency-Key, Last-Event-ID`.
+`GET, POST, PATCH, PUT, DELETE, OPTIONS` and the headers `Authorization, Content-Type, Idempotency-Key, Last-Event-ID`.
 Any other origin gets no CORS header at all, and the value is never `*`. With `TICO_CORS_ORIGINS` unset, none of this
 exists: the server adds no CORS behavior.
 

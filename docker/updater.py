@@ -438,6 +438,10 @@ def replace_self():
     """Runs in the helper container, from the NEW updater image. The old updater is recreated as this one's twin;
     if the new one does not stay up, the old image goes back. Exit status 0 only when an updater is running."""
     tag, old_id, old_ref = os.environ["TICO_SWAP_TAG"], os.environ["TICO_SWAP_OLD_ID"], os.environ["TICO_SWAP_OLD_REF"]
+    # This helper runs with pulls and bundles off; the compose files read both from the environment, so without
+    # this the recreated updater would inherit them and never pull an image or refresh the bundle again.
+    for name in ("TICO_UPDATER_PULL", "TICO_UPDATER_BUNDLE"):
+        os.environ.pop(name, None)
     up = ["up", "-d", "--no-deps", "--pull", "never", "updater"]
     try:
         compose(*up, extra_env={"TICO_UPDATER_TAG": tag})
