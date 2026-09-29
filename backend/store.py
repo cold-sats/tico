@@ -496,6 +496,8 @@ class Store:
             c.executescript(_runner_versions.SCHEMA)
             from . import files as _files
             c.executescript(_files.SCHEMA)
+            from . import bot_tools as _bot_tools
+            c.executescript(_bot_tools.SCHEMA)
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:

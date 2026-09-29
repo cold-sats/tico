@@ -272,6 +272,11 @@ def run(args, who=None):
     if cmd == "history":
         page = client.get(f"conversations/{args.conversation}/messages", before=args.before, since=args.since)
         return {"conversation": page.get("conversation"), "messages": page.get("messages", [])}
+    if cmd == "tools":
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
     if cmd == "routine":
         bot = getattr(args, "bot", None) or actor.split(":", 1)[-1]
         if sub == "list":

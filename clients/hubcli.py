@@ -65,6 +65,12 @@ the server (`backend/hubdb.py`), never here.
     hub history <conversation-id> [--before MSG] [--since MSG]
                                            what was said in a conversation, oldest first, 200 a page;
                                            the turn prompt names the conversation
+    hub tools list [--bot X]               what a bot uses: model, repository, each declared access entry
+    hub tools add <bot> <service> --can read[,post] [--identity "..."] [--scope database=warehouse ...]
+                    [--env VAR_NAME] [--note "..."]
+                                           register a tool: BotOps gets a task with the entry; it shows pending
+                                           until the computer reports it. A variable's name, never its value
+    hub tools remove <bot> <tool-id>       ask BotOps to remove one (or withdraw a pending request)
     hub routine list [--bot X]              the routines a bot runs on a schedule (yours by default)
     hub routine set <key> --title "..." (--cron "0 7 * * 1-5" | --on meeting.ready)
                     [--text "..."|--text-file f] [--timezone Z] [--bot X] [--disabled]
@@ -575,6 +581,24 @@ def parser():
     s.add_argument("--before", help="the page before this message id")
     s.add_argument("--since", help="only messages after this message id")
     s.set_defaults(fn="history")
+
+    tools = sub.add_parser("tools", help="what a bot uses: its model, repository and declared access (docs/creating-bots.md)").add_subparsers(dest="sub")
+    s = tools.add_parser("list", help="a bot's tools with their status; yours by default")
+    s.add_argument("--bot")
+    s.set_defaults(fn="tools list")
+    s = tools.add_parser("add", help="register a tool: BotOps adds it to employee.yaml; never a credential value")
+    s.add_argument("bot")
+    s.add_argument("service", help="a short name such as posthog or google-calendar")
+    s.add_argument("--can", required=True, help="read, draft, post, act, use, send or write; comma separated")
+    s.add_argument("--identity", help="who it acts as, in words for a person")
+    s.add_argument("--scope", action="append", metavar="KEY=VALUE", help="database=warehouse, channels=#a,#b, project=123; repeatable")
+    s.add_argument("--env", help="the variable's NAME, such as POSTHOG_KEY; the operator installs the value")
+    s.add_argument("--note")
+    s.set_defaults(fn="tools add")
+    s = tools.add_parser("remove", help="ask BotOps to remove a tool, or withdraw a pending request")
+    s.add_argument("bot")
+    s.add_argument("id", help="the tool id from `hub tools list`")
+    s.set_defaults(fn="tools remove")
 
     routine = sub.add_parser("routine", help="what this bot is told on a schedule (docs/routines.md)").add_subparsers(dest="sub")
     s = routine.add_parser("list")

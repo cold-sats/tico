@@ -1,6 +1,6 @@
 """The HTTP contract. Unknown fields fail validation rather than changing identity."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
@@ -452,6 +452,17 @@ class ToolAccess(Contract):
     note: str = Field(default="", max_length=500)
     credential: Literal["present", "missing", "hub-vault", "not-declared"] = "not-declared"
     problem: str = Field(default="", max_length=300)
+
+
+class ToolRegister(Contract):
+    """A tool a person registers for a bot (backend/bot_tools.py). Names and verbs only: `env` is the
+    variable's name, and the server refuses a field that looks like a credential."""
+    service: str = Field(min_length=1, max_length=100)
+    identity: str = Field(default="", max_length=300)
+    can: list[str] = Field(min_length=1, max_length=20)
+    scope: dict[str, Any] = Field(default_factory=dict, max_length=20)
+    env: str = Field(default="", max_length=100)
+    note: str = Field(default="", max_length=500)
 
 
 class BotReadiness(Contract):

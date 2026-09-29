@@ -10,44 +10,16 @@ computer is a fact the server cannot see, so each entry carries it as `credentia
 
 import re
 
-SCOPE_KEYS = ("database", "channels", "channel", "project", "projects", "mailbox", "mailboxes", "sites", "site",
-              "repo", "repos", "repositories", "org", "organization", "workspace", "account", "region", "domain",
-              "domains", "calendars", "folders", "drive", "drives", "bucket", "buckets", "table", "tables",
-              "dataset", "datasets", "collections", "read_only", "org_read", "max_rows", "timeout_seconds",
-              "read_preference")
+from clients.access_entry import MAX_CAN, one_line, scope_of
+
 MAX_ENTRIES = 30        # backend/models.py ToolAccess and BotReadiness.tools hold the same limits
-MAX_CAN = 20
-MAX_SCOPE = 20
 DATABASE_SERVICES = ("postgres", "postgresql", "mysql", "mariadb", "sqlite", "mongodb")
 # A URL with a password in it is a secret wherever it was typed.
 URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@", re.I)
 
 
 def text(value, limit):
-    value = URL_PASSWORD.sub(r"\1", " ".join(str(value).split())) if value is not None else ""
-    return value[:limit]
-
-
-def scalar(value, limit):
-    if isinstance(value, bool):
-        return "yes" if value else "no"
-    return text(value, limit) if isinstance(value, (str, int, float)) else ""
-
-
-def scope_of(entry):
-    result = {}
-    for key in SCOPE_KEYS:
-        value = entry.get(key)
-        if isinstance(value, (list, tuple)):
-            items = [scalar(item, 100) for item in value[:20]]
-            items = [item for item in items if item]
-            if items:
-                result[key] = items
-        elif value not in (None, "") and scalar(value, 200):
-            result[key] = scalar(value, 200)
-        if len(result) >= MAX_SCOPE:
-            break
-    return result
+    return one_line(URL_PASSWORD.sub(r"\1", str(value)), limit) if value is not None else ""
 
 
 def env_name(entry):
@@ -84,7 +56,7 @@ def declared_tools(access, environment):
         can = [can] if isinstance(can, str) else can if isinstance(can, list) else []
         row = {"service": text(entry["service"], 100), "identity": text(entry.get("identity"), 300),
                "can": [text(verb, 40) for verb in can[:MAX_CAN] if text(verb, 40)],
-               "scope": scope_of(entry), "env": text(name, 100), "note": text(entry.get("note"), 500),
+               "scope": {k: ([text(i, 100) for i in v] if isinstance(v, list) else text(v, 200)) for k, v in scope_of(entry).items()}, "env": text(name, 100), "note": text(entry.get("note"), 500),
                "credential": credential_state(entry, name, environment)}
         if "{{" in str(entry.get("identity") or ""):
             row["problem"] = "The identity is still the template placeholder"

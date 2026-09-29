@@ -3,7 +3,9 @@ before the report still gets a row, and that a private bot's tools stay private 
 
 import json
 
+from backend.store import H
 from backend.tests.test_api import api, assign, get, headers, post, ready, runner  # noqa: F401  (fixtures)
+from backend.tests.test_mcp import call as mcp_call
 
 RUNTIMES = {"codex": {"installed": True, "authenticated": "ready"}}
 TOOLS = [
@@ -101,3 +103,126 @@ def test_a_private_bots_tools_stay_with_the_people_who_can_see_it(api):
     assert api.get("/api/v2/bots/inbox/tools", headers=headers("ben-test")).status_code == 403     # access: read
     assert len(tools_of(api, "inbox")["tools"]) >= 3
     assert api.get("/api/v2/bots/nobody/tools", headers=headers("ana-test")).status_code == 404
+
+
+# ----------------------------------------------------------------------------- registering
+ENTRY = {"service": "PostHog", "identity": "PostHog project 340585 (US), personal key", "can": ["read"],
+         "scope": {"project": "340585"}, "env": "POSTHOG_KEY", "note": "funnels only"}
+
+
+def botops(api, state="active"):
+    with api.app.state.store.transaction() as c:
+        H.sync_registry(c, {"botops": {"name": "botops", "status": state}}, None)
+
+
+def register(api, bot="ops", who="ana-test", entry=None, expected=200):
+    r = api.post(f"/api/v2/bots/{bot}/tools", json=entry or ENTRY, headers=headers(who))
+    assert r.status_code == expected, r.text
+    return r.json()
+
+
+def botops_tasks(api):
+    return api.get("/api/v2/tasks", params={"owner": "botops"}, headers=headers()).json()["tasks"]
+
+
+def test_a_manager_registers_a_tool_and_botops_gets_the_exact_entry(api):
+    botops(api)
+    register(api, who="cara-test", expected=403)                     # access: manage
+    register(api, who="ben-test", expected=403)                      # a bot administrator, but ops is another operator's
+    made = register(api)
+    assert made["tool"]["status"] == "pending" and made["tool"]["pending"] == "add"
+    assert made["tool"]["service"] == "posthog" and made["tool"]["logo_key"] == "posthog"
+    assert "operator puts its value on the bot's computer" in made["credentials"] and "docs/install.md" in made["credentials"]
+    task = botops_tasks(api)[0]
+    assert task["id"] == made["task_id"] and task["title"] == "Add PostHog access to ops"
+    body = api.get("/api/v2/tasks/" + task["id"], headers=headers()).json()["task"]["body"]
+    assert made["yaml"] in body and "- service: posthog" in body and "env: POSTHOG_KEY" in body
+    assert "can: [read]" in body and "project: '340585'" in body
+    assert "employee.yaml" in body and "never commit it" in body
+    # It is visible, pending, until the computer reports the entry.
+    page = tools_of(api)
+    assert [t["status"] for t in page["tools"] if t["id"].startswith("pending-")] == ["pending"]
+    register(api, expected=409)                                       # asking twice does not open a second task
+    machine = runner(api)
+    assign(api, machine, "ops")
+    listed = {**ENTRY, "service": "posthog", "can": ["read"], "credential": "missing", "scope": {"project": "340585"}}
+    listed.pop("note")
+    assert report(api, machine, "ops", [listed]).status_code == 200
+    page = tools_of(api)
+    row = next(t for t in page["tools"] if t["service"] == "posthog")
+    assert (row["status"], row["problem"]) == ("problem", "Credential missing on Test Mac")
+    assert not any(t["id"].startswith("pending-") for t in page["tools"])
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bot_tool_requests").fetchone()[0] == "done"
+    listed["credential"] = "present"
+    assert report(api, machine, "ops", [listed]).status_code == 200
+    assert next(t for t in tools_of(api)["tools"] if t["service"] == "posthog")["status"] == "ready"
+
+
+def test_a_credential_value_is_refused_and_nothing_is_kept(api):
+    botops(api)
+    secrets = [
+        {"env": "phx_aBcDeFgHiJkLmNoPqRsTuVwXyZ012345"}, {"env": "sk-proj-1234567890abcdef"},
+        {"identity": "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 for the bot"},
+        {"note": "key is sk-live-abcdefghijklmnop"}, {"scope": {"project": "xoxb-1234-5678-abcdefghijkl"}},
+        {"identity": "postgresql://reader:hunter2@db.internal/app"}, {"note": "use Zx9Qw3Er7Ty1Ui5Op2As6Df0Gh4Jk8Lm"},
+        {"note": "-----BEGIN PRIVATE KEY----- MIIE"}, {"env": "a-real-looking-value-here"},
+    ]
+    for extra in secrets:
+        answer = register(api, entry={**ENTRY, **extra}, expected=422)
+        assert answer["error"]["code"] in ("secret", "entry"), extra
+        assert "never" in answer["error"]["detail"].lower() or "not accepted" in answer["error"]["detail"], answer
+    for bad in ({"env": "PATH"}, {"env": "HUB_TOKEN"}, {"service": "Not A Service!"}, {"can": []}, {"can": ["Read It"]},
+                {"scope": {"token": "x"}}, {"scope": "database=warehouse"}):
+        register(api, entry={**ENTRY, **bad}, expected=422)
+    assert botops_tasks(api) == []
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM bot_tool_requests").fetchone()[0] == 0
+    assert register(api, entry={**ENTRY, "identity": "Acme workspace, marketing@acme.example", "env": "SLACK_TOKEN"})["task_id"]
+
+
+def test_registering_needs_botops_to_be_running(api):
+    botops(api, "planned")
+    assert register(api, expected=409)["error"]["code"] == "botops"
+    assert register(api, "nobody", expected=404)["error"]["code"] == "not_found"
+
+
+def test_removing_a_tool_is_a_botops_task_and_a_pending_request_can_be_withdrawn(api):
+    botops(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    assert report(api, machine, "ops", TOOLS).status_code == 200
+    assert api.delete("/api/v2/bots/ops/tools/slack", headers=headers("cara-test")).status_code == 403      # access: manage
+    assert api.delete("/api/v2/bots/ops/tools/model", headers=headers()).status_code == 422
+    assert api.delete("/api/v2/bots/ops/tools/nothing", headers=headers()).status_code == 404
+    removed = api.delete("/api/v2/bots/ops/tools/slack", headers=headers())
+    assert removed.status_code == 200 and removed.json()["removal"] is True
+    task = botops_tasks(api)[0]
+    assert task["title"] == "Remove Slack access from ops"
+    body = api.get("/api/v2/tasks/" + task["id"], headers=headers()).json()["task"]["body"]
+    assert "- service: slack" in body and "Acme workspace" in body and "SLACK_TOKEN" in body
+    slack = next(t for t in tools_of(api)["tools"] if t["id"] == "slack")
+    assert slack["pending"] == "remove" and slack["status"] == "ready" and slack["task_id"] == task["id"]
+    assert api.delete("/api/v2/bots/ops/tools/slack", headers=headers()).status_code == 409
+    assert report(api, machine, "ops", [t for t in TOOLS if t["service"] != "slack"]).status_code == 200
+    assert not any(t["service"] == "slack" for t in tools_of(api)["tools"])
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bot_tool_requests WHERE kind='remove'").fetchone()[0] == "done"
+    # A request that has not been done yet is withdrawn by deleting its pending id.
+    pending = register(api, entry={**ENTRY, "service": "stripe", "env": "STRIPE_KEY"})["tool"]["id"]
+    answer = api.post(f"/api/v2/bots/ops/tools/{pending}/delete", json={}, headers=headers())
+    assert answer.status_code == 200 and answer.json()["cancelled"] is True
+    assert not any(t["id"] == pending for t in tools_of(api)["tools"])
+
+
+def test_the_tools_are_mcp_tools_too(api):
+    botops(api)
+    err, listed = mcp_call(api, "hub_tools_list", {"bot": "ops"})
+    assert not err and listed["tools"][0]["id"] == "model"
+    err, added = mcp_call(api, "hub_tools_add", {"bot": "ops", "service": "posthog", "can": "read",
+                                                  "scope": ["project=340585", "channels=#a,#b"], "env": "POSTHOG_KEY"})
+    assert not err and added["tool"]["scope"] == {"project": "340585", "channels": ["#a", "#b"]}
+    err, refused = mcp_call(api, "hub_tools_add", {"bot": "ops", "service": "stripe", "can": ["read"], "env": "sk_live_abcdefghijklmnop"})
+    assert err and refused["error"] == "secret"
+    err, gone = mcp_call(api, "hub_tools_remove", {"bot": "ops", "id": added["tool"]["id"]})
+    assert not err and gone["cancelled"] is True

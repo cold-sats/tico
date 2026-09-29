@@ -168,6 +168,8 @@ class Execution:
                   "capacity=?,readiness_json=? WHERE id=?",
                   (H.now(), awake_since, body.version, body.platform, body.capacity,
                    encode(readiness), who.runner_id))
+        from . import bot_tools
+        bot_tools.reconcile(c, {bot: row.get('tools') for bot, row in readiness.get('bots', {}).items()})
         if body.release:
             runner_versions.record(c, who.runner_id, body)
         if body.checkout:
