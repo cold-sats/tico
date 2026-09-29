@@ -1,7 +1,9 @@
 # Files
 
 A bot's page lists **Files**: the useful things it created, revised or delivered, newest activity
-first. Three rows and the total show by default; "Show all" opens the rest in place.
+first, as a plain list of an icon and a name. Three rows show by default; "Show all" opens the rest in
+place. A stored file opens in the app's viewer (a CSV as a table, its first 1,000 rows, with Download);
+a linked document opens at its provider in a new tab.
 
 ## What gets listed
 
@@ -67,7 +69,7 @@ Only documents, images, csv, tsv, json, yaml, md, html, pdf and office files go,
 A `.env`, anything with a credential-like name, a symbolic link, a file with more than one hard link, and any path that resolves outside
 the checkout is refused. Uploads go through a durable outbox in the runner's own state with an
 idempotency key per file and content, so a restart or a lost reply retries safely and lands once. A
-file that could not be uploaded shows **not synced** and never an Open link that opens nothing.
+file that could not be uploaded is not linked and never opens nothing.
 
 When the bot's repository is on GitHub and the file is committed and pushed, the version records
 the commit and the row offers **View on GitHub** at that exact commit.
@@ -88,8 +90,8 @@ A file inherits the visibility of where it came from:
 The check applies to every list row, the total, metadata, activity, versions and every download.
 
 A bot cannot make a chat's file bot-wide. The owner or a bot administrator **promotes** a task or
-conversation file to bot-wide, explicitly and never automatically; the move is recorded in the
-file's activity. **Remove** takes a file off the list (archive); its bytes stay, and it returns when
+conversation file to bot-wide, explicitly and never automatically (`PATCH /api/v2/files/{id}` with `promote: true`); the move is
+recorded in the file's activity. Archiving (`archived: true`) takes a file off the list; its bytes stay, and it returns when
 the bot publishes a changed version.
 
 ## API
@@ -103,5 +105,5 @@ activity, with the visible `total`), `POST /api/v2/files/uploads`, `/links`, `/i
 ## Retention
 
 Every version is kept: versions are immutable and nothing prunes them. The owner or a bot administrator
-removes a file from the bot's page (**Remove**, or `PATCH /api/v2/files/{id}` with `archived: true`). That hides the row
+removes a file from the bot's page (`PATCH /api/v2/files/{id}` with `archived: true`). That hides the row
 and keeps the bytes; the file returns when the bot publishes a changed version. A bot cannot remove a file.

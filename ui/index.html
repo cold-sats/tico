@@ -463,6 +463,12 @@ td.tags .pill{margin-right:2px}
 .viewer-pdf{padding:0!important}.viewer-pdf iframe{display:block;width:100%;height:calc(92vh - 60px);border:0;background:#fff}
 .viewer-embed .viewer-embed,.doc-viewer-body .viewer-embed{width:100%;aspect-ratio:16/9;padding:0}
 .viewer-embed iframe{width:100%;height:100%;border:0;border-radius:6px}
+.viewer-csv{padding:12px 16px!important}
+.csv-scroll{overflow:auto;max-height:calc(92vh - 150px);border:1px solid var(--line);border-radius:8px}
+.csv{border-collapse:collapse;font-size:13px;line-height:1.4;min-width:100%}
+.csv th,.csv td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:pre-wrap;max-width:360px;overflow-wrap:anywhere}
+.csv th{position:sticky;top:0;z-index:1;background:var(--surface2);font-weight:600;white-space:nowrap;box-shadow:0 1px 0 var(--line)}
+.csv-note{margin:8px 0 0;font-size:12.5px}
 .viewer-nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(20,24,30,.55);color:#fff;font-size:28px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .viewer-nav.prev{left:10px}.viewer-nav.next{right:10px}.viewer-nav:hover{background:rgba(20,24,30,.8)}
 .inline-thumb{display:block;margin:6px 0 2px;padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface2);cursor:zoom-in;max-width:min(320px,100%);opacity:0;transition:opacity .15s}
@@ -476,6 +482,7 @@ td.tags .pill{margin-right:2px}
   .doc-viewer-body{flex:1}
   .viewer-img,.viewer-video video{max-height:calc(100dvh - 80px)}
   .viewer-pdf iframe{height:calc(100dvh - 56px)}
+  .csv-scroll{max-height:calc(100dvh - 130px)}
   .viewer-nav{display:none}
 }
 .doc-viewer[open]{display:flex;flex-direction:column}
@@ -1220,7 +1227,6 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 /* the bot's tasks: one flat Active list, a title of up to two lines with the other party beside it,
    and the state as a small muted word under the title, never over it */
 #pane-tasks .card.tasks>header h2 .cnt{margin-left:4px;color:var(--muted);font-weight:400;font-size:12px}
-#pane-tasks .bot-task-new{font-size:12px;padding:3px 8px}
 #pane-tasks .trow[data-task-version] summary{grid-template-columns:18px minmax(0,1fr) auto;grid-template-areas:"ic ttl who";gap:0 10px;align-items:center}
 #pane-tasks .trow[data-task-version] summary .pill,#pane-tasks .trow[data-task-version] summary .tnum,#pane-tasks .trow[data-task-version] summary .tags{display:none!important}
 #pane-tasks .trow[data-task-version] summary .st-ic{grid-area:ic;display:inline-flex}
@@ -2160,9 +2166,9 @@ function saveBlob(blob, name) {
 // shown downloads exactly as before.
 const VIEW_KINDS = [[/\.(png|jpe?g|gif|webp|avif|heic|svg)$/i, 'image'], [/\.(mp4|webm|mov|m4v)$/i, 'video'],
   [/\.(mp3|m4a|wav|ogg|aac)$/i, 'audio'], [/\.pdf$/i, 'pdf'], [/\.(md|markdown)$/i, 'markdown'],
-  [/\.(txt|log|csv|json|ya?ml)$/i, 'text']];
+  [/\.csv$/i, 'csv'], [/\.(txt|log|json|ya?ml)$/i, 'text']];
 const VIEW_TYPES = {image: '', video: 'video/mp4', audio: 'audio/mpeg', pdf: 'application/pdf'};
-const MEDIA_MARK = {video: 'VIDEO', audio: 'AUDIO', pdf: 'PDF', markdown: 'DOC', text: 'TEXT', embed: 'VIDEO'};
+const MEDIA_MARK = {video: 'VIDEO', audio: 'AUDIO', pdf: 'PDF', markdown: 'DOC', text: 'TEXT', csv: 'CSV', embed: 'VIDEO'};
 const viewKindOf = name => { for (const [re, kind] of VIEW_KINDS) if (re.test(String(name || '').split(/[?#]/)[0])) return kind; return null; };
 function viewEmbedOf(url) {
   const h = url.hostname.replace(/^www\./, '');
@@ -2190,14 +2196,50 @@ function viewItemOf(el) {
   const kind = viewKindOf(url.pathname);
   return kind ? {src: url.href, href: url.href, name: text || url.pathname.split('/').pop(), kind} : null;
 }
+// A CSV as a readable table: quoted fields may hold commas, quotes ("") and line breaks. Every cell is
+// set as text, never as HTML. The first CSV_ROWS rows show, the header row stays put while it scrolls.
+const CSV_ROWS = 1000, CSV_LIMIT = 20_000_000;
+function csvParse(text) {
+  const rows = []; let row = [], cell = '', quoted = false, i = text.charCodeAt(0) === 0xFEFF ? 1 : 0;
+  const end = () => { row.push(cell); cell = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; };
+  for (; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) { if (c !== '"') cell += c; else if (text[i + 1] === '"') { cell += '"'; i++; } else quoted = false; }
+    else if (c === '"' && cell === '') quoted = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; end(); }
+    else cell += c;
+  }
+  if (cell !== '' || row.length) end();
+  return rows;
+}
+function csvView(text) {
+  const rows = csvParse(text), wrap = document.createElement('div');
+  wrap.className = 'csv-view';
+  if (!rows.length) { wrap.textContent = 'This file is empty.'; return wrap; }
+  const scroll = document.createElement('div'), table = document.createElement('table'), head = table.createTHead().insertRow();
+  scroll.className = 'csv-scroll'; scroll.tabIndex = 0; table.className = 'csv';
+  for (const v of rows[0]) head.appendChild(document.createElement('th')).textContent = v;
+  const body = table.createTBody();
+  for (const r of rows.slice(1, CSV_ROWS + 1)) { const tr = body.insertRow(); for (const v of r) tr.insertCell().textContent = v; }
+  scroll.append(table); wrap.append(scroll);
+  const total = rows.length - 1;
+  if (total > CSV_ROWS) {
+    const note = document.createElement('p');
+    note.className = 'muted csv-note';
+    note.textContent = `Showing ${CSV_ROWS.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} rows. Download the file for the rest.`;
+    wrap.append(note);
+  }
+  return wrap;
+}
 const VIEW_FILES = new Map();                 // Tico file id -> Promise<{blob, url, name, kind}>
 function viewFile(id, fallbackName) {
   if (!VIEW_FILES.has(id)) VIEW_FILES.set(id, (async () => {
     const response = await fetch(`${API}/v2/files/${encodeURIComponent(id)}`, {credentials: 'same-origin'});
     if (!response.ok) throw new Error(response.status === 403 ? 'You cannot open this file.' : 'Could not open the file.');
     const name = fileNameOf(response) || fallbackName;
-    const kind = viewKindOf(name);
     const raw = await response.blob();
+    const kind = viewKindOf(name) || (/^text\/csv\b/i.test(raw.type) ? 'csv' : null);
     const type = kind === 'image' ? (/\.png$/i.test(name) ? 'image/png' : /\.gif$/i.test(name) ? 'image/gif' : /\.webp$/i.test(name) ? 'image/webp'
       : /\.svg$/i.test(name) ? 'image/svg+xml' : 'image/jpeg') : (VIEW_TYPES[kind] || raw.type || 'application/octet-stream');
     const blob = new Blob([raw], {type});
@@ -2265,10 +2307,15 @@ async function viewerShow() {
     : kind === 'pdf' ? `<iframe src="${esc(src)}" title="${esc(name)}"></iframe>`
     : kind === 'embed' ? `<div class="viewer-embed"><iframe src="${esc(src)}" title="${esc(name)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>` : '';
   if (!item.fileId) {
-    if (item.kind === 'markdown' || item.kind === 'text') {
+    if (item.kind === 'markdown' || item.kind === 'text' || item.kind === 'csv') {
       paint(item.name, item.kind, '<p class="muted">Loading…</p>');
       try {
         const text = await (await fetch(item.src)).text();
+        if (item.kind === 'csv') {
+          paint(item.name, item.kind, '<div data-csv></div>', `<a class="ghost btnlike" href="${esc(item.href)}" target="_blank" rel="noopener">Open</a>`);
+          d.querySelector('[data-csv]')?.replaceWith(csvView(text));
+          return;
+        }
         paint(item.name, item.kind, item.kind === 'markdown' ? `<div class="md">${safeMd(text)}</div>` : `<pre class="plain">${esc(text)}</pre>`,
               `<a class="ghost btnlike" href="${esc(item.href)}" target="_blank" rel="noopener">Open</a>`);
       } catch { window.open(item.href, '_blank', 'noopener'); d.close(); }
@@ -2283,12 +2330,16 @@ async function viewerShow() {
   try { file = await viewFile(item.fileId, item.name); }
   catch (e) { if (VIEW === state) { d.close(); toast(e.message || 'Could not open the file.', true); } return; }
   const extra = '<button class="ghost" type="button" data-doc-download>Download</button>';
-  if (!file.kind || ((file.kind === 'markdown' || file.kind === 'text') && file.blob.size > DOC_VIEW_LIMIT)) {
+  if (!file.kind || ((file.kind === 'markdown' || file.kind === 'text') && file.blob.size > DOC_VIEW_LIMIT) || (file.kind === 'csv' && file.blob.size > CSV_LIMIT)) {
     if (VIEW === state && state.items.length === 1) d.close();
     saveBlob(file.blob, file.name);                 // not something to show here: downloads as before
     return;
   }
-  if (file.kind === 'markdown' || file.kind === 'text') {
+  if (file.kind === 'csv') {
+    const text = await file.blob.text();
+    paint(file.name, 'csv', '<div data-csv></div>', extra);
+    d.querySelector('[data-csv]')?.replaceWith(csvView(text));
+  } else if (file.kind === 'markdown' || file.kind === 'text') {
     const text = await file.blob.text();
     paint(file.name, file.kind, file.kind === 'markdown' ? `<div class="md">${safeMd(text)}</div>` : `<pre class="plain">${esc(text)}</pre>`, extra);
   } else {
@@ -4263,44 +4314,16 @@ function botTasksRender(slug, owned, asked) {
   // What it asked of others: whatever waits on a person first, then by the latest change.
   const needsPerson = t => actorPerson(t.owner) ? 0 : 1;
   const outward = theirs.filter(t => V2_ACTIVE.includes(String(t.status))).sort((a, b) => needsPerson(a) - needsPerson(b) || latest(a, b));
-  $('#cnt-open').textContent = active.length || '';
   $('#t-open').innerHTML = active.length ? `<div class="bot-task-list">${active.map(t => v2TaskRow(t, slug)).join('')}</div>`
     : '<div class="empty">No active tasks.</div>';
   const assigned = $('#bot-assigned');
   if (assigned) {
     assigned.hidden = !outward.length;
-    $('#cnt-assigned').textContent = outward.length || '';
     $('#t-assigned').innerHTML = `<div class="bot-task-list">${outward.map(t => v2TaskRow(t, slug)).join('')}</div>`;
   }
   $('#t-done').innerHTML = finished.length
     ? `<div class="bot-task-list">${finished.map(t => v2TaskRow(t, slug)).join('')}</div>`
     : '<div class="empty">Nothing finished yet.</div>';
-}
-// the New tab on a keeper bot writes a hub task, not an Issue
-function v2TaskForm(slug) {
-  const pane = $('#t-new'); if (!pane) return;
-  pane.innerHTML = `<form class="task" id="v2taskform">
-      <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" placeholder="What do you want done?" required aria-label="Title"></div>
-      <textarea name="body" placeholder="Details, links, and what done looks like." aria-label="Details" required></textarea>
-      ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
-      <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="v2taskmsg"></span></div>
-      <div class="muted hint">Goes straight to ${empName(slug)}. You asked for it, so you are the one who closes it.</div>
-    </form>`;
-  $('#v2taskform').onsubmit = async ev => {
-    ev.preventDefault();
-    const form = ev.target, btn = form.querySelector('button'), msg = $('#v2taskmsg');
-    const title = form.title.value.trim();
-    if (!title) return;
-    btn.disabled = true; msg.textContent = 'Creating…';
-    try {
-      await cloudCompose('/v2/tasks', {title, body: form.body.value.trim(), owner: slug}, Array.from(form.elements.files?.files || []));
-      form.reset(); msg.textContent = 'Created.';
-      await v2Refresh();
-      await Promise.all([loadBotTasksV2(slug), loadBotChatTasks(slug)]);
-      toast(`Task for ${empName(slug)} created`);
-    } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
-    btn.disabled = false;
-  };
 }
 
 // the pill's "Send as task" on a keeper bot: a hub task, not an Issue
@@ -6410,24 +6433,10 @@ async function pageBot(slug, tab) {
 
   <div id="pane-tasks" hidden>
     <section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>
-    <section class="card tasks"><header><h2>Active <span class="cnt" id="cnt-open"></span></h2>
-        <div class="tabs slim" id="ttabs"><button type="button" data-t="new" class="bot-task-new" aria-expanded="false" aria-controls="t-new">+ New</button></div>
-        </header>
-      <div id="t-new" class="tpane" hidden>
-        <form class="task" id="taskform">
-          <div class="r1"><input type="text" name="title" placeholder="What do you want done?" required aria-label="Title">
-            <select name="priority" aria-label="Priority"><option value="p2">Normal</option><option value="p1">High</option><option value="p0">Urgent</option><option value="p3">Low</option></select>
-            <select name="type" aria-label="Type"><option value="task">Task</option><option value="decision">Decision</option><option value="review">Review</option><option value="bug">Bug</option></select></div>
-          <textarea name="body" placeholder="Details, links, what done looks like. Optional." aria-label="Details"></textarea>
-          <div class="r3"><button class="primary" type="submit">Create task</button>
-            <label class="attach"><input type="file" multiple hidden id="fileinput">Attach files</label><span class="muted">or drop them anywhere on this form</span>
-            <div class="files" id="filelist"></div><span class="muted" id="taskmsg"></span></div>
-          <div class="muted hint">Creates a Hub task for this bot${e.status !== 'active' ? '. This bot is not active yet, so the task waits' : ''}. Files attach to the task conversation.</div>
-        </form>
-      </div>
+    <section class="card tasks"><header><h2>Active</h2></header>
       <div id="t-open" class="tpane">Loading…</div>
     </section>
-    <section class="card tasks" id="bot-assigned" hidden><header><h2>Assigned to others <span class="cnt" id="cnt-assigned"></span></h2></header>
+    <section class="card tasks" id="bot-assigned" hidden><header><h2>Assigned to others</h2></header>
       <div id="t-assigned" class="tpane"></div></section>
     <details class="bot-done"><summary>Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane">Loading…</div></details>
     <section class="card bot-recurring" id="bot-recurring" aria-label="Recurring work">${botRecurringHTML(e, slug)}</section>
@@ -6549,42 +6558,8 @@ async function pageBot(slug, tab) {
 
   // task tabs (inside the Tasks pane)
   // Active, then Assigned to others, Done folded away, and Recurring last;
-  // "+ New" opens the task form above the list and closes it again.
-  const ttabs = $('#ttabs');
-  const showTab = t => {
-    const form = $('#t-new'), button = ttabs.querySelector('[data-t="new"]');
-    form.hidden = t === 'new' ? !form.hidden : true;
-    if (t === 'done') $('#pane-tasks .bot-done').open = true;
-    button.classList.toggle('cur', !form.hidden); button.setAttribute('aria-expanded', String(!form.hidden));
-    if (!form.hidden) $('#taskform input[name=title], #v2taskform input[name=title]')?.focus();
-  };
-  ttabs.onclick = ev => { const b = ev.target.closest('button'); if (b) showTab(b.dataset.t); };
+  const showTab = t => { if (t === 'done') $('#pane-tasks .bot-done').open = true; };
   $('#pane-tasks').addEventListener('click', ev => { if (ev.target.dataset.tab) { ev.preventDefault(); showTab(ev.target.dataset.tab); } });
-
-  // task form: hub.db for a keeper bot, an Issue with attachments for a dispatcher bot
-  if (keeper) v2TaskForm(slug);
-  else {
-  const files = [], fl = $('#filelist'), drop = $('#taskform');
-  const showFiles = () => fl.innerHTML = files.map((f, i) => `<span>${esc(f.name)} <a href="#" data-rm="${i}" aria-label="remove">×</a></span>`).join('');
-  fl.onclick = ev => { if (ev.target.dataset.rm != null) { ev.preventDefault(); files.splice(+ev.target.dataset.rm, 1); showFiles(); } };
-  $('#fileinput').onchange = ev => { files.push(...ev.target.files); showFiles(); ev.target.value = ''; };
-  ['dragenter','dragover'].forEach(t => drop.addEventListener(t, ev => { ev.preventDefault(); drop.classList.add('over'); }));
-  ['dragleave','drop'].forEach(t => drop.addEventListener(t, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
-  drop.addEventListener('drop', ev => { files.push(...ev.dataTransfer.files); showFiles(); });
-  $('#taskform').onsubmit = async ev => {
-    ev.preventDefault();
-    const f = ev.target, btn = f.querySelector('button'), msg = $('#taskmsg');
-    const fd = new FormData(f); fd.append('slug', slug); files.forEach(x => fd.append('files', x, x.name));
-    btn.disabled = true; msg.textContent = files.length ? 'Uploading and creating…' : 'Creating…';
-    try {
-      const r = await fetch(`${API}/issues`, {method:'POST', body: fd});
-      const j = await r.json(); if (!r.ok) throw new Error(j.error);
-      msg.innerHTML = `Created <a href="${j.url}" target="_blank" rel="noopener">#${j.number}</a>${j.files.length ? ` with ${j.files.length} file${j.files.length > 1 ? 's' : ''}` : ''}. The dispatcher starts it on the next tick.`;
-      f.reset(); files.length = 0; showFiles(); await refresh(true); if (BOT?.slug === slug) { await loadBotIssues(slug); showTab('open'); toast(`Created #${j.number}`); }
-    } catch (err) { msg.innerHTML = `<span class="err">${esc(err.message)}</span>`; }
-    btn.disabled = false;
-  };
-  }
 
   bindRoutineExpand($('#pane-more'));
   showBotTab(tab);
@@ -6638,7 +6613,7 @@ function showBotTab(tab) {
   const once = (key, fn) => { if (!BOT.loaded.has(key)) { BOT.loaded.add(key); fn(BOT.slug); } };
   if (split || view === 'tasks') {
     once('tasks', isKeeper(BOT.slug) ? loadBotTasksV2 : loadBotIssues);
-    if (isKeeper(BOT.slug)) once('files', slug => window.botFiles?.mount($('#bot-files'), {slug, get, esc, write: (method, path, body) => writeRequest(method, path, body)}));
+    if (isKeeper(BOT.slug)) once('files', slug => window.botFiles?.mount($('#bot-files'), {slug, get, esc, openFile: openFileLink}));
     const e = S.emps.find(x => x.name === BOT.slug);                // routines change under More; redraw on return
     if (e && $('#bot-recurring')) $('#bot-recurring').innerHTML = botRecurringHTML(e, BOT.slug);
   }
@@ -6991,7 +6966,7 @@ async function loadBotIssues(slug) {
     const open = list.filter(i => i.state === 'OPEN').sort((a,b) => (a.needs_human ? 0 : 1) - (b.needs_human ? 0 : 1) || (a.priority||'p9').localeCompare(b.priority||'p9'));
     const closed = list.filter(i => i.state === 'CLOSED').sort((a,b) => b.closedAt.localeCompare(a.closedAt)).slice(0, 10);
     if (!$('#t-open')) return;
-    $('#cnt-open').textContent = open.length || ''; $('#cnt-done').textContent = list.length - open.length || '';
+    $('#cnt-done').textContent = list.length - open.length || '';
     const row = (i, when, label) => `<details class="trow"><summary>
         <span class="mono muted">#${i.number}</span><span class="ttl">${esc(i.title)}</span>
         <span class="tags">${i.state === 'OPEN' ? statusPill(i) : ''}${i.priority && i.priority !== 'p2' ? ' ' + prioPill(i) : ''}</span>
@@ -7219,7 +7194,8 @@ function taskFilePreviewReset() {
 function taskFilePreviewKind(file) {
   const name = String(file.name || '').toLowerCase();
   if (/\.(md|markdown)$/.test(name)) return ['markdown', 'text/plain'];
-  if (/\.(txt|text|csv|json|log|yaml|yml)$/.test(name)) return ['text', 'text/plain'];
+  if (/\.csv$/.test(name) || /^text\/csv\b/i.test(file.mime || '')) return ['csv', 'text/csv'];
+  if (/\.(txt|text|json|log|yaml|yml)$/.test(name)) return ['text', 'text/plain'];
   if (/\.(png|jpe?g|gif|webp)$/.test(name)) return ['image', /\.png$/.test(name) ? 'image/png' : /\.gif$/.test(name) ? 'image/gif' : /\.webp$/.test(name) ? 'image/webp' : 'image/jpeg'];
   if (/\.pdf$/.test(name)) return ['pdf', 'application/pdf'];
   if (/\.(mp4|webm|mov)$/.test(name)) return ['video', /\.webm$/.test(name) ? 'video/webm' : /\.mov$/.test(name) ? 'video/quicktime' : 'video/mp4'];
@@ -7246,9 +7222,10 @@ async function taskFilePreviewOpen(file, dialog) {
     const blob = await response.blob();
     if (TASK_FILE_PREVIEW !== state || !box.isConnected || !dialog.open) return;
     const content = $('[data-task-file-content]', box);
-    if (kind === 'markdown' || kind === 'text') {
+    if (kind === 'markdown' || kind === 'text' || kind === 'csv') {
       const raw = await blob.text();
       if (TASK_FILE_PREVIEW !== state || !box.isConnected || !dialog.open) return;
+      if (kind === 'csv') { content.replaceChildren(csvView(raw)); return; }
       content.innerHTML = kind === 'markdown' ? `<div class="md">${safeMd(raw)}</div>` : `<pre>${esc(raw)}</pre>`;
       return;
     }

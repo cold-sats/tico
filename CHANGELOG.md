@@ -7,18 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
-  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
-- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
-  send keeps the text and shows the error.
-- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
-  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
-  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
-- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
-  the existing config poll), a small banner offers Reload. It never reloads by itself.
-
 ### Changed
+- A bot page's cards are quieter: "Files", "Active" and "Assigned to others" no longer show counts, the Files card loses its
+  subtitle and its "Add link" button, and Active loses "+ New" (ask the bot in Chat instead; the API is unchanged).
+- The Files card is a plain list: a file-type icon and the file name as the link, long names cut with an ellipsis and a
+  tooltip. A stored file opens in the app's viewer, a linked document in a new tab. Promote, remove and the meta line are
+  gone from the card (`PATCH /api/v2/files/{id}` still does both).
+- The viewer shows a CSV as a table (quoted commas and line breaks handled, sticky header, first 1,000 rows with a count of
+  the rest, Download), here and in a task's attachment preview.
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
   inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
@@ -43,6 +39,15 @@ All notable changes to Tico are recorded here. The format follows
   runner backs off from 0.25 s to 2 s between asks. The API's database wait is 30 s, as the scheduler's already was.
 - Due reminders and the three-day auto-close stopped for every task past the first 500: they read a capped task listing. They
   now query exactly the tasks they need.
+- The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
+  name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
+- The Assistant composer empties after a message is sent and keeps focus, so a second Enter no longer resends it. A failed
+  send keeps the text and shows the error.
+- The Assistant now makes the low-risk writes itself and replies with a link, instead of proposing a Confirm card: a task owned
+  by the person with no bot on it (create or update, never done, declined, close or reassign), a comment on such a task, marking
+  updates read, and a note to themself. Everything the server would refuse with `confirm_required` is still a proposal.
+- A tab left open through an update now notices: when the server's version differs from the one the page loaded with (seen on
+  the existing config poll), a small banner offers Reload. It never reloads by itself.
 
 ## [0.2.10] - 2026-09-29
 

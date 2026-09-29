@@ -416,11 +416,11 @@ async function routineDelete(browser) {
     assert.equal(await composer.getByRole('button', {name: 'Send', exact: true}).count(), 1);
     assert.equal(await composer.locator('.p-caret, .p-menu').count(), 0);
     assert.equal(await page.getByText('Send as task').count(), 0);
-    // Tasks: Active is the bot's own work with a count; what it asked of others,
-    // a task it filed for you included, is its own section with a count. A long title wraps to two
+    // Tasks: Active is the bot's own work; what it asked of others,
+    // a task it filed for you included, is its own section. Neither title carries a count. A long title wraps to two
     // lines beside the name.
-    assert.equal((await page.locator('#pane-tasks .card.tasks h2').first().innerText()).replace(/\s+/g, ' ').trim(), 'Active 2');
-    assert.equal((await page.locator('#bot-assigned h2').innerText()).replace(/\s+/g, ' ').trim(), 'Assigned to others 1');
+    assert.equal((await page.locator('#pane-tasks .card.tasks h2').first().innerText()).replace(/\s+/g, ' ').trim(), 'Active');
+    assert.equal((await page.locator('#bot-assigned h2').innerText()).replace(/\s+/g, ' ').trim(), 'Assigned to others');
     assert.equal(await page.locator('#t-assigned .trow', {hasText: 'Approve the October content brief'}).count(), 1);
     // Each task is its state icon, its title (two lines at most) and the holder's avatar only.
     const states = await page.locator('#t-open .trow summary .st-ic, #t-assigned .trow summary .st-ic').evaluateAll(els => els.map(el => el.getAttribute('aria-label')));

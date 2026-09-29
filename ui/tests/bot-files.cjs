@@ -1,12 +1,14 @@
-// The Files card on a bot's page (ui/bot-files.js): three rows and the total, Show all and Show less
-// inline, Open for a linked document (the provider, a new tab) and for a stored file (Tico's own
-// route, never a storage address), Working from the linked task, "not synced" with no Open link,
-// View on GitHub, the owner's Remove; on a computer and on a phone. Fixtures only, no network.
+// The Files card on a bot's page (ui/bot-files.js): a plain list of icon and name, three rows and
+// Show all / Show less inline, no counts, subtitle or buttons. A linked document opens at its provider
+// (a new tab), a stored file in the app's viewer (a CSV as a table, a quoted comma kept in one cell),
+// a file that did not sync is plain text, never a storage address; on a computer and on a phone.
+// Fixtures only, no network.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const shots = process.env.TICO_SCREENSHOT_DIR;
 
 const now = Date.now(), iso = ms => new Date(now + ms).toISOString(), min = 60e3;
 const bots = [{name: 'cmo', display_name: 'AI CMO', org_parent: '', host: 'keeper', status: 'active', can_chat: true,
@@ -25,6 +27,9 @@ const files = [
   file('file-000000000000000000000004', {title: 'Traffic export', kind: 'spreadsheet', source: 's3', last_activity_at: iso(-30 * 60 * min)}),
   file('file-000000000000000000000005', {title: 'Old brief', last_activity_at: iso(-60 * 60 * min)}),
 ];
+const CSV = files.find(f => f.title === 'Traffic export');
+CSV.name = 'traffic.csv';
+const csvText = 'page,note,visits\r\n/home,"Hello, world",120\r\n/pricing,"Two\nlines ""quoted""",80\r\n' + Array.from({length: 1200}, (_, i) => `/p${i},row,${i}`).join('\n') + '\n';
 
 async function open(browser, viewport, state) {
   const page = await browser.newPage({viewport, serviceWorkers: 'block', hasTouch: viewport.width < 760});
@@ -59,6 +64,7 @@ async function open(browser, viewport, state) {
       state.rows = state.rows.filter(f => f.id !== patch[1]);
       return json({file: {id: patch[1]}});
     }
+    if (patch && patch[1] === CSV.id) { state.opened.push(patch[1]); return route.fulfill({contentType: 'text/csv', headers: {'Content-Disposition': "attachment; filename*=UTF-8''traffic.csv"}, body: csvText}); }
     if (patch) { state.opened.push(patch[1]); return route.fulfill({contentType: 'application/octet-stream', headers: {'Content-Disposition': "attachment; filename*=UTF-8''weekly.md"}, body: '# Weekly'}); }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json({});
@@ -76,45 +82,63 @@ async function open(browser, viewport, state) {
       const card = page.locator('#bot-files');
       await card.locator('.bf-row').first().waitFor();
       assert.equal(await card.locator('.bf-row').count(), 3, tag + ': three rows');
-      assert.equal((await card.locator('[data-bf-total]').innerText()).trim(), '5', tag + ': the total');
+      assert.equal((await card.locator('h2').innerText()).trim(), 'Files', tag + ': no count in the title');
+      assert.equal(await card.locator('.sub, [data-bf-add], [data-bf-remove], [data-bf-promote], .bf-meta, .bf-open, button.ghost:not([data-bf-all])').count(), 0, tag + ': just icons and names');
       assert.deepEqual(await card.locator('.bf-name').allInnerTexts(), ['Q4 launch plan', 'Weekly report', 'Budget'], tag + ': newest activity first');
-      const first = card.locator('.bf-row').nth(0);
-      assert.match(await first.locator('.bf-meta').innerText(), /Edited 12 minutes ago by AI CMO · Publish the pricing page/);
-      assert.match(await first.locator('.bf-meta').innerText(), /Link opens in Google \(requires access\)/);
-      assert.equal(await first.locator('[data-bf-working]').count(), 1, tag + ': Working comes from the linked task');
-      const link = first.locator('[data-bf-open=external]');
+      const link = card.locator('.bf-row').nth(0).locator('a.bf-name');
       assert.equal(await link.getAttribute('href'), 'https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit');
-      assert.equal(await link.getAttribute('target'), '_blank');
+      assert.equal(await link.getAttribute('target'), '_blank', tag + ': a linked file opens in a new tab');
       assert.match(await link.getAttribute('rel'), /noopener/);
       const stored = card.locator('.bf-row').nth(1);
-      assert.equal(await stored.locator('[data-bf-open=tico]').getAttribute('href'), '/api/v2/files/file-000000000000000000000002');
-      assert.equal(await stored.locator('.bf-meta a').innerText(), 'View on GitHub');
+      assert.equal(await stored.locator('a.bf-name').getAttribute('href'), '/api/v2/files/file-000000000000000000000002');
       const unsynced = card.locator('.bf-row').nth(2);
-      assert.equal(await unsynced.locator('[data-bf-unsynced]').count(), 1);
-      assert.equal(await unsynced.locator('.bf-open').count(), 0, tag + ': no Open link for a file that did not sync');
-      // A stored file opens through Tico (the viewer asks the route for the bytes).
-      await stored.locator('.bf-open').click();
+      assert.equal(await unsynced.locator('a').count(), 0, tag + ': no link for a file that did not sync');
+      // A long name is cut with an ellipsis and keeps its full name as a tooltip.
+      assert.equal(await stored.locator('.bf-name').getAttribute('title'), 'Weekly report');
+      assert.equal(await stored.locator('.bf-name').evaluate(el => getComputedStyle(el).textOverflow), 'ellipsis');
+      if (shots) for (const scheme of ['light', 'dark']) {
+        await page.emulateMedia({colorScheme: scheme});
+        await card.screenshot({path: path.join(shots, `bot-files-${tag}-${scheme}.png`)});
+      }
+      // A stored file opens in the app's viewer (the viewer asks the route for the bytes), not by navigating away.
+      await stored.locator('a.bf-name').click();
       await page.waitForSelector('dialog#doc-viewer[open]');
       await until(() => state.opened.includes('file-000000000000000000000002'));
+      assert.equal(new URL(page.url()).pathname, '/', tag + ': still on the app');
       await page.keyboard.press('Escape');
       await page.waitForSelector('dialog#doc-viewer:not([open])', {state: 'attached'});
       // Show all opens the rest inline; Show less folds it back.
       await card.locator('[data-bf-all]').click();
       await page.waitForFunction(() => document.querySelectorAll('#bot-files .bf-row').length === 5);
+      // A CSV opens as a table: a quoted comma stays in one cell, a quoted line break too, 1,000 rows and a note.
+      await card.locator('.bf-row', {hasText: 'Traffic export'}).locator('a.bf-name').click();
+      const table = page.locator('dialog#doc-viewer[open] table.csv');
+      await table.waitFor();
+      assert.deepEqual(await table.locator('thead th').allTextContents(), ['page', 'note', 'visits'], tag + ': the header row');
+      assert.equal(await table.locator('tbody tr').count(), 1000, tag + ': the first 1,000 rows');
+      assert.equal(await table.locator('tbody tr').nth(0).locator('td').nth(1).innerText(), 'Hello, world', tag + ': a quoted comma stays in its cell');
+      assert.equal(await table.locator('tbody tr').nth(1).locator('td').nth(1).textContent(), 'Two\nlines "quoted"', tag + ': a quoted line break and quote too');
+      assert.equal(await table.locator('tbody tr').nth(0).locator('td').count(), 3);
+      assert.match(await page.locator('.csv-note').innerText(), /Showing 1,000 of 1,202 rows/);
+      if (shots) for (const scheme of ['light', 'dark']) {
+        await page.emulateMedia({colorScheme: scheme});
+        await page.screenshot({path: path.join(shots, `bot-files-csv-${tag}-${scheme}.png`)});
+      }
+      assert.equal(await page.locator('dialog#doc-viewer [data-doc-download]').count(), 1, tag + ': Download beside it');
+      assert.equal(await table.locator('thead th').first().evaluate(el => getComputedStyle(el).position), 'sticky', tag + ': the header stays put');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('dialog#doc-viewer:not([open])', {state: 'attached'});
       await card.locator('[data-bf-less]').click();
       await page.waitForFunction(() => document.querySelectorAll('#bot-files .bf-row').length === 3);
       assert.doesNotMatch(await card.innerHTML(), /s3:\/\/|X-Amz|amazonaws/i, tag + ': no storage address');
-      // The owner removes one from the list: a PATCH, and the row is gone.
-      await card.locator('[data-bf-remove]').first().click();
-      await page.waitForFunction(() => document.querySelector('#bot-files [data-bf-total]').textContent.trim() === '4');
-      assert.deepEqual(state.patched, [['file-000000000000000000000001', {archived: true}]]);
+      assert.deepEqual(state.patched, [], tag + ': nothing was changed');
       if (viewport.width < 760) {
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'phone: no sideways scroll');
         assert((await card.boundingBox()).width <= 390, 'phone: the card fits');
       }
       assert.deepEqual(errors, [], tag + ': page errors');
       await page.close();
-      console.log(`bot files card (${tag}): three rows, Show all, Open for a link and a stored file, not synced, remove`);
+      console.log(`bot files card (${tag}): plain list, Show all, a link opens externally, a stored file and a CSV in the viewer`);
     }
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

@@ -9,7 +9,7 @@ Every picture in these docs is a screenshot of [demo mode](demo.md), which you c
 
 **How do I give work to a bot or a person?**
 On **Tasks**, press **New task** and pick who it is for — any person or bot. On a person's profile,
-**Give a task**. On a bot, **Tasks → + New**. Or ask your own agent (Grok Bot, Meta Muse) to file
+**Give a task**. On a bot, ask it in Chat. Or ask your own agent (Grok Bot, Meta Muse) to file
 it through the hub's MCP. Each task shows who added it: you, another person, or a bot.
 
 **How do I ask a bot a question?**
