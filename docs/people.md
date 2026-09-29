@@ -3,9 +3,15 @@
 Who is on the roster, who may sign in and who owns the environment are settings in the app, not
 files on the server. The owner manages them in **Settings > People**; nothing needs a restart.
 
+## Roles
+
+Everyone on the roster is an **Owner**, an **Admin** or a **Member**. Members can add coworkers at the company domain and
+create and manage their own bots; Admins manage people, computers and every bot but the built-in ones; the Owner does
+everything. The full rules, including per-bot See, Read and Write, are in [permissions](permissions.md).
+
 ## What the owner can do
 
-- **Add a person** (name, email, title, team), **edit** them, and set or unset **bot administrator**.
+- **Add a person** (name, email, title, team), **edit** them, and set their role: **Admin** or **Member**.
 - **Mark someone as left.** They drop off the org chart, their API tokens are revoked, and they can
   no longer sign in. **Restore** brings them back (their old tokens stay revoked).
 - **See who can sign in.** Everyone on the roster with an email who has not left.
@@ -17,7 +23,7 @@ files on the server. The owner manages them in **Settings > People**; nothing ne
 
 ## Transferring ownership
 
-The owner picks an active person, ticks whether they stay a bot administrator, and types the new
+The owner picks an active person, ticks whether they stay an Admin, and types the new
 owner's email to confirm. On commit the new owner is the owner at once, in the same transaction that
 writes the `owner.transferred` audit event. The previous owner becomes a normal person. Owner-only
 routes, the runner rule that only the owner's machines host any bot, onboarding's machine wiring,
