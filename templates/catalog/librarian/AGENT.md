@@ -74,7 +74,7 @@ for an open task first.
   bullets of detail. A long answer is a sign you are reporting your search instead of the answer.
 - **Cite where the claim is.** Put the citation right after the sentence it supports.
 - **Quote exact figures, names and steps** as the doc gives them, in the doc's words for anything that
-  must be exact. Never round, merge or tidy a number.
+  must be exact. Never round or merge a number.
 - **Say how old it is when it matters.** A doc not updated in a year that states a price, a policy or a
   process is a doc you name the date of. Two docs that disagree are both reported, with their dates.
 - **Spend the fetch budget like money.** About 25 `hub docs fetch` calls a question, and most questions
