@@ -166,14 +166,14 @@ def test_who_may_join_sorts_addresses_and_domains_and_refuses_what_could_never_m
         return call(api, "PUT", "/allow", body, expected=expected)
 
     # Either box takes either kind of entry: a domain written three ways, and an address at a public mail service.
-    saved = save(["Chris@Hotmic.io", "*@hotmic.io", "@Other.example", "third.example", "sam@gmail.com"], ["  "])
-    assert saved["allowed"] == ["chris@hotmic.io", "sam@gmail.com"]
-    assert saved["allowed_domains"] == ["hotmic.io", "other.example", "third.example"]
+    saved = save(["Dana@Northwind.example", "*@northwind.example", "@Other.example", "third.example", "sam@gmail.com"], ["  "])
+    assert saved["allowed"] == ["dana@northwind.example", "sam@gmail.com"]
+    assert saved["allowed_domains"] == ["northwind.example", "other.example", "third.example"]
     assert view(api)["allowed_domains"] == saved["allowed_domains"]
-    assert api.get("/api/v2/tasks", headers={"x-test-email": "kim@hotmic.io"}).status_code == 200     # `*@` really admits
+    assert api.get("/api/v2/tasks", headers={"x-test-email": "kim@northwind.example"}).status_code == 200     # `*@` really admits
     # Anything that could never match is refused by name, and nothing is stored.
-    for bad, word in (("a*@x.com", "a*@x.com"), ("not an address", "not an address"), ("*.hotmic.io", "*.hotmic.io"),
+    for bad, word in (("a*@x.com", "a*@x.com"), ("not an address", "not an address"), ("*.northwind.example", "*.northwind.example"),
                       ("*@gmail.com", "gmail.com"), ("gmail.com", "Gmail account")):
         refused = save([bad], expected=422)
         assert word in refused["error"]["detail"], (bad, refused)
-    assert view(api)["allowed_domains"] == ["hotmic.io", "other.example", "third.example"]
+    assert view(api)["allowed_domains"] == ["northwind.example", "other.example", "third.example"]
