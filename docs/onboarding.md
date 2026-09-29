@@ -206,7 +206,9 @@ BotOps' refused writes, and runs its own routines.
 
 Neither can be archived or deleted by anyone, the owner included, through Settings, the API, `hub` or BotOps itself:
 the archive route answers `409 system_bot`. Pausing, renaming and editing their instructions stay allowed. Settings >
-Bots lists them as **Built in**, with no Archive or Delete control.
+Bots lists them as **Built in**, with no Archive or Delete control. Like every bot they start open to everyone; their
+**Access** can be narrowed in Settings > Bots ([permissions](permissions.md)), and the owner keeps full access to them
+whatever it says.
 
 A company that set the assistant aside before it was built in (v0.2.1 to v0.2.9 let the wizard skip it) keeps it archived
 on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant tab and at the top of

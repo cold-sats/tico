@@ -37,7 +37,8 @@ Two revisioned records in `registry_metadata`, like the AI provider choice:
 `TICO_OWNER_EMAIL` and `registry/hub-access.yaml` only seed them on the first boot (or when
 upgrading a database that has neither). Once the records exist those settings are never read again, so
 editing `api.env` or the file changes nothing. `private_owners` and `routing_permissions` in
-`hub-access.yaml` are still read from the file.
+`hub-access.yaml` are no longer read: who may see, read and write to each bot is set per bot in Settings > Bots
+([permissions.md](permissions.md)).
 
 ## The identity proxy must agree
 

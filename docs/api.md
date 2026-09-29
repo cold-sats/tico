@@ -43,7 +43,8 @@ Tico's own app uses more of the API than the spec lists. The line:
   field to a request, a new route to the spec. Nothing is removed or renamed, and a request that worked keeps working.
   A breaking change would be a new version (`/api/v3`) with `/api/v2` kept alongside for a release cycle.
 - **Internal.** Everything else: the `/api/...` routes without `v2` (the web app's own: `/api/me`, `/api/employees`,
-  `/api/meetings`, `/api/company-docs`, `/api/status` and others), runner and bot endpoints (`/api/v2/runners`,
+  `/api/meetings`, `/api/company-docs`, `/api/status` and others; a custom frontend uses `GET /api/v2/bots/{bot}` and
+  `GET /api/v2/bots` where the web app uses `/api/employees`), runner and bot endpoints (`/api/v2/runners`,
   `/jobs`, `/attempts`, `/agents`), settings, access, credentials, integrations, market, routines, goals, `/mcp` and
   `/scim`. They change between releases without notice. A route you need that is not in the spec: open an issue to
   have it added to the stable set.
@@ -64,6 +65,24 @@ generates; after a change to the API, `python -m backend.openapi_v2` rewrites it
 | A server or script | A personal API token, `Authorization: Bearer tico_pt_...` | [custom-frontend.md](custom-frontend.md#servers-and-scripts-option-c) |
 
 Whatever the credential, the caller is a person on your roster and sees what that person sees.
+
+## Who can see, read and write to a bot
+
+Each bot has three permissions, See, Read and Write, each open to everyone or to chosen people, teams and bots
+([permissions.md](permissions.md)). The routes above honour them for every caller, a personal API token
+included:
+
+- `GET /api/v2/bots` and `GET /api/v2/org` return only the bots the caller can **see**, each with
+  `access: {"see": true, "read": false, "write": true}` for that caller. `?can=read` or `?can=write` keeps
+  only the ones the caller holds that level on. A bot they may only see has no status, machine or queue.
+- A bot the caller cannot see answers `404`. One they can see but not read, or not write to, answers
+  `403 forbidden` with what is missing. A task, update, file or run of a bot they cannot read is left out of
+  lists (counts and pages included) and answers `403` when asked for by id.
+- `GET /api/v2/bots/{bot}` is one bot: its profile if the caller can see it, its status, queue and goals too if they can
+  read it. `GET /api/v2/bots/{bot}/routines` needs Read.
+- `GET /api/v2/bots/{bot}/access` and `PUT /api/v2/bots/{bot}/access` read and set the three audiences, for the
+  bot's managers: `{"see": {"everyone": true}, "read": {"teams": ["legal"]}, "write": {"everyone": true}, "revision": 3}`.
+  A stale `revision` is `409 version_conflict`.
 
 ## Rate limits and size limits
 

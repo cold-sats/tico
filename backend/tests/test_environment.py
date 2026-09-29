@@ -44,7 +44,7 @@ def environment(tmp_path):
     def build(roster=PEOPLE, **overrides):
         registry = tmp_path / ("registry-%d" % len(clients))
         registry.mkdir()
-        (registry / "hub-access.yaml").write_text(yaml.safe_dump({"private_owners": []}))
+        (registry / "hub-access.yaml").write_text(yaml.safe_dump({"allowed": []}))
         settings = Settings(db_path=tmp_path / ("hub-%d.db" % len(clients)), registry_dir=registry,
                             **{"owner_email": OWNER_EMAIL, **COMPANY, **overrides})
         client = TestClient(create_app(settings))

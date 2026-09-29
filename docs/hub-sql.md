@@ -38,20 +38,20 @@ else. `SELECT * FROM messages` therefore means "the messages you may read". In p
 - **The owner** (Ana) sees everything that is not a secret, with one exception: another
   person's private Tico room (`conversations.scope = 'personal'`) and its messages stay
   private to that person.
-- **A person on the roster** sees the company: every bot except the private ones (`ana`,
-  `inbox`, `legal`: `registry/hub-access.yaml`), every task except those a private bot
-  owns or requested, their own private Tico room, the shared rooms they are a member of, and
+- **A person on the roster** sees the company: every bot they may read ([Who can see, read and write to a
+  bot](permissions.md); a bot they may only see or write to is in the API but not here), every task except
+  those a bot they cannot read owns or requested, unless it is theirs, their own private Tico room, the shared rooms they are a member of, and
   the direct conversations they take part in. Their own typed and voice notes, files and
   connector snapshots; nobody else's. Mail copies (`mail_messages`, `mail_mailboxes`,
   `mail_fts`) are owner-only in SQL; people browse their visible mail on the Mail page.
   Meetings are the exception: every company meeting is
   theirs to read, and a private one only if the invite names them
   ([Meetings](meetings.md), Who can do what).
-- **A bot** sees itself and every other non-private bot; its own tasks (owner or requester) and
+- **A bot** sees itself and every other bot it may read; its own tasks (owner or requester) and
   tasks delegated to it while the delegation lasts; the conversation of the turn it is running
   in and the conversations of its tasks, with their messages, jobs, runs and output; its own
   audit events and refusals; people as `humans(id, name)` and no email addresses. Never another
-  person's private room, never a private bot's tasks, runs or messages, never the roster file.
+  person's private room, never the tasks, runs or messages of a bot it may not read, never the roster file.
 - **A Mac's runner credential** queries as the person who registered the Mac, on this
   endpoint only.
 - **A personal API token** is the person it belongs to, here and on every other endpoint,

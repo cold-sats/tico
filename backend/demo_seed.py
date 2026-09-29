@@ -83,7 +83,7 @@ def write_registry(settings):
         {"default_user": "ana", "teams": {"leadership": {"root": "coo"}}, "people": D.PEOPLE}, sort_keys=False))
     (registry / "hub-access.yaml").write_text(yaml.safe_dump(
         {"owner": D.PEOPLE[0]["email"], "allowed_domains": ["acme.example"],
-         "allowed": [p["email"] for p in D.PEOPLE], "bot_admins": [], "private_owners": []}))
+         "allowed": [p["email"] for p in D.PEOPLE], "bot_admins": []}))
 
 
 def populate(settings, now=None):

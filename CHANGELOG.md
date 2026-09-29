@@ -7,7 +7,36 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Per-bot permissions.** Every bot has three: **See** (the org chart and bot lists: name, role, who runs it, who it reports
+  to), **Read** (its activity: tasks, updates, files, status and run log, routines, shared rooms, its page's activity) and
+  **Write** (messages, chat, asking it, tasks, notes and comments that wake it). Each is Everyone, or chosen people, teams
+  (the org chart's departments) and bots. Set them in Settings > Bots: the **Access** column (which replaces "Can use") shows
+  `See: Everyone · Read: Legal · Write: Everyone`, and its editor has the presets **Open**, **Visible, requests only**
+  (See and Write Everyone, Read chosen) and **Private**, or a custom mix per level. Changes are revisioned and undoable from
+  the settings history. The owner, the bot itself, the people above it on the org chart and bot administrators for their own
+  bots always have full access, and someone who may write without reading still sees their own conversations and tasks with the
+  bot. A bot's page for someone who cannot read it shows its name, role, who runs it and a **Send a request** box, no activity.
+  See docs/permissions.md.
+- The org panel has a person icon beside the clock: on, it shows only the bots you can read or write to. It combines with the
+  Recent sort and is kept with your account.
+- Stable v2: `GET/PUT /api/v2/bots/{bot}/access` (owner, bot administrators and the people the bot reports up to),
+  `GET /api/v2/bots/{bot}` (a bot's profile, and its status, queue and goals for whoever can read it, in place of the internal
+  `/api/employees`) and `GET /api/v2/bots/{bot}/routines`; `GET /api/v2/bots` and `/api/v2/org` return only the bots the caller
+  can see, each with `access: {see, read, write}`, and take `?can=read|write`.
+
 ### Changed
+- Who may use a bot no longer depends on the "Can use" list (`owner_ids`), which now only says who a bot works for and who is in
+  its shared room; adding a bot no longer asks for people. Everyone can chat with and give tasks to every bot unless its Write
+  says otherwise. A person who writes to a shared-room bot without being one of the people it works for talks to it in a room of
+  their own.
+- **Every bot starts Open after the upgrade.** `private_owners` and `routing_permissions` in `registry/hub-access.yaml` are no
+  longer read: if either was set, the first start logs one warning and the owner finds a note on Settings > Health ("hub-access.yaml
+  private/routing lists are no longer used; bots are now Open; set access in Settings > Bots"). Set the access you meant there.
+- A bot the caller cannot see is a `404` everywhere (it used to be a `403` "This bot is private" on some routes and invisible on
+  others); one they can see but not read or write to is a `403 forbidden` that says which.
+- `bot_contact` (Other bots: replies only, tasks only) now also limits notes and comments that wake a bot.
+- Hub SQL holds the bots the caller can read, and tasks that involve a bot they cannot read only when the task is theirs.
 - An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
   computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
   inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
@@ -32,6 +61,14 @@ All notable changes to Tico are recorded here. The format follows
   runner backs off from 0.25 s to 2 s between asks. The API's database wait is 30 s, as the scheduler's already was.
 - Due reminders and the three-day auto-close stopped for every task past the first 500: they read a capped task listing. They
   now query exactly the tasks they need.
+
+### Security
+- Bot privacy was decided in a handful of places and left gaps: a task, a note or a comment to a private bot needed only that the
+  caller could see it (a comment even woke it), a Slack message reached any bot its sender could name, and a page of tasks, updates
+  or files could shrink or count differently for someone who was not allowed some of them. One check now covers every route, the
+  MCP tools and personal API tokens, lists and SQL are cut in the query (so counts and pages leak nothing), and Slack routing
+  follows the sender's Write. The old file lists could not do any of this per bot and are retired (see Changed).
+- A person who may only write to a bot no longer sees, under its replies, the steps it took to answer, or the live output of its runs.
 
 ## [0.2.10] - 2026-09-29
 
