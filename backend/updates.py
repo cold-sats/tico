@@ -114,8 +114,7 @@ def _busy(c, bot):
 
 def ensure_schema(c):
     """Columns added after the tables first shipped."""
-    if "tries" not in {r[1] for r in c.execute("PRAGMA table_info(update_queue)")}:
-        c.execute("ALTER TABLE update_queue ADD COLUMN tries INTEGER NOT NULL DEFAULT 0")
+    H.add_column(c, "update_queue", "tries", "INTEGER NOT NULL DEFAULT 0")
 
 
 def _retry_or_miss(c, row, reason):

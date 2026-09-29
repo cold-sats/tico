@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Starting on a database that already had part of a schema change (a column added but the version not recorded) failed
+  on every boot. Each schema change now runs in one transaction with its version bump and is safe to run twice.
+- A database file that has Tico's tables but no version record is refused with a clear message instead of being
+  migrated blind. An empty file still starts.
+- The one-time removal of the old routine-manifest tables keeps what they held in `routine_*_retired` tables.
+
 ## [0.2.9] - 2026-09-29
 
 ### Fixed

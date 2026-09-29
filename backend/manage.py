@@ -108,7 +108,7 @@ def migrate_legacy(source, destination, runtime, projects, *, queue_backlog=Fals
         raise ValueError("Source must be the legacy Hub database, not an initialized cloud database")
     source_report = snapshot(source, destination)
     store = Store(Settings(db_path=destination, registry_dir=registry_dir()))
-    store.initialize()
+    store.initialize(adopt_legacy=True)
     entries = resolved_registry(projects, store.settings.registry_dir)
     with store.read() as c:
         seeded = bool(c.execute("SELECT 1 FROM bot_config LIMIT 1").fetchone())
