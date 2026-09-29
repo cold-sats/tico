@@ -628,11 +628,14 @@ def ensure_token():
         fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as stream:
             stream.write(secrets.token_hex(32) + "\n")
-    os.chmod(TOKEN_FILE, 0o600)   # before the owner changes, so the old 0644 is never left readable
+    info = os.lstat(TOKEN_FILE)
+    if info.st_uid == SUPERVISOR_UID and info.st_mode & 0o777 == 0o600:
+        return   # already locked down; root without CAP_FOWNER could not chmod the supervisor's file anyway
     try:
+        os.chmod(TOKEN_FILE, 0o600)   # before the owner changes, so the old 0644 is never left readable
         os.chown(TOKEN_FILE, SUPERVISOR_UID, SUPERVISOR_GID)
-    except PermissionError:   # an older compose file without CHOWN: 0600 root still keeps bots out, and the supervisor holds DAC_OVERRIDE
-        pass
+    except PermissionError as exc:   # never stop the updater over this: 0600 root still keeps bots out
+        print("tico-updater: could not lock the token down (%s); leaving it as it is" % exc, flush=True)
 
 
 if __name__ == "__main__":

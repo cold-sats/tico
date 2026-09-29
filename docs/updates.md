@@ -142,6 +142,12 @@ Automatic rollback covers a release that does not come up. To go back by choice:
   ```
 
   Its next update follows the server as usual. The server's updater repairs itself when the server updates.
+- **v0.2.10 or v0.2.11 runner box whose updater keeps restarting** (`docker ps` shows `tico-runner-updater-1 Restarting`):
+  run once in `/opt/tico-runner`:
+
+  ```
+  sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.2.12/' .env && docker compose -f runner.compose.yaml up -d updater
+  ```
 
 ## For maintainers
 

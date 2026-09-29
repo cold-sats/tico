@@ -1,6 +1,7 @@
 """docker/updater.py in runner mode: the runner box's sidecar pulls the matching tico-runner tag, recreates the
 runner, and puts the old image back when the new one does not turn healthy."""
 import importlib.util
+import os
 import stat
 from pathlib import Path
 
@@ -81,6 +82,23 @@ def test_the_token_is_the_supervisors_alone_on_every_start(monkeypatch, tmp_path
     (tmp_path / "token").unlink()
     updater.ensure_token()
     assert len((tmp_path / "token").read_text().strip()) == 64 and stat.S_IMODE((tmp_path / "token").stat().st_mode) == 0o600
+
+
+def test_a_second_start_leaves_a_locked_token_alone(monkeypatch, tmp_path):
+    # The updater is root without CAP_FOWNER: once the token is ticorun's, chmod on it fails. v0.2.10 and
+    # v0.2.11 crashed on every start after the first because of that.
+    updater = load(monkeypatch, "runner", tmp_path)
+    (tmp_path / "token").write_text("t\n")
+    (tmp_path / "token").chmod(0o600)
+    real = updater.os.lstat
+    monkeypatch.setattr(updater.os, "lstat", lambda path: os.stat_result((real(path).st_mode, *real(path)[1:4], 10002, *real(path)[5:])))
+    def refuse(*args):
+        raise PermissionError(1, "Operation not permitted")
+    monkeypatch.setattr(updater.os, "chmod", refuse)
+    monkeypatch.setattr(updater.os, "chown", refuse)
+    updater.ensure_token()                                             # already locked down: nothing to do
+    monkeypatch.setattr(updater.os, "lstat", real)
+    updater.ensure_token()                                             # not locked and refused: logged, no crash
 
 
 def test_a_downgrade_is_refused_and_an_upgrade_accepted(monkeypatch, tmp_path):

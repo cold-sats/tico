@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-09-29
+
+### Fixed
+- A runner box's updater (0.2.10 and 0.2.11) stopped on every start after its first: it locked its token to the runner's
+  user and then, without the right to change another user's file, failed changing it again ("PermissionError ... updater-token")
+  and restarted in a loop, so the box could not update. It now leaves a token that is already locked alone and never stops over
+  it. A box whose updater is restarting recovers with, in its directory (`/opt/tico-runner`):
+  `sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.2.12/' .env && docker compose -f runner.compose.yaml up -d updater`.
+
 ## [0.2.11] - 2026-09-29
 
 ### Added
@@ -408,7 +417,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.11...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.12...HEAD
+[0.2.12]: https://github.com/ticoteam/tico/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/ticoteam/tico/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/ticoteam/tico/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/ticoteam/tico/compare/v0.2.8...v0.2.9
