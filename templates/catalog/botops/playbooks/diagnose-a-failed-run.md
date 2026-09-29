@@ -75,3 +75,8 @@ scheduled run works until the next occurrence fires.
 Say so. A guessed cause with a confident fix costs the owner more than an honest "the record shows
 the task was never claimed, and the runner reports nothing for that hour; this needs someone at the
 machine". Put that on the task and finish it.
+
+## Evidence for the task
+Publish the write-up a person should read instead of pasting it into the note:
+`hub files publish reports/<date>-<bot>-diagnosis.md`, and put the file's title in the task note. A
+Google Doc you made for it goes on the page with `hub files add-link <url> --title "..."`.

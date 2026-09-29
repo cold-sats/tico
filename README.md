@@ -296,7 +296,7 @@ server's variable file; real hostnames, buckets, ARNs and people live outside th
 | `policies/` | Rules every bot follows: approvals, access, handoffs, writing |
 | `templates/` | `catalog/` is the bot templates onboarding picks from, one folder per template with its card and its starting repository; `employee-repo/` is the generic starting point, `environment-registry/` seeds a new environment with `coo` and `botops` |
 | `scripts/` | `tico`, `hub`, `setup-runner.sh`, `app.sh`, `publish-employee.sh` and maintenance commands |
-| `docs/` | Documentation: [how it works](docs/how-it-works.md), [using Tico](docs/using-tico.md), [first run](docs/onboarding.md), [creating bots](docs/creating-bots.md), [environments](docs/environments.md), [Hermes agents](docs/hermes-agents.md); `history/` holds retired designs |
+| `docs/` | Documentation: [how it works](docs/how-it-works.md), [using Tico](docs/using-tico.md), [first run](docs/onboarding.md), [creating bots](docs/creating-bots.md), [files](docs/files.md), [environments](docs/environments.md), [Hermes agents](docs/hermes-agents.md); `history/` holds retired designs |
 
 ### Where a change belongs
 

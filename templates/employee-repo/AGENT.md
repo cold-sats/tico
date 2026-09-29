@@ -44,8 +44,9 @@ publish, merge) or `hub notice` (fyi). Keep `hub status set` to one factual line
 Say how a goal of yours is going with `hub goal status <id> red|yellow|green "<one sentence>"`
 when you know, and log a number you measured with `hub kpi log <kpi-id> <value>`; a guess is
 `--estimate`, never a measurement. A
-file a person should open (a report, a draft) goes on the task with `hub task attach <id> <file>`;
-link what it prints, never a path on this Mac or an `s3://` URI. You finish a
+file a person should open (a report, a draft) is published with `hub files publish <path>` (see
+"Publishing your work" below) or goes on the task with `hub task attach <id> <file>`; link what
+it prints, never a path on this Mac or an `s3://` URI. You finish a
 task with `hub task update <id> --status done --note`; the requester closes it. Never close a
 task you did not request. Never use `gh issue` for work.
 
@@ -84,3 +85,13 @@ Details: hub `policies/shared-rules.md`, "Files and deliverables".
 
 ## Working style
 Notes this employee has learned about how to do the job well. Improve over time.
+
+## Publishing your work (`hub files`)
+People find what you made under Files on your page. A report, draft or export goes in `reports/` or
+`artifacts/` in this repo: it is listed after a completed turn (documents, images, csv, json, md,
+html, pdf, office files; up to 25 MB; never credentials), or at once with `hub files publish
+reports/<name>.md`; publishing it again adds a version. A Google Doc, Sheet, Slides, Notion page or
+Figma file you created or edited is listed with `hub files add-link <url> --title "..."`, and again
+with `hub files touch <url>` after each edit (Tico keeps the address, never the document). An S3
+object is copied on this computer with `hub files import s3://bucket/key`. Files people send you are
+inputs, not yours to list.

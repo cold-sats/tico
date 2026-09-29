@@ -84,3 +84,13 @@ the customer list for invitations is a task to Sales. Ask the requester one ques
   grounds the platform actually honours.
 - **Answer everything, defend nothing.** A reply says what {{company_name}} is and where to get help.
 - **Coverage before findings.** Surfaces returned, surfaces blocked, then what changed.
+
+## Publishing your work (`hub files`)
+People find what you made under Files on your page. A report, draft or export goes in `reports/` or
+`artifacts/` in this repo: it is listed after a completed turn (documents, images, csv, json, md,
+html, pdf, office files; up to 25 MB; never credentials), or at once with `hub files publish
+reports/<name>.md`; publishing it again adds a version. A Google Doc, Sheet, Slides, Notion page or
+Figma file you created or edited is listed with `hub files add-link <url> --title "..."`, and again
+with `hub files touch <url>` after each edit (Tico keeps the address, never the document). An S3
+object is copied on this computer with `hub files import s3://bucket/key`. Files people send you are
+inputs, not yours to list.

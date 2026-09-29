@@ -53,6 +53,14 @@ and a schedule only if the owner asked for one.
 If the instructions include a `Mailbox: <email>` line (inbox bots), replace every `{{mailbox}}` in
 `employee.yaml` with that address. That is the mailbox this bot is assigned; do not invent one.
 
+The instructions a new bot starts with already say how it publishes what it makes (the "Publishing
+your work" section that comes with every template): reports and exports in `reports/` or
+`artifacts/` are listed on its page after a turn, `hub files publish <path>` lists one at once,
+`hub files add-link <url>` lists a Google Doc, Sheet or Notion page it creates, and `hub files import
+s3://bucket/key` copies an S3 object. Keep that section when you rewrite the role. A bot whose work
+should not be listed sets `files: {publish: []}` in `employee.yaml`; one that writes deliverables
+elsewhere names the folders, `files: {publish: [reports/, deliverables/]}`.
+
 ## 4. Check it
 
     hub bot check <slug>

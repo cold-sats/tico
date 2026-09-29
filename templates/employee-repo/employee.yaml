@@ -20,4 +20,8 @@ outbound_send: false
 #     identity: "owner@example.com"
 #     can: [read, draft]          # send only with outbound_send: true
 #     env: GMAIL_CREDENTIALS      # secret in <workspace>/secrets/<slug>.env
+# Files: what the runner lists on this bot's page after a completed turn (docs/files.md). Default is
+# reports/ and artifacts/; `publish: []` turns it off.
+# files:
+#   publish: [reports/, artifacts/]
 access: []

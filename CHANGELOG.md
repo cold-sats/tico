@@ -7,6 +7,25 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Files**: a bot's page lists what it created, revised or delivered, newest activity first (three rows and the total, "Show all"
+  inline), in the main view beside its tasks. Three kinds: stored files (Tico's private blob store, opened through an authenticated
+  route, every version kept), linked cloud documents (Google Docs, Sheets and Slides, Notion, Figma, any https document; Tico keeps the
+  address only), and S3 objects copied by the bot's own computer with its own credentials. Tables `bot_files`, `bot_file_versions`
+  and an append-only `bot_file_activity`. See `docs/files.md`.
+- `hub files publish|add-link|touch|import|list` and the matching `hub_files_*` MCP tools. After a completed turn the runner
+  uploads new or changed files under `reports/` and `artifacts/` (per bot: `files: {publish: [...]}` in `employee.yaml`) through a
+  durable outbox with idempotency keys; credential-like names, symbolic links, paths outside the checkout, other types and files over
+  25 MB are refused. A pushed commit adds "View on GitHub" at that exact commit.
+- Files inherit the visibility of their task or conversation (a private chat leaks no name, count, version or download);
+  the owner or a bot administrator can promote one to bot-wide or remove it from the list.
+- Stable v2: `GET /api/v2/bots/{bot}/files`, `POST /api/v2/files/uploads|links|imports`, `PATCH /api/v2/files/{id}`,
+  `GET /api/v2/files/{id}/activity|versions`, in `docs/openapi/v2.json`; CORS allows `PATCH`. The custom-frontend example shows a bot's Files.
+- The bot templates' `AGENT.md` and the BotOps playbooks tell bots to publish their deliverables.
+
+### Changed
+- The bot page's old storage card (More) is gone, with `GET /api/employees/{bot}/storage`; task and chat attachments stay where they were.
+
 ## [0.2.6] - 2026-09-29
 
 ### Added
