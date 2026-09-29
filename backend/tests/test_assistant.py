@@ -66,7 +66,7 @@ def test_the_assistant_acts_as_the_person_and_never_more(api):
     mine = post(api, "tasks", {"owner": "human:ben", "title": "Pick the launch date", "body": "Oct 1 or Oct 8?"}, token=token)
     post(api, "tasks/" + mine["id"], {"version": mine["version"], "status": "done"}, token=token, expected=403)
     # A low-risk write runs directly, as ben, and says so in the record.
-    made = post(api, "tasks", {"owner": "ops", "title": "Draft the launch post", "body": "For Oct 1."}, token=token)
+    made = post(api, "tasks", {"owner": "human:ben", "title": "Draft the launch post", "body": "For Oct 1."}, token=token)
     assert made["requester"] == "human:ben"
     with api.app.state.store.read() as c:
         assert c.execute("SELECT via FROM task_events WHERE task_id=? ORDER BY ts LIMIT 1", (made["id"],)).fetchone()[0] == "assistant"
@@ -154,3 +154,96 @@ def test_the_owner_turns_an_archived_assistant_back_on_for_everyone(api):
         assert view["available"] and view["room_id"] and not view["can_turn_on"]
         assert say(api, "What's waiting on me?", person)["fast"]
     assert post(api, "assistant/turn-on", {}, token="ana-test")["state"] == "active"  # idempotent
+
+
+def running_proposal(api, person="ana-test"):
+    """A proposal as if the person had clicked Confirm and it is still being run."""
+    action = post(api, "assistant/actions", {"summary": "Archive the Ops bot", "path": "/api/v2/bots/ops/archive",
+                                             "body": {"expected_revision": 1}}, token=person)["action"]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE assistant_actions SET status='running', running_since=?, confirm_hash=? WHERE id=?",
+                  (H.now(), "0" * 64, action["id"]))
+    return action
+
+
+def test_a_proposal_cannot_smuggle_a_route_and_never_stores_an_answer(api):
+    for path in ("/api/v2//me/tokens", "/api/v2/me/tokens", "/api/v2/tasks/../me/tokens", "/api/v2/me%2Ftokens",
+                 "/api/v2/tasks\\x", "/api/v2/tasks/", "/api/v2/runners/enrollments", "/auth/token", "/api/v2/assistant/turn-on"):
+        post(api, "assistant/actions", {"summary": "Do it", "path": path}, token="ana-test", expected=422)
+    # The stored path is exactly what runs; only the status and an error detail are kept, never the answer.
+    action = post(api, "assistant/actions", {"summary": "File it", "path": "/api/v2/tasks",
+                                             "body": {"title": "Draft the launch plan", "body": "Two pages.", "owner": "human:ana"}})["action"]
+    done = post(api, f"assistant/actions/{action['id']}/confirm", {})["action"]
+    assert done["status"] == "done" and set(done["result"]) == {"status_code", "error"}
+    assert "Draft the launch plan" not in str(get(api, f"assistant/actions/{action['id']}")["action"]["result"])
+
+
+def test_the_assistant_cannot_confirm_its_own_proposal(api):
+    r, attempt = assistant_turn(api, "ana-test")
+    token = attempt["token"]
+    action = running_proposal(api)
+    for header in (action["id"], action["id"] + ".guess", action["id"] + "." + "0" * 64):
+        forged = api.post("/api/v2/bots/ops/archive", json={"expected_revision": 1},
+                          headers={**headers(token), "x-tico-assistant-action": header})
+        assert forged.status_code == 403
+    with api.app.state.store.read() as c:
+        assert H.bot(c, "ops")["state"] != "archived"
+    # A confirm that never settled cannot stay a bypass: after two minutes it has failed.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE assistant_actions SET running_since=? WHERE id=?", (H.shift(H.now(), seconds=-200), action["id"]))
+    assert get(api, "assistant")["pending"] == []
+    assert get(api, f"assistant/actions/{action['id']}")["action"]["status"] == "failed"
+
+
+def test_an_assistant_message_never_lends_the_persons_authority_to_botops(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
+                  "VALUES('botops','BotOps','fake','','','','keeper','active',?)", (H.now(),))
+        c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES('botops','{}',NULL,'ana')")
+        H.VIA.set("assistant")
+        via = H.say(c, "human:ana", "bot:botops", "Rename the Ops bot to Operations", kind="say")
+        H.VIA.set("")
+        plain = H.say(c, "human:ana", "bot:botops", "Rename the Ops bot to Operations, please", kind="say")
+    assert via["refs"].get("via") == "assistant" and "via" not in plain["refs"]
+    r = runner(api)
+    assign(api, r, "botops")
+    ready(api, r, ["botops"])
+    token = claim(api, r, "botops")["token"]
+    body = {"display_name": "Operations", "expected_revision": 1}
+    refused = post(api, "bots/ops/definition", {**body, "on_behalf_of": via["id"]}, token=token, expected=403)
+    assert "written by the Assistant" in refused["error"]["detail"]
+    other = api.post("/api/v2/bots/ops/definition", json={**body, "on_behalf_of": plain["id"]}, headers=headers(token))
+    assert "written by the Assistant" not in other.text
+
+
+def test_the_proposal_says_what_it_will_do_in_the_servers_words(api):
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "human:ben", "Pick the launch date", "Oct 1 or Oct 8?", "human:ana")
+    action = post(api, "assistant/actions", {"summary": "Just a small change", "path": "/api/v2/tasks/" + task["id"],
+                                             "body": {"version": task["version"], "status": "done", "note": "ok"}})["action"]
+    assert "Pick the launch date" in action["description"] and "small change" not in action["description"]
+    assert {"field": "status", "old": "open", "new": "done"} in action["diff"]
+    archive = post(api, "assistant/actions", {"summary": "Housekeeping", "path": "/api/v2/bots/ops/archive",
+                                              "body": {"expected_revision": 1}})["action"]
+    assert archive["description"] == "Archive bot ops"
+
+
+def test_direct_writes_only_ever_touch_the_person_themself(api):
+    with api.app.state.store.transaction() as c:
+        theirs = H.task_create(c, "human:ana", "Review the plan", "Please review.", "human:ben")
+        anas = H.task_create(c, "human:ben", "Ana's own item", "For Ana to decide.", "human:ana")
+    r, attempt = assistant_turn(api, "ben-test")
+    token = attempt["token"]
+    # Nothing that reaches someone else, or a bot, runs directly.
+    post(api, "tasks", {"owner": "ops", "title": "Draft the launch post", "body": "For Oct 1."}, token=token, expected=403)
+    post(api, "tasks", {"owner": "human:cara", "title": "Review the plan", "body": "Please."}, token=token, expected=403)
+    post(api, "messages", {"to": "ops", "text": "Hello"}, token=token, expected=403)
+    post(api, "chat/ops", {"text": "Hello"}, token=token, expected=403)
+    post(api, f"tasks/{theirs['id']}/run-now", {}, token=token, expected=403)
+    post(api, f"tasks/{theirs['id']}", {"version": theirs["version"], "owner": "ops"}, token=token, expected=403)
+    post(api, f"tasks/{anas['id']}", {"version": anas["version"], "note": "x"}, token=token, expected=403)   # not ben's
+    # Their own work, comments and reading updates are theirs to do.
+    post(api, "tasks", {"owner": "human:ben", "title": "Draft my week", "body": "Monday first."}, token=token)
+    post(api, f"tasks/{theirs['id']}", {"version": theirs["version"], "note": "On it"}, token=token)
+    post(api, f"tasks/{theirs['id']}/comments", {"text": "Started"}, token=token)
+    post(api, "updates/read", {"all": True}, token=token)

@@ -18,6 +18,7 @@
 .asst-msg .asst-h{display:block;margin:6px 0 2px;font-weight:600}
 .asst-card{align-self:flex-start;width:min(560px,100%);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:6px 0;background:var(--surface)}
 .asst-card b{display:block;margin-bottom:2px}
+.asst-body{margin:4px 0;padding-left:18px;font-size:13px;overflow-wrap:anywhere}
 .asst-card code{display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:2px 0 8px}
 .asst-card .asst-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .asst-state{font-size:12.5px;color:var(--muted)}
@@ -104,8 +105,16 @@
       if (!action) return `<div class="asst-msg bot">${render(m.body, esc)}</div>`;
       const done = {done: 'Done.', failed: 'It did not go through' + (action.result?.error ? ': ' + action.result.error : '.'),
         cancelled: 'Cancelled.', expired: 'Expired: ask again.', running: 'Running…'}[action.status];
+      const shown = v => { const t = typeof v === 'string' ? v : JSON.stringify(v); return t.length > 300 ? t.slice(0, 300) + '…' : t; };
+      // What will really happen comes from the server; the assistant's own words are only its summary.
+      const changes = action.diff?.length
+        ? `<ul class="asst-body" aria-label="Changes">${action.diff.map(d => `<li><strong>${esc(d.field)}</strong>: ${esc(shown(d.old ?? ''))} → ${esc(shown(d.new))}</li>`).join('')}</ul>`
+        : Object.keys(action.body || {}).length
+          ? `<ul class="asst-body" aria-label="Details">${Object.entries(action.body).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${esc(shown(v))}</li>`).join('')}</ul>` : '';
       return `<div class="asst-card" data-action="${esc(action.id)}" data-status="${esc(action.status)}">
-        <b>${esc(action.summary)}</b>
+        <b data-what>${esc(action.description || action.method + ' ' + action.path)}</b>
+        <span class="asst-state">${esc(action.proposed_via === 'assistant' ? 'The assistant says: ' : '')}“${esc(action.summary)}”</span>
+        ${changes}
         <code>${esc(action.method)} ${esc(action.path)}</code>
         ${action.status === 'pending'
           ? `<div class="asst-row"><button class="primary" type="button" data-confirm>Confirm</button>

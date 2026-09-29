@@ -19,10 +19,10 @@ All notable changes to Tico are recorded here. The format follows
   today" and "how do I …" (from `docs/*.md`) are answered on the server from Tico's own data; a `choice` decision question classifies
   an unclear message when the company has a decisions provider. Everything else is a turn of the assistant bot ("thinking").
 - The Assistant acts as you and never more: its turn's `hub` and MCP tools are your own (`Auth.assistant_principal`), every write is
-  recorded via assistant (`events`, task history, comments; "<name> (via Assistant)"). Low-risk writes run directly; approving or
+  recorded via assistant (`events`, task history, comments; "<name> (via Assistant)"). Direct writes are limited to what touches the person themself (their own tasks, comments, notes, marking updates read; never a task for a bot or someone else, a message to a bot, or settling a task); approving or
   declining a Needs-you item, anything sent outside the company, spending, changing people, access or settings, archiving, deleting
   and activating a bot are proposed (`hub assistant propose`, `hub_assistant_propose`) as a Confirm / Cancel card and run only on
-  your click, as you, once; the bot cannot confirm (`assistant_actions` table).
+  your click, as you, once; the bot cannot confirm (`assistant_actions` table). Only allowlisted, plain routes can be proposed, the card shows the server's description and the request body, results keep no answer body, and a message the Assistant wrote never lets BotOps act for the person.
 - Stable v2: `GET /api/v2/assistant`, `POST /api/v2/assistant/messages|turn-on|actions`, `GET /api/v2/assistant/actions/{id}`,
   `POST /api/v2/assistant/actions/{id}/confirm|cancel`, in `docs/openapi/v2.json` and `docs/custom-frontend.md`.
 - The assistant template's `AGENT.md` and a new `assistant-chat` playbook teach the Assistant how Tico is organised, how to route

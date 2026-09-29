@@ -277,7 +277,7 @@ class Auth:
                         email=email, via_token=True, token_label=self.settings.assistant_name,
                         via="assistant")
 
-    def authenticate(self, headers, path=""):
+    def authenticate(self, headers, path="", method=""):
         bearer = headers.get("authorization", "")
         token = bearer[7:] if bearer.startswith("Bearer ") else ""
         if token.startswith("tico_st_") and getattr(self.proxy, "sessions", False):
@@ -339,12 +339,19 @@ class Auth:
                 who = Identity("human:" + row["id"],
                                "owner" if email == self.owner_email else "human", email=email, via_proxy=True)
             validate_identity(c, who)
-            action = headers.get("x-tico-assistant-action", "") if who.role in ("owner", "human") else ""
+            action = headers.get("x-tico-assistant-action", "")
             if action:
                 # The person's own click on something the Assistant proposed (backend/assistant.py
-                # confirm): only while that record is being run for this very person.
-                if not c.execute("SELECT 1 FROM assistant_actions WHERE id=? AND owner=? AND status='running'",
-                                 (action, who.actor)).fetchone():
+                # confirm), and only that: never the Assistant's own identity or a token credential, and
+                # only with the secret made at confirm time, for the exact method and path stored, within
+                # two minutes of the click.
+                aid, _, secret = action.partition(".")
+                row = c.execute("SELECT method,path,confirm_hash,running_since FROM assistant_actions "
+                                "WHERE id=? AND owner=? AND status='running'", (aid, who.actor)).fetchone()
+                if (who.role not in ("owner", "human") or who.via or who.via_token or not secret or not row
+                        or not row["confirm_hash"] or not hmac.compare_digest(row["confirm_hash"], digest(secret))
+                        or row["method"] != method or row["path"] != path
+                        or str(row["running_since"] or "") < H.shift(H.now(), seconds=-120)):
                     raise Problem("assistant_action", "That assistant action is not being confirmed", 403)
                 who = replace(who, via="assistant", confirmed=True)
             return who

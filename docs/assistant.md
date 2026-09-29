@@ -35,7 +35,7 @@ and as you (what you may see, nothing more), with no runner turn and no model:
 
 The intent router is keywords and sentence shape first. When the company has a [decisions](../questions/README.md)
 provider, an unclear short message is classified by a `choice` question (`assistant-intent@1`); otherwise it goes to the
-model. Anything that asks for something to be done always goes to the model. Everything else is a turn of the
+model; the text of such a message is sent to the company's configured decisions provider to be classified. Anything that asks for something to be done always goes to the model. Everything else is a turn of the
 assistant bot on the company runner, shown as "thinking" until it answers.
 
 ## It acts as you, never more
@@ -47,8 +47,16 @@ started in your own Assistant chat acts for you; its other work (Slack routing, 
 assistant's own. Every write it makes is recorded as yours **via assistant**: the audit `events` carry `"via":
 "assistant"`, task history rows and comments carry `via`, and the UI shows "<name> (via Assistant)".
 
-**Low-risk writes run directly:** creating a task, commenting, handing a task to a bot, asking BotOps for a bot (it
-only plans a bot and files a task for BotOps), a quiet note to a bot, publishing a note, marking updates read.
+**Direct writes only ever touch you:** creating a task for yourself, updating your own task (not finishing, declining or
+closing it, and not handing it to someone else), commenting on a task you can see, marking updates read, a quiet note.
+Everything else the server refuses (`403 confirm_required`) and the assistant must propose, including a task for a bot or
+another person (how it routes work and asks BotOps for a bot), messaging or chatting any bot, and running a task now.
+
+**Every proposal is shown for what it is.** The card carries the server's own one-line description (route kind and target
+name, never the bot's words), the request body as a key: value list, and the exact field changes for a task update. Only routes
+on an allowlist can be proposed (never tokens, sign-in, runner enrollment, this assistant or anything that returns a secret);
+the path must be plain (`/api/v2/...` without `//`, `..`, `%` or `\`), and exactly that path runs. Only the status and an
+error's detail are kept of the result, never the answer's body.
 
 **Anything with a side effect that matters is proposed, and only your click runs it:** approving or declining a Needs-you
 item, sending anything outside the company, spending, changing people, access or settings, archiving or deleting,
@@ -57,7 +65,7 @@ with the exact API operation. That leaves a **pending action** and a Confirm / C
 refuses these operations when the assistant tries them itself (`403 confirm_required`). **Confirm** runs the recorded
 operation through the same routes with *your* credential, once (a claim makes a second click a `409`), and
 records `assistant.action.confirmed` and the operation's own events via assistant. The bot cannot confirm or cancel
-(`403`), a personal API token cannot either, another person sees `404`, and an unconfirmed proposal expires after
+(`403`; a confirm run carries a secret made at click time, bound to the stored method and path, valid for two minutes and then failed), a personal API token cannot either, another person sees `404`, and an unconfirmed proposal expires after
 24 hours.
 
 ## API

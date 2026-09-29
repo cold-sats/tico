@@ -17,6 +17,7 @@ read it or post in it, the owner and administrators included. A message goes one
 import asyncio
 import json
 import re
+import secrets
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -26,8 +27,9 @@ from fastapi import Request
 
 from . import models as M
 from . import rooms
-from .store import H, Problem
+from .store import H, Problem, digest
 
+RUNNING_TTL_S = 120                # a confirm that has not settled in two minutes failed
 CONFIRM_TTL_H = 24                 # a proposal nobody confirmed for a day is not run
 MAX_PENDING = 20
 GITHUB_DOCS = "https://github.com/ticoteam/tico/blob/main/docs/"
@@ -44,50 +46,128 @@ CREATE INDEX IF NOT EXISTS assistant_actions_owner ON assistant_actions(owner, s
 
 def ensure_schema(c):
     c.executescript(SCHEMA)
+    have = {r[1] for r in c.execute("PRAGMA table_info(assistant_actions)")}
+    for column in ("confirm_hash", "running_since", "description", "diff_json"):
+        if column not in have:
+            c.execute("ALTER TABLE assistant_actions ADD COLUMN %s TEXT" % column)
     if not any(r[1] == "via" for r in c.execute("PRAGMA table_info(task_events)")):
         c.execute("ALTER TABLE task_events ADD COLUMN via TEXT")
 
 
 # ------------------------------------------------------------------ what the assistant may write directly
-# Low-risk writes an assistant turn runs itself: filing and commenting on work, routing it to a bot,
-# asking BotOps for a bot (a task), a quiet note, reading updates. Everything else is refused with
-# `confirm_required` and goes through a proposal the person confirms.
-_LOW_RISK = [re.compile(p) for p in (
-    r"/api/v2/tasks(/dry-run)?", r"/api/v2/tasks/[^/]+", r"/api/v2/tasks/[^/]+/(comments|links|labels|run-now|ask)",
-    r"/api/v2/messages", r"/api/v2/chat/[^/]+", r"/api/v2/notes", r"/api/notes",
-    r"/api/v2/updates/read", r"/api/v2/updates/[^/]+/reply",
-    r"/api/v2/assistant/actions",
-)]
-
-
-# A task update that settles a task (done, closed, declined) is deciding a Needs-you item: the person's.
+# What an assistant turn may write on its own is what only touches the person themself: their own tasks
+# (create, or update but not settle), comments on tasks they can see, marking updates read, quiet notes.
+# Everything else (a task for anyone else, a message to any bot, run-now, ...) is a proposal.
 _SETTLES = ("done", "closed", "declined")
 
 
-def write_allowed(method, path, settings=None, body=b""):
+def _mine(actor, value):
+    return str(value or "").strip() in (actor, actor.split(":", 1)[-1])
+
+
+def write_allowed(method, path, settings=None, body=b"", actor="", owns=None):
     if method in ("GET", "HEAD", "OPTIONS"):
         return True
-    if settings is not None and path == "/api/v2/chat/" + settings.assistant_bot:
-        return False                      # the assistant does not message itself
-    if not any(p.fullmatch(path) for p in _LOW_RISK):
+    if method != "POST":
         return False
-    if re.fullmatch(r"/api/v2/tasks/[^/]+", path):
-        try:
-            fields = json.loads(body or b"{}")
-        except ValueError:
-            return False
-        if not isinstance(fields, dict) or fields.get("close") or fields.get("status") in _SETTLES:
-            return False
-    return True
-
-
-_NEVER_REPLAYED = ("/api/v2/assistant", "/api/v2/me/tokens", "/auth", "/scim", "/api/v2/mcp")
-
-
-def valid_operation(method, path):
-    if not path.startswith("/api/v2/") or "?" in path or ".." in path or "#" in path:
+    if path in ("/api/v2/updates/read", "/api/v2/notes", "/api/notes", "/api/v2/assistant/actions"):
+        return True
+    if re.fullmatch(r"/api/v2/tasks/[^/]+/comments", path):
+        return True
+    creating = path in ("/api/v2/tasks", "/api/v2/tasks/dry-run")
+    updating = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
+    if not (creating or updating):
         return False
-    return not any(path == p or path.startswith(p + "/") for p in _NEVER_REPLAYED)
+    try:
+        fields = json.loads(body or b"{}")
+    except ValueError:
+        return False
+    if not isinstance(fields, dict) or fields.get("close") or fields.get("status") in _SETTLES:
+        return False
+    if creating:
+        return _mine(actor, fields.get("owner"))
+    if "owner" in fields and not _mine(actor, fields["owner"]):
+        return False
+    return bool(owns and owns(updating.group(1)))
+
+
+# What may be proposed at all (method, normalized path). Anything else, and above all tokens, sign-in,
+# runner enrollment, this assistant and anything that hands back a secret, can never be proposed.
+_PROPOSABLE = [(m, re.compile(p)) for m, p in (
+    ("POST", r"/api/v2/approvals/[^/]+"), ("POST", r"/api/v2/messages/[^/]+/answer"),
+    ("POST", r"/api/v2/tasks"), ("POST", r"/api/v2/tasks/[^/]+"),
+    ("POST", r"/api/v2/tasks/[^/]+/(comments|links|labels|run-now|ask)"),
+    ("POST", r"/api/v2/messages"), ("POST", r"/api/v2/chat/[^/]+"), ("POST", r"/api/v2/notes"),
+    ("POST", r"/api/v2/updates/[^/]+/reply"),
+    ("POST", r"/api/v2/bots"), ("POST", r"/api/v2/bots/[^/]+/(archive|definition|owners|updates|goals)"),
+    ("POST", r"/api/v2/people/[^/]+"), ("POST", r"/api/v2/access/people(/[^/]+)?"),
+    ("PUT", r"/api/v2/providers"), ("PATCH", r"/api/v2/files/[^/]+"),
+)]
+_SHAPE = re.compile(r"/api/v2/[A-Za-z0-9_.\-/]+")
+
+
+def normalize_path(path):
+    """The one path a proposal may name, or None: plain route characters only, no `//`, `..`, `%`, `\\`
+    or trailing slash. What is stored and run is exactly this string."""
+    path = str(path or "")
+    if (not _SHAPE.fullmatch(path) or "//" in path or ".." in path or "%" in path or "\\" in path
+            or path.endswith("/")):
+        return None
+    return path
+
+
+def valid_operation(method, path, settings=None):
+    path = normalize_path(path)
+    if not path or (settings is not None and path == "/api/v2/chat/" + settings.assistant_bot):
+        return False
+    return any(m == method and p.fullmatch(path) for m, p in _PROPOSABLE)
+
+
+def describe(c, method, path, body):
+    """A one-line, server-derived description of what confirming would do (never the bot's words), and
+    for a task update the exact field changes."""
+    def bot(slug):
+        return (H.bot(c, slug) or {}).get("display_name") or slug
+
+    def who(actor):
+        a = str(actor or "")
+        if a.startswith("human:"):
+            return (H.human(c, a[6:]) or {}).get("name") or a[6:]
+        if a.startswith("bot:"):
+            return bot(a[4:])
+        return (H.human(c, a) or {}).get("name") or (bot(a) if H.bot(c, a) else a)
+    body = body if isinstance(body, dict) else {}
+    diff = []
+    m = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
+    if m and (t := H.task(c, m.group(1))):
+        for k, v in body.items():
+            if k not in ("version",) and str(t.get(k) if t.get(k) is not None else "") != str(v if v is not None else ""):
+                diff.append({"field": k, "old": t.get(k), "new": v})
+        return f"Change task “{t['title']}” ({len(diff)} field{'s' if len(diff) != 1 else ''})", diff
+    rules = (
+        (r"/api/v2/approvals/([^/]+)", lambda g: f"{str(body.get('decision') or 'decide').title()} approval {g[0]}"),
+        (r"/api/v2/messages/[^/]+/answer", lambda g: "Answer a bot's question"),
+        (r"/api/v2/tasks", lambda g: f"Create task “{body.get('title', '')}” for {who(body.get('owner'))}"),
+        (r"/api/v2/tasks/([^/]+)/(comments|links|labels|run-now|ask)",
+         lambda g: f"{g[1].replace('-', ' ').title()} on task “{(H.task(c, g[0]) or {}).get('title', g[0])}”"),
+        (r"/api/v2/messages", lambda g: f"Send a message to {who(body.get('to'))}"),
+        (r"/api/v2/chat/([^/]+)", lambda g: f"Send a message to {bot(g[0])}"),
+        (r"/api/v2/notes", lambda g: f"Leave a note for {who(body.get('to'))}"),
+        (r"/api/v2/updates/[^/]+/reply", lambda g: "Reply to a bot's update"),
+        (r"/api/v2/bots", lambda g: f"Add bot “{body.get('display_name', '')}”"),
+        (r"/api/v2/bots/([^/]+)/archive", lambda g: f"Archive bot {bot(g[0])}"),
+        (r"/api/v2/bots/([^/]+)/definition", lambda g: f"Change settings of bot {bot(g[0])}"
+         + ((" to status " + str(body["status"])) if body.get("status") else "")),
+        (r"/api/v2/bots/([^/]+)/(owners|updates|goals)", lambda g: f"Change {g[1]} of bot {bot(g[0])}"),
+        (r"/api/v2/people/([^/]+)", lambda g: f"Edit person {who(g[0])}"),
+        (r"/api/v2/access/people(?:/([^/]+))?", lambda g: "Change who has access" + (f" for {who(g[0])}" if g[0] else "")),
+        (r"/api/v2/providers", lambda g: "Change the company's AI providers"),
+        (r"/api/v2/files/([^/]+)", lambda g: "Change a file's listing"),
+    )
+    for pattern, fn in rules:
+        if (mm := re.fullmatch(pattern, path)):
+            return fn(mm.groups()), diff
+    return f"{method} {path}", diff
 
 
 # ------------------------------------------------------------------ the room
@@ -128,6 +208,7 @@ def action_view(row):
             "summary": row["summary"], "method": row["method"], "path": row["path"],
             "body": json.loads(row["body_json"] or "{}"), "status": row["status"],
             "proposed_via": row["proposed_via"], "created": row["created"], "decided_at": row.get("decided_at"),
+            "description": row.get("description") or "", "diff": json.loads(row.get("diff_json") or "[]"),
             "result": result}
 
 
@@ -222,7 +303,8 @@ class Internal:
                 headers["content-type"] = "application/json"
             if method != "GET":
                 headers["idempotency-key"] = key or str(uuid.uuid4())
-            return await client.request(method, "/api/v2/" + path.lstrip("/"), json=body,
+            target = path if path.startswith("/api/v2/") else "/api/v2/" + path.lstrip("/")
+            return await client.request(method, target, json=body,
                                         params={k: v for k, v in (params or {}).items() if v is not None},
                                         headers=headers)
 
@@ -537,6 +619,8 @@ def install(app, store, auth, mutate, onboarding):
     @app.get("/api/v2/assistant")
     def assistant(request: Request):
         who = own(request)
+        with store.transaction() as c:
+            expire(c)
         with store.read() as c:
             info = availability(c, settings, who)
             room = find_room(c, who.actor)
@@ -591,26 +675,37 @@ def install(app, store, auth, mutate, onboarding):
         who = person(request)
 
         def work(c):
-            if not valid_operation(body.method, body.path):
+            path = normalize_path(body.path)
+            if not valid_operation(body.method, path, settings):
                 raise Problem("operation", "That is not something the " + settings.assistant_name
-                              + " can propose: use a /api/v2/ route (not tokens, sign-in or this assistant)", 422)
+                              + " can propose: it is not on the list of routes a person confirms (never tokens, "
+                              "sign-in, enrollment or this assistant)", 422)
             if c.execute("SELECT count(*) FROM assistant_actions WHERE owner=? AND status='pending'",
                          (who.actor,)).fetchone()[0] >= MAX_PENDING:
                 raise Problem("too_many", "Too many proposals are waiting; confirm or cancel some first", 409)
             room = ensure_room(c, who.actor, settings.assistant_bot)
+            what, diff = describe(c, body.method, path, body.body)
             row = {"id": H.new_id(), "owner": who.actor, "conversation_id": room["id"], "summary": body.summary,
-                   "method": body.method, "path": body.path, "body_json": json.dumps(body.body),
-                   "status": "pending", "proposed_via": who.via or "person", "created": H.now()}
+                   "method": body.method, "path": path, "body_json": json.dumps(body.body),
+                   "status": "pending", "proposed_via": who.via or "person", "created": H.now(),
+                   "description": what, "diff_json": json.dumps(diff, default=str)}
             c.execute("INSERT INTO assistant_actions(id,owner,conversation_id,summary,method,path,body_json,status,"
-                      "proposed_via,created) VALUES(:id,:owner,:conversation_id,:summary,:method,:path,:body_json,"
-                      ":status,:proposed_via,:created)", row)
+                      "proposed_via,created,description,diff_json) VALUES(:id,:owner,:conversation_id,:summary,:method,"
+                      ":path,:body_json,:status,:proposed_via,:created,:description,:diff_json)", row)
             card = H._write_message(c, "bot:" + settings.assistant_bot, who.actor,
                                     "Needs your OK: " + body.summary, room, "say",
                                     {"assistant": True, "action": row["id"]}, None, None, delivered_at=H.now())
             H.event(c, who.actor, "assistant.action.proposed", row["id"],
-                    {"summary": body.summary[:200], "method": body.method, "path": body.path})
+                    {"summary": body.summary[:200], "method": body.method, "path": path})
             return {"action": action_view(row), "message_id": card["id"]}
         return mutate(request, body, work)
+
+    def expire(c):
+        """A confirm that never settled (a restart, a dropped connection) fails after two minutes."""
+        c.execute("UPDATE assistant_actions SET status='failed', decided_at=?, confirm_hash=NULL, result_json=? "
+                  "WHERE status='running' AND running_since<?",
+                  (H.now(), json.dumps({"status_code": 0, "error": "It did not finish; ask again"}),
+                   H.shift(H.now(), seconds=-RUNNING_TTL_S)))
 
     def load(c, who, aid):
         row = c.execute("SELECT * FROM assistant_actions WHERE id=?", (aid,)).fetchone()
@@ -626,7 +721,7 @@ def install(app, store, auth, mutate, onboarding):
 
     def settle(aid, who, status, result, note):
         with store.transaction() as c:
-            c.execute("UPDATE assistant_actions SET status=?, decided_at=?, result_json=? WHERE id=?",
+            c.execute("UPDATE assistant_actions SET status=?, decided_at=?, result_json=?, confirm_hash=NULL WHERE id=?",
                       (status, H.now(), json.dumps(result), aid))
             row = load(c, who, aid)
             room = H.conversation(c, row["conversation_id"]) if row["conversation_id"] else None
@@ -653,36 +748,49 @@ def install(app, store, auth, mutate, onboarding):
         who = own(request)
         if who.via_token:
             raise Problem("forbidden", "Confirm in " + settings.app_name + " itself, with your own click", 403)
+        secret = secrets.token_urlsafe(24)
 
         def claim():
             with store.transaction() as c:
+                expire(c)
                 row = load(c, who, aid)
                 if row["status"] != "pending":
                     raise Problem("state", "This proposal is already " + row["status"], 409)
                 if row["created"] < H.shift(H.now(), hours=-CONFIRM_TTL_H):
                     c.execute("UPDATE assistant_actions SET status='expired', decided_at=? WHERE id=?", (H.now(), aid))
                     raise Problem("expired", "This proposal is more than a day old; ask again", 409)
-                c.execute("UPDATE assistant_actions SET status='running', decided_at=? WHERE id=?", (H.now(), aid))
+                # Only the run that holds this secret (the in-process call below) is "confirmed".
+                c.execute("UPDATE assistant_actions SET status='running', decided_at=?, running_since=?, "
+                          "confirm_hash=? WHERE id=?", (H.now(), H.now(), digest(secret), aid))
                 H.event(c, who.actor, "assistant.action.confirmed", aid,
                         {"summary": row["summary"][:200], "method": row["method"], "path": row["path"]})
                 return row
         row = await asyncio.to_thread(claim)
-        api = Internal(request)
-        api.headers["x-tico-assistant-action"] = aid
+        ok, result = False, {"status_code": 0, "error": "It did not finish; ask again"}
         try:
-            response = await api.call(row["method"], row["path"].removeprefix("/api/v2/"),
+            path = normalize_path(row["path"])
+            if not valid_operation(row["method"], path, settings):
+                raise Problem("operation", "This proposal is not on the list of routes a person confirms", 422)
+            api = Internal(request)
+            api.headers["x-tico-assistant-action"] = aid + "." + secret
+            response = await api.call(row["method"], path,
                                       body=json.loads(row["body_json"] or "{}") if row["method"] != "DELETE" else None,
                                       key="assistant-" + aid)
-            try:
-                payload = response.json()
-            except ValueError:
-                payload = {}
             ok = response.status_code < 400
-            result = {"status_code": response.status_code, "body": payload if ok else None,
-                      "error": None if ok else ((payload.get("error") or {}).get("detail") if isinstance(payload, dict) else None)
-                      or f"HTTP {response.status_code}"}
+            detail = None
+            if not ok:
+                try:
+                    payload = response.json()
+                    detail = (payload.get("error") or {}).get("detail") if isinstance(payload, dict) else None
+                except ValueError:
+                    pass
+            # Only the status and an error's detail are kept: an answer's body may hold a secret.
+            result = {"status_code": response.status_code, "error": None if ok else str(detail or f"HTTP {response.status_code}")[:300]}
+        except Problem as exc:
+            result = {"status_code": exc.status, "error": exc.detail[:300]}
         except httpx.HTTPError as exc:
-            ok, result = False, {"status_code": 0, "body": None, "error": "It could not be sent: " + str(exc)[:200]}
-        note = ("Done: " + row["summary"]) if ok else ("That did not go through: " + str(result["error"])[:300])
-        out = await asyncio.to_thread(settle, aid, who, "done" if ok else "failed", result, note)
+            result = {"status_code": 0, "error": "It could not be sent: " + str(exc)[:200]}
+        finally:
+            note = ("Done: " + row["summary"]) if ok else ("That did not go through: " + str(result["error"])[:300])
+            out = settle(aid, who, "done" if ok else "failed", result, note)     # even if the client went away
         return out

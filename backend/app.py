@@ -185,6 +185,11 @@ def create_app(settings=None):
 
     from .assistant import write_allowed as assistant_writes, own_room as assistant_room
 
+    def assistant_owns(task_id, actor):
+        with store.read() as c:
+            row = H.task(c, task_id)
+            return bool(row and row["owner"] == actor)
+
     @app.middleware("http")
     async def request_guard(request, call_next):
         via_reset = None
@@ -215,7 +220,7 @@ def create_app(settings=None):
             if request.url.path != "/api/v2/runners/enroll":
                 began = time.perf_counter()
                 who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers,
-                                                                       request.url.path)
+                                                                       request.url.path, request.method)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
                 request.state.identity = who
                 if who.via:
@@ -252,7 +257,9 @@ def create_app(settings=None):
                 request._body = b"".join(chunks)
                 if (getattr(request.state, "identity", None) and request.state.identity.via
                         and not request.state.identity.confirmed
-                        and not assistant_writes(request.method, request.url.path, settings, request._body)):
+                        and not assistant_writes(request.method, request.url.path, settings, request._body,
+                                                 request.state.identity.actor,
+                                                 lambda tid: assistant_owns(tid, request.state.identity.actor))):
                     raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
                                   "own. Propose it with `hub assistant propose` (or POST /api/v2/assistant/actions); "
                                   "the person confirms it in " + settings.app_name, 403)
@@ -2034,6 +2041,9 @@ def create_app(settings=None):
         if (not msg or not str(msg["from_actor"]).startswith("human:")
                 or msg["to_actor"] != "bot:" + BOTOPS or msg["kind"] not in ("say", "answer")):
             raise Problem("on_behalf_of", "Cite a message a person sent BotOps asking for this change", 403)
+        if (msg.get("refs") or {}).get("via"):
+            # The Assistant wrote this for the person: its writes never carry the person's authority on.
+            raise Problem("on_behalf_of", "That message was written by the Assistant; ask the person to send it", 403)
         if msg["created"] < H.shift(H.now(), days=-DELEGATION_DAYS):
             raise Problem("on_behalf_of", "That request is more than a week old; ask the person again", 403)
         # Only a request in a conversation this run may read: otherwise any message a bot sends
