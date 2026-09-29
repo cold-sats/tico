@@ -52,8 +52,11 @@ action items), **Docs**,
 **Integrations**, **Changelog**, the **Org** tree, and under your email **Runs**, **Settings**, **Credentials**
 and, for the owner, **SQL**. Tasks has List, Board, Recurring and Done. A bot's page has **Chat**,
 **Tasks**, **Docs** and **More**. The assistant (Tico, `coo`) and Doc Updater work in the background
-and are not listed for people; there is no Tico chat page or Tico Live, and people
-act across the company through their own agent over the hub's MCP (**Connect an agent**).
+and are not listed for people. Each person has one private **Assistant** chat, the first tab on their own page
+and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that person, and
+proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared
+Tico chat page and no Tico Live; people can also act across the company through their own agent over the hub's
+MCP (**Connect an agent**).
 The database itself is readable with plain SQL (`hub sql`, the SQL page, `POST /api/v2/sql`):
 one `SELECT` at a time, each caller seeing only what the JSON API would show it, secrets never
 ([Querying the hub with SQL](hub-sql.md)).

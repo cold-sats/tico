@@ -5,8 +5,8 @@ name: "{{assistant_name}}"
 required: false
 bootstrap: true
 default: true
-when: "Recommended if you use Slack or send meetings to bots: it routes work nobody was named for, reviews refused writes and runs its own routines. It takes no chat. Skip it and BotOps takes that work."
-summary: "Works in the background: routes Slack messages and meetings to the bot that owns them, takes work nobody was named for, and asks for the decisions only a person can make."
+when: "Recommended for everyone: each person gets a private Assistant that finds things and does them for them, and it routes work nobody was named for (Slack, meetings). Skip it and BotOps takes the unnamed work; nobody gets an Assistant."
+summary: "Every person's private Assistant: finds meetings, docs, files and tasks, makes tasks, hands work to the right bot and asks BotOps for new ones, always as that person and never more. In the background it routes Slack messages and meetings to the bot that owns them and asks for the decisions only a person can make."
 owns:
   - The task list and what is waiting on a person
   - Routing a request to the bot that owns it

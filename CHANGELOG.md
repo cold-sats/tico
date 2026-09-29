@@ -42,6 +42,25 @@ All notable changes to Tico are recorded here. The format follows
 - Stable v2: `GET /api/v2/bots/{bot}/files`, `POST /api/v2/files/uploads|links|imports`, `PATCH /api/v2/files/{id}`,
   `GET /api/v2/files/{id}/activity|versions`, in `docs/openapi/v2.json`; CORS allows `PATCH`. The custom-frontend example shows a bot's Files.
 - The bot templates' `AGENT.md` and the BotOps playbooks tell bots to publish their deliverables.
+- **Assistant**: every person has one private chat with the company's assistant, a personal operator that knows how Tico is
+  organised and acts on their behalf (docs/assistant.md). An **Assistant** tab first on your own person page, and "Ask the
+  Assistant…" in search (⌘K) that opens it prefilled; a phone layout; replies link tasks, meetings, docs, files and bots as in-app
+  routes. Only you can read or post in your room (owner and administrators included), and the ordinary chat routes still refuse
+  the assistant. With no assistant the tab says it is off, and the owner gets **Turn on Assistant** there and at the top of Settings > Bots:
+  one click restores the archived assistant (a company that set it aside at setup, v0.2.1) or adds it from the catalog, places it on
+  BotOps' computer and activates it, and everyone's tab starts working.
+- Fast path, no model: "what's waiting on me", search (tasks, docs, meetings, files, people, bots), "open X", "what did <bot> do
+  today" and "how do I …" (from `docs/*.md`) are answered on the server from Tico's own data; a `choice` decision question classifies
+  an unclear message when the company has a decisions provider. Everything else is a turn of the assistant bot ("thinking").
+- The Assistant acts as you and never more: its turn's `hub` and MCP tools are your own (`Auth.assistant_principal`), every write is
+  recorded via assistant (`events`, task history, comments; "<name> (via Assistant)"). Low-risk writes run directly; approving or
+  declining a Needs-you item, anything sent outside the company, spending, changing people, access or settings, archiving, deleting
+  and activating a bot are proposed (`hub assistant propose`, `hub_assistant_propose`) as a Confirm / Cancel card and run only on
+  your click, as you, once; the bot cannot confirm (`assistant_actions` table).
+- Stable v2: `GET /api/v2/assistant`, `POST /api/v2/assistant/messages|turn-on|actions`, `GET /api/v2/assistant/actions/{id}`,
+  `POST /api/v2/assistant/actions/{id}/confirm|cancel`, in `docs/openapi/v2.json` and `docs/custom-frontend.md`.
+- The assistant template's `AGENT.md` and a new `assistant-chat` playbook teach the Assistant how Tico is organised, how to route
+  work to the right bot, to answer briefly with links, never to act beyond the person and to ask before any side effect.
 
 ### Changed
 - The bot page's old storage card (More) is gone, with `GET /api/employees/{bot}/storage`; task and chat attachments stay where they were.

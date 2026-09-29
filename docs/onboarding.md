@@ -24,7 +24,7 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 
 | Screen | What it asks | What it stores |
 |---|---|---|
-| Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the assistant works in the background, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
+| Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
 | About the company | The six questions below | `answers`. Free text is never parsed; it is shown to a person and written into every bot's `knowledge/company.md` |
 | Pick your bots | One card per catalog template | `selected`: for each chosen slug, its template, the display name and the `AGENT.md` text as edited on the card |
 | Set up a computer | Nothing if a runner is already online (the server's own); otherwise download a setup file, then run three commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
@@ -200,7 +200,8 @@ already exists.
 
 BotOps is the one required bot. The assistant is a card like the others, ticked to start with
 (`default: true` in its `card.yaml`, with a `when:` line the wizard shows under it: "Recommended if you use
-Slack or send meetings to bots"). It takes no chat. It works in the background: it routes Slack
+Slack or send meetings to bots"). It is every person's private [Assistant](assistant.md) (a tab on their
+own page). It also works in the background: it routes Slack
 messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews BotOps'
 refused writes, and runs its own routines. A company without Slack that wants only BotOps and its own
 bots can untick it.
