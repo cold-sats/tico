@@ -2066,6 +2066,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 <div id="org-fan" class="org-fan" role="menu" aria-label="Switch bot" hidden><ul class="org-fan-list"></ul></div>
 
 <script src="/vendor/marked.min.js"></script>
+<script src="/tico/ui/bot-files.js"></script>
 <script src="/tico/ui/docs-search.js"></script>
 <script src="/tico/ui/docs-chat.js"></script>
 <script src="/tico/ui/docs-sources.js"></script>
@@ -6378,6 +6379,7 @@ async function pageBot(slug, tab) {
   </div>
 
   <div id="pane-tasks" hidden>
+    <section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>
     <section class="card tasks"><header><h2>Active <span class="cnt" id="cnt-open"></span></h2>
         <div class="tabs slim" id="ttabs"><button type="button" data-t="new" class="bot-task-new" aria-expanded="false" aria-controls="t-new">+ New</button></div>
         </header>
@@ -6436,8 +6438,6 @@ async function pageBot(slug, tab) {
     <section class="card" id="bot-routines"><header><h2>Routines</h2><span class="sub">${e.status === 'active' ? 'the server queues a task at each scheduled time' : 'armed only once this bot is active'}</span></header>
       <div id="bot-routines-list">${botRoutinesHTML(e, slug)}</div>
     </section>
-
-    <section class="card"><header><h2>Files</h2><span class="sub mono">${S.me?.cloud ? 'authorized files shared through cloud tasks and conversations' : `s3://${esc(S.status?.bucket || 'acme-tico-hub')}/${esc(slug)}/`}</span></header><div id="storage">Loading…</div></section>
 
     <section class="card"><header><h2>Runs</h2><span class="sub"><a href="#/runs">all runs</a></span></header>
       ${(rs => rs.length ? `<div id="bot-recent-runs">${runsTable(rs, false)}</div>`
@@ -6608,12 +6608,13 @@ function showBotTab(tab) {
   const once = (key, fn) => { if (!BOT.loaded.has(key)) { BOT.loaded.add(key); fn(BOT.slug); } };
   if (split || view === 'tasks') {
     once('tasks', isKeeper(BOT.slug) ? loadBotTasksV2 : loadBotIssues);
+    if (isKeeper(BOT.slug)) once('files', slug => window.botFiles?.mount($('#bot-files'), {slug, get, esc, write: (method, path, body) => writeRequest(method, path, body)}));
     const e = S.emps.find(x => x.name === BOT.slug);                // routines change under More; redraw on return
     if (e && $('#bot-recurring')) $('#bot-recurring').innerHTML = botRecurringHTML(e, BOT.slug);
   }
   if (view === 'more') {
     if (isKeeper(BOT.slug)) once('history', v2HistoryLoad);
-    once('more', loadStorage); once('docs', loadDocs);            // Routines expands playbooks
+    once('docs', loadDocs);            // Routines expands playbooks
     once('runs', fillBotRuns);                                    // /status carries no recent_runs
     sessionLoad(BOT.slug, SESS_PICK);                             // read afresh: the file keeps moving
   }
@@ -6978,17 +6979,6 @@ async function fillBotRuns(slug) {
   try { list = (await recentRuns()).filter(r => r.employee === slug).slice(0, 10); } catch { /* silent */ }
   const el = $('#bot-recent-runs[data-pending]');
   if (el) { el.removeAttribute('data-pending'); el.innerHTML = runsTable(list, false); }
-}
-async function loadStorage(slug) {
-  try {
-    const st = await get(`/employees/${slug}/storage`);
-    const el = $('#storage'); if (!el) return;
-    if (st.error) { el.innerHTML = `<div class="err">${esc(st.error)}</div>`; return; }
-    const groups = {inbox: [], deliverables: [], working: [], other: []};
-    for (const o of st.objects) { const part = o.key.split('/')[1]; (groups[part] || groups.other).push(o); }
-    const block = (name, list) => `<h2 style="font-size:13px;margin:10px 0 4px">${name} <span class="muted">${list.length}</span></h2>` + (list.length ? `<table>${list.sort((a,b) => b.modified.localeCompare(a.modified)).map(o => `<tr><td><a href="${esc(S.me?.cloud && o.url ? o.url : `${API}/s3?key=${encodeURIComponent(o.key)}`)}" target="_blank" rel="noopener">${esc(o.name || o.key.split('/').slice(2).join('/'))}</a></td><td class="muted tnum">${bytes(o.size)}</td><td class="muted tnum">${ago(o.modified)}</td></tr>`).join('')}</table>` : '<div class="empty">Empty.</div>');
-    el.innerHTML = block('Deliverables', groups.deliverables) + block(esc(`Inbox for ${botDisplayName(slug)}`), groups.inbox) + (groups.working.length ? block('Working', groups.working) : '');
-  } catch (e) { if ($('#storage')) $('#storage').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
 }
 async function loadDocs(slug) {
   try {

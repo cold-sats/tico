@@ -910,36 +910,6 @@ def install_views(app, store, auth, mutate, task_view):
                     "employee.yaml": yaml.safe_dump(safe, sort_keys=False, allow_unicode=True),
                     "playbooks": {}, "source": "cloud registry and status snapshot"}
 
-    @app.get("/api/employees/{bot}/storage")
-    def bot_storage(request: Request, bot: str):
-        who = request.state.identity
-        human_only(who)
-        with store.read() as c:
-            if not H.bot(c, bot):
-                raise Problem("not_found", "Bot not found", 404)
-            if not auth.visible_bot(who, bot):
-                raise Problem("forbidden", "This bot is private", 403)
-            found = {}
-            for row in c.execute("SELECT b.*,t.id AS linked_id FROM blobs b JOIN task_assets a ON a.blob_id=b.id "
-                                 "JOIN tasks t ON t.id=a.task_id WHERE t.owner=? OR t.requester=?",
-                                 ("bot:" + bot, "bot:" + bot)):
-                try:
-                    auth.task(c, who, row["linked_id"])
-                    found[row["id"]] = row
-                except Problem:
-                    pass
-            for row in c.execute("SELECT b.*,m.conversation_id AS linked_id FROM blobs b JOIN message_assets a ON a.blob_id=b.id "
-                                 "JOIN messages m ON m.id=a.message_id JOIN conversations v ON v.id=m.conversation_id "
-                                 "WHERE EXISTS(SELECT 1 FROM json_each(v.participants_json) WHERE value=?)", ("bot:" + bot,)):
-                try:
-                    auth.conversation(c, who, row["linked_id"])
-                    found[row["id"]] = row
-                except Problem:
-                    pass
-            return {"objects": [{"id": row["id"], "key": bot + "/deliverables/" + row["name"],
-                                  "name": row["name"], "size": row["size"], "modified": row["created"],
-                                  "url": "/api/v2/files/" + row["id"]} for row in found.values()]}
-
     @app.get("/api/employees/{bot}/session")
     def bot_session(request: Request, bot: str):
         who = request.state.identity
