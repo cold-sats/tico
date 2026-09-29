@@ -98,12 +98,6 @@ def default_bot(c, settings, botops="botops"):
     return settings.assistant_bot
 
 
-def may_hand_work(c, auth, who, bot):
-    """A person may hand this bot work (a task, a meeting): Write on it, which includes the
-    assistant, who takes chat only in the Assistant room but takes work like any bot."""
-    return auth.bot_access(c, who, bot)["write"]
-
-
 def docs_room(conv, who):
     """A person's own "Ask AI about docs" room. Its follow-ups reach the documentation agent
     whether or not the person is one of that bot's assigned users, as the first question did."""
