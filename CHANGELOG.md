@@ -41,6 +41,10 @@ All notable changes to Tico are recorded here. The format follows
   readable by every bot on the computer, the removed VM path is gone, the Files page states who removes a file and that the
   owner sees direct chats (not personal Assistant rooms), and sizing says only a small pilot was measured.
 
+### Security
+- Files auto-publish and `hub files publish` refuse a regular file with more than one hard link, so a bot cannot hard-link a
+  secrets file into `reports/`. Copies cannot be detected and are still published.
+
 ## [0.2.9] - 2026-09-29
 
 ### Fixed

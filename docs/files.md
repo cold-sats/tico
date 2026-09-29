@@ -64,7 +64,7 @@ files:
 ```
 
 Only documents, images, csv, tsv, json, yaml, md, html, pdf and office files go, at most 25 MB each.
-A `.env`, anything with a credential-like name, a symbolic link, and any path that resolves outside
+A `.env`, anything with a credential-like name, a symbolic link, a file with more than one hard link, and any path that resolves outside
 the checkout is refused. Uploads go through a durable outbox in the runner's own state with an
 idempotency key per file and content, so a restart or a lost reply retries safely and lands once. A
 file that could not be uploaded shows **not synced** and never an Open link that opens nothing.
