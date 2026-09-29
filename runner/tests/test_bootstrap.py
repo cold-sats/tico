@@ -107,6 +107,12 @@ class Bootstrap(unittest.TestCase):
         self.assertEqual(rows["coo"]["problems"], ["Missing bot repository or AGENT.md"])
         self.assertFalse((self.projects / "emp-coo").exists())
         self.assertFalse((self.projects / "emp-botops").exists())
+        # A starter first run created says `materialize`: its computer sets it up the moment it is placed.
+        # A bot BotOps builds from the same template stays missing until BotOps has.
+        rows = self.rows(entry("seo", "specialist", materialize=True), entry("helper", "specialist"))
+        self.assertTrue((self.projects / "emp-seo" / "AGENT.md").is_file())
+        self.assertEqual(rows["helper"]["problems"], ["Missing bot repository or AGENT.md"])
+        self.assertFalse((self.projects / "emp-helper").exists())
 
 if __name__ == "__main__":
     unittest.main()

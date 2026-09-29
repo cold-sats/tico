@@ -296,7 +296,7 @@ function gsItemHtml(item) {
     ? `<button class="primary" type="button" data-model-login data-runner="${esc(item.login.runner_id)}" data-runtime="${esc(item.login.runtime)}" data-machine="${esc(item.login.machine)}">Sign in</button>` : '';
   const fix = item.done || item.skipped ? '' : item.action === 'create-bot'
     ? '<button class="primary" type="button" data-gs-build>Create a bot</button>'
-    : item.href ? `<a class="ghost gs-link" href="${esc(item.href)}"${item.tab ? ` data-gs-tab="${esc(item.tab)}"` : ''}>${item.id === 'first_bot' || item.id === 'bot_task' ? 'Open' : 'Fix this'}</a>` : '';
+    : item.href ? `<a class="ghost gs-link" href="${esc(item.href)}"${item.tab ? ` data-gs-tab="${esc(item.tab)}"` : ''}>${['first_bot', 'next_bot', 'first_output'].includes(item.id) ? 'Open' : 'Fix this'}</a>` : '';
   const skip = item.optional && !item.done && !item.skipped
     ? `<button class="ghost" type="button" data-gs-skip="${esc(item.id)}">Skip</button>` : '';
   return `<li class="gs-item ${state}" data-gs-item="${esc(item.id)}" data-state="${state}">

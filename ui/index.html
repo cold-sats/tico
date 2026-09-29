@@ -1889,6 +1889,57 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .task-chat .row{display:flex;gap:8px}
 
 /* first run (#/welcome): one screen per step, then the bot catalog as cards */
+/* first run, the team (ui/first-run.js): pains as chips, the starting point, the editable team, the screen after Create */
+.onb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.onb-chip{position:relative;display:inline-flex}
+.onb-chip input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.onb-chip span{display:inline-block;padding:4px 12px;border:1px solid var(--line);border-radius:15px;background:var(--surface);font-size:13px;line-height:1.35}
+.onb-chip input:checked+span{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent)}
+.onb-chip input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.onb-more{margin-top:var(--s2);font-size:13px}.onb-more summary{cursor:pointer;color:var(--muted)}
+.team-start{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s3);margin-bottom:var(--s3)}
+.team-start-opt{display:flex;gap:var(--s2);align-items:flex-start;padding:var(--s3);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);cursor:pointer;min-width:0}
+.team-start-opt.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.team-start-opt input{width:auto;flex:none;margin-top:3px}
+.team-start-opt strong{display:block;font-size:14px}.team-start-opt small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.team-builtin,.team-note{margin:0 0 var(--s3);font-size:12.5px}
+.team-group{margin:0 0 var(--s4)}
+.team-group h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 var(--s2)}
+.team-group h3 .muted{text-transform:none;letter-spacing:0;font-weight:400}
+.team-bot{display:flex;gap:var(--s3);align-items:flex-start;justify-content:space-between;padding:var(--s3);margin-bottom:var(--s2);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.team-bot-main{flex:1;min-width:0}
+.team-bot-name{display:flex;align-items:center;gap:var(--s2)}
+.team-bot-name .cat-name{max-width:320px}
+.team-why{margin:4px 0 6px;font-size:13px}
+.team-routine{margin:6px 0 0;font-size:12px}
+.team-prereq{display:inline-flex;flex-wrap:wrap;gap:4px}
+.team-bot-side{display:grid;gap:var(--s2);justify-items:end;flex:none;width:210px}
+.team-reports{display:grid;gap:3px;width:100%;font-size:12px;color:var(--muted)}
+.team-reports select{width:100%;font-size:13px}
+.team-add{margin:var(--s3) 0;border:1px dashed var(--line);border-radius:var(--radius);padding:var(--s2) var(--s3)}
+.team-add summary{cursor:pointer;font-weight:500}
+.team-add-row{display:flex;gap:var(--s3);align-items:flex-start;justify-content:space-between;padding:var(--s3) 0;border-top:1px solid var(--line)}
+.team-add-row p{margin:2px 0 4px;font-size:12.5px}
+.team-held{margin:var(--s2) 0;padding-left:18px;font-size:12.5px}
+.fr-card{margin-top:var(--s4)}.fr-card header{flex-wrap:wrap;gap:2px var(--s3)}
+.fr-form{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s3)}.fr-form .onb-actions{grid-column:1/-1;margin-top:0}
+.fr-owner{display:flex;align-items:center;gap:var(--s3);padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.fr-owner:last-of-type{border-bottom:0}
+.fr-owner>span:first-child{flex:1;min-width:140px;font-weight:500}.fr-owner select{width:190px;font-size:13px}
+.fr-tools{list-style:none;margin:0 0 var(--s3);padding:0;display:grid;gap:4px}
+.fr-tools li{display:flex;gap:var(--s3);align-items:center;font-size:13.5px}.fr-tools a{font-size:13px}
+.fr-secrets{margin:0;padding:10px 12px;border-left:3px solid var(--wait);border-radius:0 7px 7px 0;background:var(--wait-bg);font-size:13px}
+.tree-setup{flex:none;margin-left:4px;padding:0 6px;border-radius:9px;background:var(--wait-bg);color:var(--wait);font-size:10.5px;font-weight:500;line-height:16px;letter-spacing:.01em}
+.bot-onboard{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;margin:0 0 var(--s3);padding:10px 14px;border:1px solid color-mix(in srgb,var(--wait) 40%,var(--line));border-radius:var(--radius);background:color-mix(in srgb,var(--wait) 8%,var(--surface))}
+.bot-onboard p{flex:1 1 260px;margin:0;font-size:13px}
+@media(max-width:760px){
+  .team-start{grid-template-columns:1fr}
+  .team-bot,.team-add-row{flex-direction:column}
+  .team-bot-side{width:100%;justify-items:stretch}
+  .team-bot-name .cat-name{max-width:none}
+  .fr-form{grid-template-columns:1fr}
+  .fr-owner select{width:100%}
+  .bot-onboard .primary{width:100%}
+}
 /* Getting started: the tour, the checklist page and the cards above each section (ui/getting-started.js) */
 .help-actions{display:flex;align-items:center;gap:var(--s4);margin-top:var(--s4);flex-wrap:wrap}
 #gs-card{flex:1 1 100%;min-width:0}
@@ -2193,6 +2244,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 <script src="/tico/ui/directory-sync.js"></script>
 <script src="/tico/ui/model-login.js"></script>
 <script src="/tico/ui/getting-started.js"></script>
+<script src="/tico/ui/first-run.js"></script>
 <script src="/tico/ui/runner-updates.js"></script>
 <script src="/tico/ui/health.js"></script>
 <script src="/tico/ui/assistant.js"></script>
@@ -3434,7 +3486,7 @@ function renderTree() {
     return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
       ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(e.display_name)}">›</button>` : ''}
       <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${!flat && orgMayMove(key) ? ' draggable="true"' : ''}>
-        ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${runtimeTag(e)}
+        ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${runtimeTag(e)}${frTreeMark(e)}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${treeBadge(n, st)}</a></div>
       ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
@@ -6571,6 +6623,7 @@ async function pageBot(slug, tab) {
     ${isKeeper(slug) && !limited ? `<a class="ghost bot-more-btn bot-history-btn" id="bot-history-btn" href="${base}/history" aria-label="Update history" title="Update history"><span class="nav-icon" aria-hidden="true">history</span></a>` : ''}
     <a class="ghost bot-more-btn" id="bot-more-btn" href="${base}/more" aria-label="More" title="More"><span class="nav-icon" aria-hidden="true">more_vert</span></a>
   </div>
+  <div id="bot-onboard-host">${frBotBannerHTML(e)}</div>
   <section class="bot-update" id="bot-update" aria-label="Latest update" hidden></section>
   <a class="bot-back" id="bot-back" href="${base}" hidden>‹ ${work.includes('chat') ? 'Chat and tasks' : 'Tasks'}</a>
 
@@ -6668,6 +6721,7 @@ async function pageBot(slug, tab) {
   </div>`;
 
   BOT = {slug, tab: null, loaded: new Set(), limited};
+  frBotWire(slug);
   orgHistoryVisit('b:' + slug);
   bindChatSwipe($('#conv-thread'));
   if (e.can_chat) {
@@ -10796,7 +10850,7 @@ async function pageRuns() {
 // ----------------------------------------------------------------- refresh loop + router
 async function refresh(force) {
   try {
-    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), S.emps.length && !force ? S.emps : get('/employees'), S.people.length && !force ? {people: S.people} : get('/people').catch(() => ({people: S.people || []}))]);
+    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), S.emps.length && !force && !S.emps.some(frNeedsSetup) ? S.emps : get('/employees'), S.people.length && !force ? {people: S.people} : get('/people').catch(() => ({people: S.people || []}))]);
     S.status = st;
     S.issues = issues.map(i => {
       if (!pendingClosedIssues.has(i.number)) return i;
@@ -10811,6 +10865,7 @@ async function refresh(force) {
   renderTree(); renderHeartbeat(); pausedRender();
   if (BOT?.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
   if (BOT && $('#bot-alert')) $('#bot-alert').innerHTML = botAlertHTML(BOT.slug);   // an alert comes and goes with the poll
+  if (BOT && $('#bot-onboard-host') && ($('#bot-onboard') ? '1' : '') !== (frNeedsSetup(S.emps.find(x => x.name === BOT.slug)) ? '1' : '')) frBotRefresh(BOT.slug);   // the mark clears when the bot says it is set up
   if (BOT && $('#bot-ticker') && isKeeper(BOT.slug)) void botTickerLoad(BOT.slug);
   // Poll data without destroying an expanded document or a comment being typed.
   const reviewing = $('#main .req[open], #main .issue-compose:not([hidden])');
@@ -11171,53 +11226,41 @@ async function renderSettingsPeople() {
 // Mac; connect your own agent if you have one; finish. BotOps then builds every chosen bot.
 // Every Next saves a draft, so a closed tab loses nothing. There is no assistant
 // to name in the wizard: people talk to it in the Assistant tab on their own page, act through their own agent, or use a bot's Chat tab.
-const ONB_STEPS = ['names', 'about', 'bots', 'machine', 'agent', 'review'];
+const ONB_STEPS = ['names', 'about', 'needs', 'team', 'machine', 'agent', 'review'];
 // A company that has not chosen its AI providers starts there; state.steps is fixed at load, so the
 // step does not vanish from the list the moment it is saved.
 const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEPS] : ONB_STEPS;
-const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company', bots: 'Pick your bots',
-                    machine: 'Add the computer that runs your bots', agent: 'Connect your agent', review: 'Review and finish'};
+const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company', needs: 'What hurts, and what you use',
+                    team: 'Your team', machine: 'Add the computer that runs your bots', agent: 'Connect your agent', review: 'Review and create'};
 const ONB_BLURB = {
   providers: 'Tico assumes no vendor. Tick the ones you use; bots run on the default model unless you pick another for them.',
   names: 'Two names the whole app uses. You can change them later in Settings.',
   about: 'Every bot is created with these answers in front of it, so say it the way you would say it to a new hire.',
-  bots: 'Read each one before you take it. BotOps is required; the rest are yours to choose.',
+  needs: 'This picks which bots to suggest. It stays on this computer: nothing is sent anywhere.',
+  team: 'Start from a small team or a full org chart, then change anything. Nothing exists until you create it.',
   machine: 'Bots run on computers you control: a Mac, or a Linux or cloud server. They use a model subscription or an API key. This registers a computer.',
   agent: 'Optional. Work your bots from Grok Bot, Meta Muse or your own agent, through the hub\'s MCP.',
-  review: 'Last look. Finishing creates the bots and hands the work to BotOps.',
-  done: 'BotOps is building what you chose. You can leave this page; nothing here is lost.'};
+  review: 'Last look. Creating your team makes every bot at once; each one waits for you to set it up.',
+  done: 'Your team exists. Each bot is being set up on your computer and stays idle until you start its setup. Three things to do while it does.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
 const ONB_NEVER = [['send', 'Send anything'], ['spend', 'Spend money'], ['publish', 'Publish anything'], ['hire', 'Hire anyone']];
 // Written with a number in them because the recommender reads the largest number it can find.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
-// The catalog tags each answer implies. This mirrors backend/onboarding.py `tags()` exactly: the
-// server decides what is recommended, and this only has to say why in the person's own answers.
-const ONB_WORK_TAGS = {email: ['uses_email'], slack: ['uses_slack'], crm: ['uses_crm'],
-                       tickets: ['uses_tickets', 'has_support_inbox']};
-// A phrase may read the whole tag set when one tag has more than one source.
-const ONB_TAG_PHRASE = {
-  always: 'every company needs one',
-  sells_to_businesses: 'you sell to businesses', sells_to_consumers: 'you sell to consumers',
-  uses_email: 'work arrives by email', uses_slack: 'work arrives in Slack',
-  uses_crm: 'work arrives through your CRM', uses_tickets: 'work arrives as tickets',
-  has_support_inbox: 'you keep a support queue', small_team: 'the team is small',
-  publishes_content: 'you publish, and a person signs it off',
-  tracks_mentions: 'you publish, so what is said back matters',
-  has_pipeline: tags => tags.has('sells_to_businesses') ? 'you sell to businesses' : 'you keep a CRM'};
 const ONB_BLANK = {
   names: {company_name: '', app_name: '', assistant_name: ''},
   answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
-            never_without_person: ['send', 'spend', 'publish', 'hire']},
-  selected: {}, completed: null, recommended: [], bots: [], machine: {runners: [], enrolled: false}, needed: true};
+            never_without_person: ['send', 'spend', 'publish', 'hire'], pains: [], pains_text: '', tools: [], software_product: ''},
+  selected: {}, completed: null, recommended: [], recommendations: [], held_back: [], full_chart: {teams: [], held_back: []},
+  pain_options: [], home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
 let ONB = null;
 function onbStop() { if (ONB) clearInterval(ONB.poll); ONB = null; }
 function pageWelcome() {
   // Only the owner may set a company up; everyone else has no reason to see the address either.
   if (S.me && S.me.role !== 'owner') { location.hash = TASKS; return; }
   const state = ONB = {step: 0, steps: ONB_STEPS, providers: null, models: [], record: JSON.parse(JSON.stringify(ONB_BLANK)), catalog: catalogState([]),
-                       seeded: new Set(), revisions: {}, busy: false, completing: false, poll: null,
+                       seeded: new Set(), revisions: {}, busy: false, completing: false, poll: null, team: frBlankTeam(),
                        enrollment: '', error: ''};
   $('#main').innerHTML = '<div class="onb" id="onb"><div class="empty">Loading…</div></div>';
   void onbLoad(state);
@@ -11237,7 +11280,7 @@ async function onbLoad(state) {
     if (state.record.completed) { state.step = state.steps.length; await onbRevisions(state); }
     if (ONB !== state) return;
     onbRender(state);
-    state.poll = setInterval(() => void onbPoll(state), 10000);
+    state.poll = setInterval(() => void onbPoll(state), state.record.completed ? 4000 : 10000);
   } catch (error) {
     if (ONB !== state) return;
     const host = $('#onb');
@@ -11251,6 +11294,8 @@ function onbAdopt(state, record) {
     answers: {...blank.answers, ...(row.answers || {})},
     selected: {...(row.selected || {})},
     recommended: row.recommended || [],
+    recommendations: row.recommendations || [], held_back: row.held_back || [],
+    full_chart: {teams: [], held_back: [], ...(row.full_chart || {})}, pain_options: row.pain_options || [], home: row.home || '',
     bots: row.bots || [],
     machine: {...blank.machine, ...(row.machine || {})}};
   // The server stores "not answered yet" as an empty list; the four rules start on.
@@ -11282,55 +11327,22 @@ function onbSeedPicks(state) {
   state.seeded = new Set(saved.length ? [...state.record.recommended, ...state.catalog.cards.filter(card => card.default).map(card => card.template)] : []);
   onbApplyRecommended(state);
 }
-// The recommendation depends on answers given two screens later, so it is applied whenever the
-// server sends a new one - never over a card the person has ticked or unticked themselves.
+// The required cards are not a choice. Everything else on the team comes from the starting point the person picks
+// on the Your team step (ui/first-run.js), which the server computes from the answers.
 function onbApplyRecommended(state) {
-  for (const card of state.catalog.cards) {
-    if (card.required) { state.catalog.picked.add(card.slug); continue; }   // required is not a choice
-    if (card.default && !state.seeded.has(card.template)) {           // checked to start with, never forced
-      state.seeded.add(card.template);
-      if (!state.catalog.decided.has(card.slug)) state.catalog.picked.add(card.slug);
-      continue;
-    }
-    if (!state.record.recommended.includes(card.template) || state.seeded.has(card.template)) continue;
-    state.seeded.add(card.template);
-    if (!state.catalog.decided.has(card.slug)) state.catalog.picked.add(card.slug);
-  }
+  for (const card of state.catalog.cards) if (card.required) state.catalog.picked.add(card.slug);
 }
 const onbBotOpsName = state => {
   const card = state.catalog.cards.find(row => row.required && row.slug !== assistantBot());
   return card ? catalogName(state.catalog, card) : 'BotOps';
 };
-function onbTags(answers) {
-  const tags = new Set(['always']);
-  const customers = answers.customers || '';
-  if (customers === 'businesses' || customers === 'both') tags.add('sells_to_businesses');
-  if (customers === 'consumers' || customers === 'both') tags.add('sells_to_consumers');
-  for (const value of answers.work_arrives || [])
-    for (const tag of ONB_WORK_TAGS[String(value).replace(/^uses_/, '')] || []) tags.add(tag);
-  const sizes = (String(answers.team_size || '').match(/\d+/g) || []).map(Number);
-  if (sizes.length && Math.max(...sizes) <= 10) tags.add('small_team');
-  // A company that gates publishing publishes, and wants to hear what is said back; one with
-  // business customers or a CRM has a pipeline.
-  if ((answers.never_without_person || []).includes('publish')) { tags.add('publishes_content'); tags.add('tracks_mentions'); }
-  if (tags.has('sells_to_businesses') || tags.has('uses_crm')) tags.add('has_pipeline');
-  return tags;
-}
-function onbReason(state, card) {
-  if (!state.record.recommended.includes(card.template) || card.required) return '';
-  const tags = onbTags(state.record.answers);
-  const said = (card.recommend_when || []).filter(tag => tags.has(tag))
-    .map(tag => { const phrase = ONB_TAG_PHRASE[tag]; return typeof phrase === 'function' ? phrase(tags) : phrase; });
-  // Two tags can land on the same sentence (business customers imply a pipeline); say it once.
-  const hits = [...new Set(said.filter(Boolean))];
-  return hits.length ? hits.slice(0, 2).join(' and ') : 'it fits how you described the company';
-}
 function onbRender(state) {
   if (ONB !== state) return;
   const host = $('#onb'); if (!host) return;
   state.busy = false;                       // a fresh screen is never mid-save
 
   const done = state.step >= state.steps.length, key = done ? 'done' : state.steps[state.step];
+  if (key === 'team') frEnterTeam(state);
   const heading = done ? `Setting up ${state.record.names.company_name || companyName()}` : ONB_TITLES[key];
   host.innerHTML = `<div class="onb-head"><div class="onb-brand">${brandLogo()}</div><div class="mono muted">FIRST RUN</div>
       <h1>${esc(heading)}</h1><p>${esc(ONB_BLURB[key])}</p></div>
@@ -11362,22 +11374,19 @@ function onbStepHTML(state, key) {
     <div class="onb-field"><span class="k">Who you sell to</span>
       <div class="onb-choices">${ONB_CUSTOMERS.map(([value, label]) =>
         `<label><input type="radio" name="onb-customers" value="${value}" ${a.customers === value ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
+    <div class="onb-field"><span class="k">Is software your product?</span>
+      <div class="onb-choices">${[['yes', 'Yes'], ['no', 'No']].map(([value, label]) =>
+        `<label><input type="radio" name="onb-software" value="${value}" ${a.software_product === value ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
     <label class="onb-field"><span class="k">Team size</span>
       <select id="onb-size"><option value="">Not saying</option>${ONB_SIZES.map(size =>
         `<option value="${esc(size)}" ${a.team_size === size ? 'selected' : ''}>${esc(size)}</option>`).join('')}</select></label>
-    <div class="onb-field"><span class="k">Where work arrives</span>
-      <div class="onb-choices">${ONB_ARRIVES.map(([value, label]) =>
-        `<label><input type="checkbox" data-onb-arrives value="${value}" ${(a.work_arrives || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
-    <label class="onb-field"><span class="k">What repetitive work eats time</span>
-      <textarea id="onb-repetitive" maxlength="2000" placeholder="Chasing invoices, answering the same three questions, re-posting the same listings.">${esc(a.repetitive_work)}</textarea></label>
     <div class="onb-field"><span class="k">What must never happen without a person</span>
       <div class="onb-choices">${ONB_NEVER.map(([value, label]) =>
         `<label><input type="checkbox" data-onb-never value="${value}" ${(a.never_without_person || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div>
       <small>These become a rule in every bot this wizard creates. Leave them on unless you mean it.</small></div>
     ${actions('Next')}`;
-  if (key === 'bots') return `
-    <div class="cat-grid" id="onb-catalog">${catalogGridHTML(state.catalog, card => onbReason(state, card))}</div>
-    ${actions('Next')}`;
+  if (key === 'needs') return frNeedsHTML(state, actions);
+  if (key === 'team') return frTeamHTML(state, actions);
   if (key === 'machine') {
     // A runner that is already online (the server's own, installed with the hub) needs no setup.
     const online = (state.record.machine?.runners || []).find(runner => runner && runner.online);
@@ -11406,7 +11415,7 @@ function onbStepHTML(state, key) {
       <small>One token and one paste. Skip it if you have none; the button next to your account does the same later.</small></p>
     ${actions('Next')}`;
   if (key === 'review') return `${onbSummaryHTML(state)}
-    <div class="onb-actions">${back}<button class="primary" type="button" id="onb-finish">Finish setup</button>
+    <div class="onb-actions">${back}<button class="primary" type="button" id="onb-finish">Create my team</button>
       <span class="spacer"></span><span class="muted" id="onb-status"></span></div>`;
   return onbDoneHTML(state);
 }
@@ -11442,46 +11451,46 @@ function onbMachineStatus(record) {
 }
 function onbSummaryHTML(state) {
   const r = state.record, a = r.answers;
-  const picked = state.catalog.cards.filter(card => state.catalog.picked.has(card.slug));
   const label = (key, value) => `<div><span class="k">${esc(key)}</span><span>${esc(value || '—')}</span></div>`;
   const choice = (list, values) => list.filter(([value]) => (values || []).includes(value)).map(([, name]) => name).join(', ');
   return `<div class="onb-summary">
     ${label('Company', r.names.company_name)}${label('App', r.names.app_name)}
     ${label('What you do', a.what_we_do)}
     ${label('Sells to', ONB_CUSTOMERS.find(([value]) => value === a.customers)?.[1] || '')}
+    ${label('Software is the product', a.software_product ? (a.software_product === 'yes' ? 'Yes' : 'No') : '')}
     ${label('Team size', a.team_size)}
-    ${label('Work arrives', choice(ONB_ARRIVES, a.work_arrives))}
-    ${label('Repetitive work', a.repetitive_work)}
+    ${label('What hurts', [...(a.pains || []), a.pains_text].filter(Boolean).join('; '))}
+    ${label('Tools', choice(FR_TOOLS.map(([value, name]) => [value, name]), a.tools))}
     ${label('Never without a person', choice(ONB_NEVER, a.never_without_person))}
     ${label('Computers', onbMachineStatus(r))}
-    <div><span class="k">Bots</span><span>${picked.map(card => esc(catalogName(state.catalog, card))).join(', ') || '—'}</span></div>
+    ${frSummaryTeamHTML(state)}
   </div>`;
 }
 function onbDoneHTML(state) {
-  const botOps = onbBotOpsName(state);
-  const chosen = new Set(Object.keys(state.record.selected || {}));
-  const rows = (state.record.bots || []).filter(bot => !chosen.size || chosen.has(bot.slug)).map(bot => {
-    const card = state.catalog.cards.find(row => row.slug === bot.slug || row.template === bot.template);
-    const bootstrap = bot.slug === assistantBot() || !!card?.bootstrap;
-    const ready = !!bot.repository_present, active = bot.status === 'active';
-    const where = bootstrap ? 'Set up automatically once a computer is online.'
-      : `${esc(botOps)} is setting this up.`;
-    return `<div class="onb-bot" data-onb-bot="${esc(bot.slug)}">${avatar(bot.slug, 27)}
-      <div class="onb-bot-main"><strong>${esc(bot.display_name || bot.slug)}</strong><p>${where}</p>
-        ${!bootstrap && bot.setup_task_id ? `<p><a href="#/task/${esc(bot.setup_task_id)}" data-onb-task="${esc(bot.slug)}">Open the setup task</a></p>` : ''}</div>
-      <div class="onb-bot-actions"><span class="pill ${active ? 'ok' : ready ? 'ready' : 'waiting'}">${esc(active ? 'active' : ready ? 'repository ready' : 'waiting')}</span>
-        ${ready && !active ? `<button class="ghost" type="button" data-onb-activate="${esc(bot.slug)}">Activate</button>` : ''}</div></div>`;
-  }).join('');
   return `<p class="onb-machine" id="onb-machine-status" role="status">${esc(onbMachineStatus(state.record))}</p>
-    <div id="onb-bots">${rows || '<div class="empty">No bots were created.</div>'}</div>
+    <div id="onb-bots">${onbBotRowsHTML(state)}</div>
+    <div id="onb-after">${frNextHTML(state)}</div>
     <div class="onb-actions"><button class="primary" type="button" id="onb-tasks">Open Tasks</button>
+      <a class="ghost gs-link" href="#/getting-started" id="onb-getting-started">Getting started</a>
       <span class="spacer"></span><span class="muted" id="onb-status"></span></div>`;
 }
+function onbBotRowsHTML(state) {
+  const botOps = onbBotOpsName(state);
+  const chosen = new Set(Object.keys(state.record.selected || {}));
+  const rows = (state.record.bots || []).filter(bot => !chosen.size || chosen.has(bot.slug)).map(bot => frBotRowHTML(state, bot, botOps)).join('');
+  return rows || '<div class="empty">No bots were created.</div>';
+}
+// The poll redraws only the progress rows: the forms below them keep what was typed.
 function onbRenderDone(state) {
   const host = $('#onb-step');
   if (!host || host.dataset.onbStep !== 'done') return;
-  host.innerHTML = onbDoneHTML(state);
-  onbWire(state, 'done');
+  const rows = $('#onb-bots');
+  if (!rows) { host.innerHTML = onbDoneHTML(state); onbWire(state, 'done'); return; }
+  rows.innerHTML = onbBotRowsHTML(state);
+  const status = $('#onb-machine-status'); if (status) status.textContent = onbMachineStatus(state.record);
+  document.querySelectorAll('[data-onb-activate]').forEach(button => button.onclick = () =>
+    void onbActivate(state, button.dataset.onbActivate, button));
+  frWireDone(state);
 }
 function onbWire(state, key) {
   const back = $('#onb-back');
@@ -11489,7 +11498,7 @@ function onbWire(state, key) {
   const next = $('#onb-next');
   if (next) next.onclick = () => void onbAdvance(state, key);
   if (key === 'providers') providersWire($('#onb-prov'), state.providers, state.models);
-  if (key === 'bots') catalogWire($('#onb-catalog'), state.catalog, () => { state.record.selected = catalogSelection(state.catalog); });
+  if (key === 'team') frTeamWire(state);
   if (key === 'machine') {
     const commands = onbCommands(state);
     document.querySelectorAll('[data-onb-copy]').forEach(button => button.onclick = () =>
@@ -11518,19 +11527,21 @@ function onbWire(state, key) {
   if (connect) connect.onclick = connectAgent;
   document.querySelectorAll('[data-onb-activate]').forEach(button => button.onclick = () =>
     void onbActivate(state, button.dataset.onbActivate, button));
+  if (key === 'done') { frWireDone(state); frWireNext(state); }
 }
 function onbCollect(state, key) {
   const r = state.record;
   if (key === 'names' && $('#onb-company')) r.names = {
     ...r.names, company_name: $('#onb-company').value.trim(), app_name: $('#onb-app').value.trim()};
-  if (key === 'about' && $('#onb-what')) r.answers = {
+  // The answers this page no longer asks (where work arrives, repetitive work) are kept as they were saved.
+  if (key === 'about' && $('#onb-what')) r.answers = {...r.answers,
     what_we_do: $('#onb-what').value.trim(),
     customers: $('input[name=onb-customers]:checked')?.value || '',
+    software_product: $('input[name=onb-software]:checked')?.value || '',
     team_size: $('#onb-size').value,
-    work_arrives: [...document.querySelectorAll('[data-onb-arrives]:checked')].map(input => input.value),
-    repetitive_work: $('#onb-repetitive').value.trim(),
     never_without_person: [...document.querySelectorAll('[data-onb-never]:checked')].map(input => input.value)};
-  if (state.catalog.cards.length) r.selected = catalogSelection(state.catalog);
+  frCollect(state, key);
+  if (state.catalog.cards.length && key !== 'team' && state.team.mode !== null) r.selected = frSelection(state);
 }
 function onbBusy(state, busy, message) {
   state.busy = busy;
@@ -11544,6 +11555,10 @@ async function onbSave(state) {
   if (ONB !== state || !saved || typeof saved !== 'object') return saved;
   if (saved.machine) state.record.machine = {...state.record.machine, ...saved.machine};
   if (Array.isArray(saved.recommended)) { state.record.recommended = saved.recommended; onbApplyRecommended(state); }
+  // What the server now proposes for these answers: the starter team, the full chart and what it held back.
+  for (const key of ['recommendations', 'held_back', 'pain_options']) if (Array.isArray(saved[key])) state.record[key] = saved[key];
+  if (saved.full_chart && typeof saved.full_chart === 'object') state.record.full_chart = {teams: [], held_back: [], ...saved.full_chart};
+  if (typeof saved.home === 'string') state.record.home = saved.home;
   return saved;
 }
 // The names typed on the first screen are the app's names from the moment they are saved.
@@ -11575,9 +11590,7 @@ async function onbAdvance(state, key) {
     return;
   }
   if (key === 'names' && !state.record.names.app_name) { onbBusy(state, false, '<span class="err">Give the app a name.</span>'); return; }
-  if (key === 'bots' && catalogMissingMailbox(state.catalog)) {
-    onbBusy(state, false, '<span class="err">Choose whose mailbox the inbox bot reads.</span>'); return;
-  }
+  if (key === 'team' && !frCanAdvance(state)) { onbBusy(state, false, ''); return; }
   onbBusy(state, true, 'Saving…');
   try {
     await onbSave(state);
@@ -11594,7 +11607,7 @@ async function onbFinish(state) {
   if (state.busy || state.completing) return;
   state.completing = true;
   onbCollect(state, 'review');
-  onbBusy(state, true, 'Creating the bots…');
+  onbBusy(state, true, 'Creating your team…');
   try {
     await onbSave(state);
     const record = await post('/v2/onboarding/complete', {});
@@ -11605,6 +11618,7 @@ async function onbFinish(state) {
     state.step = state.steps.length;
     await onbRevisions(state);
     if (ONB !== state) return;
+    clearInterval(state.poll); state.poll = setInterval(() => void onbPoll(state), 4000);   // repositories appear within seconds
     onbRender(state);
     await refresh(true);
     void window.gsTourAfterSetup?.();

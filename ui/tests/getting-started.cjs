@@ -20,7 +20,8 @@ const checklist = () => [
   item('github', 'GitHub is connected', false, {optional: true, why: 'Lets bots keep their work in your GitHub.', href: '#/settings', tab: 'cloud'}),
   item('botops', 'BotOps is active', true),
   item('first_bot', 'Create your first bot', false, {why: 'Say what it should do and BotOps builds it.', action: 'create-bot'}),
-  item('bot_task', 'Your new bot finished a task', false, {why: 'Give it something small to do from its page.', href: '#/tasks'}),
+  item('next_bot', 'Set up Support Triage', false, {why: 'It matches what hurts most: "support inbox is overflowing". Press Start setup on its page and answer its questions; it drafts a first result for you to approve.', href: '#/bot/support'}),
+  item('first_output', 'First approved output', false, {why: 'Set up a starter bot and approve the first thing it drafts. That is the point of the team.', href: '#/bot/support'}),
   item('first_update', 'Your first update arrived', false, {why: 'Each active bot posts a short update every day.', href: '#/updates'}),
 ];
 const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =>
@@ -89,11 +90,16 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
 
     // ---- the checklist: what the server said, with the count in the rail
     let page = await open('#/getting-started');
-    assert.equal(await page.locator('#gs-count').textContent(), '3/8');
-    assert.equal(await page.locator('#gs-progress').textContent(), '3 of 8 done');
+    assert.equal(await page.locator('#gs-count').textContent(), '3/9');
+    assert.equal(await page.locator('#gs-progress').textContent(), '3 of 9 done');
     const states = () => page.locator('[data-gs-item]').evaluateAll(els => Object.fromEntries(els.map(el => [el.dataset.gsItem, el.dataset.state])));
     assert.deepEqual(await states(), {signed_in: 'done', computer: 'done', model: 'todo', github: 'todo', botops: 'done',
-      first_bot: 'todo', bot_task: 'todo', first_update: 'todo'});
+      first_bot: 'todo', next_bot: 'todo', first_output: 'todo', first_update: 'todo'});
+    // Coaching: the next bot to set up (the top pain's), and the first approved output instead of a count of bots.
+    assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /Set up Support Triage/);
+    assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /support inbox is overflowing/);
+    assert.equal(await page.locator('[data-gs-item=next_bot] .gs-item-actions a').getAttribute('href'), '#/bot/support');
+    assert.match(await page.locator('[data-gs-item=first_output]').textContent(), /First approved output/);
     assert.match(await page.locator('[data-gs-item=model]').textContent(), /run `codex login`/);
     assert.equal(await page.locator('[data-gs-item=computer] .gs-item-actions a').count(), 0);   // a done step asks for nothing
     assert.equal(await page.locator('[data-gs-item=github] [data-gs-skip]').count(), 1);
@@ -104,7 +110,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     items = items.map(row => row.id === 'model' ? {...row, done: true, why: ''} : row);
     await page.reload();
     await page.locator('#gs-page [data-gs-item]').first().waitFor();
-    assert.equal(await page.locator('#gs-progress').textContent(), '4 of 8 done');
+    assert.equal(await page.locator('#gs-progress').textContent(), '4 of 9 done');
     assert.equal(await page.locator('[data-gs-item=model]').getAttribute('data-state'), 'done');
 
     // The link on a step opens the right Settings tab.
@@ -119,7 +125,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.locator('[data-gs-skip=github]').click();
     await page.waitForFunction(() => document.querySelector('[data-gs-item=github]')?.dataset.state === 'skipped');
     assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {skip: 'github'}});
-    assert.equal(await page.locator('#gs-progress').textContent(), '5 of 8 done');
+    assert.equal(await page.locator('#gs-progress').textContent(), '5 of 9 done');
 
     // "Create a bot" asks what the bot should do and files it for BotOps.
     await page.locator('[data-gs-item=first_bot] [data-gs-build]').click();
