@@ -1004,6 +1004,22 @@ def fleet(api, args):
     return api.get("tico/fleet")
 
 
+# ----------------------------------------------------------------------------- the Assistant
+@tool("hub_assistant_propose", "Assistant only: ask the person you are acting for to confirm something with "
+      "side effects that matter: approving or declining a Needs-you item, anything that leaves the company, "
+      "spending, changing people, access or settings, archiving or deleting, activating a bot. Give the exact "
+      "API operation; it is shown to them as a Confirm / Cancel card and runs only when they click, as them. "
+      "Never do these yourself; nothing here runs until they confirm.",
+      {"summary": _s("One plain sentence saying what will happen if they confirm"),
+       "method": {"enum": ["POST", "PUT", "PATCH", "DELETE"], "default": "POST"},
+       "path": _s("The API path, e.g. /api/v2/approvals/<id> or /api/v2/messages/<id>/answer"),
+       "body": {"type": "object", "description": "The JSON body of that request"}},
+      required=("summary", "path"), writes=True)
+def assistant_propose(api, args):
+    return api.post("assistant/actions", {"summary": args["summary"], "method": args.get("method") or "POST",
+                                          "path": args["path"], "body": args.get("body") or {}}, key=_key(args))
+
+
 # ----------------------------------------------------------------------------- sql, integrations
 @tool("hub_sql", "Read-only SQL over what you may see (docs/hub-sql.md). One SELECT, WITH or "
       "EXPLAIN QUERY PLAN; bind `:key` with `params`.",

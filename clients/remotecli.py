@@ -46,6 +46,15 @@ def run(args, who=None):
         if args.fn == "files publish":
             return hubtools.files_publish_path(client, fields)
         return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
+    if args.cmd == "assistant":
+        from clients import hubtools
+        try:
+            body = json.loads(args.body or "{}")
+        except ValueError:
+            raise APIError("body", "--body must be JSON") from None
+        return hubtools.BY_NAME["hub_assistant_propose"]["fn"](client, {
+            "summary": args.summary, "path": args.path, "method": args.method, "body": body,
+            "operation_id": os.environ.get("HUB_OPERATION_ID")})
     if args.cmd == "db":
         # Runs here, beside the credential; the hub only checks who is asking and keeps the audit.
         from clients import dbquery

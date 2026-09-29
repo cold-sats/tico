@@ -28,6 +28,10 @@ the server (`backend/hubdb.py`), never here.
     hub files touch <file-id|url>          you edited a linked document again: it moves to the top
     hub files import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
     hub files list [--bot X] [--limit N]   what is on the page, newest activity first
+    hub assistant propose --summary "..." --path /api/v2/... [--method POST] [--body '{...}']
+                                           Assistant only: ask the person to confirm a side effect (an
+                                           approval, anything outside the company, spend, settings,
+                                           archive/delete, activating a bot); it runs only on their click
     hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done]
     hub task show <id>
     hub goals [--owner me|X] [--all]      what you are for: your goals in order, the chain above
@@ -344,6 +348,13 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--task")
     s.set_defaults(fn="files import")
+    assistant = sub.add_parser("assistant", help="the Assistant's proposals for a person to confirm").add_subparsers(dest="sub")
+    s = assistant.add_parser("propose", help="ask the person to confirm one side-effecting operation")
+    s.add_argument("--summary", required=True)
+    s.add_argument("--path", required=True)
+    s.add_argument("--method", default="POST", choices=["POST", "PUT", "PATCH", "DELETE"])
+    s.add_argument("--body", default="{}", help="the request's JSON body")
+    s.set_defaults(fn="assistant propose")
     task = sub.add_parser("task").add_subparsers(dest="sub")
     s = task.add_parser("create")
     s.add_argument("--owner", required=True)
