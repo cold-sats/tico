@@ -79,3 +79,19 @@ def test_a_turn_cannot_read_the_registration_but_can_run_a_harness_and_push(volu
         blocked = docker("run", "--rm", "-u", "10003", "-v", f"{volume}:/home/runner", "--entrypoint", "sh", IMAGE, "-c",
                          f"! cat /home/runner/{path} >/dev/null 2>&1")
         assert blocked.returncode == 0, path
+
+
+def test_the_runner_starts_again_after_a_turn_took_the_secrets_folder(volume):
+    # Before a turn the supervisor gives the secrets folder to the bot user (isolation.adopt); the next start
+    # of the container must still prepare the volume instead of failing on chmod.
+    seeded = docker("run", "--rm", "-u", "0", "-v", f"{volume}:/home/runner", "--entrypoint", "sh", IMAGE, "-c", """
+        set -e; cd /home/runner; : > .tico-two-user-layout; chown 10002:10002 . .tico-two-user-layout
+        mkdir -p workspace/secrets; echo A=1 > workspace/secrets/_shared.env
+        chown 10002:10002 workspace; chown -R 10003:10002 workspace/secrets; chmod 660 workspace/secrets/_shared.env
+    """)
+    assert seeded.returncode == 0, seeded.stderr
+    started = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", *CAPS,
+                     "-v", f"{volume}:/home/runner", IMAGE, "sh", "-c",
+                     "stat -c '%u %a' /home/runner/workspace/secrets; cat /home/runner/workspace/secrets/_shared.env")
+    assert started.returncode == 0, started.stdout + started.stderr
+    assert started.stdout.split() == ["10003", "770", "A=1"], started.stdout

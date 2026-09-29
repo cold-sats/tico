@@ -53,7 +53,10 @@ separate_users() {
   done
   # What a turn works in: the workspace, its secrets and the model logins are the bot user's.
   as_supervisor mkdir -p "$HOME/workspace/secrets"
-  as_supervisor chmod 0770 "$HOME/workspace" "$HOME/workspace/secrets"
+  as_supervisor chmod 0770 "$HOME/workspace"
+  # The supervisor hands the secrets folder to the bot user before a turn (runner/isolation.py adopt), so after
+  # the first turn it is not ticorun's to chmod: give it to the bot user and set its mode as that user.
+  chown "$BOT_UID:$SUPERVISOR_GID" "$HOME/workspace/secrets" && as_bot chmod 0770 "$HOME/workspace/secrets"
   mkdir -p /run/tico-runner && chown "$SUPERVISOR_UID:$SUPERVISOR_GID" /run/tico-runner && as_supervisor chmod 0755 /run/tico-runner
   export TICO_RUNNER_BOT_UID="$BOT_UID" TICO_RUNNER_BOT_GID="$SUPERVISOR_GID"
   exec setpriv --reuid="$SUPERVISOR_UID" --regid="$SUPERVISOR_GID" --clear-groups --inh-caps="$CAPS" --ambient-caps="$CAPS" \

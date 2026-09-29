@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-09-29
+
+### Fixed
+- A Docker runner (v0.2.6 and v0.2.7) could not start again after its first bot turn: the turn hands the secrets folder to
+  the bot user, and the next start failed changing its mode ("chmod: ... Operation not permitted") and restarted in a loop.
+  The start now gives that folder to the bot user and sets its mode as that user. A runner stuck this way recovers with
+  `docker run --rm -v tico-runner:/h alpine chown 10002:10002 /h/workspace/secrets`, then updating to 0.2.8.
+
 ## [0.2.7] - 2026-09-29
 
 ### Added
@@ -309,7 +317,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/ticoteam/tico/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/ticoteam/tico/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/ticoteam/tico/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/ticoteam/tico/compare/v0.2.4...v0.2.5
