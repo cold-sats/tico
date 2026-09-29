@@ -817,6 +817,10 @@ class Empty(Contract):
     pass
 
 
+class InboxSharing(Contract):
+    allowed: bool
+
+
 class LoginStart(Contract):
     runtime: Literal["codex", "claude"]
     profile: Annotated[str, Field(pattern=r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$", max_length=80)] = ""

@@ -8,9 +8,10 @@ which the page turns into one-click links. People who are not administrators see
 
 import json
 
-from . import model_login, providers, releases, runner_versions
+from . import inbox_isolation, model_login, providers, releases, runner_versions
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 from .store import H, readiness_document
+from .views import roster
 
 QUEUE_MINUTES = 10          # work that has waited this long on a computer that is up is stuck
 BACKUP_STALE_HOURS = 6      # the replica normally trails by seconds
@@ -270,6 +271,14 @@ def view(c, who, settings, auth, github, config):
     else:
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
 
+    if full and (mixed := inbox_isolation.violations(c, roster(c))):
+        checks.append(_check("inbox", "Inbox bots", "warn",
+                             "An inbox bot shares a computer with " + "; ".join(
+                                 f"{v['label']}: {', '.join(v['inbox'])} beside "
+                                 + ", ".join(v["others"] or ["another inbox bot"]) for v in mixed[:3])
+                             + ". Its mail key can open every mailbox, so any bot there could read it. "
+                             "Add a computer for the inbox bot and move it there.",
+                             [_fix("Add a computer", "#/settings", "devices")]))
     if full:
         checks.append(_github(c, github))
         slack = _slack(c)

@@ -3,7 +3,7 @@
 import json
 import secrets
 
-from . import providers, runner_versions
+from . import inbox_isolation, providers, runner_versions
 from .harnesses import reports_tool_calls
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
 
@@ -252,6 +252,9 @@ class Execution:
                            "AND lease_until>?", (bot, H.now())).fetchone()
         if active:
             raise Problem("busy", "Drain the current run or wait for its lease to expire before transfer", 409)
+        if not old or old["runner_id"] != body.runner_id:
+            from .views import roster
+            inbox_isolation.check(c, bot, body.runner_id, roster(c))
         self.expire(c)
         c.execute("INSERT INTO assignments VALUES(?,?,?,?,?) ON CONFLICT(bot) DO UPDATE SET "
                   "runner_id=excluded.runner_id,generation=excluded.generation,updated=excluded.updated,"

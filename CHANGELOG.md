@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- An inbox bot now gets a computer to itself. Its Google Workspace key opens every mailbox in the company, and every bot on a
+  computer runs as the same user, so the server refuses (409 `inbox_isolation`, with what to do: add a computer) to place an
+  inbox bot beside another bot, or another bot beside an inbox bot. Several inbox bots may share one computer only after the
+  operator allows it (`POST /api/v2/runners/{id}/inbox-sharing`). Onboarding leaves such a bot unplaced rather than failing.
+  Settings > Health warns about installs that already mix them; nothing running is moved.
+
 ## [0.2.9] - 2026-09-29
 
 ### Fixed

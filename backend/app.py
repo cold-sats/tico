@@ -17,7 +17,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 
 from clients.agent_skill import WHO_NEEDS_ME
 
-from . import agents, batch, grokbot, harness_actions, model_login, oidc, personal_tokens, views
+from . import agents, batch, grokbot, inbox_isolation, harness_actions, model_login, oidc, personal_tokens, views
 from . import turns as turn_work
 from . import goals as G
 from . import models as M
@@ -2213,6 +2213,19 @@ def create_app(settings=None):
             c.execute("UPDATE runners SET restart_requested=? WHERE id=?", (H.now(), rid))
             H.event(c, who.actor, "runner.restart", rid)
             return {"requested": True, "running": views.runner_busy(c, rid)}
+        return mutate(request, body, work)
+
+    @app.post("/api/v2/runners/{rid}/inbox-sharing")
+    def inbox_sharing(request: Request, rid: str, body: M.InboxSharing):
+        """Let several inbox bots share this computer (they hold the same mail key anyway)."""
+        who = request.state.identity
+        def work(c):
+            runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
+            if not runner or not (who.role == "owner" or who.role == "human" and who.actor == "human:" + runner["operator"]):
+                raise Problem("forbidden", "You cannot change this computer", 403)
+            inbox_isolation.allow_shared(c, rid, body.allowed)
+            H.event(c, who.actor, "runner.inbox_sharing", rid, {"allowed": body.allowed})
+            return {"allowed": body.allowed}
         return mutate(request, body, work)
 
     @app.post("/api/v2/runners/{rid}/logins")

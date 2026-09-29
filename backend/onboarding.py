@@ -378,8 +378,13 @@ class Onboarding:
                 continue
             if c.execute("SELECT 1 FROM assignments WHERE bot=?", (row["bot"],)).fetchone():
                 continue                     # a bot a person already placed is never moved
-            self.execution.assign(c, who, row["bot"], SimpleNamespace(
-                runner_id=runner_id, expected_generation=0))
+            try:
+                self.execution.assign(c, who, row["bot"], SimpleNamespace(
+                    runner_id=runner_id, expected_generation=0))
+            except Problem as refusal:
+                if refusal.code != "inbox_isolation":
+                    raise
+                continue                     # an inbox bot never shares a computer; Health says so
             placed.append(row["bot"])
         return placed
 
