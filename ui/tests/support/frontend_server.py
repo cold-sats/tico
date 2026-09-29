@@ -171,6 +171,7 @@ def main():
         "Authorization": "Bearer admin", "Idempotency-Key": H.new_id()}).raise_for_status()
     call("tasks", {"title": "Review the launch plan", "body": "Please review the plan and reply.", "owner": "human:ana"})
     call("tasks", {"title": "Draft the weekly update", "body": "Summarize the week for the team.", "owner": "bot:ops"})
+    call("files/links", {"bot": "ops", "url": "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit", "title": "Launch plan"})
     threading.Thread(target=fake_runner, args=(url, "admin"), daemon=True).start()
     print(json.dumps({"url": url, "token": LOCAL_TOKEN, "issuer": issuer}), flush=True)
     try:

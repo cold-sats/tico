@@ -1,7 +1,7 @@
 // A small frontend for Tico with no build step and no dependencies. Read it top to bottom:
 // 1. api()      every call to Tico, with the bearer session and the Idempotency-Key writes need
 // 2. sign-in    OIDC through Tico, with PKCE, ending in a bearer session (docs/custom-frontend.md)
-// 3. views      org chart, chat with live replies, tasks, Needs you
+// 3. views      org chart, chat with live replies, tasks, Needs you, a bot's Files
 // Everything from the server is put on the page as text, never as HTML: a bot's reply is untrusted.
 "use strict";
 
@@ -77,7 +77,7 @@ async function signOut() {
 }
 
 function showSignIn() {
-  for (const id of ["org", "chat", "tasks", "needs", "tabs", "sign-out"]) $(id).hidden = true;
+  for (const id of ["org", "chat", "tasks", "files", "needs", "tabs", "sign-out"]) $(id).hidden = true;
   $("who").textContent = "";
   $("signin").hidden = false;
   stopWatching();
@@ -89,6 +89,7 @@ const tabs = {
   org: loadOrg,
   chat: loadChatBots,
   tasks: loadTasks,
+  files: loadFiles,
   needs: loadNeeds,
 };
 
@@ -231,6 +232,46 @@ async function loadTasks() {
   table.append(row(["Task", "Owner", "Status"], "th"));
   for (const t of tasks) table.append(row([t.title, t.owner_name || t.owner, t.status]));
   $("tasks").replaceChildren(el("h1", "Tasks"), tasks.length ? table : el("p", "Nothing open."));
+}
+
+// Files: what a bot created or delivered, newest activity first (GET /api/v2/bots/{bot}/files). The list is
+// already filtered to what the caller may see. A linked document opens at its provider; a stored file
+// is fetched with the bearer session (a plain link would not carry it) and saved from memory.
+async function loadFiles(bot) {
+  const bots = await api("/api/v2/bots");
+  const slug = typeof bot === "string" ? bot : (bots[0] && bots[0].slug);
+  const pick = el("select");
+  pick.setAttribute("aria-label", "Bot");
+  for (const b of bots) pick.append(new Option(b.display_name, b.slug, false, b.slug === slug));
+  pick.onchange = () => loadFiles(pick.value).catch(fail);
+  const { files, total } = slug ? await api("/api/v2/bots/" + encodeURIComponent(slug) + "/files?limit=10") : { files: [], total: 0 };
+  const list = el("ul", null, "files");
+  for (const f of files) {
+    const li = el("li", f.title + " ");
+    if (!f.synced) li.append(el("small", "not synced"));
+    else if (f.open && f.open.type === "external") {
+      const a = el("a", "Open in " + (f.provider_label || "browser"));
+      a.href = f.open.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      li.append(a, el("small", " " + f.note));
+    } else if (f.open) {
+      const button = el("button", "Download");
+      button.onclick = () => saveFile(f).catch(fail);
+      li.append(button);
+    }
+    li.append(el("small", " edited " + new Date(f.last_activity_at).toLocaleString() + (f.task_title ? " for " + f.task_title : "")));
+    list.append(li);
+  }
+  $("files").replaceChildren(el("h1", "Files"), pick, el("p", total + " file" + (total === 1 ? "" : "s")), files.length ? list : el("p", "Nothing yet."));
+}
+
+async function saveFile(f) {
+  const res = await fetch(TICO + f.open.url, { headers: { Authorization: "Bearer " + session.token } });
+  if (!res.ok) throw new Problem(res.status, await res.json().catch(() => null));
+  const link = el("a");
+  link.href = URL.createObjectURL(await res.blob());
+  link.download = f.name || f.title;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 async function loadNeeds() {

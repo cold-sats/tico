@@ -103,6 +103,15 @@ async function python(){
       await page.click('#tabs [data-tab=needs]');
       await page.waitForSelector('#needs li:has-text("Review the launch plan")');
 
+      // Files: a bot's linked document, opened at its provider.
+      await page.click('#tabs [data-tab=files]');
+      await page.waitForSelector('#files select');
+      await page.selectOption('#files select','ops');
+      await page.waitForSelector('#files li:has-text("Launch plan")');
+      const opens=page.locator('#files a:has-text("Open in Google")');
+      assert.equal(await opens.getAttribute('href'),'https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit');
+      assert.equal(await opens.getAttribute('target'),'_blank');
+
       // The server refuses what is not allowed: another origin gets no CORS headers, a bad token no data.
       const other=await context.request.get(url+'/api/v2/me',{headers:{Origin:'https://evil.example',Authorization:'Bearer '+(mode==='none'?token:'x')}});
       assert.equal(other.headers()['access-control-allow-origin'],undefined);
