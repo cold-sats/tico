@@ -32,14 +32,14 @@ Everyone sees, reads and writes to a new bot unless told otherwise. Then, as the
 
     hub bot access <slug>                                   # show it
     hub bot access <slug> --read team:legal --write everyone
-    hub bot access <slug> --see ben,team:legal --read ben,team:legal --write ben,team:legal
+    hub bot access <slug> --see <id>,team:<name> --read <id>,team:<name> --write <id>,team:<name>
 
 A level is `everyone`, or a comma list of person ids, `team:<name>` and `bot:<slug>`. **Visible, requests
 only** is `--read <who reads its work>` with see and write left as they are. Someone who may read or write
 can always see it. Owners, the people above the bot, admins and the bot itself always have full access.
 
-    hub bot owners <slug> --add ben cara                    # co-owners; any owner may
-    hub bot owners <slug> --remove ben
+    hub bot owners <slug> --add <id> <id>                   # co-owners; any owner may
+    hub bot owners <slug> --remove <id>
 
 ## 4. People, and what always needs their click
 

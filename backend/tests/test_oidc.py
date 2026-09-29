@@ -306,6 +306,16 @@ def test_logout_ends_the_session_and_lands_on_a_sign_in_page(signin):
     assert page.status_code == 200 and "/auth/login" in page.text
 
 
+def test_sign_in_pages_carry_the_wordmark_until_the_app_is_renamed():
+    from types import SimpleNamespace
+    from backend.config import ROOT
+    from backend.oidc import _page
+    tico = _page(SimpleNamespace(app_name="Tico", ui_dir=ROOT / "ui"), 200, "Signed out", "Bye").body.decode()
+    assert 'aria-label="Tico"' in tico and "#172221" in tico and "#f7f7f3" in tico   # dark ink and the reversed one
+    named = _page(SimpleNamespace(app_name="Acme HQ", ui_dir=ROOT / "ui"), 200, "Signed out", "Bye").body.decode()
+    assert "<svg" not in named and '<p class="brand">Acme HQ</p>' in named
+
+
 def test_a_person_marked_left_loses_the_session_and_cannot_return(signin):
     signin.login(claims={"email": "cara@acme.example"})
     assert me(signin.api).json()["actor"] == "human:cara"

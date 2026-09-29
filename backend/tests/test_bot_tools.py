@@ -4,7 +4,7 @@ before the report still gets a row, and that a private bot's tools stay private 
 import json
 
 from backend.store import H
-from backend.tests.test_api import api, assign, get, headers, post, ready, runner  # noqa: F401  (fixtures)
+from backend.tests.test_api import api, assign, get, headers, post, ready, restrict, runner  # noqa: F401  (fixtures)
 from backend.tests.test_mcp import call as mcp_call
 
 RUNTIMES = {"codex": {"installed": True, "authenticated": "ready"}}
@@ -100,8 +100,12 @@ def test_a_private_bots_tools_stay_with_the_people_who_can_see_it(api):
     machine = runner(api)
     assign(api, machine, "inbox")
     assert report(api, machine, "inbox", TOOLS).status_code == 200
-    assert api.get("/api/v2/bots/inbox/tools", headers=headers("ben-test")).status_code == 403     # access: read
+    assert api.get("/api/v2/bots/inbox/tools", headers=headers("cara-test")).status_code == 404     # cannot even see it
+    with api.app.state.store.transaction() as c:
+        restrict(c, "inbox", see={"everyone": True}, read=dict(people=["ana"]), write=dict(people=["ana"]))
+    assert api.get("/api/v2/bots/inbox/tools", headers=headers("cara-test")).status_code == 403     # sees it, may not read it
     assert len(tools_of(api, "inbox")["tools"]) >= 3
+    assert len(tools_of(api, "inbox", "ben-test")["tools"]) >= 3                                     # an Admin has full access
     assert api.get("/api/v2/bots/nobody/tools", headers=headers("ana-test")).status_code == 404
 
 
@@ -127,8 +131,7 @@ def botops_tasks(api):
 
 def test_a_manager_registers_a_tool_and_botops_gets_the_exact_entry(api):
     botops(api)
-    register(api, who="cara-test", expected=403)                     # access: manage
-    register(api, who="ben-test", expected=403)                      # a bot administrator, but ops is another operator's
+    register(api, who="cara-test", expected=403)                     # a member who does not manage ops
     made = register(api)
     assert made["tool"]["status"] == "pending" and made["tool"]["pending"] == "add"
     assert made["tool"]["service"] == "posthog" and made["tool"]["logo_key"] == "posthog"
@@ -192,7 +195,7 @@ def test_removing_a_tool_is_a_botops_task_and_a_pending_request_can_be_withdrawn
     machine = runner(api)
     assign(api, machine, "ops")
     assert report(api, machine, "ops", TOOLS).status_code == 200
-    assert api.delete("/api/v2/bots/ops/tools/slack", headers=headers("cara-test")).status_code == 403      # access: manage
+    assert api.delete("/api/v2/bots/ops/tools/slack", headers=headers("cara-test")).status_code == 403
     assert api.delete("/api/v2/bots/ops/tools/model", headers=headers()).status_code == 422
     assert api.delete("/api/v2/bots/ops/tools/nothing", headers=headers()).status_code == 404
     removed = api.delete("/api/v2/bots/ops/tools/slack", headers=headers())

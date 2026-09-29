@@ -8,7 +8,7 @@ and reports on every heartbeat with whether each credential is on its computer
 (runner/declared_access.py, `bots.<bot>.tools` in the readiness report). A runner from before that
 report yields the first two only. No value ever passes through here: env is a variable's name.
 
-A person who manages a bot can also register or remove a tool. The server holds no bot repository,
+A person who manages a bot (`Auth.bot_manager`) can also register or remove a tool. The server holds no bot repository,
 so it cannot edit employee.yaml: it checks the entry against the schema employee.yaml uses
 (clients/access_entry.py, which also refuses anything that looks like a credential), keeps it as a
 pending request, and opens a task for BotOps with the exact YAML. The Tools row shows the request as
@@ -241,7 +241,7 @@ def _request_task(c, auth, who, verb, bot, name, entry, computer, taken):
 
 def register(c, auth, settings_admin, settings, who, bot, body):
     auth.domain(who)
-    settings_admin._manager(c, who, bot)      # access: manage
+    settings_admin._manager(c, who, bot)      # Auth.bot_manager
     if not H.bot(c, bot):
         raise Problem("not_found", "Bot not found", 404)
     try:
@@ -267,7 +267,7 @@ def register(c, auth, settings_admin, settings, who, bot, body):
 
 def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
     auth.domain(who)
-    settings_admin._manager(c, who, bot)      # access: manage
+    settings_admin._manager(c, who, bot)      # Auth.bot_manager
     if not H.bot(c, bot):
         raise Problem("not_found", "Bot not found", 404)
     requests = _requests(c, bot)
@@ -326,8 +326,7 @@ def install(app, store, auth, mutate, settings_admin):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            if not auth.visible_bot(who, bot):      # access: read
-                raise Problem("forbidden", "This bot is private", 403)
+            auth.require_read(c, who, bot)      # a 404 for someone who cannot even see the bot
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
             return listing(c, store.settings, bot)
