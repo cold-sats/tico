@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-09-29
+
 ### Added
 - **Files**: a bot's page lists what it created, revised or delivered, newest activity first (three rows and the total, "Show all"
   inline), in the main view beside its tasks. Three kinds: stored files (Tico's private blob store, opened through an authenticated
@@ -307,7 +309,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/ticoteam/tico/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/ticoteam/tico/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/ticoteam/tico/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/ticoteam/tico/compare/v0.2.3...v0.2.4
