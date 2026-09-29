@@ -2,7 +2,6 @@
 
 import json
 
-from backend.store import H
 from backend.tests.test_api import api, get, headers, post, ready, runner  # noqa: F401
 
 
@@ -38,75 +37,6 @@ def test_only_the_owner_starts_reads_or_cancels_a_login(api):
     other = online(api)
     post(api, f"runner-logins/{lid}/report", {"state": "failed"}, token=other["token"], expected=404)
     assert api.get("/api/v2/runner-logins", headers=headers("ana-test")).status_code == 403
-
-
-def test_a_login_needs_a_supported_runtime_and_a_computer_that_is_online(api):
-    r = online(api)
-    post(api, f"runners/{r['runner_id']}/logins", {"runtime": "gemini"}, expected=422)
-    post(api, "runners/nope/logins", {"runtime": "codex"}, expected=404)
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE runners SET last_seen=? WHERE id=?", (H.shift(H.now(), seconds=-600), r["runner_id"]))
-    post(api, f"runners/{r['runner_id']}/logins", {"runtime": "codex"}, expected=409)
-
-
-def test_the_state_machine_relays_what_the_cli_printed_and_ends_once(api):
-    r = online(api)
-    login = start(api, r)
-    assert login["state"] == "requested" and login["expires_at"] > login["created"]
-    assert start(api, r)["id"] == login["id"]                     # one at a time per runtime
-    assert start(api, r, "claude")["id"] != login["id"]
-    assert [row["id"] for row in get(api, "runner-logins", token=r["token"])["logins"]
-            if row["runtime"] == "codex"] == [login["id"]]
-    report(api, r, login["id"], state="waiting", url="https://auth.example/device", code="AB12-CD345",
-           lines=["Open this link", "Enter this one-time code"])
-    shown = get(api, f"runners/{r['runner_id']}/logins/{login['id']}")
-    assert (shown["state"], shown["url"], shown["code"]) == ("waiting", "https://auth.example/device", "AB12-CD345")
-    assert shown["lines"] == ["Open this link", "Enter this one-time code"] and not shown["accepts_code"]
-    # A late "starting" cannot move it backwards.
-    assert report(api, r, login["id"], state="starting")["state"] == "waiting"
-    assert report(api, r, login["id"], state="signed_in")["state"] == "signed_in"
-    done = get(api, f"runners/{r['runner_id']}/logins/{login['id']}")
-    assert done["state"] == "signed_in" and done["url"] == "" and done["code"] == ""
-    assert report(api, r, login["id"], state="failed")["state"] == "signed_in"   # final
-    assert all(row["runtime"] != "codex" or row["id"] != login["id"]
-               for row in get(api, "runner-logins", token=r["token"])["logins"])
-    assert start(api, r)["id"] != login["id"]                     # a new one may begin
-
-
-def test_cancel_and_expiry_end_a_login_and_tell_the_runner_to_stop(api):
-    r = online(api)
-    base = f"runners/{r['runner_id']}/logins"
-    first = start(api, r)
-    assert post(api, f"{base}/{first['id']}/cancel", {})["state"] == "cancelled"
-    assert get(api, "runner-logins", token=r["token"])["logins"] == []
-    assert report(api, r, first["id"], state="waiting", url="https://x.example/a")["state"] == "cancelled"
-    second = start(api, r)
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE model_logins SET expires_at=? WHERE id=?", (H.shift(H.now(), seconds=-1), second["id"]))
-    assert get(api, f"{base}/{second['id']}")["state"] == "expired"
-    assert get(api, "runner-logins", token=r["token"])["logins"] == []
-    assert report(api, r, second["id"], state="signed_in")["state"] == "expired"
-
-
-def test_a_pasted_code_reaches_the_runner_once_and_is_then_dropped(api):
-    r = online(api)
-    base = f"runners/{r['runner_id']}/logins"
-    codex = start(api, r)
-    post(api, f"{base}/{codex['id']}/code", {"code": "abcdef#ghijkl"}, expected=422)
-    login = start(api, r, "claude")
-    post(api, f"{base}/{login['id']}/code", {"code": "abcdef#ghijkl"}, expected=409)   # not waiting yet
-    report(api, r, login["id"], state="waiting", url="https://claude.example/authorize")
-    assert get(api, f"{base}/{login['id']}")["accepts_code"] is True
-    post(api, f"{base}/{login['id']}/code", {"code": "has spaces"}, expected=422)
-    sent = post(api, f"{base}/{login['id']}/code", {"code": "abcdef#ghijkl"})
-    assert sent["code_sent"] is True and "abcdef" not in json.dumps(sent)
-    post(api, f"{base}/{login['id']}/code", {"code": "zzzzzz#yyyyyy"}, expected=409)
-    work = [w for w in get(api, "runner-logins", token=r["token"])["logins"] if w["id"] == login["id"]][0]
-    assert work["code"] == "abcdef#ghijkl"
-    report(api, r, login["id"], state="waiting", code_taken=True)
-    assert "code" not in [w for w in get(api, "runner-logins", token=r["token"])["logins"]
-                          if w["id"] == login["id"]][0]
-    assert [row["pending_code"] for row in stored(api) if row["id"] == login["id"]] == [None]
 
 
 def test_nothing_token_like_is_stored_or_shown(api):

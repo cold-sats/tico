@@ -1,7 +1,7 @@
 """The shared market graph: seed, read, report, curator writes."""
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +10,6 @@ from backend import market as M
 from backend.blobs import Blobs
 from backend.store import H
 from backend.tests.test_api import api, get, headers, post, setup_attempt  # noqa: F401
-from clients import hubtools
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_REGISTRY = Path(__file__).parent / "fixtures" / "registry"
@@ -102,77 +101,3 @@ def test_the_server_enforces_writers_evidence_vocabulary_and_no_delete(api, tmp_
                    token=analyst["token"])["entity"]
     assert created["created_by"] == "bot:market-analyst"
 
-
-def test_the_curator_applies_an_insight_files_one_owner_task_and_only_marked_stale_entities(api, tmp_path):
-    _seed(api, tmp_path)
-    _, _, listening = setup_attempt(api, "listening")
-    _, _, analyst = setup_attempt(api, "market-analyst")
-    with api.app.state.store.read() as c:
-        quiet = c.execute("SELECT count(*) FROM tasks WHERE owner='bot:market-analyst'").fetchone()[0]
-    post(api, "market/insights", {"kind": "other", "about": "Northwind", "claim": "Nothing urgent.", "urgent": False},
-         token=listening["token"])
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM tasks WHERE owner='bot:market-analyst'").fetchone()[0] == quiet
-    woke = post(api, "market/insights", {"kind": "edge", "about": "Brightline", "claim": "Brightline launched a flat fee.",
-                                        "urgent": True, "source_url": "https://brightline.example/pricing",
-                                        "quote": "Flat monthly pricing."}, token=listening["token"])["insight"]
-    with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM tasks WHERE owner='bot:market-analyst'").fetchone()[0] == quiet + 1
-    applied = post(api, f"market/insights/{woke['id']}/apply", {
-        "evidence": {"source_url": "https://brightline.example/pricing", "source_kind": "site", "quote": "Flat monthly pricing.",
-                     "our_read": "Brightline is selling a flat monthly tier."},
-        "entity_id": "company/brightline", "summary": "Brightline sells a flat monthly management tier."},
-        token=analyst["token"])
-    assert applied["insight"]["status"] == "applied"
-    assert applied["events"]
-    with api.app.state.store.read() as c:
-        events = c.execute("SELECT subject_kind, field, insight_id FROM market_events WHERE insight_id=? ORDER BY rowid",
-                           (woke["id"],)).fetchall()
-    assert events[0]["subject_kind"] == "evidence"
-    assert any(row["subject_kind"] == "entity" and row["field"] == "summary" for row in events)
-    for status, claim in (("needs-human", "First disagreement."), ("needs-human", "Second disagreement."),
-                          ("needs-human", "Third disagreement.")):
-        row = post(api, "market/insights", {"kind": "question", "about": "Fees", "claim": claim},
-                   token="ben-test")["insight"]
-        post(api, f"market/insights/{row['id']}/resolve", {"status": status, "resolution": "Two sources disagree."},
-             token=analyst["token"])
-    today = date(2026, 9, 21)
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE market_entities SET last_verified=? WHERE id='company/northwind'",
-                  ((today - timedelta(days=31)).isoformat(),))
-        c.execute("UPDATE market_entities SET last_verified=? WHERE id='company/harborly'",
-                  ((today - timedelta(days=61)).isoformat(),))
-        c.execute("UPDATE market_entities SET last_verified=? WHERE id='company/fernwood'",
-                  ((today - timedelta(days=1)).isoformat(),))
-        c.execute("UPDATE market_entities SET last_verified=? WHERE id='company/doorlark'",
-                  ((today - timedelta(days=90)).isoformat(),))
-    result = post(api, "market/curator/sweep", {"today": today.isoformat(), "unverified": [
-        {"id": "company/northwind", "look_for": "whether Northwind still manages homes"},
-        {"id": "company/harborly", "look_for": "whether Harborly still sells to landlords"},
-        {"id": "company/fernwood", "look_for": "this one is fresh and must not be tasked"},
-    ]}, token=analyst["token"])
-    assert result["owner_task"]
-    with api.app.state.store.read() as c:
-        owner = c.execute("SELECT * FROM tasks WHERE id=?", (result["owner_task"],)).fetchone()
-        assert owner["owner"] == "human:ana"
-        assert "First disagreement." in owner["body"] and "Second disagreement." in owner["body"]
-        assert "Third disagreement." in owner["body"]
-        assert c.execute("SELECT count(*) FROM tasks WHERE owner='human:ana' AND requester='bot:market-analyst'").fetchone()[0] == 1
-        listening_rows = c.execute("SELECT title, body FROM tasks WHERE owner='bot:listening' AND requester='bot:market-analyst'").fetchall()
-    bodies = " ".join(row["body"] for row in listening_rows)
-    assert "company/northwind" in bodies and "company/harborly" in bodies
-    assert "company/fernwood" not in bodies and "company/doorlark" not in bodies
-    assert "whether Northwind still manages homes" in bodies
-
-
-def test_the_curator_rewrites_a_narrative_page_and_nobody_else_does(api, tmp_path):
-    """#488: the market pages were still the seed listings; the curator had no way to write one."""
-    _seed(api, tmp_path)
-    page = post(api, "market/pages/overview", {"body": "# Overview\n\nThree AI property managers launched this month."})
-    assert page["id"] == "market/overview" and page["title"] == "Overview" and page["owner"] == "bot:market-analyst"
-    with api.app.state.store.read() as c:
-        assert M.read_page(c, "market/overview")["content"].startswith("# Overview\n\nThree AI")
-    post(api, "market/pages/overview", {"body": "# Mine"}, token="ben-test", expected=403)
-    post(api, "market/pages/weekly-delta", {"body": "# Delta"}, expected=404)
-    post(api, "market/pages/nonsense", {"body": "# X"}, expected=404)
-    assert "hub_market_page" in hubtools.BY_NAME

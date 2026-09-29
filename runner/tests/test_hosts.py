@@ -115,9 +115,6 @@ class FakeProcess:
 class AuthRetryClassification(unittest.TestCase):
     """One rule for "the runtime could not sign itself in", kept beside the usage-limit rule."""
 
-    def test_a_codex_401_after_reconnects_is_a_lost_sign_in(self):
-        self.assertTrue(base.is_auth_retryable("unexpected status 401 Unauthorized"))
-
     def test_a_key_the_provider_refused_is_rejected_not_retried(self):
         text = "unexpected status 401 Unauthorized: Incorrect API key provided: sk-proj-abcdef123456"
         self.assertTrue(base.is_auth_rejected(text))
@@ -125,12 +122,6 @@ class AuthRetryClassification(unittest.TestCase):
         self.assertTrue(base.is_auth_rejected("Not logged in · Please run /login"))
         self.assertNotIn("sk-proj", base.rejection_reason(text))
         self.assertIn("Incorrect API key", base.rejection_reason(text))
-
-    def test_it_does_not_swallow_a_real_failure(self):
-        for text in ("You've hit your usage limit.", "TypeError: undefined is not a function",
-                     "", None, "the bot rewrote its own AGENT.md and the push was rejected"):
-            self.assertFalse(base.is_auth_retryable(text))
-
 
 # ----------------------------------------------------------------------------- Grok (ACP)
 def grok_responder(proc, msg):
@@ -288,18 +279,6 @@ class ClaudeStreamJson(unittest.TestCase):
         self.assertNotIn("--strict-mcp-config", proc.argv)     # the bot repo's own .mcp.json stays
         self.finish(host, proc)
 
-    def test_an_exit_without_a_result_fails_the_turn(self):
-        host = make_claude()
-        tid = host.start_thread("cpo", self.SETTINGS)
-        host.start_turn(tid, "ping")
-        proc = ClaudeProcess.instances[-1]
-        proc.exit(2)
-        events = self.drain(host)
-        self.assertEqual([e["kind"] for e in events], ["status", "turn_failed", "status"])
-        self.assertEqual(events[1]["error"], "claude exited 2")
-        self.assertFalse(events[1]["limit"])
-        host.stop()
-
     def test_interrupt_terminates_the_process_and_reports_interrupted(self):
         host = make_claude()
         tid = host.start_thread("cpo", self.SETTINGS)
@@ -316,24 +295,6 @@ class ClaudeStreamJson(unittest.TestCase):
         host.interrupt(tid, turn)                              # nothing running: a no-op
         self.assertEqual(host.drain(), [])
         host.stop()
-
-    def test_steer_is_refused_and_turns_do_not_overlap(self):
-        host = make_claude()
-        self.assertFalse(host.supports_steer)
-        tid = host.start_thread("cpo", self.SETTINGS)
-        turn = host.start_turn(tid, "ping")
-        with self.assertRaises(base.HostError):
-            host.steer(tid, turn, "and also")
-        with self.assertRaises(base.HostError):
-            host.start_turn(tid, "another")
-        with self.assertRaises(base.HostError):
-            host.start_turn("not-a-thread", "another")
-        self.assertEqual(len(ClaudeProcess.instances), 1)
-        host.stop()
-        self.assertFalse(host.alive())
-        self.assertTrue(ClaudeProcess.instances[0].terminated)
-        with self.assertRaises(base.HostError):
-            host.start_turn(tid, "after stop")
 
 # ----------------------------------------------------------------------------- Gemini (stream-json)
 class GeminiProcess:

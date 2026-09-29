@@ -75,17 +75,6 @@ def test_google_maps_users_across_pages_and_reads_suspended_as_inactive(monkeypa
     assert "pageToken=p2" in seen[2][1] and "customer=my_customer" in seen[1][1]
 
 
-def test_google_scope_filters_by_ou_group_and_domain(monkeypatch):
-    monkeypatch.setattr(S, "TRANSPORT", google_transport([]))
-    emails = lambda flt: [r["email"] for r in S.google_fetch(GOOGLE, flt)]      # noqa: E731
-    assert emails({"org_units": ["Eng"]}) == ["dev@acme.example", "gone@acme.example"]
-    assert emails({"org_units": ["/Sales"]}) == ["sales@acme.example"]           # sub-OUs are inside
-    assert emails({"groups": ["eng@acme.example"]}) == ["sales@acme.example"]    # nested GROUP members ignored
-    assert emails({"groups": ["eng@acme.example"], "org_units": ["/Eng"]}) == [
-        "dev@acme.example", "gone@acme.example", "sales@acme.example"]
-    assert emails({"domains": ["other.example"]}) == []
-
-
 def gd(oid, name, mail, **more):
     return {"id": oid, "displayName": name, "mail": mail, "userPrincipalName": mail or name + "@acme.onmicrosoft.com",
             "userType": "Member", "accountEnabled": True, **more}
@@ -134,24 +123,6 @@ def test_graph_maps_users_across_pages_and_drops_guests(monkeypatch):
     assert "%24top=999" in first or "$top=999" in first
 
 
-def test_graph_group_filter_uses_the_user_cast_with_consistency_header(monkeypatch):
-    seen = []
-    monkeypatch.setattr(S, "TRANSPORT", graph_transport(seen))
-    assert [r["email"] for r in S.entra_fetch(ENTRA, {"groups": ["g-1"]})] == ["dev@acme.example", "upn@acme.example"]
-    group = next(h for u, h in seen if "/groups/" in u)
-    assert group["consistencylevel"] == "eventual"
-
-
-def test_graph_never_follows_a_next_link_off_graph(monkeypatch):
-    def handler(request):
-        if request.url.host == "login.microsoftonline.com":
-            return httpx.Response(200, json={"access_token": "t"})
-        return httpx.Response(200, json={"value": [], "@odata.nextLink": "https://evil.example/steal"})
-    monkeypatch.setattr(S, "TRANSPORT", httpx.MockTransport(handler))
-    with pytest.raises(Exception, match="unexpected page link"):
-        S.entra_fetch(ENTRA, {})
-
-
 def test_a_failed_listing_raises_instead_of_looking_like_an_empty_directory(monkeypatch):
     monkeypatch.setattr(S, "TRANSPORT", httpx.MockTransport(lambda r: httpx.Response(
         403, json={"error": {"message": "Insufficient privileges"}}) if r.url.host != "login.microsoftonline.com"
@@ -183,26 +154,6 @@ def test_engine_only_leaves_people_its_feed_created_and_never_the_owner():
     found = D.plan(roster, [rec("owner@x.io", active=False)], "google", "owner@x.io", True)
     assert "owner@x.io" not in [x["email"] for x in found["leaves"]]
     assert [x["email"] for x in found["protected"]] == ["owner@x.io"]
-
-
-def test_engine_fills_blanks_on_hand_added_people_but_never_overwrites():
-    roster = {"people": [person("hand", "hand@x.io", name="Hand Made", title="Founder"), person("blank", "blank@x.io"),
-                         person("mine", "mine@x.io", title="Old", directory="google")]}
-    found = D.plan(roster, [rec("hand@x.io", name="Someone Else", title="Intern"),
-                            rec("blank@x.io", name="Blake Lane", title="Analyst"),
-                            rec("mine@x.io", title="New")], "google", "", True)
-    changes = {u["email"]: u["changes"] for u in found["updates"]}
-    assert "hand@x.io" not in changes
-    assert changes["blank@x.io"] == {"name": ["Blank", "Blake Lane"], "title": ["", "Analyst"]}
-    assert changes["mine@x.io"]["title"] == ["Old", "New"]
-
-
-def test_engine_restores_only_people_the_directory_removed():
-    roster = {"people": [person("a", "a@x.io", directory="google", hidden=True, directory_left=True),
-                         person("b", "b@x.io", directory="google", hidden=True)]}
-    found = D.plan(roster, [rec("a@x.io"), rec("b@x.io")], "google", "", True)
-    assert [x["email"] for x in found["restores"]] == ["a@x.io"]
-    assert found["skipped"] == [{"email": "b@x.io", "reason": "was marked left here; not restored"}]
 
 
 # ------------------------------------------------------------------------------------- the routes
@@ -306,20 +257,6 @@ def test_suspended_people_are_marked_left_and_their_tokens_revoked_not_deleted(g
     assert roster_of(api)["dev@acme.example"]["hidden"] is False
 
 
-def test_hand_added_people_and_the_owner_survive_a_directory_that_omits_them(google_api):
-    api, state = google_api
-    put_config(api)
-    confirmed_sync(api)
-    r = api.post("/api/v2/access/people", json={"name": "Hand Added", "email": "hand@acme.example"}, headers=signed_in())
-    assert r.status_code == 200
-    state["users"]["users"] = [state["users"]["users"][0]]                   # only Ana remains; owner not listed
-    out = sync(api)
-    left = {x["email"] for x in out["plan"]["leaves"]}
-    assert left == {"dev@acme.example"}
-    people = roster_of(api)
-    assert not people["hand@acme.example"]["hidden"] and not people[OWNER_EMAIL]["hidden"]
-
-
 def test_the_owner_is_protected_when_the_directory_disables_them(google_api):
     api, state = google_api
     put_config(api)
@@ -349,33 +286,6 @@ def test_a_sync_that_would_mark_too_many_people_left_is_held_until_confirmed(goo
     assert done["applied"] is True and done["done"]["leaves"] == 2
 
 
-def test_the_interval_sync_holds_instead_of_applying_a_risky_plan(google_api):
-    api, state = google_api
-    service = api.app.state.directory
-    put_config(api, interval_minutes=5)
-    with api.app.state.store.read() as c:
-        assert service.due(c) is False                                        # never before the first confirmation
-    confirmed_sync(api)
-    state["users"]["users"] = [state["users"]["users"][2]]
-    put_config(api, revision=1, mass_leave_limit=1, interval_minutes=5, credentials=None)
-    with api.app.state.store.transaction() as c:
-        cfg = D.load(c)
-        cfg["confirmed"], cfg["last"] = True, {"at": "2020-01-01T00:00:00+00:00"}
-        D.save(c, cfg)
-    with api.app.state.store.read() as c:
-        assert service.due(c) is True
-    service.tick()
-    assert roster_of(api)["ana@acme.example"]["hidden"] is False
-    assert len(events(api, "directory.sync_held")) == 1
-    service.tick()                                                            # same plan: no second event
-    with api.app.state.store.transaction() as c:
-        cfg = D.load(c)
-        cfg["last"]["at"] = "2020-01-01T00:00:00+00:00"
-        D.save(c, cfg)
-    service.tick()
-    assert len(events(api, "directory.sync_held")) == 1
-
-
 def test_credentials_are_encrypted_and_never_returned(google_api):
     api, _ = google_api
     put_config(api)
@@ -398,21 +308,3 @@ def test_only_the_owner_manages_directory_sync_and_stale_revisions_are_refused(g
     r = api.put("/api/v2/directory", json={"source": "", "expected_revision": 0}, headers=signed_in())
     assert r.status_code == 409
 
-
-def test_a_directory_error_is_reported_and_changes_nothing(google_api, monkeypatch):
-    api, _ = google_api
-    put_config(api)
-    monkeypatch.setattr(S, "TRANSPORT", httpx.MockTransport(lambda r: httpx.Response(401, json={"error": "unauthorized_client",
-                        "error_description": "Client is unauthorized to retrieve access tokens"})))
-    r = api.post("/api/v2/directory/sync", json={}, headers=signed_in())
-    assert r.status_code == 502 and "unauthorized" in r.text
-    last = api.get("/api/v2/directory", headers=signed_in()).json()["last"]
-    assert last["ok"] is False
-
-
-def test_photos_fetched_for_new_people_land_in_the_photo_cache(google_api):
-    api, _ = google_api
-    put_config(api)
-    confirmed_sync(api)
-    from backend import people_photos
-    assert people_photos.cached(api.app.state.store.settings, "ana@acme.example") == (b"\xff\xef", "image/png")

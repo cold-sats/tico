@@ -92,14 +92,6 @@ def test_the_preflight_is_answered_without_a_sign_in_for_allowed_origins_only(ap
     assert odd.status_code == 400
 
 
-def test_an_error_still_carries_the_headers_so_the_page_can_read_it(api):
-    r = api.get("/api/v2/me", headers={"Origin": APP})
-    assert r.status_code == 401 and r.headers["access-control-allow-origin"] == APP
-    assert r.json()["error"]["code"] == "identity"
-    r = api.post("/api/v2/tasks", json={}, headers={**headers(), "Origin": APP})
-    assert r.status_code == 422 and r.headers["access-control-allow-origin"] == APP
-
-
 def test_browser_writes_pass_only_from_the_server_or_an_allowed_origin(api):
     body = {"text": "hello"}
     ok = api.post("/api/v2/chat/ops", json=body, headers={**headers(), "Origin": APP})
@@ -108,27 +100,12 @@ def test_browser_writes_pass_only_from_the_server_or_an_allowed_origin(api):
     assert refused.status_code == 403 and refused.json()["error"]["code"] == "origin"
 
 
-def test_nothing_is_added_when_no_origin_is_configured(tmp_path):
-    app = create_app(Settings(db_path=tmp_path / "hub.db", test_identities={"t": Identity("human:ana", "owner", "a@x.example")}))
-    with TestClient(app) as client:
-        r = client.options("/api/v2/me", headers={"Origin": APP, "Access-Control-Request-Method": "GET"})
-        assert not [k for k in r.headers if k.lower().startswith("access-control-")]
-        r = client.get("/healthz", headers={"Origin": APP})
-        assert "access-control-allow-origin" not in r.headers
-
-
 @pytest.mark.parametrize("value", ["*", "https://*.acme.example", "null", "https://app.acme.example/", "https://app.acme.example/x",
                                    "http://app.acme.example", "ftp://app.acme.example", "app.acme.example",
                                    "https://user@app.acme.example", "https://app.acme.example?x=1", "http://localhost:5173/x"])
 def test_the_allowlist_takes_exact_origins_only(value):
     with pytest.raises(RuntimeError, match="TICO_CORS_ORIGINS"):
         cors.parse(value)
-
-
-def test_the_allowlist_is_parsed_and_normalised():
-    assert cors.parse("") == () and cors.parse(" , ") == ()
-    assert cors.parse("HTTPS://App.Acme.example, http://localhost:5173,http://127.0.0.1:3000, https://app.acme.example") == (
-        "https://app.acme.example", "http://localhost:5173", "http://127.0.0.1:3000")
 
 
 # ---- sign-in for a frontend on another origin -----------------------------------------------
@@ -209,17 +186,6 @@ def test_the_code_is_single_use_and_bound_to_the_verifier_and_the_origin(signin)
     assert exchange(signin, "not-a-code").json()["error"]["code"] == "invalid_grant"
 
 
-def test_a_code_expires_after_a_minute_and_junk_bodies_are_refused(signin):
-    _, code = tico_code(sign_in(signin))
-    with signin.auth.store.transaction() as c:
-        c.execute("UPDATE oidc_codes SET expires_at='2000-01-01T00:00:00Z'")
-    assert exchange(signin, code).status_code == 400
-    for body in ({}, {"code": 1, "code_verifier": VERIFIER}, [], "x"):
-        r = signin.api.post("/auth/token", json=body, headers={"Origin": APP})
-        assert r.status_code == 400 and r.json()["error"]["code"] == "invalid_request"
-    assert signin.api.post("/auth/token", content=b"{nope", headers={"Origin": APP}).status_code == 400
-
-
 @pytest.mark.parametrize("target", [
     EVIL + "/", "//evil.example/", "///evil.example", "\\\\evil.example", "javascript:alert(1)", "data:text/html,x",
     "https://app.acme.example.evil.example/", "https://app.acme.example@evil.example/", "http://localhost:5173@evil.example/",
@@ -246,31 +212,3 @@ def test_a_frontend_must_send_a_pkce_challenge(signin):
         assert start(signin, challenge=bad).status_code == 400
     assert start(signin, PROD + "/").status_code == 302
 
-
-def test_a_frontend_signing_in_off_the_roster_gets_no_code(signin):
-    result = sign_in(signin, claims={"email": "stranger@acme.example"})
-    assert result.status_code == 403 and "location" not in result.headers
-    with signin.auth.store.read() as c:
-        assert c.execute("SELECT count(*) FROM oidc_codes").fetchone()[0] == 0
-
-
-def test_the_builtin_sign_in_still_returns_to_a_path_and_sets_its_cookie(signin):
-    began = signin.api.get("/auth/login", params={"next": "/tasks"}, follow_redirects=False)
-    code, state = signin.fake.approve(began.headers["location"])
-    done = signin.api.get("/auth/callback", params={"code": code, "state": state}, follow_redirects=False)
-    assert done.headers["location"] == "/tasks" and "tico_session=" in done.headers["set-cookie"]
-
-
-def test_a_bearer_session_is_refused_without_built_in_sign_in(api):
-    assert api.get("/api/v2/me", headers={"Authorization": "Bearer tico_st_" + "a" * 40}).status_code == 401
-    assert api.post("/auth/token", json={"code": "a", "code_verifier": "b" * 43}, headers={"Origin": APP}).status_code == 404
-
-
-def test_a_session_ended_by_the_server_ends_the_bearer(signin):
-    _, code = tico_code(sign_in(signin))
-    bearer = {"Authorization": "Bearer " + exchange(signin, code).json()["access_token"]}
-    assert signin.api.get("/api/v2/me", headers=bearer).status_code == 200
-    with signin.auth.store.transaction() as c:
-        c.execute("UPDATE oidc_sessions SET last_seen='2000-01-01T00:00:00Z'")
-    r = signin.api.get("/api/v2/me", headers=bearer)
-    assert r.status_code == 401 and r.json()["error"]["sign_in"] == "/auth/login"

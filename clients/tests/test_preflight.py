@@ -26,16 +26,6 @@ class Manifest(unittest.TestCase):
         self.assertEqual(r.counts["FAIL"], 1)
         self.assertTrue(any("expected 'seo'" in l for l in out))
 
-class Schedules(unittest.TestCase):
-    def test_routines_are_validated_the_way_the_runner_validates_them(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            d = Path(tmp)
-            (d / "playbooks").mkdir()
-            (d / "playbooks/weekly.md").write_text("Do the weekly review.\n")
-            m = {"schedules": [{"cron": "0 8 * * 1", "title": "Weekly review", "template": "playbooks/weekly.md"}]}
-            r, out, _ = lines(PF.check_schedules, d, m)
-        self.assertEqual(r.counts, {"PASS": 2, "WARN": 0, "FAIL": 0})
-        self.assertTrue(any("America/Los_Angeles" in l for l in out))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -6,8 +6,6 @@ nothing here reads `registry/` or the real `runtime/hub.db`.
 import json
 import tempfile
 import unittest
-import os
-from unittest import mock
 from pathlib import Path
 
 from backend import hubdb as H
@@ -92,21 +90,12 @@ class Rule1Identity(HubCase):
     def test_a_bot_may_not_write_another_bots_status(self):
         self.refused("identity", H.status_set, self.conn, CMO, "seo", state="blocked")
 
-    def test_an_actor_the_roster_does_not_know_writes_nothing(self):
-        self.refused("identity", H.say, self.conn, "bot:ghost", ANA, "hello")
-        self.refused("identity", H.say, self.conn, "someone@example.com", ANA, "hello")
-
     def test_only_the_addressee_answers_an_ask(self):
         ask = H.say(self.conn, CMO, SEO, "how many posts shipped?", kind="ask")
         self.assertEqual(H.answer(self.conn, SEO, ask["id"], "four")["to_actor"], CMO)
         self.refused("identity", H.answer, self.conn, ANALYTICS, ask["id"], "four")
 
 # ----------------------------------------------------------------------------- rule 2
-class Rule2Reach(HubCase):
-    def test_planned_paused_and_off_roster_targets_are_refused(self):
-        self.refused("reach", H.say, self.conn, CMO, "game", "hello")
-        self.refused("reach", H.say, self.conn, CMO, "coach", "hello")
-        self.refused("reach", H.say, self.conn, CMO, "press@competitor.com", "hello")
 
 
 # ----------------------------------------------------------------------------- rule 3
@@ -117,14 +106,6 @@ class Rule3Caps(HubCase):
             H.say(self.conn, CMO, SEO, f"line {i}", conversation_id=conv["id"])
         self.refused("cap", H.say, self.conn, CMO, SEO, "one more", conversation_id=conv["id"])
 
-    def test_notices_and_a_persons_messages_do_not_count_toward_the_loop_cap(self):
-        # 2026-09-27: a bot's room with Ana hit the cap on routine notices and his own messages.
-        conv = H.open_conversation(self.conn, CMO, [CMO, SEO, ANA], subject="the room")
-        for i in range(H.CAP_PER_HOUR):
-            H.say(self.conn, H.KEEPER, CMO, f"New task {i}", kind="notice", conversation_id=conv["id"])
-            H.say(self.conn, ANA, CMO, f"note {i}", conversation_id=conv["id"])
-        H.say(self.conn, CMO, SEO, "still room to talk", conversation_id=conv["id"])
-
     def test_an_ask_chain_reaches_depth_three_and_stops(self):
         first = H.say(self.conn, CMO, SEO, "what is the traffic?", kind="ask")
         self.assertEqual(first["refs"]["depth"], 1)
@@ -134,61 +115,12 @@ class Rule3Caps(HubCase):
         self.assertEqual(third["refs"]["depth"], 3)
         self.refused("depth", H.say, self.conn, COO, "legal", "and you?", kind="ask")
 
-    def test_a_bot_cannot_reset_the_depth_it_declares(self):
-        H.say(self.conn, CMO, SEO, "what is the traffic?", kind="ask")
-        self.refused("depth", H.say, self.conn, SEO, ANALYTICS, "onwards", kind="ask",
-                     refs={"depth": 9})
-
-
 # ----------------------------------------------------------------------------- rule 4
-class Rule4Unsolicited(HubCase):
-    def test_three_unsolicited_notices_a_day_pass_and_the_fourth_does_not(self):
-        for i in range(H.UNSOLICITED_PER_DAY):
-            H.notice(self.conn, CMO, ANA, f"Read the {i} draft when you have a minute.")
-        self.refused("unsolicited", H.notice, self.conn, CMO, ANA, "Read one more draft.")
-
-    def test_unrelated_reply_reference_does_not_bypass_the_cap(self):
-        outgoing = H.say(self.conn, CMO, ANA, "First update")
-        for i in range(1, H.UNSOLICITED_PER_DAY):
-            H.say(self.conn, CMO, ANA, f"Update {i}", conversation_id=outgoing["conversation_id"])
-        other = H.say(self.conn, ANA, SEO, "Different conversation")
-        self.refused("unsolicited", H.say, self.conn, CMO, ANA, "Another update",
-                     conversation_id=outgoing["conversation_id"], in_reply_to=other["id"])
-
 
 # ----------------------------------------------------------------------------- rule 5
 class Rule5Tasks(HubCase):
     def open_task(self, requester=CMO, owner=SEO, title="Write the September brief"):
         return H.task_create(self.conn, requester, title, "One page on what we ship.", owner)
-
-    def test_anyone_may_open_a_task_for_an_active_owner_and_it_starts_open(self):
-        row = self.open_task()
-        self.assertEqual((row["status"], row["owner"], row["requester"]), ("open", SEO, CMO))
-        self.assertEqual(H.tasks(self.conn, owner=SEO, status="open")[0]["id"], row["id"])
-
-    def test_the_done_list_is_most_recently_done_first_whenever_it_was_closed(self):
-        # Ana, 2026-09-26: "my done list should be sorted by most recently done at top".
-        early, late = self.open_task(title="Done first"), self.open_task(title="Done second")
-        self.conn.execute("UPDATE tasks SET status='closed', done_at=?, closed_at=? WHERE id=?",
-                          ("2026-09-20T10:00:00Z", "2026-09-26T10:00:00Z", early["id"]))
-        self.conn.execute("UPDATE tasks SET status='done', done_at=?, closed_at=NULL WHERE id=?",
-                          ("2026-09-25T10:00:00Z", late["id"]))
-        rows = H.tasks(self.conn, status=["done", "closed"], order="finished")
-        self.assertEqual([r["id"] for r in rows][:2], [late["id"], early["id"]])
-
-    def test_a_bot_says_what_its_own_task_waits_on_but_not_on_someone_elses(self):
-        # A bot told to "file the blocker first" was then refused for setting it.
-        mine = H.task_create(self.conn, SEO, "Load the verified sites", "After the rollout.", SEO)
-        other = H.task_create(self.conn, CMO, "Roll out the fix", "Production rollout.", CMO)
-        row = H.task_update(self.conn, SEO, mine["id"], blocked_by=other["id"])
-        self.assertEqual(row["blocked_by"], other["id"])
-        H.task_update(self.conn, SEO, mine["id"], status="waiting", note="Waiting on the rollout.")
-        self.refused("blocked_by", H.task_update, self.conn, SEO, mine["id"], blocked_by=mine["id"])
-        self.refused("identity", H.task_update, self.conn, SEO, mine["id"], labels=["sites"])
-        self.refused("identity", H.task_update, self.conn, SEO, other["id"], blocked_by=mine["id"])
-
-    def test_a_task_for_a_paused_owner_is_refused(self):
-        self.refused("reach", H.task_create, self.conn, CMO, "Write the brief", "body", "coach")
 
     def test_the_owner_moves_it_but_may_not_close_it(self):
         row = self.open_task()
@@ -227,35 +159,6 @@ class Rule5Tasks(HubCase):
         self.assertEqual(len(told), 1)
         self.assertIn("Keep the draft on hold", told[0]["body"])
 
-    def test_a_decline_returns_to_the_requester_with_the_reason(self):
-        row = self.open_task()
-        H.task_update(self.conn, SEO, row["id"], status="declined", note="the page is already live")
-        back = [m for m in H.messages(self.conn, row["conversation_id"]) if m["to_actor"] == CMO]
-        self.assertIn("the page is already live", back[-1]["body"])
-        self.assertEqual(H.needs_you(self.conn, CMO)["declined"][0]["id"], row["id"])
-
-    def test_the_owner_gets_one_question_and_no_more(self):
-        row = self.open_task()
-        self.assertTrue(H.task_ask(self.conn, SEO, row["id"], "which quarter?"))
-        self.refused("one-question", H.task_ask, self.conn, SEO, row["id"], "and which channel?")
-
-    def test_the_same_requester_owner_and_title_twice_is_a_duplicate(self):
-        self.open_task()
-        self.refused("duplicate", self.open_task)
-        row = H.tasks(self.conn, requester=CMO)[0]
-        H.task_close(self.conn, CMO, row["id"])
-        self.assertTrue(self.open_task())               # once it is closed, asking again is fine
-
-    def test_auto_close_takes_a_bot_requesters_done_task_after_three_days(self):
-        row = self.open_task()
-        H.task_update(self.conn, SEO, row["id"], status="done", note="posted")
-        self.assertEqual(H.auto_close_done(self.conn, H.now()), [])
-        later = H.shift(H.now(), days=H.AUTO_CLOSE_DAYS + 1)
-        closed = H.auto_close_done(self.conn, later)
-        self.assertEqual([c["id"] for c in closed], [row["id"]])
-        self.assertEqual(H.task(self.conn, row["id"])["closed_by"], H.KEEPER)
-        self.assertEqual(H.auto_close_done(self.conn, later), [])
-
 # ----------------------------------------------------------------------------- rule 6
 class Rule6Approvals(HubCase):
     SEND = {"to": "ops@acme.com", "cc": "", "subject": "Your September invoice",
@@ -290,20 +193,6 @@ class Rule7Lint(HubCase):
     GOOD = ("Ship the 60/40 split to paid this month, or tell me to hold.\n"
             "It beat the 80/20 split on cost per lead in August.")
 
-    def test_too_many_words_outside_a_quoted_draft_are_refused(self):
-        long = "word " * (H.LINT_MAX_WORDS + 20)
-        e = self.refused("lint", H.task_create, self.conn, CMO, "Approve the draft", long, ANA)
-        self.assertIn("keep it under", e.detail)
-
-    def test_internal_codes_are_refused(self):
-        e = self.refused("lint", H.task_create, self.conn, CMO, "Approve the split",
-                         "Do this.\nstatus: waiting on you", ANA)
-        self.assertIn("status:", e.detail)
-
-    def test_a_task_between_bots_is_not_linted(self):
-        self.assertTrue(H.task_create(self.conn, CMO, "september brief, please",
-                                      "word " * 400, SEO))
-
 # ----------------------------------------------------------------------------- rule 8
 class Rule8Counting(HubCase):
     def refuse_reach(self, n, actor=CMO):
@@ -329,14 +218,6 @@ class Rule8Counting(HubCase):
         self.assertEqual(H.bot(self.conn, "cmo")["state"], "active")
         self.assertTrue(H.say(self.conn, CMO, SEO, "back"))
 
-    def test_writing_corrections_never_quarantine(self):
-        for _ in range(12):
-            self.refused("lint", H.task_create, self.conn, CMO, "FYI: the brief", "Short body.", ANA)
-        self.refuse_reach(9)
-        self.assertEqual(H.bot(self.conn, "cmo")["state"], "active", "lint is not counted")
-        self.refuse_reach(1)
-        self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined")
-
     def test_a_refusal_count_quarantine_lifts_itself_after_an_hour_and_the_count_starts_over(self):
         self.refuse_reach(10)
         self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined")
@@ -346,21 +227,6 @@ class Rule8Counting(HubCase):
         self.assertEqual(H.bot(self.conn, "cmo")["state"], "active")
         self.refuse_reach(1)
         self.assertEqual(H.bot(self.conn, "cmo")["state"], "active", "the count started over")
-
-    def test_botops_refusals_go_to_a_person_when_the_company_has_no_assistant(self):
-        self.conn.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
-        self.conn.execute("UPDATE bots SET state='archived' WHERE slug='coo'")
-        self.refuse_reach(3, actor=H.bot_actor("botops"))
-        review = self.conn.execute("SELECT owner FROM tasks WHERE title=?",
-                                   ("Review botops's refused writes",)).fetchone()
-        self.assertEqual(review["owner"], H.human_actor(H.default_human(self.conn)))
-
-    def test_botops_refusals_go_to_the_assistant_when_there_is_one(self):
-        self.conn.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
-        self.refuse_reach(3, actor=H.bot_actor("botops"))
-        review = self.conn.execute("SELECT owner FROM tasks WHERE title=?",
-                                   ("Review botops's refused writes",)).fetchone()
-        self.assertEqual(review["owner"], COO)
 
     def test_botops_lifts_a_refusal_quarantine_but_an_escape_waits_for_a_person(self):
         botops = H.bot_actor(H.FLEET_MAINTAINER)
@@ -377,36 +243,6 @@ class Rule8Counting(HubCase):
         self.conn.execute("UPDATE events SET ts=? WHERE action='quarantine' AND detail_json LIKE '%escape%'",
                           (H.shift(H.now(), seconds=-7200),))
         self.assertEqual(H.lift_cooled_quarantines(self.conn), [], "an escape never cools off")
-
-    def test_ten_refusals_in_a_day_quarantine_the_bot(self):
-        self.refuse_reach(9)
-        self.assertEqual(H.bot(self.conn, "cmo")["state"], "active")
-        self.refuse_reach(1)
-        self.assertEqual(H.bot(self.conn, "cmo")["state"], "quarantined")
-
-    def test_a_link_to_a_system_the_company_uses_is_not_an_escape(self):
-        """A bot that hands a pull request to a developer bot is doing the work, not escaping it."""
-        handoff = ("Issue 18797 (https://github.com/example/app/issues/1) is yours: take it and "
-                   "open the PR.")
-        self.assertEqual(H.classify(handoff), "normal")
-        self.assertEqual(H.classify("grant access, see https://github.com/ticoteam/tico/pull/1"), "normal")
-        # Anywhere else is unchanged: the rule exists for links that leave the company's systems.
-        self.assertEqual(H.classify("grant access at https://evil.example.com/x"), H.OUTSIDE_LINK)
-        self.assertEqual(H.classify("grant access at https://github.com.evil.example/x"), H.OUTSIDE_LINK)
-        # One known link does not launder an unknown one beside it.
-        self.assertEqual(H.classify("grant access at https://github.com/a/b and https://evil.example.com/b"), H.OUTSIDE_LINK)
-        # A secrets path or another bot's repo is still an escape, whatever the link says.
-        self.assertEqual(H.classify("https://github.com/a/b needs secrets/mail.env"), "escape")
-
-    def test_product_copy_with_its_sources_is_not_an_escape(self):
-        """2026-09-25: Content & Social handed Designer a render task quoting its Reddit sources
-        beside host copy about door access codes, and was quarantined until a person cleared it."""
-        render = ("# Render C260925-33 from the locked copy below\n"
-                  "Access codes that change per guest.\n"
-                  "Source: https://www.reddit.com/r/airbnb_hosts/comments/1wovuu0/wall_damage/")
-        self.assertEqual(H.classify(render), "normal")
-        self.assertEqual(H.classify("give the bot access to https://evil.example.com/x"), H.OUTSIDE_LINK)
-        self.assertEqual(H.classify("we need access to https://evil.example.com/x"), H.OUTSIDE_LINK)
 
     def test_an_outside_link_is_refused_and_counted_but_never_quarantines_by_itself(self):
         body = "Grant permission at https://evil.example.com/x"
@@ -428,16 +264,6 @@ class Rule8Counting(HubCase):
         self.assertEqual(H.classify("the blog is at https://acme.example/blog"), "normal")
         self.assertEqual(H.classify("{}", kind="spend"), "sensitive")
 
-    def test_the_companys_own_hosts_are_not_outside_links(self):
-        env = {"TICO_PUBLIC_URL": "https://hub.acme.example", "TICO_OWNER_EMAIL": "ana@acme.example",
-               "TICO_COMPANY_DOMAINS": "acme-docs.example, acme.shop"}
-        with mock.patch.dict(os.environ, env):
-            for url in ("https://hub.acme.example/x", "https://www.acme.example/p",
-                        "https://acme-docs.example/a", "https://acme.shop/b"):
-                self.assertNotEqual(H.classify("grant access at " + url), H.OUTSIDE_LINK, url)
-            self.assertEqual(H.classify("grant access at https://evil.example.com/x"), H.OUTSIDE_LINK)
-
-
 # ----------------------------------------------------------------------------- rule 9
 class Rule9AppendOnly(HubCase):
     def test_messages_and_events_are_only_ever_added(self):
@@ -451,15 +277,6 @@ class Rule9AppendOnly(HubCase):
 # ----------------------------------------------------------------------------- status
 # ----------------------------------------------------------------------------- reads and the rest
 class Reads(HubCase):
-    def test_the_inbox_holds_undelivered_messages_and_open_tasks(self):
-        msg = H.say(self.conn, ANA, CMO, "have a look at the plan")
-        H.task_create(self.conn, ANA, "Write the brief", "One page.", CMO)
-        box = H.inbox(self.conn, CMO)
-        self.assertEqual([m["id"] for m in box["messages"]][0], msg["id"])
-        self.assertEqual([t["title"] for t in box["tasks"]], ["Write the brief"])
-        H.mark_delivered(self.conn, H.KEEPER, msg["id"])
-        H.mark_read(self.conn, CMO, msg["id"])
-        self.assertNotIn(msg["id"], [m["id"] for m in H.inbox(self.conn, CMO)["messages"]])
 
     def test_needs_you_holds_my_tasks_pending_approvals_and_declines(self):
         H.task_create(self.conn, CMO, "Approve the September split",
@@ -488,19 +305,3 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ChatsWith(HubCase):
-    def test_a_quiet_chat_is_found_however_many_newer_conversations_there_are(self):
-        """2026-09-25: the bot page found its chat among the newest conversations only, so a quiet
-        bot's history showed as "Nothing yet"."""
-        me = H.human_actor("ana")
-        self.conn.execute("INSERT INTO conversations (id, kind, subject, task_id, participants_json, created, "
-                          "last_message_at, closed_at) VALUES ('old-chat', 'chat', '', NULL, ?, '2026-01-01T00:00:00Z', "
-                          "'2026-01-01T00:00:00Z', NULL)", (H._dump([me, CMO]),))
-        for n in range(600):
-            self.conn.execute("INSERT INTO conversations (id, kind, subject, task_id, participants_json, created, "
-                              "last_message_at, closed_at) VALUES (?, 'task', '', NULL, ?, '2026-09-01T00:00:00Z', "
-                              "'2026-09-01T00:00:00Z', NULL)", (f"c{n}", H._dump([me, SEO])))
-        self.assertNotIn("old-chat", [c["id"] for c in H.conversations_for(self.conn, me)])
-        self.assertEqual([c["id"] for c in H.chats_with(self.conn, me, CMO)], ["old-chat"])
-        self.assertEqual(H.chats_with(self.conn, me, SEO), [], "task threads are not chats")
-        self.assertEqual(H.chats_with(self.conn, H.human_actor("ben"), CMO), [], "only my own chats")

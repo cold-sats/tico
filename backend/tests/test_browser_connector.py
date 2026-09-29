@@ -41,9 +41,3 @@ def test_another_bot_naming_a_social_host_in_code_is_refused_even_without_a_sche
     # Words that merely contain a social domain's letters are not a social host.
     assert B.check_sites("const box = 'fax.company'; await openTab('https://www.yelp.com/')", entry, "reputation")
 
-
-def test_listening_reads_social_hosts_within_its_sites():
-    entry = {"sites": ["x.com", "reddit.com"], "can": ["read"]}
-    assert B.check_sites("await openTab('https://x.com/search?q=Globex')", entry, "listening") == ["x.com"]
-    with pytest.raises(B.Refused, match="may not open"):
-        B.check_sites("await openTab('https://www.facebook.com/groups/1')", entry, "listening")

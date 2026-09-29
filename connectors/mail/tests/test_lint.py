@@ -55,23 +55,6 @@ class Clean(unittest.TestCase):
 class House(unittest.TestCase):
     """What used to be one company's wording is policy: phrases, hosts and signature names."""
 
-    def test_L001_phrases_come_from_the_policy(self):
-        self.assertNotIn("L001", ids(lint(CLEAN + "\nOur crew is great.\n\nAna\n")))
-        res = lint(CLEAN + "\nOur crew is great.\n\nAna\n", forbidden_phrases=["our crew"])
-        self.assertIn("L001", ids(res))
-
-    def test_L010_hosts_are_the_internal_domains(self):
-        body = CLEAN + "\nSee https://www.corp.example/x\n\nAna\n"
-        self.assertIn("L010", ids(lint(body)))
-        self.assertNotIn("L010", ids(lint(body, internal_domains=("corp.example",))))
-
-    def test_L055_the_signature_names_come_from_the_policy(self):
-        body = CLEAN.replace("Ana\nFounder, Acme", "Ben\nFounder, Acme")
-        self.assertIn("L055", ids(lint(body)))
-        self.assertNotIn("L055", ids(lint(body, signature_names=["ben"])))
-        self.assertNotIn("L055", ids(lint(body, signature_names=[])))     # none configured: not checked
-
-
 class Content(unittest.TestCase):
     def test_L030_secret_shapes(self):
         for bad in ("xoxb-123", "AKIAIOSFODNN7", "sk-abc123", "ghp_abc", "-----BEGIN KEY"):

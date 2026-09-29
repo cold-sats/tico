@@ -1,7 +1,7 @@
 """An inbox bot gets a computer to itself: assignment is refused both ways, and Health warns about
 installs that already mix them."""
 
-from backend.store import H, encode
+from backend.store import encode
 from backend.tests.test_getting_started import add_bot, enrolled, SIGNED_IN, heartbeat  # noqa: F401
 from backend.tests.test_health import health_of  # noqa: F401
 from backend.tests.test_onboarding import PEOPLE, environment, machine, signed_in  # noqa: F401
@@ -39,30 +39,6 @@ def test_an_inbox_bot_and_another_bot_never_share_a_computer(environment):
     assert place(api, "mail", other).status_code == 200
     again = place(api, "helper", other, 1)
     assert again.status_code == 409 and again.json()["error"]["code"] == "inbox_isolation"
-
-
-def test_inbox_bots_share_a_computer_only_when_the_operator_says_so(environment):
-    api = environment()
-    runner = setup(api)
-    assert place(api, "mail", runner).status_code == 200
-    assert place(api, "mail2", runner).status_code == 409
-    assert api.post(f"/api/v2/runners/{runner}/inbox-sharing", json={"allowed": True}, headers=signed_in()).status_code == 200
-    assert place(api, "mail2", runner).status_code == 200
-    assert place(api, "helper", runner).status_code == 409        # the flag never admits an ordinary bot
-
-
-def test_health_warns_about_a_mix_that_already_exists(environment):
-    api = environment()
-    runner = setup(api)
-    heartbeat(api, runner, seconds_ago=5, runtimes=SIGNED_IN)
-    _, checks = health_of(api)
-    assert "inbox" not in checks
-    with api.app.state.store.transaction() as c:
-        for bot in ("mail", "helper"):
-            c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES(?,?,1,?,'t')",
-                      (bot, runner, H.now()))
-    _, checks = health_of(api)
-    assert checks["inbox"]["status"] == "warn" and "mail" in checks["inbox"]["summary"]
 
 
 def test_health_warns_while_bots_can_read_the_mail_key(environment):

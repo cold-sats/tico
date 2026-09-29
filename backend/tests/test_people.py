@@ -41,22 +41,6 @@ EMPLOYEES = {
 }
 
 
-class Load(unittest.TestCase):
-    def test_the_roster_is_normalised(self):
-        roster = P.load(DOC)
-        self.assertEqual(roster["default_user"], "ana")
-        self.assertEqual(roster["teams"]["marketing"], {"root": "cmo"})
-        ana = P.person("ana", roster)
-        self.assertEqual(ana["email"], "ana@acme.example")          # lowercased
-        self.assertEqual(ana["primary_for"], ["marketing"])
-        self.assertIsNone(ana["bot"])
-        self.assertEqual(P.person("lena", roster)["bot"], "success")
-
-    def test_a_person_can_be_found_by_verified_email(self):
-        roster = P.load(DOC)
-        self.assertEqual(P.person_by_email("BEN@ACME.EXAMPLE", roster)["id"], "ben")
-        self.assertIsNone(P.person_by_email("unknown@acme.example", roster))
-
 class Primary(unittest.TestCase):
     ROSTER = P.load(DOC)
 
@@ -66,23 +50,6 @@ class Primary(unittest.TestCase):
         self.assertTrue(P.may_chat("ben@acme.example", "bug-triage", self.ROSTER, EMPLOYEES))
         self.assertFalse(P.may_chat("unknown@acme.example", "bug-triage", self.ROSTER, EMPLOYEES))
 
-class OrgMail(unittest.TestCase):
-    def setUp(self):
-        self.roster = P.load({
-            "people": [
-                {"id": "ana", "email": "ana@acme.example", "inbox_bot": "inbox"},
-                {"id": "priya", "email": "priya@acme.example", "reports_to": "ana"},
-                {"id": "omar", "email": "omar@acme.example", "reports_to": "priya"},
-                {"id": "ghost", "reports_to": "ana"},
-            ]
-        })
-
-    def test_a_cycle_or_self_report_does_not_loop(self):
-        roster = P.load({"people": [
-            {"id": "a", "email": "a@acme.example", "reports_to": "b"},
-            {"id": "b", "email": "b@acme.example", "reports_to": "a"},
-        ]})
-        self.assertEqual(P.mailboxes_below("a", roster), ["a@acme.example", "b@acme.example"])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

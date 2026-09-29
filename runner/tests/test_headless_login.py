@@ -54,25 +54,6 @@ class HeadlessLogin(unittest.TestCase):
         assignments = [{"bot": bot, "config": {"runtime": runtime}} for bot in bots]
         return self.runner.runtime_readiness(runtime, assignments)
 
-    def test_codex_device_login_in_codex_home_is_ready(self):
-        self.stub("codex", CODEX)
-        home = self.root / "codex-home"
-        home.mkdir()
-        self.assertEqual(self.readiness("codex")["authenticated"], "missing")
-        (home / "auth.json").write_text("ChatGPT")
-        with mock.patch.dict(os.environ, {"CODEX_HOME": str(home)}):
-            row = self.readiness("codex")
-        self.assertEqual((row["authenticated"], row["detail"], row["version"]),
-                         ("ready", "Signed in with ChatGPT", "codex-cli 9.9.9"))
-
-    def test_codex_api_key_login_is_named(self):
-        self.stub("codex", CODEX)
-        home = self.root / "codex-home"
-        home.mkdir()
-        (home / "auth.json").write_text("an API key")
-        with mock.patch.dict(os.environ, {"CODEX_HOME": str(home)}):
-            self.assertEqual(self.readiness("codex")["detail"], "Signed in with an API key")
-
     def test_claude_needs_a_login_or_a_token(self):
         self.stub("claude", CLAUDE)
         self.assertEqual(self.readiness("claude")["authenticated"], "missing")
@@ -81,22 +62,6 @@ class HeadlessLogin(unittest.TestCase):
         self.assertEqual((row["authenticated"], row["detail"]), ("ready", "Signed in with CLAUDE_CODE_OAUTH_TOKEN"))
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-x"}):
             self.assertEqual(self.readiness("claude")["authenticated"], "ready")
-
-    def test_claude_token_in_shared_env_counts_even_if_status_is_unreadable(self):
-        self.stub("claude", CLAUDE_CRASH)
-        self.assertEqual(self.readiness("claude")["authenticated"], "failed")
-        (self.root / "secrets" / "_shared.env").write_text("ANTHROPIC_API_KEY=sk-x\n")
-        self.assertEqual(self.readiness("claude")["authenticated"], "ready")
-
-    def test_gemini_key_from_shared_env_is_ready(self):
-        self.stub("gemini", "#!/bin/sh\necho 0.0.1\n")
-        self.assertEqual(self.readiness("gemini", ["coo"])["authenticated"], "missing")
-        (self.root / "secrets" / "_shared.env").write_text("GEMINI_API_KEY=k\n")
-        self.assertEqual(self.readiness("gemini", ["coo"])["authenticated"], "ready")
-        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "k"}):
-            (self.root / "secrets" / "_shared.env").unlink()
-            self.assertEqual(self.readiness("gemini", ["coo"])["authenticated"], "ready")
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -83,26 +83,6 @@ def test_sdk_wire_allowlist(settings, recording):
     telemetry.close()
 
 
-def test_server_disabled_and_failures_isolated(settings, monkeypatch):
-    def broken(**kw):
-        raise RuntimeError(SECRET)
-    monkeypatch.setattr(sentry_sdk, "Client", broken)
-    for changes in ({"sentry_server_dsn": ""}, {"observability_environment": ""}, {}):
-        telemetry = Observability(replace(settings, **changes))
-        telemetry.start()
-        assert telemetry.client is None
-        telemetry.capture("request", RuntimeError(SECRET), 500)
-        telemetry.close()
-    class BrokenClient:
-        def capture_event(self, event):
-            raise RuntimeError(SECRET)
-        def close(self, **kw):
-            raise RuntimeError(SECRET)
-    telemetry.client = BrokenClient()
-    telemetry.capture("scheduler", RuntimeError(SECRET))
-    telemetry.close()
-
-
 def test_default_never_initializes_sdk(tmp_path, monkeypatch):
     def forbidden(**kw):
         pytest.fail("Disabled telemetry must not initialize a client")

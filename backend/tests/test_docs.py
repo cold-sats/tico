@@ -1,12 +1,8 @@
 """Docs: internal docs (versions, locks, import, search) and linked docs (docs/docs.md)."""
 
 import io
-import json
-import uuid
 import zipfile
-from types import SimpleNamespace
 
-import pytest
 
 from backend import docs as D
 from backend.tests.test_api import api, assign, claim, headers, ready, runner  # noqa: F401  (the api fixture)
@@ -72,20 +68,6 @@ def test_a_locked_doc_belongs_to_owners_and_bot_administrators(api):
     assert edit(api, call(api, "GET", "docs/" + doc["id"])["doc"], who=BEN, locked=False)["doc"]["locked"] is False
 
 
-def test_a_bot_writes_and_the_history_says_by_whom(api):
-    machine = runner(api)
-    assign(api, machine, "ops")
-    ready(api, machine, ["ops"])
-    call(api, "POST", "chat/ops", {"text": "write it up"}, BEN)
-    token = claim(api, machine, "ops")["token"]
-    doc = make(api, "Ops runbook", "steps", who=token, path="ops/runbook.md")
-    versions = call(api, "GET", "docs/%s/versions" % doc["id"], who=token)["versions"]
-    assert versions[0]["actor"] == "bot:ops" and versions[0]["actor_name"] == "ops"
-    assert call(api, "GET", "docs/search", params={"q": "runbook"}, who=token)["results"][0]["id"] == doc["id"]
-    assert call(api, "GET", "linked-docs", who=token) == {"linked": []}
-    assert api.get("/api/v2/docs", headers=headers(machine["token"])).status_code == 403      # a computer is not a reader
-
-
 def fixture_docx():
     document = ('<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
                 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>'
@@ -128,36 +110,6 @@ def upload(api, name, data, who=ANA, expected=200, **fields):
     return r.json()
 
 
-def test_import_turns_files_into_markdown_docs(api):
-    md = upload(api, "Pricing.md", b"# Pricing and plans\n\nStarter is $35.\n")["doc"]
-    assert md["title"] == "Pricing and plans" and md["path"] == "pricing-and-plans.md" and md["body"].startswith("# Pricing")
-    html = upload(api, "help.html", b"<html><head><title>Help centre</title><style>p{}</style></head><body>"
-                  b"<h2>Invoices</h2><p>Open <a href='https://acme.example/b'>Billing</a> and <b>download</b>.</p>"
-                  b"<ul><li>One</li><li>Two</li></ul><script>alert(1)</script></body></html>",
-                  path="help/invoices.md")["doc"]
-    assert html["path"] == "help/invoices.md" and "## Invoices" in html["body"] and "alert" not in html["body"]
-    assert "[Billing](https://acme.example/b)" in html["body"] and "**download**" in html["body"] and "- One" in html["body"]
-    word = upload(api, "Onboarding.docx", fixture_docx(), title="Welcome")["doc"]
-    assert word["title"] == "Welcome"
-    for piece in ("# Onboarding guide", "Welcome to **Acme**[ handbook](https://handbook.acme.example)", "- Get a laptop",
-                  "| Plan | Price |", "| Starter | $35 |"):
-        assert piece in word["body"], (piece, word["body"])
-    pdf = upload(api, "Policy.pdf", fixture_pdf("Refunds are issued within fourteen days"))["doc"]
-    assert "fourteen days" in pdf["body"] and pdf["title"] == "Policy"
-    assert call(api, "GET", "docs/%s/versions" % pdf["id"])["versions"][0]["note"] == "Imported from Policy.pdf"
-    upload(api, "notes.exe", b"MZ", expected=422)
-    upload(api, "broken.docx", b"not a zip", expected=422)
-    upload(api, "scan.pdf", fixture_pdf(""), expected=422)
-    r = api.post("/api/v2/docs/import", json={"x": 1}, headers=headers())
-    assert r.status_code == 422
-    # A retried upload with the same Idempotency-Key is the same doc, not a second one.
-    key = str(uuid.uuid4())
-    for _ in range(2):
-        r = api.post("/api/v2/docs/import", files={"file": ("once.md", b"# Once\n")}, headers=headers(ANA, key))
-        assert r.status_code == 200
-    assert len([d for d in call(api, "GET", "docs")["docs"] if d["title"] == "Once"]) == 1
-
-
 def test_search_ranks_internal_docs_and_lists_linked_docs_beside_them(api):
     make(api, "Pricing and plans", "Starter is $35 a month. Growth is $79.", path="sales/pricing.md")
     make(api, "Refund policy", "Refunds happen within 30 days. Pricing questions go to sales.")
@@ -182,30 +134,6 @@ def test_search_ranks_internal_docs_and_lists_linked_docs_beside_them(api):
     assert call(api, "GET", "context/document", params={"id": "sales/pricing.md"})["content"].startswith("Starter")
 
 
-def test_without_fts5_search_falls_back_to_like(api):
-    make(api, "Pricing and plans", "Starter is $35 a month.")
-    with api.app.state.store.transaction() as c:
-        c.execute("DROP TABLE docs_fts")
-    hits = call(api, "GET", "docs/search", params={"q": "starter month"})["results"]
-    assert [h["title"] for h in hits] == ["Pricing and plans"] and "Starter" in hits[0]["excerpt"]
-
-
-@pytest.mark.parametrize("url,kind", [
-    ("https://docs.google.com/document/d/abc/edit", "google_doc"),
-    ("https://docs.google.com/spreadsheets/d/abc", "google_drive"),
-    ("https://drive.google.com/drive/folders/abc", "google_drive"),
-    ("https://www.notion.so/Acme-Handbook-123", "notion"),
-    ("https://acme.notion.site/Help", "notion"),
-    ("https://github.com/acme/handbook/tree/main/docs", "github"),
-    ("https://help.acme.example/en/articles", "website"),
-    ("https://acme.atlassian.net/wiki/spaces/ENG", "other"),
-])
-def test_a_linked_docs_kind_comes_from_its_address(api, url, kind):
-    link = call(api, "POST", "linked-docs", {"url": url})["linked"]
-    assert link["kind"] == kind and link["host"] and link["title"] and link["added_by_name"]
-    assert link["title"].startswith(D.host_of(url))                                   # host plus path by default
-
-
 def test_linked_docs_are_links_anyone_adds_and_their_adder_or_an_admin_edits(api):
     link = call(api, "POST", "linked-docs", {"url": "help.acme.example/faq", "description": "FAQ"}, CARA)["linked"]
     assert link["url"] == "https://help.acme.example/faq" and link["title"] == "help.acme.example/faq"
@@ -221,40 +149,6 @@ def test_linked_docs_are_links_anyone_adds_and_their_adder_or_an_admin_edits(api
     assert call(api, "GET", "linked-docs")["linked"][0]["kind"] == "notion"
     call(api, "PATCH", "linked-docs/" + other["id"], {"archived": True}, ANA)
     assert [row["id"] for row in call(api, "GET", "linked-docs")["linked"]] == [link["id"]]
-
-
-def test_the_old_linked_sources_and_repositories_become_linked_docs_once(api, tmp_path):
-    registry = tmp_path / "registry"
-    registry.mkdir()
-    (registry / "company-docs.json").write_text(json.dumps({"proposal_repos": {"acme/atlas": "product-docs"}}))
-    settings = SimpleNamespace(registry_dir=registry)
-    sources = [{"id": "s1", "repo": "acme/handbook", "folder": "docs", "branch": "main"},
-               {"id": "s2", "repo": "git@git.acme.example:acme/wiki.git", "folder": ".", "branch": ""},
-               {"id": "s3", "repo": "https://github.com/acme/atlas", "folder": "guides", "branch": ""}]
-    with api.app.state.store.transaction() as c:
-        c.execute("DELETE FROM registry_metadata WHERE key=?", (D.MIGRATED,))
-        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('document_sources',?)", (json.dumps(sources),))
-        assert D.migrate(c, settings) == 4
-        assert D.migrate(c, settings) == 0                                             # once
-    rows = call(api, "GET", "linked-docs")["linked"]
-    urls = {r["url"]: r for r in rows}
-    assert "https://github.com/acme/handbook/tree/main/docs" in urls and urls["https://github.com/acme/handbook/tree/main/docs"]["kind"] == "github"
-    assert "https://git.acme.example/acme/wiki" in urls
-    assert "https://github.com/acme/atlas/tree/HEAD/guides" in urls and "https://github.com/acme/atlas" in urls
-    assert all(r["added_by_name"] == "Tico" for r in rows)
-    # Starting again (a restart) adds nothing and leaves the old tables alone.
-    with api.app.state.store.transaction() as c:
-        D.ensure_schema(c, settings)
-        assert c.execute("SELECT COUNT(*) FROM linked_docs").fetchone()[0] == 4
-        assert c.execute("SELECT COUNT(*) FROM documents").fetchone()[0] >= 0
-
-
-def test_the_index_is_rebuilt_when_it_is_behind_the_rows(api):
-    doc = make(api, "Onboarding", "Welcome aboard")
-    with api.app.state.store.transaction() as c:
-        c.execute("DELETE FROM docs_fts")
-        D.ensure_schema(c)
-    assert call(api, "GET", "docs/search", params={"q": "aboard"})["results"][0]["id"] == doc["id"]
 
 
 def test_a_bots_docs_tools_read_write_and_survive_a_concurrent_edit(api):

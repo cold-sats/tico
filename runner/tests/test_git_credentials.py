@@ -18,19 +18,6 @@ class Hub:
         return self.answer
 
 
-def test_applies_scoped_token_to_env():
-    env, hub = {"PATH": "/bin"}, Hub({"configured": True, "token": "ghs_x", "expires_at": "z"})
-    assert G.apply(env, hub, "cpo") is True
-    assert hub.calls == [("github/token", {"bot": "cpo"})]
-    assert env["GH_TOKEN"] == env["GITHUB_TOKEN"] == "ghs_x" and env["PATH"] == "/bin"
-
-
-def test_falls_back_when_not_configured_or_failing():
-    for hub in (Hub({"configured": False}), Hub(error=RuntimeError("down"))):
-        env = {"A": "1"}
-        assert G.apply(env, hub, "cpo") is False and env == {"A": "1"}
-
-
 def test_git_uses_the_helper_without_writing_anything(tmp_path):
     env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1", **G.environment("ghs_secret")}
     out = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", env=env,

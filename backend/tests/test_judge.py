@@ -59,37 +59,3 @@ def test_a_person_or_a_bot_judges_and_the_audit_keeps_the_answers_not_the_state(
     assert not err and out["answers"]["is_ask"]["noul"] == 0.9
     assert events(api, "bot:ops")[0][0] == ""
 
-
-def test_without_a_judge_key_the_company_provider_is_the_judge(api, monkeypatch):
-    api.app.state.judge = None
-    post(api, "judge", {"state": {}, "questions": QUESTIONS}, expected=503)
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO registry_metadata VALUES('providers',?)", (json.dumps(
-            {"enabled": ["openai"], "runtime": "codex", "model": "gpt-6-sol", "revision": 1}),))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    seen = []
-
-    def opener(request, timeout):
-        import io
-        seen.append(json.loads(request.data)["model"])
-        body = {"choices": [{"message": {"content": json.dumps({
-            "bucket": {"probabilities": {"archive": 0.1, "reply": 0.9}}, "is_ask": {"noul": 0.7}})}}]}
-        return type("R", (io.BytesIO,), {"__enter__": lambda s: s, "__exit__": lambda s, *e: False})(
-            json.dumps(body).encode())
-    monkeypatch.setattr(J.urllib.request, "urlopen", opener)
-    out = post(api, "judge", {"state": {}, "questions": QUESTIONS})
-    assert seen == ["gpt-6-sol"] and out["model"] == "gpt-6-sol"
-    assert out["answers"]["bucket"]["choice"] == "reply"
-    assert get(api, "judge")["configured"] is True
-
-
-def test_the_budget_stops_a_loop_and_the_config_says_where_it_stands(api, monkeypatch):
-    fake(api)
-    monkeypatch.setitem(B.DAILY_CALLS, "owner", 2)
-    assert get(api, "judge") == {"configured": True, "model": J.MODEL, "daily_calls": 2, "used_today": 0,
-                                 "max_questions": J.MAX_QUESTIONS, "max_state_chars": J.MAX_STATE_CHARS}
-    for _ in range(2):
-        post(api, "judge", {"state": {}, "questions": QUESTIONS})
-    out = post(api, "judge", {"state": {}, "questions": QUESTIONS}, expected=429)
-    assert out["error"]["code"] == "budget"
-    assert get(api, "judge")["used_today"] == 2

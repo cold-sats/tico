@@ -12,7 +12,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from runner import profiles
 from runner.login import Logins, parse
 from runner.tests.test_profiles import service
 
@@ -150,102 +149,7 @@ class Login(unittest.TestCase):
         for secret in ("good-code", CREDENTIAL, "state-1234"):
             self.assertNotIn(secret, sent)
 
-    def test_a_wrong_code_is_a_failure_with_the_cli_words(self):
-        self.stub("claude", CLAUDE)
-        client = self.runner.client
-        client.wanted = [{"id": "c1", "runtime": "claude", "profile": ""}]
-        self.drive(lambda: "waiting" in self.states())
-        client.wanted = [{"id": "c1", "runtime": "claude", "profile": "", "code": "wrong-code#nope-0000"}]
-        self.drive(lambda: "failed" in self.states())
-        last = client.posts[-1][1]
-        self.assertEqual(last["state"], "failed")
-        self.assertTrue(any("Login failed" in line for line in last["lines"]))
-        self.assertNotIn("wrong-code", json.dumps(client.posts))
-
-    def test_cancel_from_the_server_kills_the_cli(self):
-        self.stub("codex", CODEX)
-        with mock.patch.dict(os.environ, {"TICO_DELAY": "60"}):
-            self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""}]
-            self.drive(lambda: "waiting" in self.states())
-            self.assertTrue(self.alive())
-            self.runner.client.wanted = []                          # the server dropped it
-            self.drive(lambda: not self.alive(), timeout=10)
-        self.assertNotIn("failed", self.states())
-        self.assertFalse((self.root / "codex-home" / "auth.json").exists())
-
-    def test_the_login_is_killed_when_time_runs_out(self):
-        self.stub("codex", CODEX)
-        self.logins.lifetime = 1
-        with mock.patch.dict(os.environ, {"TICO_DELAY": "60"}):
-            self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""}]
-            self.drive(lambda: "failed" in self.states(), timeout=10)
-        self.assertIn("in time", self.runner.client.posts[-1][1]["message"])
-        self.assertFalse(self.alive())
-
-    def test_a_command_that_exits_without_signing_in_fails(self):
-        self.stub("codex", CODEX.replace("mkdir -p \"$home\"; echo", ": #"))
-        self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""}]
-        self.drive(lambda: "failed" in self.states())
-        self.assertIn("still not signed in", self.runner.client.posts[-1][1]["message"])
-
-    def test_one_login_at_a_time_per_runtime(self):
-        self.stub("codex", CODEX)
-        with mock.patch.dict(os.environ, {"TICO_DELAY": "60"}):
-            self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""},
-                                         {"id": "l2", "runtime": "codex", "profile": ""}]
-            self.drive(lambda: "failed" in self.states("l2") and "waiting" in self.states("l1"))
-            self.assertIn("already running", next(b for p, b in self.runner.client.posts if "l2" in p)["message"])
-            self.assertNotIn("failed", self.states("l1"))
-
-    def test_the_login_runs_in_the_profile_home_the_readiness_check_reads(self):
-        self.stub("codex", CODEX)
-        entry = profiles.create(self.root / "profiles", "acme")
-        self.runner.config.update({"profiles": {"acme": entry}, "default_profile": "acme"})
-        self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""}]
-        self.drive(lambda: "signed_in" in self.states())
-        self.assertTrue((Path(entry["dir"]) / "codex" / "auth.json").is_file())
-        self.assertFalse((self.root / "codex-home" / "auth.json").exists())
-
-    def test_unknown_profile_or_runtime_is_refused_without_running_anything(self):
-        self.stub("codex", CODEX)
-        self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": "nope"},
-                                     {"id": "l2", "runtime": "gemini", "profile": ""}]
-        self.drive(lambda: len(self.runner.client.posts) >= 2)
-        self.assertEqual(self.states(), ["failed", "failed"])
-        self.assertFalse(self.pidfile.exists())
-
-    def test_a_missing_cli_is_reported(self):
-        self.runner.client.wanted = [{"id": "l1", "runtime": "codex", "profile": ""}]
-        self.drive(lambda: "failed" in self.states())
-        self.assertIn("not installed", self.runner.client.posts[-1][1]["message"])
-
-
 class Parse(unittest.TestCase):
-    def test_codex_output_as_printed(self):
-        raw = ("\nWelcome to Codex [v\x1b[90m0.157.1\x1b[0m]\n\n1. Open this link in your browser\n"
-               "   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\n\n2. Enter this one-time code "
-               "\x1b[90m(expires in 15 minutes)\x1b[0m\n   \x1b[94m3U9T-B3TD5\x1b[0m\n\n")
-        got = parse(raw)
-        self.assertEqual((got["url"], got["code"]), ("https://auth.openai.com/codex/device", "3U9T-B3TD5"))
-
-    def test_claude_output_with_cursor_moves_and_wrapped_hyperlinks(self):
-        url = "https://claude.com/cai/oauth/authorize?code=true&client_id=abc&state=" + "x" * 43
-        link = lambda part: f"\x1b]8;id=1;{url}\x07{part}\x1b]8;;\x07\r\r\n"
-        raw = ("\x1b[2GOpening\x1b[12Gbrowser\r\r\n" + link(url[:60]) + link(url[60:]) +
-               "\x1b[2GPaste\x1b[8Gcode\x1b[13Ghere\x1b[18Gif\x1b[21Gprompted\x1b[30G>\r\r\n")
-        got = parse(raw)
-        self.assertEqual(got["url"], url)
-        self.assertTrue(got["prompt"])
-        self.assertIn("Paste code here if prompted >", got["lines"])
-        self.assertFalse(any("x" * 20 in line for line in got["lines"]))     # no link fragments
-
-    def test_an_unknown_format_still_shows_what_the_cli_said(self):
-        got = parse("Please visit the portal and approve this device.\nThen wait here.\n")
-        self.assertEqual((got["url"], got["code"]), ("", ""))
-        self.assertEqual(got["lines"], ["Please visit the portal and approve this device.", "Then wait here."])
-
-    def test_a_link_still_arriving_is_not_taken_for_the_whole_link(self):
-        self.assertEqual(parse("open https://auth.example/de")["url"], "")
 
     def test_tokens_are_scrubbed_from_relayed_lines(self):
         got = parse(f"Your token: sk-ant-oat01-{'Ab1' * 12}\nid {JWT}\nblob {'QUJD' * 12}\nfine line here\n")

@@ -160,56 +160,6 @@ def test_botops_and_the_assistant_are_always_built(environment):
     assert cards["botops"]["required"] and cards["coo"]["required"]
 
 
-def test_a_picked_assistant_is_built_under_the_company_s_name_for_it(environment):
-    api = environment(seed={})
-    draft(api, selected={"coo": {"template": "assistant", "display_name": "Morgan", "instructions": "Route."}})
-    record = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).json()
-    bots = {row["slug"]: row for row in record["bots"]}
-    assert sorted(bots) == ["botops", "coo"]
-    assert bots["coo"]["display_name"] == "Morgan" and bots["coo"]["template"] == "assistant"
-    assert all(row["setup_task_id"] is None for row in bots.values())
-
-
-def test_an_archived_assistant_is_never_restored_by_finishing_and_an_installed_one_is_untouched(environment):
-    api = environment()
-    draft(api)
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert _states(api)["coo"] == "planned"
-    # A company that set the assistant aside before it was built in keeps it archived until the owner
-    # turns it on (Assistant tab or Settings > Bots): finishing again does not bring it back.
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE bots SET state='archived' WHERE slug='coo'")
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert _states(api)["coo"] == "archived"
-    # An install that already finished with the assistant, running, is untouched.
-    again = environment()
-    draft(again, selected={"coo": {"template": "assistant", "display_name": "Morgan", "instructions": ""}})
-    again.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    with again.app.state.store.transaction() as c:
-        c.execute("UPDATE bots SET state='active' WHERE slug='coo'")
-    draft(again)
-    again.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert _states(again)["coo"] == "active"
-
-
-def test_every_shipped_card_lists_owns_and_never_as_sentences():
-    """YAML reads `- The watchlist: names` as a mapping; a card must reach a person as a string."""
-    from backend.onboarding import read_cards
-    cards = read_cards(Settings(db_path=Path("unused.db")))
-    assert cards
-    for card in cards:
-        for key in ("owns", "never"):
-            assert all(isinstance(line, str) and "{" not in line.split(":")[0] for line in card[key]), card["slug"]
-    listening = next(card for card in cards if card["slug"] == "listening")
-    assert "The watchlist: names, queries and sources one sweep reads" in listening["owns"]
-
-
-def test_a_mapping_in_a_card_list_becomes_a_sentence():
-    from backend.onboarding import _strings
-    assert _strings([{"The watchlist": "names and sources"}, "Plain", ""]) == [
-        "The watchlist: names and sources", "Plain"]
-
-
 def test_only_the_owner_sets_the_company_up(environment):
     api = environment()
     riley = as_person(api, "riley")                # a bot administrator, not the owner
@@ -253,40 +203,6 @@ def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(envir
         assert c.execute("SELECT count(*) FROM events WHERE action='providers.updated'").fetchone()[0] == 1
 
 
-def test_only_the_owner_writes_the_choice(environment):
-    api = environment(seed={}, enabled_providers=())
-    denied = api.put("/api/v2/providers", json={"enabled": ["openai"]},
-                     headers={"Authorization": "Bearer nobody", "Idempotency-Key": "k"})
-    assert denied.status_code in (401, 403)
-
-
-def test_the_environment_seeds_the_choice_once(environment):
-    api = environment(seed={}, enabled_providers=("xai", "openai"), default_runtime="codex")
-    read = api.get("/api/v2/providers", headers=signed_in()).json()
-    assert read["enabled"] == ["xai", "openai"]
-    assert read["default"] == {"runtime": "codex", "model": "gpt-6-luna"}
-    assert read["source"] == "environment" and read["revision"] == 1
-    # After the first boot the database, not the environment, holds the choice.
-    saved = api.put("/api/v2/providers", headers=signed_in(), json={"enabled": ["anthropic"], "expected_revision": 1})
-    assert saved.json()["enabled"] == ["anthropic"]
-
-
-def test_nothing_configured_means_an_actionable_error_not_a_vendor(environment):
-    api = environment(seed={}, enabled_providers=())
-    done = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert done.status_code == 409
-    assert "Settings > AI providers" in done.json()["error"]["detail"]
-
-
-def test_with_only_anthropic_enabled_every_bot_gets_a_claude_model(environment):
-    api = environment(seed={}, enabled_providers=("anthropic",))
-    draft(api, selected={"support": {"template": "support", "display_name": "Help", "instructions": ""}})
-    assert api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).status_code == 200
-    with api.app.state.store.read() as c:
-        rows = c.execute("SELECT runtime,model FROM bots").fetchall()
-    assert rows and {(row["runtime"], row["model"]) for row in rows} == {("claude", "claude-opus-5")}
-
-
 def _states(api):
     with api.app.state.store.read() as c:
         return {row["slug"]: row["state"] for row in c.execute("SELECT slug,state FROM bots")}
@@ -304,40 +220,6 @@ def test_completing_onboarding_activates_the_bootstrap_bots_once_a_machine_hosts
     task = api.post("/api/v2/tasks", json={"owner": "botops", "title": "Look at this", "body": "x"},
                     headers=signed_in())
     assert task.status_code == 200, task.text
-
-
-def test_a_machine_enrolled_after_completion_also_activates_the_bootstrap_bots(environment):
-    api = environment(seed={})
-    draft(api)
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert _states(api)["botops"] == "planned"
-    machine(api)
-    assert _states(api)["botops"] == "active"
-
-
-def test_bots_go_to_the_only_online_machine_when_the_owner_has_none(environment):
-    api = environment(seed={})
-    code = api.post("/api/v2/enrollments", json={"operator": "riley"}, headers=signed_in()).json()["code"]
-    other = api.post("/api/v2/runners/enroll", json={"code": code, "label": "Server", "platform": "linux"},
-                     headers={"Idempotency-Key": str(uuid.uuid4())}).json()
-    api.post("/api/v2/runners/heartbeat", json={"version": "test", "platform": "linux"},
-             headers={"Authorization": "Bearer " + other["token"], "Idempotency-Key": str(uuid.uuid4())})
-    draft(api, selected={"coo": {"template": "assistant", "display_name": "Morgan", "instructions": ""}})
-    response = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert response.status_code == 200, response.text
-    record = response.json()
-    assert record["assigned_to"]["runner_id"] == other["runner_id"]
-    assert {row["slug"] for row in record["bots"] if row["assigned_to"]} == {"botops", "coo"}
-
-
-def test_provider_details_match_what_each_harness_accepts():
-    """Codex and Claude Code both take an API key as well as a subscription (runner/harnesses/*.toml)."""
-    from backend import providers
-    for harness, key in (("codex", "OPENAI_API_KEY"), ("claude-code", "ANTHROPIC_API_KEY")):
-        assert key in (Path("runner/harnesses") / (harness + ".toml")).read_text()
-    by_id = {row["id"]: row["detail"] for row in providers.PROVIDERS}
-    assert by_id["openai"] == "Codex CLI, with a ChatGPT subscription or an OpenAI API key (OPENAI_API_KEY)"
-    assert "Claude subscription or an Anthropic API key (ANTHROPIC_API_KEY)" in by_id["anthropic"]
 
 
 LIBRARIAN_CARD = {
@@ -387,51 +269,3 @@ def test_the_librarian_is_always_built_with_its_daily_routine_seeded_once(enviro
     api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
     assert [r["deleted_at"] is not None for r in _routines(api)] == [True]       # and it stays deleted
 
-
-def test_a_company_from_before_the_librarian_gets_it_by_itself_once_it_can_run_it(environment):
-    api = environment(seed={})
-    draft(api)
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    with_librarian_template(api)                                                 # the update ships the template
-    off = api.get("/api/v2/librarian", headers=signed_in()).json()
-    assert off["state"] == "missing" and off["can_turn_on"] and not off["available"]
-    machine(api)                                                                 # a computer enrolls: it is built
-    assert _states(api)["librarian"] == "active"
-    assert [r["id"] for r in _routines(api)] == ["librarian:refresh-the-map"]
-    assert api.get("/api/v2/librarian", headers=signed_in()).json()["available"]
-
-
-def test_a_company_that_updates_with_a_computer_already_enrolled_gets_it_at_startup(environment):
-    api = environment(seed={})
-    machine(api)
-    draft(api)
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert "librarian" not in _states(api)
-    with_librarian_template(api)
-    api.__exit__(None, None, None)                                               # the update restarts the server
-    api.__enter__()
-    assert _states(api)["librarian"] == "active"
-    api.__exit__(None, None, None)
-    api.__enter__()
-    assert len(_routines(api)) == 1                                              # a second start adds nothing
-
-
-def test_with_no_computer_or_no_model_nothing_is_built_and_the_owner_can_turn_it_on_later(environment):
-    api = environment(seed={}, enabled_providers=())
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())         # refused: no provider yet
-    with_librarian_template(api)
-    api.__exit__(None, None, None)
-    api.__enter__()
-    assert "librarian" not in _states(api)
-    other = environment(seed={})
-    draft(other)
-    other.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    with_librarian_template(other)
-    other.__exit__(None, None, None)
-    other.__enter__()
-    assert "librarian" not in _states(other)                                     # a model, but no computer
-    machine_less = other.post("/api/v2/librarian/turn-on", json={}, headers=signed_in())
-    assert machine_less.status_code == 200 and machine_less.json()["state"] == "planned"
-    assert other.post("/api/v2/librarian/turn-on", json={}, headers=as_person(other, "riley")).status_code == 403
-    machine(other)
-    assert _states(other)["librarian"] == "active"

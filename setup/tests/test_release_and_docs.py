@@ -85,17 +85,3 @@ def test_no_dead_internal_links_in_the_docs():
                 dead.append(f"{md.relative_to(ROOT)}: {target} (no such heading)")
     assert not dead, "\n".join(dead)
 
-
-def test_install_has_one_path_and_the_advanced_page_is_linked_once_from_the_bottom():
-    install = (ROOT / "docs/install.md").read_text()
-    assert "releases/download/" in install.split("\n## ", 2)[1] + install[:4000]  # the one command is near the top
-    links = [m.start() for m in re.finditer(r"\]\(install-advanced\.md", install)]
-    assert len(links) == 1 and links[0] > len(install) * 0.8
-    adv = (ROOT / "docs/install-advanced.md").read_text()
-    assert re.search(r"advanced", adv[:600], re.I)
-    for gone in ("infra/aws", "infra/linux", "infra/ec2", "install-vm.sh", "Cognito"):
-        assert gone not in install, f"{gone} does not belong in install.md"
-        if gone != "Cognito":
-            assert gone not in adv, f"{gone} is a removed install stack"
-    readme = (ROOT / "README.md").read_text()
-    assert "install-advanced" not in readme

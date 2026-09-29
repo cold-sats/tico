@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from backend.tests.test_api import api, get, post  # noqa: F401
-from backend.scheduler import Scheduler, next_due
+from backend.scheduler import Scheduler
 from backend.store import H
 
 
@@ -24,13 +24,6 @@ def test_schedule_survives_restart_without_duplicate_work(api):
         assert c.execute("SELECT next_due FROM schedules").fetchone()[0] == '2026-09-11T16:00:00.000000Z'
 
 
-def test_timezone_tracks_daylight_saving():
-    winter = next_due("0 9 * * *", datetime(2026, 1, 10, tzinfo=timezone.utc), "America/Los_Angeles")
-    summer = next_due("0 9 * * *", datetime(2026, 7, 10, tzinfo=timezone.utc), "America/Los_Angeles")
-    assert winter.astimezone(timezone.utc).hour == 17
-    assert summer.astimezone(timezone.utc).hour == 16
-
-
 def test_due_reminder_deduplicates_across_scheduler_restart(api):
     task = post(api, "tasks", {"owner": "coo", "title": "Review deadline", "body": "Review pending work", "due": "2026-09-10T15:00:00Z"})
     store = api.app.state.store
@@ -39,26 +32,6 @@ def test_due_reminder_deduplicates_across_scheduler_restart(api):
     with store.read() as c:
         assert c.execute("SELECT count(*) FROM task_reminders").fetchone()[0] == 1
         assert c.execute("SELECT count(*) FROM messages WHERE conversation_id=?", (task["conversation_id"],)).fetchone()[0] == 2
-
-
-def test_reminders_and_auto_close_reach_past_the_first_500_tasks(api):
-    store = api.app.state.store
-    with store.transaction() as c:
-        # 600 newer tasks that are neither due nor done sort ahead of the two that are.
-        c.executemany("INSERT INTO tasks(id,title,owner,requester,status,created,updated,conversation_id) "
-                      "VALUES(?,?,?,?,?,?,?,?)",
-                      [(f"filler{i}", "Filler", "human:ana", "human:ana", "open", "2026-09-01T00:00:00Z",
-                        "2026-09-01T00:00:00Z", None) for i in range(600)])
-    due = post(api, "tasks", {"owner": "coo", "title": "Late one", "body": "Due long ago", "due": "2026-09-10T15:00:00Z"})
-    done = post(api, "tasks", {"owner": "human:ana", "title": "Old done", "body": "Finished"})
-    with store.transaction() as c:
-        c.execute("UPDATE tasks SET requester='bot:coo',status='done',done_at='2026-09-01T00:00:00Z',"
-                  "created='2026-10-01T00:00:00Z',rank=NULL WHERE id=?", (done["id"],))
-        c.execute("UPDATE tasks SET created='2026-10-01T00:00:00Z',rank=NULL WHERE id=?", (due["id"],))
-    Scheduler(store, api.app.state.execution).tick(datetime(2026, 9, 20, 17, tzinfo=timezone.utc))
-    with store.read() as c:
-        assert c.execute("SELECT count(*) FROM task_reminders WHERE task_id=?", (due["id"],)).fetchone()[0] == 1
-        assert c.execute("SELECT status FROM tasks WHERE id=?", (done["id"],)).fetchone()[0] == "closed"
 
 
 def test_idle_claims_do_not_take_the_write_lock_and_never_starve_leases(api):

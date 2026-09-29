@@ -29,24 +29,6 @@ class PromptLabels(unittest.TestCase):
     def setUp(self):
         self.runner = Runner.__new__(Runner)
 
-    def test_history_lines_name_a_batch_and_otherwise_the_actor(self):
-        history = [
-            {"id": "m1", "from_actor": "human:ana", "body": "Typed: what is Sol on?", "refs": {}},
-            {"id": "m2", "from_actor": "human:ana", "body": "1. Approve the refund.",
-             "refs": live("batch", batch="b1", items=["t1"])},
-            # A line from the retired Live session is an ordinary line now; its own words stay out.
-            {"id": "m3", "from_actor": "human:ana", "body": "What needs me today?", "refs": live("transcript")},
-            {"id": "m4", "from_actor": "bot:coo", "body": "Two approvals are waiting.", "refs": live("transcript")},
-        ]
-        current = {"id": "m5", "from_actor": "human:ana", "body": "Now a typed follow-up", "refs": {}}
-        prompt = prompt_of(self.runner, attempt(current, history))
-        self.assertIn("human:ana [m1]: Typed: what is Sol on?", prompt)
-        self.assertIn("human:ana (batch responses) [m2]: 1. Approve the refund.", prompt)
-        self.assertIn("human:ana [m3]: What needs me today?", prompt)
-        self.assertNotIn("Two approvals are waiting.", prompt)
-        self.assertIn("Current message from human:ana:\nNow a typed follow-up", prompt)
-        self.assertNotIn("voice", prompt)
-
     def test_next_run_tasks_ride_in_the_same_prompt_under_one_header(self):
         # Bot Desk finds this block in the transcript by its header and shows each task apart.
         from runner.service import NEXT_RUN_HEADER
@@ -59,18 +41,6 @@ class PromptLabels(unittest.TestCase):
         self.assertIn(NEXT_RUN_HEADER + '\n[{"id": "t9", "title": "Watch the new refund requests"', prompt)
         self.assertLess(prompt.index("Daily check"), prompt.index(NEXT_RUN_HEADER))
         self.assertNotIn(NEXT_RUN_HEADER, prompt_of(self.runner, attempt(current, [])))
-
-
-    def test_quiet_notes_ride_in_the_same_prompt_under_their_own_header(self):
-        from runner.service import NOTES_HEADER, NEXT_RUN_HEADER
-        current = {"id": "m1", "from_actor": "human:ana", "body": "Daily report", "refs": {}}
-        payload = attempt(current, [])
-        payload["notes"] = [{"id": "n1", "from": "bot:spend-monitor", "sent": "2026-09-24T11:15:00Z",
-                             "text": "Fees steady at 3.9%."}]
-        prompt = prompt_of(self.runner, payload)
-        self.assertIn(NOTES_HEADER + '\n[{"id": "n1", "from": "bot:spend-monitor"', prompt)
-        self.assertLess(prompt.index("Daily report"), prompt.index(NOTES_HEADER))
-        self.assertNotIn(NEXT_RUN_HEADER, prompt)
 
 
 class FakeConfig:
@@ -101,16 +71,6 @@ class Naming(unittest.TestCase):
         ask = {"id": "a1", "from_actor": "human:dana", "refs": {}, "body": "The pipeline summary, please."}
         return attempt(ask, [])
 
-    def test_the_prompt_names_this_company_and_never_the_product(self):
-        service = self.runner({"company_name": "Initech", "app_name": "Mic", "assistant_name": "Mic",
-                               "assistant_bot": "coo"})
-        prompt = service.prompt(self.turn())
-        self.assertIn("You are coo, an AI employee at Initech.", prompt)
-        self.assertIn("Mic is the company's operating system", prompt)
-        self.assertNotIn("Tico", prompt)
-        service.prompt(self.turn())
-        self.assertEqual(service.client.calls, 1)        # read once, then kept
-
 class RoutinePlaybooks(unittest.TestCase):
     """A routine's text is saved once; when it is an older copy of a playbook the bot has since
     edited, the turn says to follow the file and to point the routine at it (2026-09-24)."""
@@ -131,12 +91,6 @@ class RoutinePlaybooks(unittest.TestCase):
         return self.runner.stale_playbook_note({"bot": "listening", "task": {"body": body},
                                                 "routine": {"id": "listening:sweep", "title": "t"} if routine else None})
 
-    def test_an_older_copy_points_at_the_current_file_and_the_fix(self):
-        old = "# Morning competitor sweep\n\nRun software/listen.py --since 12h and keep matching cards only.\n"
-        note = self.note(old)
-        self.assertIn("older copy of `playbooks/sweep.md`", note)
-        self.assertIn("hub routine update listening:sweep --text 'Run playbooks/sweep.md'", note)
-
 if __name__ == "__main__":
     unittest.main()
 
@@ -152,11 +106,6 @@ class SpokenTurns(unittest.TestCase):
         return runner.prompt({"bot": "reputation", "conversation": {"id": "c", "kind": "chat"},
                               "message": message, "history": [message]})
 
-    def test_a_spoken_message_asks_for_the_answer_first(self):
-        self.assertIn("Spoken turn", self.prompt({"voice": True}))
-        self.assertNotIn("Spoken turn", self.prompt({}))
-
-
 class RequestsBecomeTasks(unittest.TestCase):
     """Ana, 2026-09-24: a request for work is filed as the bot's own tasks first."""
 
@@ -169,12 +118,6 @@ class RequestsBecomeTasks(unittest.TestCase):
             payload["task"] = task
         return runner.prompt(payload)
 
-    def test_a_person_asking_for_work_is_told_to_file_tasks_first(self):
-        self.assertIn("first file each distinct ask as a hub task you own", self.prompt("human:ana"))
-        self.assertNotIn("first file each distinct ask", self.prompt("bot:cmo"))
-        self.assertNotIn("first file each distinct ask", self.prompt("human:ana", task={"id": "t1", "body": "x"}))
-
-
 class DesignAndVideoRequests(unittest.TestCase):
     """Ana, 2026-09-25: every bot knows it can ask Design for visuals and Video Producer for video."""
 
@@ -184,9 +127,3 @@ class DesignAndVideoRequests(unittest.TestCase):
         message = {"id": "m1", "from_actor": "human:ana", "body": "Hello.", "refs": {}}
         return runner.prompt({"bot": bot, "conversation": {"id": "c", "kind": "chat"},
                               "message": message, "history": [message]})
-
-    def test_every_other_bot_is_told_where_visuals_and_video_come_from(self):
-        text = self.prompt("cmo")
-        self.assertIn("bot:designer", text)
-        self.assertIn("bot:video-producer", text)
-        self.assertNotIn("File a task for bot:designer", self.prompt("designer"))

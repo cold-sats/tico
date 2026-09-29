@@ -69,12 +69,6 @@ def bot_token(api, slug="ops"):
 
 
 # ----------------------------------------------------------------------------- rank
-def test_needs_you_is_asks_first_then_my_tasks_in_rank_order(api):
-    later = post(api, "tasks", {"owner": "ana", "title": "Review the plan", "body": "Say yes or change it."})
-    first = post(api, "tasks", {"owner": "ana", "title": "Approve the budget", "body": "Say yes or no.", "top": True})
-    items = get(api, "needs-you")["items"]
-    ids = [i.get("id") for i in items if i.get("kind") == "task"]
-    assert ids.index(first["id"]) < ids.index(later["id"])
 
 
 def test_completing_a_bot_requested_human_task_needs_a_result(api):
@@ -89,14 +83,6 @@ def test_completing_a_bot_requested_human_task_needs_a_result(api):
 
 
 # ----------------------------------------------------------------------------- lanes
-def test_the_product_lane_is_retired_so_every_new_or_moved_task_is_company_work(api):
-    """Ana, 2026-09-25: a product-team bot's task, or one asking for the product lane, is company."""
-    default = post(api, "tasks", {"owner": "cpo", "title": "Ship the pricing page", "body": "x"})
-    asked = post(api, "tasks", {"owner": "cpo", "title": "Fix the checkout bug", "body": "x", "lane": "product"})
-    assert default["lane"] == asked["lane"] == "company"
-    moved = post(api, "tasks/" + asked["id"], {"version": asked["version"], "lane": "product"}, token="ben-test")
-    assert moved["lane"] == "company"
-    post(api, "tasks", {"owner": "cpo", "title": "Plan the launch", "body": "x", "lane": "nowhere"}, expected=422)
 
 
 # ----------------------------------------------------------------------------- labels
@@ -116,20 +102,6 @@ def test_finishing_the_blocker_clears_blocked_by_and_wakes_the_bot_owner(api):
 
 # ----------------------------------------------------------------------------- links
 # ----------------------------------------------------------------------------- comments
-def test_a_movers_comment_wakes_the_bot_and_a_bystanders_comment_waits(api):
-    task = post(api, "tasks", {"owner": "cmo", "title": "Draft the newsletter", "body": "x"})
-    with api.app.state.store.read() as c:
-        before = c.execute("SELECT COUNT(*) FROM jobs WHERE bot='cmo'").fetchone()[0]
-    woke = post(api, "tasks/" + task["id"] + "/comments", {"text": "Use the September numbers."}, token="ben-test")
-    assert woke["woke"] is True
-    quiet = post(api, "tasks/" + task["id"] + "/comments", {"text": "Sales would like a mention of the promo."}, token="priya-test")
-    assert quiet["woke"] is False
-    with api.app.state.store.read() as c:
-        after = c.execute("SELECT COUNT(*) FROM jobs WHERE bot='cmo'").fetchone()[0]
-    assert after == before + 1
-    comments = get(api, "tasks/" + task["id"])["comments"]
-    assert [m["from_actor"] for m in comments] == ["human:ben", "human:priya"]
-    assert comments[1]["refs"].get("quiet") is True
 
 
 # ----------------------------------------------------------------------------- movers

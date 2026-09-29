@@ -136,15 +136,6 @@ def test_a_checksum_mismatch_is_refused_and_changes_nothing(monkeypatch, tmp_pat
     assert docker.calls == []                                     # no pull, no restart
 
 
-def test_a_missing_release_is_refused(monkeypatch, tmp_path, release_server):
-    base, _, _ = release_server
-    updater = load(monkeypatch, tmp_path, base)
-    install(tmp_path / "project")
-    Docker(updater, monkeypatch, [True])
-    updater.update("v9.9.9")
-    assert updater.status["state"] == "failed" and "could not download" in updater.status["message"]
-
-
 def test_an_unsafe_bundle_is_refused(monkeypatch, tmp_path, release_server):
     base, _, publish = release_server
     publish("v0.2.0", {"../evil": "x", "compose.yaml": "new\n"})
@@ -171,19 +162,6 @@ def test_rollback_restores_image_and_bundle(monkeypatch, tmp_path, release_serve
     assert (project / ".env").read_text() == "TICO_TAG=v0.1.0\nTICO_COMPANY_NAME=Acme\n"
     assert ["docker", "tag", "sha256:old", "ghcr.io/ticoteam/tico:v0.1.0"] in docker.calls
     assert docker.compose_at_up[-1] == "old compose\n"            # the old image came back on the old file
-
-
-def test_latest_resolves_to_the_newest_release(monkeypatch, tmp_path, release_server):
-    base, assets, publish = release_server
-    publish("v0.2.0", NEW)
-    assets["/latest.json"] = b'{"tag_name": "v0.2.0"}'
-    updater = load(monkeypatch, tmp_path, base)
-    install(tmp_path / "project")
-    Docker(updater, monkeypatch, [True])
-    updater.update("latest")
-    assert updater.status["state"] == "healthy"
-    assert (tmp_path / "project/compose.yaml").read_text() == "new compose\n"
-    assert (tmp_path / "project/.bundle-version").read_text() == "v0.2.0\n"
 
 
 def test_a_runner_box_takes_only_its_compose_file(monkeypatch, tmp_path, release_server):

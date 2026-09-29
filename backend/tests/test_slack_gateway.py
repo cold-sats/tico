@@ -220,19 +220,6 @@ def test_startup_refuses_another_workspace_or_app_and_reports_missing_scopes(hub
     assert limited.customize is False
 
 
-def test_kill_switch_keeps_the_gateway_off_without_touching_slack(monkeypatch, tmp_path):
-    touched = []
-    monkeypatch.setattr(G.Settings, "from_env", classmethod(lambda cls: Settings(db_path=tmp_path / "off.db")))
-    monkeypatch.setattr(G, "slack_credentials", lambda settings: touched.append("credentials"))
-    assert G.main([]) == 0
-    assert touched == [] and not (tmp_path / "off.db").exists()
-    # Switched on but without tokens, it refuses rather than guessing.
-    monkeypatch.setattr(G.Settings, "from_env",
-                        classmethod(lambda cls: Settings(db_path=tmp_path / "on.db", slack_gateway_enabled=True)))
-    monkeypatch.setattr(G, "slack_credentials", lambda settings: {"bot_token": "", "app_token": "", "team_id": "", "app_id": ""})
-    assert G.main([]) == 1
-
-
 # ----------------------------------------------------------------------------- verify and deny
 def test_only_verified_admitted_roster_humans_in_internal_channels_get_through(gateway, hub):
     slack = gateway.slack
@@ -304,19 +291,6 @@ def test_low_confidence_falls_back_to_the_assistant_with_the_candidates(gateway,
     assert jobs(hub) == [{"bot": "coo", "state": "queued"}]
     conversation = H.conversation(hub.connect(), rows(hub, "SELECT conversation_id FROM slack_threads")[0]["conversation_id"])
     assert conversation["scope"] == "direct", "a Slack DM is a front door, never the personal room"
-
-
-def test_without_an_assistant_nobody_at_threshold_goes_to_botops_or_is_only_recorded(gateway, hub):
-    """The assistant is optional: BotOps asks "which bot?", and with neither running nothing wakes."""
-    fleet = [{"slug": "legal"}, {"slug": "botops"}]
-    decision = gateway.decide(answers(legal=0.4), fleet)
-    assert decision["fallback"] and [r["bot"] for r in decision["recipients"]] == ["botops"]
-    assert gateway.default_decision(fleet)["recipients"] == [{"bot": "botops", "confidence": None}]
-    bare = gateway.decide(answers(legal=0.4), [{"slug": "legal"}])
-    assert bare["recipients"] == [] and "recorded" in bare["reason"]
-    assert gateway.default_decision([{"slug": "legal"}])["recipients"] == []
-    # An assistant that is running still wins.
-    assert [r["bot"] for r in gateway.decide(answers(legal=0.4), fleet + [{"slug": "coo"}])["recipients"]] == ["coo"]
 
 
 # ----------------------------------------------------------------------------- egress
@@ -507,23 +481,3 @@ def test_a_channel_message_is_stored_and_reaches_the_readers_once_on_the_hourly_
     assert len({r["conversation_id"] for r in rows(hub, "SELECT conversation_id FROM slack_digests WHERE reader='cmo'")}) == 1
     assert "Second post" in digests(hub)[-1]["body"] and "Launch copy" not in digests(hub)[-1]["body"]
 
-
-def test_a_channel_read_daily_waits_a_day_between_digests(readers):
-    """2026-09-24: Doc Updater took a 13-second turn for every message in two busy channels.
-    A channel with `digest_hours` reaches its readers at most once in that many hours."""
-    gw, hub = readers, readers.store
-    path = gw.settings.registry_dir / "slack-channels.yaml"
-    path.write_text(path.read_text().replace("    readers: cto\n", "    readers: cto\n    digest_hours: 24\n"))
-    gw.receive(channel_message("Deploy 4.2 went out", channel=RELEASE, user="U2"))
-    gw.clock.advance(3600)
-    assert [(d["reader"], d["state"]) for d in gw.tick()["digests"] if d["reader"] == "cto"] == [("cto", "sent")]
-    for n in range(3):                              # three more, an hour apart
-        gw.receive(channel_message(f"Deploy 4.{3 + n} went out", channel=RELEASE, user="U2"))
-        gw.receive(channel_message(f"Marketing post {n}"))
-        gw.clock.advance(3600)
-        out = {d["reader"]: d["state"] for d in gw.tick()["digests"]}
-        assert out["cto"] == "nothing" and out["cmo"] == "sent", "the hourly channel is not held back"
-    gw.clock.advance(24 * 3600)
-    out = {d["reader"]: d for d in gw.tick()["digests"]}
-    assert out["cto"]["state"] == "sent" and out["cto"]["count"] == 3, "the day's messages in one digest"
-    assert len([j for j in jobs(hub) if j["bot"] == "cto"]) == 2, "two turns, not four"

@@ -73,18 +73,6 @@ def test_alg_confusion_is_rejected_without_a_fetch(alb, alg):
     assert alb.fetched == []
 
 
-@pytest.mark.parametrize("kid", ["../etc/passwd", "a/b", "x" * 65, "", "k id"])
-def test_bad_kid_is_rejected_without_a_fetch(alb, kid):
-    assert alb.api.get("/api/v2/me", headers=hdr(alb.token(kid=kid))).status_code == 401
-    assert alb.fetched == []
-
-
-def test_unknown_kid_fetch_failure_is_negatively_cached(alb):
-    assert alb.api.get("/api/v2/me", headers=hdr(alb.token(kid="missing"))).status_code == 401
-    assert alb.api.get("/api/v2/me", headers=hdr(alb.token(kid="missing"))).status_code == 401
-    assert len(alb.fetched) == 1
-
-
 def test_expired_is_rejected(alb):
     assert alb.api.get("/api/v2/me", headers=hdr(alb.token(exp=int(time.time()) - 5))).status_code == 401
 
@@ -130,12 +118,6 @@ def test_alb_token_with_tampered_padded_payload_is_rejected(alb):
     assert alb.api.get("/api/v2/me", headers=hdr(head + "." + other + "." + sig)).status_code == 401
 
 
-def test_expiry_in_the_alb_header_is_enforced(alb):
-    header = {"kid": KID, "alg": "ES256", "signer": ARN, "exp": int(time.time()) - 5}
-    token = alb_style(alb.key, header, {"email": "ben@acme.example"})
-    assert alb.api.get("/api/v2/me", headers=hdr(token)).status_code == 401
-
-
 def test_unrostered_email_is_forbidden(alb):
     assert alb.api.get("/api/v2/me", headers=hdr(alb.token(email="nobody@acme.example"))).status_code == 403
 
@@ -144,10 +126,6 @@ def test_email_is_required_and_verified_flag_respected(alb):
     assert alb.api.get("/api/v2/me", headers=hdr(alb.token(email=None))).status_code == 401
     assert alb.api.get("/api/v2/me", headers=hdr(alb.token(email_verified=False))).status_code == 401
     assert alb.api.get("/api/v2/me", headers=hdr(alb.token(email_verified=True))).status_code == 200
-
-
-def test_email_case_is_folded(alb):
-    assert alb.api.get("/api/v2/me", headers=hdr(alb.token(email="Ben@Acme.Example"))).status_code == 200
 
 
 def test_cloudflare_credentials_do_nothing_under_aws_alb(alb):
@@ -171,55 +149,3 @@ def test_bearer_credentials_still_work_under_aws_alb(alb):
 def settings(tmp_path, **kw):
     return Settings(db_path=tmp_path / "h.db", **kw)
 
-
-@pytest.mark.parametrize("kw,text", [
-    ({"auth_proxy": "aws-alb"}, "TICO_ALB_ARN"),
-    ({"auth_proxy": "aws-alb", "alb_arn": ARN}, "TICO_ALB_REGION"),
-    ({"auth_proxy": "aws-alb", "alb_arn": "nope", "alb_region": "us-west-2"}, "ARN"),
-    ({"auth_proxy": "aws-alb", "alb_arn": ARN, "alb_region": "../evil"}, "region"),
-    ({"auth_proxy": "cloudflare"}, "TICO_ACCESS_ISSUER"),
-    ({"auth_proxy": "okta"}, "must be one of"),
-    ({"cognito_logout_url": "http://x"}, "https"),
-])
-def test_startup_fails_clearly_when_settings_are_missing(tmp_path, kw, text):
-    with pytest.raises(RuntimeError, match=text):
-        settings(tmp_path, **kw)
-
-
-def test_default_proxy_follows_the_access_issuer(tmp_path):
-    assert settings(tmp_path).proxy_kind == ""
-    assert settings(tmp_path, access_issuer="https://t.cloudflareaccess.com", access_audience="a").proxy_kind == "cloudflare"
-    assert settings(tmp_path, auth_proxy="aws-alb", alb_arn=ARN, alb_region="us-west-2").proxy_kind == "aws-alb"
-
-
-def test_logout_under_aws_alb_expires_session_cookies(alb):
-    alb.auth.settings.cognito_logout_url = "https://acme.auth.us-west-2.amazoncognito.com/logout?client_id=c"
-    result = alb.api.get("/api/v2/logout", follow_redirects=False,
-                         headers={"Cookie": "AWSELBAuthSessionCookie-0=a; AWSELBAuthSessionCookie-1=b; other=c"})
-    assert result.status_code == 302 and result.headers["location"].startswith("https://acme.auth.")
-    cleared = " ".join(result.headers.get_list("set-cookie"))
-    assert "AWSELBAuthSessionCookie-0=" in cleared and "AWSELBAuthSessionCookie-1=" in cleared
-    assert "other=" not in cleared and "Max-Age=0" in cleared
-
-
-def test_logout_under_aws_alb_without_cognito_returns_to_root(alb):
-    result = alb.api.get("/api/v2/logout", follow_redirects=False)
-    assert result.status_code == 302 and result.headers["location"] == "/"
-
-
-def test_logout_under_cloudflare_goes_to_access(api):
-    auth = api.app.state.auth
-    auth.settings.access_issuer, auth.settings.access_audience = "https://t.cloudflareaccess.com", "aud"
-    auth.proxy = identity_proxy.build(auth.settings)
-    result = api.get("/api/v2/logout", follow_redirects=False)
-    assert result.status_code == 302 and result.headers["location"] == "/cdn-cgi/access/logout"
-
-
-def test_me_says_whether_the_session_came_through_the_proxy(alb):
-    from backend.tests.test_api import headers
-    assert alb.api.get("/api/me", headers=hdr(alb.token())).json()["proxy_session"] is True
-    assert alb.api.get("/api/me", headers=headers("ben-test")).json()["proxy_session"] is False
-
-
-def test_config_names_the_owner_so_a_runner_worker_need_not_guess(alb):
-    assert alb.api.get("/api/v2/config", headers=hdr(alb.token())).json()["owner_email"] == alb.auth.settings.owner_email

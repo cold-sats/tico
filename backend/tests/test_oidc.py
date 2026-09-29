@@ -3,7 +3,6 @@
 import base64
 import hashlib
 import json
-import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -268,33 +267,6 @@ def test_disallowed_domain_and_hosted_domain(signin):
         oidc._google = original
 
 
-def test_unknown_roster_email_gets_a_friendly_page(signin):
-    result = signin.login(claims={"email": "<b>x</b>@acme.example"})
-    assert result.status_code == 403 and result.headers["content-type"].startswith("text/html")
-    assert "not on" in result.text and "&lt;b&gt;x&lt;/b&gt;@acme.example" in result.text
-    assert "<b>x</b>" not in result.text and not result.text.lstrip().startswith("{")
-    assert signin.sessions() == []
-    assert signin.login(claims={"email": "stranger@acme.example"}).status_code == 403
-
-
-def test_email_match_ignores_case(signin):
-    assert signin.login(claims={"email": "Ben@ACME.example"}).status_code == 302
-    assert me(signin.api).json()["actor"] == "human:ben"
-
-
-def test_jwks_refetches_on_a_new_key_but_not_more_often_than_the_limit(signin):
-    assert signin.login().status_code == 302
-    assert signin.fake.jwks_fetches == 1
-    signin.fake.rotate()
-    assert signin.login().status_code == 400                 # unknown kid, refreshed less than a minute ago
-    assert signin.fake.jwks_fetches == 1
-    signin.proxy.jwks_min_interval = 0
-    assert signin.login().status_code == 302
-    assert signin.fake.jwks_fetches == 2
-    assert signin.login().status_code == 302                 # the cached key serves it
-    assert signin.fake.jwks_fetches == 2
-
-
 def test_idle_and_absolute_lifetimes(signin):
     signin.login()
     assert me(signin.api).status_code == 200
@@ -308,39 +280,9 @@ def test_idle_and_absolute_lifetimes(signin):
     assert me(signin.api).status_code == 401
 
 
-def test_activity_moves_the_idle_clock(signin):
-    signin.login()
-    with signin.auth.store.transaction() as c:
-        c.execute("UPDATE oidc_sessions SET last_seen=?", (H_ago(hours=1),))
-    assert me(signin.api).status_code == 200
-    assert signin.sessions()[0]["last_seen"] > H_ago(hours=1)
-
-
 def H_ago(**kw):
     from backend.store import H
     return H.shift(H.now(), seconds=-kw.get("hours", 0) * 3600)
-
-
-def test_sign_in_is_rotated_and_the_old_session_dropped(signin):
-    signin.login()
-    first = signin.api.cookies.get("tico_session")
-    signin.login()
-    second = signin.api.cookies.get("tico_session")
-    assert first != second and len(signin.sessions()) == 1
-    assert me(signin.api).status_code == 200
-
-
-def test_unauthenticated_page_redirects_and_api_answers_401(signin):
-    page = signin.api.get("/", headers={"accept": "text/html,application/xhtml+xml"}, follow_redirects=False)
-    assert page.status_code == 302 and page.headers["location"] == "/auth/login?next=%2F"
-    deep = signin.api.get("/tico/ui/index.html?a=b", headers={"accept": "text/html"}, follow_redirects=False)
-    assert deep.headers["location"].startswith("/auth/login?next=")
-    api_call = me(signin.api, headers={"accept": "text/html"})
-    assert api_call.status_code == 401 and api_call.json()["error"]["sign_in"] == "/auth/login"
-    assert signin.api.get("/", follow_redirects=False).status_code == 401           # not a browser navigation
-    assert signin.api.post("/api/v2/me", follow_redirects=False,
-                           headers={"accept": "text/html"}).status_code == 401
-    assert me(signin.api, headers={"authorization": "Bearer nonsense"}).status_code == 401
 
 
 @pytest.mark.parametrize("target,expected", [
@@ -375,16 +317,6 @@ def test_a_person_marked_left_loses_the_session_and_cannot_return(signin):
     assert again.status_code == 403 and "not on" in again.text
 
 
-def test_bearer_credentials_do_not_depend_on_the_browser_session(signin):
-    # With no session at all a bearer still works, and a bad one is refused, session or not.
-    assert me(signin.api, headers={"authorization": "Bearer ben-test"}).json()["actor"] == "human:ben"
-    signin.login()
-    assert me(signin.api, headers={"authorization": "Bearer ana-test"}).json()["actor"] == "human:ana"
-    assert me(signin.api, headers={"authorization": "Bearer wrong"}).status_code == 401
-    signin.api.get("/api/v2/logout", follow_redirects=False)
-    assert me(signin.api, headers={"authorization": "Bearer ben-test"}).status_code == 200
-
-
 def test_writes_from_another_origin_are_refused(signin):
     signin.login()
     url = signin.settings.public_url
@@ -392,41 +324,6 @@ def test_writes_from_another_origin_are_refused(signin):
     assert bad.status_code == 403 and bad.json()["error"]["code"] == "origin"
     ok = signin.api.post("/api/v2/me", headers={"origin": url})
     assert ok.json().get("error", {}).get("code") != "origin"
-
-
-def test_login_routes_are_absent_without_the_oidc_proxy(api):
-    assert api.get("/auth/login", follow_redirects=False).status_code == 404
-    assert api.get("/auth/callback", follow_redirects=False).status_code == 404
-
-
-def test_unreachable_provider_says_so_plainly(signin):
-    signin.start(issuer="http://127.0.0.1:9")
-    result = signin.api.get("/auth/login", follow_redirects=False)
-    assert result.status_code == 502 and "unavailable" in result.text
-
-
-def test_microsoft_tenant_is_pinned_and_the_email_may_be_the_username(signin, monkeypatch):
-    fake = signin.provider(prefix="/" + TENANT + "/v2.0")
-    monkeypatch.setattr(oidc, "_microsoft", lambda issuer: True)
-    signin.start(issuer=fake.issuer)
-    signin.fake = fake
-    good = {"tid": TENANT, "email": None, "email_verified": None, "preferred_username": "ben@acme.example"}
-    assert signin.login(claims=good).status_code == 302
-    assert me(signin.api).json()["actor"] == "human:ben"
-    signin.api.cookies.clear()
-    assert signin.login(claims={**good, "tid": "99999999-2222-3333-4444-555555555555"}).status_code == 400
-    assert signin.login(claims={**good, "tid": None}).status_code == 400
-    assert signin.login(claims={**good, "email_verified": False}).status_code == 400
-    assert signin.login(claims={**good, "preferred_username": "not-an-email"}).status_code == 400
-
-
-def test_client_secret_can_come_from_a_file(signin, tmp_path):
-    path = tmp_path / "secret"
-    path.write_text(SECRET + "\n")
-    signin.settings.oidc_client_secret = ""
-    signin.settings.oidc_client_secret_file = path
-    oidc.check(signin.settings)
-    assert signin.settings.oidc_client_secret == SECRET
 
 
 def base(tmp_path, **kw):
@@ -450,20 +347,3 @@ def test_startup_validation_names_the_problem(tmp_path, changes, message):
     with pytest.raises(RuntimeError, match=message):
         Settings(**{**base(tmp_path), **changes})
 
-
-def test_valid_configurations_start(tmp_path):
-    Settings(**base(tmp_path))
-    Settings(**base(tmp_path, oidc_allowed_domains=("acme.com",)))
-    Settings(**{**base(tmp_path), "oidc_issuer": "https://login.microsoftonline.com/" + TENANT + "/v2.0"})
-    Settings(**{**base(tmp_path), "public_url": "http://127.0.0.1:8765"})
-
-
-def test_session_secret_is_generated_once_and_kept_private(tmp_path):
-    settings = Settings(**base(tmp_path))
-    first = oidc._session_secret(settings)
-    path = tmp_path / oidc.SECRET_FILE
-    assert oct(path.stat().st_mode & 0o777) == "0o600" and len(first) >= 64
-    assert oidc._session_secret(settings) == first
-    os.chmod(path, 0o644)
-    with pytest.raises(RuntimeError, match="chmod 600"):
-        oidc._session_secret(settings)

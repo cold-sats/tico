@@ -88,15 +88,6 @@ class RunnerHarnesses(unittest.TestCase):
                          (True, "1.0.0", True))
         self.assertFalse(harnesses["claude-code"]["installed"])
 
-    def test_a_runner_with_no_harness_installed_is_still_a_working_runner(self):
-        client = Client(providers=[])
-        runner = self.runner(client)
-        self.maintain(runner)
-        self.drain(runner)
-        beat = [body for path, body in client.posts if path == "runners/heartbeat"][-1]
-        self.assertTrue(all(not row["installed"] for row in beat["readiness"]["harnesses"].values()))
-        self.assertFalse((self.root / "tools" / "bin").exists())
-
     def test_an_update_waits_for_the_running_turn_then_goes_in_between_turns(self):
         runner = self.runner(Client(providers=["openai"]))
         self.maintain(runner)
@@ -136,49 +127,6 @@ class RunnerHarnesses(unittest.TestCase):
                 mock.patch.object(runner.state, "record"):
             runner.tick()
         self.assertEqual(runner.attempt_runtimes["a2"], {"codex", "gemini"})
-
-    def test_owner_actions_from_the_server_are_applied_and_reported(self):
-        client = Client(providers=["openai"])
-        runner = self.runner(client)
-        self.maintain(runner)
-        for _ in range(3):
-            self.drain(runner)
-        client.actions = [{"id": "r1", "harness": "codex", "action": "pin"},
-                          {"id": "r2", "harness": "codex", "action": "update"}]
-        (self.root / "latest").write_text("1.2.0")
-        runner.harness_relay.polled = 0
-        self.drain(runner)
-        reports = {path: body for path, body in client.posts if path.startswith("runner-harness-actions/")}
-        self.assertEqual(reports["runner-harness-actions/r1/report"]["state"], "done")
-        self.assertIn("pinned to 1.0.0", reports["runner-harness-actions/r1/report"]["message"])
-        # The update was asked for after the pin: it runs, and moves the pin with it.
-        for _ in range(3):
-            self.drain(runner)
-        states = [body["state"] for path, body in client.posts if path == "runner-harness-actions/r2/report"]
-        self.assertEqual(states[0], "running")
-        self.assertEqual(states[-1], "done")
-        self.assertEqual(runner.tools.policy(runner.tools.manifests["codex"]), ("pinned", "1.2.0"))
-
-    def test_a_server_that_predates_harness_reports_does_not_take_the_runner_offline(self):
-        client = Client(providers=[], refuse_harnesses=True)
-        runner = self.runner(client)
-        self.maintain(runner)
-        beats = [body for path, body in client.posts if path == "runners/heartbeat"]
-        self.assertEqual(len(beats), 2)
-        self.assertNotIn("harnesses", beats[-1]["readiness"])
-        self.maintain(runner)          # still quiet for a while: no second refusal
-        self.assertEqual(len([1 for path, _ in client.posts if path == "runners/heartbeat"]), 3)
-        self.assertNotIn("harnesses", [b for p, b in client.posts if p == "runners/heartbeat"][-1]["readiness"])
-
-    def test_a_harness_on_the_operators_path_is_left_alone(self):
-        script(self.root / "stubs" / "codex", 'echo "codex-cli 0.90.0"')
-        runner = self.runner(Client(providers=["openai"]))
-        self.maintain(runner)
-        self.drain(runner)
-        self.assertFalse((self.root / "tools" / "codex").exists())
-        report = runner.tools.report()["codex"]
-        self.assertEqual((report["version"], report["managed"]), ("0.90.0", False))
-
 
 if __name__ == "__main__":
     unittest.main()

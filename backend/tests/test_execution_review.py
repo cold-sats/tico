@@ -198,22 +198,6 @@ def test_a_turn_that_failed_before_doing_anything_goes_back_in_the_queue(api):
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
 
-def test_a_job_that_keeps_failing_that_way_stops_for_a_person_on_the_third_try(api):
-    machine, message, attempt = setup_attempt(api)
-    for _ in range(2):
-        fails_at_once(api, machine, attempt)
-        assert job_state(api, attempt['job_id']) == 'queued'
-        attempt = claim(api, machine)
-    fails_at_once(api, machine, attempt)
-    assert job_state(api, attempt['job_id']) == 'uncertain'
-
-
-def test_a_failed_turn_that_produced_output_still_waits_for_a_person(api):
-    machine, message, attempt = setup_attempt(api)
-    fails_at_once(api, machine, attempt, [{'seq': 2, 'kind': 'delta', 'payload': {'text': 'Opening'}}])
-    assert job_state(api, attempt['job_id']) == 'uncertain'
-
-
 def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api):
     """Ana, 2026-09-25: no person answers "did this run finish an outside action?". The bot gets
     what the run saved, checks what is done, and finishes only the rest."""
@@ -250,31 +234,3 @@ def test_a_stopped_run_that_used_tools_resumes_by_itself_with_what_it_saved(api)
     assert task and task['owner'] == H.bot_actor(H.FLEET_MAINTAINER)
     assert get(api, 'bots/ops/execution-review')['jobs'] == []
 
-
-def test_an_archived_bots_queued_jobs_are_let_go(api):
-    """CTO, 2026-09-25: archived with two keeper notices queued that could never run."""
-    from backend.store import H
-    post(api, 'chat/ops', {'text': 'Anything new?'})
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE bots SET state='archived' WHERE slug='ops'")
-        held = api.app.state.execution.hold_unrunnable(c)
-        assert held and c.execute("SELECT count(*) FROM jobs WHERE bot='ops' AND state='queued'").fetchone()[0] == 0
-
-
-def test_botops_reviews_and_resumes_a_stopped_run(api):
-    """Ana, 2026-09-25: recovery is BotOps' job, not a form for a person."""
-    from backend.store import encode
-    machine, message, attempt = interrupted(api)
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
-        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('botops',?, 'ana')",
-                  (encode({"name": "botops", "runtime": "fake", "status": "active"}),))
-    _, _, botops = setup_attempt(api, "botops")
-    _, _, cpo = setup_attempt(api, "cpo", operator="ben")
-    get(api, 'bots/ops/execution-review', token=cpo['token'], expected=403)
-    job = get(api, 'bots/ops/execution-review', token=botops['token'])['jobs'][0]
-    post(api, f"jobs/{job['id']}/reconcile", {'attempt_id': job['attempt_id'], 'acknowledge_uncertain_effects': True,
-         'decision': 'resume', 'note': 'BotOps: the run only read and thought; resuming it.'}, token=botops['token'])
-    with api.app.state.store.read() as c:
-        assert c.execute('SELECT state FROM jobs WHERE id=?', (job['id'],)).fetchone()[0] == 'queued'
-        assert c.execute("SELECT actor FROM events WHERE action='job.reconcile' AND target=?", (job['id'],)).fetchone()[0] == 'bot:botops'

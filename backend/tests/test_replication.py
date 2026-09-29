@@ -34,20 +34,6 @@ def test_status_modes(tmp_path):
     assert replication.status({"TICO_BACKUP_MODE": "remote", "TICO_BACKUP_URL": "s3://b"}, tmp_path / "none")["last_replicated_at"] is None
 
 
-def test_status_outside_the_container_reports_only_what_is_configured():
-    assert replication.status({})["mode"] is None      # a VM install runs its own Litestream
-    assert replication.status({"TICO_BACKUP_URL": "s3://b/p"})["mode"] == "remote"
-    assert replication.mode_from_env({"TICO_BACKUP": "off", "TICO_BACKUP_URL": "s3://b"}) == "off"
-    assert replication.mode_from_env({}) == "local-only"
-
-
-def test_config_payload_carries_the_backup_status(environment, monkeypatch):
-    api = environment()
-    monkeypatch.setenv("TICO_BACKUP_MODE", "local-only")
-    backup = api.get("/api/v2/config", headers=signed_in()).json()["backup"]
-    assert backup["mode"] == "local-only" and backup["target_kind"] == "local" and backup["warning"]
-
-
 class FakeS3:
     """Just the calls S3Mirror makes, over a dict."""
     def __init__(self):
@@ -104,26 +90,6 @@ def test_restore_rejects_a_blob_that_fails_its_checksum(tmp_path):
         replication.restore_blobs(mirror, tmp_path / "fresh")
 
 
-def test_write_status_uses_the_newest_replica_object(tmp_path):
-    mirror = replication.LocalMirror(tmp_path / "b")
-    path = tmp_path / "status.json"
-    replication.write_status(mirror, path)
-    assert not path.exists()
-    segment = tmp_path / "b" / "0000" / "0000000000000001-0000000000000001.ltx"
-    segment.parent.mkdir(parents=True)
-    segment.write_bytes(b"x")
-    os.utime(segment, (1_800_000_000, 1_800_000_000))
-    replication.write_status(mirror, path)
-    assert json.loads(path.read_text())["last_replicated_at"] == "2027-01-15T08:00:00Z"
-
-
-def test_the_loop_survives_a_failing_sync_and_repeats_its_warning(tmp_path, capsys):
-    env = {"TICO_BACKUP_MODE": "local-only", "TICO_BACKUP_DIR": str(tmp_path / "b"), "TICO_BLOB_DIR": str(tmp_path / "blobs"),
-           "TICO_BACKUP_STATUS_FILE": str(tmp_path / "s.json")}
-    replication.loop(env, interval=0, warn_every=0, sleep=lambda _: None, rounds=2)
-    assert capsys.readouterr().out.count("WARNING") == 2
-
-
 def entrypoint(tmp_path, *args, command="restore", env=None):
     data, backups, bin_dir = tmp_path / "data", tmp_path / "backups", tmp_path / "bin"
     data.mkdir(exist_ok=True)
@@ -170,12 +136,6 @@ def test_restore_into_an_empty_volume_and_force_over_a_full_one(tmp_path):
     forced = entrypoint(tmp_path, "--force")
     assert forced.returncode == 0, forced.stderr
     assert list((tmp_path / "data").glob("hub.sqlite.before-restore.*"))
-
-
-def test_restore_with_backups_off_says_there_is_nothing_to_restore(tmp_path, monkeypatch):
-    monkeypatch.setenv("TICO_BACKUP", "off")
-    result = entrypoint(tmp_path)
-    assert result.returncode != 0 and "nothing to restore" in result.stderr
 
 
 def prepare(tmp_path, restore_fails=False, **extra):

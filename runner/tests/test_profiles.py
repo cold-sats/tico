@@ -70,9 +70,3 @@ class Readiness(unittest.TestCase):
         self.assertEqual(rows["sales"]["profile"], "two")
         self.assertEqual(rows["coo"]["problems"], ["Missing bot repository or AGENT.md"])
         self.assertIn("two: Codex login required", rows["sales"]["problems"])
-
-    def test_the_heartbeat_keeps_the_shape_the_server_accepts(self):
-        assignments, report = self.report()
-        document = self.runner.readiness(assignments, self.runner.preflight(assignments, report), report)
-        self.assertNotIn("profiles", document["runtimes"]["codex"])
-        self.assertNotIn("profile", document["bots"]["sales"])

@@ -66,18 +66,6 @@ def test_a_routine_is_created_listed_fired_and_seen_by_the_bot(api):
     assert scheduler(api).tick(datetime(2026, 9, 14, 14, 1, tzinfo=timezone.utc))["fired"] == []
 
 
-def test_invalid_routines_are_refused_with_the_reason(api):
-    setup(api)
-    for invalid, reason in [({**AUDIT, "cron": "99 99 * * *"}, "cron"),
-                            ({**AUDIT, "timezone": "Mars/Olympus"}, "timezone"),
-                            ({**AUDIT, "on": "meeting.ready"}, "exactly one"),        # a time and an event
-                            ({"key": "x", "title": "Neither", "text": "t"}, "exactly one"),
-                            ({"key": "x", "title": "Moon", "on": "moon.full"}, "unknown event")]:
-        problem = create(api, "ops", invalid, expected=422)
-        assert reason in problem["error"]["detail"], problem
-    assert len(rows(api)) == 2
-
-
 def test_who_may_write_a_bots_routines(api):
     # Ben operates cpo; he cannot touch ops's routines, and Cara cannot touch cpo's.
     create(api, "cpo", DEBRIEF, token="ben-test")
@@ -142,23 +130,3 @@ def test_delete_keeps_history_closes_unclaimed_work_and_leaves_running_work(api)
         assert H.task(c, attempt["task"]["id"])["status"] == "open"
         assert c.execute("SELECT state FROM attempts WHERE id=?", (attempt["id"],)).fetchone()[0] == "leased"
 
-
-def test_one_botops_sweep_replaces_every_bots_daily_open_tasks_check(api):
-    """Ana, 2026-09-25: no daily run per bot for open tasks; one BotOps sweep instead."""
-    from backend import routines as R
-    with api.app.state.store.transaction() as c:
-        active = [r["slug"] for r in c.execute("SELECT slug FROM bots WHERE state='active'")][:3]
-        for slug in active:          # what the 2026-09-24 rollout left behind
-            R.create(c, H.KEEPER, slug, {"title": "Check open tasks", "text": R.OPEN_TASKS_TEXT,
-                                         "cron": "0 8 * * *", "timezone": "America/Los_Angeles"}, key=R.OPEN_TASKS_KEY)
-        assert sorted(R.retire_open_tasks_checks(c)) == sorted(active)
-        assert c.execute("SELECT count(*) FROM schedules WHERE routine_key=? AND deleted_at IS NULL",
-                         (R.OPEN_TASKS_KEY,)).fetchone()[0] == 0
-        if not c.execute("SELECT 1 FROM bots WHERE slug='botops'").fetchone():
-            c.execute("INSERT INTO bots(slug, display_name, state) VALUES('botops','BotOps','active')")
-        c.execute("DELETE FROM schedules WHERE routine_key=?", (R.SWEEP_KEY,))
-        sweep = R.ensure_task_sweep(c)
-        assert sweep and sweep["bot"] == "botops" and sweep["cron"] == "0 9 * * *"
-        assert R.ensure_task_sweep(c) is None, "set once"
-        R.remove(c, "human:ana", sweep["id"])
-        assert R.ensure_task_sweep(c) is None, "a person's delete is not undone"

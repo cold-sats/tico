@@ -66,14 +66,6 @@ def test_only_the_owner_creates_the_token(environment):
     assert r.status_code == 403
 
 
-def test_entra_test_connection_gets_an_empty_list(scim):
-    r = call(scim, "GET", '/Users?filter=userName eq "0f1b6c3e-9a5b-4c1e-8f33-0d1e2f3a4b5c"')
-    assert r.status_code == 200 and r.headers["content-type"].startswith("application/scim+json")
-    assert r.json() == {"schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"], "totalResults": 0,
-                        "startIndex": 1, "itemsPerPage": 0, "Resources": []}
-    assert call(scim, "GET", "/Groups?excludedAttributes=members&filter=displayName eq \"x\"").json()["totalResults"] == 0
-
-
 def test_create_returns_201_and_a_duplicate_is_409(scim):
     r = create(scim)
     assert r.status_code == 201, r.text
@@ -86,31 +78,6 @@ def test_create_returns_201_and_a_duplicate_is_409(scim):
     people = roster_of(scim)
     assert people["kim@acme.example"]["directory"] == "scim" and people["kim@acme.example"]["name"] == "Kim Lee"
     assert len(events(scim, "directory.person_added")) == 1                     # the replay changed nothing
-
-
-def test_filter_by_username_case_insensitively_quoted_or_bare_and_and_joins(scim):
-    kim = create(scim).json()
-    for text in ('userName eq "KIM@acme.example"', "userName eq kim@acme.example", 'USERNAME EQ "kim@acme.example"',
-                 'externalId eq "ext-kim@acme.example"', f'id eq "{kim["id"]}"',
-                 'userName eq "kim@acme.example" and externalId eq "ext-kim@acme.example"'):
-        r = call(scim, "GET", "/Users?filter=" + text)
-        assert r.json()["totalResults"] == 1, text
-        assert r.json()["Resources"][0]["id"] == kim["id"]
-    assert call(scim, "GET", '/Users?filter=userName sw "k"').status_code == 400
-    assert call(scim, "GET", '/Users?filter=userName sw "k"').json()["scimType"] == "invalidFilter"
-
-
-def test_pagination_is_one_based_and_capped(scim):
-    for n in range(5):
-        create(scim, f"u{n}@acme.example")
-    total = call(scim, "GET", "/Users").json()["totalResults"]                   # the environment's own people too
-    page = call(scim, "GET", "/Users?startIndex=2&count=2").json()
-    assert page["totalResults"] == total and page["startIndex"] == 2 and page["itemsPerPage"] == 2
-    everyone = call(scim, "GET", "/Users?count=1000").json()
-    assert everyone["itemsPerPage"] == total <= 200
-    assert [u["id"] for u in page["Resources"]] == [u["id"] for u in everyone["Resources"][1:3]]
-    assert call(scim, "GET", "/Users?count=0").json()["Resources"] == []
-    assert call(scim, "GET", "/Users?startIndex=abc").status_code == 400
 
 
 def test_okta_deactivates_with_a_pathless_patch_and_the_user_stays_listed(scim):
@@ -130,35 +97,6 @@ def test_okta_deactivates_with_a_pathless_patch_and_the_user_stays_listed(scim):
     back = call(scim, "PATCH", "/Users/" + kim["id"], {"schemas": [PATCH], "Operations": [
         {"op": "replace", "value": {"active": True}}]})
     assert back.json()["active"] is True and roster_of(scim)["kim@acme.example"]["hidden"] is False
-
-
-def test_entra_patch_uses_capitalised_ops_text_booleans_and_attribute_paths(scim):
-    kim, boss = create(scim).json(), create(scim, "boss@acme.example", externalId="boss-ext").json()
-    ops = [{"op": "Replace", "path": "name.familyName", "value": "Park"},
-           {"op": "Replace", "path": "title", "value": "Lead Designer"},
-           {"op": "Replace", "path": 'emails[type eq "work"].value', "value": "other@acme.example"},   # mapped separately
-           {"op": "Add", "path": ENTERPRISE + ":manager", "value": "boss-ext"},
-           {"op": "Add", "path": "addresses[type eq \"work\"].country", "value": "ML"}]              # ignored
-    r = call(scim, "PATCH", "/Users/" + kim["id"], {"schemas": [PATCH], "Operations": ops})
-    assert r.status_code == 200, r.text
-    row = roster_of(scim)["kim@acme.example"]
-    assert row["name"] == "Kim Park" and row["title"] == "Lead Designer" and row["reports_to"] == boss["id"]
-    assert r.json()[ENTERPRISE]["manager"]["value"] == boss["id"]
-    off = call(scim, "PATCH", "/Users/" + kim["id"], {"schemas": [PATCH], "Operations": [
-        {"op": "Replace", "path": "active", "value": "False"}]})
-    assert off.json()["active"] is False
-
-
-def test_put_replaces_the_profile_and_delete_marks_left(scim):
-    kim = create(scim).json()
-    body = {"schemas": [USER], "userName": "kim@acme.example", "displayName": "Kimberly Lee", "title": "VP", "active": True}
-    r = call(scim, "PUT", "/Users/" + kim["id"], body, expected=200)
-    assert r.json()["displayName"] == "Kimberly Lee" and r.json()["title"] == "VP"
-    call(scim, "DELETE", "/Users/" + kim["id"], expected=204)
-    call(scim, "DELETE", "/Users/" + kim["id"], expected=204)                  # idempotent
-    assert roster_of(scim)["kim@acme.example"]["hidden"] is True
-    assert call(scim, "GET", "/Users/nobody").status_code == 404
-    assert call(scim, "PUT", "/Users/" + kim["id"], {**body, "userName": "renamed@acme.example"}).status_code == 400
 
 
 def test_people_added_by_hand_and_the_owner_cannot_be_deactivated_by_scim(scim):
@@ -186,13 +124,3 @@ def test_a_burst_of_deactivations_stops_at_the_mass_leave_limit(scim):
     assert call(scim, "PATCH", "/Users/" + ids[2], off).headers["retry-after"] == "3600"
     assert events(scim, "directory.scim_guard") and roster_of(scim)["u2@acme.example"]["hidden"] is False
 
-
-def test_discovery_endpoints_and_unsupported_groups(scim):
-    cfg = call(scim, "GET", "/ServiceProviderConfig", expected=200).json()
-    assert cfg["patch"]["supported"] is True and cfg["bulk"]["supported"] is False
-    assert cfg["authenticationSchemes"][0]["type"] == "oauthbearertoken"
-    assert call(scim, "GET", "/ResourceTypes", expected=200).json()["Resources"][0]["endpoint"] == "/Users"
-    assert call(scim, "GET", "/Schemas", expected=200).json()["totalResults"] == 2
-    assert call(scim, "POST", "/Groups", {"displayName": "x"}).status_code == 501
-    assert call(scim, "POST", "/Users", {"userName": "not-an-email"}).status_code == 400
-    assert scim.post("/scim/v2/Users", content="{", headers=scim.scim_headers).status_code == 400

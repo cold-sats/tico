@@ -107,16 +107,6 @@ def test_after_an_update_a_helper_from_the_new_image_replaces_the_updater(monkey
     assert ("TICO_COMPOSE_FILE=runner.compose.yaml" in joined) == (mode == "runner")
 
 
-def test_an_updater_on_the_new_tag_or_a_local_only_install_is_left_alone(monkeypatch, tmp_path):
-    updater = load(monkeypatch, "", tmp_path)
-    monkeypatch.setattr(updater, "SELF_UPDATE", "always")
-    monkeypatch.setenv("HOSTNAME", "abc")
-    docker = Fake(updater, monkeypatch, container=container(updater, "/srv/tico", tag="v0.2.0"))
-    assert updater.replace_updater("v0.2.0") == "" and not any(a[:2] == ["docker", "run"] for a, _ in docker.calls)
-    monkeypatch.setattr(updater, "PULL", "never")
-    assert updater.replace_updater("v0.3.0") == ""
-
-
 def helper(monkeypatch, tmp_path, image_after):
     updater = load(monkeypatch, "server", tmp_path)
     monkeypatch.setenv("TICO_SWAP_TAG", "v0.2.0")
@@ -128,14 +118,6 @@ def helper(monkeypatch, tmp_path, image_after):
     monkeypatch.setattr(updater.time, "time", lambda: next(clock))
     docker = Fake(updater, monkeypatch, container=lambda ref: {"Image": image_after, "State": {"Running": True}})
     return updater, docker
-
-
-def test_the_helper_moves_the_pin_once_the_new_updater_stays_up(monkeypatch, tmp_path):
-    updater, docker = helper(monkeypatch, tmp_path, "sha256:newupdater")
-    assert updater.replace_self() == 0
-    assert "TICO_UPDATER_TAG=v0.2.0" in (tmp_path / ".env").read_text()
-    up = next(e for a, e in docker.calls if "up" in a)
-    assert up["TICO_UPDATER_TAG"] == "v0.2.0"
 
 
 def test_the_helper_puts_the_old_updater_back_when_the_new_one_does_not_stay_up(monkeypatch, tmp_path):

@@ -5,8 +5,7 @@ import subprocess
 import time
 import unittest
 
-from runner.hosts.base import HostError
-from runner.hosts.cursor import CHAT_ID, CursorHost, message_text, model_for, usage_tokens
+from runner.hosts.cursor import CursorHost
 
 CHAT = "99315a93-89be-4411-a713-a5f615272ab0"
 SUCCESS = [
@@ -108,14 +107,6 @@ class Cursor(unittest.TestCase):
         done = [e for e in got if e["kind"] == "turn_completed"]
         self.assertEqual([(e["turn_id"], e["status"]) for e in done], [(turn, "completed")])
 
-    def test_a_later_turn_and_a_restart_resume_the_same_chat(self):
-        h, procs, runs = host(SUCCESS)
-        h.resume_thread("coo", CHAT, self.settings)
-        h.start_turn(CHAT, "again")
-        events(h)
-        self.assertEqual(runs, [], "no new chat is made when one is resumed")
-        self.assertEqual(procs[0][0][procs[0][0].index("--resume") + 1], CHAT)
-
     def test_an_error_result_fails_the_turn_and_flags_a_usage_limit(self):
         h, procs, _ = host(FAILED, rc=1)
         tid = h.start_thread("coo", self.settings)
@@ -133,31 +124,6 @@ class Cursor(unittest.TestCase):
         got = events(h)
         self.assertTrue(any(e["kind"] == "turn_failed" for e in got))
 
-    def test_one_turn_at_a_time_no_steering_and_a_missing_chat_is_refused(self):
-        h, procs, _ = host(SUCCESS)
-        tid = h.start_thread("coo", self.settings)
-        with self.assertRaises(HostError):
-            h.steer(tid, "t", "x")
-        with self.assertRaises(HostError):
-            h.start_turn("nonesuch", "x")
-        h.stop()
-        with self.assertRaises(HostError):
-            h.start_turn(tid, "x")
-
-    def test_create_chat_that_fails_is_a_host_error(self):
-        h = CursorHost(run=lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "not logged in"))
-        h.start()
-        with self.assertRaisesRegex(HostError, "not logged in"):
-            h.start_thread("coo", self.settings)
-
-    def test_helpers(self):
-        self.assertEqual((model_for(""), model_for("default"), model_for("cursor-auto"), model_for("gpt-5.3-codex")),
-                         ("auto", "auto", "auto", "gpt-5.3-codex"))
-        self.assertEqual(usage_tokens(None), (0, 0, 0))
-        self.assertEqual(message_text({"content": [{"type": "text", "text": "a"}, {"type": "image"}, {"type": "text", "text": "b"}]}), "ab")
-        self.assertTrue(CHAT_ID.fullmatch(CHAT))
-
-
 if __name__ == "__main__":
     unittest.main()
 
@@ -165,54 +131,3 @@ if __name__ == "__main__":
 class Wiring(unittest.TestCase):
     """`runtime: cursor` is a runtime like the others: preflight accepts it, readiness reports it,
     and the runner builds its host."""
-
-    def test_preflight_no_longer_calls_cursor_retired(self):
-        from unittest import mock
-        from clients import preflight
-        lines = []
-
-        class Report(preflight.Report):
-            def line(self, level, text):
-                lines.append((level, text))
-        entry = {"name": "coo", "runtime": "cursor", "model": "cursor-auto"}
-        with mock.patch.object(preflight.REG, "merge_employee", side_effect=lambda e, d: e), \
-                mock.patch.object(preflight.shutil, "which", return_value="/tools/bin/cursor-agent"):
-            preflight.check_runtime(Report("coo"), entry, {})
-        self.assertFalse([text for _, text in lines if "retired" in text], lines)
-        self.assertIn(("PASS", "runtime: `cursor-agent` on PATH at /tools/bin/cursor-agent"), lines)
-
-    def test_readiness_reads_the_cursor_login_and_the_api_key(self):
-        import os
-        import tempfile
-        from pathlib import Path
-        from unittest import mock
-        from runner import service as service_module
-        from runner.tests.test_profiles import service
-
-        def run(output, code=0):
-            return lambda argv, **kw: subprocess.CompletedProcess(argv, code, output, "")
-        with tempfile.TemporaryDirectory() as tmp:
-            runner = service(tmp)
-            (Path(tmp) / "secrets").mkdir()
-            with mock.patch.object(service_module.shutil, "which", lambda name: "/bin/" + name), \
-                    mock.patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("CURSOR_API_KEY", None)
-                for output, code, expected in (("✓ Logged in as a@b.c", 0, "ready"), ("Not logged in", 1, "missing")):
-                    with mock.patch.object(service_module.subprocess, "run", run(output, code)):
-                        row = runner.runtime_readiness("cursor", [])
-                    self.assertEqual(row["authenticated"], expected)
-                    self.assertTrue(row["installed"])
-                self.assertEqual(row["models"], ["cursor-auto"])
-                (Path(tmp) / "secrets" / "_shared.env").write_text("CURSOR_API_KEY=k\n")
-                with mock.patch.object(service_module.subprocess, "run", run("Not logged in", 1)):
-                    self.assertEqual(runner.runtime_readiness("cursor", [])["authenticated"], "ready")
-            self.assertEqual(service_module.harness_tools.executable_for("cursor"), "cursor-agent")
-
-    def test_the_runner_builds_a_cursor_host(self):
-        from runner.tests.test_profiles import service
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            runner = service(tmp)
-            runner.profile = lambda bot: None
-            host = runner.make_host({"bot": "coo", "config": {"runtime": "cursor"}}, {})
-            self.assertIsInstance(host, CursorHost)

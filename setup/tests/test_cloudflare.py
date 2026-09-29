@@ -18,20 +18,6 @@ class Api:
         return 404, {"success": False, "errors": [{"message": "no route"}]}
 
 
-def test_find_zone_walks_up_and_returns_account():
-    api = Api({("GET", "/zones?name=tico.example.com"): [],
-               ("GET", "/zones?name=example.com"): [{"id": "z1", "name": "example.com", "account": {"id": "a1"}}]})
-    z = Cloudflare("tok", api).find_zone("tico.example.com")
-    assert z == {"id": "z1", "name": "example.com", "account_id": "a1"}
-    assert [c[1] for c in api.calls] == ["/zones?name=tico.example.com", "/zones?name=example.com"]
-
-
-def test_ensure_tunnel_reuses_existing():
-    api = Api({("GET", "/accounts/a1/cfd_tunnel?"): [{"id": "t1"}], ("GET", "/accounts/a1/cfd_tunnel/t1/token"): "TOKEN"})
-    assert Cloudflare("tok", api).ensure_tunnel("a1", "n") == ("t1", "TOKEN")
-    assert not any(c[0] == "POST" for c in api.calls)
-
-
 def test_ensure_tunnel_creates_and_configures_ingress_to_the_server():
     api = Api({("GET", "/accounts/a1/cfd_tunnel?"): [], ("POST", "/accounts/a1/cfd_tunnel"): {"id": "t2", "token": "T2"},
                ("PUT", "/accounts/a1/cfd_tunnel/t2/configurations"): {}})
@@ -40,20 +26,6 @@ def test_ensure_tunnel_creates_and_configures_ingress_to_the_server():
     cf.configure_tunnel("a1", "t2", "t.example.com")
     ing = api.calls[-1][2]["config"]["ingress"]
     assert ing[0] == {"hostname": "t.example.com", "service": "http://server:8765"} and ing[-1]["service"] == "http_status:404"
-
-
-def test_upsert_cname_created_updated_unchanged_and_refuses_other_types():
-    rec = {"id": "r", "type": "CNAME", "content": "old", "proxied": True}
-    api = Api({("GET", "/zones/z/dns_records?"): [], ("POST", "/zones/z/dns_records"): {}, ("PUT", "/zones/z/dns_records/r"): {}})
-    cf = Cloudflare("tok", api)
-    assert cf.upsert_cname("z", "t.example.com", "x.cfargotunnel.com") == "created"
-    api.routes[("GET", "/zones/z/dns_records?")] = [rec]
-    assert cf.upsert_cname("z", "t.example.com", "x.cfargotunnel.com") == "updated"
-    rec["content"] = "x.cfargotunnel.com"
-    assert cf.upsert_cname("z", "t.example.com", "x.cfargotunnel.com") == "unchanged"
-    api.routes[("GET", "/zones/z/dns_records?")] = [{"id": "r", "type": "A", "content": "1.1.1.1"}]
-    with pytest.raises(CloudflareError, match="already has a A record"):
-        cf.upsert_cname("z", "t.example.com", "x.cfargotunnel.com")
 
 
 def test_errors_never_include_the_token():

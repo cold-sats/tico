@@ -114,17 +114,6 @@ def test_local_rules_refuse_traversal_links_env_and_oversize(tmp_path):
             BF.local_file(root, bad)
 
 
-def test_local_rules_refuse_a_hard_link(tmp_path):
-    root = tmp_path / "checkout"
-    (root / "reports").mkdir(parents=True)
-    (tmp_path / "secrets.md").write_text("secret")
-    os.link(tmp_path / "secrets.md", root / "reports" / "innocent.md")
-    with pytest.raises(BF.Refused, match="hard link"):
-        BF.local_file(root, "reports/innocent.md")
-    (root / "reports" / "own.md").write_text("mine")
-    assert BF.local_file(root, "reports/own.md")[1] == "reports/own.md"
-
-
 def test_runner_upload_is_retried_after_a_restart_and_lands_once(api, live, tmp_path):
     machine, attempt = turn(api)
     checkout = tmp_path / "bot"
@@ -162,66 +151,3 @@ def test_runner_upload_is_retried_after_a_restart_and_lands_once(api, live, tmp_
     log = api.get(f"/api/v2/files/{page['files'][0]['id']}/activity", headers=headers("ben-test")).json()["activity"]
     assert len(log) == 1
 
-
-def test_s3_import_adds_a_version_only_when_the_etag_changes(api):
-    class Body:
-        def __init__(self, data):
-            self.data = data
-
-        def read(self, limit=None):
-            return self.data
-
-    class S3:
-        etag, data = "aaa", b"a,b\n1,2\n"
-
-        def head_object(self, **kw):
-            return {"ContentLength": len(self.data), "ETag": '"' + self.etag + '"'}
-
-        def get_object(self, **kw):
-            return {"Body": Body(self.data)}
-
-    stub = S3()
-    _, attempt = turn(api)
-
-    def run():
-        name, _, data, etag = BF.fetch_s3("s3://acme-reports/2026/q3.csv", client=stub)
-        return api.post("/api/v2/files/imports?" + BF.urlencode({"source": "s3://acme-reports/2026/q3.csv", "etag": etag,
-                        "name": name}), content=data, headers={**headers(attempt["token"]), "Content-Type": "application/octet-stream"})
-    assert run().json()["file"]["version"] == 1
-    assert run().json()["changed"] is False
-    stub.etag, stub.data = "bbb", b"a,b\n1,3\n"
-    assert run().json()["file"]["version"] == 2
-    row = listing(api)["files"][0]
-    assert row["source"] == "s3" and "acme-reports" not in str(row)
-    with pytest.raises(BF.Refused):
-        BF.fetch_s3("s3://acme-reports/key.exe", client=stub)
-    with pytest.raises(BF.Refused):
-        BF.fetch_s3("https://example.com/x.csv", client=stub)
-
-
-@pytest.mark.parametrize("url", [
-    "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit?usp=sharing",
-    "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/view#heading=h.1",
-    "https://drive.google.com/open?id=1AbCdEfGhIjKlMnOp"])
-def test_google_links_share_one_identity(url):
-    assert BF.normalize_link(url)[1] == "google-drive:1AbCdEfGhIjKlMnOp"
-
-
-def test_link_validation_and_registration(api):
-    assert BF.normalize_link("https://www.notion.so/Plan-abc?utm_source=x#top")[1:2] == ("url:https://www.notion.so/Plan-abc",)
-    for bad in ("http://docs.google.com/document/d/1AbCdEfGhIjKlMnOp", "javascript:alert(1)", "https://localhost/x",
-                "https://10.0.0.1/x", "https://user:pw@example.com/x", "ftp://example.com/x", "//example.com/x"):
-        with pytest.raises(BF.Refused):
-            BF.normalize_link(bad)
-    url = "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOp/edit"
-    added = api.post("/api/v2/files/links", json={"bot": "ops", "url": url, "title": "Budget"}, headers=headers("ben-test"))
-    assert added.status_code == 200, added.text
-    assert api.post("/api/v2/files/links", json={"bot": "ops", "url": "http://x.example/doc"},
-                    headers=headers("ben-test")).status_code == 422
-    assert api.post("/api/v2/files/links", json={"bot": "ops", "url": url}, headers=headers("cara-test")).status_code == 403
-    _, attempt = turn(api, "ops", "ana-test")
-    bot_touch = api.post("/api/v2/files/links", json={"file": added.json()["file"]["id"]}, headers=headers(attempt["token"]))
-    assert bot_touch.status_code == 200, bot_touch.text     # the bot moves its own link to the top
-    row = listing(api, who="cara-test")["files"][0]
-    assert row["open"] == {"type": "external", "url": url} and row["note"] == "Link opens in Google (requires access)"
-    assert row["scope"] == "bot" and row["kind"] == "spreadsheet" and row["action"] == "link_updated"

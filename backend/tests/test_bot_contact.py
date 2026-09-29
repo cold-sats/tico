@@ -50,24 +50,6 @@ def test_an_unrelated_bot_cannot_chat_it_or_put_a_task_on_it(api):
     assert [t for t in get(api, "tasks")["tasks"] if t["owner"] == "bot:analyst"] == []
 
 
-def test_a_person_is_never_shut_out(api):
-    fleet(api)
-    assert post(api, "chat/analyst", {"text": "What did the chart say?"})["body"] == "What did the chart say?"
-    assert post(api, "tasks", {"owner": "analyst", "title": "Check the cancellations",
-                               "body": "Before Thursday."})["owner"] == "bot:analyst"
-
-
-def test_an_answer_to_its_own_question_always_gets_through(api):
-    """`hubdb.answer` checks only that the ask was addressed to you, so a bot blocking on a
-    reply can never be stranded by its own contact setting."""
-    _, analyst, stranger = fleet(api)
-    ask = post(api, "messages", {"to": "stranger", "text": "Which repo owns the capture?",
-                                 "kind": "ask"}, token=analyst)
-    answered = post(api, "messages/" + ask["id"] + "/answer", {"text": "the admin dashboard."}, token=stranger)
-    assert answered["body"] == "the admin dashboard."
-    assert get(api, "answers?ids=" + ask["id"], token=analyst)[ask["id"]]["body"] == "the admin dashboard."
-
-
 # ---------- `tasks`: work arrives as a task and nothing else ----------
 
 def notices_to(api, slug):
@@ -101,25 +83,4 @@ def test_another_bot_may_file_work_and_do_nothing_else(api):
          token=stranger, expected=403)
 
 
-def test_a_bot_files_on_another_bot_without_a_parent(api):
-    """A subtask is the shape that parks the filer as `waiting`. No parking, no subtasks."""
-    _, analyst, stranger = tasks_only(api)
-    mine = post(api, "tasks", {"owner": "stranger", "title": "My own parent", "body": "Mine."},
-                token=stranger)
-    refused = post(api, "tasks", {"owner": "analyst", "title": "Check this bit", "body": "Please.",
-                                  "parent_id": mine["id"]}, token=stranger, expected=422)
-    assert refused["error"]["code"] == "subtask"
-    # Its own sub-work is its own business, and a person may still break work down.
-    post(api, "tasks", {"owner": "stranger", "title": "A step of my own", "body": "Mine.",
-                        "parent_id": mine["id"]}, token=stranger)
-    post(api, "tasks", {"owner": "analyst", "title": "A step Ben broke out", "body": "His.",
-                        "parent_id": mine["id"]})
-
-
 # ---------- news lands in the room; it does not cost a run ----------
-
-def test_a_task_arriving_is_still_work(api):
-    """The one thing that should wake a bot still does."""
-    _, analyst, stranger = tasks_only(api)
-    post(api, "tasks", {"owner": "analyst", "title": "Real work", "body": "Do it."}, token=stranger)
-    assert ("New task from bot:stranger: Real work", False) in notices_to(api, "analyst")

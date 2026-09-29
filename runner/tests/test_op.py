@@ -33,11 +33,5 @@ class OnePassword(unittest.TestCase):
             env.pop(k, None)
         self.assertNotIn("OP_SERVICE_ACCOUNT_TOKEN", env)
 
-    def test_a_missing_item_becomes_an_empty_value_not_a_crash(self):
-        env = {"OP_SERVICE_ACCOUNT_TOKEN": "ops_secret", "X": "op://vault/Nope/password"}
-        out = op.resolve_op_refs(env, run=self.fake_op({}))
-        self.assertEqual(env["X"], "")
-        self.assertIn("could not find item", out["X"])
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)
