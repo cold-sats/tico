@@ -12,7 +12,7 @@ software: a web frontend your team builds, a script, another service. This page 
 - **Base:** your server's address, for example `https://tico.example.com`. Every stable route is under `/api/v2/`,
   plus `/auth/login`, `/auth/token` and `/auth/token/revoke` for signing in.
 - **Format:** JSON in, JSON out, UTF-8. Timestamps are ISO 8601 in UTC (`2026-09-29T13:50:46.836453Z`).
-- **Writes:** every `POST` carries an `Idempotency-Key` header (1 to 200 characters, a fresh UUID per action). Sending
+- **Writes:** every `POST` and `PATCH` carries an `Idempotency-Key` header (1 to 200 characters, a fresh UUID per action). Sending
   the same key and body again returns the first answer instead of doing the work twice, so a retry after a dropped
   connection is safe. The same key with a different body is `409 idempotency_conflict`.
 - **Errors:** `{"error": {"code", "detail", "retryable"}}`. See [errors](custom-frontend.md#errors).
@@ -32,7 +32,7 @@ Eleven groups of operations, each a tag in the spec:
 | Updates | the daily and weekly updates bots post |
 | Needs you | what waits on the signed-in person: questions, tasks, approvals |
 | Meetings | search and read recorded meetings |
-| Docs | company documents and search |
+| Docs | internal docs with history and locks, linked docs, import, and search across both ([docs.md](docs.md)) |
 | Health | liveness and the health checks |
 
 ## Stable and internal
@@ -43,7 +43,7 @@ Tico's own app uses more of the API than the spec lists. The line:
   field to a request, a new route to the spec. Nothing is removed or renamed, and a request that worked keeps working.
   A breaking change would be a new version (`/api/v3`) with `/api/v2` kept alongside for a release cycle.
 - **Internal.** Everything else: the `/api/...` routes without `v2` (the web app's own: `/api/me`, `/api/employees`,
-  `/api/meetings`, `/api/company-docs`, `/api/status` and others), runner and bot endpoints (`/api/v2/runners`,
+  `/api/meetings`, `/api/status` and others), runner and bot endpoints (`/api/v2/runners`,
   `/jobs`, `/attempts`, `/agents`), settings, access, credentials, integrations, market, routines, goals, `/mcp` and
   `/scim`. They change between releases without notice. A route you need that is not in the spec: open an issue to
   have it added to the stable set.

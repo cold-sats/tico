@@ -50,6 +50,7 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | [docs/creating-bots.md](docs/creating-bots.md), [docs/onboarding.md](docs/onboarding.md) | Creating bots and the first-run flow |
 | [docs/environments.md](docs/environments.md) | Sign-in options, environments, profiles, removal |
 | [docs/files.md](docs/files.md) | What bots publish, versions, who can see a file |
+| [docs/docs.md](docs/docs.md) | Docs: internal docs with history and locks, linked docs, import, search |
 | [docs/updates.md](docs/updates.md) | Updating the server and its computers |
 | [docs/assistant.md](docs/assistant.md) | The built-in Assistant: what it does at once and what it proposes |
 
