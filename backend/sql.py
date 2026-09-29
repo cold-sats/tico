@@ -20,6 +20,7 @@ from pydantic import Field
 
 from . import listening as L
 from . import rooms
+from .bot_access import q, qlist
 from .models import Contract
 from .store import H, Problem
 
@@ -46,55 +47,36 @@ class Query(Contract):
     max_rows: int | None = Field(default=None, ge=1, le=5000)
 
 
-def q(value):
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-def qlist(values):
-    # SQLite accepts an empty IN list: `x IN ()` is false and `x NOT IN ()` is true.
-    return "(" + ",".join(q(v) for v in values) + ")"
-
-
 def guarded(c, auth, who, inner):
     """Every table a caller may read through a view: name -> (row predicate, hidden columns).
 
-    The predicates say in SQL what `auth.visible_bot`, `auth.conversation`, `auth.task` and
-    `auth.approval` say in Python; `inner(table)` names the connection's unfiltered view of a
+    The predicates say in SQL what `auth.bot_access`, `auth.conversation`, `auth.task` and
+    `auth.approval` say in Python. A bot is in the SQL layer for a caller who may read it (a bot
+    they may only see or write to is not; the API shows it); `inner(table)` names the connection's unfiltered view of a
     base table, and a plain table name inside a predicate is the filtered view of it.
     """
     me, owner, bot = q(who.actor), who.role == "owner", who.role == "bot"
     listener = L.sees_everything(who)
     mine_inboxes = [] if listener else L.destinations_of(who.actor, L.destinations(auth.settings))
-    private = sorted(auth.private)
-    private_actors = qlist("bot:" + slug for slug in private)
+    hidden = sorted(auth.unreadable_bots(c, who))
 
     def bots_visible(column):
-        if owner:
-            return "1"
-        allowed = f"{column} NOT IN {qlist(private)}"
-        if bot:
-            caller_slug = H.actor_id(who.actor)
-            routed = [target for target, senders in getattr(auth, "routing_permissions", {}).items() if caller_slug in senders]
-            if routed:
-                allowed = f"({allowed} OR {column} IN {qlist(routed)})"
-            return f"({allowed} OR {column}={q(caller_slug)})"
-        return allowed
+        return f"{column} NOT IN {qlist(hidden)}" if hidden else "1"
 
     if bot:
         conversations = (f"id IN (SELECT conversation_id FROM {inner('attempt_conversations')} "
                          f"WHERE attempt_id={q(who.attempt_id)}) "
                          "OR (kind='task' AND task_id IS NOT NULL AND task_id IN (SELECT id FROM tasks))")
-        tasks = (f"{me} IN (owner,requester) OR (NOT (owner IN {private_actors} OR requester IN {private_actors}) "
-                 f"AND id IN (SELECT task_id FROM {inner('task_delegations')} WHERE delegate={me} AND expires>{q(H.now())}))")
     else:
-        shared = [row["slug"] for row in H.bots(c) if rooms.shared_member(c, auth, who.actor, row["slug"])]
+        shared = [row["slug"] for row in H.bots(c) if row["slug"] not in hidden
+                  and rooms.shared_member(c, auth, who.actor, row["slug"])]
         room_bot = ("COALESCE(NULLIF(substr(room_key,1,instr(room_key||':',':')-1),''),"
                     "(SELECT substr(value,5) FROM json_each(participants_json) WHERE value LIKE 'bot:%' LIMIT 1))")
         first_human = "(SELECT value FROM json_each(participants_json) WHERE value LIKE 'human:%' LIMIT 1)"
         participant = "1" if owner else f"EXISTS (SELECT 1 FROM json_each(participants_json) WHERE value={me})"
         conversations = (f"CASE COALESCE(scope,'direct') WHEN 'personal' THEN COALESCE(owner_actor,{first_human})={me} "
                          f"WHEN 'shared' THEN {room_bot} IN {qlist(shared)} ELSE {participant} END")
-        tasks = "1" if owner else f"NOT (owner IN {private_actors} OR requester IN {private_actors}) OR {me} IN (owner,requester)"
+    tasks = auth.task_sql(c, who, delegations=inner("task_delegations"))
     by_task = "task_id IN (SELECT id FROM tasks)"
     by_message = "message_id IN (SELECT id FROM messages)"
     by_schedule = "schedule_id IN (SELECT id FROM schedules)"

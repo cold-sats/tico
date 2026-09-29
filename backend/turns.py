@@ -100,6 +100,10 @@ def annotate(c, auth, who, messages):
     marks = ",".join("?" * len(replies))
     turns = {r["id"]: dict(r) for r in c.execute(
         f"SELECT id,bot,created,started,finished FROM attempts WHERE id IN ({marks})", tuple(replies))}
+    # What a bot did to answer is its run log: Read. Someone who may only write to it gets the answer.
+    access = auth.bot_accesses(c, who, sorted({t["bot"] for t in turns.values()}))
+    turns = {aid: t for aid, t in turns.items() if access.get(t["bot"], auth.FULL)["read"]}
+    replies = {aid: m for aid, m in replies.items() if aid in turns}
     if not turns:
         return messages
     for t in turns.values():
@@ -161,6 +165,7 @@ def install(app, store, auth):
             if not row:
                 raise Problem("not_found", "Turn not found", 404)
             auth.conversation(c, who, row["conversation_id"])
+            auth.require_read(c, who, row["bot"])
             events = [(r["kind"], json.loads(r["payload_json"]), r["created"]) for r in c.execute(
                 f"SELECT kind,payload_json,created FROM attempt_events WHERE attempt_id=? AND {STEP_EVENTS} ORDER BY seq",
                 (aid,))]

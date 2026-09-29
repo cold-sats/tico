@@ -901,17 +901,108 @@ def routine_delete(api, args):
 @tool("hub_bot_set", "BotOps only: apply a person's bot-settings request (reports to, name, "
       "description, status) as that person, citing the message they sent you. The server checks "
       "the change with their own permissions and refuses a message older than a week.",
-      {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it"),
+      {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
-       "description": _s("New description"), "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
-      required=("slug", "on_behalf_of"), writes=True)
+       "description": _s("New description"), "repo": _s("Its GitHub repository: <org>/emp-<slug>"),
+       "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
+      required=("slug",), writes=True)
 def bot_set(api, args):
+    on_behalf = args.get("on_behalf_of") or "turn"
+    # The bot's own revision, read as the person: BotOps may not see a bot they own but it does not.
     row = next((b for b in api.get("bots") if (b.get("slug") or b.get("name")) == args["slug"]), None)
-    if not row:
-        raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "status") if args.get(k) is not None}
+    if not row or row.get("revision") is None:
+        row = api.get(f"bots/{args['slug']}/access", on_behalf_of=on_behalf)
+        if not row:
+            raise ValueError("No bot " + args["slug"])
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "repo", "status") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
-                    {**change, "expected_revision": row["revision"], "on_behalf_of": args["on_behalf_of"]}, key=_key(args))
+                    {**change, "expected_revision": row["revision"], "on_behalf_of": on_behalf}, key=_key(args))
+
+
+# ----------------------------------------------------------------------------- bots and people, for BotOps
+# BotOps acts for the person whose chat message started its turn: the server checks every one of these with
+# that person's own rights (docs/permissions.md). What always needs their click comes back as a Confirm
+# card (`needs_confirm: true`): tell them it is waiting in their chat; do not ask them to use Settings.
+def _for_person(api):
+    """`{"on_behalf_of": "turn"}` when a bot (BotOps) is calling: the requester's rights, not the bot's."""
+    return {"on_behalf_of": "turn"} if str(api.get("me").get("actor", "")).startswith("bot:") else {}
+
+
+def audience(value):
+    """`everyone`, or `ben,team:legal,bot:analyst` (a person id, `team:<name>`, `bot:<slug>`), as an access level."""
+    text = str(value or "").strip()
+    if text.lower() == "everyone":
+        return {"everyone": True}
+    level = {"people": [], "teams": [], "bots": []}
+    for part in filter(None, (p.strip() for p in text.split(","))):
+        kind, _, name = part.partition(":")
+        if kind == "team" and name:
+            level["teams"].append(name)
+        elif kind == "bot" and name:
+            level["bots"].append(name)
+        else:
+            level["people"].append(name if kind == "human" and name else part)
+    return level
+
+
+@tool("hub_bot_register", "Register a new bot with the server, planned, as the person who asked you (BotOps): the "
+      "record its repository is then built for. They become its owner. Needs their create_bots (on by default) and "
+      "stays within their limit of active bots. Safe to repeat for a bot they already own.",
+      {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
+       "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
+       "template": _s("A template from hub_catalog, if it is built from one")},
+      required=("slug",), writes=True)
+def bot_register(api, args):
+    body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
+            "reports_to": args.get("reports_to") or None, "template": args.get("template") or "", **_for_person(api)}
+    return api.post("bots/register", body, key=_key(args))
+
+
+@tool("hub_bot_access", "Show, or set, who may see, read and write to a bot, as the person who asked you (they must "
+      "own the bot). Each of see, read and write is `everyone`, or a comma list of person ids, `team:<name>` and "
+      "`bot:<slug>`. Anyone who may read or write can also see it. Levels you leave out stay as they are.",
+      {"slug": _s("The bot"), "see": _s("everyone, or ben,team:legal,bot:analyst"),
+       "read": _s("Who may read its work: tasks, updates, files, status, routines"),
+       "write": _s("Who may send it messages and tasks")},
+      required=("slug",), writes=True)
+def bot_access(api, args):
+    on_behalf = _for_person(api)
+    current = api.get(f"bots/{args['slug']}/access", **on_behalf)
+    wanted = {level: args[level] for level in ("see", "read", "write") if args.get(level)}
+    if not wanted:
+        return current
+    body = {level: audience(wanted[level]) if level in wanted else {k: current[level][k] for k in ("everyone", "people", "teams", "bots")}
+            for level in ("see", "read", "write")}
+    return api.post(f"bots/{args['slug']}/access", {**body, "revision": current["revision"], **on_behalf}, key=_key(args))
+
+
+@tool("hub_bot_owners", "Add or remove people who own a bot, as the person who asked you (any owner may). The creator "
+      "is the first; whoever it reports up to and the admins are owners without being listed.",
+      {"slug": _s("The bot"), "add": {"type": "array", "items": {"type": "string"}, "description": "Person ids to add"},
+       "remove": {"type": "array", "items": {"type": "string"}, "description": "Person ids to remove"}},
+      required=("slug",), writes=True)
+def bot_owners(api, args):
+    body = {"add": list(args.get("add") or []), "remove": list(args.get("remove") or []), **_for_person(api)}
+    return api.post(f"bots/{args['slug']}/co-owners", body, key=_key(args))
+
+
+@tool("hub_people_add", "Add a person to the company roster and the sign-in list, as the person who asked you. A "
+      "member may add a coworker in the company's email domain, an owner or admin anyone. The person always has to "
+      "click Confirm first: this answers with `needs_confirm: true` and a card in their chat with you, and nothing "
+      "changes until they do.",
+      {"email": _s("Their email address"), "name": _s("Their name"), "title": _s("Their title"),
+       "reports_to": _s("A person id they report to")},
+      required=("email",), writes=True)
+def people_add(api, args):
+    body = {"email": args["email"], "name": args.get("name") or "", "title": args.get("title") or "",
+            "reports_to": args.get("reports_to") or "", **_for_person(api)}
+    return api.post("access/people", body, key=_key(args))
+
+
+@tool("hub_people_list", "The people on the roster: id, name, email, title, team and who they report to.", {})
+def people_list(api, args):
+    return [{k: p.get(k) for k in ("id", "name", "email", "title", "team", "reports_to")}
+            for p in api.get("org")["people"]]
 
 
 # ----------------------------------------------------------------------------- approvals

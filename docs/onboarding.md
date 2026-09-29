@@ -206,7 +206,9 @@ BotOps' refused writes, and runs its own routines.
 
 None can be archived or deleted by anyone, the owner included, through Settings, the API, `hub` or BotOps itself:
 the archive route answers `409 system_bot`. Pausing, renaming and editing their instructions stay allowed. Settings >
-Bots lists them as **Built in**, with no Archive or Delete control.
+Bots lists them as **Built in**, with no Archive or Delete control. Like every bot they start open to everyone; their
+**Access** can be narrowed in Settings > Bots ([permissions](permissions.md)), and the owner keeps full access to them
+whatever it says.
 
 The third, the [Librarian](librarian.md#built-in), answers questions from the company's docs. A company from before it existed gets it on
 update, without a click, once a model is chosen and a computer is enrolled; until then its owner gets **Turn on the Librarian** on Ask AI.

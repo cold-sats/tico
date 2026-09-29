@@ -12,7 +12,7 @@ import pytest
 
 from backend import sql as SQL
 from backend.store import H
-from backend.tests.test_api import api, assign, claim, headers, post, ready, runner
+from backend.tests.test_api import api, as_member, assign, claim, headers, post, ready, runner
 
 SECRET_TABLES = ("credentials", "credential_keys", "credential_grants", "idempotency", "runners",
                  "enrollments", "session_epochs", "settings_changes", "backup_verified_blobs",
@@ -125,10 +125,11 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
         jobs = c.execute("SELECT count(*) FROM jobs").fetchone()[0]
     # Every queued job but the one Ben's private room raised.
     assert jobs == 5 and len(column(api, "SELECT id FROM jobs")) == 4
-    assert column(api, "SELECT key FROM registry_metadata") == ["access", "docs_migrated", "onboarding", "owner", "people"]
+    assert column(api, "SELECT key FROM registry_metadata") == ["access", "bot_access", "docs_migrated", "onboarding", "owner", "people"]
 
 
 def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, world):
+    as_member(api, "ben@acme.example")
     ben = "ben-test"
     tasks = column(api, "SELECT id FROM tasks", ben)
     assert tasks == sorted(world[k]["id"] for k in ("coo_task", "finance_task"))

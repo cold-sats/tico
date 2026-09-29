@@ -79,9 +79,9 @@ def test_invalid_routines_are_refused_with_the_reason(api):
 
 
 def test_who_may_write_a_bots_routines(api):
-    # Ben operates cpo; he cannot touch ops's routines, and Cara cannot touch cpo's.
+    # Ben operates cpo; a member cannot touch ops's routines (an admin could), and Cara cannot touch cpo's.
     create(api, "cpo", DEBRIEF, token="ben-test")
-    create(api, "ops", AUDIT, token="ben-test", expected=403)
+    create(api, "ops", AUDIT, token="cara-test", expected=403)
     create(api, "cpo", WEEKLY, token="cara-test", expected=403)
     post(api, "routines/cpo:debrief", {"enabled": False}, token="cara-test", expected=403)
     post(api, "routines/cpo:debrief/delete", {}, token="cara-test", expected=403)

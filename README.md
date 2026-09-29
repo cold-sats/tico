@@ -45,6 +45,7 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | [docs/harnesses.md](docs/harnesses.md) | Installing and choosing model harnesses per computer |
 | [docs/github-app.md](docs/github-app.md) | The per-company GitHub App and token scoping |
 | [docs/people.md](docs/people.md) | People, roles and sign-in roster |
+| [docs/permissions.md](docs/permissions.md) | Who can see, read and write to each bot |
 | [docs/databases.md](docs/databases.md) | Letting bots read the company's own databases (PostgreSQL, MySQL, SQLite) read-only, and keeping your config private |
 | [docs/meetings.md](docs/meetings.md) | Meetings and call transcripts |
 | [docs/creating-bots.md](docs/creating-bots.md), [docs/onboarding.md](docs/onboarding.md) | Creating bots and the first-run flow |

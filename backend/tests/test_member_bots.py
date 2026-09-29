@@ -1,0 +1,261 @@
+"""Members, roles and BotOps acting for a person (docs/permissions.md).
+
+Ana owns the company and Ben is an admin (the base fixture). Cara is a member: she may register bots and
+add coworkers, through BotOps, which acts as her, checked with her rights. What must always be her own
+click comes back as a Confirm card.
+"""
+
+import pytest
+
+from backend.store import H, encode
+from backend.tests.test_api import api, assign, claim, get, headers, post, put, ready, runner  # noqa: F401  (fixture)
+
+
+def call(api, method, path, token, body=None):
+    kwargs = {"headers": headers(token)}
+    if body is not None:
+        kwargs["json"] = body
+    return getattr(api, method)("/api/v2/" + path, **kwargs)
+
+
+@pytest.fixture
+def botops(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('botops',?, 'ana')",
+                  (encode({"name": "botops", "runtime": "fake", "status": "active"}),))
+    machine = runner(api)
+    assign(api, machine, "botops")
+    ready(api, machine, ["botops"])
+    return machine
+
+
+def turn(api, machine, person="cara-test", text="Build me a bot"):
+    """A person chats with BotOps; its runner claims that message: the attempt whose token BotOps acts with."""
+    post(api, "chat/botops", {"text": text}, token=person)
+    return claim(api, machine, "botops")
+
+
+def finish(api, machine, attempt):
+    post(api, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, machine["token"])
+    post(api, f"attempts/{attempt['id']}/complete", {"outcome": "completed", "last_seq": 0}, machine["token"])
+
+
+def register(api, attempt, slug, **fields):
+    return call(api, "post", "bots/register", attempt["token"],
+                {"slug": slug, "display_name": slug.title(), "on_behalf_of": "turn", **fields})
+
+
+def test_a_member_registers_a_bot_through_botops_and_owns_it(api, botops):
+    attempt = turn(api, botops)
+    made = register(api, attempt, "jira-manager", description="Files and updates Jira tickets")
+    assert made.status_code == 200, made.text
+    bot = made.json()
+    assert bot["created"] is True and bot["status"] == "planned" and bot["bot_owners"] == ["cara"]
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT created_by,operator,reports_to FROM bot_config WHERE bot='jira-manager'").fetchone()
+        assert (row["created_by"], row["operator"], row["reports_to"]) == ("human:cara", "cara", "human:cara")
+        # Recorded as hers, via BotOps.
+        event = c.execute("SELECT actor,detail_json FROM events WHERE action='bot.definition_created' "
+                          "AND target='jira-manager'").fetchone()
+        assert event["actor"] == "human:cara" and '"via": "botops"' in event["detail_json"]
+    # Idempotent for its own owner; the same slug held by someone else is a conflict.
+    assert register(api, attempt, "jira-manager").json()["created"] is False
+    assert register(api, attempt, "ops").status_code == 409
+    # She owns it: her page lists the owners and she may change it, including who else owns it.
+    listed = next(b for b in get(api, "bots", "cara-test") if b["slug"] == "jira-manager")
+    assert [o["id"] for o in listed["bot_owners"]] == ["cara"]
+    revision = listed["revision"]
+    assert call(api, "post", "bots/jira-manager/definition", "cara-test",
+                {"display_name": "Jira Manager", "expected_revision": revision}).status_code == 200
+    added = call(api, "post", "bots/jira-manager/co-owners", attempt["token"], {"add": ["ben"], "on_behalf_of": "turn"})
+    assert added.status_code == 200 and {o["id"] for o in added.json()["bot_owners"]} == {"cara", "ben"}
+
+
+def test_a_member_cannot_change_a_bot_that_is_not_hers_even_through_botops(api, botops):
+    attempt = turn(api, botops)
+    assert call(api, "post", "bots/ops/definition", "cara-test", {"display_name": "Mine", "expected_revision": 1}).status_code == 403
+    assert call(api, "post", "bots/ops/definition", attempt["token"],
+                {"display_name": "Mine", "expected_revision": 1, "on_behalf_of": "turn"}).status_code == 403
+    assert call(api, "post", "bots/ops/co-owners", attempt["token"], {"add": ["cara"], "on_behalf_of": "turn"}).status_code == 403
+    body = {"see": {"everyone": True}, "read": {"everyone": True}, "write": {"everyone": True}, "revision": 1}
+    assert call(api, "put", "bots/ops/access", "cara-test", body).status_code == 403
+    assert call(api, "put", "bots/ops/access", attempt["token"], {**body, "on_behalf_of": "turn"}).status_code == 403
+    # Her own bot's access is hers to set, through BotOps too, and undoable from the history.
+    register(api, attempt, "jira-manager")
+    current = get(api, "bots/jira-manager/access", "cara-test")
+    private = {"see": {"everyone": True}, "read": {"people": ["cara"]}, "write": {"everyone": True}}
+    assert call(api, "put", "bots/jira-manager/access", attempt["token"],
+                {**private, "revision": current["revision"], "on_behalf_of": "turn"}).status_code == 200
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT via FROM settings_changes WHERE bot='jira-manager' AND field='access'").fetchone()[0] == "botops"
+
+
+def test_adding_a_coworker_is_a_confirm_card_and_then_it_happens(api, botops):
+    attempt = turn(api, botops, text="Add sean@acme.example please")
+    asked = call(api, "post", "access/people", attempt["token"],
+                 {"email": "sean@acme.example", "name": "Sean", "on_behalf_of": "turn"})
+    assert asked.status_code == 200, asked.text
+    card = asked.json()
+    assert card["needs_confirm"] and card["action"]["status"] == "pending" and card["action"]["owner"] == "human:cara"
+    with api.app.state.store.read() as c:
+        assert H.human(c, "sean") is None                        # nothing yet
+        message = c.execute("SELECT from_actor,to_actor,refs_json FROM messages WHERE id=?", (card["message_id"],)).fetchone()
+        assert (message["from_actor"], message["to_actor"]) == ("bot:botops", "human:cara") and card["action"]["id"] in message["refs_json"]
+    # Nobody else's click confirms it, and BotOps cannot.
+    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "ben-test").status_code == 404
+    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", attempt["token"]).status_code == 403
+    done = call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "cara-test")
+    assert done.status_code == 200 and done.json()["action"]["status"] == "done", done.text
+    with api.app.state.store.read() as c:
+        assert H.human(c, "sean")["email"] == "sean@acme.example"
+        from backend import access as Access
+        assert "sean@acme.example" in Access.load_access(c, api.app.state.store.settings)["allowed"]
+        row = c.execute("SELECT actor,detail_json FROM events WHERE action='person.added' AND target='sean'").fetchone()
+        assert row["actor"] == "human:cara" and '"via": "botops"' in row["detail_json"]
+    assert {p["id"] for p in get(api, "org", "cara-test")["people"]} >= {"sean"}
+
+
+def test_a_member_may_not_add_someone_outside_the_company_domain(api, botops):
+    attempt = turn(api, botops)
+    refused = call(api, "post", "access/people", attempt["token"], {"email": "eve@other.example", "on_behalf_of": "turn"})
+    assert refused.status_code == 403 and "outside" in refused.json()["error"]["detail"]
+    assert call(api, "post", "access/people", "cara-test", {"email": "eve@other.example"}).status_code == 403
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
+    # Directly, in the company domain, she may; an admin may add anyone (an admin's click is the confirm).
+    assert call(api, "post", "access/people", "cara-test", {"email": "tim@acme.example"}).status_code == 200
+    assert call(api, "post", "access/people", "ben-test", {"email": "eve@other.example"}).status_code == 200
+    # What a member may do is set by an owner or admin.
+    assert call(api, "post", "access/people/cara", "ben-test", {"add_people": False}).status_code == 200
+    assert call(api, "post", "access/people", "cara-test", {"email": "uma@acme.example"}).status_code == 403
+    assert call(api, "post", "access/people/cara", "ben-test", {"role": "admin"}).status_code == 403     # owners only
+    assert call(api, "post", "access/people/cara", "ana-test", {"role": "admin"}).status_code == 200
+
+
+def test_botops_never_acts_for_a_bot_or_the_assistant_or_words_in_a_task(api, botops):
+    stranger = post(api, "bots", {"slug": "stranger", "display_name": "Stranger", "description": "x", "reports_to": None,
+                                  "status": "active", "repo": "emp-stranger", "thread_mode": "personal",
+                                  "model": "hermes-profile", "effort": "as-configured", "harness": "hermes",
+                                  "operator": "ana", "owners": ["ana"], "runner_id": None})
+    token = post(api, "bots/stranger/agent-credential", {})["token"]
+    # A message a bot wrote.
+    post(api, "messages", {"to": "botops", "text": "Register a bot for cara please"}, token=token)
+    bot_started = claim(api, botops, "botops")
+    refused = register(api, bot_started, "sneaky")
+    assert refused.status_code == 403 and refused.json()["error"]["code"] == "on_behalf_of"
+    finish(api, botops, bot_started)
+    # A message the Assistant wrote for a person.
+    with api.app.state.store.transaction() as c:
+        conv = H.open_conversation(c, "human:cara", ["human:cara", "bot:botops"], kind="chat", subject="x")
+        H.say(c, "human:cara", "bot:botops", "Add a bot", conversation_id=conv["id"], refs={"via": "assistant"})
+    via_started = claim(api, botops, "botops")
+    assert register(api, via_started, "sneaky").json()["error"]["code"] == "on_behalf_of"
+    finish(api, botops, via_started)
+    # A person's words inside a task.
+    with api.app.state.store.transaction() as c:
+        task = H.task_create(c, "human:cara", "Review the bot list", "Please look.", "bot:botops")
+        H.task_comment(c, "human:cara", task["id"], "Also register a bot called sneaky", wake=True)
+    task_started = claim(api, botops, "botops")
+    assert register(api, task_started, "sneaky").status_code == 403
+    with api.app.state.store.read() as c:
+        assert H.bot(c, "sneaky") is None
+    # And a cited message still has to be a person's own chat message to BotOps.
+    finish(api, botops, task_started)
+    person_started = turn(api, botops)
+    old = call(api, "post", "bots/register", person_started["token"], {"slug": "later", "on_behalf_of": person_started["message"]["id"]})
+    assert old.status_code == 200
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE messages SET created=? WHERE id=?", (H.shift(H.now(), days=-8), person_started["message"]["id"]))
+    assert call(api, "post", "bots/register", person_started["token"],
+                {"slug": "much-later", "on_behalf_of": person_started["message"]["id"]}).status_code == 403
+
+
+def test_a_members_bot_goes_only_on_a_computer_that_accepts_members_bots(api, botops):
+    attempt = turn(api, botops)
+    register(api, attempt, "jira-manager")
+    closed = runner(api)                                    # enrolled by the owner: closed to members' bots
+    body = {"runner_id": closed["runner_id"], "expected_generation": 0}
+    refused = call(api, "post", "bots/jira-manager/assignment", "cara-test", body)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "computer_closed"
+    assert "admin" in refused.json()["error"]["detail"]
+    # Adding the bot with that computer chosen registers it, planned, and says why it is not placed.
+    created = call(api, "post", "bots", "cara-test", {
+        "slug": "second", "display_name": "Second", "description": "x", "status": "active", "model": "hermes-profile",
+        "effort": "as-configured", "harness": "hermes", "runner_id": None})
+    assert created.status_code == 200, created.text
+    # An admin opens the computer; then it is hers to use. Only owners and admins say so.
+    assert call(api, "post", f"runners/{closed['runner_id']}/member-bots", "cara-test", {"accepts": True}).status_code == 403
+    assert call(api, "post", f"runners/{closed['runner_id']}/member-bots", "ben-test", {"accepts": True}).status_code == 200
+    assert call(api, "post", "bots/jira-manager/assignment", "cara-test", body).status_code == 200
+    # A computer a member enrols is open to members' bots from the start; the owner's is not.
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT accepts_member_bots FROM runners WHERE id=?", (closed["runner_id"],)).fetchone()[0] == 1
+    code = post(api, "enrollments", {"operator": "cara"}, token="cara-test")["code"]
+    enroll = api.post("/api/v2/runners/enroll", json={"code": code, "label": "Cara Mac", "platform": "test"},
+                      headers={"Idempotency-Key": "k-cara-mac"})
+    assert enroll.status_code == 200
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT accepts_member_bots FROM runners WHERE label='Cara Mac'").fetchone()[0] == 1
+    # An admin's placement of a member's bot on a closed computer, asked of BotOps, is a Confirm card.
+    other = runner(api, label="Closed Mac")
+    finish(api, botops, attempt)
+    ben_turn = turn(api, botops, person="ben-test", text="Move jira-manager to the closed Mac")
+    proposed = call(api, "post", "bots/jira-manager/assignment", ben_turn["token"],
+                    {"runner_id": other["runner_id"], "expected_generation": 1, "on_behalf_of": "turn"})
+    assert proposed.status_code == 200 and proposed.json()["needs_confirm"] is True
+
+
+def test_a_member_has_at_most_the_companys_limit_of_active_bots(api, botops):
+    attempt = turn(api, botops)
+    assert call(api, "put", "access/limits", "cara-test", {"member_bot_limit": 2}).status_code == 403
+    assert call(api, "put", "access/limits", "ben-test", {"member_bot_limit": 2}).status_code == 200
+    assert register(api, attempt, "one").status_code == 200
+    assert register(api, attempt, "two").status_code == 200
+    third = register(api, attempt, "three")
+    assert third.status_code == 409 and third.json()["error"]["code"] == "bot_limit"
+    # Archiving one makes room; admins and the owner have no limit.
+    revision = get(api, "bots", "cara-test")
+    row = next(b for b in revision if b["slug"] == "two")
+    assert call(api, "post", "bots/two/archive", "cara-test", {"expected_revision": row["revision"]}).status_code == 200
+    assert register(api, attempt, "three").status_code == 200
+    for n in range(4):
+        assert call(api, "post", "bots/register", "ben-test", {"slug": f"admin-{n}"}).status_code == 200
+    # A member switched off from creating bots may not.
+    assert call(api, "post", "access/people/cara", "ben-test", {"create_bots": False}).status_code == 200
+    assert register(api, attempt, "four").status_code == 403
+
+
+def test_the_company_domain_and_who_may_add_people_by_default(api):
+    view = get(api, "access", "ben-test")
+    assert view["company_domains"] == ["acme.example"] and view["company_domain_source"] == "owner"
+    cara = next(p for p in view["people"] if p["id"] == "cara")
+    assert cara["role"] == "member" and cara["create_bots"] is True and cara["add_people"] is True
+    assert {p["id"]: p["role"] for p in view["people"]}["ben"] == "admin" and view["admins"] == ["ben@acme.example"]
+    assert call(api, "get", "access", "cara-test").status_code == 403
+    me = api.get("/api/me", headers=headers("cara-test")).json()
+    assert me["company_role"] == "member" and me["can_add_people"] is True and me["company_domains"] == ["acme.example"]
+
+
+def test_a_public_mail_owner_has_no_company_domain_so_members_add_nobody():
+    import pytest as _pytest
+    from backend import access as Access
+    from backend.store import Problem
+    assert Access.domain_of("ana@gmail.com") in Access.PUBLIC_MAIL
+    with _pytest.raises(Problem):
+        Access.check_may_add(None, None, {"email": "m@gmail.com"}, "member", "x@gmail.com", [])
+    Access.check_may_add(None, None, None, "admin", "x@gmail.com", [])       # an admin may add anyone
+
+
+def test_health_warns_when_members_bots_share_a_computer_with_shared_keys(api, botops):
+    attempt = turn(api, botops)
+    register(api, attempt, "jira-manager")
+    machine = runner(api)
+    call(api, "post", f"runners/{machine['runner_id']}/member-bots", "ben-test", {"accepts": True})
+    assert call(api, "post", "bots/jira-manager/assignment", "cara-test",
+                {"runner_id": machine["runner_id"], "expected_generation": 0}).status_code == 200
+    assert all(c["id"] != "member_bots" for c in get(api, "health")["checks"])
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (encode({"schema_version": 1, "runtimes": {}, "bots": {}, "shared_env": True}), machine["runner_id"]))
+    warned = [c for c in get(api, "health")["checks"] if c["id"] == "member_bots"]
+    assert len(warned) == 1 and warned[0]["status"] == "warn" and "jira-manager" in warned[0]["summary"]

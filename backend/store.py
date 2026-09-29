@@ -501,6 +501,16 @@ class Store:
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:
+                # Who may see, read and write to each bot (backend/bot_access.py); NULL is Open.
+                # Checked on every start rather than numbered, like the indexes below.
+                H.add_column(c, "bot_config", "access_json", "TEXT")
+                # A bot's owners (its creator and any co-owners; the operator, the people above it and
+                # the Admins are owners without being listed), who created it, and whether a computer
+                # takes bots members made (backend/bot_access.py, docs/permissions.md).
+                H.add_column(c, "bot_config", "bot_owners_json", "TEXT")
+                H.add_column(c, "bot_config", "created_by", "TEXT")
+                H.add_column(c, "runners", "accepts_member_bots", "INTEGER NOT NULL DEFAULT 0")
+                H.add_column(c, "settings_changes", "via", "TEXT")
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=1").fetchone():
                     H.add_column(c, "tasks", "version", "INTEGER NOT NULL DEFAULT 1")
                     H.add_column(c, "tasks", "acceptance_json", "TEXT NOT NULL DEFAULT '[]'")
@@ -843,6 +853,7 @@ class Store:
                 providers.seed_from_env(c, self.settings, H.now())
                 from . import access
                 access.seed(c, self.settings, H.now())
+                access.retire_bot_lists(c, self.settings, H.now())
                 self.seed_goals(c)
                 from . import routines as R
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=41").fetchone():

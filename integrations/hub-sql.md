@@ -58,7 +58,7 @@ words (`no such column: x`, `access to credentials.id is prohibited`).
 - Every call is written to `events` as `sql.query` with the statement, the row count, the time
   and any error. Assume someone reads it.
 - Read the database before asking a bot a question it already answers.
-- A bot sees itself and every non-private bot, its own tasks and delegations, the conversation
+- A bot sees itself and every bot it may read, its own tasks and delegations, the conversation
   of its turn and its tasks' conversations, its own events and refusals, people without email.
   A refusal is the answer; do not look for another route to the rows.
 

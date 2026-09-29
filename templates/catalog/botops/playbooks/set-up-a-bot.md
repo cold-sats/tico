@@ -28,7 +28,10 @@ every task the bot ever gets, so renaming it later is real work.
 
 That materialises `$HUB_WORKSPACE/emp-<slug>` from the catalog template, fills the company's names
 into the placeholders, writes `knowledge/company.md` from the onboarding answers, and seeds the
-template's `schedules:` into the hub as the bot's first routines (the result lists their ids).
+template's `schedules:` into the hub as the bot's first routines (the result lists their ids). When a
+person asked for the bot in chat, it also registers the bot with the server (planned) as them and makes
+them an owner (`playbooks/build-me-a-bot.md`); for a task with no person behind it, the owner registered
+it already.
 Read what it produced before you change anything: the template is a starting point, not the
 answer. From here on a routine is changed with `hub routine set`, not by editing the file.
 
@@ -84,8 +87,8 @@ repository you just committed exists only locally, so create an empty private on
 
 Do not push it yourself. Your turn's token is for your own repository only, so a push of another
 bot's history fails. Instead the bot's repository link (Settings, Bots) has to be `<org>/emp-<slug>`
-(a bare `emp-<slug>` also resolves to the connected organization). The owner sets it there until
-you can; say so in the task note. On the bot's next turn its runner sets `origin` to that
+(a bare `emp-<slug>` also resolves to the connected organization). Its owner sets it there, or you set it
+for the person who asked in chat with `hub bot set <slug>` (it takes their rights); say so in the task note. On the bot's next turn its runner sets `origin` to that
 repository and publishes the history with the bot's own token, and never forces: if the repository
 already holds different history it stops and Health says so. You do not push other bots'
 repositories. If the command says the app was not given permission to create repositories, do not

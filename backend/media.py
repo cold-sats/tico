@@ -22,7 +22,7 @@ from .blobs import Blobs, brief, register
 from .files import is_file_id
 from . import rooms
 from .store import H, P, Problem, encode
-from .views import default_bot, human_only, may_hand_work, roster
+from .views import default_bot, human_only, roster
 
 
 class Note(M.Contract):
@@ -251,9 +251,7 @@ def deliver(c, auth, who, rid, body, uploads):
     meta = record["metadata"]
     person = P.person(H.actor_id(who.actor), roster(c)) or {}
     slug = body.slug if body.slug != "auto" else person.get("bot") or default_bot(c, auth.settings)
-    auth.target(c, who, slug)
-    if not may_hand_work(c, auth, who, slug):
-        raise Problem("forbidden", "You are not assigned to this bot", 403)
+    auth.target(c, who, slug, need="write")
     previous = record["delivery"]
     if previous:
         if previous["destination"] != slug or previous["instructions"] != body.instructions or uploads:
@@ -283,9 +281,7 @@ def finish_delivery(c, auth, who, rid):
         return {"id": rid, "slug": delivery["destination"], "pending": True}
     # Recheck authorization at delivery time, not just when the request was queued.
     slug = delivery["destination"]
-    auth.target(c, who, slug)
-    if not may_hand_work(c, auth, who, slug):
-        raise Problem("forbidden", "You are not assigned to this bot", 403)
+    auth.target(c, who, slug, need="write")
     text = "\n\n".join(part for part in (meta.get("note"), record["notes"], record["transcript_readable"], MS.context(record)) if part)
     linked = [brief(r) for r in c.execute("SELECT b.* FROM blobs b JOIN media_assets a ON a.blob_id=b.id "
                                          "WHERE a.meeting_id=? AND a.kind='attachment'", (rid,))]

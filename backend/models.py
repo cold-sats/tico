@@ -455,6 +455,7 @@ class StructuredReadiness(Contract):
     bots: dict[str, BotReadiness] = Field(default_factory=dict)
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
     mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
+    shared_env: Literal[True] | None = None         # secrets/_shared.env holds keys every bot there receives
 
 
 class Heartbeat(Contract):
@@ -496,9 +497,14 @@ class Checkout(Contract):
 Heartbeat.model_rebuild()
 
 
+class RunnerMemberBots(Contract):
+    accepts: bool
+
+
 class Assignment(Contract):
     runner_id: ID
     expected_generation: int = Field(ge=0)
+    on_behalf_of: ID | None = None
 
 
 class AgentHeartbeat(Contract):
@@ -517,6 +523,47 @@ class BotOwners(Contract):
     expected_revision: int = Field(ge=1)
 
 
+class AccessAudience(Contract):
+    """One level of a bot's access: everyone, or these people, teams and bots."""
+    everyone: bool = False
+    people: list[ID] = Field(default_factory=list, max_length=500)
+    teams: list[ID] = Field(default_factory=list, max_length=500)
+    bots: list[Slug] = Field(default_factory=list, max_length=500)
+
+
+class BotAccess(Contract):
+    see: AccessAudience
+    read: AccessAudience
+    write: AccessAudience
+    revision: int = Field(ge=1)
+    # BotOps making the change the requester asked for in chat ("turn", or their message's id).
+    on_behalf_of: ID | None = None
+
+
+class BotRegister(Contract):
+    """Register a bot with the server, planned, before BotOps builds its repository."""
+    slug: Slug
+    display_name: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=2000)
+    reports_to: ID | None = None
+    template: str = Field(default="", max_length=80)
+    model: ID | None = None
+    on_behalf_of: ID | None = None
+
+
+class BotCoOwners(Contract):
+    """Add or remove people who own a bot (its creator is the first)."""
+    add: list[ID] = Field(default_factory=list, max_length=50)
+    remove: list[ID] = Field(default_factory=list, max_length=50)
+    on_behalf_of: ID | None = None
+
+    @model_validator(mode="after")
+    def has_change(self):
+        if not (self.add or self.remove):
+            raise ValueError("Name someone to add or remove")
+        return self
+
+
 class BotDefinitionCreate(Contract):
     slug: Slug
     display_name: str = Field(min_length=1, max_length=100)
@@ -529,7 +576,9 @@ class BotDefinitionCreate(Contract):
     effort: ID
     harness: ID | None = None
     operator: ID | None = None
-    owners: list[ID] = Field(min_length=1, max_length=50)
+    # Who the bot works for (shared-room members). Left out, that is its operator; who may use it is
+    # its access (docs/permissions.md), which starts Open.
+    owners: list[ID] = Field(default_factory=list, max_length=50)
     runner_id: ID | None = None
     # "Add from catalog": the template this bot is built from and the instructions a person
     # reviewed for it. Both are empty for a bot typed in by hand.
@@ -620,6 +669,7 @@ class BotPlacement(Contract):
     runner_id: ID
     expected_generation: int = Field(ge=0)
     expected_revision: int = Field(ge=1)
+    on_behalf_of: ID | None = None
 
 
 class BotModel(Contract):
@@ -681,10 +731,14 @@ class SystemUpdate(Contract):
 
 
 class AccessPersonAdd(Contract):
-    name: str = Field(min_length=1, max_length=120)
+    name: str = Field(default="", max_length=120)
     email: str = Field(min_length=3, max_length=320)
     title: str = Field(default="", max_length=120)
     team: str = Field(default="", max_length=80)
+    reports_to: str = Field(default="", max_length=80)
+    # BotOps adding the person the requester asked for: "turn" or the id of their message to it. A
+    # Confirm card comes back instead of a person until the requester clicks it.
+    on_behalf_of: ID | None = None
 
 
 class AccessPersonEdit(Contract):
@@ -694,7 +748,19 @@ class AccessPersonEdit(Contract):
     title: str | None = Field(default=None, max_length=120)
     team: str | None = Field(default=None, max_length=80)
     left: bool | None = None
-    bot_admin: bool | None = None
+    bot_admin: bool | None = None           # the old name for role: admin
+    # Owners set roles; owners and admins set what a member may do (docs/permissions.md).
+    role: Literal["admin", "member"] | None = None
+    create_bots: bool | None = None
+    add_people: bool | Literal["default"] | None = None
+    # BotOps making the change a person asked for in chat (a Confirm card for the risky ones).
+    on_behalf_of: ID | None = None
+
+
+class AccessLimits(Contract):
+    """How many active bots one member may have."""
+    member_bot_limit: int = Field(ge=0, le=1000)
+    on_behalf_of: ID | None = None
 
 
 class AccessAllowUpdate(Contract):

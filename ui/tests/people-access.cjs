@@ -23,9 +23,14 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example', title: '', team: ''}];
     const access = () => ({
       owner: {email: owner, revision: 1, person: 'ana'},
-      people: people.map(p => ({...p, left: !!p.left, owner: p.email === owner, bot_admin: !!p.admin,
-                                can_sign_in: !p.left && !!p.email})),
-      allowed: ['ana@acme.example'], allowed_domains: [], bot_admins: [], revision, proxy});
+      people: people.map(p => {
+        const isOwner = p.email === owner, role = isOwner ? 'owner' : p.admin ? 'admin' : 'member';
+        return {...p, left: !!p.left, owner: isOwner, role, bot_admin: role === 'admin', create_bots: p.create_bots !== false,
+                add_people: p.add_people === undefined ? true : !!p.add_people, add_people_default: p.add_people === undefined,
+                can_sign_in: !p.left && !!p.email};
+      }),
+      allowed: ['ana@acme.example'], allowed_domains: [], admins: [], bot_admins: [], member_bot_limit: 5,
+      company_domains: ['acme.example'], company_domain_source: 'owner', revision, proxy});
     const me = {id: 'ana', name: 'Ana Rivera', role: 'owner', cloud: true, email: 'ana@acme.example', credential_access: false, config: CONFIG};
     await context.route('**/*', async route => {
       const request = route.request(), p = new URL(request.url()).pathname, method = request.method();
@@ -53,7 +58,9 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       if ((m = p.match(/^\/api\/v2\/access\/people\/([^/]+)$/))) {
         const body = request.postDataJSON(); calls.push(['edit', m[1], body]);
         const row = people.find(x => x.id === m[1]);
-        if ('bot_admin' in body) row.admin = body.bot_admin;
+        if ('role' in body) row.admin = body.role === 'admin';
+        if ('create_bots' in body) row.create_bots = body.create_bots;
+        if ('add_people' in body) row.add_people = body.add_people === 'default' ? undefined : body.add_people;
         if ('left' in body) row.left = body.left;
         Object.assign(row, Object.fromEntries(Object.entries(body).filter(([k]) => ['name', 'title', 'team', 'email'].includes(k))));
         return json({person: m[1]});
@@ -62,6 +69,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
         const body = request.postDataJSON(); calls.push(['left', m[1], body]);
         people.find(x => x.id === m[1]).left = true; return json({});
       }
+      if (p === '/api/v2/access/limits') { calls.push(['limits', request.postDataJSON()]); return json({}); }
       if (p === '/api/v2/access/allow') {
         calls.push(['allow', request.postDataJSON()]); revision += 1; return json({revision});
       }
@@ -96,8 +104,25 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
 
     // Bot admin toggles; a person marked as left goes through the profile endpoint that ends tokens.
     await page.locator('tr[data-person=ben] [data-person-act=admin]').click();
-    await page.locator('tr[data-person=ben]', {hasText: 'Bot admin'}).waitFor();
-    assert.deepEqual(calls.shift(), ['edit', 'ben', {bot_admin: true}]);
+    await page.locator('tr[data-person=ben] [data-role=admin]').waitFor();
+    assert.deepEqual(calls.shift(), ['edit', 'ben', {role: 'admin'}]);
+    assert.match(await page.locator('tr[data-person=ana]').textContent(), /Owner/);
+    assert.match(await page.locator('tr[data-person=ben]').textContent(), /Admin/);
+    assert.match(await page.locator('[data-company-domain]').textContent(), /acme\.example/);
+    // What a member may do: switched off per person, by an owner or an admin.
+    await page.locator('tr[data-person=cy] [data-person-act=edit]').click();
+    assert.equal(await dialog.locator('[name=create_bots]').isChecked(), true);
+    assert.equal(await dialog.locator('[name=add_people]').inputValue(), 'default');
+    await dialog.locator('[name=create_bots]').uncheck();
+    await dialog.locator('[name=add_people]').selectOption('no');
+    await dialog.locator('[type=submit]').click();
+    await page.waitForFunction(() => /adds people/.test(document.querySelector('tr[data-person=cy]').textContent) === false);
+    assert.deepEqual(calls.shift(), ['edit', 'cy', {name: 'Cy Dunn', email: 'cy@acme.example', title: '', team: 'ops',
+      create_bots: false, add_people: false}]);
+    await page.locator('#member-bot-limit').fill('3');
+    await page.locator('#member-bot-limit-save').click();
+    for (let i = 0; i < 50 && !calls.length; i += 1) await page.waitForTimeout(50);
+    assert.deepEqual(calls.shift(), ['limits', {member_bot_limit: 3}]);
     await page.locator('tr[data-person=cy] [data-person-act=left]').click();
     assert.match(await dialog.textContent(), /API tokens stop working/);
     await dialog.locator('[type=submit]').click();

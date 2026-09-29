@@ -2,6 +2,7 @@
 
 import json
 
+from . import bot_access as A
 from .store import H, P, Problem, encode
 
 
@@ -46,9 +47,13 @@ def thread_mode(c, bot):
 
 
 def shared_member_ids(c, auth, bot):
-    """The bot's explicit/primary users plus the company owner."""
+    """The bot's explicit/primary users plus the company owner, of whom only those who may read
+    the bot: a shared room is its activity (docs/permissions.md)."""
     people, configs = roster(c), entries(c)
     members = {p["id"] for p in P.primary_users(bot, people, configs)}
+    stored = c.execute("SELECT access_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    if stored and not A.document(stored["access_json"])["read"]["everyone"]:
+        members = {pid for pid in members if auth.person_can(c, "human:" + pid, bot, "read")}
     owner_email = auth.owner_email
     owner = next((p for p in people["people"] if str(p.get("email") or "").lower() == owner_email), None)
     if owner:
@@ -128,7 +133,9 @@ def sync_shared_room(c, auth, bot, actor=None, create=False):
 
 def chat_room(c, auth, who, bot):
     mode = thread_mode(c, bot)
-    if mode == SHARED:
+    # Someone who is not a member of the shared room (a person who may write to the bot but is
+    # not one of the people it works for) talks to it in a room of their own.
+    if mode == SHARED and shared_member(c, auth, who.actor, bot):
         return sync_shared_room(c, auth, bot, actor=who.actor, create=True)
     return personal_room(c, who.actor, bot, "Private " + auth.settings.assistant_name + " control room")
 
@@ -139,7 +146,8 @@ def work_room(c, auth, bot, requester):
     Shared bots use the shared room. Personal bots use the requester's room when a
     person filed the task, otherwise the operator's room (scheduled runs, bot-to-bot).
     """
-    if thread_mode(c, bot) == SHARED:
+    if thread_mode(c, bot) == SHARED and not (str(requester).startswith("human:")
+                                              and not shared_member(c, auth, requester, bot)):
         actor = requester if str(requester).startswith("human:") else None
         return sync_shared_room(c, auth, bot, actor=actor, create=True)
     human = requester if str(requester).startswith("human:") else None

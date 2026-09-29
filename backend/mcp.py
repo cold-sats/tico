@@ -140,6 +140,8 @@ def task_dry_run(c, auth, who, body):
     problems = []
     title, text = str(body.title or "").strip(), str(body.body or "")
     target = H.resolve_actor(c, body.owner)
+    if target and H.is_bot(target) and not auth.bot_access(c, who, H.actor_id(target))["see"]:
+        target = None       # a bot the caller cannot see is not one they can name
     if not target or target == H.KEEPER:
         problems.append(f"{body.owner} is not a bot or a person on the roster")
     else:
@@ -147,8 +149,9 @@ def task_dry_run(c, auth, who, body):
             state = (H.bot(c, H.actor_id(target)) or {}).get("state")
             if state != "active":
                 problems.append(f"{H.actor_id(target)} is {state}, not active")
-            if not auth.visible_bot(who, H.actor_id(target)):
-                problems.append("this bot is private")
+            if not auth.bot_access(c, who, H.actor_id(target))["write"]:
+                problems.append(f"you can see {H.actor_id(target)} but may not give it work; "
+                                "ask the person who runs it for Write access")
             if not auth.bot_contact(c, who, H.actor_id(target)):
                 problems.append(f"{H.actor_id(target)} does not take tasks from other bots; ask its "
                                 "manager or a person to pass this on")

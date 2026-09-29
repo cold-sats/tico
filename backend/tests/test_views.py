@@ -1,7 +1,7 @@
 import json
 
 from backend.store import H
-from backend.tests.test_api import api, headers, get, post, setup_attempt, runner, ready, assign, claim
+from backend.tests.test_api import api, as_member, headers, get, post, restrict, setup_attempt, runner, ready, assign, claim
 
 
 def test_quarantine_remains_a_human_action_after_a_runner_expiry(api):
@@ -42,6 +42,9 @@ def test_bot_execution_cannot_read_another_humans_personal_chat(api):
 
 
 def test_tico_fleet_snapshot_is_bound_to_the_initiating_human(api):
+    as_member(api, "ben@acme.example")
+    with api.app.state.store.transaction() as c:      # finance takes requests from Ana alone
+        restrict(c, "finance", people=["ana"])
     post(api, "tasks", {"title": "Review product direction", "body": "Choose the next slice", "owner": "cpo"},
          "ben-test")
     post(api, "tasks", {"title": "What is blocked?", "body": "List it", "owner": "coo"}, "ben-test")
@@ -52,7 +55,7 @@ def test_tico_fleet_snapshot_is_bound_to_the_initiating_human(api):
     fleet = get(api, "tico/fleet", attempt["token"])
     assert fleet["actor"] == "human:ben"
     # The assistant is in the fleet (it still takes work) though nobody chats with it.
-    assert {bot["slug"] for bot in fleet["bots"]} == {"coo", "ops", "cpo", "product-design"}
+    assert {bot["slug"] for bot in fleet["bots"]} == {"coo", "ops", "cpo", "product-design", "doc-updater"}
     assert any(task["title"] == "Review product direction" for task in fleet["tasks"])
     assert "finance" not in {bot["slug"] for bot in fleet["bots"]}
 

@@ -94,6 +94,36 @@ they pass, so the proxy must be the only way to reach the server. Loopback sign-
 exists only for a local-only server and is refused on a public URL. The owner controls who has access;
 protect the owner's account with your identity provider's MFA.
 
+### Who can see, read and write to a bot
+
+Once someone is signed in, each bot decides three things separately: who may **see** it (the org chart and
+bot lists), who may **read** its activity (tasks, updates, files, status, run log, routines, shared rooms) and
+who may **write** to it (messages, tasks, notes, comments that wake it). Each is everyone, or chosen people,
+teams and bots, set per bot in Settings > Bots; a new bot starts open to everyone. The owner, the bot itself,
+the people above it on the org chart and bot administrators for their own bots always have full access. The
+server decides it in one place for every route, for a personal API token and the MCP tools as much as for the
+web app, and cuts lists and SQL results in the query so counts and pages do not leak; a bot you cannot see is a
+`404`. See [docs/permissions.md](docs/permissions.md). The old `private_owners` and `routing_permissions` lists in
+`hub-access.yaml` no longer restrict anything: an install that used them is Open after the upgrade until its owner
+sets access, and its Health page says so. Before this, a task, comment or note to a bot needed no more than
+seeing it, and a private bot was hidden from lists but not from every route that wrote to it; those gaps are closed.
+Access is about what people and bots may ask of a bot and read from it. It is not a boundary between bots that
+share a computer (see above).
+
+### Roles, members' bots and BotOps
+
+Company roles are Owner, Admin and Member ([docs/permissions.md](docs/permissions.md)). Members may create bots (up to a limit),
+own them and add coworkers in the company's email domain; admins manage every bot, people, computers and credentials; only owners
+make admins. Because bots on one computer are not isolated from each other (above), a bot a member created goes only on a computer
+an admin has opened to members' bots, Health warns when such a bot shares a computer with `secrets/_shared.env` keys, and an
+admin's placement of one on a closed computer needs their own click.
+
+BotOps builds bots for people by acting as the person whose own chat message started its turn: checked with their rights,
+recorded "via BotOps", and never for a message a bot or the Assistant wrote, words inside a task or document, or a message over a week old,
+since any of those can carry injected instructions. What widens who can get in or what a bot can hold (adding a person, making an
+admin, granting add_people, giving a bot a stored credential, a closed computer) is proposed as a Confirm card and runs only when that
+person clicks, as them.
+
 ### GitHub tokens
 
 With a GitHub App connected, Tico stores no long-lived personal token. For each turn the server

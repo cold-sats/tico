@@ -1,6 +1,6 @@
 """The Health page: what needs attention right now, computed from real state on every read.
 
-Nothing here is stored. A check is `ok`, `warn`, `bad`, `info` or `unknown`; `unknown` means the thing
+Nothing here is stored but one note the owner still has to read (backend/access.py). A check is `ok`, `warn`, `bad`, `info` or `unknown`; `unknown` means the thing
 that would tell us is not reporting, which is not the same as fine, and `info` is an optional thing
 that is not set up (neither fine nor a problem). Each check may carry fixes,
 which the page turns into one-click links. People who are not administrators see counts only.
@@ -8,9 +8,9 @@ which the page turns into one-click links. People who are not administrators see
 
 import json
 
-from . import inbox_isolation, model_login, providers, releases, runner_versions
+from . import access, inbox_isolation, model_login, providers, releases, runner_versions
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
-from .store import H, readiness_document
+from .store import H, Problem, readiness_document
 from .views import roster
 
 QUEUE_MINUTES = 10          # work that has waited this long on a computer that is up is stuck
@@ -71,6 +71,26 @@ def _unpublished(c):
                 if str(warning).startswith("GitHub history not published: "):
                     out.append((bot, str(warning).split(": ", 1)[1][:160]))
     return sorted(set(out))
+
+
+def _member_bots_beside_shared_keys(c):
+    """Computers whose `_shared.env` holds keys every bot there receives, and that also host bots members
+    created: a member's bot instructions could ask a run for them."""
+    out = []
+    for r in c.execute("SELECT id,label,readiness_json FROM runners WHERE revoked_at IS NULL ORDER BY label"):
+        if not readiness_document(r["readiness_json"]).get("shared_env"):
+            continue
+        members = [a["bot"] for a in c.execute(
+            "SELECT a.bot FROM assignments a JOIN bot_config bc ON bc.bot=a.bot WHERE a.runner_id=? "
+            "AND bc.created_by LIKE 'human:%'", (r["id"],)) if _made_by_member(c, a["bot"])]
+        if members:
+            out.append((r["label"], members))
+    return out
+
+
+def _made_by_member(c, bot):
+    from .auth import Auth
+    return Auth.member_bot_row(c, bot)
 
 
 def _rejected(computers):
@@ -218,6 +238,12 @@ def view(c, who, settings, auth, github, config):
             checks.append(_check("version", "Version", "ok", f"Running {_v(releases.version())}, the latest we know of."
                                  if notice.get("latest") else f"Running {_v(releases.version())}."))
 
+    notice = access.bot_access_notice(c) if kind == "owner" else None
+    if notice:
+        # Stays until the owner dismisses it or saves any bot's access: the change reset every bot to Open.
+        checks.append(_check("bot_access", "Bot access", "info", str(notice.get("message") or ""),
+                             [_fix("Open bots", "#/settings", "bots")]))
+
     unpublished = _unpublished(c) if full else []
     if unpublished:
         checks.append(_check("publish", "Bot history", "warn",
@@ -285,6 +311,14 @@ def view(c, who, settings, auth, github, config):
                              + ". Its mail key can open every mailbox, so any bot there could read it. "
                              "Add a computer for the inbox bot and move it there.",
                              [_fix("Add a computer", "#/settings", "devices")]))
+    beside = _member_bots_beside_shared_keys(c) if full else []
+    if beside:
+        checks.append(_check("member_bots", "Members' bots", "warn",
+                             "Bots members created run on a computer that holds keys every bot there receives "
+                             "(secrets/_shared.env): " + "; ".join(f"{label}: {', '.join(bots[:3])}" for label, bots in beside[:3])
+                             + ". A member's bot instructions could ask a run for them. Move those bots to a computer "
+                             "with no shared keys and open only that one to members' bots (Settings > Devices).",
+                             [_fix("Open Devices", "#/settings", "devices")]))
     exposed = _mail_key_exposed(c) if full else []
     if exposed:
         checks.append(_check("mail_key", "Mail key", "warn",
@@ -326,7 +360,20 @@ def note_github_token(store, error=None):
 def install(app, store, auth, settings):
     from fastapi import Request
 
+    from . import models as M
     from . import onboarding
+
+    @app.post("/api/v2/health/bot-access/dismiss")
+    def dismiss_bot_access(request: Request, body: M.Empty):
+        """The owner has read the note about the retired private/routing lists."""
+        who = request.state.identity
+        def work(c):
+            if who.role != "owner":
+                raise Problem("forbidden", "Only the owner reads this note", 403)
+            access.clear_bot_access_notice(c)
+            return {"dismissed": True}
+        result = store.mutate(who, request.url.path, request.headers.get("idempotency-key"), body.model_dump(), work)
+        return result
 
     @app.get("/api/v2/health")
     def read(request: Request):

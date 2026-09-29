@@ -5,4 +5,3 @@ allowed:
   - ana@acme.example
   - ben@acme.example
 bot_admins: []
-private_owners: []

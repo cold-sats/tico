@@ -1042,6 +1042,13 @@ class Runner:
             held = None
         if held == "exposed":
             document["mail_key"] = held
+        # Health warns when bots members created run beside keys every bot on this computer receives.
+        try:
+            shared = self._read_env(Path(self.config["projects_dir"]) / "secrets" / "_shared.env")
+        except OSError:
+            shared = {}
+        if any(shared.values()):
+            document["shared_env"] = True
         if self.tools is not None and time.monotonic() >= self._harness_after:
             document["harnesses"] = self.tools.report(runtimes)
         return document
@@ -1624,11 +1631,12 @@ class Runner:
         except APIError as exc:
             # A server from before harness reports refuses the new field outright; the runner
             # must not go offline over it, so it reports without and asks again later.
-            if exc.status != 422 or not {"harnesses", "mail_key"} & set(body["readiness"]):
+            if exc.status != 422 or not {"harnesses", "mail_key", "shared_env"} & set(body["readiness"]):
                 raise
             self._harness_after = time.monotonic() + 600
             body["readiness"].pop("harnesses", None)
             body["readiness"].pop("mail_key", None)
+            body["readiness"].pop("shared_env", None)
             beat = self.client.post("runners/heartbeat", body)
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:

@@ -123,7 +123,12 @@ def test_botops_adds_and_grants_a_credential_a_person_asked_for_and_nothing_more
     mid = ask.get('message', ask)['id']
     row = post(api, 'credentials', {**body, 'on_behalf_of': mid}, botops['token'])
     assert row['name'] == 'Gartner'
-    post(api, f"credentials/{row['id']}/grants", {'subject': 'bot:ops', 'on_behalf_of': mid}, botops['token'])
+    # A grant through BotOps is a Confirm card in his chat with BotOps until he clicks it.
+    card = post(api, f"credentials/{row['id']}/grants", {'subject': 'bot:ops', 'on_behalf_of': mid}, botops['token'])
+    assert card['needs_confirm'] and card['action']['status'] == 'pending'
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM credential_grants WHERE credential_id=?", (row['id'],)).fetchone()[0] == 0
+    post(api, f"assistant/actions/{card['action']['id']}/confirm", {})
     post(api, f"credentials/{row['id']}/reveal", {}, botops['token'], expected=403)
     post(api, f"credentials/{row['id']}", {**body, 'expected_revision': 1, 'on_behalf_of': mid}, botops['token'], expected=403)
     # Metadata only on a person's behalf: find it by name, set its bot key name; the secret never moves.

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from backend.store import H, encode
-from backend.tests.test_api import api, assign, get, post, runner  # noqa: F401
+from backend.tests.test_api import api, as_member, assign, get, post, runner  # noqa: F401
 from backend.tests.test_mail_api import put_mail, seed_org
 
 
@@ -51,6 +51,7 @@ def setup_sources(api, tmp_path):
 
 
 def test_source_and_message_access_does_not_follow_bot_visibility(api, tmp_path):
+    as_member(api, "ben@acme.example")
     setup_sources(api, tmp_path)
     ben = get(api, "messaging/bots", "ben-test")
     assert all(s["name"] != "ana@acme.example" for bot in ben["bots"] for s in bot["sources"])

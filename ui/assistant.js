@@ -70,6 +70,60 @@
     return out.map(part => Array.isArray(part) ? `<ul>${part.map(li => `<li>${li}</li>`).join('')}</ul>` : `<p>${part}</p>`).join('');
   }
 
+  // One proposal as a Confirm / Cancel card. What will really happen comes from the server; the proposing
+  // bot's own words are only its summary. Used by the Assistant tab and by BotOps' chat (`cards`).
+  function actionCard(action, esc) {
+    const done = {done: 'Done.', failed: 'It did not go through' + (action.result?.error ? ': ' + action.result.error : '.'),
+      cancelled: 'Cancelled.', expired: 'Expired: ask again.', running: 'Running…'}[action.status];
+    // Never cut a value: a long one is folded behind "Show more", whole.
+    const shown = v => { const t = typeof v === 'string' ? v : JSON.stringify(v); return t.length > 160
+      ? `<details class="asst-long"><summary>${esc(t.slice(0, 120))}… <span>Show more</span></summary>${esc(t)}</details>` : esc(t); };
+    const changes = action.diff?.length
+      ? `<ul class="asst-body" aria-label="Changes">${action.diff.map(d => `<li><strong>${esc(d.field)}</strong>: ${shown(d.old ?? '')} → ${shown(d.new)}</li>`).join('')}</ul>`
+      : Object.keys(action.body || {}).length
+        ? `<ul class="asst-body" aria-label="Details">${Object.entries(action.body).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${shown(v)}</li>`).join('')}</ul>` : '';
+    const who = {assistant: 'The assistant says: ', botops: 'BotOps says: '}[action.proposer || action.proposed_via] || '';
+    return `<div class="asst-card" data-action="${esc(action.id)}" data-status="${esc(action.status)}">
+      <b data-what>${esc(action.description || action.method + ' ' + action.path)}</b>
+      <span class="asst-state">${esc(who)}“${esc(action.summary)}”</span>
+      ${changes}
+      <code>${esc(action.method)} ${esc(action.path)}</code>
+      ${action.status === 'pending'
+        ? `<div class="asst-row"><button class="primary" type="button" data-confirm>Confirm</button>
+            <button class="ghost" type="button" data-cancel>Cancel</button>
+            <span class="asst-state">Runs as you, only when you confirm.</span></div>`
+        : `<div class="asst-state">${esc(done || action.status)}</div>`}</div>`;
+  }
+
+  // The Confirm cards a bot other than the Assistant left in a chat (BotOps, for what a person asked it for that
+  // always needs their click): each message with `refs.action` has a host element, filled from the action.
+  const seenActions = new Map();
+  async function cards(root, deps) {
+    if (!root) return;
+    style();
+    const {get, post, esc, toast, reload} = deps;
+    const paint = (host, action) => {
+      seenActions.set(action.id, action);
+      host.innerHTML = actionCard(action, esc);
+      const decide = async verb => {
+        host.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        try { await post(`/v2/assistant/actions/${encodeURIComponent(action.id)}/${verb}`, {}); }
+        catch (e) { toast?.(e.message, true); }
+        seenActions.delete(action.id);
+        await cards(root, deps);
+        reload?.();
+      };
+      host.querySelector('[data-confirm]')?.addEventListener('click', () => decide('confirm'));
+      host.querySelector('[data-cancel]')?.addEventListener('click', () => decide('cancel'));
+    };
+    for (const host of root.querySelectorAll('[data-action-host]')) {
+      const id = host.dataset.actionHost, kept = seenActions.get(id);
+      if (kept && kept.status !== 'pending') { paint(host, kept); continue; }
+      try { paint(host, (await get(`/v2/assistant/actions/${encodeURIComponent(id)}`)).action); }
+      catch { host.innerHTML = '<div class="asst-state">This card is not yours to see.</div>'; }
+    }
+  }
+
   function mount(host, deps) {
     if (!host) return;
     style();
@@ -103,26 +157,7 @@
 
     function cardHtml(action, m) {
       if (!action) return `<div class="asst-msg bot">${render(m.body, esc)}</div>`;
-      const done = {done: 'Done.', failed: 'It did not go through' + (action.result?.error ? ': ' + action.result.error : '.'),
-        cancelled: 'Cancelled.', expired: 'Expired: ask again.', running: 'Running…'}[action.status];
-      // Never cut a value: a long one is folded behind "Show more", whole.
-      const shown = v => { const t = typeof v === 'string' ? v : JSON.stringify(v); return t.length > 160
-        ? `<details class="asst-long"><summary>${esc(t.slice(0, 120))}… <span>Show more</span></summary>${esc(t)}</details>` : esc(t); };
-      // What will really happen comes from the server; the assistant's own words are only its summary.
-      const changes = action.diff?.length
-        ? `<ul class="asst-body" aria-label="Changes">${action.diff.map(d => `<li><strong>${esc(d.field)}</strong>: ${shown(d.old ?? '')} → ${shown(d.new)}</li>`).join('')}</ul>`
-        : Object.keys(action.body || {}).length
-          ? `<ul class="asst-body" aria-label="Details">${Object.entries(action.body).map(([k, v]) => `<li><strong>${esc(k)}</strong>: ${shown(v)}</li>`).join('')}</ul>` : '';
-      return `<div class="asst-card" data-action="${esc(action.id)}" data-status="${esc(action.status)}">
-        <b data-what>${esc(action.description || action.method + ' ' + action.path)}</b>
-        <span class="asst-state">${esc(action.proposed_via === 'assistant' ? 'The assistant says: ' : '')}“${esc(action.summary)}”</span>
-        ${changes}
-        <code>${esc(action.method)} ${esc(action.path)}</code>
-        ${action.status === 'pending'
-          ? `<div class="asst-row"><button class="primary" type="button" data-confirm>Confirm</button>
-              <button class="ghost" type="button" data-cancel>Cancel</button>
-              <span class="asst-state">Runs as you, only when you confirm.</span></div>`
-          : `<div class="asst-state">${esc(done || action.status)}</div>`}</div>`;
+      return actionCard(action, esc);
     }
 
     function draw() {
@@ -228,6 +263,7 @@
 
   window.assistantChat = {
     mount,
+    cards,
     settingsStrip,
     render,
     prefill(text) { if (live) live.prefill(text); else draft = text; },

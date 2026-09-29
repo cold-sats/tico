@@ -65,9 +65,10 @@ def _catalog(c, who, auth, settings):
         "SELECT reader,max(created) AS last FROM slack_digests GROUP BY reader")}
     bots = []
     covered_mail, covered_slack = set(), set()
+    readable = auth.bot_accesses(c, who)
     for row in H.bots(c):
         bot = row["slug"]
-        if row["state"] == "archived" or not auth.visible_bot(who, bot):
+        if row["state"] == "archived" or not readable.get(bot, auth.FULL)["read"]:
             continue
         config_row = c.execute("SELECT config_json,description,operator,revision FROM bot_config WHERE bot=?",
                                (bot,)).fetchone()
@@ -214,8 +215,9 @@ def install_messaging(app, store, auth):
         if not thread_ts:
             raise Problem("thread", "thread_ts is required", 422)
         with store.read() as c:
-            if not H.bot(c, bot) or not auth.visible_bot(who, bot):
+            if not H.bot(c, bot):
                 raise Problem("not_found", "Messaging bot not found", 404)
+            auth.require_read(c, who, bot, "Messaging bot not found")
             rows = c.execute("SELECT * FROM slack_events WHERE channel=? AND thread_ts=? "
                              "ORDER BY ts LIMIT 100", (channel, thread_ts)).fetchall()
             if not rows:
@@ -233,8 +235,9 @@ def install_messaging(app, store, auth):
         channels = registry_channels(store.settings.registry_dir)
         covered = {cid for cid, entry in channels.items() if bot in entry["readers"]}
         with store.read() as c:
-            if not H.bot(c, bot) or not auth.visible_bot(who, bot):
+            if not H.bot(c, bot):
                 raise Problem("not_found", "Messaging bot not found", 404)
+            auth.require_read(c, who, bot, "Messaging bot not found")
             digest = c.execute("SELECT * FROM slack_digests WHERE id=? AND reader=?",
                                (digest_id, bot)).fetchone()
             if not digest:

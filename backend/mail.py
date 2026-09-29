@@ -125,7 +125,7 @@ def mailbox_view(c, address, people, who, auth):
     person = P.person_by_email(address, people)
     bot = (person or {}).get("inbox_bot") or ""
     bot_row = H.bot(c, bot) if bot else None
-    bot = bot if bot_row and bot_row["state"] != "archived" and auth.visible_bot(who, bot) else ""
+    bot = bot if bot_row and bot_row["state"] != "archived" and auth.bot_access(c, who, bot)["read"] else ""
     instructions = c.execute("SELECT updated,length(content) AS size FROM mail_agent_instructions "
                              "WHERE bot=?", (bot,)).fetchone() if bot else None
     return {
@@ -162,7 +162,7 @@ def install_mail(app, store, auth):
             person = P.person_by_email(addr, roster(c))
             bot = (person or {}).get("inbox_bot") or ""
             bot_row = H.bot(c, bot) if bot else None
-            if not bot_row or bot_row["state"] == "archived" or not auth.visible_bot(who, bot):
+            if not bot_row or bot_row["state"] == "archived" or not auth.bot_access(c, who, bot)["read"]:
                 raise Problem("not_found", "This mailbox has no visible agent", 404)
             row = c.execute("SELECT content,updated FROM mail_agent_instructions WHERE bot=?",
                             (bot,)).fetchone()

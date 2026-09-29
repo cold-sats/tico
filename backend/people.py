@@ -23,7 +23,10 @@ DEFAULT_PERSON = {"id": "", "name": "", "email": "", "title": "",
                   "team": "", "primary_for": [], "bot": None, "reports_to": "",
                   "inbox_bot": None, "hidden": False, "photo": "",
                   "slack": "", "slack_id": "", "phone": "", "about": "", "goals": "", "notes": "",
-                  "directory": "", "external_id": "", "directory_left": False}
+                  "directory": "", "external_id": "", "directory_left": False,
+                  # What a member may do (docs/permissions.md): create bots (on by default), and add people
+                  # (None = the default: coworkers in the company's email domain may, others may not).
+                  "create_bots": True, "add_people": None}
 
 
 def _clean(value):
@@ -65,7 +68,9 @@ def _person(row):
             # Which directory feed owns this person ("" = added by hand, never touched by sync).
             "directory": _clean(row.get("directory")),
             "external_id": _clean(row.get("external_id")),
-            "directory_left": bool(row.get("directory_left"))}
+            "directory_left": bool(row.get("directory_left")),
+            "create_bots": row.get("create_bots") is not False,
+            "add_people": row.get("add_people") if isinstance(row.get("add_people"), bool) else None}
 
 
 def load(doc, owner=None):

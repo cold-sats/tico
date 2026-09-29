@@ -76,7 +76,7 @@ def environment(tmp_path):
         registry = tmp_path / ("registry-%d" % index)
         registry.mkdir()
         (registry / "hub-access.yaml").write_text(yaml.safe_dump(
-            {"private_owners": [], "bot_admins": ["riley@acme.example"]}))
+            {"bot_admins": ["riley@acme.example"]}))
         token = tmp_path / ("token-%d" % index)
         token.write_text(TOKEN)
         token.chmod(0o600)
