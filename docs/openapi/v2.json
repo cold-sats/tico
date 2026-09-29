@@ -640,6 +640,51 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/tools": {
+      "get": {
+        "summary": "The tools a bot uses, for the row at the top of its page: its model and harness, its repository and each declared `access:` entry, with its status; names and verbs, never a secret",
+        "operationId": "listBotTools",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotTools"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/updates": {
       "get": {
         "summary": "A bot's daily and weekly update settings",
@@ -4059,6 +4104,114 @@
         "items": {
           "$ref": "#/components/schemas/Bot"
         }
+      },
+      "BotTool": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "logo_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "identity": {
+            "type": "string"
+          },
+          "can": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "object",
+            "description": "Service-specific fields, a string or a list of strings each: database, channels, project, mailbox, sites, repo, effort ..."
+          },
+          "note": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "problem",
+              "unknown"
+            ]
+          },
+          "env": {
+            "type": "string",
+            "description": "The environment variable's name, never its value"
+          },
+          "detail": {
+            "type": "string",
+            "description": "One sentence on what the tool is or how it was checked"
+          },
+          "problem": {
+            "type": "string",
+            "description": "Why status is `problem`, in words a person can act on"
+          },
+          "url": {
+            "type": "string",
+            "description": "Where the tool opens, when it has an address (the repository)"
+          }
+        },
+        "required": [
+          "can",
+          "id",
+          "identity",
+          "logo_key",
+          "name",
+          "note",
+          "scope",
+          "service",
+          "status"
+        ],
+        "additionalProperties": true
+      },
+      "BotTools": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BotTool"
+            }
+          },
+          "computer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "reported_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bot",
+          "computer",
+          "online",
+          "reported_at",
+          "tools"
+        ],
+        "additionalProperties": true
       },
       "ChatCreate": {
         "properties": {

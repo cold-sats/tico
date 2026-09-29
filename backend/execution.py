@@ -151,6 +151,8 @@ class Execution:
                 row.pop('profile', None)
             if row.get('sign_in') == 'unknown':
                 row.pop('sign_in', None)
+            if not row.get('tools'):
+                row.pop('tools', None)
         for row in readiness.get('runtimes', {}).values():
             if not row.get('profiles'):
                 row.pop('profiles', None)
