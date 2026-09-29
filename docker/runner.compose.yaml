@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
-    cap_add: [DAC_OVERRIDE]  # the socket is root:docker 0660, and .env belongs to whoever installed
+    cap_add: [CHOWN, DAC_OVERRIDE]  # the socket is root:docker 0660, .env belongs to whoever installed, the token is ticorun's
     read_only: true
     tmpfs: [/tmp]
     environment:

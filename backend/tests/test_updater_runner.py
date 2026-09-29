@@ -69,13 +69,25 @@ def test_a_rollback_that_fails_too_is_reported_failed(monkeypatch, tmp_path):
     assert updater.status["state"] == "failed" and "old version did not start either" in updater.status["message"]
 
 
-def test_the_runner_reads_a_token_the_updater_wrote(monkeypatch, tmp_path):
+def test_the_token_is_the_supervisors_alone_on_every_start(monkeypatch, tmp_path):
     updater = load(monkeypatch, "runner", tmp_path)
+    owners = []
+    monkeypatch.setattr(updater.os, "chown", lambda path, uid, gid: owners.append((uid, gid)))
+    (tmp_path / "token").write_text("old\n")
+    (tmp_path / "token").chmod(0o644)                                  # what earlier versions left behind
     updater.ensure_token()
-    token = (tmp_path / "token").read_text().strip()
-    assert len(token) == 64 and stat.S_IMODE((tmp_path / "token").stat().st_mode) == 0o644
+    assert stat.S_IMODE((tmp_path / "token").stat().st_mode) == 0o600 and owners == [(10002, 10002)]
+    assert (tmp_path / "token").read_text() == "old\n"                 # kept, not rewritten
+    (tmp_path / "token").unlink()
     updater.ensure_token()
-    assert (tmp_path / "token").read_text().strip() == token           # written once
+    assert len((tmp_path / "token").read_text().strip()) == 64 and stat.S_IMODE((tmp_path / "token").stat().st_mode) == 0o600
+
+
+def test_a_downgrade_is_refused_and_an_upgrade_accepted(monkeypatch, tmp_path):
+    updater = load(monkeypatch, "runner", tmp_path)
+    Docker(updater, monkeypatch, [True])                               # running v0.1.0
+    assert updater.older_than_running("v0.0.9") and updater.older_than_running("v0.0.99")
+    assert not any(updater.older_than_running(v) for v in ("v0.1.0", "v0.1.1", "v1.0.0", "latest"))
 
 
 def test_server_mode_is_unchanged(monkeypatch, tmp_path):

@@ -33,7 +33,6 @@ All notable changes to Tico are recorded here. The format follows
 - The assistant template's `AGENT.md` and a new `assistant-chat` playbook teach the Assistant how Tico is organised, how to route
   work to the right bot, to answer briefly with links, never to act beyond the person and to ask before any side effect.
 
-
 ### Changed
 - Docs match the code. "The server calls no models" is replaced by what is true: with decisions or Slack routing on, the
   server sends the text of each question to the decision provider you configured, and SECURITY.md says what a compromised
@@ -44,6 +43,8 @@ All notable changes to Tico are recorded here. The format follows
 ### Security
 - Files auto-publish and `hub files publish` refuse a regular file with more than one hard link, so a bot cannot hard-link a
   secrets file into `reports/`. Copies cannot be detected and are still published.
+- The runner's updater token is now `ticorun`'s alone (10002, mode 0600, fixed on every updater start; the updater sidecar gains `CHOWN`), so a bot can no longer read it, and `POST /update` refuses a release older than the running one (409), so a bot cannot move the box back to a version that predates the separate bot user. Going back on purpose stays manual ([updates](docs/updates.md#rolling-back)).
+
 
 ## [0.2.9] - 2026-09-29
 

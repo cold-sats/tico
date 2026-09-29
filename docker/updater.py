@@ -56,6 +56,7 @@ PULL = os.environ.get("TICO_UPDATER_PULL", "always")   # "never" only in docker/
 RELEASES = os.environ.get("TICO_RELEASES_URL", "https://github.com/ticoteam/tico/releases")
 LATEST_API = os.environ.get("TICO_LATEST_URL", "https://api.github.com/repos/ticoteam/tico/releases/latest")
 BUNDLE = os.environ.get("TICO_UPDATER_BUNDLE", "always")   # "never" only in docker/smoke.sh, whose releases exist only as local tags
+SUPERVISOR_UID = SUPERVISOR_GID = 10002   # ticorun, the runner supervisor (docker/runner-entrypoint.sh)
 SNAPSHOTS = "/data/snapshots"   # inside the server container: the data volume
 KEEP_SNAPSHOTS = int(os.environ.get("TICO_UPDATER_KEEP_SNAPSHOTS", "3"))
 SELF_UPDATE = os.environ.get("TICO_UPDATER_SELF", "always")   # "never" leaves this updater on its image
@@ -92,6 +93,19 @@ def running_image():
     out = subprocess.run(["docker", "inspect", "--format", "{{.Image}} {{.Config.Image}}", container],
                          capture_output=True, text=True, check=True).stdout.split()
     return out[0], out[1].rsplit(":", 1)[-1]
+
+
+def older_than_running(version):
+    """True when `version` is a release older than the image now running. `latest` and anything unparsable pass."""
+    def core(tag):
+        found = re.match(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)", tag)
+        return tuple(int(part) for part in found.groups()) if found else None
+    try:
+        running = core(running_image()[1])
+    except (RuntimeError, OSError, IndexError, subprocess.SubprocessError):
+        return False
+    wanted = core(version)
+    return bool(running and wanted and wanted < running)
 
 
 def container_healthy(seconds):
@@ -583,6 +597,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(422, {"error": "version is latest or X.Y.Z"})
         if version[0].isdigit():
             version = "v" + version  # the server names a release 1.2.3; its image tag is v1.2.3
+        if older_than_running(version):   # a bot could otherwise move the box to a release that predates the bot user
+            return self.reply(409, {"error": "older than the running version"})
         with lock:
             if status["state"] in ("pulling", "restarting"):
                 return self.reply(409, {"error": "an update is already running", **status})
@@ -595,12 +611,20 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def ensure_token():
-    """Runner mode: nothing else writes the token, so the updater does, once, for the runner to read."""
-    if MODE != "runner" or os.path.exists(TOKEN_FILE):
+    """Runner mode: nothing else writes the token, so the updater does, for the runner supervisor to read.
+    Every start makes it the supervisor's alone (ticorun 10002, mode 0600): bots run as another uid and must not
+    be able to read it. Needs CAP_CHOWN (docker/runner.compose.yaml)."""
+    if MODE != "runner":
         return
-    with open(TOKEN_FILE, "w") as stream:
-        stream.write(secrets.token_hex(32) + "\n")
-    os.chmod(TOKEN_FILE, 0o644)   # the runner is another user; only the two services mount this volume
+    if not os.path.exists(TOKEN_FILE):
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            stream.write(secrets.token_hex(32) + "\n")
+    os.chmod(TOKEN_FILE, 0o600)   # before the owner changes, so the old 0644 is never left readable
+    try:
+        os.chown(TOKEN_FILE, SUPERVISOR_UID, SUPERVISOR_GID)
+    except PermissionError:   # an older compose file without CHOWN: 0600 root still keeps bots out, and the supervisor holds DAC_OVERRIDE
+        pass
 
 
 if __name__ == "__main__":

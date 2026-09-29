@@ -86,7 +86,7 @@ ask for that release again. The login and the bots' repositories are in the `run
 The Docker socket is mounted into the `updater` service only, never into the runner. The two share a `runner-control`
 volume that holds a token the updater writes and the runner reads; the sidecar answers on the compose network and
 accepts only `vX.Y.Z` tags of one image. A bot on the runner can therefore ask its own runner for another
-release, and nothing else. The Add computer command sets this up: `install.sh --runner` writes the compose file and a
+release, and nothing else: the token is readable by the runner supervisor only (bots run as another user), and the sidecar refuses a release older than the one running. The Add computer command sets this up: `install.sh --runner` writes the compose file and a
 `.env` with the image and updater tags pinned to the server's release ([install](install.md#linux-or-cloud-server-docker)).
 
 A runner started with a plain `docker run` has no sidecar: it says so in Settings > Health, and you update it as before
