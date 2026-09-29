@@ -15,6 +15,12 @@ All notable changes to Tico are recorded here. The format follows
   tools "+N" opens the whole list. The runner reports the declared access on its heartbeat (names, verbs and whether each
   variable is set, never a value; a runner from before it shows the model and repository only), and
   `GET /api/v2/bots/{bot}/tools` serves it. See "What people see about a bot's tools" in `docs/creating-bots.md`.
+- A bot's managers can register or remove a tool without opening its repository: `POST /api/v2/bots/{bot}/tools`,
+  `DELETE /api/v2/bots/{bot}/tools/{id}` and the MCP tools and `hub tools` commands `hub_tools_add`, `hub_tools_list` and
+  `hub_tools_remove`. The entry is checked against the `employee.yaml` access schema and kept as a pending request, and BotOps
+  gets a task with the exact YAML to commit; the row shows it as pending until the bot's computer reports it. A credential
+  value, or anything that looks like a key or token, is refused (`422 secret`): `env` is only a variable's name, and the
+  operator installs the value on the bot's computer.
 
 ### Fixed
 - The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's

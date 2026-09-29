@@ -407,6 +407,26 @@ repository. The row is short by design: past eight tools it shows "+N", which op
 The same list is `GET /api/v2/bots/{bot}/tools` ([custom-frontend.md](custom-frontend.md)), for a
 company's own frontend.
 
+**Registering a tool.** Someone who manages a bot (the owner, a bot administrator who operates it,
+or a person above it on the org chart) can add or remove a tool without opening its repository:
+`POST /api/v2/bots/{bot}/tools`, `DELETE /api/v2/bots/{bot}/tools/{id}`, or the MCP tools
+`hub_tools_add`, `hub_tools_list` and `hub_tools_remove` (`hub tools add <bot> posthog --can read
+--identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`). Tico holds no
+bot repository, so it cannot write `employee.yaml` itself. It checks the entry against the same
+fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
+"Add PostHog access to <bot>" with the exact YAML. BotOps adds it to `employee.yaml`, commits and
+pushes, runs preflight and says what it found. Until the bot's computer reports the entry the tool
+shows as **pending** in the row; then it is **ready**, or names its problem. Removing works the same
+way, as a task "Remove PostHog access from <bot>"; the tool keeps its icon, marked as being
+removed, until the computer stops reporting it.
+
+**Credentials are never part of it.** `env` is the variable's *name*. A value is refused, and so is
+anything that looks like a key, a token, a password or a URL with one in it; the check is a guard
+against pasting one by mistake, not a substitute for care. The operator puts the value on the bot's
+computer ([install.md](install.md), "Add computers to run your bots", or the secrets table above),
+or grants it from the credential vault ([credential-vault.md](credential-vault.md)). Until it is
+there the tool shows "Credential missing on <computer>".
+
 ## 7. Harness, model, effort and fallback
 
 Levers set in **Settings → Bots**, not in the repository:
