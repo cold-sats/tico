@@ -196,23 +196,23 @@ check result and the one thing to read before activating.
 It never activates a bot, never creates a credential, and never overwrites a repository that
 already exists.
 
-## The assistant is optional
+## The assistant and BotOps are built in
 
-BotOps is the one required bot. The assistant is a card like the others, ticked to start with
-(`default: true` in its `card.yaml`, with a `when:` line the wizard shows under it: "Recommended if you use
-Slack or send meetings to bots"). It is every person's private [Assistant](assistant.md) (a tab on their
-own page). It also works in the background: it routes Slack
-messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews BotOps'
-refused writes, and runs its own routines. A company without Slack that wants only BotOps and its own
-bots can untick it.
+Every company gets both, and neither is a choice: their cards are `required: true` in the wizard, so the wizard
+builds them whatever else is ticked, and both become active once a computer is enrolled ([Activating](#activating)).
+The assistant is every person's private [Assistant](assistant.md) (a tab on their own page); it also works in the
+background: it routes Slack messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews
+BotOps' refused writes, and runs its own routines.
 
-The environment seeds the assistant as a planned bot. When finishing finds it unticked, and it has never
-run, it is archived: it leaves the org chart, BotOps takes its place at the head of the leadership team
-and reports to the owner, and every bot created afterwards with no manager reports to the owner too. An
-install that has finished onboarding, or whose assistant has run, is never touched.
+Neither can be archived or deleted by anyone, the owner included, through Settings, the API, `hub` or BotOps itself:
+the archive route answers `409 system_bot`. Pausing, renaming and editing their instructions stay allowed. Settings >
+Bots lists them as **Built in**, with no Archive or Delete control.
 
-Without an assistant (not ticked, planned, or archived), what used to fall back to it goes to BotOps or to
-a person:
+A company that set the assistant aside before it was built in (v0.2.1 to v0.2.9 let the wizard skip it) keeps it archived
+on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant tab and at the top of
+Settings > Bots, and one click on **Turn on Assistant** brings the same bot back with its history (or adds it from the
+catalog if it is missing), places it on BotOps' computer and activates it. From then on it cannot be archived again.
+While an assistant is off, or paused, what used to fall back to it goes to BotOps or to a person:
 
 | what | with no assistant |
 |---|---|
@@ -222,10 +222,6 @@ a person:
 | A person handing work to "whoever takes it" | BotOps accepts it from anyone, as the assistant does |
 | Review of BotOps' refused writes (rule 8) | a task for the owner, which shows in Needs you |
 | A bot whose `reports_to` names a bot that is not there | shown under the owner in the org chart, not hidden |
-
-To add it later, use **Settings > Bots > Add from catalog** and pick the assistant. An archived assistant
-is brought back planned under the name you give it, with its history, and is assigned a machine and
-activated the way a first-run one is. An install that already has the assistant is unchanged.
 
 ## Activating
 

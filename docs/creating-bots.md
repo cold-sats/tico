@@ -15,7 +15,7 @@ this product ships: a card saying what the bot owns and what it never does, and 
 bot is created from, with the company's names filled in and the onboarding answers written into
 `knowledge/company.md`. **Settings → Bots → Add from catalog** is how a bot is added after the
 first run, and the first run wizard is the same catalog. Either way the bot is created `planned`
-and a task goes to **BotOps**, the bot engineer every environment has: it materializes the
+and a task goes to **BotOps**, the bot engineer every environment has (built in, like the assistant: it cannot be archived or deleted, only paused or renamed): it materializes the
 repository, puts the reviewed instructions in, runs the readiness check, and finishes the task with
 the one thing to read before you activate the bot. Activation stays a person's decision.
 

@@ -13,12 +13,15 @@ meetings, docs, files, bots, people), and the links open inside the app.
 
 The chat is a personal room (`scope: personal`, `room_key: assistant`) owned by you. Only you can read it or post in it.
 The company owner and administrators cannot read anyone else's, and no other route reaches the assistant: the ordinary
-chat routes still refuse it (`403`). If the company has no assistant (archived at setup, as v0.2.1 allows, or never picked), the tab says the Assistant is
-off instead of failing, and the owner gets **Turn on Assistant** there and at the top of **Settings > Bots**. One click
-restores the archived assistant (same bot, same history, renamed to the company's assistant name) or, if there is none,
-adds it from the catalog; then it puts it on the computer BotOps runs on and activates it, and every person's Assistant
-tab starts working (`POST /api/v2/assistant/turn-on`). With no computer enrolled yet it is left planned and the button
-says so; enroll one and press it again. Anyone else is told to ask the owner.
+chat routes still refuse it (`403`). Every new company gets the assistant and BotOps built in (both required in setup, active once a computer is enrolled),
+and neither can be archived or deleted by anyone: the owner included, through Settings, the API, `hub` or BotOps
+(`409 system_bot`); pausing and renaming stay allowed, and Settings > Bots shows them as **Built in**. A company
+that set the assistant aside before it was built in keeps it archived on update, and its Assistant tab says the Assistant is off
+instead of failing. The owner gets **Turn on Assistant** there and at the top of **Settings > Bots**: one click restores the
+archived assistant (same bot, same history, renamed to the company's assistant name) or, if there is none, adds it from
+the catalog, puts it on the computer BotOps runs on and activates it, and every person's Assistant tab starts working
+(`POST /api/v2/assistant/turn-on`). With no computer enrolled yet it is left planned and the button says so; enroll one
+and press it again. Once on, it cannot be archived again. Anyone else is told to ask the owner.
 
 ## Two speeds
 

@@ -134,9 +134,8 @@ def test_the_fast_path_answers_without_a_bot_turn(api):
 
 def test_the_owner_turns_an_archived_assistant_back_on_for_everyone(api):
     """A company that set the assistant aside at setup (v0.2.1) gets it back with one owner action."""
-    from backend.settings_admin import archive_bot
-    with api.app.state.store.transaction() as c:
-        archive_bot(c, "human:ana", "coo", "")
+    with api.app.state.store.transaction() as c:      # archived before the assistant was built in
+        c.execute("UPDATE bots SET state='archived' WHERE slug='coo'")
     off = room(api, "ben-test")
     assert not off["available"] and off["state"] == "archived" and off["room_id"] is None
     assert not off["can_turn_on"] and room(api, "ana-test")["can_turn_on"]          # only the owner is offered it
@@ -247,3 +246,20 @@ def test_direct_writes_only_ever_touch_the_person_themself(api):
     post(api, f"tasks/{theirs['id']}", {"version": theirs["version"], "note": "On it"}, token=token)
     post(api, f"tasks/{theirs['id']}/comments", {"text": "Started"}, token=token)
     post(api, "updates/read", {"all": True}, token=token)
+
+
+def test_the_assistant_and_botops_cannot_be_archived_or_deleted_but_can_be_paused(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
+                  "VALUES('botops','BotOps','fake','','','','keeper','active',?)", (H.now(),))
+        c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES('botops','{}',NULL,'ana')")
+    for bot in ("coo", "botops"):
+        for token in ("ana-test", "ben-test"):                       # the owner too
+            refused = post(api, f"bots/{bot}/archive", {"expected_revision": 1}, token=token, expected=409)
+            assert refused["error"]["code"] == "system_bot"
+        assert api.delete(f"/api/v2/bots/{bot}", headers=headers()).status_code in (404, 405)
+        with api.app.state.store.read() as c:
+            revision = c.execute("SELECT revision FROM bot_config WHERE bot=?", (bot,)).fetchone()[0]
+        post(api, f"bots/{bot}/definition", {"status": "paused", "expected_revision": revision})
+        with api.app.state.store.read() as c:
+            assert H.bot(c, bot)["state"] == "paused"

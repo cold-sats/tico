@@ -30,7 +30,7 @@ SEED = {"coo": {"name": "coo", "status": "planned"},
 TOKEN = "local-owner-secret-token-0123456789"
 
 ASSISTANT_CARD = {
-    "template": "assistant", "slug": "coo", "name": "{{assistant_name}}", "required": False, "default": True,
+    "template": "assistant", "slug": "coo", "name": "{{assistant_name}}", "required": True, "default": True,
     "bootstrap": True, "summary": "The assistant {{company_name}} talks to in {{app_name}}.",
     "owns": ["{{company_name}}'s task list"], "never": ["Spend {{company_name}}'s money"],
     "reasoning_effort": "high", "recommend_when": ["always"]}
@@ -148,16 +148,16 @@ def test_completing_twice_duplicates_neither_a_bot_nor_a_task(environment):
     assert len(tasks) == 1
 
 
-def test_only_botops_is_required(environment):
-    """An owner who skips every card still gets BotOps; the assistant is a pick like the rest."""
+def test_botops_and_the_assistant_are_always_built(environment):
+    """An owner who skips every card still gets BotOps and the assistant: both are built in."""
     api = environment(seed={})
     draft(api)
     record = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).json()
     bots = {row["slug"]: row for row in record["bots"]}
-    assert sorted(bots) == ["botops"]
-    assert bots["botops"]["setup_task_id"] is None
+    assert sorted(bots) == ["botops", "coo"]
+    assert all(row["setup_task_id"] is None for row in bots.values())
     cards = {card["slug"]: card for card in api.get("/api/v2/catalog", headers=signed_in()).json()["cards"]}
-    assert cards["botops"]["required"] and not cards["coo"]["required"] and cards["coo"]["default"]
+    assert cards["botops"]["required"] and cards["coo"]["required"]
 
 
 def test_a_picked_assistant_is_built_under_the_company_s_name_for_it(environment):
@@ -170,34 +170,18 @@ def test_a_picked_assistant_is_built_under_the_company_s_name_for_it(environment
     assert all(row["setup_task_id"] is None for row in bots.values())
 
 
-def test_a_company_without_the_assistant_is_one_tree_under_its_owner(environment):
-    """The seeded assistant is set aside, BotOps reports to the owner, and later bots do too."""
-    api = environment(seed={"coo": {"name": "coo", "status": "planned", "reports_to": None},
-                            "botops": {"name": "botops", "status": "planned", "reports_to": "coo"}})
-    draft(api, selected={"support": {"template": "support", "display_name": "Support", "instructions": ""}})
-    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert _states(api)["coo"] == "archived"
-    with api.app.state.store.read() as c:
-        parents = {row["bot"]: row["reports_to"] for row in c.execute("SELECT bot,reports_to FROM bot_config")}
-    assert parents["botops"] == "human:morgan" and parents["support"] == "human:morgan"
-    later = api.post("/api/v2/bots", json={
-        "slug": "sales", "display_name": "Sales", "model": "gpt-6-sol", "effort": "high",
-        "operator": "morgan", "owners": ["morgan"], "repo": "emp-sales"}, headers=signed_in())
-    assert later.status_code == 200, later.text
-    assert later.json()["reports_to"] == "human:morgan"
-
-
-def test_the_assistant_can_be_added_later_and_an_installed_one_is_untouched(environment):
+def test_an_archived_assistant_is_never_restored_by_finishing_and_an_installed_one_is_untouched(environment):
     api = environment()
     draft(api)
     api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
-    assert _states(api)["coo"] == "archived"
-    added = api.post("/api/v2/bots", json={
-        "slug": "coo", "display_name": "Morgan", "model": "gpt-6-sol", "effort": "high", "operator": "morgan",
-        "owners": ["morgan"], "repo": "emp-coo", "template": "assistant"}, headers=signed_in())
-    assert added.status_code == 200, added.text
     assert _states(api)["coo"] == "planned"
-    # An install that already finished with the assistant, running, is never set aside.
+    # A company that set the assistant aside before it was built in keeps it archived until the owner
+    # turns it on (Assistant tab or Settings > Bots): finishing again does not bring it back.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='archived' WHERE slug='coo'")
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert _states(api)["coo"] == "archived"
+    # An install that already finished with the assistant, running, is untouched.
     again = environment()
     draft(again, selected={"coo": {"template": "assistant", "display_name": "Morgan", "instructions": ""}})
     again.post("/api/v2/onboarding/complete", json={}, headers=signed_in())

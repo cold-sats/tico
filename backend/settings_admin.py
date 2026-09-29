@@ -229,9 +229,11 @@ class SettingsAdmin:
         return {**self.definition(c, body.slug), "owners": self._people(c, body.owners)[0], "assignment": None}
 
     def archive(self, c, who, bot, body):
+        # The assistant and BotOps are built in: nobody archives them, the owner included.
+        if bot in (self.settings.assistant_bot, "botops"):
+            raise Problem("system_bot", (self.settings.assistant_name if bot == self.settings.assistant_bot else "BotOps")
+                          + " is built in to every company and cannot be archived or deleted; you can pause or rename it", 409)
         self._manager(c, who, bot)
-        if bot == self.settings.assistant_bot:
-            raise Problem("forbidden", self.settings.assistant_name + " cannot be removed", 409)
         if self._config(c, bot)["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
         if body.successor:

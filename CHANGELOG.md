@@ -25,6 +25,11 @@ All notable changes to Tico are recorded here. The format follows
   your click, as you, once; the bot cannot confirm (`assistant_actions` table). Only allowlisted, plain routes can be proposed, the card shows the server's description and the request body, results keep no answer body, and a message the Assistant wrote never lets BotOps act for the person.
 - Stable v2: `GET /api/v2/assistant`, `POST /api/v2/assistant/messages|turn-on|actions`, `GET /api/v2/assistant/actions/{id}`,
   `POST /api/v2/assistant/actions/{id}/confirm|cancel`, in `docs/openapi/v2.json` and `docs/custom-frontend.md`.
+- **The assistant and BotOps are built in.** Setup always builds both (the wizard's "skip the assistant" choice from v0.2.1 is gone; both
+  are active once a computer is enrolled), and neither can be archived or deleted by anyone, owner included, through the UI, the API,
+  `hub` or BotOps: `409 system_bot`. Pausing, renaming and editing instructions stay allowed. Settings > Bots lists them as **Built in**
+  with no Archive control. A company whose assistant was archived keeps it archived on update (nothing auto-restores it); the owner
+  turns it on with **Turn on Assistant** and it cannot be archived again.
 - The assistant template's `AGENT.md` and a new `assistant-chat` playbook teach the Assistant how Tico is organised, how to route
   work to the right bot, to answer briefly with links, never to act beyond the person and to ask before any side effect.
 

@@ -18,7 +18,6 @@ from . import models as M
 from . import providers
 from . import releases, replication, runner_versions
 from . import rooms
-from .settings_admin import _set_parent, archive_bot
 from .store import H, Problem, encode, readiness_document
 
 KEY = "onboarding"
@@ -335,18 +334,11 @@ class Onboarding:
         names = display_names(self.settings, record)
         cards = {card["template"]: card for card in read_cards(self.settings)}
         plan = self._plan(record, cards, names)
-        skipped = self.settings.assistant_bot not in plan
         for slug, choice in plan.items():
             raw = cards.get(choice["template"])
             card = render(raw, names, choice["display_name"]) if raw else {}
             self._define(c, who, slug, choice, card)
             self._setup_task(c, who, slug, choice, card, record["answers"])
-            if skipped and slug == BOTOPS:
-                # Before the other bots are made, so they are born reporting to the owner.
-                self._retire_assistant(c, who, record)
-                skipped = False
-        if skipped:
-            self._retire_assistant(c, who, record)
         # Completing twice keeps the moment the company actually finished.
         record.update(selected=plan, completed=record["completed"] or H.now())
         self._wire(c, record, who.actor)
@@ -503,23 +495,6 @@ class Onboarding:
 
     def _bot_slug(self, card_slug):
         return self.settings.assistant_bot if card_slug == ASSISTANT_TEMPLATE_SLUG else card_slug
-
-    def _retire_assistant(self, c, who, record):
-        """The environment seeds the assistant as a planned bot (templates/environment-registry).
-        A company that did not pick it in the wizard has no use for it: it leaves the org chart
-        and BotOps heads the leadership team. One that already finished onboarding, or whose
-        assistant has run, is never touched."""
-        slug = self.settings.assistant_bot
-        row = H.bot(c, slug)
-        if record["completed"] or not row or row["state"] != "planned":
-            return
-        successor = BOTOPS if (H.bot(c, BOTOPS) or {}).get("state") not in (None, "archived") else ""
-        archive_bot(c, who.actor, slug, successor)
-        owner = self.auth.owner_id(c)
-        if successor and owner:
-            # BotOps reported to the assistant; with it gone it reports to the owner.
-            _set_parent(c, who.actor, successor, "human:" + owner, H.now())
-        H.event(c, who.actor, "onboarding.assistant_skipped", slug, {})
 
     @staticmethod
     def _declared(c, slug):
