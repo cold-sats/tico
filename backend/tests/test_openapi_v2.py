@@ -106,6 +106,8 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("commentOnTask", "post", "/api/v2/tasks/" + task["id"] + "/comments", json={"text": "looks good"})
     call("listUpdates", "get", "/api/v2/updates")
     call("countUnreadUpdates", "get", "/api/v2/updates/unread")
+    call("getAssistant", "get", "/api/v2/assistant")
+    call("sendAssistantMessage", "post", "/api/v2/assistant/messages", json={"text": "what's waiting on me"})
     call("getNeedsYou", "get", "/api/v2/needs-you")
     call("getNeedsYou", "get", "/api/v2/needs-you", params={"count": "true"})
     call("searchMeetings", "get", "/api/v2/meetings/search")

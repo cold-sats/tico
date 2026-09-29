@@ -30,6 +30,7 @@ TAGS = {
     "Meetings": "Recorded meetings.",
     "Files": "What a bot creates, revises or delivers, listed on its page (docs/files.md).",
     "Docs": "Company documents and search.",
+    "Assistant": "The signed-in person's own private Assistant chat (docs/assistant.md): ask, and confirm what it proposes.",
     "Health": "Whether the installation is working.",
 }
 
@@ -106,6 +107,23 @@ STABLE = [
      "The bytes of one version (a download, never a storage address)", None),
     ("/api/v2/context/search", "get", "Docs", "searchDocs", "Search company documents", "DocSearch"),
     ("/api/v2/context/document", "get", "Docs", "getDocument", "One document", None),
+    ("/api/v2/assistant", "get", "Assistant", "getAssistant",
+     "The caller's Assistant: their private room id, whether it is on, the recent messages and what waits for their OK",
+     "Assistant"),
+    ("/api/v2/assistant/messages", "post", "Assistant", "sendAssistantMessage",
+     "Say something to the Assistant. A lookup is answered at once (fast: true, with the reply); anything else "
+     "is a turn of the assistant bot, shown as `execution` on GET /api/v2/assistant", "AssistantSent"),
+    ("/api/v2/assistant/turn-on", "post", "Assistant", "turnOnAssistant",
+     "Owner only: restore the archived assistant, or add it from the catalog, and activate it", None),
+    ("/api/v2/assistant/actions", "post", "Assistant", "proposeAssistantAction",
+     "Propose one operation for the caller to confirm (what the assistant's `hub assistant propose` calls)", "AssistantActionResult"),
+    ("/api/v2/assistant/actions/{aid}", "get", "Assistant", "getAssistantAction", "One proposal and how it ended",
+     "AssistantActionResult"),
+    ("/api/v2/assistant/actions/{aid}/confirm", "post", "Assistant", "confirmAssistantAction",
+     "The person's own click: runs the proposal as them, once. Never callable by the assistant or a personal token",
+     "AssistantActionResult"),
+    ("/api/v2/assistant/actions/{aid}/cancel", "post", "Assistant", "cancelAssistantAction",
+     "Drop a proposal; it never runs", "AssistantActionResult"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
 ]
@@ -200,6 +218,20 @@ SCHEMAS = {
     "BotFileResult": obj({"file": "o", "created": "b"}, required=["file"]),
     "FileActivity": obj({"file": "s", "activity": "a"}, actors=ACTORS),
     "FileVersions": obj({"file": "s", "versions": "a"}),
+    "Assistant": obj({"available": "b", "state": "s", "bot": "s", "name": "s", "can_turn_on": "b", "room_id": "n",
+                      "messages": items(ref("Message")), "has_more": "b", "next_before": "n",
+                      "execution": {"type": ["object", "null"], "description": "The assistant's current run: state, label, "
+                                    "text so far; null when it is not working (show a thinking state while it is)"},
+                      "actions": {"type": "object", "description": "{action id: proposal} for every card in `messages` "
+                                  "(a message whose refs.action names one is a Confirm / Cancel card)"},
+                      "pending": "a"},
+                     required=["available", "state", "bot", "name", "can_turn_on", "room_id", "messages", "has_more",
+                               "next_before", "execution", "actions", "pending"], actors=ACTORS),
+    "AssistantSent": obj({"message": ref("Message"), "reply": {"type": ["object", "null"]}, "fast": "b", "intent": "n"},
+                         required=["message", "fast"]),
+    "AssistantActionResult": obj({"action": {"type": "object", "description": "id, summary, method, path, body, status "
+                                            "(pending, running, done, failed, cancelled, expired), result"}, "message_id": "s"},
+                                 required=["action"]),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),
 }

@@ -69,8 +69,9 @@ def may_chat(c, auth, who, bot):
         return False
     if who.role == "bot":
         return True
-    # The assistant's chat is retired: it works in the background (Slack routing,
-    # meeting deliveries, refusal reviews, its routines) and people chat only with bots.
+    # The assistant is chatted with in one place only: each person's own Assistant room, through
+    # /api/v2/assistant (backend/assistant.py). It has no chat with anyone else and no shared or
+    # per-bot chat, so every other route that asks "may I chat with it" says no.
     if bot == auth.settings.assistant_bot:
         return False
     if who.role == "owner":

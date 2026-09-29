@@ -1,7 +1,7 @@
 """First run: the catalog people pick bots from, and the record of what they chose.
 
-A company starts with two bots: the assistant, which works in the background (Slack routing,
-meetings' Auto delivery; nobody chats with it), and BotOps, which builds
+A company starts with two bots: the assistant, which is each person's private Assistant chat
+(backend/assistant.py) and works in the background (Slack routing, meetings' Auto delivery), and BotOps, which builds
 every other bot. Onboarding names the company, asks six questions, recommends templates
 against those answers, and on completion defines the chosen bots and hands BotOps one task
 per bot it has to set up. Nothing here reaches a machine: it writes definitions and tasks.
@@ -382,6 +382,44 @@ class Onboarding:
                 runner_id=runner_id, expected_generation=0))
             placed.append(row["bot"])
         return placed
+
+    def turn_on_assistant(self, c, who):
+        """The owner's one click on the Assistant tab: bring the company's assistant back (the v0.2.1
+        restore of an archived one) or add it from the catalog, put it on the computer BotOps runs
+        on and activate it. With no computer yet it is left planned, and the answer says so."""
+        slug = self.settings.assistant_bot
+        row = H.bot(c, slug)
+        if row and row["state"] == "active":
+            return {"bot": slug, "state": "active", "restored": False}
+        if row and row["state"] not in ("archived", "planned", "paused"):
+            raise Problem("state", "The " + self.settings.assistant_name + " is " + row["state"]
+                          + "; a person changes that in Settings", 409)
+        record = load(c)
+        display = self.settings.assistant_name
+        card = render(self._template("assistant"), display_names(self.settings, record), display)
+        choice = {"template": card["template"], "display_name": card["name"], "instructions": card["instructions"]}
+        restored = bool(row and row["state"] == "archived")
+        if restored:
+            # The restore keeps the bot's own model and settings; only the name and description are renewed.
+            self.admin.create_bot(c, who, M.BotDefinitionCreate(
+                slug=slug, display_name=choice["display_name"], description=str(card.get("summary") or ""),
+                status="planned", repo="emp-" + slug, thread_mode="personal", model=row.get("model") or "restore",
+                effort=row.get("effort") or "high", owners=[H.actor_id(who.actor)]))
+        elif not row:
+            self._define(c, who, slug, choice, card)
+        if not c.execute("SELECT 1 FROM assignments WHERE bot=?", (slug,)).fetchone():
+            machine = (c.execute("SELECT runner_id FROM assignments WHERE bot=?", (BOTOPS,)).fetchone()
+                       or c.execute("SELECT id AS runner_id FROM runners WHERE revoked_at IS NULL "
+                                    "ORDER BY created LIMIT 1").fetchone())
+            if machine:
+                self.execution.assign(c, who, slug, SimpleNamespace(runner_id=machine["runner_id"],
+                                                                    expected_generation=0))
+        placed = bool(c.execute("SELECT 1 FROM assignments WHERE bot=?", (slug,)).fetchone())
+        if placed and H.bot(c, slug)["state"] != "active":
+            self.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(
+                status="active", expected_revision=self.admin._config(c, slug)["revision"]))
+        H.event(c, who.actor, "assistant.turned_on", slug, {"restored": restored, "placed": placed})
+        return {"bot": slug, "state": H.bot(c, slug)["state"], "restored": restored, "placed": placed}
 
     def on_runner_enrolled(self, c, runner_id, operator):
         """Enrolling the owner's Mac after the wizard finishes wires it up too, so the order

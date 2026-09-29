@@ -7,6 +7,9 @@ from .store import H, P, Problem, encode
 
 PERSONAL = "personal"
 SHARED = "shared"
+# The one private room each person has with the Assistant (backend/assistant.py); distinct from the
+# room the person's tasks for the assistant bot land in, so its history is only what they said to it.
+ASSISTANT_ROOM = "assistant"
 
 
 def roster(c):

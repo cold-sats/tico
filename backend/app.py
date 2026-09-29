@@ -183,8 +183,11 @@ def create_app(settings=None):
     AUTH_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tico-auth")
     app.state.timing = Timing()
 
+    from .assistant import write_allowed as assistant_writes, own_room as assistant_room
+
     @app.middleware("http")
     async def request_guard(request, call_next):
+        via_reset = None
         try:
             # The sign-in exemptions below match on prefixes; a dot segment would carry one of
             # them onto the static files ("/download/../index.html").
@@ -211,9 +214,15 @@ def create_app(settings=None):
                 return await call_next(request)
             if request.url.path != "/api/v2/runners/enroll":
                 began = time.perf_counter()
-                who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers)
+                who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers,
+                                                                       request.url.path)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
                 request.state.identity = who
+                if who.via:
+                    # The Assistant acting for a person (backend/assistant.py): what it writes is
+                    # recorded via assistant, and unless the person just confirmed a proposal it may
+                    # write only what is low-risk.
+                    via_reset = H.VIA.set(who.via)
             if request.method not in ("GET", "HEAD", "OPTIONS"):
                 origin = request.headers.get("origin")
                 if origin and not settings.allows_origin(origin):
@@ -241,6 +250,12 @@ def create_app(settings=None):
                         raise Problem("too_large", "Request exceeds the upload limit", 413)
                     chunks.append(chunk)
                 request._body = b"".join(chunks)
+                if (getattr(request.state, "identity", None) and request.state.identity.via
+                        and not request.state.identity.confirmed
+                        and not assistant_writes(request.method, request.url.path, settings, request._body)):
+                    raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
+                                  "own. Propose it with `hub assistant propose` (or POST /api/v2/assistant/actions); "
+                                  "the person confirms it in " + settings.app_name, 403)
             response = await call_next(request)
             if response.status_code >= 500 and not getattr(request.state, "telemetry_captured", False):
                 telemetry.capture("request", status=response.status_code)
@@ -289,6 +304,9 @@ def create_app(settings=None):
         except Exception as exc:
             telemetry.capture("request", exc, 500)
             raise
+        finally:
+            if via_reset is not None:
+                H.VIA.reset(via_reset)
 
     from . import routines
 
@@ -611,15 +629,20 @@ def create_app(settings=None):
                 raise Problem("reference", f"Unsupported reference kind: {kind}", 422)
 
     def send(c, who, body):
+        in_assistant_room = False
         to = auth.target(c, who, body.to)
         if who.role in ("human", "owner") and to.startswith("bot:"):
             docs = (body.conversation_id and to == "bot:" + views.DOC_BOT
                     and views.docs_room(auth.conversation(c, who, body.conversation_id), who))
             if not docs and not views.may_chat(c, auth, who, H.actor_id(to)):
                 if H.actor_id(to) == settings.assistant_bot:
-                    raise Problem("forbidden", settings.assistant_name + " works in the background and "
-                                  "takes no chat; message one of your bots", 403)
-                raise Problem("forbidden", "You are not assigned to this bot", 403)
+                    # The assistant takes chat in the caller's own Assistant room and nowhere else.
+                    if not assistant_room(c, who, body.conversation_id):
+                        raise Problem("forbidden", settings.assistant_name + " chats only in your own Assistant "
+                                      "(/api/v2/assistant); message one of your bots here", 403)
+                    in_assistant_room = True
+                else:
+                    raise Problem("forbidden", "You are not assigned to this bot", 403)
         auth.require_bot_contact(c, who, to, body.conversation_id,
                                  (body.refs or {}).get("task") or (body.refs or {}).get("task_id"),
                                  kind="message")
@@ -636,6 +659,8 @@ def create_app(settings=None):
                 raise Problem("reference", "Reply belongs to a different conversation", 422)
         check_refs(c, who, body.refs)
         refs = dict(body.refs or {})
+        if in_assistant_room:
+            refs["assistant"] = True           # the server's mark: this turn acts for the person
         conversation_id = body.conversation_id
         if not conversation_id and who.role in ("owner", "human") and to.startswith("bot:"):
             conversation_id = rooms.chat_room(c, auth, who, H.actor_id(to))["id"]
@@ -2630,6 +2655,8 @@ def create_app(settings=None):
     install_getting_started(app, store, auth, mutate, settings, settings_admin)
     from .health import install as install_health
     install_health(app, store, auth, settings)
+    from .assistant import install as install_assistant
+    install_assistant(app, store, auth, mutate, onboarding)
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts from /tico/ui/ (ui/index.html), so the same directory is

@@ -856,6 +856,9 @@ class Store:
                                    ("events_action_target", "events(action, target, ts)")):
                     c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {spec}")
                 R.ensure_task_sweep(c)
+                # The Assistant's pending actions (backend/assistant.py) and the "via" of a task-history row.
+                from .assistant import ensure_schema as ensure_assistant_schema
+                ensure_assistant_schema(c)
                 # Tico no longer records: a meeting left waiting on audio or transcription is
                 # finished with what it has (backend/meetings.py). Idempotent, no migration number.
                 from .meetings import retire_capture

@@ -153,12 +153,13 @@ def test_task_version_conflict_preserves_first_write(api):
     assert get(api, "tasks/" + task["id"])["task"]["note"] == "First revision"
 
 
-def test_nobody_chats_with_the_assistant_but_people_still_hand_it_work(api):
-    """The assistant's chat was retired (2026-09-24): it works in the background, and a person's
-    task for it still lands in that person's own room."""
+def test_the_assistant_chats_only_in_its_own_room_and_people_still_hand_it_work(api):
+    """The assistant takes chat in one place, each person's own Assistant room (backend/assistant.py,
+    tested in test_assistant.py). Every other route still refuses it, and a person's task for it
+    still lands in that person's own room."""
     for token in ("ana-test", "ben-test"):
         refused = post(api, "chat/coo", {"text": "Hello"}, token=token, expected=403)
-        assert "works in the background" in refused["error"]["detail"]
+        assert "your own Assistant" in refused["error"]["detail"]
         post(api, "messages", {"to": "coo", "text": "Hello"}, token=token, expected=403)
         post(api, "chat/coo/new", {}, token=token, expected=403)
     employees = api.get("/api/employees", headers=headers()).json()

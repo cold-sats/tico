@@ -4,7 +4,7 @@ import hmac
 import json
 import sqlite3
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from http.cookies import SimpleCookie, CookieError
 
 import yaml
@@ -49,6 +49,11 @@ class Identity:
     # A browser session vouched for by the identity proxy in front of the server (Cloudflare Access,
     # the AWS load balancer), the only kind that /api/v2/logout can end; the UI offers "Sign out" for it.
     via_proxy: bool = False
+    # "assistant" when the Assistant is acting for this person (backend/assistant.py): either a
+    # turn of the assistant bot in the person's own Assistant room, which may only do what a person
+    # may do and propose the rest, or (confirmed) the person's own click on a proposal it made.
+    via: str = ""
+    confirmed: bool = False
 
 
 def has_left(c, pid):
@@ -248,7 +253,31 @@ class Auth:
         return Identity("human:" + row["human"], role, email=email, via_token=True,
                         token_label=str(row["label"] or ""))
 
-    def authenticate(self, headers):
+    def assistant_principal(self, c, attempt):
+        """The person an assistant chat turn acts for, as that person and nobody more, or None.
+
+        Only a turn the person started themselves in their own Assistant room counts: the message
+        that queued the job came from the room's owner through /api/v2/assistant/messages (the
+        only door that sets the `assistant` reference). Any other turn of the assistant bot (a
+        Slack route, a meeting delivery, a routine) stays the bot's own."""
+        if attempt["bot"] != self.settings.assistant_bot:
+            return None
+        row = c.execute(
+            "SELECT v.owner_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
+            "JOIN conversations v ON v.id=m.conversation_id WHERE j.id=? AND v.scope='personal' "
+            "AND v.room_key=? AND m.from_actor=v.owner_actor AND json_extract(m.refs_json,'$.assistant')=1",
+            (attempt["job_id"], rooms.ASSISTANT_ROOM)).fetchone()
+        if not row or not str(row["owner_actor"] or "").startswith("human:"):
+            return None
+        human = H.human(c, H.actor_id(row["owner_actor"]))
+        if not human or has_left(c, human["id"]):
+            return None
+        email = str(human.get("email") or "").lower()
+        return Identity(row["owner_actor"], "owner" if email and email == self.owner_email else "human",
+                        email=email, via_token=True, token_label=self.settings.assistant_name,
+                        via="assistant")
+
+    def authenticate(self, headers, path=""):
         bearer = headers.get("authorization", "")
         token = bearer[7:] if bearer.startswith("Bearer ") else ""
         if token.startswith("tico_st_") and getattr(self.proxy, "sessions", False):
@@ -278,6 +307,11 @@ class Auth:
                     if attempt:
                         who = Identity("bot:" + attempt["bot"], "bot", runner_id=attempt["runner_id"],
                                        attempt_id=attempt["id"])
+                        # The lease turns of the runner itself stay the bot's; everything else the
+                        # assistant's chat turn asks for is asked as the person it works for.
+                        if path and not path.startswith(("/api/v2/attempts/", "/api/v2/jobs/")):
+                            validate_identity(c, who)
+                            who = self.assistant_principal(c, attempt) or who
                     elif not (who := self.identity_from_personal_token(c, token)):
                         raise Problem("identity", "Invalid credential", 401)
             elif self.local_owner(cookies(headers).get(LOCAL_COOKIE, "")):
@@ -305,6 +339,14 @@ class Auth:
                 who = Identity("human:" + row["id"],
                                "owner" if email == self.owner_email else "human", email=email, via_proxy=True)
             validate_identity(c, who)
+            action = headers.get("x-tico-assistant-action", "") if who.role in ("owner", "human") else ""
+            if action:
+                # The person's own click on something the Assistant proposed (backend/assistant.py
+                # confirm): only while that record is being run for this very person.
+                if not c.execute("SELECT 1 FROM assistant_actions WHERE id=? AND owner=? AND status='running'",
+                                 (action, who.actor)).fetchone():
+                    raise Problem("assistant_action", "That assistant action is not being confirmed", 403)
+                who = replace(who, via="assistant", confirmed=True)
             return who
 
     def join(self, email):

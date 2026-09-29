@@ -60,6 +60,7 @@ Nothing is edited or deleted (rule 9): tasks and status carry their own history 
    `undelivered(conn, to_actor=None)` and `auto_close_done(conn, now)` (rule 5's three-day
    auto-close, which the keeper calls on a timer).
 """
+import contextvars
 import hashlib
 import json
 import os
@@ -605,8 +606,16 @@ def _one(conn, sql, args=()):
 
 
 # ----------------------------------------------------------------------------- audit
+# Who is really acting when a person's own identity is used by the Assistant ("assistant"): set for
+# the length of one request (backend/app.py request_guard), so every event and task-history row the
+# request writes says "via assistant" without each write knowing about it.
+VIA = contextvars.ContextVar("hub_via", default="")
+
+
 def event(conn, actor, action, target="", detail=None):
     """Append the audit row every write leaves behind."""
+    if VIA.get() and (detail is None or isinstance(detail, dict)):
+        detail = {**(detail or {}), "via": VIA.get()}
     row = {"id": new_id(), "ts": now(), "actor": str(actor), "action": action,
            "target": str(target or ""), "detail_json": _dump(detail)}
     conn.execute("INSERT INTO events (id, ts, actor, action, target, detail_json) "
@@ -1318,6 +1327,8 @@ def _close_open_asks(conn, actor, target, kind, msg):
 
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,
                    expires_at=None, delivered_at=None, read_at=None):
+    if VIA.get() and is_human(actor):
+        refs = {**(refs or {}), "via": VIA.get()}         # the Assistant wrote this for the person
     row = {"id": new_id(), "conversation_id": conv["id"], "from_actor": actor, "to_actor": target,
            "kind": kind, "body": str(body or ""), "refs_json": _dump(refs or {}),
            "in_reply_to": in_reply_to, "created": now(), "delivered_at": delivered_at,
@@ -1964,10 +1975,14 @@ def auto_close_done(conn, at=None):
 
 
 def _task_event(conn, task_id, actor, field, old, new, note=""):
-    conn.execute("INSERT INTO task_events (id, task_id, ts, actor, field, old, new, note) "
-                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    via = VIA.get()
+    if via and not any(r[1] == "via" for r in conn.execute("PRAGMA table_info(task_events)")):
+        conn.execute("ALTER TABLE task_events ADD COLUMN via TEXT")
+    conn.execute("INSERT INTO task_events (id, task_id, ts, actor, field, old, new, note" + (", via" if via else "")
+                 + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?" + (", ?" if via else "") + ")",
                  (new_id(), task_id, now(), actor, field,
-                  None if old is None else str(old), None if new is None else str(new), note))
+                  None if old is None else str(old), None if new is None else str(new), note,
+                  *((via,) if via else ())))
 
 
 def _task_ref(value):

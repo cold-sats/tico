@@ -817,6 +817,19 @@ class Empty(Contract):
     pass
 
 
+class AssistantMessage(Contract):
+    text: Annotated[str, Field(min_length=1, max_length=8000)]
+
+
+class AssistantAction(Contract):
+    """What the Assistant proposes: one operation on this API, run as the person only when they
+    confirm it (backend/assistant.py)."""
+    summary: Annotated[str, Field(min_length=1, max_length=300)]
+    method: Literal["POST", "PUT", "PATCH", "DELETE"] = "POST"
+    path: Annotated[str, Field(min_length=9, max_length=300)]
+    body: dict = Field(default_factory=dict)
+
+
 class LoginStart(Contract):
     runtime: Literal["codex", "claude"]
     profile: Annotated[str, Field(pattern=r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$", max_length=80)] = ""
