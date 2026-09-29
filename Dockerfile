@@ -62,15 +62,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git curl openssh-client build-essential ripgrep jq procps \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10002 ticorun \
-    && useradd --uid 10002 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash ticorun
+    && useradd --uid 10002 --gid ticorun --home-dir /home/runner --no-create-home --shell /bin/bash ticorun \
+    && groupadd --gid 10003 bot \
+    && useradd --uid 10003 --gid bot --home-dir /home/runner --no-create-home --shell /bin/bash bot
 COPY --from=node /opt/node /opt/node
 COPY --from=gh /out/gh /usr/local/bin/gh
 # node and npm are here for the runner's own installs of model CLIs (runner/harness_tools.py).
 RUN ln -s /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx /usr/local/bin/
 COPY docker/runner-entrypoint.sh /usr/local/bin/tico-runner-entrypoint
 COPY docker/gitconfig /etc/gitconfig
-# A named volume copies the ownership of the directory it first covers, so /home/runner belongs to
-# ticorun without a root entrypoint.
+# Two users share /home/runner (SECURITY.md, runner/isolation.py). Started as root with the capabilities
+# of docker/runner.compose.yaml, the entrypoint makes the supervisor (root) the owner of runner.json, its
+# state and the tools directory, and `bot` (10003) the owner of everything a turn works in and the user
+# every process that runs bot code drops to. Without that (a bare `docker run`, an older compose file)
+# the image runs as `ticorun` (10002) alone, as before. A named volume copies the ownership of the
+# directory it first covers, so a new volume starts out in that single-user layout and is migrated.
 RUN chmod 0755 /usr/local/bin/tico-runner-entrypoint \
     && install -d -m 0700 -o ticorun -g ticorun /home/runner /home/runner/workspace /home/runner/workspace/secrets
 # The tools directory is in the volume, so installed model CLIs survive a restart or a new image. It is

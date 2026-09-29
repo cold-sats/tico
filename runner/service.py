@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from clients.tico import APIError, Client
-from . import git_credentials, harness_tools, op, profiles
+from . import credential_socket, git_credentials, harness_tools, isolation, op, profiles
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -231,7 +231,7 @@ def pull_repo(path, env=None, timeout=45):
         return ""
     env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
     def git(*args, timeout=15):
-        return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     try:
         dirty = git("status", "--porcelain")
@@ -281,7 +281,7 @@ def push_repo(path, env=None, timeout=60):
         return 0, ""
     env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
     def git(*args, timeout=10):
-        return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, env=env, timeout=timeout)
     ahead = 0
     try:
@@ -403,7 +403,11 @@ class Runner:
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
-        self.warm = WarmSessions(self.state.directory / "antigravity")
+        # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
+        # a turn's host process needs lives in a directory the bot user owns instead.
+        self.host_state = isolation.bot_state(self.state.directory)
+        self.credentials = credential_socket.serve(self.client)   # None unless isolated
+        self.warm = WarmSessions(self.host_state / "antigravity")
         self.attempt_runtimes = {}     # attempt id -> host names its turn may use
         self.tools = harness_tools.Harnesses(
             harness_tools.tools_dir(config, config_path, self.state.directory),
@@ -456,7 +460,7 @@ class Runner:
         origin = ""
         if (path / ".git").exists():
             try:
-                result = subprocess.run(["git", "-C", str(path), "remote", "get-url", "origin"],
+                result = isolation.run(["git", "-C", str(path), "remote", "get-url", "origin"],
                                         capture_output=True, text=True, timeout=5)
                 url = (result.stdout.strip() if result.returncode == 0 else "")
                 if url.endswith(".git"):
@@ -475,7 +479,7 @@ class Runner:
             if not origin:
                 continue
             try:
-                subprocess.run(["git", "clone", "--quiet", origin + "/" + sibling.name + ".git", str(sibling)],
+                isolation.run(["git", "clone", "--quiet", origin + "/" + sibling.name + ".git", str(sibling)],
                                capture_output=True, text=True, timeout=60, check=True,
                                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
             except (OSError, subprocess.SubprocessError) as exc:
@@ -577,6 +581,7 @@ class Runner:
         except Exception as exc:
             return "", (f"Setting {bot} up from the {template} catalog template failed: "
                         f"{type(exc).__name__}: {exc}")[:500]
+        isolation.chown(path, recursive=True)     # made by the supervisor; the bot user works in it
         log(f"Tico runner: {bot} materialized from the {template} catalog template at {path}")
         return f"materialized from catalog: {template}", ""
 
@@ -669,6 +674,7 @@ class Runner:
         """Load the bot's credentials plus explicitly named keys from shared profiles."""
         env = dict(os.environ)
         secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+        isolation.adopt(secrets_dir)     # a file written by `docker exec` as root is still the bots'
         for path in (secrets_dir / "_shared.env", secrets_dir / (bot + ".env")):
             env.update(self._read_env(path))
         for access in (config or {}).get("access") or []:
@@ -705,7 +711,9 @@ class Runner:
                     raise RuntimeError("Multiple granted credentials use the same environment name")
                 if item.get("kind") == "file":
                     import tempfile
-                    fd, filename = tempfile.mkstemp(prefix="tico-credential-", dir=self.state.directory)
+                    fd, filename = tempfile.mkstemp(prefix="tico-credential-",
+                                                    dir=isolation.turn_dir() if isolation.enabled() else self.state.directory)
+                    isolation.chown(filename)
                     self.vault_files.setdefault(attempt["id"], []).append(filename)
                     with os.fdopen(fd, "w") as output:
                         output.write(item["value"])
@@ -879,7 +887,7 @@ class Runner:
             revision = ""
             if repository_present and (path / ".git").exists():
                 try:
-                    result = subprocess.run(["git", "-C", str(path), "rev-parse", "--short=12", "HEAD"],
+                    result = isolation.run(["git", "-C", str(path), "rev-parse", "--short=12", "HEAD"],
                                             capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
                         revision = result.stdout.strip()[:100]
@@ -922,7 +930,7 @@ class Runner:
             authenticated, detail = "missing", "Runtime executable is not on PATH"
         elif runtime == "codex":
             try:
-                result = subprocess.run([executable, "login", "status"], capture_output=True,
+                result = isolation.run([executable, "login", "status"], capture_output=True,
                                         text=True, timeout=8, env=env)
                 output = (result.stdout + "\n" + result.stderr).strip()
                 authenticated = "ready" if result.returncode == 0 and "logged in" in output.lower() else "missing"
@@ -937,7 +945,7 @@ class Runner:
                 authenticated, detail = "failed", "Codex sign-in could not be checked"
         elif runtime == "claude":
             try:
-                result = subprocess.run([executable, "auth", "status", "--json"], capture_output=True,
+                result = isolation.run([executable, "auth", "status", "--json"], capture_output=True,
                                         text=True, timeout=CLAUDE_AUTH_TIMEOUT_SECONDS, env=env)
                 try:
                     status = json.loads(result.stdout or "")
@@ -978,7 +986,7 @@ class Runner:
                 authenticated, detail = "ready", "Signed in with CURSOR_API_KEY"
             else:
                 try:
-                    result = subprocess.run([executable, "status"], capture_output=True, text=True, timeout=15, env=env)
+                    result = isolation.run([executable, "status"], capture_output=True, text=True, timeout=15, env=env)
                     output = (result.stdout + "\n" + result.stderr).lower()
                     signed = result.returncode == 0 and "logged in" in output and "not logged in" not in output
                     authenticated, detail = ("ready", "Signed in to Cursor") if signed else \
@@ -996,7 +1004,7 @@ class Runner:
                 authenticated, detail = "missing", "OPENROUTER_API_KEY required in secrets/_shared.env"
         try:
             if executable:
-                result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5, env=env)
+                result = isolation.run([executable, "--version"], capture_output=True, text=True, timeout=5, env=env)
                 version = (result.stdout or result.stderr).strip().splitlines()[0][:100] if result.returncode == 0 else ""
         except (OSError, subprocess.SubprocessError, IndexError):
             pass
@@ -1092,9 +1100,9 @@ class Runner:
         if runtime == "gemini":
             if config.get("harness") == "antigravity":
                 from .hosts.antigravity import AntigravityHost
-                return AntigravityHost(self.state.directory / "antigravity" / WarmSessions.scope(attempt))
+                return AntigravityHost(self.host_state / "antigravity" / WarmSessions.scope(attempt))
             from .hosts.gemini import GeminiHost
-            home = (profile.home("gemini") if profile else None) or self.state.directory / "gemini"
+            home = (profile.home("gemini") if profile else None) or self.host_state / "gemini"
             return GeminiHost(bot=attempt["bot"], home=home / attempt["bot"])
         if runtime == "pi":
             from .hosts.pi import PiHost
@@ -1300,7 +1308,10 @@ class Runner:
             try:
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
-                git_credentials.apply(env, self.client, bot, self.config_path)
+                socket_path = self.credentials.path if self.credentials else None
+                if socket_path:
+                    self.credentials.register(attempt["token"], bot)
+                git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 secret_values = [v for k, v in env.items() if len(v) > 8 and any(s in k.upper() for s in ("TOKEN", "SECRET", "PASSWORD", "API_KEY"))]
                 secret_values.extend(self.vault_values.get(aid, []))
@@ -1522,6 +1533,8 @@ class Runner:
             finally:
                 if persistent and host:
                     self.warm.release(host, outcome == "completed")
+                if self.credentials:
+                    self.credentials.unregister(attempt["token"])
                 self.vault_values.pop(aid, None)
                 for filename in self.vault_files.pop(aid, []):
                     Path(filename).unlink(missing_ok=True)
@@ -1712,6 +1725,8 @@ class Runner:
     def run(self):
         try:
             self.revision = record_revision(self.state.directory)
+            home = Path(os.environ.get("HOME") or Path.home())
+            isolation.adopt(*(home / name for name in (".codex", ".claude", ".claude.json", ".gemini", ".config")))
             self.names()            # once at start, so no turn waits on it
             self.recover_output()
             threading.Thread(target=self.push_backlog, daemon=True).start()
@@ -1730,6 +1745,8 @@ class Runner:
             self.stop.set()
             self.logins.stop()
             self.tools.stop()
+            if self.credentials:
+                self.credentials.stop()
             self.pool.shutdown(wait=True)
             self.maintenance_pool.shutdown(wait=True)
             self.warm.prune(close=True)

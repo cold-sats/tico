@@ -7,9 +7,53 @@
 set -euo pipefail
 
 CONFIG="$HOME/runner.json"
+# Two users (SECURITY.md, runner/isolation.py): started as root, this script and the supervisor own
+# runner.json, the runner's state and the tools directory, and every process that runs bot code is `bot`.
+BOT_UID=10003 BOT_GID=10003
+LAYOUT="$HOME/.tico-two-user-layout"
 
 die() { printf 'tico-runner: error: %s\n' "$*" >&2; exit 1; }
 log() { printf 'tico-runner: %s\n' "$*"; }
+
+as_bot() { setpriv --reuid="$BOT_UID" --regid="$BOT_GID" --clear-groups "$@"; }
+
+have_caps() {  # CHOWN DAC_OVERRIDE KILL SETGID SETUID: what the supervisor keeps (docker/runner.compose.yaml)
+  local mask bit
+  mask=$((16#$(awk '/^CapEff:/ {print $2}' /proc/self/status)))
+  for bit in 0 1 5 6 7; do [ $(( (mask >> bit) & 1 )) -eq 1 ] || return 1; done
+}
+
+# One time, and again whenever something new was put where the supervisor's files belong.
+separate_users() {
+  have_caps || die "started as root without the capabilities the runner needs: use the current runner.compose.yaml (user: \"0\", cap_add CHOWN DAC_OVERRIDE KILL SETGID SETUID)"
+  if [ ! -e "$LAYOUT" ]; then
+    log "moving this volume to the two-user layout (one time): the runner's login stays out of the bots' reach"
+    chown -R -h "$BOT_UID:$BOT_GID" "$HOME"
+    find "$HOME" -maxdepth 1 -type d -name 'state-*' -exec chown -R -h 0:0 {} + -exec chmod 0700 {} +
+    [ ! -d "$HOME/tools" ] || chown -R -h 0:0 "$HOME/tools"
+    : > "$LAYOUT"
+  fi
+  # The registration and what it opens belong to the supervisor alone. The home directory is sticky, so
+  # a turn (group bot, may create files here) cannot delete or replace what root owns.
+  chown 0:"$BOT_GID" "$HOME" && chmod 1770 "$HOME"
+  local file
+  for file in "$HOME"/runner.json "$HOME"/runner.json.*; do
+    [ -f "$file" ] && [ ! -L "$file" ] && chown 0:0 "$file" && chmod 0600 "$file"
+  done
+  # What a turn works in: the workspace, its secrets and the model logins are the bot user's.
+  as_bot mkdir -p "$HOME/workspace/secrets"
+  as_bot chmod 0700 "$HOME/workspace" "$HOME/workspace/secrets"
+  mkdir -p /run/tico-runner && chmod 0755 /run/tico-runner
+  export TICO_RUNNER_BOT_UID="$BOT_UID" TICO_RUNNER_BOT_GID="$BOT_GID"
+  ISOLATED=1
+}
+
+ISOLATED=0
+if [ "$(id -u)" = 0 ]; then
+  separate_users
+elif [ -e "$LAYOUT" ]; then
+  die "this volume is set up for two users (bots run apart from the runner's login): start the container as root with the capabilities in the current runner.compose.yaml"
+fi
 
 # ok, rejected (the server does not know this token) or unreachable (it may just be restarting)
 registration() {
@@ -87,8 +131,9 @@ else
   enroll "$url" "$code" "$label"
 fi
 
-git config --global user.name >/dev/null 2>&1 || git config --global user.name "Tico runner"
-git config --global user.email >/dev/null 2>&1 || git config --global user.email "tico-runner@$(uname -n)"
+as_user() { if [ "$ISOLATED" = 1 ]; then as_bot "$@"; else "$@"; fi; }
+as_user git config --global user.name >/dev/null 2>&1 || as_user git config --global user.name "Tico runner"
+as_user git config --global user.email >/dev/null 2>&1 || as_user git config --global user.email "tico-runner@$(uname -n)"
 # The mail and calendar connectors have no checkout-sibling layout here: point them at the volume. The venv
 # is built into the volume on first use (scripts/mail.sh), so the image stays slim and it survives restarts.
 export TICO_PROJECTS_DIR="${TICO_PROJECTS_DIR:-$HOME/workspace}"

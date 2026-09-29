@@ -7,6 +7,22 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Security
+- The Docker runner keeps its own credential away from bot code. The supervisor runs as root with five capabilities
+  (`CHOWN`, `DAC_OVERRIDE`, `KILL`, `SETGID`, `SETUID`) and owns `runner.json` (0600); each turn's model CLI, `git` in a
+  bot's checkout and the sign-in flows run as an unprivileged `bot` user (uid 10003). A turn's git credential helper gets
+  the bot's GitHub token from a supervisor socket with its attempt token, never from the registration. The current
+  `runner.compose.yaml` sets `user: "0"` and the capabilities; an older compose file, or a bare `docker run` without them,
+  keeps running as one user. Bots still share the `bot` user with each other. SECURITY.md says what is and is not separated.
+  On the first start of an existing volume the entrypoint changes its ownership once (the workspace and logins to `bot`,
+  `runner.json`, `state-*` and `tools/` to root); use `docker exec -u bot` to sign a model in.
+
+### Tests
+- `POST /api/v2/sql` and the JSON API are checked against each other for tasks, private rooms, messages and meetings, for the
+  owner, a member, a person with a private room, a bot and a bot whose turn was reassigned.
+- A Docker test starts the runner image on a volume from an older release and shows a turn cannot read the registration but can
+  still run its harness and push through the credential helper.
+
 ## [0.2.5] - 2026-09-29
 
 ### Fixed

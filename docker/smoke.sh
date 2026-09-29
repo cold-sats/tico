@@ -101,8 +101,10 @@ join_runner() {
   code="$(api -X POST -H 'Content-Type: application/json' -H "Idempotency-Key: smoke-$RANDOM$RANDOM$SECONDS" -d '{"operator": "owner"}' http://127.0.0.1:8765/api/v2/enrollments \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["code"])')"
   docker rm -f smoke-runner >/dev/null 2>&1 || true
+  # As docker/runner.compose.yaml starts it: root with five capabilities, so bot code runs as another user.
   docker run -d --name smoke-runner --restart unless-stopped --network tico-smoke_default -v tico-smoke-runner:/home/runner \
-    "$runner_image" join --url http://server:8765 --code "$code" --label "Smoke runner" >/dev/null
+    --user 0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add KILL --cap-add SETGID --cap-add SETUID \
+    --security-opt no-new-privileges:true "$runner_image" join --url http://server:8765 --code "$code" --label "Smoke runner" >/dev/null
 }
 
 step "server up"
@@ -115,6 +117,11 @@ step "runner joins with a one-time code"
 join_runner
 retry 120 online || fail "the runner did not enroll and come online"
 [ "$(runners)" = 1 ] || fail "expected one runner"
+
+step "bot code cannot read the runner's registration"
+[ "$(docker exec smoke-runner stat -c '%U:%a' /home/runner/runner.json)" = "root:600" ] || fail "runner.json is not root-only"
+! docker exec -u bot smoke-runner cat /home/runner/runner.json >/dev/null 2>&1 || fail "the bot user can read runner.json"
+docker exec -u bot smoke-runner sh -c 'git config --global user.name && test -w /home/runner/workspace/secrets' >/dev/null || fail "the bot user has no working home"
 
 step "the image holds no model CLI, and the runner reports every harness as not installed"
 for cli in codex claude gemini grok pi; do

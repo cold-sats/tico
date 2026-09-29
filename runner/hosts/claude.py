@@ -24,6 +24,7 @@ import tempfile
 import threading
 import uuid
 
+from .. import isolation
 from .base import Host, HostError, hub_mcp_server, is_auth_retryable, is_limit
 from .codex import iso
 
@@ -82,7 +83,7 @@ class ClaudeHost(Host):
         self.bot = bot
         self.cmd = list(cmd)
         self.stderr_path = stderr_path
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self._up = False
         self.proc = None                   # the running turn's process
         self._reader = None

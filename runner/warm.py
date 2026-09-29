@@ -5,6 +5,8 @@ import os
 import threading
 import time
 
+from . import isolation
+
 
 class WarmSessions:
     def __init__(self, directory, limit=8, idle_seconds=900):
@@ -28,6 +30,7 @@ class WarmSessions:
         with os.fdopen(fd, "w") as output:
             output.write(token)
         os.replace(tmp, path)
+        isolation.chown(path)
 
     def acquire(self, attempt, env, factory):
         key = self.scope(attempt)
@@ -42,7 +45,7 @@ class WarmSessions:
                 del self.entries[key]
                 entry = None
             home = self.directory / key
-            home.mkdir(parents=True, exist_ok=True, mode=0o700)
+            isolation.mkdir(home)
             os.chmod(home, 0o700)
             token_file = home / "lease-token"
             token = env["HUB_TOKEN"]

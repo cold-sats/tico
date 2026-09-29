@@ -33,6 +33,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import isolation
 from .outage import log
 
 HERE = Path(__file__).resolve().parent
@@ -509,7 +510,12 @@ class Harnesses:
         return self.stage(manifest, job.version)
 
     def _env(self):
-        return {**os.environ, "npm_config_update_notifier": "false", "npm_config_fund": "false",
+        # Installs run as the supervisor, which owns the tools directory and keeps its own caches out of
+        # the bot user's HOME (runner/isolation.py).
+        home = {"HOME": str(self.tools / ".home")} if isolation.enabled() else {}
+        if home:
+            Path(home["HOME"]).mkdir(parents=True, exist_ok=True)
+        return {**os.environ, **home, "npm_config_update_notifier": "false", "npm_config_fund": "false",
                 "npm_config_audit": "false", "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
 
     def _exec(self, argv, env_extra=None):

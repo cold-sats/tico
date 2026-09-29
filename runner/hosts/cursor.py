@@ -22,6 +22,7 @@ import tempfile
 import threading
 import uuid
 
+from .. import isolation
 from .base import Host, HostError, is_limit
 
 EXECUTABLE = "cursor-agent"
@@ -67,11 +68,11 @@ class CursorHost(Host):
 
     def __init__(self, bot=None, cmd=(EXECUTABLE,), log=None, stderr_path=None, spawn=None, run=None):
         super().__init__(log=log)
-        self._run = run or subprocess.run
+        self._run = run or isolation.run
         self.bot = bot
         self.cmd = list(cmd)
         self.stderr_path = stderr_path
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self._up = False
         self.proc = None
         self._reader = None

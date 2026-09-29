@@ -14,6 +14,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from .. import isolation
 from .base import Host, HostError, is_limit
 
 
@@ -52,7 +53,7 @@ class GeminiHost(Host):
         self.home = Path(home) if home else Path.home() / ".config" / "tico" / "gemini" / str(bot or "bot")
         self.cmd = list(cmd)
         self.stderr_path = stderr_path
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self._up = False
         self.proc = None
         self._reader = None
@@ -131,7 +132,7 @@ class GeminiHost(Host):
         }
 
     def _prepare_home(self, model, effort):
-        self.home.mkdir(mode=0o700, parents=True, exist_ok=True)
+        isolation.mkdir(self.home)
         os.chmod(self.home, 0o700)
         fd, temporary = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=self.home)
         try:
@@ -140,6 +141,7 @@ class GeminiHost(Host):
                 stream.write("\n")
             os.chmod(temporary, 0o600)
             os.replace(temporary, self.home / "settings.json")
+            isolation.chown(self.home / "settings.json")
         finally:
             try:
                 os.unlink(temporary)

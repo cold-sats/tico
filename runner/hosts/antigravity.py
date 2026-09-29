@@ -11,6 +11,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from .. import isolation
 from .base import Host, HostError, is_limit
 
 
@@ -22,7 +23,7 @@ class AntigravityHost(Host):
         super().__init__(log)
         self.home = Path(home)
         self.cmd = list(cmd)
-        self._spawn = spawn or subprocess.Popen
+        self._spawn = spawn or isolation.popen
         self._up = False
         self.proc = None
         self._reader = None
@@ -33,7 +34,7 @@ class AntigravityHost(Host):
         self._usage = {}
 
     def start(self):
-        self.home.mkdir(parents=True, exist_ok=True, mode=0o700)
+        isolation.mkdir(self.home)
         os.chmod(self.home, 0o700)
         self._up = True
 
@@ -75,6 +76,7 @@ class AntigravityHost(Host):
         with os.fdopen(fd, "w") as output:
             json.dump({"conversation_id": cid}, output)
         os.replace(temporary, path)
+        isolation.chown(path)
 
     def start_turn(self, thread_id, text, effort=None):
         with self._lock:
