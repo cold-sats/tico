@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-09-29
+
 ### Added
 
 ### Changed
@@ -406,7 +408,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.11...HEAD
+[0.2.11]: https://github.com/ticoteam/tico/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/ticoteam/tico/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/ticoteam/tico/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/ticoteam/tico/compare/v0.2.7...v0.2.8
