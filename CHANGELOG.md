@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A Tools row at the top of a bot's page (the right column beside the chat, above it on a phone): a small round icon for the
+  model and harness it runs on, its repository, and each `access:` entry of its `employee.yaml`, as the service's logo when Tico
+  bundles one and the name's first two letters otherwise. Hover, focus or tap opens the identity it acts as, what it may do, its
+  scope (database, channels, project, mailbox), the note and its status, such as "Credential missing on Test Mac"; past eight
+  tools "+N" opens the whole list. The runner reports the declared access on its heartbeat (names, verbs and whether each
+  variable is set, never a value; a runner from before it shows the model and repository only), and
+  `GET /api/v2/bots/{bot}/tools` serves it. See "What people see about a bot's tools" in `docs/creating-bots.md`.
+
 ### Fixed
 - The Assistant tab says "Assistant" in its own copy ("Ask the Assistant…", "Assistant is thinking…"), not the assistant bot's
   name, which on a company named after its bot read "Ask the Acme…". Settings > Bots still shows the bot's name.
