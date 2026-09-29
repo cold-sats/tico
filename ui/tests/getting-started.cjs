@@ -220,34 +220,41 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     assert.match(await page.locator('#gs-card [role=status]').textContent(), /BotOps will add the Market Analyst first/);
     await page.close();
 
-    // ---- the X is "not now": the card comes back in a new session while the section is empty
+    // ---- Meetings has no intro card: the page itself offers Add notes and the sources
     page = await open('#/meetings');
-    await page.locator('[data-gs-card=meetings]').waitFor();
+    await page.locator('#nav-getting-started').waitFor();
+    assert.equal(await page.locator('[data-gs-card=meetings]').count(), 0);
+    assert.equal(await page.locator('#gs-card').isHidden(), true);
+    await page.close();
+
+    // ---- the X is "not now": the card comes back in a new session while the section is empty
+    page = await open('#/updates');
+    await page.locator('[data-gs-card=updates]').waitFor();
     const before = calls.length;
-    await page.locator('[data-gs-later=meetings]').click();
+    await page.locator('[data-gs-later=updates]').click();
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
     assert.equal(calls.length, before);                     // nothing is saved for a "not now"
     await page.reload();
     await page.locator('#nav-getting-started').waitFor();
     assert.equal(await page.locator('#gs-card').isHidden(), true);   // same session: still put away
     await page.close();
-    page = await open('#/meetings');                        // a new page has a new session
-    await page.locator('[data-gs-card=meetings]').waitFor();
+    page = await open('#/updates');                        // a new page has a new session
+    await page.locator('[data-gs-card=updates]').waitFor();
 
     // ...and it goes on its own once the section has content.
-    empty.meetings = false;
+    empty.updates = false;
     await page.reload();
     await page.locator('#nav-getting-started').waitFor();
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    empty.meetings = true;
+    empty.updates = true;
     await page.close();
 
     // "Don't show again" is the one the server keeps.
-    page = await open('#/meetings');
-    await page.locator('[data-gs-card=meetings]').waitFor();
-    await page.locator('[data-gs-dismiss=meetings]').click();
+    page = await open('#/updates');
+    await page.locator('[data-gs-card=updates]').waitFor();
+    await page.locator('[data-gs-dismiss=updates]').click();
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {card: 'meetings'}});
+    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {card: 'updates'}});
     await page.reload();
     await page.locator('#nav-getting-started').waitFor();
     assert.equal(await page.locator('#gs-card').isHidden(), true);

@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **The Meetings page is redesigned.** It opens with the title, a search box and one **Add notes** button; the intro banner
+  and the separate Import button are gone. Under the header a **Sources** strip has a tile for Granola, Fireflies, Zoom,
+  Google Meet and Close, each with its logo and one word, **Connect** or **Connected** with the time of the last import. A tile
+  opens that source's setup: Close its integration page, the others a dialog on the page. With no meetings yet the page says
+  "Connect a source or add a note" and shows the same tiles large. Uploading or pasting a transcript is part of **Add notes**.
+  The filters appear once there is a meeting, on one line, and each meeting is a row with its source logo, date, people and
+  "N tasks" when bots pulled any.
+
 ## [0.2.13] - 2026-09-29
 
 ### Added
