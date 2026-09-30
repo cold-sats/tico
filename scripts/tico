@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Operate the Tico runner on this Mac: install it, check it, restart it, update it.
+# Operate the Tico runner on this computer (a Mac: launchd jobs; Linux: systemd user units): install it, check it,
+# restart it, update it.
 # Usage: scripts/tico [-e ENV] install|uninstall|restart [bot|connectors|close-calls|importers|all]
 #        scripts/tico [-e ENV] status | doctor | logs [bot|connectors|close-calls|importers] [-n N] [-f]
 #        scripts/tico [-e ENV] update | open | help   (restart/update wait for turns in flight; TICO_RESTART_NOW=1 skips)
@@ -45,7 +46,11 @@ runner() { (cd "$HUB" && "$PYTHON" -m runner --config "$CONFIG" "$@"); }
 json_field() { "$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2"; }
 config_field() { json_field "$CONFIG" "$1"; }
 env_field() { json_field "$ENV_DIR/environment.json" "$1"; }
-usage() { sed -n '2,12p' "$SELF"; }
+usage() { sed -n '2,13p' "$SELF"; }
+# The supervisor: launchd on a Mac, systemd --user on Linux (TICO_OS=Linux is for tests).
+IS_LINUX=0
+[ "${TICO_OS:-$(uname -s)}" = Linux ] && IS_LINUX=1
+UNIT_DIR="${TICO_SYSTEMD_USER_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 
 if [ -n "$ENV_SLUG" ]; then
   ENV_DIR="${TICO_ENVIRONMENTS_DIR:-$HOME/.config/tico/environments}/$ENV_SLUG"
@@ -63,6 +68,14 @@ label() {
   else printf 'team.tico.tico-%s' "$1"; fi
 }
 plist() { printf '%s/%s.plist' "$AGENTS" "$(label "$1")"; }
+# Linux: tico-bot.service, or tico-<env>-bot.service for a company environment (runner/systemd_units.py unit_name).
+unit_name() {
+  if [ -n "$ENV_SLUG" ]; then printf 'tico-%s-%s.service' "$ENV_SLUG" "$1"; else printf 'tico-%s.service' "$1"; fi
+}
+unit_file() { printf '%s/%s' "$UNIT_DIR" "$(unit_name "$1")"; }
+# The file that installs a job, whichever supervisor this computer has.
+service_file() { if [ "$IS_LINUX" = 1 ]; then unit_file "$1"; else plist "$1"; fi; }
+sctl() { systemctl --user "$@"; }
 logfile() {
   # launchd writes where the installed plist says; fall back to the default location.
   [ -f "$(plist "$1")" ] && plutil -extract StandardOutPath raw -o - "$(plist "$1")" 2>/dev/null \
@@ -92,6 +105,22 @@ require_setup() {
   fi
 }
 
+# systemd --user needs a user session to talk to; over a bare ssh login it may be missing.
+require_systemd_user() {
+  command -v systemctl >/dev/null 2>&1 \
+    || { echo "systemctl not found: this computer has no systemd. Run the runner from a supervisor of your own with TICO_SUPERVISED=1 set, or use the Docker runner (sh install.sh --runner)." >&2; exit 1; }
+  sctl show-environment >/dev/null 2>&1 \
+    || { echo "no systemd user session here (systemctl --user failed). Log in on the computer itself, or run: export XDG_RUNTIME_DIR=/run/user/$(id -u), then try again." >&2; exit 1; }
+}
+
+# Lingering keeps a user's systemd running after the last logout and starts it at boot; without it the jobs stop when
+# the ssh session that installed them ends.
+linger_note() {
+  local user="${USER:-$(id -un)}" note
+  note="$(cd "$HUB" && "$PYTHON" -m runner.systemd_units linger 2>/dev/null || true)"
+  [ -z "$note" ] || echo "$note"
+}
+
 require_environment() {
   [ -n "$ENV_DIR" ] || { echo "$1 needs an environment: scripts/tico -e <slug> $1 ..." >&2; exit 1; }
 }
@@ -113,7 +142,21 @@ retire_processing() {
   echo "removed $(label processing) (Tico no longer records)"
 }
 
+install_one_systemd() {
+  local kind="$1" unit log extra=()
+  unit="$(unit_name "$kind")"; log="$LOG_DIR/tico-$kind.log"
+  mkdir -p "$LOG_DIR"; chmod 0700 "$LOG_DIR"; touch "$log"; chmod 0600 "$log"
+  [ -z "$ENV_SLUG" ] || extra=(--env "$ENV_SLUG")
+  (cd "$HUB" && "$PYTHON" -m runner.systemd_units write "$kind" --python "$PYTHON" --config "$CONFIG" --root "$HUB" \
+     --log "$log" --path "$PATH" --dir "$UNIT_DIR" ${extra[@]+"${extra[@]}"}) >/dev/null
+  sctl daemon-reload
+  sctl enable "$unit" >/dev/null 2>&1
+  sctl restart "$unit"
+  echo "installed $unit"
+}
+
 install_one() {
+  [ "$IS_LINUX" = 1 ] && { install_one_systemd "$1"; return; }
   local kind="$1" service command file log
   service="$(label "$kind")"; command="$(command_for "$kind")"; file="$(plist "$kind")"; log="$LOG_DIR/tico-$kind.log"
   mkdir -p "$LOG_DIR"
@@ -147,7 +190,21 @@ PL
 
 # One environment's local backend. The variables come from its own server.env, so the job and a
 # hand-run uvicorn read exactly the same configuration.
+install_server_systemd() {
+  local unit log extra=()
+  unit="$(unit_name api)"; log="$LOG_DIR/api.log"
+  mkdir -p "$LOG_DIR"; chmod 0700 "$LOG_DIR"; touch "$log"; chmod 0600 "$log"
+  [ -z "$ENV_SLUG" ] || extra=(--env "$ENV_SLUG")
+  (cd "$HUB" && "$PYTHON" -m runner.systemd_units write api --python "$PYTHON" --root "$HUB" --log "$log" --path "$PATH" \
+     --dir "$UNIT_DIR" --env-file "$ENV_DIR/server.env" --port "$(env_field port)" ${extra[@]+"${extra[@]}"}) >/dev/null
+  sctl daemon-reload
+  sctl enable "$unit" >/dev/null 2>&1
+  sctl restart "$unit"
+  echo "installed $unit on $SITE"
+}
+
 install_server() {
+  [ "$IS_LINUX" = 1 ] && { install_server_systemd; return; }
   local service file log port
   service="$(label api)"; file="$(plist api)"; log="$LOG_DIR/api.log"; port="$(env_field port)"
   {
@@ -196,6 +253,13 @@ bootstrap() {
 }
 
 uninstall_one() {
+  if [ "$IS_LINUX" = 1 ]; then
+    sctl disable --now "$(unit_name "$1")" >/dev/null 2>&1 || true
+    rm -f "$(unit_file "$1")"
+    sctl daemon-reload 2>/dev/null || true
+    echo "removed $(unit_name "$1")"
+    return 0
+  fi
   local kind="$1" service file
   service="$(label "$kind")"; file="$(plist "$kind")"
   launchctl bootout "$DOMAIN/$service" 2>/dev/null || true
@@ -218,7 +282,7 @@ PY
 restart_one() {
   local kind="$1" service waited=0 n
   service="$(label "$kind")"
-  [ -f "$(plist "$kind")" ] || { echo "$kind: not installed"; return 0; }
+  [ -f "$(service_file "$kind")" ] || { echo "$kind: not installed"; return 0; }
   # A restart kills whatever turn is running and the cloud then needs a person to review it
   # (an update mid-turn interrupted three bots). Wait for the runner to go quiet
   # first; TICO_RESTART_NOW=1 skips the wait when a hung turn is the reason for restarting.
@@ -231,13 +295,48 @@ restart_one() {
   fi
   # kickstart -k stops the process and KeepAlive brings it straight back on the current code;
   # a job that is installed but no longer loaded (after a logout, say) is bootstrapped instead.
+  if [ "$IS_LINUX" = 1 ]; then
+    sctl restart "$(unit_name "$kind")"; echo "restarted $(unit_name "$kind")"; return 0
+  fi
   launchctl kickstart -k "$DOMAIN/$service" 2>/dev/null || launchctl bootstrap "$DOMAIN" "$(plist "$kind")"
   echo "restarted $service"
 }
 
+# One job by name, the same words on both supervisors (the server job's kind is `api`).
+svc_stop() {
+  if [ "$IS_LINUX" = 1 ]; then sctl stop "$(unit_name "$1")" 2>/dev/null || true
+  else launchctl bootout "$DOMAIN/$(label "$1")" 2>/dev/null || true; fi
+}
+svc_start() {
+  if [ "$IS_LINUX" = 1 ]; then sctl start "$(unit_name "$1")"; else bootstrap "$(label "$1")" "$(plist "$1")"; fi
+}
+svc_restart() {
+  if [ "$IS_LINUX" = 1 ]; then sctl restart "$(unit_name "$1")"
+  else launchctl kickstart -k "$DOMAIN/$(label "$1")" 2>/dev/null || bootstrap "$(label "$1")" "$(plist "$1")"; fi
+}
+
 # One line per launchd job from launchctl's own view. Returns 1 when an installed job is not
 # running, or when the bot job (the one every registration needs) is not installed at all.
+job_line_systemd() {
+  local kind="$1" unit props active sub pid code detail=""
+  unit="$(unit_name "$kind")"
+  if [ ! -f "$(unit_file "$kind")" ]; then
+    echo "$kind: not installed"
+    if [ "$kind" = bot ]; then return 1; else return 0; fi
+  fi
+  props="$(sctl show "$unit" -p ActiveState -p SubState -p MainPID -p ExecMainStatus 2>/dev/null)" \
+    || { echo "$kind: installed but systemd does not know it (systemctl --user daemon-reload)"; return 1; }
+  active="$(printf '%s\n' "$props" | sed -n 's/^ActiveState=//p')"
+  sub="$(printf '%s\n' "$props" | sed -n 's/^SubState=//p')"
+  pid="$(printf '%s\n' "$props" | sed -n 's/^MainPID=//p')"
+  code="$(printf '%s\n' "$props" | sed -n 's/^ExecMainStatus=//p')"
+  if [ -n "$pid" ] && [ "$pid" != 0 ]; then detail=" (pid $pid)"; elif [ -n "$code" ]; then detail=" (last exit code $code)"; fi
+  echo "$kind: $sub$detail"
+  [ "$active" = active ] && [ "$sub" = running ]
+}
+
 job_line() {
+  [ "$IS_LINUX" = 1 ] && { job_line_systemd "$1"; return; }
   local kind="$1" service state pid code detail=""
   service="$(label "$kind")"
   if ! state="$(launchctl print "$DOMAIN/$service" 2>/dev/null)"; then
@@ -320,12 +419,10 @@ sys.exit(0 if ok and not bad else 1)
 PY
 }
 
-if [ "$(uname -s)" = Linux ]; then
-  # This script drives the native runner under launchd, which exists on a Mac only. A Linux computer runs the
-  # Docker runner: `sh install.sh --runner` (docs/install.md).
-  case "${1:-}" in
-    help|-h|--help|"") ;;
-    *) echo "scripts/tico manages the native Mac runner. On Linux the runner is a Docker container: sh install.sh --runner (docs/install.md)." >&2; exit 1 ;;
+# Jobs on Linux are systemd user units: check the user session before any command that installs or drives them.
+if [ "$IS_LINUX" = 1 ]; then
+  case "${1:-help}" in
+    install|uninstall|restart|status|server|update) require_systemd_user ;;
   esac
 fi
 
@@ -422,17 +519,18 @@ PY
     require_environment server
     [ "$(env_field server)" = local ] \
       || { echo "$ENV_SLUG uses a hosted server at $SITE; there is nothing to run here" >&2; exit 1; }
-    service="$(label api)"
+    service="$(label api)"; [ "$IS_LINUX" = 1 ] && service="$(unit_name api)"
     case "${2:-status}" in
-      install) mkdir -p "$AGENTS" "$LOG_DIR"; install_server ;;
+      install)
+        mkdir -p "$LOG_DIR"
+        if [ "$IS_LINUX" = 1 ]; then install_server; linger_note; else mkdir -p "$AGENTS"; install_server; fi ;;
       uninstall)
-        launchctl bootout "$DOMAIN/$service" 2>/dev/null || true
-        rm -f "$(plist api)"; echo "removed $service (the database and blobs stay)" ;;
-      start) bootstrap "$service" "$(plist api)"; echo "started $service" ;;
-      stop) launchctl bootout "$DOMAIN/$service" 2>/dev/null || true; echo "stopped $service" ;;
-      restart)
-        launchctl kickstart -k "$DOMAIN/$service" 2>/dev/null || bootstrap "$service" "$(plist api)"
-        echo "restarted $service" ;;
+        if [ "$IS_LINUX" = 1 ]; then sctl disable --now "$(unit_name api)" >/dev/null 2>&1 || true; rm -f "$(unit_file api)"; sctl daemon-reload 2>/dev/null || true
+        else svc_stop api; rm -f "$(plist api)"; fi
+        echo "removed $service (the database and blobs stay)" ;;
+      start) svc_start api; echo "started $service" ;;
+      stop) svc_stop api; echo "stopped $service" ;;
+      restart) svc_restart api; echo "restarted $service" ;;
       status)
         fail=0
         job_line api || fail=1
@@ -447,9 +545,10 @@ PY
     ;;
   install)
     require_setup
-    mkdir -p "$AGENTS" "$LOG_DIR"
+    if [ "$IS_LINUX" = 1 ]; then mkdir -p "$LOG_DIR"; else mkdir -p "$AGENTS" "$LOG_DIR"; fi
     retire_processing
     while IFS= read -r kind; do install_one "$kind"; done < <(targets "${2:-all}")
+    if [ "$IS_LINUX" = 1 ]; then linger_note; fi
     if [ -d "$HOME/.local/bin" ] && [ ! -e "$HOME/.local/bin/tico" ] && [ ! -L "$HOME/.local/bin/tico" ]; then
       ln -s "$HUB/scripts/tico" "$HOME/.local/bin/tico" && echo "linked ~/.local/bin/tico -> $HUB/scripts/tico"
     fi
@@ -492,7 +591,7 @@ PY
     [ -s "$tmp/doctor.json" ] || echo "bot doctor failed: $(tail -n 1 "$tmp/err")"
     summarize doctor /dev/null "$tmp/doctor.json" || fail=1
     for kind in connectors close-calls importers; do
-      [ -f "$(plist "$kind")" ] || continue
+      [ -f "$(service_file "$kind")" ] || continue
       if runner "$kind-doctor" > "$tmp/$kind" 2>&1; then echo "$kind doctor: local prerequisites present (no provider call made)"
       else echo "$kind doctor: FAILED - $(tail -n 1 "$tmp/$kind")"; fail=1; fi
     done

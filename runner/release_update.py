@@ -29,7 +29,9 @@ HEALTH_S = 180
 DRAIN_S = 20 * 60            # a long turn may not hold the update back for ever: after this, stop claiming
 STALE_UPDATING_S = 15 * 60   # an update that has said "updating" this long without an outcome died
 KINDS = ("mac", "linux", "docker")
-HELPERS = ("connectors", "close-calls", "importers")   # scripts/tico installs these as launchd jobs beside the bot job
+HELPERS = ("connectors", "close-calls", "importers")   # scripts/tico installs these as launchd jobs (systemd user units on Linux) beside the bot job
+NO_SUPERVISOR = ("no supervisor would start this runner again after an update: run `scripts/tico install` "
+                 "once on this computer and it updates itself")
 
 
 def key(value):
@@ -120,8 +122,35 @@ def in_flight(directory):
         return 0
 
 
-def restart_runner(pid, wait=60):
-    """Stop the runner; its supervisor (launchd KeepAlive, the Docker restart policy) starts it again on whatever is checked out."""
+def systemd_unit(env=os.environ):
+    """The systemd user unit that runs this runner (`scripts/tico install` on Linux sets TICO_SYSTEMD_UNIT), or ""."""
+    unit = str(env.get("TICO_SYSTEMD_UNIT") or "").strip()
+    return unit if unit.endswith(".service") and "/" not in unit else ""
+
+
+def restart_via_systemd(unit, run=subprocess.run, say=None):
+    """`systemctl --user restart <unit>`: systemd stops the runner and starts it on whatever is checked out. Returns
+    whether it did; a caller that gets False falls back to stopping the process, which `Restart=always` starts again."""
+    say = say or (lambda line: print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True))
+    try:
+        done = run(["systemctl", "--user", "restart", unit], capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as exc:
+        say(f"Tico update: systemctl could not restart {unit}: {type(exc).__name__}")
+        return False
+    if done.returncode:
+        say(f"Tico update: systemctl could not restart {unit}: exited {done.returncode}")
+        return False
+    say(f"Tico update: restarted {unit} on the new release")
+    return True
+
+
+def restart_runner(pid, wait=60, env=os.environ, run=subprocess.run):
+    """Restart the runner through its supervisor: `systemctl --user restart` for a systemd unit, otherwise stop it and let
+    the supervisor (launchd KeepAlive, the Docker restart policy, systemd's Restart=always) start it again on whatever is
+    checked out."""
+    unit = systemd_unit(env)
+    if unit and restart_via_systemd(unit, run):
+        return
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -170,6 +199,28 @@ def restart_helpers(env=os.environ, run=subprocess.run, agents=None, uid=None, s
             say(f"Tico update: could not restart {label}: launchctl exited {done.returncode}")
             continue
         say(f"Tico update: restarted {label} on the new release")
+        restarted.append(helper)
+    return restarted
+
+
+def restart_helpers_systemd(env=os.environ, run=subprocess.run, unit_dir=None, say=None):
+    """The systemd counterpart of restart_helpers: restart the helper units installed beside this runner's unit (their
+    files are in the user unit directory), so none keeps the old release in memory. Returns the restarted job names."""
+    from .systemd_units import helper_units, is_installed
+    say = say or (lambda line: print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True))
+    restarted = []
+    for helper, unit in helper_units(systemd_unit(env)).items():
+        if not is_installed(unit, unit_dir):
+            continue
+        try:
+            done = run(["systemctl", "--user", "restart", unit], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as exc:
+            say(f"Tico update: could not restart {unit}: {type(exc).__name__}")
+            continue
+        if done.returncode:
+            say(f"Tico update: could not restart {unit}: systemctl exited {done.returncode}")
+            continue
+        say(f"Tico update: restarted {unit} on the new release")
         restarted.append(helper)
     return restarted
 
@@ -261,8 +312,23 @@ def apply(root, version, directory, *, run=subprocess.run, install=pip_install, 
     return result
 
 
-def spawn(root, version, directory, pid):
-    """Start the update as its own process, so it survives the runner it restarts."""
+def spawn(root, version, directory, pid, env=os.environ, run=subprocess.run):
+    """Start the update as its own process, so it survives the runner it restarts. Under systemd the runner's unit
+    kills every process in its cgroup when it restarts, so the update is started as a transient unit of its own."""
+    unit = systemd_unit(env)
+    if unit:
+        log = str(Path(directory) / "update.log")
+        keep = {name: env[name] for name in ("PATH", "HOME", "TICO_SUPERVISED", "TICO_RUNNER_KIND") if env.get(name)}
+        keep["TICO_SYSTEMD_UNIT"] = unit
+        command = ["systemd-run", "--user", "--quiet", "--collect", f"--unit=tico-update-{pid}", f"--working-directory={root}",
+                   *(f"--setenv={name}={value}" for name, value in keep.items()),
+                   "-p", f"StandardOutput=append:{log}", "-p", f"StandardError=append:{log}",
+                   sys.executable, "-m", "runner.release_update", "--root", str(root), "--version", version,
+                   "--state-dir", str(directory), "--pid", str(pid)]
+        done = run(command, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        if done.returncode:
+            raise OSError("systemd-run exited " + str(done.returncode))
+        return done
     log = open(Path(directory) / "update.log", "ab")
     return subprocess.Popen([sys.executable, "-m", "runner.release_update", "--root", str(root), "--version", version,
                              "--state-dir", str(directory), "--pid", str(pid)], cwd=str(root), stdin=subprocess.DEVNULL,
@@ -279,10 +345,11 @@ def main(argv=None):
     deadline = time.time() + 600
     while in_flight(args.state_dir) and time.time() < deadline:   # the runner waits for quiet first; this is the second look
         time.sleep(10)
+    helpers = restart_helpers if kind() == "mac" else restart_helpers_systemd if systemd_unit() else None
     result = apply(args.root, args.version, args.state_dir, busy=lambda: in_flight(args.state_dir),
                    restart=lambda: restart_runner(args.pid),
                    healthy=lambda commit, since: wait_healthy(args.state_dir, commit or "", since),
-                   helpers=restart_helpers if kind() == "mac" else None)
+                   helpers=helpers)
     print(json.dumps(result))
     return 0 if result["state"] == "healthy" else 1
 
@@ -374,7 +441,7 @@ class Follower:
         if self.pinned():
             self.state, self.error = "pinned", f"pinned to this release; the server runs {want}"
         elif self.kind != "docker" and not self.supervised():
-            self.state, self.error = "blocked", "nothing would start this runner again after an update; restart it by hand"
+            self.state, self.error = "blocked", NO_SUPERVISOR
         elif self.kind == "docker" and not self.sidecar.configured():
             self.state, self.error = "blocked", self.no_updater_hint(want)
         elif (last := self.outcome(want)):

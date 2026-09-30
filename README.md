@@ -346,7 +346,7 @@ change, change this repository.
 
 ## Operating commands
 
-`scripts/tico` is the one command on a Mac that runs bots. `scripts/tico help` prints the full usage; the groups are:
+`scripts/tico` is the one command on a Mac that runs bots (on Linux it does the same with systemd user units, [install.md](docs/install.md#a-linux-checkout-systemd)). `scripts/tico help` prints the full usage; the groups are:
 
 ```
 scripts/tico [-e ENV] install|uninstall|restart|status|doctor|logs|update|open

@@ -1,7 +1,7 @@
 # Updates: the server and its computers
 
-A Tico installation is a server plus the computers that run its bots (a Mac, or a Linux computer with the
-`tico-runner` container). The server updates from Settings ("Update now", see [install.md](install.md#one-click-updates))
+A Tico installation is a server plus the computers that run its bots (a Mac, a Linux computer with the
+`tico-runner` container, or a Linux computer running from a Tico checkout). The server updates from Settings ("Update now", see [install.md](install.md#one-click-updates))
 or with `docker compose pull && docker compose up -d`. **Computers follow the server**: each one asks its server
 which release it runs and moves to that release. GitHub is not consulted by a computer, so a server you have not
 updated never drags its computers ahead of it.
@@ -18,7 +18,7 @@ updated never drags its computers ahead of it.
   |---|---|
   | Up to date | on the server's release, or newer |
   | Updating | switching now; it takes no new work meanwhile |
-  | Needs update | older than the server but still accepted. It updates when no run is going, or it says why it cannot (pinned, local changes, no updater) next to the last update error |
+  | Needs update | older than the server but still accepted. It updates when no run is going, or it says why it cannot (pinned, local changes, no updater, no supervisor) next to the last update error |
   | Incompatible (bots paused) | older than the minimum. It takes no work, and says why, instead of failing runs. Its queued work waits and runs after it updates |
   | Version not reported | a computer that predates this, or a development build. It is never paused |
 
@@ -34,17 +34,38 @@ The runner is a git checkout. When the server's release is newer, the runner:
 2. starts a separate update process, which fetches the tag `vX.Y.Z` from `origin` (the public repository) and
    checks that it exists and is not a tag that moved, then checks out that commit (detached);
 3. re-runs the install step: `pip install -r backend/requirements.txt` when the release changed it;
-4. restarts the runner through its supervisor (launchd `KeepAlive`) and waits up to three
-   minutes for the new process to report in;
+4. restarts the runner through its supervisor (launchd `KeepAlive` on a Mac; on Linux `systemctl --user restart` on
+   the runner's systemd unit, which has `Restart=always`) and waits up to three minutes for the new process to report in;
 5. if it does not, checks the old commit out again, restores the old dependencies, restarts and reports
    `rolled_back` (or `failed` if the old code does not start either). It does not retry that release for six hours,
    or until the server's release changes.
 6. once the runner is healthy on the new release, restarts the background jobs that are installed on this Mac
-   (`connectors`, `close-calls`, `importers`; the same `launchctl kickstart -k` as `scripts/tico restart`), so none keeps
-   the old release in memory. A job that is not installed is left alone. Each job also checks the checkout's
-   revision about once a minute and exits when it changes, so launchd starts it on the new code even after a
+   (`connectors`, `close-calls`, `importers`; the same `launchctl kickstart -k` or `systemctl --user restart` as
+   `scripts/tico restart`), so none keeps the old release in memory. A job that is not installed is left alone. Each job also checks the checkout's
+   revision about once a minute and exits when it changes, so its supervisor starts it on the new code even after a
    `scripts/tico update` or a pull by hand. Each restart is a line in the job's log
    (`scripts/tico logs connectors`) and in `update.log`. A Docker runner replaces its container, jobs included.
+
+### Linux from a checkout: run `scripts/tico install` once
+
+A Mac has launchd to start the runner again after an update. A Linux computer running from a Tico checkout has nothing
+unless you give it something, and an update that stopped the runner with no supervisor would leave the computer offline.
+So a checkout runner that nothing supervises **refuses the update and says so** in Settings > Computers and Health:
+"no supervisor would start this runner again after an update: run `scripts/tico install` once".
+
+Run it once on that computer, as the user the runner runs as (enroll first: [install.md](install.md#a-linux-checkout-systemd)):
+
+```
+scripts/tico install            # the runner, connectors, close-calls and importers
+```
+
+It writes four systemd **user** units under `~/.config/systemd/user` (`tico-bot.service`, `tico-connectors.service`,
+`tico-close-calls.service`, `tico-importers.service`; `tico-<env>-...` for a company environment), each with
+`Restart=always`, and starts them. Nothing needs root. The units set `TICO_SUPERVISED=1` and `TICO_SYSTEMD_UNIT`, which is how
+the runner knows something will start it again and how the update restarts it through `systemctl --user restart`. The update
+process itself runs as a transient `tico-update-<pid>` unit so the restart does not kill it. Linger is checked at install
+time; if it is off the command prints `loginctl enable-linger $USER`, because without it the jobs stop when the last session
+logs out and do not start at boot. `scripts/tico status`, `restart`, `logs` and `uninstall` work the same as on a Mac.
 
 A checkout with uncommitted changes, or on a branch other than `main`, is **refused, never touched**: nothing is
 stashed, reset or discarded. Settings > Health and Computers show "the checkout has 2 changed files" until someone commits or

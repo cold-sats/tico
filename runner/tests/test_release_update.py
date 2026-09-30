@@ -279,3 +279,97 @@ def test_an_installed_helper_that_is_not_loaded_is_bootstrapped(tmp_path):
     launchctl = Launchctl(fail_kickstart={"team.tico.tico-connectors"})
     done = ru.restart_helpers({}, launchctl, agents, uid=501, say=lambda line: None)
     assert done == ["connectors"] and launchctl.calls[-1] == ["launchctl", "bootstrap", "gui/501", str(agents / "team.tico.tico-connectors.plist")]
+
+
+# -- a Linux checkout supervised by systemd user units -----------------------------------------------
+
+SYSTEMD = {"TICO_SYSTEMD_UNIT": "tico-bot.service", "PATH": "/usr/bin", "HOME": "/home/ana"}
+
+
+class Systemctl:
+    def __init__(self, fail=()):
+        self.calls, self.fail = [], set(fail)
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1 if cmd[-1] in self.fail else 0, "", "")
+
+
+def test_the_update_restarts_the_runner_through_systemctl_when_a_unit_runs_it(monkeypatch):
+    killed = []
+    monkeypatch.setattr(ru.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    systemctl = Systemctl()
+    ru.restart_runner(4242, env=SYSTEMD, run=systemctl)
+    assert systemctl.calls == [["systemctl", "--user", "restart", "tico-bot.service"]] and killed == []
+
+
+def test_a_failed_systemctl_falls_back_to_stopping_the_process(monkeypatch):
+    killed = []
+
+    def kill(pid, sig):
+        killed.append(sig)
+        if sig == 0:
+            raise ProcessLookupError
+    monkeypatch.setattr(ru.os, "kill", kill)
+    ru.restart_runner(4242, env=SYSTEMD, run=Systemctl(fail={"tico-bot.service"}))
+    assert killed[0] == ru.signal.SIGTERM                 # Restart=always starts it again
+
+
+def test_without_a_unit_the_runner_is_stopped_as_before(monkeypatch):
+    killed = []
+
+    def kill(pid, sig):
+        killed.append(sig)
+        if sig == 0:
+            raise ProcessLookupError
+    monkeypatch.setattr(ru.os, "kill", kill)
+    systemctl = Systemctl()
+    ru.restart_runner(4242, env={}, run=systemctl)
+    assert systemctl.calls == [] and killed[0] == ru.signal.SIGTERM
+    assert ru.systemd_unit({"TICO_SYSTEMD_UNIT": "../../evil"}) == "" and ru.systemd_unit({"TICO_SYSTEMD_UNIT": "tico-bot"}) == ""
+
+
+def test_only_installed_helper_units_are_restarted_through_systemctl(tmp_path):
+    units = tmp_path / "units"
+    units.mkdir()
+    for name in ("tico-bot.service", "tico-connectors.service", "tico-importers.service"):
+        (units / name).write_text("[Service]\n")
+    systemctl, said = Systemctl(), []
+    done = ru.restart_helpers_systemd(SYSTEMD, systemctl, unit_dir=units, say=said.append)
+    assert done == ["connectors", "importers"]              # close-calls has no unit; the runner's own is not touched here
+    assert systemctl.calls == [["systemctl", "--user", "restart", "tico-connectors.service"],
+                               ["systemctl", "--user", "restart", "tico-importers.service"]]
+    (units / "tico-acme-close-calls.service").write_text("[Service]\n")
+    assert ru.restart_helpers_systemd({"TICO_SYSTEMD_UNIT": "tico-acme-bot.service"}, Systemctl(), unit_dir=units,
+                                      say=lambda line: None) == ["close-calls"]
+
+
+def test_under_systemd_the_update_starts_as_a_unit_of_its_own(tmp_path):
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    ru.spawn("/srv/tico", "0.2.0", tmp_path, 4242, env=SYSTEMD, run=run)
+    cmd = calls[0]
+    assert cmd[:3] == ["systemd-run", "--user", "--quiet"] and "--unit=tico-update-4242" in cmd   # not in the runner's cgroup
+    assert "--setenv=TICO_SYSTEMD_UNIT=tico-bot.service" in cmd and "--working-directory=/srv/tico" in cmd
+    assert cmd[cmd.index("-m") + 1] == "runner.release_update" and cmd[cmd.index("--pid") + 1] == "4242"
+    with pytest.raises(OSError):
+        ru.spawn("/srv/tico", "0.2.0", tmp_path, 1, env=SYSTEMD, run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", ""))
+
+
+def test_a_runner_nothing_supervises_is_told_to_run_scripts_tico_install(repos):
+    public, checkout, state = repos
+    f, launched = follower(checkout, state, supervised=False)
+    assert f.state == "blocked" and "scripts/tico install" in f.error and launched == []
+    assert f.fields()["update"]["error"] == f.error
+
+
+def test_the_server_rewrites_the_old_unsupervised_line(tmp_path):
+    from backend import runner_versions
+    old = {"release": "0.2.25", "kind": "linux", "update_state": "blocked", "update_target": "0.2.27",
+           "update_error": "nothing would start this runner again after an update; restart it by hand"}
+    assert "scripts/tico install" in runner_versions.view(old, "0.2.27")["error"]
+    assert runner_versions.view({**old, "update_error": "the checkout has 2 changed files"}, "0.2.27")["error"] \
+        == "the checkout has 2 changed files"

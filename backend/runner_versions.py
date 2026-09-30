@@ -78,13 +78,19 @@ def load(c):
     return {r["runner_id"]: dict(r) for r in c.execute("SELECT * FROM runner_versions")}
 
 
+# What a runner before this release said when nothing supervised it; the line now says how to fix that.
+NO_SUPERVISOR = ("no supervisor would start this runner again after an update: run `scripts/tico install` "
+                 "once on this computer and it updates itself")
+
+
 def view(row, server=None):
     row = row or {}
     release = row.get("release") or ""
     found = state(release, row.get("update_state") or "", server) if row else "unknown"
     return {"release": release, "kind": row.get("kind") or "", "state": found, "label": LABELS[found],
             "update_state": row.get("update_state") or "", "target": row.get("update_target") or "",
-            "error": row.get("update_error") or "", "min_runner": MIN_RUNNER_RELEASE}
+            "error": NO_SUPERVISOR if str(row.get("update_error") or "").startswith("nothing would start this runner")
+            else row.get("update_error") or "", "min_runner": MIN_RUNNER_RELEASE}
 
 
 def health_check(computers, server=None):
