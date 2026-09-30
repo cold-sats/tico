@@ -359,7 +359,8 @@ def run(args, who=None):
     if cmd == "org":
         return client.get("org", person=args.person, team=args.team)
     if cmd == "fleet":
-        return client.get("tico/fleet")
+        from clients import hubtools
+        return hubtools.BY_NAME["hub_fleet"]["fn"](client, {})
     if cmd == "calendar":
         from clients import hubtools
         if sub == "upcoming":

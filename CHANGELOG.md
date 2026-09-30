@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.20] - 2026-09-30
+
+### Fixed
+- **"Tell me issues to solve" works for BotOps.** A bot other than the Assistant that asked for `hub fleet` (the Assistant's
+  live snapshot) was refused ("available only to people and the Assistant") and BotOps reported it could not check the bots.
+  `hub fleet` and `hub_fleet` now answer everyone else with the fleet check (`hub fleet-check`): what is wrong with the bots
+  they may see, most urgent first.
+
 ## [0.2.19] - 2026-09-30
 
 ### Added
@@ -1065,7 +1073,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.19...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.20...HEAD
+[0.2.20]: https://github.com/ticoteam/tico/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/ticoteam/tico/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/ticoteam/tico/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/ticoteam/tico/compare/v0.2.16...v0.2.17

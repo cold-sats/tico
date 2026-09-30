@@ -92,6 +92,8 @@ def _key(args, suffix=""):
 
 
 # ----------------------------------------------------------------------------- identity, messages
+from clients.tico import APIError  # noqa: E402
+
 @tool("hub_whoami", "Who you are to the hub: actor, role, runner and attempt, or the external "
       "agent harness (a Hermes profile) when that is what runs you.", {})
 def whoami(api, args):
@@ -1641,9 +1643,16 @@ def board(api, args):
     return {"tasks": api.get("tasks")["tasks"], "bots": api.get("bots")}
 
 
-@tool("hub_fleet", "Tico's actor-scoped live snapshot of the fleet.", {})
+@tool("hub_fleet", "The Assistant's live snapshot of the fleet. Anyone else gets hub_fleet-check: what is wrong with the "
+      "bots, most urgent first.", {})
 def fleet(api, args):
-    return api.get("tico/fleet")
+    try:
+        return api.get("tico/fleet")
+    except APIError as exc:
+        # The snapshot is the Assistant's; for BotOps and everyone else "the fleet" means what is wrong with it.
+        if exc.status == 403:
+            return fleet_check(api, {})
+        raise
 
 
 # ----------------------------------------------------------------------------- the Assistant
