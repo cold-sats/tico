@@ -7,6 +7,25 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.24] - 2026-09-30
+
+### Changed
+- **Message bots send once their owner turns sending on.** With `outbound_send: true`, a message bot sends without a per-message
+  approval to the team's own domains, to the addresses listed in `forward_to:` in its `bot.yaml`, and to the sender of a thread it
+  replies to (a reply with no added outside recipients). Anything else still needs an allowance or an approval; daily caps, the
+  blocklist and owner-handles-personally still apply. BotOps turns sending on, and sets forward addresses, as the human who asked
+  (playbook `turn-on-sending.md`); it never turns sending on unasked.
+
+### Fixed
+- **Docker computers have a mail policy.** With no `registry/mail-policy.yaml`, a built-in policy applies: sending on, internal
+  domains from `TICO_INTERNAL_DOMAINS` or the bot's mailbox and the roster (never public mail providers), 20 sends a day, one
+  outside recipient, no outside Cc or attachments. The Inbox Manager template ships its triage questions. A registry file still wins.
+- BotOps changes a bot's tools (`hub tool add|remove`) as the human who asked, instead of being refused as BotOps.
+- Message bots are linked to their human at start even when the mailbox is on another domain than the human's sign-in: the mailbox
+  comes from the `Mailbox:` line, the bot's gmail tool or its instructions, and the human is the roster match or the bot's owner.
+- The server receives `TYPESAFE_API_KEY`, `TICO_TYPESAFE_SECRET_ARN`, `XAI_API_KEY` and `OPENROUTER_API_KEY` from `.env`, so the
+  decision model (spam and injection checks on inbound mail) can be switched on.
+
 ## [0.2.23] - 2026-09-30
 
 ### Fixed
