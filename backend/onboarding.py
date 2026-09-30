@@ -3,15 +3,13 @@
 A company starts with three built-in bots: the assistant, which is each person's private Assistant
 chat (backend/assistant.py) and works in the background (Slack routing, meetings' Auto delivery),
 BotOps, which builds every other bot, and the Librarian, which answers questions from the company's
-docs (backend/librarian.py). Onboarding names the company, asks the first-run questions, chooses a starter team
-of about four bots against the answers (`choose`), and on completion defines the chosen bots. A
-starter is created at once, `needs_onboarding`, and its repository is materialized by the computer;
-every other template is still a task for BotOps. Nothing here reaches a machine: it writes definitions
-and tasks.
+docs (backend/librarian.py). Onboarding names the company, asks the first-run questions, and records the org chart
+the owner builds department by department (the suggestions are backend/recruit.py), and on completion defines the
+chosen bots. A starter is created at once, `needs_onboarding`, and its repository is materialized by the computer;
+every other template is still a task for BotOps. Nothing here reaches a machine: it writes definitions and tasks.
 """
 
 import json
-import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,36 +33,21 @@ INSTRUCTIONS_FILE = "AGENT.md"
 # its AGENT.md is written against the company that is about to adopt it. The wizard no longer
 # asks for assistant_name; an empty one falls back to TICO_ASSISTANT_NAME (display_names).
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
-# The starter team is a fixed core, and one more when software is the product. It is a starting point, not a
-# limit: the full org chart proposes every template that fits, and either can be edited freely before Create.
-STARTER_CORE = ("chief-of-staff", "support", "sales")
-STARTER_SOFTWARE = ("issue-triage",)
-STARTER_TEAM_MAX = 5
-# Free text in "About" may add one more obvious fit: a card's `pains` phrase found in it, or at least this many
-# words in common with the card's summary.
-SUMMARY_WORDS = 3
-# A card's `pack` is the team it sits in on the org chart. Teams appear in this order.
-TEAMS = {"basics": "Leadership", "sales": "Sales", "marketing": "Marketing", "support": "Support",
-         "operations": "Operations", "engineering": "Engineering"}
-OTHER_TEAM = "Other"
 NEEDS_ONBOARDING = "needs_onboarding"
 ONBOARDED = "onboarded"
-STOP_WORDS = frozenset("""a an and are as at be but by can do does for from get gets had has have how i if in into is it its
-just like more most much my no not of on one or our out over so than that the their them then there these they this those
-to too up us was we were what when where which who why will with without you your really still every again things thing
-going about people""".split())
-
 EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": ""}
 # `pains`, `pains_text` and `tools` are no longer asked. An older record keeps them and a client may still send them;
-# nothing reads them.
+# nothing reads them. `departments` are the org builder's chosen departments, in order, and `briefings` the one-line
+# answer given for each.
 EMPTY_ANSWERS = {"what_we_do": "", "customers": "", "team_size": "", "work_arrives": [],
                  "repetitive_work": "", "never_without_person": [], "pains": [], "pains_text": "",
-                 "tools": [], "software_product": ""}
+                 "tools": [], "software_product": "", "departments": [], "briefings": {}}
 ANSWER_LABELS = (("what_we_do", "What we do"), ("customers", "Customers"),
                  ("team_size", "Team size"), ("work_arrives", "Work arrives by"),
                  ("repetitive_work", "Repetitive work"),
                  ("software_product", "Software is the product"),
-                 ("never_without_person", "Never without a person"))
+                 ("never_without_person", "Never without a person"),
+                 ("departments", "Departments"))
 
 
 def _json(value, fallback=None):
@@ -126,8 +109,14 @@ def _card(document, instructions):
     return {"template": template, "slug": str(document.get("slug") or template).strip(),
             "name": str(document.get("name") or template), "required": bool(document.get("required")),
             "bootstrap": bool(document.get("bootstrap")),
-            # The template that leads its pack's team in the full org chart (one per pack).
+            # The template that heads its department in the org builder (templates/departments.yaml `head`).
             "lead": bool(document.get("lead")),
+            # Where the org builder shows it (backend/recruit_rank.py): its department (else its `pack`'s),
+            # its Material Symbols icon, the words it matches, and whether it is pre-checked (`default`),
+            # shown (`common`) or under More (`niche`).
+            "department": str(document.get("department") or ""), "icon": str(document.get("icon") or ""),
+            "tags": _strings(document.get("tags")), "suggest": str(document.get("suggest") or ""),
+            "team_templates": _strings(document.get("team_templates")),
             # Checked when the wizard first shows the card, and `when` says who wants it.
             "default": bool(document.get("default")), "when": str(document.get("when") or ""),
             "summary": str(document.get("summary") or ""),
@@ -135,8 +124,8 @@ def _card(document, instructions):
             "runtime": str(document.get("runtime") or ""), "model": str(document.get("model") or ""),
             "reasoning_effort": str(document.get("reasoning_effort") or ""),
             "recommend_when": _strings(document.get("recommend_when")),
-            # What a chooser reads from a starter template (docs/starter-bots.md). A card with a first
-            # routine and an onboarding conversation is a starter; the others are built by BotOps.
+            # A card with a first routine and an onboarding conversation is a starter (docs/starter-bots.md);
+            # the others are built by BotOps.
             "pack": str(document.get("pack") or ""), "pains": _strings(document.get("pains")),
             "prerequisites": _prerequisites(document.get("prerequisites")),
             "first_routine": _routine(document.get("first_routine")),
@@ -218,121 +207,16 @@ def config_view(c, settings, who=None):
     return value
 
 
-def _stem(word):
-    for suffix in ("ing", "ed", "es", "s"):
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            return word[:-len(suffix)]
-    return word
-
-
-def _stems(text):
-    return {_stem(word) for word in re.findall(r"[a-z']+", str(text).lower().replace("'", ""))
-            if len(word) > 2 and word not in STOP_WORDS}
-
-
-def _first_sentence(text, limit=190):
-    first = re.split(r"(?<=[.!?])\s", str(text or "").strip(), maxsplit=1)[0]
-    return first if len(first) <= limit else first[:limit - 1].rstrip() + "…"
-
-
-def fits(card, answers):
-    """Whether a template suits this company, from "About the company" alone: Engineering is for a company whose
-    product is software, and a card whose `recommend_when` names business customers but never consumers (a
-    business-only card) is skipped by a company that sells only to consumers. Tools decide nothing here: each bot asks for
-    what it needs when it starts."""
-    when = set(card["recommend_when"])
-    if card.get("pack") == "engineering" and str(answers.get("software_product") or "") != "yes":
-        return False
-    if str(answers.get("customers") or "") == "consumers" and "sells_to_businesses" in when and "sells_to_consumers" not in when:
-        return False
-    return True
-
-
-def _text_fit(card, text):
-    """How well the company's own description matches a card: (score, the card's pain phrase that matched).
-    A `pains` phrase counts when every one of its words is in the text; a summary counts when it shares SUMMARY_WORDS
-    words. Words are compared by stem, without the common ones."""
-    words, best, score = _stems(text), "", 0
-    for phrase in card.get("pains") or []:
-        wanted = _stems(phrase)
-        shared = len(wanted & words)
-        if wanted and shared == len(wanted):
-            score, best = score + shared, best or phrase
-    shared = len(words & _stems(card["summary"]))
-    return score + (shared if shared >= SUMMARY_WORDS else 0), best
-
-
-def choose(cards, answers, limit=STARTER_TEAM_MAX):
-    """The starter team, best first, each with why: Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when
-    software is the product, plus at most one more starter the company's own description obviously fits (a phrase from
-    the card's `pains`, or several words of its summary; ties go to the first name). Nothing else about the answers, and no
-    tool, changes it. The built-ins (required cards) are always there and are not part of this. Returns the
-    recommendations. `full_chart` is the other starting point.
-    """
-    by_slug = {card["template"]: card for card in cards if not card["required"]}
-    names = [*STARTER_CORE, *(STARTER_SOFTWARE if str(answers.get("software_product") or "") == "yes" else ())]
-    picks, why = [], {}
-    for name in names:
-        if name in by_slug:
-            picks.append(by_slug[name])
-            why[name] = {"matched_pain": "", "signal": "Software is your product" if name in STARTER_SOFTWARE else ""}
-    text = str(answers.get("what_we_do") or "")
-    if text.strip():
-        scored = []
-        for card in by_slug.values():
-            if card in picks or card.get("lead") or not card["starter"] or not fits(card, answers):
-                continue
-            score, phrase = _text_fit(card, text)
-            if score > 0:
-                scored.append((-score, card["name"].lower(), card, phrase))
-        if scored:
-            _, _, card, phrase = min(scored, key=lambda row: row[:2])
-            picks.append(card)
-            why[card["template"]] = {"matched_pain": phrase, "signal": "It fits what you do"}
-    return [{"template": card["template"], "slug": card["slug"], "name": card["name"],
-             "why": _why(why[card["template"]], card["summary"]), "matched_pain": why[card["template"]]["matched_pain"],
-             "prerequisites": card.get("prerequisites") or []} for card in picks[:limit]]
-
-
-def _why(reason, summary):
-    story = reason["signal"][:1].upper() + reason["signal"][1:] + ". " if reason.get("signal") else ""
-    return story + _first_sentence(summary)
-
-
-def full_chart(cards, answers, home=""):
-    """The other starting point: every starter template that fits the company (`fits`), grouped into the teams of a real
-    org chart, each team with a lead and the rest reporting to it. A team's lead is its pack's `lead: true` template (Ops
-    Manager, Support Lead, ...); a team without one is led by its first member. Leads report to `home` (the company
-    owner). Returns {"teams": [...], "held_back": []}: nothing is held back for a missing tool.
-    """
-    teams = {}
-    for card in (card for card in cards if not card["required"] and card["starter"] and fits(card, answers)):
-        team = TEAMS.get(card.get("pack") or "", OTHER_TEAM)
-        teams.setdefault(team, []).append(card)
-    ordered = []
-    for team in [*TEAMS.values(), OTHER_TEAM]:
-        members = sorted(teams.get(team, []), key=lambda card: (not card.get("lead"), card["name"].lower()))
-        if not members:
-            continue
-        lead = members[0]["slug"]
-        ordered.append({"team": team, "lead": lead, "members": [
-            {"template": card["template"], "slug": card["slug"], "name": card["name"],
-             "why": _first_sentence(card["summary"]), "matched_pain": "",
-             "prerequisites": card.get("prerequisites") or [], "lead": card["slug"] == lead,
-             "reports_to": home if card["slug"] == lead else lead} for card in members]})
-    return {"teams": ordered, "held_back": []}
-
-
-def recommend(cards, answers):
-    return [row["template"] for row in choose(cards, answers)]
-
-
 def _answer_lines(answers):
     lines = []
     for key, label in ANSWER_LABELS:
         value = answers.get(key)
         text = ", ".join(str(item) for item in value) if isinstance(value, list) else str(value or "")
         lines.append("- " + label + ": " + (text or "not answered"))
+    # What the owner said about each department in the org builder, so a bot starts from their own words.
+    for department, text in (answers.get("briefings") or {}).items():
+        if str(text or "").strip():
+            lines.append("- " + str(department) + " today: " + str(text).strip())
     return lines
 
 
@@ -399,14 +283,10 @@ class Onboarding:
     # ------------------------------------------------------------------ reads
     def view(self, c, who):
         record = load(c)
-        cards = self.catalog(c)
-        recommendations = choose(cards, record["answers"])
         owner = self.auth.owner_id(c)
+        # Where every department head reports: the owner, at the top of the chart.
         home = "human:" + owner if owner and H.human(c, owner) else ""
-        return {**record, "recommended": [row["template"] for row in recommendations],
-                "recommendations": recommendations, "held_back": [],
-                "full_chart": full_chart(cards, record["answers"], home), "home": home,
-                "bots": self._bots(c), "machine": self._machine(c),
+        return {**record, "home": home, "bots": self._bots(c), "machine": self._machine(c),
                 "needed": needed(c, who, record)}
 
     def _bots(self, c):
