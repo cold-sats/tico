@@ -1,10 +1,14 @@
 template: reputation
 slug: reputation
-name: Reputation
+name: Reputation Manager
 required: false
 bootstrap: false
+department: marketing
 pack: marketing
-summary: "Reads the company's public review listings every Monday, logs every review and drafts one batch per surface of honest replies and rule-based flags. It never acts on a listing without approval."
+icon: reviews
+suggest: common
+tags: [reviews, reputation, b2c, retail, services, saas]
+summary: "Reads the company's public review listings every Monday, logs every review and prepares one batch per surface of honest replies and rule-based flags. Nothing is posted or flagged without approval."
 when: "A company whose buyers check review sites or Google before they buy, and that has reviews it cannot ignore."
 pains:
   - "bad reviews are the first thing buyers see"

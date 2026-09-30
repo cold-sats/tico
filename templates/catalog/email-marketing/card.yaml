@@ -1,10 +1,14 @@
 template: email-marketing
 slug: email-marketing
-name: Email Marketing
+name: Email Marketing Manager
 required: false
 bootstrap: false
+department: marketing
 pack: marketing
-summary: "Drafts the next campaign email or nurture sequence with three subject lines, a preview line and a send checklist, ready for a person to load and send. It never sends or schedules."
+icon: forward_to_inbox
+suggest: common
+tags: [email, newsletter, lifecycle, ecommerce, b2c, subscription]
+summary: "Writes the next campaign email or nurture sequence with three subject lines, a preview line and a send checklist, ready to load. A person approves every send and every schedule."
 when: "A company that emails customers or a newsletter list and wants the drafts written in its own voice, on time."
 pains:
   - "writing campaign emails takes days"

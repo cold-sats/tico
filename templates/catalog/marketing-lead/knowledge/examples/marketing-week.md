@@ -18,7 +18,7 @@ created.
 - **Search and AI visibility: amber.** Report shows Acme absent from 4 of 10 tracked AI answers. Fix
   brief is drafted, not started. Owner: seo-visibility. Source: report 2026-09-22.
 - **Email: red.** Blocked as above. Owner: email-marketing.
-- **Listening: green.** 3 sweeps, 1 real move (a competitor price change, 2026-09-25). Owner: listening.
+- **Social: green.** 3 sweeps, 1 real move (a competitor price change, 2026-09-25). Owner: listening.
 - **Reputation: no report.** No sweep task ran this week; asked the owner why.
 
 ## Calendar, next six weeks
@@ -27,6 +27,11 @@ created.
 
 ## Proposed priorities for next week (proposals, nothing assigned)
 1. Approve and load the launch email (owner: you). 2. Write the studio plan launch brief (product-marketing). 3. Move the newsletter to 2026-10-10 (email-marketing).
+
+## Hiring proposal (nothing created)
+- **Paid Media Manager (`paid-media`).** Ad results were asked for three times in September (tasks
+  "Ad spend check", 2026-09-04, 2026-09-15, 2026-09-22) and each went to you. First routine: the weekly
+  paid media review, Mondays 09:00. Reports to marketing-lead. Say yes and I will ask BotOps to set it up.
 
 ## Could not read
 The paid-ads sheet: no access was connected, so ad spend is not in this summary.

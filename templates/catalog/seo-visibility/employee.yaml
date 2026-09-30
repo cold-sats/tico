@@ -1,5 +1,5 @@
 name: seo-visibility                     # the slug: it matches the repository emp-seo-visibility and the label owner:seo-visibility
-display_name: "SEO & AI Visibility"
+display_name: "SEO Specialist"
 labels: [owner:seo-visibility]
 reads: []                        # other bot repositories this one may clone read-only
 

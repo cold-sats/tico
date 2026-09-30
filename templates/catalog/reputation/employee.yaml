@@ -1,5 +1,5 @@
 name: reputation
-display_name: "Reputation"
+display_name: "Reputation Manager"
 labels: [owner:reputation]
 reads: []                           # other bot repositories this one may clone read-only
 slack_channel: "#marketing"
