@@ -757,6 +757,14 @@ class SystemUpdate(Contract):
     version: str = Field(min_length=1, max_length=64)
 
 
+class UsageCount(Contract):
+    enabled: bool
+
+
+class UsageCountNotice(Contract):
+    state: Literal["shown", "dismissed"]
+
+
 class AccessPersonAdd(Contract):
     name: str = Field(default="", max_length=120)
     email: str = Field(min_length=3, max_length=320)

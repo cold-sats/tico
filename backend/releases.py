@@ -7,6 +7,10 @@ cached and, when that is stale, starts one background refresh. Any failure keeps
 
 Applying an update is the job of a separate updater service (`TICO_UPDATER_URL`); this process
 never restarts itself. Without one the owner is told the command to run by hand.
+
+The check asks Tico HQ first (`GET <TICO_HQ_URL>/v1/latest`), which is also how an install is counted anonymously
+(backend/census.py, PRIVACY.md). With counting off, with `TICO_RELEASES_URL` set (a mirror), or when HQ does not
+answer, it asks GitHub directly and sends no id.
 """
 import logging
 import os
@@ -17,6 +21,7 @@ from pathlib import Path
 
 import httpx
 
+from .census import hq_url
 from .store import Problem
 
 log = logging.getLogger("tico.releases")
@@ -28,6 +33,7 @@ FORCE_GAP = 60           # the owner's "Check for updates" may reach GitHub at m
 RETRY = 15 * 60          # after a failed check; a rate-limited or offline box should not hammer GitHub
 MANUAL_COMMAND = "docker compose pull && docker compose up -d"
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
+HQ_WAIT = 3              # HQ is a convenience: when it is slow the check goes to GitHub instead
 # Replaced in tests with an httpx.MockTransport so nothing reaches the network.
 TRANSPORT = None
 
@@ -72,6 +78,10 @@ class Checker:
         self.retry_at = 0.0
         self.running = False
         self.forced = 0.0
+        self.census = None   # set by create_app: the counting policy and this install's payload
+
+    def bind(self, census):
+        self.census = census
 
     @staticmethod
     def enabled():
@@ -79,7 +89,8 @@ class Checker:
 
     def refresh(self, force=False):
         """One request, conditional unless `force`. Runs in a background thread; tests call it directly."""
-        url = os.environ.get("TICO_RELEASES_URL", "").strip() or LATEST_URL
+        mirror = os.environ.get("TICO_RELEASES_URL", "").strip()
+        url = mirror or LATEST_URL
         headers = {"Accept": "application/vnd.github+json", "User-Agent": "tico-update-check"}
         if force:
             headers["Cache-Control"] = "no-cache"   # the owner asked because a release just went out
@@ -87,7 +98,9 @@ class Checker:
             headers["If-None-Match"] = self.etag
         try:
             with _client(CHECK_WAIT if force else 5) as http:
-                r = http.get(url, headers=headers)
+                r = self._ask_hq(http) if not mirror else None
+                if r is None:
+                    r = http.get(url, headers=headers)
             if r.status_code == 304:
                 pass
             elif r.status_code == 200:
@@ -104,6 +117,22 @@ class Checker:
             self.retry_at = self.clock() + RETRY
         finally:
             self.running = False
+
+    def _ask_hq(self, http):
+        """HQ's answer (the same body as GitHub's), or None: counting is off, or HQ did not give a usable one."""
+        if self.census is None:
+            return None
+        try:
+            query = self.census.query(version())
+            if query is None:
+                return None
+            r = http.get(hq_url() + "/v1/latest", params=query, timeout=HQ_WAIT,
+                         headers={"Accept": "application/json", "User-Agent": "tico-update-check"})
+            if r.status_code == 200 and isinstance(r.json(), dict) and r.json().get("tag_name"):
+                return r
+        except Exception as exc:
+            log.debug("HQ did not answer: %s", type(exc).__name__)
+        return None
 
     def check_now(self):
         """The owner's "Check for updates": one request now, however fresh the cache is, and the answer to it.

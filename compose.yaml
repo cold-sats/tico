@@ -48,6 +48,11 @@ services:
       ANTHROPIC_API_KEY:
       GEMINI_API_KEY:
       TICO_UPDATER_URL:
+      TICO_UPDATE_CHECK:
+      TICO_TELEMETRY:
+      DO_NOT_TRACK:
+      TICO_TELEMETRY_DEBUG:
+      TICO_HQ_URL:
     volumes:
       - tico-data:/data
       - tico-control:/control

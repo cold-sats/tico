@@ -17,7 +17,7 @@ import yaml
 
 from . import models as M
 from . import providers
-from . import releases, replication, runner_versions
+from . import census, releases, replication, runner_versions
 from . import rooms, routines
 from .store import H, Problem, encode, readiness_document
 
@@ -169,6 +169,7 @@ def config_view(c, settings, who=None):
         value["enabled_providers"] = list(chosen["enabled"])
     value["version"] = releases.version()
     value["update"] = releases.notice()
+    value["usage_count_notice"] = census.notice_due(c, settings, who)
     value["backup"] = replication.status()
     value["runner_compat"] = runner_versions.desired()
     return value
