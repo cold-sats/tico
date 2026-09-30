@@ -89,6 +89,24 @@ def test_a_team_is_led_by_its_packs_lead_template_even_when_a_pain_names_another
     assert "engineering-lead" not in [m["slug"] for row in chart["teams"] for m in row["members"]]
 
 
+def test_the_wizard_features_two_pains_per_team_and_every_pain_still_matches():
+    """About a dozen chips, two per team, each a real pain of a card in that pack; the rest stay matchable."""
+    options = O.pain_options(CARDS)
+    featured = [row for row in options if row["featured"]]
+    assert len(featured) == 12 and len(options) > 100
+    assert {row["team"] for row in featured} == set(O.TEAMS.values())
+    assert all(sum(1 for row in featured if row["team"] == team) == 2 for team in O.TEAMS.values())
+    # Every curated phrase is a pain of a card in its own pack (a rename in a card fails here, not silently on screen).
+    packs = {card["template"]: card["pack"] for card in CARDS}
+    for pack, phrases in O.FEATURED_PAINS.items():
+        for phrase in phrases:
+            assert any(row["text"] == phrase and packs[row["template"]] == pack for row in options), phrase
+    # A pain that is not on screen still matches: ticking or typing it proposes its bot.
+    hidden = next(row for row in options if not row["featured"] and row["template"] == "ar-followup")
+    team, _ = O.choose(CARDS, answers(pains=[hidden["text"]], tools=["mail"]))
+    assert "ar-followup" in [row["template"] for row in team]
+
+
 def real_starters(api, *names):
     """The support and Chief of Staff templates as shipped: their card, playbooks and paused routine."""
     for name in names:

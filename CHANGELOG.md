@@ -116,6 +116,10 @@ All notable changes to Tico are recorded here. The format follows
   each chart member). Every team leads with its pack's lead: Chief of Staff for Leadership, Sales Lead, Marketing Lead, Support Lead,
   Ops Manager and Engineering Lead. The lead is listed first and added even when no answer points at it (unless its required tool,
   GitHub for Engineering, was not ticked, when the team's first member leads); the rest report to it and the lead reports to the owner.
+- **First run shows a dozen "What hurts" chips, grouped by team.** With 38 templates there were about 180 pain phrases. The screen now
+  shows two for each of Leadership, Sales, Marketing, Support, Operations and Engineering (`FEATURED_PAINS`), plus the free-text box; a
+  pain ticked earlier stays on screen, and every card's `pains` still match what is ticked or typed. `pain_options` carries each
+  phrase's `team` and whether it is `featured`.
 
 ### Fixed
 - **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched

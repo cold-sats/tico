@@ -26,7 +26,7 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 |---|---|---|
 | Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
 | About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Free text is never parsed; it is shown to a person and written into every bot's `knowledge/company.md` |
-| What hurts, and what you use | The top one or two pains (chips taken from the starter cards' `pains`, and free text) and the tools already in use: mail, chat, CRM, GitHub, a meetings importer, docs | `answers.pains`, `pains_text`, `tools`. Nothing leaves the computer: the chooser runs in the hub |
+| What hurts, and what you use | The top one or two pains (about a dozen chips grouped by team, two each, and free text) and the tools already in use: mail, chat, CRM, GitHub, a meetings importer, docs | `answers.pains`, `pains_text`, `tools`. Nothing leaves the computer: the chooser runs in the hub |
 | Your team | A starting point (a starter team, a full org chart or just the built-ins), then every bot: its name, who it reports to, remove, and add | `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug; the owner by default). Nothing is created yet |
 | Set up a computer | Nothing if a runner is already online (the server's own); otherwise download a setup file, then run three commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
 | Connect your agent | Optional: **Connect an agent** makes a personal token and the MCP setup to paste into Grok Bot, Meta Muse or another agent | Nothing in onboarding; the token is the owner's own (`POST /api/v2/me/tokens`) |
@@ -50,7 +50,8 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 ### The chooser
 
 The hub chooses locally, from the answers and the catalog, with no network call. `GET` and `PUT /api/v2/onboarding` answer with two starting
-points and the phrases for the chips (`pain_options`). A template is only ever proposed when its **required prerequisites** are met: a
+points and every card's pain phrases (`pain_options`, each with its `team` and whether it is `featured`: the twelve the screen shows,
+two per team, from `FEATURED_PAINS` in `backend/onboarding.py`; the rest still match what is ticked or typed). A template is only ever proposed when its **required prerequisites** are met: a
 starter that needs mail is not proposed to a company that did not tick mail, and is named in `held_back` with what it needs. It can still be
 added by hand.
 
@@ -64,7 +65,7 @@ added by hand.
    others, not the last.
 
 With no pain matched, the best fit for who they sell to and how work arrives is proposed instead. The `why` is the matched pain, or the tool
-that named the card, and the first sentence of its summary.
+that named the card, and the first sentence of its summary; with neither, just the summary.
 
 **Full org chart** (`full_chart`): every catalog template that fits, grouped into the teams of a company: Leadership, Sales, Marketing,
 Support, Operations and Engineering (the card's `pack`), each with a **lead** and the rest reporting to it. The leads report to the company

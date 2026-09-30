@@ -36,21 +36,22 @@ function frHave(answers) {
 function frNeedsHTML(state, actions) {
   const a = state.record.answers, options = state.record.pain_options || [];
   const ticked = new Set(a.pains || []);
-  // Three phrases per bot up front; the rest under "More", which opens by itself when one of them is ticked.
-  const seen = {}, primary = [], more = [];
-  for (const option of options) { seen[option.template] = (seen[option.template] || 0) + 1; (seen[option.template] <= 3 ? primary : more).push(option); }
+  // The server marks about a dozen pains as `featured`, two per team. Every card's pains still match what is said;
+  // a pain ticked earlier (a returning draft) stays on the screen under its team.
+  const shown = options.filter(option => option.featured || ticked.has(option.text));
   const chip = option => `<label class="onb-chip"><input type="checkbox" data-onb-pain value="${esc(option.text)}" ${ticked.has(option.text) ? 'checked' : ''}><span>${esc(option.text)}</span></label>`;
+  const groups = [...FR_TEAMS, 'Other'].map(team => {
+    const rows = shown.filter(option => (option.team || 'Other') === team);
+    return rows.length ? `<div class="onb-pain-group" data-pain-team="${esc(team)}"><span class="onb-pain-team">${esc(team)}</span>
+        <div class="onb-chips">${rows.map(chip).join('')}</div></div>` : '';
+  }).join('');
   return `<div class="onb-field"><span class="k">What hurts most right now?</span>
-      <div class="onb-chips" id="onb-pains" role="group" aria-label="What hurts most">${primary.map(chip).join('')}</div>
-      ${more.length ? `<details class="onb-more"${more.some(o => ticked.has(o.text)) ? ' open' : ''}><summary>More of what people say</summary>
-        <div class="onb-chips">${more.map(chip).join('')}</div></details>` : ''}
-      <small>Tick one or two, or say it in your own words below. A bot is only proposed when it could help with one of them.</small></div>
+      <div class="onb-pain-groups" id="onb-pains" role="group" aria-label="What hurts most">${groups}</div></div>
     <label class="onb-field"><span class="k">In your own words</span>
       <textarea id="onb-pains-text" maxlength="1000" placeholder="Support mail piles up over the weekend and nobody owns the follow-ups.">${esc(a.pains_text)}</textarea></label>
     <div class="onb-field"><span class="k">What do you already use?</span>
       <div class="onb-choices" id="onb-tools">${FR_TOOLS.map(([value, label, hint]) =>
-        `<label title="${esc(hint)}"><input type="checkbox" data-onb-tool value="${value}" ${(a.tools || []).includes(value) ? 'checked' : ''}>${esc(label)}</label>`).join('')}</div>
-      <small>Ticking a tool says which bots could work here. Nothing is connected yet; that comes after your team is created.</small></div>
+        `<label title="${esc(hint)}"><input type="checkbox" data-onb-tool value="${value}" ${(a.tools || []).includes(value) ? 'checked' : ''}>${esc(label)}</label>`).join('')}</div></div>
     ${actions('Next')}`;
 }
 function frCollect(state, key) {

@@ -85,8 +85,12 @@ const BOTS_AFTER = [
    setup_task_id: 'task-social', repository_present: false},
 ];
 // What the server proposes from the answers (backend/onboarding.py `choose` and `full_chart`, tested there).
-const PAINS = [{text: 'goals stall and nobody notices', template: 'chief-of-staff'}, {text: 'too much email', template: 'inbox'},
-               {text: 'support inbox is overflowing', template: 'support'}, {text: 'customers wait too long for an answer', template: 'support'}];
+const PAINS = [{text: 'I don\'t know what is really going on across the company', template: 'chief-of-staff', team: 'Leadership', featured: true},
+               {text: 'goals stall and nobody notices', template: 'chief-of-staff', team: 'Leadership', featured: false},
+               {text: 'too much email', template: 'inbox', team: 'Leadership', featured: true},
+               {text: 'support inbox is overflowing', template: 'support', team: 'Support', featured: true},
+               {text: 'customers wait too long for an answer', template: 'support', team: 'Support', featured: true},
+               {text: 'we answer the same questions again and again', template: 'support', team: 'Support', featured: false}];
 const rec = (slug, why, pain = '') => {
   const card = CATALOG.find(row => row.slug === slug);
   return {template: card.template, slug, name: card.name, why, matched_pain: pain,
@@ -241,8 +245,11 @@ const advice = answers => {
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 7');
     await shot(page, 'desktop-2-needs-empty');
     assert.match(await page.locator('#onb-step').evaluate(el => el.parentElement.textContent), /stays on this computer: nothing is sent anywhere/);
+    // Only the featured pains show, grouped by team; the others still match what is typed.
     assert.deepEqual(await page.locator('[data-onb-pain]').evaluateAll(els => els.map(el => el.value)),
-      ['goals stall and nobody notices', 'too much email', 'support inbox is overflowing', 'customers wait too long for an answer']);
+      ['I don\'t know what is really going on across the company', 'too much email', 'support inbox is overflowing', 'customers wait too long for an answer']);
+    assert.deepEqual(await page.locator('[data-pain-team]').evaluateAll(els => els.map(el => el.dataset.painTeam)), ['Leadership', 'Support']);
+    assert.equal(await page.locator('[data-pain-team=Support] [data-onb-pain]').count(), 2);
     await page.locator('[data-onb-pain][value="support inbox is overflowing"]').check();
     await page.locator('#onb-pains-text').fill('Weekend support mail waits until Monday.');
     await page.locator('[data-onb-tool][value=mail]').check();

@@ -444,14 +444,31 @@ def recommend(cards, answers):
     return [row["template"] for row in choose(cards, answers)[0]]
 
 
+# The pains the wizard shows as chips: two per team, the ones people say most. Every card's `pains` still
+# match what someone types or ticks; this only chooses what is on the screen (a test keeps each phrase real).
+FEATURED_PAINS = {
+    "basics": ["I don't know what is really going on across the company", "too much email"],
+    "sales": ["leads go cold", "I can't tell which deals are really moving"],
+    "marketing": ["we don't post regularly", "we don't have a clear picture of our competitors"],
+    "support": ["support inbox is overflowing", "customers wait too long for an answer"],
+    "operations": ["meetings without follow-up", "renewals and deadlines sneak up on us"],
+    "engineering": ["issues pile up untriaged", "pull requests wait days for a first review"],
+}
+
+
 def pain_options(cards):
-    """The phrases a person can tick as their pains: every starter card's own, each with its template."""
+    """The phrases a person can tick as their pains: every card's own, each with its template, its team
+    and whether it is `featured` (on the screen). The wizard shows the featured ones; a pain that was
+    ticked earlier stays visible."""
     seen, options = set(), []
-    for card in sorted(cards, key=lambda card: (card.get("pack") or "~", card["name"].lower())):
+    order = {pack: i for i, pack in enumerate(TEAMS)}
+    for card in sorted(cards, key=lambda card: (order.get(card.get("pack") or "", len(order)), card["name"].lower())):
+        pack = card.get("pack") or ""
         for phrase in card.get("pains") or []:
             if phrase not in seen:
                 seen.add(phrase)
-                options.append({"text": phrase, "template": card["template"]})
+                options.append({"text": phrase, "template": card["template"], "team": TEAMS.get(pack, OTHER_TEAM),
+                                "featured": phrase in FEATURED_PAINS.get(pack, ())})
     return options
 
 
