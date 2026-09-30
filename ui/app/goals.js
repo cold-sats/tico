@@ -21,11 +21,12 @@ function goalOwnerInfo(actor) {
   const p = (S.people || []).find(x => x.id === id);
   return {kind: 'person', id, name: p?.name || id, avatar: personAvatar(p || {id, name: id}, 20), href: `#/person/${encodeURIComponent(id)}`};
 }
-// Where an owner sits on the org chart: its node key and the chain of keys above it.
+// Where an owner sits on the org chart: its node key and the chain of keys above it. Who is above whom is who reports
+// to whom, not the groups people are in.
 function goalOrgPlace(owner) {
   const up = {};
-  for (const [parent, kids] of Object.entries(orgTreeByParent())) for (const n of kids)
-    up[n.kind === 'group' ? 'g:' + n.id : n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name] = parent;
+  for (const p of S.people || []) up['p:' + p.id] = orgBossKey({kind: 'person', person: p});
+  for (const e of S.emps || []) up['b:' + e.name] = orgBossKey({kind: 'bot', ...e});
   const key = String(owner || '').startsWith('human:') ? 'p:' + owner.slice(6) : String(owner || '').startsWith('bot:') ? 'b:' + owner.slice(4) : '';
   const above = new Set();
   for (let at = up[key]; at && !above.has(at); at = up[at]) above.add(at);
