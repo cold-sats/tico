@@ -4,6 +4,7 @@ slug: botops
 name: BotOps
 required: true
 bootstrap: true
+icon: smart_toy
 summary: "The engineer that sets up every other bot from the catalog and keeps their repositories, instructions and readiness working."
 owns:
   - The company's bot repositories and their instructions

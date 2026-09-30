@@ -1,5 +1,5 @@
 name: ops-manager                     # the slug: it matches the repository emp-ops-manager and the label owner:ops-manager
-display_name: "Ops Manager"
+display_name: "Operations Manager"
 labels: [owner:ops-manager]
 reads: []                        # other bot repositories this one may clone read-only
 

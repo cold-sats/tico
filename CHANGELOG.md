@@ -7,6 +7,36 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **94 bot templates in nine departments, each a real role with an icon.** The catalog grows from 38 starters to 94, organised
+  for the new org builder into Sales (8), Marketing (14), Customer Support (10), Finance (11), Operations (11), Legal (8),
+  HR (11), Product (8) and Engineering (10), plus a Leadership extra (Chief of Staff, Executive Assistant, Strategy Analyst)
+  that the picker does not offer. Every template is a job title a company would hire (Sales Development Representative,
+  Bookkeeper, Recruiter, Site Reliability Engineer) that does the work and owns an outcome; approvals gate what leaves the
+  company, and every one still ships `outbound_send: false`, read-only access and a paused, draft-only first routine.
+  57 templates are new, among them Account Manager, Sales Engineer, Paid Media Manager, Retention Specialist, Accounts Payable
+  Specialist, Payroll Specialist, Vendor Manager, IT Support Specialist, Dispatcher, Paralegal, Privacy Manager, Sourcer,
+  Product Manager, Security Engineer and DevOps Engineer. The existing ones take job-title names (Sales Lead becomes Sales
+  Manager, Issue Triage QA Engineer, Spend Watcher FP&A Analyst, Mail Drafts Executive Assistant, and so on; slugs are
+  unchanged). Sales Drafter (`sales`) is rewritten as the Account Executive, and Proposal Writer is removed, its proposals and
+  RFP answers folded into the Account Executive.
+- **`templates/departments.yaml`.** Each department's id, name, one-sentence description, goal, the one briefing question
+  with an example answer, a Material Symbols icon, its head's template and `software_only` (Product and Engineering).
+- **Department heads that hire.** Each department has one head (`lead: true`): Sales Manager, Head of Marketing, Head of
+  Customer Support, Head of Finance, Operations Manager, General Counsel, Head of People, Head of Product and Head of
+  Engineering (Head of Finance, General Counsel, Head of People and Head of Product are new). A head lists its department in
+  `team_templates`, and when recurring work is not covered it proposes a specific worker with the reason and its first routine,
+  and asks BotOps to set it up only after the owner confirms.
+- **New card fields:** `department`, `icon`, `tags` (keywords a briefing is matched against) and `suggest` (`default`,
+  `common` or `niche`). `pack` stays for the current chooser and follows the department (finance, legal and HR map to
+  `basics`, product to `engineering`). The three built-ins also carry an icon.
+- **Icons for every bot and department**, from Material Symbols in the UI's existing style. `scripts/build-icon-font.py` now
+  adds every card's and department's `icon` to the subset font, which grows from 38 to 141 glyphs (about 17 KB).
+- **The catalog test** checks every card's department, icon (against the font's `icons.txt`), `suggest` and `tags`, that
+  `pack` follows the department, that each department has exactly one head matching `departments.yaml` and listing the rest of
+  it, and that the catalog holds at least 90 templates. [Starter bots](docs/starter-bots.md) lists every template by
+  department, with its icon, and cites the public best practice each new role draws on.
+
 ### Changed
 - **Tico HQ's address is now `https://updates.tico.team`** (was `hq.tico.team`, which never went live). It is the default
   `TICO_HQ_URL`, and the address PRIVACY.md and docs/telemetry.md name. An install on 0.2.15 asks the old address, gets no

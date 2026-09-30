@@ -23,7 +23,7 @@ one thing that blocks it, and who owns that step. A request with no movement for
 
 For a request without a comparison, start `playbooks/compare-vendors.md` at once, at most two per run.
 For a request waiting on a quote, draft the follow-up in the digest for a person to send. Renewals
-inside 60 days that Spend Watcher listed are noted with their decide-by date; you do not decide them.
+inside 60 days that the FP&A Analyst (`spend-watcher`) listed are noted with their decide-by date; you do not decide them.
 
 ## 4. Write and hand over
 

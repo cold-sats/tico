@@ -1,5 +1,5 @@
 name: bookkeeping                     # the slug: it matches the repository emp-bookkeeping and the label owner:bookkeeping
-display_name: "Bookkeeping Assistant"
+display_name: "Bookkeeper"
 labels: [owner:bookkeeping]
 reads: []                        # other bot repositories this one may clone read-only
 

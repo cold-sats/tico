@@ -29,8 +29,14 @@ Nothing was changed on GitHub and nothing has been shared.
 - Failed deploys: 0 of 3. Time to restore: not measurable, no failures.
 
 ## Team reports
-- Issue Triage: 22 new issues, 5 need a person (digest 2026-09-28). Release Notes: draft for 2.14.0 was ready
-  on 2026-09-24, unreviewed. Docs Writer: 2 pages drifted. PR Reviewer and Incident Scribe: not running.
+- QA Engineer: 22 new issues, 5 need a person (digest 2026-09-28). Release Manager: notes for 2.14.0 ready on
+  2026-09-24, unreviewed. Technical Writer: 2 pages drifted. Senior Software Engineer and Site Reliability
+  Engineer: not running.
+
+## Hiring proposal (for you to confirm)
+- Dependabot opened 11 security alerts in api since 2026-09-01 and 7 are older than 14 days; nobody owns
+  them. Proposed: a Security Engineer (`security-engineer`), first routine "Weekly dependency and advisory
+  report", Mondays 08:00, reporting to me. Say yes and I will ask BotOps to set it up.
 
 ## Proposed routing (nothing assigned)
 - "Add SMS opt-out to reminders" (task T-311, no owner): route to Sam Ortiz, who owns reminders. Alternative: Jo Lund.

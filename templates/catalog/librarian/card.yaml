@@ -4,6 +4,7 @@ slug: librarian
 name: Librarian
 required: true
 bootstrap: true
+icon: local_library
 default: true
 when: "Built in: answers questions about the company from its docs, with a citation for every claim, and says plainly when the docs do not cover it."
 summary: "Answers questions from the company's docs, for people (Ask AI on the Docs page) and for other bots and the Assistant (`hub docs ask`). It searches the internal docs, follows the linked docs (websites, Google Drive, Notion, GitHub) as far as it needs, cites every claim, says plainly when the docs do not say, and keeps a map of the docs up to date every day. When the owner gives it a website, a description or links on the Market page, it researches the market and builds the first market map."

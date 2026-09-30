@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated.
 
 ## Routine
-`weekday-lead-research`: declared, not armed. Arm it only after a person approves the first draft.
+`weekday-prospecting`: declared, not armed. Arm it only after a person approves the first pack.
 
 ## Current focus
 None.

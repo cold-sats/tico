@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated.
 
 ## Routine
-`weekly-outreach-drafts`: declared, not armed. Arm it only after a person approves the first pack.
+`weekly-deal-review`: declared, not armed. Arm it only after a person approves the first review.
 
 ## Current focus
 None.

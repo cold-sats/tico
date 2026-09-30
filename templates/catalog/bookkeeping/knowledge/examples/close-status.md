@@ -14,7 +14,7 @@ Sample output for Acme, a fictional studio-software company. Nothing has been po
 - [ ] Uncategorised: 14 left (proposals below)
 - [ ] Missing receipts: 5, all over the 75 USD rule
 - [ ] Bank reconciliation: waiting on the bank statement, due 2026-09-03 (yours to do)
-- [x] Receivables reviewed: 2 invoices over 30 days, handed to AR Follow-up
+- [x] Receivables reviewed: 2 invoices over 30 days, handed to the Accounts Receivable Specialist
 - [x] Payables reviewed: no unentered bills found in the mailbox
 - [ ] Period lock: only after the accountant's review
 

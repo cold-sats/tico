@@ -1,5 +1,5 @@
 name: ar-followup                     # the slug: it matches the repository emp-ar-followup and the label owner:ar-followup
-display_name: "AR Follow-up"
+display_name: "Accounts Receivable Specialist"
 labels: [owner:ar-followup]
 reads: []                        # other bot repositories this one may clone read-only
 

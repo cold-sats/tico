@@ -1,0 +1,34 @@
+name: software-architect              # the slug: it matches the repository emp-software-architect and the label owner:software-architect
+display_name: "Software Architect"
+labels: [owner:software-architect]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: high
+max_run_minutes: 60
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# the bot puts every review note and ADR on the task and a person commits or posts it.
+outbound_send: false
+
+# The first routine is declared but not armed (`enabled: false`). The bot arms it with
+# `hub routine update <id> --enable` after a person approves the first review on the onboarding task.
+# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+schedules:
+  - id: weekly-architecture-review
+    title: Weekly architecture review
+    cron: "0 9 * * 3"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/weekly-architecture-review.md
+    labels: [priority:p3]
+    enabled: false
+
+# What this bot may touch. Not listed is not allowed. The company's GitHub App gives the bot a short-lived
+# token for the repositories the owner lists for it in Settings (docs/github-app.md).
+access:
+  - service: github
+    identity: "the product repositories the owner lists for this bot"
+    can: [read]
+    note: "reads design docs, ADR folders, pull requests and code; proposes ADRs as files on the task; never commits or comments"
+# The token can write, so the only thing between this bot and a change on GitHub is this entry and
+# .claude/settings.json, which denies every pull request write and gh api. A person commits each approved ADR.

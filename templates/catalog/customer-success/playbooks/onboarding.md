@@ -28,7 +28,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 
 1. Who are your customers and how do they buy: subscription, annual contract, monthly? Paste or point me to the list with renewal dates and owners. Becomes knowledge/renewals.md, the calendar the whole brief runs on. Without dates there is nothing to prepare.
 2. What does a healthy customer look like for you: usage, tickets, meetings, payments? Which signals can I actually read? Becomes knowledge/health-rules.md. I score only from signals I can read, and name the ones I cannot.
-3. Who owns each account relationship, and who owns the contract and price? (Default: an account owner talks to the customer, a seller owns price.) Health and the next touch are mine to draft; price and contract belong to a person. Every note names its owner.
+3. Who owns each account relationship, and who owns the contract and price? (Default: an account owner talks to the customer, the Account Manager owns price and renewal terms.) Health and the next touch are mine to draft; price and contract belong to a person. Every note names its owner.
 4. How far ahead should renewals be prepared, and which customers get a quarterly review? (Default: 120 days ahead; your top ten by value.) Sets the horizon of the brief and who gets a review pack.
 5. Which day should the brief land, and who reads it? (Default: Tuesdays 09:00, you.) Sets the routine's schedule and recipient. Nobody else gets it until you say so.
 

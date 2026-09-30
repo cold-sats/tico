@@ -20,7 +20,7 @@ Not readable: payment status. Next touch, for Dana to send:
 > Subject: Checking in on Lakeside's schedule
 >
 > Hi there, I noticed fewer instructors have used the schedule since August and wanted to ask how
-> things are going with the new team. Could we find 20 minutes this week? [date: seller]
+> things are going with the new team. Could we find 20 minutes this week? [date: account owner]
 
 ### Cedar Barre: yellow
 - 4 open tickets, oldest 19 days (support queue, 2026-09-28). Usage not readable. Owner: Priya. Draft on the task.

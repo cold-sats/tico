@@ -1,7 +1,7 @@
 # Onboarding
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, one real digest on the task and a
+finished. Budget 25 minutes. The outcome is six recorded answers, one real digest on the task and a
 routine that is proposed but not armed.
 
 ---
@@ -15,8 +15,9 @@ Note which competitors the market graph already names. Do not ask what it alread
 
 ## 2. Introduce yourself in three lines
 
-What you do (a short digest of public mentions, questions and competitor moves), that you never
-reply, post, comment, follow or sign in anywhere, and that a person responds to anything you find.
+What you do (the social calendar with every post written, and a short digest of public mentions,
+questions and competitor moves), that nothing is posted or replied to without a person's approval of
+the exact text, and that you never follow, message or sign in anywhere.
 
 ## 3. Ask, in one message
 
@@ -27,11 +28,13 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 3. Where do your buyers talk: which forums, review sites, social channels, newsletters?
 4. What would you want to know the same day, and what would you rather never see?
 5. Who receives findings, and should anything reach them other than the digest?
+6. Which accounts do you post from, how often on each, and who approves a post before it goes out?
 
 ## 4. Record
 
 Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/watchlist.md` (names,
-queries with exclusions, sources) and `knowledge/sources.md`.
+queries with exclusions, sources), `knowledge/sources.md` and `knowledge/social-calendar.md`
+(accounts, cadence, approver).
 
 ## 5. Sweep now
 

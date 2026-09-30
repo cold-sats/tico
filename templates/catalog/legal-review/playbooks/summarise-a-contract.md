@@ -39,6 +39,10 @@ says, and the difference. Order flags by how much they matter. A clause the play
 listed as "no company position" and never judged. Never write "standard", "fair", "safe", "legal" or
 "enforceable".
 
+Then write the issues list for the person who negotiates: one line per flag, worst first, with the fallback
+the playbook allows ("accept 6 months' fees if 12 is refused"). A flag with no playbook fallback says "no
+company position; ask counsel". Never invent a fallback.
+
 ## 5. Write the summary
 
 Five lines first: what it is, how long it binds, how it ends, the top three flags, the nearest deadline. Then the table, then the flags,

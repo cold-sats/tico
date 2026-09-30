@@ -1,10 +1,14 @@
 template: seo-visibility
 slug: seo-visibility
-name: SEO & AI Visibility
+name: SEO Specialist
 required: false
 bootstrap: false
+department: marketing
 pack: marketing
-summary: "Writes a weekly report on how the company shows up in search and in AI answers, with the three page fixes and content gaps worth doing first. It never edits a live page."
+icon: travel_explore
+suggest: common
+tags: [seo, ai-search, content, website, saas, ecommerce]
+summary: "Tracks how the company shows up in search and in AI answers every week and hands over the three page fixes worth doing first, written ready to apply. It never edits a live page itself."
 when: "A company whose buyers search or ask an AI assistant before they talk to anyone, and that has a website with content on it."
 pains:
   - "we don't know if AI assistants mention us"

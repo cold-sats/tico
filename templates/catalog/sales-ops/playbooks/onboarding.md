@@ -1,7 +1,7 @@
 # Onboarding
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, the first report on the task from a real read of the CRM, and a routine that is
+finished. Budget 25 minutes. The outcome is six recorded answers, the first report on the task from a real read of the CRM, and a routine that is
 proposed but not armed.
 
 ---
@@ -29,11 +29,12 @@ answers only some, record those and use the defaults for the rest, saying which 
 2. What has to be true of an open deal to enter each stage, and what must every open deal carry? (Default: stage, amount, close date, owner and a next step with a date.) Becomes knowledge/stages.md and the hygiene rules. A check is only fair against a written standard.
 3. After how many days without activity is an open deal stale, and after how many close-date pushes is it flagged? (Defaults: 14 days, 3 pushes.) Sets the two thresholds the weekly report uses, so it neither nags nor misses.
 4. Who owns each fix (each seller for their own deals, one person for duplicates), and who reads the report? (Default: the owner reads it; sellers own their deals.) Every exception needs a named owner. I list them; I do not chase them.
-5. Do deals carry probabilities or a forecast category, or should the report just count and sum by stage? I only weight a pipeline with probabilities you gave me. Otherwise the report counts and sums, and says so.
+5. Do deals carry a forecast category (commit, best case, pipeline) or probabilities, and what must be true for a deal to be commit? I roll up the categories sellers set and flag the ones without evidence. Without categories the report counts and sums, and says so.
+6. How are new leads assigned today: by territory, segment, round robin, or whoever sees it first? Who covers when someone is out? Becomes knowledge/routing-rules.md; I flag leads no rule covers and propose changes.
 
 ## 4. Record
 
-Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/stages.md` (stages, entry criteria, typical days) and `knowledge/hygiene-rules.md` (required fields, the two thresholds, what a duplicate is) as present-tense statements.
+Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/stages.md` (stages, entry criteria, typical days) and `knowledge/hygiene-rules.md` (required fields, the two thresholds, what a duplicate is), `knowledge/forecast-rules.md` and `knowledge/routing-rules.md` as present-tense statements.
 
 ## 5. Produce the first result now
 

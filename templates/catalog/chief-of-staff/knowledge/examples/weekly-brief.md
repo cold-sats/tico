@@ -8,7 +8,7 @@ Sample output for Acme, a fictional company. Every source below is invented.
 **Headline: Signups are ahead of plan, but two of four goals are slipping and one needs you today.**
 
 ## Needs you
-- Approve the trial follow-up sequence (Sales Drafter, waiting 6 days). Two studios have gone quiet
+- Approve the trial follow-up sequence (Sales Development Representative, waiting 6 days). Two studios have gone quiet
   since their trials ended. Task: "Approve follow-up drafts".
 - Decide whether the refund policy change goes to customers before the October price update
   (Ben Okafor, waiting 3 days). Task: "Refund wording, decision needed".

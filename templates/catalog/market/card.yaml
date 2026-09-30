@@ -1,9 +1,13 @@
 template: market
 slug: market-analyst
-name: Market Analyst
+name: Market Research Analyst
 required: false
 bootstrap: false
+department: marketing
 pack: marketing
+icon: insights
+suggest: niche
+tags: [competitive, market-research, positioning, b2b, saas]
 summary: "Keeps one evidence-backed map of the company's market: who competes, who partners and where customers talk, and writes a weekly delta page of what changed. Other bots report; only this one writes."
 when: "A company that wants competitor facts kept in one place with sources, instead of in people's heads and old slide decks."
 pains:

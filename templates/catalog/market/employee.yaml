@@ -1,5 +1,5 @@
 name: market-analyst
-display_name: "Market Analyst"
+display_name: "Market Research Analyst"
 labels: [owner:market-analyst]
 reads: []
 
@@ -26,5 +26,5 @@ schedules:
     enabled: false
 
 # The market graph is in the hub and needs no entry. The bot reads no external source itself:
-# other bots (Listening, Sales) report what they found and it never reads social sites.
+# other bots (the Social Media Manager, sales) report what they found and it never reads social sites.
 access: []

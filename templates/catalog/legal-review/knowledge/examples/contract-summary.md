@@ -33,6 +33,13 @@ month's fees, well below Acme's usual position. The renewal notice deadline is 2
 2. **Indemnity.** You prefer "caused by". This contract says "arising out of", which reaches further.
 3. **Auto-renewal.** You prefer 60 days' notice. Notice here is 30 days and the deadline is in 3 days.
 
+## Issues list for the person who negotiates
+| # | Clause | Ask | Fallback (from your playbook) |
+|---|---|---|---|
+| 1 | 11.1 Liability cap | 12 months' fees | 6 months' fees, playbook line 3 |
+| 2 | 12.1 Indemnity | "caused by" Acme's negligence | No company position; ask counsel |
+| 3 | 2.2 Renewal notice | 60 days | Decide by 2026-10-01 whether to renew at all |
+
 ## Could not read
 The "Service Schedule" (referenced in 3.1) was not attached, so scope and service levels are not read.
 

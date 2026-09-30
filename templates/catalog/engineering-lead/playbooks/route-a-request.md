@@ -16,9 +16,13 @@ Restate it in one sentence: what is wanted, by whom, by when, and what the reque
 
 1. `knowledge/routing.md`: has a request like this been routed and approved before? Follow that.
 2. `knowledge/areas.md`: which repository or area does it touch, and who owns it?
-3. The engineering bots: a pull request needing a look is PR Reviewer, notes for a release are Release Notes,
-   an outage is Incident Scribe, an outdated page is Docs Writer, an incoming bug is Issue Triage, a question
-   about what users need is Product Researcher.
+3. The engineering team's lines: a pull request needing a look is `pr-reviewer` (Senior Software Engineer); a
+   release, its checklist or its notes is `release-notes` (Release Manager); an outage or an on-call handoff is
+   `incident-scribe` (Site Reliability Engineer); an outdated README or API page is `docs-writer` (Technical
+   Writer); an incoming bug or a test plan is `issue-triage` (QA Engineer); a vulnerable dependency or a leaked
+   secret is `security-engineer`; a red or slow pipeline is `devops-engineer`; a design doc or an architecture
+   decision is `software-architect`; a developer's public question or a sample app is `developer-advocate`. What
+   users need, a spec or a roadmap question belongs to Product: route it to `product-lead` (Head of Product).
 
 If two owners fit equally, name both and say what decides it. If none fits, say so; never force a fit.
 

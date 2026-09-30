@@ -1,0 +1,32 @@
+# Accountant request
+
+Triggered by a task carrying the accountant's request for documents or answers (a year-end list, a
+quarterly checklist, a notice to respond to). Budget 30 minutes. The outcome is a prepared package and
+a list of what is still missing, for a person to send.
+
+---
+
+## 1. Read the request
+
+    hub task show <id>
+
+List every item asked for, with its period and the deadline. An item you do not understand is a
+question for the requester, not a guess.
+
+## 2. Gather
+
+For each item, find the company's own record: reports from the finance bots (`hub files list --bot
+<slug>`), exports attached to earlier tasks, `hub docs search "<item>"`. Note the file and its date.
+Never produce a figure the records do not contain.
+
+## 3. Check
+
+Periods match what was asked; totals agree between documents (sales in the export equal sales in the
+books); every contractor form is present. List each mismatch.
+
+## 4. Hand over
+
+On the task: the package as a list (item, file, period, status), the mismatches, and what is still
+missing with who owes it. A person sends it to the accountant, or approves the exact message with
+`hub approval request --kind send`. Record the request and its deadline in `knowledge/tax-calendar.md`
+so next year's request starts from this one.

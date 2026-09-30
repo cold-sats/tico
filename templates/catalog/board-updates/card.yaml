@@ -1,10 +1,14 @@
 template: board-updates
 slug: board-updates
-name: Board & Investor Updates
+name: "Investor Relations Manager"
 required: false
 bootstrap: false
+department: finance
 pack: basics
-summary: "Drafts the monthly investor update from the hub's goals, KPI readings and updates: metrics first, asks second, a short honest recap last. It never sends and never invents a finance number."
+icon: co_present
+suggest: niche
+tags: [fundraising, investors, board, startup, venture]
+summary: "Keeps investors informed: the monthly investor update written from goals, KPI readings and the finance figures a person supplies, metrics first, asks second, a short honest recap last. The owner approves every send, and no figure is invented."
 when: "A company with investors or a board that expects a regular written update."
 pains:
   - "writing the monthly investor update takes a day"

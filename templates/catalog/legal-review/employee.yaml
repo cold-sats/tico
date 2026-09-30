@@ -1,5 +1,5 @@
 name: legal-review                     # the slug: it matches the repository emp-legal-review and the label owner:legal-review
-display_name: "Legal Review"
+display_name: "Contracts Manager"
 labels: [owner:legal-review]
 reads: []                        # other bot repositories this one may clone read-only
 

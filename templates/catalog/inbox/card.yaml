@@ -1,10 +1,14 @@
 template: inbox
 slug: inbox
-name: Mail Drafts
+name: "Executive Assistant"
 required: false
 bootstrap: false
+department: leadership
 pack: basics
-summary: "Works one person's mailbox: sorts it with Tico's decision questions, drafts replies for approval, and flags what needs the person. It never sends, and starts by proposing before it files."
+icon: inbox
+suggest: niche
+tags: [email, executive, founder, calendar, inbox]
+summary: "Runs one executive's mailbox: sorts it every morning, prepares replies that go out on the person's approval, and flags only what needs them. It shows what it would file before it files anything."
 pains:
   - "too much email"
   - "important messages get buried"

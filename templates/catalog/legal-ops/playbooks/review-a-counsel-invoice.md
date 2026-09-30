@@ -1,0 +1,37 @@
+# Review a counsel invoice
+
+Triggered by a task attaching a law firm invoice. Budget 20 minutes. The outcome is a review the approver can act
+on in two minutes: the total, the lines to question and why. You never approve, pay or dispute it.
+
+---
+
+## 1. Match it
+
+    hub task show <id>
+
+Find the firm in `knowledge/firms.md` and the matter in `knowledge/matters.md`. No engagement letter on record: say
+so at the top and review only against `knowledge/billing-rules.md`. An unknown matter: flag it first.
+
+## 2. Read every line
+
+For each time entry: date, timekeeper and role, hours, rate, amount, description. Check:
+- **Rate** against the letter for that role and date.
+- **Units**: time in the agreed increments (default 0.1 hour).
+- **Block billing**: several tasks in one entry with one total.
+- **Scope**: the work belongs to this matter and its agreed scope.
+- **Non-billable**: admin, filing, training, fixing the firm's own errors, internal conferences beyond the rule.
+- **Duplicates**: the same work on two dates or by two people without reason.
+For each expense: allowed by the rules, receipt shown, within the limit.
+Check the arithmetic of every line and the total.
+
+## 3. Write the review
+
+`reports/invoices/<firm>-<invoice>.md`: two lines first (billed, in question, the main reason), the lines to question
+in a table with the rule each breaks, budget position after this invoice, then a draft query to the firm in plain
+words for a person to send, then **Summary for a person, not legal advice.** `hub files publish` it.
+
+## 4. Hand over
+
+Put it on the task for the approver named at onboarding, and ask once: "Approve as billed, or query the lines
+above?" The query to the firm is sent by a person, or through `hub approval request --kind send`. Update the
+matter's spend to date in `knowledge/matters.md`, commit, and `hub task update <id> --status done --note`.

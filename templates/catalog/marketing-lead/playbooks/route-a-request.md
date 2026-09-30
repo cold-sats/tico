@@ -15,10 +15,14 @@ the requester once with `hub task ask <id>` and stop.
 
 ## 2. Match it to an owner
 
-Use `knowledge/routing.md`. Kinds of work that usually go to a marketing bot: a post or article
-(content), a search or AI-visibility question (search), a campaign email (email), what people say
-publicly (listening), reviews (reputation), a launch or positioning (product marketing), competitor
-facts (market). If two owners could take it, say why one fits better. If none fits, say so.
+Use `knowledge/routing.md`, then the team's lines in `AGENT.md`: a post or article (`content`), a
+search or AI-visibility question (`seo-visibility`), a social post or what people say publicly
+(`listening`), a campaign email (`email-marketing`), a launch or positioning (`product-marketing`),
+competitor facts (`market-analyst`), reviews (`reputation`), ads (`paid-media`), an event (`events`),
+press (`pr`), the community (`community`), brand and voice (`brand`), tracking and lead handoff
+(`marketing-ops`). If two owners could take it, say why one fits better. If none fits and the same
+kind of request keeps coming, propose a hire (`AGENT.md`, Hiring) instead of routing it to a person
+again.
 
 ## 3. Check the load and the calendar
 

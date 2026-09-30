@@ -1,11 +1,15 @@
 template: pr-reviewer
 slug: pr-reviewer
-name: PR Reviewer
+name: "Senior Software Engineer"
 required: false
 bootstrap: false
+department: engineering
 pack: engineering
+icon: code_blocks
+suggest: common
+tags: [saas, github, code-review, quality, developer-tools]
 when: "Offer when GitHub is connected and pull requests wait for a reviewer."
-summary: "Reads every open pull request each weekday morning and drafts review comments for a person to post: a summary, risks, questions and nits, ordered by what blocks a merge. It never posts a review."
+summary: "Reviews every open pull request each weekday morning so none waits days for a first review: a summary, risks, questions and nits, blocking issues first, ready for a person to post. It never approves or merges."
 pains:
   - "pull requests wait days for a first review"
   - "code reviews are shallow or inconsistent"

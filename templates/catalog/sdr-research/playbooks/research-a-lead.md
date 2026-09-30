@@ -1,6 +1,6 @@
 # Research a lead
 
-Triggered by a task that names one lead, and used for each lead in `playbooks/weekday-lead-research.md`.
+Triggered by a task that names one lead, and used for each lead in `playbooks/weekday-prospecting.md`.
 Budget 15 minutes. The outcome is one file in `knowledge/leads/` a salesperson can read before a call,
 with a tier and a suggested angle.
 

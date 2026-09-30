@@ -131,7 +131,7 @@ A page with nothing found says what you looked for, in one line. Do not pad it.
 1. Rewrite the Overview and Coverage universe last, from what the graph now holds.
 2. If a bot named `market-analyst` is on the roster (`hub status list`) and active, hand it the upkeep:
    `hub task create --owner market-analyst --title "Keep the market map current" --body "<one paragraph: the
-   map now exists; what is thin; the sources that could not be read>"`. From here on the Market Analyst
+   map now exists; what is thin; the sources that could not be read>"`. From here on the Market Research Analyst
    curates and the map is its to keep; you do not write to it again unless the owner asks for a rebuild.
 3. Put unreadable sources in `_librarian/missing.md` under broken sources (`playbooks/faq-and-gaps.md`).
 4. Rewrite `state.md`. Record anything durable about reading these kinds of sites in `memory/learnings.md`.

@@ -48,7 +48,7 @@ draft, not yet reviewed". Share nothing.
 
 ## 6. Propose the routine and wait
 
-Say: "If this is useful, I will send you an onboarding tracker every Monday at 09:00, and a person shares anything with a new hire. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
+Say: "If this is useful, I will send you an onboarding tracker every Monday at 09:00, and put anything for a new hire up for your approval. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
 
     hub routine list
     hub routine update <id> --enable

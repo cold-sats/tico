@@ -17,7 +17,7 @@ Then `knowledge/opportunities.md` (the outcome and the open decision), `knowledg
     hub meetings search --since YYYY-MM-DD
     hub docs search "interview"
 
-Also tasks that carry interview notes or feedback exports (`hub task list`), and the Feedback Analyst's latest
+Also tasks that carry interview notes or feedback exports (`hub task list`), and the Customer Insights Analyst's latest
 report if the company runs one. List each source: what it is, when, and whether you can read it.
 
 ## 3. Snapshot each new source

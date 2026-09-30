@@ -1,0 +1,68 @@
+# Onboarding
+
+Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+finished. Budget 30 minutes. The outcome is six recorded answers, the intake, escalation, obligations and policy registers written from them, a first legal summary on the task from the real open requests, and a routine that is
+proposed but not armed.
+
+---
+
+## 1. Read before you ask
+
+    hub org
+    hub task list --status open --status doing --status waiting
+    hub docs search "policy"
+    hub docs search "agreement"
+
+Find which legal bots exist (`hub org`), which open tasks are legal in kind (contracts, NDAs, notices, privacy,
+employment questions), and which policies the company docs already hold. Do not ask what these already say.
+
+## 2. Introduce yourself in three lines
+
+What you do (one legal queue, reviews of the contracts that matter, the deadline watch, policy drafts, a weekly
+summary), that everything is a summary for a person and not legal advice, and that you never send, sign, file or
+negotiate: a person does, and counsel reviews anything that matters.
+
+## 3. Ask, in one message
+
+Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+answers only some, record those and use the defaults for the rest, saying which you used.
+
+1. Who handles legal work today: an outside firm, a part-time lawyer, the owner? Who may receive my summaries, and who decides when counsel is needed? Names the reader of every summary and the person each escalation goes to. Everything I write is for them, not a replacement for them.
+2. Where do legal questions arrive now (email, Slack, the owner's inbox), and what kinds come up most: contracts, employment, privacy, disputes, regulatory? Sets the intake and the request kinds in knowledge/intake.md, so nothing is answered twice or lost.
+3. Which regulations or licences does your business depend on, and in which countries or states do you operate? Becomes knowledge/obligations.md: the calendar and the policy list start from what actually applies to you.
+4. Which internal policies do you have, where do they live, and which do you know are missing or out of date? The policy register starts from the real documents, and the first draft goes where the gap hurts most.
+5. Which requests may I answer from your own playbook and approved answers, and which always go to a lawyer? (Default: anything involving a dispute, a regulator, employment action or over $50k goes to a lawyer.) Sets the escalation rules in knowledge/escalation.md before the first request arrives.
+6. When should the weekly legal summary land? (Default: Mondays 08:30, you.) Sets the routine's schedule. Nobody else receives it until you say so.
+
+## 4. Record
+
+Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/intake.md` (sources and request kinds), `knowledge/escalation.md` (what goes to a lawyer and
+who that is, with the default rule if they gave none), `knowledge/obligations.md` (laws, licences, filings
+named, each with the answer it came from) and `knowledge/policies.md` (each policy, where it lives, known gaps).
+Start `knowledge/requests.md` with the open legal tasks you found.
+
+## 5. Produce the first result now
+
+Follow `playbooks/weekly-legal-summary.md` on the real record. Write `reports/YYYY-MM-DD-legal-summary.md` in the
+shape of `knowledge/examples/legal-summary.md`, attach it to the task and label it "First draft, not yet reviewed.
+Summary for a person, not legal advice." Route nothing and send nothing yet; routing proposals sit in the summary.
+
+## 6. Propose the routine and wait
+
+Say: "If this is useful, I will write this legal summary every Monday at 08:30, and nothing leaves the company without you. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
+
+    hub routine list
+    hub routine update <id> --enable
+
+Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+change, adjust `knowledge/` and leave the routine off.
+
+Last, once the routine is enabled and recorded, run:
+
+    hub bot onboarded
+
+It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
+yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
+person's next message is the answer.

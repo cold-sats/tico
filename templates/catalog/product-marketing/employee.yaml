@@ -1,5 +1,5 @@
 name: product-marketing                     # the slug: it matches the repository emp-product-marketing and the label owner:product-marketing
-display_name: "Product Marketing"
+display_name: "Product Marketing Manager"
 labels: [owner:product-marketing]
 reads: []                        # other bot repositories this one may clone read-only
 

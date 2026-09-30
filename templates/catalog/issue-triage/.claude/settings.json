@@ -8,7 +8,9 @@
       "Bash(gh issue list *)",
       "Bash(gh issue view *)",
       "Bash(gh search issues *)",
-      "Bash(gh label list *)"
+      "Bash(gh label list *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)"
     ],
     "deny": [
       "Bash(gh issue close *)",

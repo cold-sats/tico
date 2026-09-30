@@ -1,10 +1,14 @@
 template: bookkeeping
 slug: bookkeeping
-name: Bookkeeping Assistant
+name: "Bookkeeper"
 required: false
 bootstrap: false
-pack: operations
-summary: "Proposes a category for every unsorted transaction and drafts the month-end close status for the person who keeps the books. It reads the books and never posts to them."
+department: finance
+pack: basics
+icon: menu_book
+suggest: default
+tags: [smb, bookkeeping, month-end, services, ecommerce, saas, retail]
+summary: "Keeps the books current: a category for every unsorted transaction, the missing-receipt list and the month-end close checklist run to done each month. It reads the books and a person posts every entry."
 when: "A company whose books fall behind between the owner's other work, or whose accountant keeps asking for the same receipts."
 pains:
   - "unsorted transactions pile up until month end"

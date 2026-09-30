@@ -18,7 +18,7 @@ is a gap to name in the summary and a task for the owner if they want it connect
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly summary of how support is doing, and routing proposals), that you never answer a
+What you do (a weekly summary of how support is doing, routing proposals, and proposals for which support role to add when work has no owner), that you never answer a
 customer, change the support tool or assign a person, and that a person approves everything that leaves.
 
 ## 3. Ask, in one message

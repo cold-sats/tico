@@ -24,6 +24,18 @@ Open deals and dollars by stage; deals entered, moved, won, lost since last week
 each stage against `knowledge/stages.md`; close dates that moved out, and how many times. Weight by
 probability only if `knowledge/stages.md` carries the company's own probabilities; otherwise count and sum.
 
+## 3b. Roll up the forecast
+
+If deals carry a forecast category, sum commit, best case and pipeline for the period as sellers set them.
+List each commit deal missing the evidence in `knowledge/forecast-rules.md`, and each deal whose close date
+is in the period but whose category is still pipeline. You never change a category; the Sales Manager does.
+
+## 3c. Check routing
+
+List leads created since the last read with no owner, or owned by someone marked out in
+`knowledge/routing-rules.md`, with the owner the rules would give. Follow `playbooks/lead-routing.md`
+for anything no rule covers.
+
 ## 4. Find the exceptions
 
 For each open deal above the review size, check: owner present, stage matches its exit criteria, close
@@ -42,4 +54,4 @@ quarter add picklist and unused-field observations as proposals.
 Write `reports/YYYY-MM-DD-crm-report.md` in the shape of `knowledge/examples/crm-report.md`, update
 `knowledge/exceptions.md`, then `hub files publish reports/YYYY-MM-DD-crm-report.md`. Commit and `hub
 task update <id> --status done --note`: the headline, the path, the size of the read, what failed.
-Never fix a record yourself. Always finish the task.
+Never apply a fix a person has not approved. Always finish the task.

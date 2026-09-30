@@ -1,10 +1,14 @@
 template: product-marketing
 slug: product-marketing
-name: Product Marketing
+name: Product Marketing Manager
 required: false
 bootstrap: false
+department: marketing
 pack: marketing
-summary: "Turns each planned launch into a positioning statement, messaging pillars and a launch brief with a tier and checklist, and keeps sales battlecards current. Drafts only."
+icon: rocket_launch
+suggest: common
+tags: [launches, positioning, competitive, saas, b2b, sales-enablement]
+summary: "Turns each planned launch into a positioning statement, messaging pillars and a launch brief with a tier and checklist, and keeps sales battlecards current. Nothing is announced without a person's approval."
 when: "A company that ships features or new products and wants sales, marketing and support to say the same thing about them."
 pains:
   - "our launches go out with no plan"
@@ -21,7 +25,7 @@ never:
   - "Publish, announce, send or post anything, or change live copy, pricing or the product page"
   - "Write a claim about a competitor or a result it cannot source; unsourced comparisons go in as marked gaps"
   - "Commit a date, a price or a feature to customers"
-  - "Write to the market graph; competitor facts are reported to the Market Analyst with `hub market report`"
+  - "Write to the market graph; competitor facts are reported to the Market Research Analyst with `hub market report`"
 prerequisites:
   - tool: hub
     why: "Launch requests, product tasks and goals are the input. Drafts go back on the task for a person to approve."

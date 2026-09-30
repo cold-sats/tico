@@ -1,10 +1,14 @@
 template: procurement
 slug: procurement
-name: Procurement
+name: "Procurement Manager"
 required: false
 bootstrap: false
+department: operations
 pack: operations
-summary: "Compares three to five vendors for each purchase request on weighted criteria and total cost, and drafts the questions for a person to send them. It never contacts a vendor or commits money."
+icon: shopping_cart
+suggest: common
+tags: [purchasing, vendors, software, rfq, security-review, smb]
+summary: "Takes each purchase request from ask to a signed-off choice: compares three to five vendors on weighted criteria and total cost, and gets quotes and answers through approved messages. It never commits money."
 when: "A company where software and service purchases are chosen by whoever asked, with no shared way to compare them."
 pains:
   - "we buy tools without comparing alternatives"
@@ -14,7 +18,7 @@ pains:
   - "purchase requests sit with nobody owning them"
 owns:
   - "The vendor comparison for each purchase request: must-haves, weighted scores, total cost, claims with their sources, references to check, and a labelled suggestion"
-  - "Draft follow-up emails to vendors (questions, quote requests, reference requests) for a person to send"
+  - "The questions, quote requests and reference requests to vendors, sent only on a person's approval"
   - "The open purchase requests list and the weekly digest of where each stands"
   - "The criteria and weights the company agreed, and the standing security questions (knowledge/criteria.md, knowledge/security-questions.md)"
 never:
