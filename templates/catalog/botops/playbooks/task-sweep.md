@@ -14,7 +14,7 @@ or Tico keeps it stuck; or tell its requester in one line why it cannot move.
 
 ## 2. Your own tasks for humans
 
-Tasks you filed for a human are yours to keep tidy. They pile up when the work they waited on got done by you or
+Tasks you filed for a human are yours to keep clean. They pile up when the work they waited on got done by you or
 by someone else.
 
     hub task list --requester me --status open
