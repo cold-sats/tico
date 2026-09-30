@@ -118,7 +118,112 @@ def publisher(tmp_path, hub, mail):
     return made
 
 
-def test_an_undelegated_domain_is_reported_once_and_skipped_afterwards(tmp_path, capsys):
+class Flaky:
+    """A mail CLI whose one mailbox answers unauthorized_client while `refuse` is set."""
+    def __init__(self, refuse=True):
+        self.refuse, self.calls = refuse, 0
+
+    def __call__(self, args):
+        self.calls += 1
+        if self.refuse:
+            raise RuntimeError("Local mail lookup failed: unauthorized_client: Client is unauthorized")
+        return {"messages": []}
+
+
+def one_domain(tmp_path):
+    mail, hub, now = Flaky(), Hub(["ana@acme-signin.example"]), [1000.0]
+    work = publisher(tmp_path, hub, mail)
+    work.clock = lambda: now[0]
+    return work, mail, hub, now
+
+
+def delegation_reported(hub):
+    return {"account": "ana@acme-signin.example", "reason": "delegation"} in hub.reports[-1]["failing"]
+
+
+def test_one_unauthorized_client_does_not_block_the_domain(tmp_path, capsys):
+    work, mail, hub, now = one_domain(tmp_path)
+    work.mail_tick()                                # the transient reply
+    mail.refuse = False
+    work.mail_tick()                                # straight after: the delegation was fine
+    assert not work.blocked("ana@acme-signin.example")
+    assert all(not r["failing"] for r in hub.reports)
+    assert "cannot act for the domain" not in capsys.readouterr().out
+    assert work.domains == {}
+
+
+def test_three_errors_in_one_cycle_or_a_minute_are_not_enough(tmp_path):
+    work, mail, hub, now = one_domain(tmp_path)
+    for _ in range(3):                              # three errors, one cycle
+        work.note_delegation("ana@acme-signin.example")
+    assert not work.blocked("ana@acme-signin.example")
+    work.cycle += 1
+    work.note_delegation("ana@acme-signin.example")       # a second cycle completes the threshold
+    assert work.blocked("ana@acme-signin.example")
+    other = publisher(tmp_path, hub, mail)
+    other.clock = lambda: now[0]
+    for _ in range(3):                              # three errors in one cycle, five minutes on, count too
+        other.note_delegation("ana@acme.example")
+        now[0] += 150
+    assert other.domains["acme.example"]["down"]
+
+
+def test_three_consecutive_errors_block_report_and_log_once(tmp_path, capsys):
+    work, mail, hub, now = one_domain(tmp_path)
+    work.mail_tick()
+    work.mail_tick()
+    assert not work.blocked("ana@acme-signin.example") and not delegation_reported(hub)
+    work.mail_tick()                                # the third in a row, three cycles
+    assert work.blocked("ana@acme-signin.example") and delegation_reported(hub)
+    work.mail_tick()
+    work.mail_tick()                                # blocked: not tried, still reported
+    assert mail.calls == 3 and delegation_reported(hub)
+    assert capsys.readouterr().out.count("cannot act for the domain acme-signin.example") == 1
+
+
+def test_the_backoff_grows_2_5_15_30_60_minutes_and_stays_at_an_hour(tmp_path):
+    work, mail, hub, now = one_domain(tmp_path)
+    for _ in range(3):
+        work.mail_tick()
+    waits = []
+    for _ in range(7):
+        start = now[0]
+        waits.append(work.domains["acme-signin.example"]["until"] - start)
+        now[0] = work.domains["acme-signin.example"]["until"] - 1
+        assert work.blocked("ana@acme-signin.example")
+        now[0] += 1                                 # the wait is over: it is tried again and fails again
+        assert not work.blocked("ana@acme-signin.example")
+        work.mail_tick()
+        assert delegation_reported(hub)             # still reported while it is retried
+    assert waits == [120, 300, 900, 1800, 3600, 3600, 3600]
+
+
+def test_one_success_resets_the_domain_and_clears_the_health_issue(tmp_path, capsys):
+    work, mail, hub, now = one_domain(tmp_path)
+    for _ in range(3):
+        work.mail_tick()
+    assert delegation_reported(hub)
+    now[0] += 121
+    mail.refuse = False                             # the delegation was granted after all
+    work.mail_tick()
+    assert work.domains == {} and not work.blocked("ana@acme-signin.example")
+    assert hub.reports[-1]["failing"] == []
+    assert "can act for the domain acme-signin.example again" in capsys.readouterr().out
+    mail.refuse = True                              # a later error starts counting from zero
+    work.mail_tick()
+    assert not work.blocked("ana@acme-signin.example") and hub.reports[-1]["failing"] == []
+
+
+def test_a_success_on_another_mailbox_of_the_domain_resets_it(tmp_path):
+    work, mail, hub, now = one_domain(tmp_path)
+    for _ in range(3):
+        work.mail_tick()
+    now[0] += 121
+    work.delegated("bob@acme-signin.example")
+    assert not work.blocked("ana@acme-signin.example") and work.domains == {}
+
+
+def test_a_delegated_domain_keeps_syncing_beside_an_undelegated_one(tmp_path):
     calls = []
 
     def mail(args):
@@ -129,12 +234,11 @@ def test_an_undelegated_domain_is_reported_once_and_skipped_afterwards(tmp_path,
         return {"messages": []}
     hub = Hub(["ana@acme-signin.example", "ana@acme.example"])
     work = publisher(tmp_path, hub, mail)
-    for _ in range(4):
+    for _ in range(10):
         work.mail_tick()
-    assert calls.count("ana@acme-signin.example") == 1                    # tried once, then left alone
-    assert calls.count("ana@acme.example") >= 3                   # the delegated mailbox keeps syncing
-    assert all({"account": "ana@acme-signin.example", "reason": "delegation"} in r["failing"] for r in hub.reports[1:])
-    assert capsys.readouterr().out.count("cannot act for the domain acme-signin.example") == 1
+    assert calls.count("ana@acme-signin.example") == 3               # tried three times, then left alone
+    assert calls.count("ana@acme.example") >= 6                      # the delegated mailbox keeps syncing
+    assert {"account": "ana@acme-signin.example", "reason": "delegation"} in hub.reports[-1]["failing"]
 
 
 def test_the_health_issue_names_the_mailbox_and_the_domain(api):
