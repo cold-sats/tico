@@ -78,20 +78,30 @@ team's `hq.tico.team`; anyone can run their own the same way.
 ```
 git clone https://github.com/ticoteam/tico && cd tico
 cp hq/.env.example hq/.env
-$EDITOR hq/.env          # TICO_HQ_KEY=$(openssl rand -hex 24); pick a front door; optional backup
+$EDITOR hq/.env          # TICO_HQ_KEY=$(openssl rand -hex 24); HQ_DOMAIN; pick a front door; optional backup
 docker compose -f hq/compose.yaml --env-file hq/.env up -d --build
 curl -fsS http://127.0.0.1:8770/healthz
 ```
 
 Front door, one of (set in `hq/.env`):
 
-- `COMPOSE_PROFILES=cloudflared`, `HQ_TUNNEL_TOKEN=...`, `HQ_CLIENT_IP_HEADER=CF-Connecting-IP`: an HQ-only Cloudflare
-  tunnel. In the tunnel's Public Hostname tab route `hq.tico.team` to `http://hq:8770`, and do not add an Access
-  application. This is the right choice on a server whose Tico already holds ports 80 and 443.
+- `COMPOSE_PROFILES=cloudflared`, `HQ_TUNNEL_TOKEN=...`, `HQ_DOMAIN=hq.tico.team`, `HQ_CLIENT_IP_HEADER=CF-Connecting-IP`:
+  an HQ-only Cloudflare tunnel, and the right choice on a server whose Tico already holds ports 80 and 443. Do not add an
+  Access application. HQ writes the tunnel's route at every start (`hq/tunnel.py`, into the `hq-tunnel` volume) and
+  cloudflared runs with it (`--config /tunnel/cloudflared.yml`): `HQ_DOMAIN` to `http://hq:8770`, anything else a 404.
+  So a tunnel with no route of its own (a locally managed one, or a token reused from elsewhere) serves HQ instead of
+  logging "No ingress rules" and answering 503. A Public Hostname set in the tunnel's dashboard still wins: cloudflared
+  prefers the configuration Cloudflare holds, so with one there, route `hq.tico.team` to `http://hq:8770` there too. The
+  file is world-readable (0644) because cloudflared runs as its own non-root user; it holds no secret, the token stays
+  in cloudflared's environment. A changed `HQ_DOMAIN` needs `up -d` for both services; with `HQ_DOMAIN` empty the route
+  answers only 404s, and a value that is not a plain hostname stops HQ with the reason.
 - `COMPOSE_PROFILES=caddy`, `HQ_DOMAIN=hq.tico.team`, `HQ_CLIENT_IP_HEADER=X-Forwarded-For`: HTTPS on ports 80 and 443 of a
   host of its own.
 
-Then check `curl -fsS https://hq.tico.team/v1/stats` and `curl -fsS https://hq.tico.team/v1/latest`.
+Then check `curl -fsS https://hq.tico.team/v1/stats` and `curl -fsS https://hq.tico.team/v1/latest`. Through the
+tunnel, a 404 means `HQ_DOMAIN` is empty or names another host, and a 503 means cloudflared runs without the route:
+`docker compose -f hq/compose.yaml logs cloudflared` says "No ingress rules" (it was started without `--config`) or
+"permission denied" (the file it reads is not world-readable).
 
 **Backups** are optional: add `,backup` to `COMPOSE_PROFILES` and set `HQ_BACKUP_URL` (and `HQ_BACKUP_ENDPOINT`,
 `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` for R2 or MinIO). Litestream copies `hq.db` continuously;
@@ -101,5 +111,7 @@ restoring is the command at the top of `hq/litestream.yml`. Update HQ with `git 
 
 `backend/tests/test_usage_count.py` (the payload has exactly the four fields; nothing is sent when off by
 `TICO_TELEMETRY`, `DO_NOT_TRACK`, the toggle, demo mode or before the notice; HQ down falls back to GitHub; debug sends
-nothing; owner-only controls) and `hq/tests/test_hq.py` (no address stored or logged; bad input refused; the stats math,
-suppression and retention; no start without the key). They add about ten seconds to the suite.
+nothing; owner-only controls), `hq/tests/test_hq.py` (no address stored or logged; bad input refused; the stats math,
+suppression and retention; no start without the key) and `hq/tests/test_tunnel.py` (the tunnel's route names `HQ_DOMAIN`,
+ends in a 404, is world-readable, and refuses a domain that is not a plain hostname). They add about ten seconds to the
+suite.

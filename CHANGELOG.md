@@ -56,7 +56,9 @@ All notable changes to Tico are recorded here. The format follows
 - **`hq/`, the collector**, a separate service (its own FastAPI app, SQLite database, image and `hq/compose.yaml`, never part of a
   customer's Tico; it will not start without `TICO_HQ_KEY`). It stores an install ID, first and last seen, the last version
   and the last day each flag was true, deletes rows after 13 months, uses the address only in memory for a rate limit, and
-  publishes aggregates at `/v1/stats`.
+  publishes aggregates at `/v1/stats`. Its `cloudflared` front door always runs with a route HQ writes at start (`HQ_DOMAIN`
+  to `http://hq:8770`, a 404 for the rest, world-readable for cloudflared's non-root user), so a locally managed tunnel
+  serves HQ instead of answering 503; a route set in the Cloudflare dashboard still wins.
 
 ### Changed
 - **`hub kpi add` takes the KPI's name first.** `hub kpi add "<name>" [--goal ID]` makes a standalone KPI and links it when

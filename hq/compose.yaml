@@ -7,8 +7,9 @@
 # The service listens on 127.0.0.1:8770. Give it its own public hostname with ONE of the profiles below, and do not put
 # it behind Cloudflare Access: installs call it without signing in. A proxy that logs requests would log the query
 # string (the install ID), so leave that logging off there too.
-#   COMPOSE_PROFILES=cloudflared   an HQ-only tunnel (HQ_TUNNEL_TOKEN); route the hostname to http://hq:8770.
-#                                  Use this next to a Tico that already holds ports 80 and 443.
+#   COMPOSE_PROFILES=cloudflared   an HQ-only tunnel (HQ_TUNNEL_TOKEN, HQ_DOMAIN). HQ writes the tunnel's route at every
+#                                  start: HQ_DOMAIN to http://hq:8770, anything else a 404. Use this next to a Tico
+#                                  that already holds ports 80 and 443.
 #   COMPOSE_PROFILES=caddy         automatic HTTPS for HQ_DOMAIN on ports 80 and 443 (a host of its own).
 #   COMPOSE_PROFILES=backup        add to either: Litestream copies the database to HQ_BACKUP_URL.
 name: tico-hq
@@ -32,8 +33,12 @@ services:
       # (cloudflared). Used only for the in-memory rate limit. Empty: the connection's own address.
       HQ_CLIENT_IP_HEADER: ${HQ_CLIENT_IP_HEADER:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # The public hostname: the tunnel's route (cloudflared) and the certificate (caddy).
+      HQ_DOMAIN: ${HQ_DOMAIN:-}
     volumes:
       - hq-data:/data
+      # The cloudflared service's route, written by HQ at every start (hq/tunnel.py). No secret in it.
+      - hq-tunnel:/tunnel
     ports: ["127.0.0.1:8770:8770"]
 
   caddy:
@@ -47,14 +52,21 @@ services:
     volumes: [caddy-data:/data, caddy-config:/config]
     depends_on: [hq]
 
+  # Always run with the route HQ writes (HQ_DOMAIN to http://hq:8770, a 404 for the rest): a tunnel run with only its
+  # token and no route of its own (a locally managed one) logs "No ingress rules" and answers 503. A tunnel whose Public
+  # Hostname is set in the Cloudflare dashboard keeps that route: cloudflared prefers what Cloudflare holds. The file is
+  # world-readable (0644 in a 0755 volume) because cloudflared runs as its own non-root user; it holds no secret.
   cloudflared:
     <<: *hardening
     profiles: [cloudflared]
     image: cloudflare/cloudflared:2026.7.3
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate --config /tunnel/cloudflared.yml run
     environment:
       TUNNEL_TOKEN: ${HQ_TUNNEL_TOKEN:-}
-    depends_on: [hq]
+    volumes:
+      - hq-tunnel:/tunnel:ro
+    depends_on:
+      hq: {condition: service_healthy}
 
   # Optional backups of the one SQLite file, continuously, to any S3-compatible bucket (the same tool the Tico server
   # uses). Set HQ_BACKUP_URL=s3://bucket/path and, for R2 or MinIO, HQ_BACKUP_ENDPOINT. Restore: see docs/telemetry.md.
@@ -75,5 +87,6 @@ services:
 
 volumes:
   hq-data:
+  hq-tunnel:
   caddy-data:
   caddy-config:

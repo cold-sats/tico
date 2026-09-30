@@ -6,6 +6,7 @@ import sys
 
 import uvicorn
 
+from . import tunnel
 from .app import create_app
 from .db import Database
 from .releases import RELEASES_URL, Latest
@@ -16,6 +17,7 @@ def main():
     if len(key) < 16:
         sys.exit("tico-hq: set TICO_HQ_KEY to a string of at least 16 characters to run the collector. It is not part "
                  "of a Tico server and does nothing until you turn it on on purpose (docs/telemetry.md).")
+    tunnel.prepare()                    # the cloudflared profile's route, when its volume is mounted
     db = Database(os.environ.get("HQ_DB", "/data/hq.db"))
     latest = Latest(os.environ.get("HQ_RELEASES_URL", "") or RELEASES_URL, os.environ.get("GITHUB_TOKEN", ""))
     app = create_app(db, latest, client_ip_header=os.environ.get("HQ_CLIENT_IP_HEADER", ""))
