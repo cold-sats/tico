@@ -598,6 +598,25 @@ class Assignment(Contract):
     on_behalf_of: ID | None = None
 
 
+class AgentPairingCreate(Contract):
+    """A Hermes profile asking to be paired with a bot (backend/agents.py). No sign-in: what it says is only
+    shown to the person who approves the code. A newer connector's extra fields are ignored."""
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    profile: str = Field(default="", max_length=100)
+    harness: Literal["hermes"] = "hermes"
+    host: str = Field(default="", max_length=100)
+    version: str = Field(default="", max_length=100)
+
+
+class AgentPairingApprove(Contract):
+    code: str = Field(min_length=4, max_length=20)
+    bot: ID
+
+
+class AgentPairingDecline(Contract):
+    code: str = Field(min_length=4, max_length=20)
+
+
 class AgentHeartbeat(Contract):
     """What an external agent (a Hermes profile) says about itself when it reports in.
     Nothing here is trusted for authorization; it is what the bot page shows."""
@@ -702,6 +721,9 @@ class BotDefinitionCreate(Contract):
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
+    # A Hermes bot's agent keeps its credential after the bot is archived and keeps reporting in to a bot that
+    # no longer answers; revoking it with the archive is the default (backend/agents.py).
+    revoke_agent: bool = True
     # BotOps applying a person's own request, as for a definition change (backend/app.py).
     on_behalf_of: ID | None = None
 

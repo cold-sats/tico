@@ -10,6 +10,7 @@ One row per bot in `agents`: the credential's hash and the last heartbeat. Rotat
 credential replaces the hash; revoking keeps the row so the page can say who revoked it.
 """
 
+import hmac
 import secrets
 
 from .harnesses import is_external, resolve_harness
@@ -18,6 +19,17 @@ from .store import H, Problem, digest, encode
 # The agent's timer posts every minute; three misses is offline. A Mac runner is offline after
 # 60 s because its heartbeat is every 15 s and a lease depends on it; nothing here does.
 PRESENCE_GAP = 180
+
+# Pairing: a profile with no credential asks to be connected, and a person (or BotOps for them) approves
+# the code it prints. Only hashes of the code and the secret are kept; the minted credential waits in the
+# row from approval until the profile collects it, once.
+PAIRING_TTL = 600
+PAIRING_POLL_EVERY = 3
+PAIRINGS_PER_CLIENT_HOUR = 10
+PAIRINGS_PENDING_MAX = 20
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"         # no 0/O/1/I/L
+# How long after an archived bot's agent last used its credential the issue stays on Health.
+ARCHIVED_WINDOW = 3600
 
 
 def external_harness(c, bot):
@@ -99,6 +111,110 @@ def heartbeat(c, who, body):
             "waiting": {"messages": len(inbox["messages"]), "tasks": len(inbox["tasks"])}}
 
 
+def _code(value):
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def create_pairing(c, body, client):
+    """A profile asks to be paired. Returns what only the profile keeps: the code to read out and the secret."""
+    now = H.now()
+    c.execute("DELETE FROM agent_pairings WHERE expires_at<?", (H.shift(now, hours=-24),))
+    # Whatever is unclaimed and past its time stops holding a credential.
+    c.execute("UPDATE agent_pairings SET state='expired',token=NULL WHERE expires_at<=? AND state IN ('pending','approved')",
+              (now,))
+    client_hash = digest("pairing-client:" + client)
+    if c.execute("SELECT count(*) FROM agent_pairings WHERE client_hash=? AND created>?",
+                 (client_hash, H.shift(now, hours=-1))).fetchone()[0] >= PAIRINGS_PER_CLIENT_HOUR:
+        raise Problem("rate_limited", "Too many pairing requests from this address; try again in an hour", 429, retryable=True)
+    if c.execute("SELECT count(*) FROM agent_pairings WHERE state='pending'").fetchone()[0] >= PAIRINGS_PENDING_MAX:
+        raise Problem("rate_limited", "Too many pairings are waiting; try again in a few minutes", 429, retryable=True)
+    secret = secrets.token_urlsafe(32)
+    pairing_id = H.new_id()
+    for _ in range(20):
+        raw = "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
+        if not c.execute("SELECT 1 FROM agent_pairings WHERE code_hash=?", (digest(raw),)).fetchone():
+            break
+    else:
+        raise Problem("unavailable", "Could not make a pairing code; try again", 503, retryable=True)
+    c.execute("INSERT INTO agent_pairings(id,code_hash,secret_hash,profile,host,version,harness,client_hash,created,expires_at) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?)",
+              (pairing_id, digest(raw), digest(secret), body.profile, body.host, body.version, body.harness,
+               client_hash, now, H.shift(now, seconds=PAIRING_TTL)))
+    return {"pairing_id": pairing_id, "code": raw[:4] + "-" + raw[4:], "secret": secret,
+            "expires_in": PAIRING_TTL, "poll_every": PAIRING_POLL_EVERY}
+
+
+def poll_pairing(c, pairing_id, secret):
+    """What the profile sees. The credential is handed over exactly once; a wrong secret is a 404."""
+    record = c.execute("SELECT * FROM agent_pairings WHERE id=?", (pairing_id,)).fetchone()
+    if not record or not hmac.compare_digest(record["secret_hash"], digest(secret or "")):
+        raise Problem("not_found", "No such pairing", 404)
+    state = record["state"]
+    if state in ("pending", "approved") and record["expires_at"] <= H.now():
+        c.execute("UPDATE agent_pairings SET state='expired',token=NULL WHERE id=?", (pairing_id,))
+        return {"state": "expired"}
+    if state == "approved":
+        token = record["token"]
+        c.execute("UPDATE agent_pairings SET state='claimed',token=NULL WHERE id=?", (pairing_id,))
+        return {"state": "approved", "bot": record["bot"], "token": token}
+    return {"state": state}
+
+
+def _pending(c, code):
+    record = c.execute("SELECT * FROM agent_pairings WHERE code_hash=? AND state='pending' AND expires_at>?",
+                       (digest(_code(code)), H.now())).fetchone() if len(_code(code)) == 8 else None
+    if not record:
+        raise Problem("not_found", "That code is not valid or has expired. Run the pair command again for a new one", 404)
+    return record
+
+
+def approve_pairing(c, who, manager, code, bot):
+    """A person who may manage the bot approves a profile's code: the bot's standing credential is minted (the one
+    Create credential makes, replacing any earlier one) and held for the profile to collect."""
+    if who.role not in ("owner", "human"):
+        raise Problem("forbidden", "Only a person approves a pairing", 403)
+    record = _pending(c, code)
+    if not H.bot(c, bot):
+        raise Problem("not_found", "Bot not found", 404)
+    manager(c, who, bot)
+    state = H.bot(c, bot)["state"]
+    if external_harness(c, bot) != "hermes":
+        raise Problem("harness", "Only a bot run by a Hermes profile can be paired; register it with the model "
+                      "hermes first", 422)
+    if state not in ("planned", "active"):
+        raise Problem("bot_state", "This bot is " + state + "; make it planned or active first", 409)
+    issued = issue_credential(c, who, bot)
+    c.execute("UPDATE agent_pairings SET state='approved',bot=?,token=?,decided_by=?,decided_at=? WHERE id=?",
+              (bot, issued["token"], who.actor, H.now(), record["id"]))
+    H.event(c, who.actor, "agent.pairing_approved", bot, {"profile": record["profile"], "host": record["host"]})
+    return {"bot": bot, "profile": record["profile"], "host": record["host"]}
+
+
+def decline_pairing(c, who, code):
+    if who.role not in ("owner", "human"):
+        raise Problem("forbidden", "Only a person declines a pairing", 403)
+    record = _pending(c, code)
+    c.execute("UPDATE agent_pairings SET state='declined',decided_by=?,decided_at=? WHERE id=?",
+              (who.actor, H.now(), record["id"]))
+    H.event(c, who.actor, "agent.pairing_declined", record["profile"] or record["id"], {"host": record["host"]})
+    return {"declined": True, "profile": record["profile"], "host": record["host"]}
+
+
+def note_archived(store, bot):
+    """An archived bot's agent used its still-valid credential: Health says so until it stops or is revoked."""
+    with store.transaction() as c:
+        c.execute("UPDATE agents SET archived_seen=? WHERE bot=? AND revoked_at IS NULL", (H.now(), bot))
+
+
+def still_reporting(c, bot):
+    """The agent record of an archived bot whose credential still works and was used lately, else None."""
+    record = row(c, bot)
+    if (record and not record["revoked_at"] and record["archived_seen"]
+            and record["archived_seen"] > H.shift(H.now(), seconds=-ARCHIVED_WINDOW)):
+        return record
+    return None
+
+
 def listing(c, who, auth):
     """Every external agent this person may see, for Settings."""
     out = []
@@ -127,4 +243,5 @@ def setup_snippet(url, bot, token, harness="hermes"):
 
 
 __all__ = ["PRESENCE_GAP", "external_harness", "presence", "issue_credential", "revoke_credential",
-           "heartbeat", "listing", "setup_snippet", "encode"]
+           "heartbeat", "listing", "setup_snippet", "encode", "create_pairing", "poll_pairing",
+           "approve_pairing", "decline_pairing", "note_archived", "still_reporting"]

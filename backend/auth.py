@@ -112,6 +112,10 @@ def validate_identity(c, who):
         if not record or record["revoked_at"]:
             raise Problem("revoked", "Agent credential is revoked or unknown", 401)
         state = (H.bot(c, H.actor_id(who.actor)) or {}).get("state")
+        if state == "archived":
+            # A stable code the connector recognises; `bot` lets Health say the agent is still reporting in.
+            raise Problem("bot_archived", "This bot is archived. Restore it in Settings > Bots, or revoke its "
+                          "credential", 409, extra={"bot": H.actor_id(who.actor)})
         if state != "active":
             raise Problem("paused", "This bot is " + str(state or "unknown") + ", not active; "
                           "a person changes that in Settings", 409)

@@ -281,7 +281,12 @@ def create_app(settings=None):
             # SCIM carries its own bearer token, which an identity provider holds (backend/scim.py).
             if request.url.path.startswith("/scim/v2/"):
                 return await call_next(request)
-            if request.url.path != "/api/v2/runners/enroll":
+            # A Hermes profile with no credential pairs itself (backend/agents.py): it asks for a code, polls with its own
+            # secret, and fetches the open-source connector it runs. The person's approval is the authenticated step.
+            agent_door = (request.url.path == "/api/v2/agents/pairings" and request.method == "POST"
+                          or request.url.path.startswith("/api/v2/agents/pairings/") and request.method == "GET"
+                          or request.url.path == "/api/v2/agents/setup-script" and request.method == "GET")
+            if request.url.path != "/api/v2/runners/enroll" and not agent_door:
                 began = time.perf_counter()
                 who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers,
                                                                        request.url.path, request.method)
@@ -377,6 +382,9 @@ def create_app(settings=None):
                 response.headers["Strict-Transport-Security"] = "max-age=31536000"
             return response
         except Problem as exc:
+            if exc.code == "bot_archived" and exc.extra.get("bot"):
+                # The archived bot's agent is still using its credential: Health says so (views.operation_issues).
+                await asyncio.get_running_loop().run_in_executor(None, agents.note_archived, store, exc.extra["bot"])
             # A browser opening a page goes to the login screen; API calls keep their 401.
             path = request.url.path
             if (exc.status == 401 and auth.proxy and auth.proxy.name == "oidc"
@@ -2170,6 +2178,17 @@ def create_app(settings=None):
             return result
         return mutate(request, body, work)
 
+    @app.post("/api/v2/bots/{bot}/restore")
+    def restore_bot(request: Request, bot: str, body: M.Empty):
+        """Bring an archived bot back: the owner, an admin or the bot's owner, to the status it had, else planned."""
+        who = request.state.identity
+        def work(c):
+            result = settings_admin.restore(c, who, bot)
+            if rooms.thread_mode(c, bot) == rooms.SHARED:
+                rooms.sync_shared_room(c, auth, bot, actor=who.actor, create=True)
+            return result
+        return mutate(request, body, work)
+
     DELEGATION_DAYS = 7               # the message that started the turn (a queued turn may wait)
     DELEGATION_CITED_HOURS = 24       # a message cited by id
 
@@ -2669,7 +2688,9 @@ def create_app(settings=None):
         who = request.state.identity
 
         def work(c):
-            placed = place_now(c, who, bot, body.computer)
+            # An external agent (a Hermes profile) has a credential, not a computer.
+            placed = ({"computer": None, "placed": False} if agents.external_harness(c, bot)
+                      else place_now(c, who, bot, body.computer))
             if placed.get("proposed"):
                 return placed                     # a computer that needs the person's own click: nothing else yet
             row = H.bot(c, bot)
@@ -2714,6 +2735,12 @@ def create_app(settings=None):
             if not H.bot(c, bot):
                 raise Problem("not_found", "Bot not found", 404)
             issued = agents.issue_credential(c, who, bot)
+            if who.via == "botops":
+                # A token never reaches BotOps's model. The old one has stopped; the profile pairs again and the
+                # person's approval (BotOps can give it) hands the new one to the profile.
+                return {"bot": bot, "harness": issued["harness"], "created": issued["created"], "rotated": True,
+                        "detail": "The previous credential has stopped working. The token is not shown here: run "
+                                  "`python3 hermes_agent.py pair` on the profile's computer and approve its code."}
             # Machine credentials bypass the person sign-in at the runner hostname, the same
             # address runners enroll at; the public one would answer with the login page.
             return {**issued, "setup": agents.setup_snippet(settings.runner_url, bot, issued["token"],
@@ -2744,9 +2771,37 @@ def create_app(settings=None):
 
     @app.get("/api/v2/agents/setup-script", response_class=PlainTextResponse)
     def agent_setup_script(request: Request):
-        """The one-file installer the agent's box downloads (clients/hermes_agent.py). Any
-        credential may fetch it; it holds no secret."""
+        """The one-file connector the agent's box downloads (clients/hermes_agent.py). Open source, holds no
+        secret, and needs no sign-in: a profile with no credential yet fetches it to pair."""
         return (Path(__file__).resolve().parents[1] / "clients" / "hermes_agent.py").read_text()
+
+    def client_address(request):
+        """Who is asking, for the pairing rate limit: the address the front door saw, else the connection's."""
+        forwarded = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[-1]
+        return (forwarded or (request.client.host if request.client else "")).strip() or "unknown"
+
+    # Pairing (docs/hermes-agents.md): the first two calls need no sign-in; approving and declining are a person's,
+    # or BotOps's as the person who asked it.
+    @app.post("/api/v2/agents/pairings", status_code=201)
+    def agent_pairing_create(request: Request, body: M.AgentPairingCreate):
+        with store.transaction() as c:
+            return agents.create_pairing(c, body, client_address(request))
+
+    @app.get("/api/v2/agents/pairings/{pairing_id}")
+    def agent_pairing_poll(request: Request, pairing_id: str):
+        with store.transaction() as c:
+            result = agents.poll_pairing(c, pairing_id, request.headers.get("x-pairing-secret", ""))
+        return {**result, "url": settings.runner_url} if result["state"] == "approved" else result
+
+    @app.post("/api/v2/agents/pairings/approve")
+    def agent_pairing_approve(request: Request, body: M.AgentPairingApprove):
+        who = request.state.identity
+        return mutate(request, body, lambda c: agents.approve_pairing(c, who, settings_admin._manager, body.code, body.bot))
+
+    @app.post("/api/v2/agents/pairings/decline")
+    def agent_pairing_decline(request: Request, body: M.AgentPairingDecline):
+        who = request.state.identity
+        return mutate(request, body, lambda c: agents.decline_pairing(c, who, body.code))
 
     @app.post("/api/v2/bots/{bot}/owners")
     def owners(request: Request, bot: str, body: M.BotOwners):

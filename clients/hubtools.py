@@ -1209,11 +1209,13 @@ def audience(value):
       "also builds its repository on this computer; this tool is only the record.",
       {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
        "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
-       "template": _s("A template from hub_template_list, if it is built from one")},
+       "template": _s("A template from hub_template_list, if it is built from one"),
+       "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the company's default")},
       required=("slug",), writes=True)
 def bot_register(api, args):
     body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
-            "reports_to": args.get("reports_to") or None, "template": args.get("template") or "", **_for_person(api)}
+            "reports_to": args.get("reports_to") or None, "template": args.get("template") or "",
+            **({"model": args["model"]} if args.get("model") else {}), **_for_person(api)}
     return api.post("bots/register", body, key=_key(args))
 
 
@@ -1371,6 +1373,30 @@ def bot_place(api, args):
 def bot_go_live(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/go-live", {"computer": args.get("computer") or "",
                                                               "setup": args.get("setup", True)}, key=_key(args))
+
+
+@tool("hub_bot_restore", "Bring an archived bot back, as the person who asked you (its owner or an admin): to the status it had "
+      "when it was archived, else planned. Its routines are not restored. For a Hermes bot the answer says whether its agent "
+      "credential still works.",
+      {"bot": _s("The archived bot's slug")}, required=("bot",), writes=True)
+def bot_restore(api, args):
+    return _as_person(api).post(f"bots/{args['bot']}/restore", {}, key=_key(args))
+
+
+@tool("hub_agent_pair_approve", "Connect a Hermes profile to a bot, as the person who asked you (the bot's owner or an admin): "
+      "the profile printed a code like K7QM-4F2P when it asked to pair. The bot must use the hermes harness (planned or active). "
+      "The bot's agent credential is made and goes to the profile itself; it is never shown here. Answers the profile name and "
+      "host, so check them with the person.",
+      {"code": _s("The pairing code the profile printed, like K7QM-4F2P"), "bot": _s("The bot's slug")},
+      required=("code", "bot"), writes=True)
+def agent_pair_approve(api, args):
+    return _as_person(api).post("agents/pairings/approve", {"code": args["code"], "bot": args["bot"]}, key=_key(args))
+
+
+@tool("hub_agent_pair_decline", "Turn down a Hermes profile's pairing code, as the person who asked you. The profile is told.",
+      {"code": _s("The pairing code the profile printed")}, required=("code",), writes=True)
+def agent_pair_decline(api, args):
+    return _as_person(api).post("agents/pairings/decline", {"code": args["code"]}, key=_key(args))
 
 
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
@@ -2110,7 +2136,7 @@ AUDIENCE = {
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import")},
-    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
+    **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
@@ -2160,6 +2186,41 @@ def listing(local=False, kind=None):
     when the kind is not known)."""
     return [{"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}
             for t in TOOLS if (local or not t.get("local")) and (kind is None or kind in offered_to(t))]
+
+
+# The tools Tico 0.2.21 renamed outright (CHANGELOG 0.2.21, Breaking changes). A call by an old name is answered with the new
+# one. A family renamed by prefix (`hub_docs_*` is `hub_doc_*`) is answered only when the new name exists.
+RENAMED_TOOLS = {
+    "hub_say": "hub_message_send", "hub_notice": "hub_message_send", "hub_inbox": "hub_message_list",
+    "hub_ack": "hub_message_mark_read", "hub_history": "hub_conversation_show",
+    "hub_ask": "hub_question_ask", "hub_answer": "hub_question_answer",
+    "hub_board": "hub_task_list", "hub_task_stuck": "hub_task_list",
+    "hub_goals": "hub_goal_list", "hub_goal_auto": "hub_goal_status", "hub_kpi_add": "hub_kpi_create",
+    "hub_context_search": "hub_doc_search", "hub_context_show": "hub_doc_read",
+    "hub_meetings_transcript": "hub_meeting_read",
+    "hub_bot_register": "hub_bot_create", "hub_bot_set": "hub_bot_update", "hub_bot_onboarded": "hub_bot_setup_done",
+    "hub_turns": "hub_run_list", "hub_fleet": "hub_health_check", "hub_fleet-check": "hub_health_check",
+    "hub_fleet_check": "hub_health_check", "hub_computers": "hub_computer_list", "hub_catalog": "hub_template_list",
+    "hub_routine_on": "hub_routine_update", "hub_routine_off": "hub_routine_update", "hub_org": "hub_team_show",
+    "hub_updates": "hub_update_list", "hub_integrations": "hub_tool_list", "hub_integration": "hub_tool_show",
+    "hub_queries": "hub_tool_query_search", "hub_learn": "hub_tool_learn", "hub_decisions": "hub_decision_ask",
+    "hub_judge": "hub_decision_ask", "hub_listen_judge": "hub_listening_decide",
+}
+RENAMED_PREFIXES = (("hub_docs_", "hub_doc_"), ("hub_files_", "hub_file_"), ("hub_meetings_", "hub_meeting_"),
+                    ("hub_status_", "hub_bot_status_"), ("hub_people_", "hub_human_"), ("hub_person_", "hub_human_"),
+                    ("hub_tools_", "hub_tool_"), ("hub_batch_", "hub_needs_you_"), ("hub_listen_", "hub_listening_"),
+                    ("hub_intake_", "hub_listening_item_"))
+
+
+def renamed_to(name):
+    """The current name of a tool Tico 0.2.21 renamed, or None."""
+    name = str(name or "")
+    if name in RENAMED_TOOLS:
+        return RENAMED_TOOLS[name]
+    for old, new in RENAMED_PREFIXES:
+        if name.startswith(old) and new + name[len(old):] in BY_NAME:
+            return new + name[len(old):]
+    return None
 
 
 def error_payload(exc):
@@ -2217,6 +2278,9 @@ class Protocol:
     def _call(self, rid, params):
         name, args = params.get("name"), params.get("arguments") or {}
         entry = BY_NAME.get(name)
+        if not entry and (new := renamed_to(name)):
+            return self._tool_error(rid, {"error": "renamed", "detail": f"`{name}` was renamed `{new}` in Tico 0.2.21.",
+                                          "renamed_to": new, "retryable": False})
         if not entry or (entry.get("local") and not self.local):
             return self._error(rid, -32602, f"Unknown tool: {name}")
         if not isinstance(args, dict):

@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS agents(
  created TEXT NOT NULL, created_by TEXT NOT NULL, last_seen TEXT, version TEXT, platform TEXT,
  model TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT '', profile TEXT NOT NULL DEFAULT '',
  detail TEXT NOT NULL DEFAULT '', revoked_at TEXT, revoked_by TEXT);
+-- A Hermes profile asking to be connected to a bot (backend/agents.py): the code a person
+-- reads out, the hash of the secret only the profile knows, and, from approval until the
+-- profile collects it once, the minted credential.
+CREATE TABLE IF NOT EXISTS agent_pairings(
+ id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, secret_hash TEXT NOT NULL,
+ profile TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '', version TEXT NOT NULL DEFAULT '',
+ harness TEXT NOT NULL DEFAULT 'hermes', client_hash TEXT NOT NULL DEFAULT '',
+ state TEXT NOT NULL DEFAULT 'pending', bot TEXT, token TEXT,
+ created TEXT NOT NULL, expires_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT);
+CREATE INDEX IF NOT EXISTS agent_pairings_client ON agent_pairings(client_hash, created);
 CREATE TABLE IF NOT EXISTS runners(
  id TEXT PRIMARY KEY, label TEXT NOT NULL, operator TEXT NOT NULL REFERENCES humans(id),
  token_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, last_seen TEXT,
@@ -522,6 +532,8 @@ class Store:
                 # `onboarded`; NULL for every other bot (backend/onboarding.py).
                 H.add_column(c, "bot_config", "onboarding_state", "TEXT")
                 H.add_column(c, "settings_changes", "via", "TEXT")
+                # When an archived bot's agent last used its still-valid credential (backend/agents.py).
+                H.add_column(c, "agents", "archived_seen", "TEXT")
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=1").fetchone():
                     H.add_column(c, "tasks", "version", "INTEGER NOT NULL DEFAULT 1")
                     H.add_column(c, "tasks", "acceptance_json", "TEXT NOT NULL DEFAULT '[]'")
@@ -898,6 +910,10 @@ class Store:
                     from . import statuses as _statuses
                     _statuses.migrate(c)
                     c.execute("INSERT INTO cloud_migrations VALUES(45,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=46").fetchone():
+                    # Hermes pairing (backend/agents.py): CREATE TABLE IF NOT EXISTS above installs
+                    # agent_pairings; the marker makes the contract visible to release checks.
+                    c.execute("INSERT INTO cloud_migrations VALUES(46,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,
