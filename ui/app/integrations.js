@@ -86,6 +86,8 @@ async function intCredOpen(service) {
   intCredPaint();
 }
 async function pageIntegrations() {
+  // A redraw of the Tools page already on screen keeps the connect forms while someone is typing in them.
+  if (!S.route.startsWith(INTEGRATIONS + '/') && $('#int-list') && formBusy($('#main'))) return;
   const load = ++INT_LOAD;
   const service = S.route.startsWith(INTEGRATIONS + '/') ? decodeURIComponent(S.route.slice(INTEGRATIONS.length + 1)) : '';
   if (!service) {

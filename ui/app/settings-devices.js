@@ -55,12 +55,14 @@ async function renderSettingsTokens() {
   const table = live.length ? `<div class="scroll"><table class="settings-table"><thead><tr><th>Label</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>${live.map(row =>
     `<tr data-token-row="${esc(row.id)}"><td><strong>${esc(row.label)}</strong></td><td>${esc(ago(row.created))}</td><td>${row.last_used ? esc(ago(row.last_used)) : '<span class="muted">never</span>'}</td><td>${row.expires_at ? esc(new Date(row.expires_at).toLocaleDateString()) : '<span class="muted">never</span>'}</td><td>${state(row)}</td><td><button class="ghost" type="button" data-token-revoke="${esc(row.id)}" data-token-label="${esc(row.label)}">Revoke</button></td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty">No tokens yet.</div>';
-  el.innerHTML = `${table}
+  // Only the list is redrawn; the form under it keeps what is being typed.
+  if (!el.querySelector('#settings-token-form')) el.innerHTML = `<div data-tokens-list></div>
     <form class="row settings-token-form" id="settings-token-form">
       <label>Label <input name="label" type="text" required maxlength="80" autocomplete="off" placeholder="CI script" aria-label="Token label"></label>
       <label>Expires in <input name="days" type="number" inputmode="numeric" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
       <button class="primary" type="submit">New token</button>
     </form>`;
+  el.querySelector('[data-tokens-list]').innerHTML = table;
   el.querySelectorAll('[data-token-revoke]').forEach(button => { button.onclick = () => void settingsTokenRevoke(button.dataset.tokenRevoke, button.dataset.tokenLabel); });
   const form = el.querySelector('#settings-token-form');
   form.onsubmit = async event => {
@@ -70,6 +72,7 @@ async function renderSettingsTokens() {
     const button = form.querySelector('button[type=submit]'); button.disabled = true;
     try {
       const issued = await post('/v2/me/tokens', {label, expires_in_days: days});
+      form.reset();
       settingsTokenShow(issued);
     } catch (error) { toast(error.message, true); button.disabled = false; }
   };
@@ -206,14 +209,17 @@ function renderSettingsMachines() {
       <td>${esc(settingsPersonName(S.emps.find(row => row.name === agent.bot)?.operator))}</td>
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
-  el.innerHTML = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Owner</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
-    ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
+  const list = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Owner</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
+    ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}`;
+  // Only the list is redrawn; the Add computer form (and the code it shows) keeps what was typed.
+  if (!el.querySelector('.machine-enroll')) el.innerHTML = `<div data-machines-list></div>
     <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Computer owner">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
       <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option></select>
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <p class="machine-enroll-status" id="machine-enroll-status"></p></div>`;
+  el.querySelector('[data-machines-list]').innerHTML = list;
   const machineDefaultLabel = () => `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#machine-kind').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };

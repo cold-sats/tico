@@ -29,6 +29,10 @@ const MESSAGING = '#/messaging';       // selected Message bot: setup, schedules
 // Bot notices still flow through /api/v2/inbox. People read mail on #/mail, not live Gmail.
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// A person is typing in `el`: a text field has focus or holds something other than its default. A poll or
+// a same-route redraw must leave such a form alone (checkboxes and selects save when changed, so they do not count).
+const formBusy = el => !!el && [...el.querySelectorAll('textarea, input:not([type=checkbox], [type=radio], [type=hidden], [type=button], [type=submit])')]
+  .some(field => field === document.activeElement || field.value !== field.defaultValue);
 // Bot text (final replies, status notes, playbooks) is untrusted: every render goes through safeMd.
 const md = s => safeMd(s);
 // bucket objects are only reachable through the presign redirect; markdown may name them as s3:// URIs
