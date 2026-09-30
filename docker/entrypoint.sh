@@ -138,6 +138,8 @@ seed() {
     fi
     if [ -s "$TICO_DB" ]; then
       python -m backend.replication restore-blobs || log "could not restore attachments; run: docker compose run --rm server restore --force"
+      # The key that decrypts the stored credentials (docs/credential-vault.md); a database without it cannot.
+      python -m backend.replication restore-credential-key || log "could not restore the credential key; see docs/credential-vault.md"
     else
       python -m backend.replication check-new-company "$DATA" ${restore_failed[@]+"${restore_failed[@]}"} ${guard[@]+"${guard[@]}"} \
         || die "refusing to start with an empty data volume (see above)"
@@ -265,6 +267,10 @@ restore() {
   litestream restore -if-replica-exists -config "$LITESTREAM_CONFIG" "$TICO_DB"
   [ -s "$TICO_DB" ] || die "the backup holds no database"
   python -m backend.replication restore-blobs
+  # With --force the database above was kept aside; the key that goes with it is put back too (a different one already
+  # here is kept aside as credential.key.before-restore.*).
+  python -m backend.replication restore-credential-key $([ "$force" = 1 ] && echo --replace) \
+    || log "could not restore the credential key; see docs/credential-vault.md"
   python - <<'PY'
 import os, sqlite3
 if sqlite3.connect(os.environ["TICO_DB"]).execute("PRAGMA integrity_check").fetchone()[0] != "ok":

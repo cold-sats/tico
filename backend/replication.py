@@ -1,8 +1,13 @@
-"""Off-volume copies of what Litestream does not carry: the attachments in /data/blobs.
+"""Off-volume copies of what Litestream does not carry: the attachments in /data/blobs and the local credential key.
 
 It also reports how the install is backed up. The container entrypoint decides the mode and exports it;
 a loop next to the server keeps the blobs mirrored and writes the time the copies last moved to a status
 file the server reads. Blobs are content-addressed and immutable, so a sync only ever adds files.
+
+The credential key (/data/credential.key, backend/credentials.py) is what decrypts the stored credentials when no AWS KMS
+key is set, and a restored database without it cannot. It is copied to the same place as everything else, and only there:
+never logged, never in the status file, never in a message. The status keeps when it was copied and the file's size and
+modification time, not the key or anything derived from it.
 """
 
 import hashlib
@@ -29,6 +34,10 @@ FILES_PREFIX = "files"
 # new company, so an unreachable backup can never turn into a blank company replicating over the real one.
 MARKER = "environment.json"
 LOCAL_MARKER = ".tico-environment"
+# The local credential key and where its copy goes in the backup location (beside files/, not inside a replica level).
+CREDENTIAL_KEY = "credential.key"
+CREDENTIAL_KEY_COPY = "credential-key/" + CREDENTIAL_KEY
+CREDENTIAL_KEY_BYTES = 32
 
 
 def rehearsal_on(env=None):
@@ -62,8 +71,43 @@ def _now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def credential_key_path(env):
+    return Path(env.get("TICO_CREDENTIAL_KEY_FILE") or Path(env.get("TICO_DB") or "/data/hub.sqlite").parent / CREDENTIAL_KEY)
+
+
+def credential_key_stamp(path):
+    """Size and modification time of the key file: enough to know it changed, and nothing of the key itself."""
+    try:
+        info = Path(path).stat()
+    except OSError:
+        return ""
+    return "%d:%d" % (info.st_size, info.st_mtime_ns)
+
+
+def local_key_in_use(env, path=None):
+    """A local credential key exists and nothing else (AWS KMS) holds the credentials' data key."""
+    return not (env.get("TICO_CREDENTIAL_KMS_KEY") or "").strip() and bool(credential_key_stamp(path or credential_key_path(env)))
+
+
+def credential_key_state(env, recorded):
+    """{present, copied_at, current}: whether a local key exists, when it was last copied, and whether that copy is of
+    the file as it is now. `recorded` is what the loop wrote to the status file."""
+    present = local_key_in_use(env)
+    recorded = recorded if isinstance(recorded, dict) else {}
+    copied = str(recorded.get("copied_at") or "") or None
+    return {"present": present, "copied_at": copied if present else None,
+            "current": bool(present and copied and recorded.get("stamp") == credential_key_stamp(credential_key_path(env)))}
+
+
+def _status_file(env, path):
+    try:
+        return json.loads(Path(path or env.get("TICO_BACKUP_STATUS_FILE") or STATUS_FILE).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def status(env=None, path=None):
-    """{mode, last_replicated_at, target_kind, warning} for the config payload."""
+    """{mode, last_replicated_at, target_kind, warning, credential_key} for the config payload."""
     env = os.environ if env is None else env
     if rehearsal_on(env) or env.get("TICO_BACKUP_MODE") == "rehearsal":
         return {"mode": "rehearsal", "last_replicated_at": None, "target_kind": "none", "warning": ""}
@@ -71,18 +115,17 @@ def status(env=None, path=None):
         # Not started by the container entrypoint (a VM install, tests). VM stacks run Litestream from
         # their own service config, so absence of TICO_BACKUP_URL says nothing: report unknown, not off.
         if not env.get("TICO_BACKUP_URL"):
-            return {"mode": None, "last_replicated_at": None, "warning": "", "target_kind": "none"}
+            return {"mode": None, "last_replicated_at": None, "warning": "", "target_kind": "none",
+                    "credential_key": credential_key_state(env, None)}
         return {"mode": "remote", "last_replicated_at": None, "warning": "",
-                "target_kind": target_kind(env.get("TICO_BACKUP_URL", ""), env.get("TICO_BACKUP_ENDPOINT", ""))}
+                "target_kind": target_kind(env.get("TICO_BACKUP_URL", ""), env.get("TICO_BACKUP_ENDPOINT", "")),
+                "credential_key": credential_key_state(env, None)}
     mode = env["TICO_BACKUP_MODE"]
     kind = "none" if mode == "off" else target_kind(env.get("TICO_BACKUP_URL", ""), env.get("TICO_BACKUP_ENDPOINT", ""))
-    last = None
-    try:
-        last = json.loads(Path(path or env.get("TICO_BACKUP_STATUS_FILE") or STATUS_FILE).read_text()).get("last_replicated_at")
-    except (OSError, ValueError):
-        pass
+    saved = _status_file(env, path)
     warning = {"local-only": LOCAL_WARNING, "off": OFF_WARNING}.get(mode, "")
-    return {"mode": mode, "last_replicated_at": last, "target_kind": kind, "warning": warning}
+    return {"mode": mode, "last_replicated_at": saved.get("last_replicated_at"), "target_kind": kind, "warning": warning,
+            "credential_key": credential_key_state(env, None if mode == "off" else saved.get("credential_key"))}
 
 
 class LocalMirror:
@@ -208,6 +251,61 @@ def restore_blobs(mirror, blob_dir):
     return count
 
 
+def sync_credential_key(path, mirror, state):
+    """Copies the local credential key to the backup location when it is new or changed; returns what the status file
+    keeps ({copied_at, stamp}), or None when there is no key to copy. `state` holds the last digest copied, in memory
+    only, so an unchanged key is not sent again. Nothing here prints or returns the key."""
+    path = Path(path)
+    stamp = credential_key_stamp(path)
+    if not stamp:
+        return None
+    data = path.read_bytes()
+    if len(data) != CREDENTIAL_KEY_BYTES:
+        return None    # not a key (yet); a half-written file is never the one copy
+    digest = hashlib.sha256(data).digest()
+    if state.get("digest") != digest:
+        fd, temporary = tempfile.mkstemp(prefix=".key-")    # mode 0600
+        try:
+            with os.fdopen(fd, "wb") as out:
+                out.write(data)
+            mirror.put(CREDENTIAL_KEY_COPY, temporary)
+        finally:
+            os.unlink(temporary)
+        state["digest"] = digest
+        state["copied_at"] = _now()
+    # The stamp read before the file: if it changed while it was read, it no longer matches and is copied again.
+    return {"copied_at": state["copied_at"], "stamp": stamp}
+
+
+def restore_credential_key(mirror, path, replace=False):
+    """Puts the backed-up credential key back at `path`. Returns "restored", "kept" (a key is already there and
+    `replace` is not set, or it is the same key) or "missing" (the backup holds none). A different key already in
+    place is moved aside, never overwritten. The copy must be 32 bytes, and is written with mode 0600."""
+    path = Path(path)
+    if not mirror.exists(CREDENTIAL_KEY_COPY):
+        return "missing"
+    if path.exists() and not replace:
+        return "kept"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".restore-key-", dir=path.parent)
+    os.close(fd)
+    try:
+        mirror.get(CREDENTIAL_KEY_COPY, temporary)
+        data = Path(temporary).read_bytes()
+        if len(data) != CREDENTIAL_KEY_BYTES:
+            raise SystemExit("tico: error: the credential key in the backup is not a valid key")
+        if path.exists():
+            if path.read_bytes() == data:
+                return "kept"
+            path.rename(path.with_name(path.name + ".before-restore." + str(int(time.time()))))
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return "restored"
+
+
 def is_empty(data_dir):
     """True when nothing of an install is in the data volume."""
     root = Path(data_dir)
@@ -268,14 +366,21 @@ def check_new_company(data_dir, mirror, restore_failed=False, initialize_empty=F
     return None
 
 
-def write_status(mirror, path):
-    newest = mirror.newest(DB_LEVELS)
-    if newest is None:
+def write_status(mirror, path, credential_key=None):
+    """The time the database copy last moved, and when the credential key was last copied. The two are kept apart: a
+    round where one fails must not wipe what the other last did."""
+    saved = _status_file({}, path)
+    newest = mirror.newest(DB_LEVELS) if mirror is not None else None
+    if newest is None and credential_key is None:
         return
-    text = datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    text = datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if newest is not None \
+        else saved.get("last_replicated_at")
+    data = {"last_replicated_at": text, "checked_at": _now()}
+    if credential_key is not None or saved.get("credential_key"):
+        data["credential_key"] = credential_key if credential_key is not None else saved["credential_key"]
     fd, temporary = tempfile.mkstemp(dir=Path(path).parent)
     with os.fdopen(fd, "w") as out:
-        json.dump({"last_replicated_at": text, "checked_at": _now()}, out)
+        json.dump(data, out)
     os.replace(temporary, path)
 
 
@@ -289,6 +394,7 @@ def loop(env=None, interval=30, warn_every=3600, sleep=time.sleep, rounds=None):
     path = env.get("TICO_BACKUP_STATUS_FILE") or STATUS_FILE
     warning = status(env, path)["warning"]
     last_warned, done = 0.0, 0
+    key_path, key_state, copied = credential_key_path(env), {}, None
     while rounds is None or done < rounds:
         if warning and time.monotonic() - last_warned >= warn_every:
             print("tico: WARNING: " + warning, flush=True)
@@ -296,9 +402,18 @@ def loop(env=None, interval=30, warn_every=3600, sleep=time.sleep, rounds=None):
         try:
             if not env.get("TICO_BLOB_BUCKET"):
                 sync_blobs(blob_dir, mirror)
-            write_status(mirror, path)
         except Exception as exc:  # keep trying: the next round may find the bucket back
             print("tico: warning: backup sync failed: " + type(exc).__name__ + ": " + str(exc)[:200], flush=True)
+        try:
+            if local_key_in_use(env, key_path):
+                copied = sync_credential_key(key_path, mirror, key_state)
+        except Exception as exc:
+            # The type only: nothing about the key, or what an error might quote of it, goes in a log.
+            print("tico: warning: could not copy the credential key to the backup location: " + type(exc).__name__, flush=True)
+        try:
+            write_status(mirror, path, copied)
+        except Exception as exc:
+            print("tico: warning: backup status failed: " + type(exc).__name__ + ": " + str(exc)[:200], flush=True)
         done += 1
         sleep(interval)
 
@@ -312,6 +427,11 @@ def main(argv=None):
     elif command == "restore-blobs":
         n = restore_blobs(mirror_from_env(env), env.get("TICO_BLOB_DIR", "/data/blobs"))
         print("tico: restored %d attachment file(s)" % n)
+    elif command == "restore-credential-key":   # [--replace]: the key is put back beside the restored database
+        result = restore_credential_key(mirror_from_env(env), credential_key_path(env), "--replace" in argv)
+        print({"restored": "tico: restored the credential key",
+               "kept": "tico: the credential key is already on the data volume; left as it is",
+               "missing": "tico: the backup holds no credential key (none was ever made, or AWS KMS holds the data key)"}[result])
     elif command == "is-empty":
         return 0 if is_empty(argv[1]) else 1
     elif command == "check-new-company":   # DIR [--restore-failed] [--initialize-empty]; backups off: no mirror
@@ -323,7 +443,7 @@ def main(argv=None):
     elif command == "mark-environment":    # DIR ID
         write_markers(argv[1], argv[2], None if no_mirror(env) else mirror_from_env(env))
     else:
-        print("usage: python -m backend.replication loop|restore-blobs|is-empty DIR|check-new-company DIR|mark-environment DIR ID", file=sys.stderr)
+        print("usage: python -m backend.replication loop|restore-blobs|restore-credential-key|is-empty DIR|check-new-company DIR|mark-environment DIR ID", file=sys.stderr)
         return 2
     return 0
 

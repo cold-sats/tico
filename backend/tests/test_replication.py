@@ -55,6 +55,12 @@ class FakeS3:
     def download_file(self, bucket, key, path):
         Path(path).write_bytes(self.objects[key])
 
+    def head_object(self, Bucket, Key):
+        from botocore.exceptions import ClientError
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return {}
+
 
 def put_blob(root, data):
     digest = hashlib.sha256(data).hexdigest()
@@ -79,6 +85,113 @@ def test_blobs_sync_incrementally_and_restore_verified(tmp_path, kind):
     assert (fresh / "blobs" / first[:2] / first).read_bytes() == b"one"
     assert (fresh / "blobs" / second[:2] / second).read_bytes() == b"two"
     assert not list(fresh.rglob(".upload-*")) and not list(fresh.rglob(".restore-*"))
+
+
+KEY = bytes(range(32))
+
+
+def key_env(tmp_path, **extra):
+    (tmp_path / "data").mkdir(exist_ok=True)
+    return {"TICO_DB": str(tmp_path / "data" / "hub.sqlite"), "TICO_BACKUP_MODE": "local-only",
+            "TICO_BACKUP_DIR": str(tmp_path / "backups"), "TICO_BACKUP_STATUS_FILE": str(tmp_path / "status.json"),
+            "TICO_BLOB_DIR": str(tmp_path / "data" / "blobs"), **extra}
+
+
+@pytest.mark.parametrize("kind", ["local", "s3"])
+def test_the_credential_key_is_copied_when_it_appears_and_again_when_it_changes(tmp_path, kind, capsys):
+    fake = FakeS3()
+    mirror = replication.LocalMirror(tmp_path / "backups") if kind == "local" else replication.S3Mirror(fake, "bucket", "tico/")
+    path, state = tmp_path / "credential.key", {}
+    assert replication.sync_credential_key(path, mirror, state) is None and not mirror.exists(replication.CREDENTIAL_KEY_COPY)
+    path.write_bytes(KEY)
+    first = replication.sync_credential_key(path, mirror, state)
+    assert first["copied_at"] and first["stamp"] == replication.credential_key_stamp(path)
+    assert mirror.exists(replication.CREDENTIAL_KEY_COPY)
+    if kind == "s3":
+        assert fake.objects["tico/credential-key/credential.key"] == KEY
+    else:
+        copy = tmp_path / "backups" / replication.CREDENTIAL_KEY_COPY
+        assert copy.read_bytes() == KEY and copy.stat().st_mode & 0o077 == 0
+    # Unchanged: nothing is sent again. Changed: the new key is copied.
+    mirror.put = lambda *a: pytest.fail("an unchanged key was sent again")
+    assert replication.sync_credential_key(path, mirror, state)["copied_at"] == first["copied_at"]
+    del mirror.put
+    path.write_bytes(bytes(reversed(KEY)))
+    assert replication.sync_credential_key(path, mirror, state)["stamp"] != ""
+    restored = tmp_path / "restored.key"
+    assert replication.restore_credential_key(mirror, restored) == "restored"
+    assert restored.read_bytes() == bytes(reversed(KEY)) and restored.stat().st_mode & 0o777 == 0o600
+    # A half-written file is not a key, and nothing printed so far carried one.
+    path.write_bytes(b"short")
+    assert replication.sync_credential_key(path, mirror, state) is None
+    assert KEY.hex() not in capsys.readouterr().out
+
+
+def test_the_loop_reports_the_key_copy_keeps_it_out_of_logs_and_the_status_file(tmp_path, capsys):
+    env = key_env(tmp_path)
+    key = tmp_path / "data" / "credential.key"
+    before = replication.status(env)["credential_key"]
+    assert before == {"present": False, "copied_at": None, "current": False}
+    key.write_bytes(KEY)
+    assert replication.status(env)["credential_key"] == {"present": True, "copied_at": None, "current": False}
+    replication.loop(env, sleep=lambda s: None, rounds=1)
+    shown = replication.status(env)["credential_key"]
+    assert shown["present"] and shown["current"] and shown["copied_at"]
+    assert (tmp_path / "backups" / "credential-key" / "credential.key").read_bytes() == KEY
+    saved = (tmp_path / "status.json").read_text()
+    assert KEY.hex() not in saved and "\\x" not in saved and hashlib.sha256(KEY).hexdigest() not in saved
+    # Changed after the copy: not current until the next round copies it.
+    key.write_bytes(bytes(reversed(KEY)))
+    assert replication.status(env)["credential_key"]["current"] is False
+    replication.loop(env, sleep=lambda s: None, rounds=1)
+    assert replication.status(env)["credential_key"]["current"] is True
+    out = capsys.readouterr()
+    assert KEY.hex() not in out.out + out.err
+    # A failing backup location logs the kind of failure only.
+    class Broken(replication.LocalMirror):
+        def put(self, key, source):
+            raise RuntimeError(Path(source).read_bytes().hex())
+    key.write_bytes(KEY + b"")
+    os.utime(key, (1, 1))
+    from unittest import mock
+    with mock.patch.object(replication, "mirror_from_env", lambda env: Broken(tmp_path / "x")):
+        replication.loop(env, sleep=lambda s: None, rounds=1)
+    out = capsys.readouterr()
+    assert "RuntimeError" in out.out and KEY.hex() not in out.out + out.err
+
+
+def test_a_kms_key_or_no_backup_means_no_key_copy(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "credential.key").write_bytes(KEY)
+    env = key_env(tmp_path, TICO_CREDENTIAL_KMS_KEY="alias/tico")
+    replication.loop(env, sleep=lambda s: None, rounds=1)
+    assert not (tmp_path / "backups" / "credential-key").exists()
+    assert replication.status(env)["credential_key"]["present"] is False
+    off = key_env(tmp_path, TICO_BACKUP_MODE="off")
+    replication.loop(off, sleep=lambda s: None, rounds=1)
+    assert not (tmp_path / "backups" / "credential-key").exists()
+    assert replication.status(off)["credential_key"] == {"present": True, "copied_at": None, "current": False}
+
+
+def test_restoring_the_credential_key_never_overwrites_a_different_one(tmp_path):
+    mirror = replication.LocalMirror(tmp_path / "backups")
+    assert replication.restore_credential_key(mirror, tmp_path / "credential.key") == "missing"
+    source = tmp_path / "source.key"
+    source.write_bytes(KEY)
+    replication.sync_credential_key(source, mirror, {})
+    target = tmp_path / "credential.key"
+    target.write_bytes(b"\x01" * 32)
+    assert replication.restore_credential_key(mirror, target) == "kept" and target.read_bytes() == b"\x01" * 32
+    assert replication.restore_credential_key(mirror, target, replace=True) == "restored"
+    assert target.read_bytes() == KEY and target.stat().st_mode & 0o777 == 0o600
+    (aside,) = tmp_path.glob("credential.key.before-restore.*")
+    assert aside.read_bytes() == b"\x01" * 32
+    assert replication.restore_credential_key(mirror, target, replace=True) == "kept"
+    # A backup copy that is not a key is refused, and leaves nothing behind.
+    (tmp_path / "backups" / "credential-key" / "credential.key").write_bytes(b"bad")
+    with pytest.raises(SystemExit):
+        replication.restore_credential_key(mirror, tmp_path / "other.key")
+    assert not (tmp_path / "other.key").exists() and not list(tmp_path.glob(".restore-key-*"))
 
 
 def test_restore_rejects_a_blob_that_fails_its_checksum(tmp_path):
@@ -136,6 +249,23 @@ def test_restore_into_an_empty_volume_and_force_over_a_full_one(tmp_path):
     forced = entrypoint(tmp_path, "--force")
     assert forced.returncode == 0, forced.stderr
     assert list((tmp_path / "data").glob("hub.sqlite.before-restore.*"))
+
+
+def test_restore_brings_the_credential_key_back_and_force_keeps_a_different_one_aside(tmp_path):
+    copy = tmp_path / "backups" / replication.CREDENTIAL_KEY_COPY
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(KEY)
+    result = entrypoint(tmp_path)
+    assert result.returncode == 0, result.stderr
+    key = tmp_path / "data" / "credential.key"
+    assert key.read_bytes() == KEY and key.stat().st_mode & 0o777 == 0o600
+    assert KEY.hex() not in result.stdout + result.stderr
+    # Over an install that has another key: without --force the volume is refused; with it the old key is kept aside.
+    key.write_bytes(b"\x02" * 32)
+    assert entrypoint(tmp_path).returncode != 0 and key.read_bytes() == b"\x02" * 32
+    assert entrypoint(tmp_path, "--force").returncode == 0
+    assert key.read_bytes() == KEY
+    assert [p.read_bytes() for p in (tmp_path / "data").glob("credential.key.before-restore.*")] == [b"\x02" * 32]
 
 
 def prepare(tmp_path, restore_fails=False, **extra):

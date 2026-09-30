@@ -544,6 +544,16 @@ limited to it, on Cloudflare an R2 bucket (with an API token that has Workers R2
 already have. Turn on bucket versioning yourself if you make one by hand; a deleted or overwritten backup is then
 still recoverable. With `TICO_BLOB_BUCKET` set, attachments already live in S3 and are not copied again.
 
+**The credential key is copied too.** When no `TICO_CREDENTIAL_KMS_KEY` is set, the stored credentials are encrypted with
+a local key in `/data/credential.key` ([Credentials](credential-vault.md)); Litestream carries the database, not that file, and a
+database restored without it cannot decrypt a credential. The backup loop copies the key to the same place as the rest
+(the bucket and prefix in `TICO_BACKUP_URL`, else the `tico-backups` volume), as `credential-key/credential.key`, when it
+first appears and whenever it changes. It is stored as the bucket stores everything: encrypted at rest by the bucket (S3
+and R2 encrypt every object by default), which also means anyone who can read the bucket can read the key and the database
+together, so keep the bucket private and its access key to that bucket alone. The key is never logged or sent anywhere else,
+and Health warns while a local key exists and has not been copied yet. `GET /api/v2/config` carries
+`backup.credential_key: {present, copied_at, current}`.
+
 **A lost volume never becomes a blank team.** The server records that it is an existing team outside the
 database: a `.tico-environment` file in the data volume and an `environment.json` object beside the backup. When it
 starts with an empty volume it first restores; if the restore fails (wrong key, no network) and a team is known
@@ -555,9 +565,14 @@ team over an existing backup on purpose, set `TICO_INITIALIZE_EMPTY=1` (or run `
 
 ```
 docker compose stop server
-docker compose run --rm --no-deps server restore    # database and attachments
+docker compose run --rm --no-deps server restore    # database, attachments and the credential key
 docker compose up -d
 ```
+
+`restore` puts the credential key back at `/data/credential.key` (mode 0600) when the backup has one. A key already on the
+volume is left alone (with `--force` it is kept beside the restored one as `credential.key.before-restore.<time>`). If
+the database was restored by itself on first start, or from a bucket that has no key, run `restore` again or copy the
+object `credential-key/credential.key` from the backup location to `/data/credential.key` by hand, then restart.
 
 `restore` refuses a volume that already holds data. To roll an existing install back to the backup, add `--force`;
 the current database is kept beside it as `hub.sqlite.before-restore.<time>`. The install's permanent id

@@ -99,3 +99,27 @@ def test_others_see_counts_not_details(environment):
     assert set(checks) == {"computers", "waiting", "queue", "failed"}
     assert all(not row["fixes"] for row in checks.values())
     assert "helper" not in checks["waiting"]["summary"]
+
+
+def test_a_local_credential_key_that_is_not_backed_up_is_a_warning_or_a_note():
+    from types import SimpleNamespace
+
+    from backend import health
+    remote = {"mode": "remote", "last_replicated_at": H.now(), "target_kind": "s3"}
+    server, local = SimpleNamespace(loopback=False), SimpleNamespace(loopback=True)
+    check = lambda backup, where=server: health._backups({"backup": backup}, where)
+    # No local key (a KMS install, or no credential saved yet): as before.
+    assert check({**remote, "credential_key": {"present": False}})["status"] == "ok"
+    assert check(remote)["status"] == "ok"
+    # Backups are set up and the key is not in them: a warning that says why.
+    missing = check({**remote, "credential_key": {"present": True, "copied_at": None, "current": False}})
+    assert missing["status"] == "warn" and "credential key" in missing["summary"] and missing["fixes"]
+    assert check({**remote, "credential_key": {"present": True, "copied_at": "2026-01-01T00:00:00Z", "current": True}})["status"] == "ok"
+    # No off-disk backup: the key is named in the note, and a quick start stays a note once it is copied.
+    only = {"mode": "local-only", "last_replicated_at": None, "target_kind": "local"}
+    held = {"present": True, "copied_at": "2026-01-01T00:00:00Z", "current": True}
+    assert "credential key" in check({**only, "credential_key": held})["summary"]
+    quiet = check({**only, "credential_key": held}, local)
+    assert quiet["status"] == "info" and "credential key" in quiet["summary"] and quiet["fixes"] == []
+    assert check({**only, "credential_key": {**held, "copied_at": None, "current": False}}, local)["status"] == "warn"
+    assert "credential key" in check({"mode": "off", "credential_key": held})["summary"]

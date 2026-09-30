@@ -15,6 +15,24 @@ The bot credential name becomes an environment variable only for a granted bot, 
 
 The initial migration inventories the existing bot credentials directory and resolves its configured 1Password references. Values are encrypted locally before upload. It adds no grants, preserves existing local files, and imports computer-login metadata without exporting browser sessions. All raw migration evidence remains outside Git.
 
+## The local credential key and backups
+
+Without `TICO_CREDENTIAL_KMS_KEY`, the data key is 32 random bytes in `/data/credential.key` (mode 0600) on the server's data
+volume. The database holds ciphertext only, so **a database restored without that file cannot decrypt a credential**. Litestream
+copies the database and not the file, so the backup loop copies the key to the same backup destination: the bucket and prefix in
+`TICO_BACKUP_URL` (object `credential-key/credential.key`), else the `tico-backups` volume. It copies it when the key first
+appears and whenever it changes, and never logs it or sends it anywhere else. The object is encrypted at rest as the bucket is;
+because the database backup is in the same bucket, keep it private, limit its access key to it, and turn on versioning.
+
+Health shows **Backups** as a warning while a local key exists, backups are set up, and the key has not been copied yet; with
+backups only on this server the note says the key is lost with the server too.
+
+To restore: `docker compose run --rm --no-deps server restore` brings back the database, attachments and the key (see
+[Backups and restore](install.md#backups-and-restore)). By hand, copy `credential-key/credential.key` from the backup
+location to `/data/credential.key` (32 bytes, mode 0600, owned by the server's user) before the server starts. Tico never makes a
+new key over an existing vault, so putting the file back loses nothing. Setting `TICO_CREDENTIAL_KMS_KEY` replaces the file
+as the thing to protect: the data key is then wrapped by KMS in the database.
+
 ## Credentials asked for in the chat
 
 A bot that needs a credential opens a **credential card** in the conversation where it asked (`hub credential request <VARIABLE> --for-bot <bot> --label
