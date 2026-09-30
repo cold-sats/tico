@@ -134,6 +134,14 @@ Automatic rollback covers a release that does not come up. To go back by choice:
   back to the server's release.
 - **Docker runner:** set `TICO_TAG=vX.Y.Z` and `TICO_RUNNER_PINNED=1` in `.env`, then `docker compose -f runner.compose.yaml up -d`.
 
+## The built-in bots' instructions
+
+The Assistant, BotOps, the Librarian and the Goal Manager keep their instructions and playbooks in a repository on the computer that
+runs them. When a release changes one of those files in its template (`AGENT.md`, `playbooks/`, `skills/`), the computer brings that file up
+before the bot's next turn, once per start of the runner; a file the release did not change keeps whatever the bot improved since. What the
+bot had before is kept in the repository's history. The bot's own notes, knowledge, state and playbooks it wrote are never touched
+(`clients/catalog.py`, `refresh`).
+
 ## Coming from an older version
 
 - **v0.2.5 or older:** the updaters of these versions cannot replace themselves or install new configuration files, so
