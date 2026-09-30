@@ -1,0 +1,115 @@
+# Connect an agent
+
+Your own AI agent (Grok, Muse, Claude, Cursor, Codex or any other that speaks MCP) can work in Tico
+as you: read and act on your tasks, goals, docs and bots, with your rights and no more. It connects
+to Tico's MCP server with a personal token.
+
+**Connect an agent** is the plug button beside your email (and a step in the first-run wizard). Only
+the owner and bot administrators can make personal tokens.
+
+1. Pick the agent.
+2. **Create token**. It is named after the agent and the day (`Grok · 2026-09-30`), lasts 90 days, and
+   is shown once. Copy it now; Tico keeps only its hash.
+3. Copy the **MCP server URL** and follow that agent's steps below. The dialog fills the token and
+   URL into each block to paste.
+4. The dialog shows **Connected** once the agent's first call reaches Tico. It checks every 3 seconds
+   for 5 minutes; **Check again** starts another 5 minutes.
+
+Existing connections are listed under the tiles with when each was last used. **Revoke** stops one at
+once. The same tokens are under **Settings > Devices > API tokens**.
+
+## The server
+
+| | |
+|---|---|
+| URL | `https://<runner hostname>/api/v2/mcp`: `TICO_RUNNER_URL`, or `TICO_PUBLIC_URL` when that is unset. The dialog shows the right one |
+| Transport | Streamable HTTP, JSON replies, stateless (no session id; `GET` answers 405) |
+| Auth | `Authorization: Bearer <token>`. No OAuth |
+| Tools | The `hub` command set (`clients/hubtools.py`): tasks, goals and KPIs, docs, bots, messages, approvals, updates, SQL. Each call runs as the token's person through the same routes the web app uses |
+| Instructions | The server's `initialize` reply carries the "who needs me" skill (`skills/who-needs-me/SKILL.md`), so nothing else needs pasting |
+
+The token cannot make or revoke tokens.
+
+## Each agent
+
+**Grok** (xAI)
+- A Grok Bot: ask it to add a custom MCP server with the dialog's block (name, URL, `Authorization`
+  header). Grok adds it to the whole account.
+- grok.com: **Connectors > New Connector > Custom**, paste the URL, then give the token if it asks. On
+  Grok Business an admin adds it first under **console.x.ai > Grok Business > Connectors**. xAI's
+  docs do not say whether this form takes a bearer header, and grok.com refuses private and
+  localhost URLs.
+- Grok Build: `grok mcp add --transport http tico <URL> --header "Authorization: Bearer <token>"`, or
+  `[mcp_servers.tico]` with `url` and `headers` in `~/.grok/config.toml`.
+
+**Dots.** OpenAI's always-on agents reach apps through ChatGPT plugins, which sign in with OAuth or
+not at all and cannot send a token. The dialog gives Dots the generic steps; until Tico's MCP server
+offers OAuth, Dots is not expected to connect. ChatGPT itself (developer mode, **Settings > Security
+and login > Developer mode**, then **Plugins > +**) is in the same position, so it has no tile.
+
+**Muse** (Meta)
+- The Muse app: ask Muse, in a chat, to make a custom connector for the MCP server at the URL with the
+  `Authorization` header. The app has no MCP settings page; it builds connectors in chat.
+- Muse Code: add to `~/.config/muse/settings.json` (it must keep `"schema_version": 1`):
+  `{"schema_version": 1, "mcp_servers": {"tico": {"transport": "streamable_http", "url": "<URL>", "headers": {"Authorization": "Bearer <token>"}}}}`
+
+**Claude** (Anthropic)
+- Claude Code: `claude mcp add --transport http tico <URL> --header "Authorization: Bearer <token>"`.
+- The Claude app: **Customize > Connectors > Add custom connector**, paste the URL, choose **No
+  sign-in**, and under **Request headers** add `authorization` = `Bearer <token>`. Request headers are
+  a beta that not every plan has. On Team and Enterprise an owner adds the connector first under
+  **Organization settings > Connectors**. Without request headers, use the **Other** JSON in
+  **Settings > Developer > Edit Config** (Claude Desktop).
+
+**Cursor.** In `~/.cursor/mcp.json` (or a project's `.cursor/mcp.json`), merged with any servers
+already there: `{"mcpServers": {"tico": {"url": "<URL>", "headers": {"Authorization": "Bearer <token>"}}}}`.
+`${env:TICO_TOKEN}` works in place of the token.
+
+**Codex** (OpenAI): `export TICO_TOKEN=<token>` (keep it in your shell profile), then
+`codex mcp add tico --url <URL> --bearer-token-env-var TICO_TOKEN`. That writes
+`[mcp_servers.tico]` with `url` and `bearer_token_env_var` to `~/.codex/config.toml`; Codex refuses a
+token written into the file.
+
+**Other.** Any agent that takes a remote MCP server: the URL, Streamable HTTP, and the header
+`Authorization: Bearer <token>`. An agent that only runs local servers from a JSON config can use
+[`mcp-remote`](https://github.com/geelen/mcp-remote), which the dialog's JSON block sets up:
+`npx -y mcp-remote <URL> --header "Authorization:${TICO_AUTH}"` with `TICO_AUTH` set to `Bearer <token>`.
+Leave no space around that `:`.
+
+## Behind Cloudflare Access or another sign-in proxy
+
+An outside agent cannot pass a sign-in page. When Access guards the hostname in the MCP URL, it
+answers the agent with its login page, and the dialog says so under the URL. Either:
+
+- In Cloudflare Zero Trust, add an Access application for `<hostname>/api/v2/mcp` with a **Bypass**
+  policy (Everyone). Tico still refuses any call without a valid token (401). Or
+- Serve the runner hostname without Access and set `TICO_RUNNER_URL` to it: the MCP URL follows.
+
+An AWS load balancer with Cognito needs the same: a listener rule that forwards requests carrying
+`Authorization: Bearer` without the authenticate action. The built-in sign-in (`TICO_AUTH_PROXY=oidc`)
+and a loopback server need nothing.
+
+An agent that runs in its maker's cloud (Grok Bots, the Grok and Claude apps, Muse) must reach the
+URL from the internet; a loopback server is for agents on the same computer (Claude Code, Cursor,
+Codex, Grok Build, Muse Code).
+
+## Check it by hand
+
+With the official MCP Python SDK (`pip install mcp`), from the same computer as a loopback server:
+
+```python
+import asyncio
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
+
+async def main(url, token):
+    client = create_mcp_http_client(headers={"Authorization": "Bearer " + token})
+    async with client, streamable_http_client(url, http_client=client) as (read, write, *_):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            print(len((await session.list_tools()).tools), "tools")
+            print((await session.call_tool("hub_whoami", {})).content[0].text)
+```
+
+The token's **Last used** in the dialog moves on the first call.

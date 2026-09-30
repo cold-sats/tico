@@ -7,6 +7,19 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Connect an agent says what it does and walks each agent through it.** One line says what a connected agent can do,
+  then a tile per agent with its mark: Grok, Dots, Muse, Claude, Cursor, Codex and Other. Picking one shows only its steps:
+  the MCP server URL, **Create token** (named after the agent and the day, shown once), that agent's two to four steps with
+  its menu path, and blocks to paste with the URL and token filled in (a Grok Bot's request and `grok mcp add`, Muse Code's
+  `settings.json`, `claude mcp add`, Cursor's `mcp.json`, `codex mcp add`, and an `mcp-remote` config for anything else). The
+  dialog turns to **Connected** when the agent's first call reaches Tico, and lists existing connections with when each was
+  last used and **Revoke**. The token lives only in the dialog: never stored, logged or put in a URL. When Cloudflare Access
+  guards the MCP URL, the dialog says to give `/api/v2/mcp` a Bypass policy (`GET /api/v2/agent-skill` now returns
+  `access_bypass`). Muse, Claude and Dots show letters rather than marks: Meta and Anthropic allow theirs only with approval,
+  and Dots has none. ChatGPT signs in to MCP servers with OAuth only, so it cannot use a token and has no tile; Dots reaches
+  apps through ChatGPT's plugins and is expected to be the same. See `docs/connect-an-agent.md`.
+
 ## [0.2.15] - 2026-09-30
 
 ### Added

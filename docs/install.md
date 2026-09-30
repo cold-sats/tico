@@ -218,7 +218,8 @@ request with a 503 while its container showed as running. `python3 -m setup doct
 line, and says what to run: `docker compose pull && docker compose up -d` in `/opt/tico`.
 
 Computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
-service token for `/api/v2/runners/*` (the runner authenticates itself with its own token).
+service token for `/api/v2/runners/*` (the runner authenticates itself with its own token), and give `/api/v2/mcp` a
+Bypass policy so people's own agents can connect with their tokens ([Connect an agent](connect-an-agent.md)).
 
 Or run the bots' computer on the server itself and skip Access altogether: the runner joins the server's own Docker
 network and talks to it directly. With a one-time code from Settings > Devices > Add computer, on the server:
