@@ -51,12 +51,33 @@ class Connector:
             self.timer_calls.append(list(command))
             out = "active\n" if command[:3] == ["systemctl", "--user", "is-active"] else ""
             return subprocess.CompletedProcess(command, 0, stdout=out, stderr="")
+        if command and Path(str(command[0])).name == "hermes":
+            return self._hermes(list(command[1:]))
         return REAL_RUN(command, *args, **kwargs)
+
+    def _hermes(self, args):
+        """`hermes -p scout cron create|remove`: the profile's jobs.json is all the connector reads back."""
+        done = lambda code=0, err="": subprocess.CompletedProcess(args, code, stdout="ok\n", stderr=err)
+        if args[:2] != ["-p", "scout"] or args[2:3] != ["cron"]:
+            return done(2, "unexpected hermes call")
+        jobs_file = self.profile / "cron" / "jobs.json"
+        jobs = json.loads(jobs_file.read_text())["jobs"] if jobs_file.exists() else []
+        if args[3] == "create":
+            jobs.append({"id": f"job{len(jobs) + 1}", "name": args[args.index("--name") + 1], "schedule_display": args[4],
+                         "enabled": True, "last_run_at": None, "last_status": None})
+        elif args[3] == "remove":
+            jobs = [j for j in jobs if j["id"] != args[4]]
+        jobs_file.parent.mkdir(parents=True, exist_ok=True)
+        jobs_file.write_text(json.dumps({"jobs": jobs}))
+        return done()
+
+    def sync_jobs(self):
+        return [j["name"] for j in json.loads((self.profile / "cron" / "jobs.json").read_text())["jobs"]]
 
     def run(self, *argv, sleep=None):
         """(exit code, stdout, stderr) of one command. Fails the test if any token we ever held was printed."""
         out, err = io.StringIO(), io.StringIO()
-        which = lambda name, *a, **k: "/usr/bin/systemctl" if name == "systemctl" else None if name == "hermes" else REAL_WHICH(name, *a, **k)
+        which = lambda name, *a, **k: "/usr/bin/systemctl" if name == "systemctl" else "/usr/bin/hermes" if name == "hermes" else REAL_WHICH(name, *a, **k)
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
                 mock.patch.object(H.subprocess, "run", self._run_command), mock.patch.object(H.shutil, "which", which), \
                 mock.patch.object(H.time, "sleep", (lambda seconds: sleep(out.getvalue())) if sleep else REAL_SLEEP):
@@ -142,7 +163,11 @@ def test_a_hermes_bot_pairs_works_is_archived_restored_and_pairs_again(api, boto
     assert listed["online"] is True and listed["agent"]["credential"] is True and listed["agent"]["profile"] == "scout"
     assert listed["agent"]["model"] == "gpt-5.6-luna" and listed["agent"]["last_seen"]
     assert connector.status()["last_reply"]["waiting"] == {"messages": 0, "tasks": 0}
-    assert connector.run("doctor", "--profile", "scout")[0] == 0
+    # Pairing also scheduled the agent's hourly sync job (a fake `hermes` records it), so doctor finds it.
+    assert connector.sync_jobs() == ["tico-sync"]
+    code, out, err = connector.run("doctor", "--profile", "scout")
+    assert code == 0, out
+    assert "sync job tico-sync (every 1h) is scheduled" in out
 
     # The agent's MCP door lists the inbox tools.
     assert "hub_message_list" in {t["name"] for t in connector.mcp("tools/list")["tools"]}
