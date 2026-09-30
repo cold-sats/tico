@@ -198,7 +198,7 @@ def _slack(c):
     return _check("slack", "Slack", "bad", "Slack is disconnected" + (": " + state["message"] if state["message"] else "."), [fix])
 
 
-def _backups(config):
+def _backups(config, settings):
     backup = config.get("backup")
     fix = _fix("Backup settings", "#/settings", "cloud")
     if not isinstance(backup, dict) or not backup.get("mode"):
@@ -209,6 +209,9 @@ def _backups(config):
     if mode == "off":
         return _check("backups", "Backups", "bad", "Backups are off.", [fix])
     if mode in ("local-only", "local"):
+        if settings.loopback:
+            # A quick start on this computer has no other place to copy to until it has a domain.
+            return _check("backups", "Backups", "info", "Copies stay on this computer. Add a domain to copy them elsewhere.")
         return _check("backups", "Backups", "warn",
                       "Copies stay on this server only. A lost disk loses everything.", [fix])
     if last and last < H.shift(H.now(), hours=-BACKUP_STALE_HOURS):
@@ -380,7 +383,7 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("backups", "Backups", "ok", "Demo data: there is nothing to back up.")
                       if settings.demo else
                       _check("backups", "Backups", "ok", "Rehearsal: backups are off on purpose.")
-                      if settings.rehearsal else _backups(config))
+                      if settings.rehearsal else _backups(config, settings))
         checks.append(_signin(settings))
     checks.append(_check("failed", "Failed runs", "warn" if failed else "ok",
                          f"{_plural(failed, 'run')} failed in the last day." if failed else "No failed runs in the last day.",

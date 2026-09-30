@@ -67,13 +67,27 @@ def test_an_offline_computer_holds_its_bots(environment):
 
 def test_backups_local_only_and_stale(environment, monkeypatch):
     api = environment()
-    with_backup(monkeypatch, {"mode": "local-only", "last_replicated_at": None, "target_kind": "local"})
-    assert health_of(api)[1]["backups"]["status"] == "warn"
     old = H.shift(H.now(), hours=-30)
     with_backup(monkeypatch, {"mode": "remote", "last_replicated_at": old, "target_kind": "s3"})
     assert health_of(api)[1]["backups"]["status"] == "warn"
     with_backup(monkeypatch, {"mode": "off"})
     assert health_of(api)[1]["backups"]["status"] == "bad"
+
+
+def test_no_off_disk_backup_is_a_quiet_note_on_a_local_install_and_a_warning_on_a_server(environment, monkeypatch):
+    from types import SimpleNamespace
+
+    from backend import health
+    backup = {"mode": "local-only", "last_replicated_at": None, "target_kind": "local"}
+    # The quick start answers on loopback and has nowhere else to copy to: a note that does not count as attention.
+    with_backup(monkeypatch, backup)
+    body, checks = health_of(environment())
+    assert checks["backups"]["status"] == "info" and checks["backups"]["fixes"] == []
+    assert "domain" in checks["backups"]["summary"]
+    assert not any(x["id"] == "backups" and x["status"] in ("warn", "bad") for x in body["checks"])
+    # A real server keeps the warning, and a local install with backups switched off is still not fine.
+    assert health._backups({"backup": backup}, SimpleNamespace(loopback=False))["status"] == "warn"
+    assert health._backups({"backup": {"mode": "off"}}, SimpleNamespace(loopback=True))["status"] == "bad"
 
 
 def test_others_see_counts_not_details(environment):

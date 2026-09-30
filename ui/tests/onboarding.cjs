@@ -543,7 +543,16 @@ function recruitFor({department, briefing, share}) {
     assert.match(blurb, /A Mac/);
     assert.match(blurb, /A Linux or cloud server/);
     assert.doesNotMatch(blurb, /Mac you own/);
-    assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> profile add default/);
+    // No AI provider is chosen yet, so there is no model to sign in to: that step is left out and the rest renumber.
+    assert.doesNotMatch(await page.locator('#onb-step').textContent(), /profile add default|profile login|codex login/);
+    assert.match(await page.locator('#onb-step').textContent(), /3 · Start the bot service/);
+    // Once a provider is chosen the sign-in step is there, in order, on a Mac and on a Linux server.
+    assert.deepEqual(await page.evaluate(() => {
+      const state = {...ONB, providers: {default: {runtime: 'codex'}}};
+      return [onbCommands(state).map(([label]) => label.slice(0, 3)).join(''), onbCommands({...state, kind: 'linux'}).map(([label]) => label.slice(0, 3)).join('')];
+    }), ['2 ·3 ·4 ·', '2 ·3 ·4 ·']);
+    assert.match(await page.evaluate(() => onbCommands({...ONB, providers: {default: {runtime: 'codex'}}})[1][1]), /profile login default codex/);
+    assert.match(await page.evaluate(() => onbCommands({...ONB, kind: 'linux', providers: {default: {runtime: 'claude'}}})[1][1]), /docker exec -it tico-runner claude setup-token/);
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> install bot/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => !/<setup-file>/.test(document.querySelector('#onb-step').textContent));
@@ -564,7 +573,7 @@ function recruitFor({department, briefing, share}) {
     assert.match(await page.locator('#onb-step').textContent(), /docker run -d --name tico-runner --restart unless-stopped -v tico-runner:\/home\/runner ghcr\.io\/ticoteam\/tico-runner:v0\.2\.0 join --url https:\/\/initech\.test --code <code>/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => /--code enroll-code --label "Ana's server"/.test(document.querySelector('#onb-step').textContent));
-    assert.match(await page.locator('#onb-step').textContent(), /docker exec -it tico-runner codex login --device-auth/);
+    assert.doesNotMatch(await page.locator('#onb-step').textContent(), /docker exec -it tico-runner/);
     await page.locator('[data-onb-kind][value=mac]').check();
     // The Mac comes online; the next save carries the live machine through to the review.
     machine = {runners: [{id: 'runner-1', label: "Ana's Mac", online: true}, {id: 'runner-2', label: 'Cloud box', online: true}, {id: 'runner-3', label: 'Old laptop', online: false}], enrolled: true};

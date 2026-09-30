@@ -193,18 +193,19 @@ function onbStepHTML(state, key) {
 const onbMachineLabel = state => state?.kind === 'linux' && S.config?.local ? 'This computer'
   : `${firstName(S.me?.name) || 'This'}'s ${state?.kind === 'linux' ? 'server' : 'Mac'}`;
 function onbCommands(state) {
-  if (state.kind === 'linux') {
-    const [run, login, plain] = dockerRunnerCommands(state.code || '<code>', onbMachineLabel(state), state.providers?.default?.runtime);
-    return [['2 · ' + run[0], run[1]], ['3 · ' + login[0], login[1]], ['4 · ' + plain[0], plain[1]]];
-  }
+  // Signing in to a model comes after a provider is chosen; with none, that step is left out.
+  const runtime = state.providers?.default?.runtime || S.config?.default_runtime || '';
+  const numbered = list => list.filter(Boolean).map(([label, command], i) => [`${i + 2} · ${label}`, command]);
+  if (state.kind === 'linux') return numbered(dockerRunnerCommands(state.code || '<code>', onbMachineLabel(state), runtime));
   const file = state.enrollment || '<setup-file>.json';
-  return [
-    ['2 · Register this Mac for the team',
+  return numbered([
+    ['Register this Mac for the team',
      `scripts/tico -e <slug> enroll --code-file "$HOME/Downloads/${file}" --label "${onbMachineLabel(state)}"`],
-    ['3 · Add the subscription the bots run on',
-     `scripts/tico -e <slug> profile add default\nscripts/tico -e <slug> profile login default ${state.providers?.default?.runtime || '<runtime>'}`],
-    ['4 · Start the bot service', 'scripts/tico -e <slug> install bot'],
-  ];
+    runtime ? ['Add the subscription the bots run on',
+     `scripts/tico -e <slug> profile add default\nscripts/tico -e <slug> profile login default ${runtime}`]
+            : null,
+    ['Start the bot service', 'scripts/tico -e <slug> install bot'],
+  ]);
 }
 function onbCommandsHTML(state) {
   return onbCommands(state).map(([label, command], i) => `<div class="onb-cmd"><span class="k">${esc(label)}</span>

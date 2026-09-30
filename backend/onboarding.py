@@ -272,6 +272,8 @@ def config_view(c, settings, who=None):
     value["onboarding_needed"] = needed(c, who, record)
     chosen = providers.load(c, settings)
     value["providers_configured"] = providers.configured(chosen)
+    # The model a computer's sign-in is for; empty until a provider is chosen, so no sign-in is asked before then.
+    value["default_runtime"] = next(iter(sorted(providers.wanted_runtimes(chosen))), "")
     if who is not None:
         # A runner installs only the harnesses these providers need (runner/harness_tools.py).
         value["enabled_providers"] = list(chosen["enabled"])
