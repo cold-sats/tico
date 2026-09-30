@@ -3979,17 +3979,17 @@ function accessTable(e) {
   const mail = acc.filter(a => /gmail|email/.test(a.service));
   const emailLine = mail.length
     ? mail.map(a => `can ${a.can.includes('send') && e.outbound_send ? '<strong>send</strong>' : 'read and draft'} as <strong>${esc(a.identity || 'unknown address')}</strong>${a.can.includes('send') && !e.outbound_send ? ' <span class="muted">(send is declared but outbound is off)</span>' : ''}`).join('; ')
-    : '<strong>cannot send or read email</strong> from any address';
+    : '<strong>none</strong>';
   const verb = (v, a) => `<span class="pill ${SEND_VERBS.has(v) ? (e.outbound_send ? 'ok' : 'waiting') : ''}" title="${SEND_VERBS.has(v) && !e.outbound_send ? 'gated: outbound_send is off' : ''}">${v}</span>`;
   const rows = acc.map(a => `<tr><td><strong>${esc(SERVICE_NAMES[a.service] || a.service)}</strong></td><td>${esc(a.identity || '—')}</td>
     <td class="tags">${(a.can || []).map(v => verb(v, a)).join(' ')}</td>
     <td>${a.connected ? '<span class="pill ok">connected</span>' : '<span class="pill">not connected</span>'}</td><td class="muted">${esc(a.note || '')}</td></tr>`).join('');
   return `<div class="acc-summary">
       <div><span class="k">Email</span> ${emailLine}</div>
-      <div><span class="k">Outbound</span> ${e.outbound_send ? '<strong>on</strong>: may send, post, and invite where a verb below allows it' : '<strong>off</strong>: drafts only, nothing leaves the company'}</div>
-      <div><span class="k">Always</span> hub Issues as the shared GitHub identity, its own folder in the S3 bucket${e.secrets_file ? '' : ' · <span class="muted">no secrets file yet, so nothing below is connected</span>'}</div>
+      <div><span class="k">Outbound</span> ${e.outbound_send ? '<strong>on</strong>' : '<strong>off</strong>: drafts only'}</div>
+      ${e.secrets_file ? '' : '<div><span class="muted">No secrets file yet: nothing is connected.</span></div>'}
     </div>
-    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No connectors declared. This bot works only with hub Issues and its repo.</div>'}`;
+    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No connectors.</div>'}`;
 }
 
 // ----------------------------------------------------------------- hub v2 (docs/history/hub-v2.md)
@@ -6685,14 +6685,14 @@ async function pageBot(slug, tab) {
         <dt>Works for</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>`
           : String(e.reports_to || '').startsWith('human:') ? `<dt>Reports to</dt><dd>${esc(botPersonName(e.reports_to.slice(6)))}</dd>` : ''}
-        <dt>Your access</dt><dd>${e.my_access.write ? 'You can see this bot and send it requests. Its work is not open to you: only the requests and tasks you make show here.' : 'You can see this bot. Its work is not open to you, and you cannot send it requests.'}</dd>
+        <dt>Your access</dt><dd>${e.my_access.write ? 'See it and send requests' : 'See it only'}</dd>
       </dl></section>
 ` : `    <section class="card"><header><h2>Setup</h2>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>People</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
         ${e.agent ? `<dt>Run by</dt><dd>${esc(agentKind(e.agent))}${e.agent.profile ? ` · profile <code>${esc(e.agent.profile)}</code>` : ''}${e.agent.version ? ` · ${esc(e.agent.version)}` : ''}${e.agent.platform ? ` · ${esc(e.agent.platform)}` : ''}<span class="muted"> · ${!e.agent.credential ? 'no credential yet' : e.online ? 'reporting in' : 'not reporting'}${e.agent.last_seen ? `, last seen ${esc(ago(e.agent.last_seen))}` : ''}</span>${settingsCanManageBot(e) ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${e.agent.credential ? 'Rotate credential' : 'Create credential'}</button>${e.agent.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</dd>
-        <dt>Model</dt><dd>${e.agent.model ? `${esc(e.agent.model)}${e.agent.provider ? `<span class="muted"> · ${esc(e.agent.provider)}</span>` : ''}` : "<span class=\"muted\">the profile's own; reported with its heartbeat</span>"}</dd>`
+        <dt>Model</dt><dd>${e.agent.model ? `${esc(e.agent.model)}${e.agent.provider ? `<span class="muted"> · ${esc(e.agent.provider)}</span>` : ''}` : "<span class=\"muted\">the profile's own</span>"}</dd>`
         : `<dt>Model</dt><dd>${esc(e.model ? settingsChoiceLabel(e.harness || e.runtime, e.model, e.reasoning_effort || e.effort) : settingsDefaultLabel(e))}${e.fallback ? `<span class="muted"> · fallback ${esc(settingsChoiceLabel(e.fallback.harness, e.fallback.model, e.fallback.reasoning_effort || e.fallback.effort))}</span>` : ''}</dd>`}
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>` : ''}
         ${botRepoHTML(e) ? `<dt>Repository</dt><dd>${botRepoHTML(e).replace(/^Repository /, '')}</dd>` : ''}
@@ -7160,16 +7160,15 @@ function sessionHead(d, slug) {
       + (pointer.tokens_in != null ? ` · ${esc(String(pointer.tokens_in))} tokens in` : '')
       + (pointer.updated ? ` · saved ${esc(ago(pointer.updated))}` : '')
       + (pointer.runner_id ? ` · runner ${esc(pointer.runner_id)}` : '')
-    : 'Hub pointer: none yet — next turn starts fresh and may load a recovery pack';
+    : 'Hub pointer: none yet';
   return `${d.cloud ? 'Cloud session' : d.current ? 'Live session file' : 'Session file'}: <strong>${esc(d.runtime)}</strong>
     ${d.model ? `<span class="muted">${esc(d.model)}</span>` : ''}
     <span class="mono">${esc(d.session_id)}</span>
     ${pointerLine}
     ${resumeBox}
-    ${d.note ? `<div class="muted">${esc(d.note)}</div>` : ''}
     ${d.first_ts ? `started ${esc(fmt(d.first_ts))}` : ''} · ${esc(String(d.turn_count))} turns${
       d.shown < d.turn_count ? ` <span class="muted">(showing the last ${esc(String(d.shown))})</span>` : ''}
-    ${runs.length ? ` · covers runs ${esc(runs.join(', '))}` : ' · no run has used it yet'}
+    ${runs.length ? ` · covers runs ${esc(runs.join(', '))}` : ' · unused'}
     ${d.last_ts ? ` · last written ${esc(ago(d.last_ts))}` : ''}
     ${d.skipped ? ` · <span title="record types this reader does not know">${esc(String(d.skipped))} records skipped</span>` : ''}
     ${d.current ? '' : ' · <a href="#" data-sess-current="1">back to the current session</a>'}
@@ -7186,7 +7185,7 @@ async function sessionLoad(slug, pick) {
   } catch (err) {
     if (!BOT || BOT.slug !== slug || !$('#sess-head')) return;
     head.innerHTML = `<span class="muted">${esc(err.message)}</span>`;
-    body.innerHTML = `<div class="empty">Nothing to show here. The Chat tab has the replay, rebuilt from this bot's run logs.</div>`;
+    body.innerHTML = `<div class="empty">Nothing here. See the Chat tab.</div>`;
     return;
   }
   if (!BOT || BOT.slug !== slug || !$('#sess-head')) return;
@@ -7206,7 +7205,7 @@ async function sessionLoad(slug, pick) {
   const back = head.querySelector('[data-sess-current]');
   if (back) back.onclick = ev => { ev.preventDefault(); sessionLoad(slug, null); };
   body.innerHTML = (d.turns || []).map(t => sessionTurn(t, slug)).join('')
-    || '<div class="empty">The file is there but holds no turns yet.</div>';
+    || '<div class="empty">No turns yet.</div>';
   body.scrollTop = body.scrollHeight;                       // newest last, like the thread
 }
 
@@ -10493,7 +10492,7 @@ function settingsEditBot(slug = '') {
         <label>Display name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
-        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>"Replies only": no cold calls, but its manager and anyone holding its ticket get through. "Tasks only": work arrives as a task and nothing else — no bot may chat it at all. People are never affected.</small></label>
+        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. People are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
         <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}

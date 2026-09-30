@@ -191,11 +191,11 @@ async function access(browser) {
   assert.match(await about.innerText(), /About/);
   assert.match(await about.innerText(), /Takes requests\./);
   assert.match(await about.innerText(), /Run by\s*Ana/);
-  assert.match(await about.innerText(), /send it requests/);
+  assert.match(await about.innerText(), /See it and send requests/);
   await page.goto('https://tico-ui.test/#/bot/sales');
   await page.locator('#btabs').waitFor({state: 'attached'});
   assert.deepEqual(await page.locator('#btabs [data-bt]').evaluateAll(ns => ns.map(n => n.dataset.bt)), ['more'], 'see only: no chat, no tasks');
-  assert.match(await page.locator('#pane-more').innerText(), /cannot send it requests/);
+  assert.match(await page.locator('#pane-more').innerText(), /See it only/);
   assert.deepEqual(errors, []);
   console.log('PASS: Access column and editor presets, the org filter beside Recent, and bot pages that show no activity to someone who cannot read.');
 }

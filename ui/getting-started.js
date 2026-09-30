@@ -13,12 +13,12 @@ const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.
 const gsCards = {
   docs: {owner: true, title: 'Where do your current docs live?'},
   market: {owner: true, title: 'Tell us about your market'},
-  tasks: {title: 'Tasks', text: 'Work you hand to a bot or a person. Every task has an owner and a status, and bots pick theirs up on their own.',
+  tasks: {title: 'Tasks', text: 'Work for a bot or a person.',
           action: ['Create a task', '#task-new']},
-  updates: {title: 'Updates', text: 'Each bot posts a few bullets every day, and a fuller look on Fridays. They land here as they arrive.'},
-  goals: {title: 'Goals', text: 'A goal says, in plain English, what a bot or a person is going for, with a colour for how it is going.',
+  updates: {title: 'Updates', text: 'Each bot posts daily.'},
+  goals: {title: 'Goals', text: 'What a bot or person is going for.',
           action: ['Set a first goal', '[data-goal-add]']},
-  meetings: {title: 'Meetings', text: 'Import a meeting transcript and your bots pick out the tasks and follow-ups.',
+  meetings: {title: 'Meetings', text: 'Import a transcript; bots find the tasks.',
              action: ['Import a transcript', '#notes-import']},
 };
 

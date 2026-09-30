@@ -161,10 +161,10 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
 
     // ---- section cards: an explanation and one first action, closable
     page = await open('#/updates');
-    assert.match(await page.locator('#gs-card').textContent(), /Each bot posts a few bullets every day/);
+    assert.match(await page.locator('#gs-card').textContent(), /Each bot posts daily/);
     await page.close();
     page = await open('#/tasks');
-    assert.match(await page.locator('#gs-card').textContent(), /Every task has an owner/);
+    assert.match(await page.locator('#gs-card').textContent(), /Work for a bot or a person/);
     await page.locator('#gs-card [data-gs-run]').click();
     await page.locator('#task-modal[open], dialog[open]').first().waitFor();
     await page.close();
