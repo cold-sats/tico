@@ -1,0 +1,189 @@
+/* ui/app/bot-tasks.js — Tasks on a keeper bot's page
+   Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
+'use strict';
+
+// ---- tasks on a keeper bot's page: hub.db instead of Issues ----
+const V2_ACTIVE = ['open', 'doing', 'waiting'];
+const V2_GROUPS = [['doing', 'Doing'], ['waiting', 'Waiting'],
+                   ['done', 'Done'], ['declined', 'Declined'], ['closed', 'Closed']];
+// A bot's task list stays small. Two lines at most per task: its title and one
+// icon for its state (! needs you, a spinner while doing, a clock while waiting) and only the
+// avatar of whoever holds it (your own photo for you). No count beside Active.
+function taskStateLabel(t) {
+  if (taskNeedsMe(t) || t.status === 'declined') return 'Needs you';
+  if (t.status === 'waiting') return 'Waiting';
+  if (t.status === 'doing' || (t.status === 'open' && !actorPerson(t.owner))) return 'Doing';
+  return 'To do';
+}
+function taskStateIcon(t) {
+  const label = taskStateLabel(t);
+  const inner = {'Needs you': '!', Waiting: '<span class="nav-icon">schedule</span>', Doing: '', 'To do': ''}[label];
+  // The spinner means the bot is running this task right now, the same thing
+  // the org rail's spinner means. A task marked doing between runs gets a still ring instead.
+  const owner = actorSlug(t.owner), live = owner ? v2StatusOf(owner) : null;
+  const running = label === 'Doing' && live?.state === 'running' && (!live.task_id || live.task_id === t.id);
+  const cls = {'Needs you': 'needs', Waiting: 'waiting', Doing: running ? 'doing' : 'doing-idle', 'To do': 'todo'}[label];
+  if (label === 'Doing' && !running) return `<span class="st-ic st-doing-idle" role="img" aria-label="In progress, not running now" title="In progress, not running now"></span>`;
+  return `<span class="st-ic st-${cls}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${inner}</span>`;
+}
+function actorAvatarOnly(a) {
+  const slug = actorSlug(a), pid = actorPerson(a);
+  if (slug && S.emps.some(e => e.name === slug))
+    return `<a class="who-av" href="#/bot/${esc(slug)}" title="${esc(empName(slug))}">${avatar(slug, 22)}</a>`;
+  const person = pid === S.me?.id ? (mePerson() || {id: pid, name: S.me?.name}) : (S.people || []).find(p => p.id === pid) || {id: pid, name: actorLabel(a)};
+  return `<span class="who-av" title="${esc(pid === S.me?.id ? 'You' : actorLabel(a))}">${personAvatar(person, 22)}</span>`;
+}
+function v2TaskRow(t, slug) {
+  // On a bot's page the other party is whoever is not the bot; on a person's page (no slug) it is the requester.
+  const other = slug && actorSlug(taskRequester(t)) === slug ? t.owner : taskRequester(t);
+  const acts = [`<button class="linkish" type="button" data-v2-task="${esc(t.id)}" data-v2-status="done">Done</button>`,
+                `<button class="linkish danger" type="button" data-v2-task="${esc(t.id)}" data-v2-close="1">Close</button>`];
+  return `<details class="trow" data-task-version="${esc(t.version || '')}"><summary>
+      <span class="pill ${V2_PILL[t.status] ?? ''}">${esc({open: !actorPerson(t.owner) ? 'Doing · starting' : actorPerson(t.owner) === S.me?.id ? 'Needs you' : 'To do', waiting: 'Waiting', doing: 'Doing'}[t.status] || t.status || '')}</span>
+      ${taskStateIcon(t)}<span class="ttl" title="${esc(`${t.title || ''} · ${taskStateLabel(t)} · ${ago(t.updated || t.created)}`)}">${esc(t.title || '')}</span>
+      <span class="tags">${actorChip(other)}</span>${actorAvatarOnly(t.owner)}
+      <span class="muted tnum">${esc(ago(t.updated || t.created))}</span></summary>
+    <div class="tbody">
+      ${t.body ? `<div class="q md">${safeMd(taskBody(t))}</div>` : '<div class="muted">No details.</div>'}
+      ${S.me?.cloud ? (t.attachments || []).map(f => `<a class="pill" href="${API}/v2/files/${encodeURIComponent(f.id)}" download>${esc(f.name)}</a>`).join(' ') : ''}
+      ${t.note ? `<div class="lbl">Note</div><div class="q md">${safeMd(t.note)}</div>` : ''}
+      <div data-task-thread></div>
+      <div class="muted">${esc(taskSourceLine(t))} ${esc(ago(t.created))}${t.due ? ` · due ${esc(fmt(t.due))}` : ''}</div>
+      <div class="issue-actions">${taskConversationButton(t.id)}${acts.join('')}</div>
+      <div class="issue-compose" hidden></div></div></details>`;
+}
+function v2TaskGroups(list, slug, statuses) {
+  const out = V2_GROUPS.filter(([k]) => statuses.includes(k)).map(([k, label]) => {
+    const rows = list.filter(t => (t.status === 'open' ? 'doing' : String(t.status)) === k);
+    return rows.length ? `<div class="v2-group"><h3>${esc(label)} <span class="muted">${rows.length}</span></h3>${
+      rows.map(t => v2TaskRow(t, slug)).join('')}</div>` : '';
+  }).filter(Boolean).join('');
+  return out;
+}
+// The Chat tab is where a person works through one bot's requests. Keep every active company task
+// that needs the signed-in person directly above that conversation. Attention order leads, then
+// the bot's queue rank. Tasks that do not need this person stay out of the way; Done stays in Tasks.
+const BOT_CHAT_ACTIVE = new Set(['open', 'doing', 'waiting', 'declined']);
+let BOT_CHAT_TASKS = new Map(), BOT_CHAT_TASK_LOAD = 0;
+function taskNeedsMe(task) {
+  const me = myActor();
+  return !!me && (task?.owner === me || task?.ask?.to_actor === me);
+}
+function botChatTasksRender(slug, rows) {
+  const host = $('#bot-chat-tasks');
+  if (!host || BOT?.slug !== slug) return;
+  const needOrder = new Map((S.v2.needs || []).map((item, index) => [String(item.id), index]));
+  const needById = new Map((S.v2.needs || []).map(item => [String(item.id), item]));
+  BOT_CHAT_TASKS = new Map();
+  const ordered = rows.map(task => ({task, need: needById.get(String(task.id))})).sort((a, b) =>
+    (needOrder.get(String(a.task.id)) ?? Infinity) - (needOrder.get(String(b.task.id)) ?? Infinity)
+    || (a.task.rank == null ? Infinity : Number(a.task.rank)) - (b.task.rank == null ? Infinity : Number(b.task.rank))
+    || String(a.task.created || '').localeCompare(String(b.task.created || '')));
+  for (const {task} of ordered) BOT_CHAT_TASKS.set(String(task.id), task);
+  // Just what needs you, about two lines, scrolling inside, and an X. No heading,
+  // pill, age or "all tasks" link. Dismissed stays dismissed for this bot until the items change.
+  const key = 'tico.needs.dismissed.' + slug, items = ordered.map(({task}) => String(task.id)).sort().join(',');
+  let dismissed = '';
+  try { dismissed = localStorage.getItem(key) || ''; } catch {}
+  if (!ordered.length || dismissed === items) { host.hidden = true; host.innerHTML = ''; return; }
+  host.setAttribute('aria-label', 'What needs you');
+  host.innerHTML = `<div class="bot-chat-task-groups">${ordered.map(({task}) =>
+      `<button class="bot-chat-task-row" type="button" data-bot-chat-task="${esc(task.id)}">${esc(task.title || 'Untitled task')}</button>`).join('')}</div>
+    <button class="bot-chat-tasks-x" type="button" aria-label="Dismiss" title="Dismiss">×</button>`;
+  host.hidden = false;
+  host.onclick = event => {
+    if (event.target.closest('.bot-chat-tasks-x')) {
+      try { localStorage.setItem(key, items); } catch {}
+      host.hidden = true;
+      return;
+    }
+    const button = event.target.closest('[data-bot-chat-task]');
+    if (!button) return;
+    const task = BOT_CHAT_TASKS.get(button.dataset.botChatTask);
+    if (task) taskModalShow(task);
+  };
+}
+async function loadBotChatTasks(slug) {
+  const host = $('#bot-chat-tasks');
+  if (!host) return;
+  const load = ++BOT_CHAT_TASK_LOAD;
+  const [owned, asked] = await Promise.all([
+    v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all`),
+    v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&status=all`)]);
+  if (load !== BOT_CHAT_TASK_LOAD || BOT?.slug !== slug || !$('#bot-chat-tasks')) return;
+  const unique = new Map();
+  for (const task of [...(owned?.tasks || []), ...(asked?.tasks || [])]) {
+    if (BOT_CHAT_ACTIVE.has(String(task.status)) && (task.lane || 'company') === 'company' && taskNeedsMe(task)) unique.set(String(task.id), task);
+  }
+  botChatTasksRender(slug, [...unique.values()]);
+}
+// Active is the bot's own work; "Assigned to others" is what it asked of people
+// and other bots (a task it filed for you shows here, and its number in the org tree). Both have
+// a count; Recurring comes last. A failed load is retried, never shown as an empty list.
+async function loadBotTasksV2(slug) {
+  const pane = $('#t-open'); if (!pane) return;
+  const seen = BOT_TASKS_CACHE.get(slug);
+  if (seen) botTasksRender(slug, seen.owned, seen.asked);   // last time's list at once; the fresh one follows
+  let owned = null, asked = null;
+  for (const wait of [0, 600, 2000]) {
+    if (wait) await new Promise(done => setTimeout(done, wait));
+    if (!$('#t-open') || BOT?.slug !== slug) return;
+    [owned, asked] = await Promise.all([
+      owned || v2Get(`/v2/tasks?owner=${encodeURIComponent(slug)}&status=all`),
+      asked || v2Get(`/v2/tasks?requester=${encodeURIComponent(slug)}&status=all`)]);
+    if (owned && asked) break;
+  }
+  if (!$('#t-open')) return;
+  if (!owned || !asked) {
+    if (!seen) $('#t-open').innerHTML = '<div class="err">Could not load the tasks. They will show on the next refresh.</div>';
+    return;
+  }
+  BOT_TASKS_CACHE.set(slug, {owned, asked});
+  botTasksRender(slug, owned, asked);
+}
+function botTasksRender(slug, owned, asked) {
+  if (!$('#t-open') || BOT?.slug !== slug) return;
+  const mine = owned.tasks || [], theirs = (asked.tasks || []).filter(t => actorSlug(t.owner) !== slug);
+  const latest = (a, b) => String(b.updated || b.created || '').localeCompare(String(a.updated || a.created || ''));
+  const active = mine.filter(t => V2_ACTIVE.includes(String(t.status))).sort(latest);
+  // Done: the bot's own work, most recently done first. A routine's runs (a sweep every 30
+  // minutes) are not work a person asked for; they live under Recurring.
+  const doneAt = t => String(t.done_at || t.closed_at || t.updated || '');
+  const finished = mine.filter(t => !V2_ACTIVE.includes(String(t.status)) && !isRecurringTask(t))
+    .sort((a, b) => doneAt(b).localeCompare(doneAt(a)));
+  $('#cnt-done').textContent = finished.length || '';
+  // What it asked of others: whatever waits on a person first, then by the latest change.
+  const needsPerson = t => actorPerson(t.owner) ? 0 : 1;
+  const outward = theirs.filter(t => V2_ACTIVE.includes(String(t.status))).sort((a, b) => needsPerson(a) - needsPerson(b) || latest(a, b));
+  $('#t-open').innerHTML = active.length ? `<div class="bot-task-list">${active.map(t => v2TaskRow(t, slug)).join('')}</div>`
+    : '<div class="empty">No active tasks.</div>';
+  const assigned = $('#bot-assigned');
+  if (assigned) {
+    assigned.hidden = !outward.length;
+    $('#t-assigned').innerHTML = `<div class="bot-task-list">${outward.map(t => v2TaskRow(t, slug)).join('')}</div>`;
+  }
+  $('#t-done').innerHTML = finished.length
+    ? `<div class="bot-task-list">${finished.map(t => v2TaskRow(t, slug)).join('')}</div>`
+    : '<div class="empty">Nothing finished yet.</div>';
+}
+
+// the pill's "Send as task" on a keeper bot: a hub task, not an Issue
+async function v2PillTask(P, text) {
+  if (P.sending) return;
+  P.sending = true;
+  const files = P.files.slice();
+  const btn = pq(P, '.p-send'), label = btn.textContent;
+  btn.disabled = true; pillBtnSay(btn, 'Creating…');
+  try {
+    await cloudCompose('/v2/tasks', {title: text.split('\n')[0].trim().slice(0, 80), body: text, owner: P.slug}, files);
+    pillAcknowledge(P, text, files);
+    toast(`Task for ${empName(P.slug)} created`);
+    await v2Refresh();
+    if (BOT?.slug === P.slug) {
+      void loadBotTasksV2(P.slug);
+      void loadBotChatTasks(P.slug);
+    }
+  } catch (e) { toast(e.message, true); }
+  P.sending = false;
+  btn.disabled = false; pillBtnSay(btn, label); pillLabel(P); pillButtons(P);
+}
