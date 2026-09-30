@@ -13,7 +13,32 @@ function settingsAgentCell(e) {
   const seen = a.last_seen ? `last seen ${ago(a.last_seen)}` : a.credential ? 'credential issued · no heartbeat yet' : 'no credential yet';
   return `<div class="settings-agent-cell"><strong>${esc(name)}</strong>${a.profile ? ` · <span class="muted">${esc(a.profile)}</span>` : ''}
     <span class="settings-cell-note">${esc(seen)}</span>
-    ${manage ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${a.credential ? 'Rotate credential' : 'Create credential'}</button>${a.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</div>`;
+    ${manage ? `<span class="settings-agent-actions">${agentPairButton(e)}<button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${a.credential ? 'Rotate credential' : 'Create credential'}</button>${a.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</div>`;
+}
+// Pair: the code a Hermes profile printed, typed here; approving hands the profile its credential (backend/agents.py).
+const agentPairButton = e => e.agent?.harness === 'hermes' ? `<button class="ghost" type="button" data-agent-pair="${esc(e.name)}">Pair</button>` : '';
+function settingsAgentPair(slug) {
+  const e = S.emps.find(row => row.name === slug); if (!e) return;
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
+  dialog.innerHTML = `<form method="dialog"><header><h2>Pair ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
+    <div class="agent-credential-body">
+      <label>Code<input name="code" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7QM-4F2P"></label>
+      <p class="muted">Printed by <code>hermes_agent.py pair</code> on the profile's computer.</p>
+      <div class="row"><button class="primary" type="submit">Pair</button><span class="muted" data-pair-status></span></div>
+    </div></form>`;
+  const form = dialog.querySelector('form'), status = dialog.querySelector('[data-pair-status]');
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const button = form.querySelector('button[type=submit]'); button.disabled = true; status.textContent = 'Pairing…';
+    try {
+      const done = await post('/v2/agents/pairings/approve', {code: form.code.value.trim(), bot: slug});
+      toast(`Connected ${done.profile || 'the profile'}${done.host ? ` on ${done.host}` : ''}`);
+      dialog.close();
+    } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; button.disabled = false; }
+  };
+  dialog.onclose = () => { dialog.remove(); void loadSettings(); };
+  document.body.appendChild(dialog); dialog.showModal(); form.code.focus();
 }
 async function settingsAgentCredential(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
