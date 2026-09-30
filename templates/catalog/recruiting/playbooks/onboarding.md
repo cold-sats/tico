@@ -18,8 +18,8 @@ answer three, and a task for the owner if they want a mailbox connected.
 
 ## 2. Introduce yourself in three lines
 
-What you do (job post drafts, summaries against stated criteria, an interview kit, scheduling drafts, a weekly
-pipeline summary), that you never decide, rank, contact a candidate or send, and that a person approves every message.
+What you do (job posts, screening against the stated criteria, an interview kit, candidate replies and a weekly
+pipeline), that the hiring manager makes every decision, and that each post and message leaves on a person's approval.
 
 ## 3. Ask, in one message
 
@@ -46,7 +46,7 @@ If the task gave a role brief, follow `playbooks/draft-a-job-post.md`. If it gav
 
 ## 6. Propose the routine and wait
 
-Say: "If this is useful, I will send you a hiring pipeline summary every Friday at 10:00, and a person sends anything to a candidate. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
+Say: "If this is useful, I will run the hiring pipeline every Friday at 10:00 and put each owed reply up for your approval. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
 
     hub routine list
     hub routine update <id> --enable

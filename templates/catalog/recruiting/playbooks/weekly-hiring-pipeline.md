@@ -2,7 +2,8 @@
 
 Schedule: Fridays at 10:00 company time (routine `weekly-hiring-pipeline`), once a person has approved the
 first summary. Also run by hand on request. Budget 30 minutes. The outcome is one page for the hiring
-managers: where each open role stands, who is waiting on a person, and what to schedule. Nothing is sent.
+managers: where each open role stands, who is waiting on a person, and which replies are ready to go. Nothing
+leaves without an approval.
 
 ---
 
@@ -23,12 +24,14 @@ Use the stages a person set; never move a candidate yourself. A number with no s
 List every candidate waiting on a person longer than the agreed wait (default two working days), with the
 person and the days. This is the line managers read first.
 
-## 4. Draft the scheduling
+## 4. Move candidates on
 
-For candidates a manager moved to interview, draft a scheduling message in `hub calendar upcoming` terms:
-three real free slots, the interviewers, the length, no video links you cannot see. Invitations to the
-roster go through `hub calendar schedule` only after approval; anyone outside the roster is invited by a
-person. Attach the drafts to the task.
+- **Replies owed.** For every candidate past the agreed wait, prepare the reply the stage calls for (an
+  acknowledgement, a next step, or a decline the manager already made) and put it up with
+  `hub approval request --kind send --task <id>`, one per message. Never decide the content of a decision.
+- **Interviews.** For candidates the manager moved to interview since last week, hand scheduling to
+  `recruiting-coordinator` with `hub task create --owner recruiting-coordinator` (role, reference, rounds,
+  panel from the role file). Without that bot, list them for the hiring manager.
 
 ## 5. Check the kits
 

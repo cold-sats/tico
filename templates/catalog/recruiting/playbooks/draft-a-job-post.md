@@ -1,7 +1,7 @@
-# Draft a job post
+# Write a job post
 
 Triggered by a task with a role brief. Budget 25 minutes. The outcome is one job post draft under 400
-words that the hiring manager can approve with one edit, and a role file. Nothing is posted.
+words that the hiring manager can approve with one edit, and a role file. It is posted only on an approval.
 
 ---
 
@@ -42,7 +42,8 @@ borderline, solid and outstanding answer covers. The same kit for every candidat
 
 ## 6. Hand over
 
-Attach the post and the kit to the task. Publishing is a person's act. Then update `state.md` and
+Attach the post and the kit to the task, and once the manager has signed off the text, request
+`hub approval request --kind publish --task <id>` naming where it goes (careers page, job board). Then update `state.md` and
 `hub task update <id> --status done --note`: the post's path, the gaps left for the manager, and what you
 could not read.
 

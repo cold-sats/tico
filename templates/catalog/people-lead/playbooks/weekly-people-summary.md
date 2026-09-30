@@ -1,0 +1,54 @@
+# Weekly people summary
+
+Schedule: Mondays at 08:30 company time (routine `weekly-people-summary`), once a person has approved the
+first summary. Also run by hand. Budget 35 minutes. The outcome is one confidential page for the named
+readers: hires against plan, who starts and leaves, what is due, and who should take what. Nothing is
+assigned, published or sent.
+
+---
+
+## 1. Read where things stand
+
+    hub task show <id>
+    hub org
+    hub calendar upcoming
+
+Then `knowledge/headcount-plan.md`, `knowledge/people-calendar.md`, `knowledge/routing.md` and last
+week's summary. If last week named an action, check whether it happened and say so.
+
+## 2. Hires against plan
+
+For each planned role: target start date, status (not opened, open, interviewing, offer, filled), and
+days past target. Read the status from `recruiting`'s latest pipeline report or the hiring tasks; a role
+with no source is "status unknown", never "on track". Headline number: filled against planned this quarter.
+
+## 3. Starters and leavers
+
+Starters in the next 30 days (from `people-hr`'s tracker) and leavers with a last day in the next 30
+(from `people-ops`). First name or reference, role, date. Flag any leaver with no offboarding checklist.
+
+## 4. Deadlines
+
+Every item in `knowledge/people-calendar.md` falling in the next 30 days, with owner and status. Anything
+due in 7 days and not done is bold and goes into "Needs a person".
+
+## 5. What the people bots produced
+
+For each people bot in `hub org`: its newest report and anything waiting on a person more than 5 days.
+One line each. A bot you could not read is named.
+
+## 6. Routing and hiring proposals
+
+Each unowned people request gets one routing line (owner, reason) from `knowledge/routing.md`. If the
+same unowned work appeared three or more times this month, add one hiring proposal following
+`playbooks/propose-a-new-bot.md`. Create nothing.
+
+## 7. Write and hand over
+
+Write `reports/YYYY-MM-DD-people-summary.md` in the shape of `knowledge/examples/people-summary.md`, then
+`hub files publish reports/YYYY-MM-DD-people-summary.md --scope task --task <id>`. Commit, and
+`hub task update <id> --status done --note`: the headline, the path, what you could not read.
+
+## When a source fails
+
+Name it and what is therefore unknown, and keep going. A count built from tasks alone says so.
