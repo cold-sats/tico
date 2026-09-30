@@ -135,6 +135,17 @@ def test_staff_routes_need_the_staff_key(client, db):
     assert client.get("/v1/staff/tickets", headers=staff()).status_code == 200
 
 
+def test_staff_stats_show_exact_counts_per_release_and_the_public_ones_stay_suppressed(client, db):
+    for version in ("0.2.24", "0.2.24", "0.2.9"):
+        db.record(str(uuid.uuid4()), version, True, False)
+    assert client.get("/v1/staff/stats").status_code == 401
+    assert client.get("/v1/staff/stats", headers=staff("x" * 32)).status_code == 401
+    got = client.get("/v1/staff/stats", headers=staff())
+    assert got.status_code == 200 and got.headers["cache-control"] == "no-store"
+    assert got.json() == {"by_version": {"0.2.9": 1, "0.2.24": 2}, "window_days": 7}
+    assert client.get("/v1/stats").json()["by_version"] == {}
+
+
 def test_without_a_staff_key_the_staff_routes_do_not_exist(db, tickets):
     latest = Latest(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"tag_name": "v0.2.17"})))
     with TestClient(create_app(db, latest, tickets=tickets)) as c:

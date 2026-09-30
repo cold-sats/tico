@@ -137,6 +137,18 @@ def test_small_version_counts_are_suppressed_and_the_rest_rounded_into_other(db,
     assert db.stats()["by_version"] == {"0.2": 9, "other": 5}
 
 
+def test_release_counts_are_exact_per_release_and_only_for_the_last_week(db, day):
+    db.record(ident(), "0.2.24", True, True)
+    db.record(ident(), "0.2.24", True, False)
+    db.record(ident(), "0.2.9", True, False)
+    old = ident()
+    day[0] = TODAY - timedelta(days=20)
+    db.record(old, "0.2.1", True, True)
+    day[0] = TODAY
+    assert list(db.release_counts().items()) == [("0.2.9", 1), ("0.2.24", 2)]
+    assert db.stats()["by_version"] == {}          # the public view still hides every count under 5
+
+
 def test_installs_not_heard_from_in_thirteen_months_are_deleted(db, day):
     day[0] = TODAY - timedelta(days=400)
     db.record(ident(), "0.2.15", True, True)
