@@ -166,7 +166,7 @@ class NoRegistry(Stage2):
         self.assertEqual(pol["internal_domains"], ["acme.example"])            # the bot's own mailbox domain
 
     def test_internal_domains_come_from_the_roster_without_public_providers(self):
-        pl.HUB_GET = lambda path: {"people": [{"id": "a", "email": "chris@gmail.com"}, {"id": "b", "email": "Bo@Team.example"},
+        pl.HUB_GET = lambda path: {"people": [{"id": "a", "email": "ana@gmail.com"}, {"id": "b", "email": "Bo@Team.example"},
                                                {"id": "c", "email": "c@acme.example"}]} if path == "org" else None
         self.assertEqual(pl.load(slug="inbox")["internal_domains"], ["acme.example", "team.example"])
         pl.HUB_GET = lambda path: {"people": [{"email": "x@gmail.com"}]}

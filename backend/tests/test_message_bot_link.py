@@ -107,7 +107,7 @@ def test_backfill_links_a_mailbox_on_another_domain_to_the_bot_s_owner(api):
 
 
 def test_backfill_uses_the_creator_before_the_operator_and_the_only_person_when_nothing_else_says(api):
-    old_message_bot(api, "inbox-manager", "Mailbox: chris@workspace.example\n")
+    old_message_bot(api, "inbox-manager", "Mailbox: ana@workspace.example\n")
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET created_by='human:cara' WHERE bot='inbox-manager'")
     assert backfill(api) == ["inbox-manager"] and inbox_bot_of(api, "cara") == "inbox-manager"
@@ -125,12 +125,12 @@ def test_the_mailbox_is_found_in_the_gmail_tool_the_computer_reports_or_in_the_i
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO runners(id,label,operator,token_hash,created,last_seen,readiness_json) VALUES('r1','Mac','ana','h',?,?,?)",
                   (H.now(), H.now(), encode({"schema_version": 1, "bots": {"reported": {"tools": [
-                      {"service": "gmail", "identity": "Chris@Workspace.example", "can": ["read", "draft"]}]}}})))
+                      {"service": "gmail", "identity": "Ana@Workspace.example", "can": ["read", "draft"]}]}}})))
         c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('reported','r1',1,?,'keeper')", (H.now(),))
     assert backfill(api) == ["reported"]
     assert inbox_bot_of(api, "ana") == "reported"
     with api.app.state.store.read() as c:
-        assert message_bots.mailbox_of(c, "reported", message_bots._config(c, "reported")) == "chris@workspace.example"
+        assert message_bots.mailbox_of(c, "reported", message_bots._config(c, "reported")) == "ana@workspace.example"
     words = message_bots.mailbox_in_words
     assert words("You run the inbox for my mailbox Ben@Acme.example. Be brief.") == "ben@acme.example"
     assert words("Mailbox: <ben@acme.example>.") == "ben@acme.example" and words("no address here") == ""
