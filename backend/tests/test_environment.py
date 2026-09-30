@@ -93,3 +93,13 @@ def test_local_signin_refuses_to_start_on_a_public_address(tmp_path):
     with pytest.raises(RuntimeError, match="loopback"):
         Settings(db_path=tmp_path / "hub.db", public_url="https://atlas.acme.example",
                  local_owner_token_file=local_token_file(tmp_path))
+
+
+def test_no_sign_in_is_fine_on_loopback_and_refused_on_a_public_address(monkeypatch, tmp_path):
+    monkeypatch.setenv("TICO_DB", str(tmp_path / "hub.db"))
+    monkeypatch.delenv("TICO_AUTH_PROXY", raising=False)
+    monkeypatch.delenv("TICO_ACCESS_ISSUER", raising=False)
+    assert Settings.from_env().loopback                      # the quick start: nothing to configure
+    monkeypatch.setenv("TICO_PUBLIC_URL", "https://tico.acme.example")
+    with pytest.raises(RuntimeError, match="needs sign-in"):
+        Settings.from_env()

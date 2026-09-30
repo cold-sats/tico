@@ -39,6 +39,14 @@ def serve(tmp_path, **extra):
     return result, seen, log
 
 
+def test_no_sign_in_setup_runs_on_this_machine_and_a_domain_needs_one(tmp_path):
+    result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off")
+    assert result.returncode == 0, result.stderr
+    assert seen["TICO_PUBLIC_URL"] == "http://127.0.0.1:8765" and seen["TICO_LOCAL_OWNER_TOKEN_FILE"]
+    result, _, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_DOMAIN="tico.acme.example", TICO_BACKUP="off")
+    assert result.returncode != 0 and "needs sign-in" in result.stderr
+
+
 def test_an_explicit_scheduler_off_is_kept_and_unset_means_on(tmp_path):
     result, seen, _ = serve(tmp_path, TICO_BACKUP="off", TICO_SCHEDULER="0")
     assert result.returncode == 0, result.stderr

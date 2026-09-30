@@ -16,7 +16,47 @@ browser -> caddy (HTTPS) or cloudflared --> server :8765 (data volume)
                     Mac (native) and Linux runners join from anywhere over https://<your domain>
 ```
 
-## Install the server
+## Quick start on your own computer
+
+Nothing to set up first: no domain, no DNS, no sign-in provider. Tico runs on this computer only, at
+`http://127.0.0.1:8765`, and you sign in as the owner with a token kept on this computer. Add a domain and sign-in
+later, when other people need in.
+
+On a Linux machine, run the installer with `--local`. It installs Docker if needed and asks for your email:
+
+```
+curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --local --owner-email you@example.com
+```
+
+It prints a link that signs you in once. On any computer with Docker (a Mac or Windows PC too), the same thing by hand:
+download the release's compose bundle, copy `.env.example` to `.env`, keep only these lines, and run `docker compose up -d`:
+
+```
+TICO_COMPANY_NAME=Acme
+TICO_OWNER_EMAIL=you@example.com
+COMPOSE_PROFILES=updater
+```
+
+Then get the sign-in token with `docker compose exec server cat /data/local-owner.token` and open
+`http://127.0.0.1:8765/api/v2/local-signin?token=<token>`. The app opens on the first-run wizard; you can create the team
+before a computer or an AI provider exists. Join this computer under **Settings > Devices > Add computer**.
+
+The server answers on this computer only: compose publishes the port on `127.0.0.1`, and a server with a domain and no
+sign-in refuses to start. A public address always needs sign-in.
+
+### Add a domain and sign-in later
+
+To let your people in from anywhere, edit `.env` in the install directory and run `docker compose up -d` there:
+
+1. Point a domain at this machine and pick the front door: set `COMPOSE_PROFILES=caddy,updater` and `TICO_DOMAIN=tico.yourcompany.com`
+   (or the Cloudflare tunnel; see below).
+2. Choose the sign-in: `TICO_AUTH_PROXY=oidc` with its issuer, client ID and secret, or `cloudflare` (see [Sign-in](#sign-in)).
+3. Add the others to the Humans list in the app; they sign in with the same account.
+
+Setting `TICO_DOMAIN` without `TICO_AUTH_PROXY` stops the server with a message that names the missing setting.
+The wizard below does all of this for you, on a fresh server.
+
+## Install the server for your team
 
 One command, run on the Linux server itself. It takes about 15 minutes, most of it waiting for DNS.
 
@@ -191,7 +231,7 @@ life of the server: use a client secret you can rotate. Progress is in `/var/log
 |---|---|---|
 | `oidc` | `TICO_OIDC_ISSUER`, `TICO_OIDC_CLIENT_ID`, `TICO_OIDC_CLIENT_SECRET`; optionally `TICO_OIDC_ALLOWED_DOMAINS` (comma-separated, such as `acme.com`) | Google, Okta, Microsoft Entra or any OpenID Connect provider. Register `https://<TICO_DOMAIN>/auth/callback` as the redirect URI with the provider. |
 | `cloudflare` | `TICO_ACCESS_ISSUER`, `TICO_ACCESS_AUDIENCE` | Cloudflare Access in front of the tunnel |
-| `none` | nothing; leave `TICO_DOMAIN` and `COMPOSE_PROFILES` empty | Local testing only. The server answers on `http://127.0.0.1:8765` and the owner signs in with the token from `docker compose exec server cat /data/local-owner.token` (`Authorization: Bearer <token>`, or `GET /api/v2/local-signin?token=...`). Never put this behind a public address. |
+| unset (or `none`) | nothing; leave `TICO_DOMAIN` unset | The quick start. The server answers on `http://127.0.0.1:8765` and the owner signs in with the token from `docker compose exec server cat /data/local-owner.token` (`Authorization: Bearer <token>`, or `GET /api/v2/local-signin?token=...`). With `TICO_DOMAIN` set, the server refuses to start. |
 
 The owner is the first person on the roster; add the others in the app. The wizard writes these settings; to change
 one later, edit `/opt/tico/.env` and run `docker compose up -d` there. `.env.example` in the bundle lists every setting.

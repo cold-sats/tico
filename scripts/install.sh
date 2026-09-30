@@ -3,8 +3,12 @@
 # `tico setup` wizard. Safe to run again: it upgrades or repairs and never rewrites an existing .env.
 #
 #   curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh
+#   sh install.sh --local [--owner-email you@example.com] [--company Acme]   # quick start: no domain, no sign-in setup
 #   sh install.sh [--version vX.Y.Z] [--dir /opt/tico] [--yes] [--tunnel] [--docker-only] [-- wizard flags]
 #   sh install.sh --runner --url https://tico.example.com --code <code> --label "Build box" [--version vX.Y.Z]
+#
+# --local runs Tico on this machine only (http://127.0.0.1:8765, the owner signs in with a token): no domain, no DNS, no
+# OIDC client. The domain and sign-in are added later in .env (docs/install.md, "Add a domain and sign-in later").
 #
 # --runner sets up a computer that runs bots for a Tico server instead: Docker, that release's runner.compose.yaml (the
 # runner and its updater sidecar, both pinned to the release) in /opt/tico-runner, a .env with the join settings, and
@@ -35,6 +39,9 @@ VERSION=
 FORCED=
 YES=
 TUNNEL=
+LOCAL=
+COMPANY=
+OWNER_EMAIL=
 DOCKER_ONLY=
 RUNNER=
 RUNNER_URL=
@@ -55,6 +62,9 @@ Usage: install.sh [options] [-- tico-setup flags]
   --version vX.Y.Z   install this release (default: the release this script came from)
   --dir PATH         install directory (default /opt/tico)
   --yes, -y          do not ask for confirmation
+  --local            quick start on this machine only: no domain and no sign-in setup (add them later in .env)
+  --owner-email E    with --local: the owner's email (asked when omitted)
+  --company NAME     with --local: the company name (default: My Company)
   --tunnel           Cloudflare Tunnel: no public ports needed, so ports 80 and 443 are not checked
   --docker-only      only make sure Docker and Compose are installed (used for runner boxes)
   --runner           set up a computer that runs bots for a Tico server (Docker Compose, with the updater sidecar)
@@ -91,6 +101,11 @@ while [ $# -gt 0 ]; do
     --server-network=*) SERVER_NETWORK=${1#--server-network=}; shift ;;
     --yes|-y) YES=1; shift ;;
     --tunnel) TUNNEL=1; shift ;;
+    --local) LOCAL=1; shift ;;
+    --owner-email) [ $# -ge 2 ] || { usage >&2; die 2 "--owner-email needs a value"; }; OWNER_EMAIL=$2; shift 2 ;;
+    --owner-email=*) OWNER_EMAIL=${1#--owner-email=}; shift ;;
+    --company) [ $# -ge 2 ] || { usage >&2; die 2 "--company needs a value"; }; COMPANY=$2; shift 2 ;;
+    --company=*) COMPANY=${1#--company=}; shift ;;
     --docker-only) DOCKER_ONLY=1; shift ;;
     --help|-h) usage; exit 0 ;;
     --) shift; break ;;
@@ -112,6 +127,8 @@ if [ -n "$RUNNER" ]; then
   [ -n "$RUNNER_LABEL" ] || [ -f "$DIR/.env" ] || RUNNER_LABEL=$(hostname 2>/dev/null || echo runner)
   [ -z "$RUNNER_LABEL" ] || printf '%s' "$RUNNER_LABEL" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
 fi
+[ -z "$LOCAL" ] || [ -z "$TUNNEL$RUNNER$DOCKER_ONLY" ] || die 2 "--local cannot be combined with --tunnel, --runner or --docker-only."
+[ -n "$LOCAL" ] || [ -z "$OWNER_EMAIL$COMPANY" ] || die 2 "--owner-email and --company go with --local."
 printf '%s' "$DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$' || die 2 "--dir must be an absolute path made of letters, digits and . _ - /"
 
 # ---------------------------------------------------------------------------------------------- preflight
@@ -141,7 +158,7 @@ preflight() {
   while [ ! -d "$probe" ]; do probe=$(dirname "$probe"); done
   disk_kb=$(df -Pk "$probe" | awk 'NR==2 {print $4}')
   [ "${disk_kb:-0}" -ge "$MIN_DISK_KB" ] || die 3 "Needs at least 1 GB of free disk under $probe (found $((${disk_kb:-0} / 1024)) MB); the images alone are about 0.6 GB."
-  if [ -z "$TUNNEL" ] && [ -z "$DOCKER_ONLY" ] && [ -z "$RUNNER" ] && [ ! -f "$DIR/.env" ]; then
+  if [ -z "$TUNNEL" ] && [ -z "$LOCAL" ] && [ -z "$DOCKER_ONLY" ] && [ -z "$RUNNER" ] && [ ! -f "$DIR/.env" ]; then
     for port in 80 443; do
       if port_busy "$port"; then
         die 3 "Port $port is already in use, and Tico's HTTPS front door needs it. Stop what listens there, or use --tunnel (Cloudflare Tunnel needs no open ports)."
@@ -358,6 +375,34 @@ run_wizard() {
   fi
 }
 
+# The quick start: a server on this machine only. The server sees no domain and no TICO_AUTH_PROXY, so it serves
+# 127.0.0.1 and the owner signs in with a token from the data volume.
+run_local() {
+  step "Setting up Tico on this machine"
+  if [ -z "$OWNER_EMAIL" ]; then
+    if ( : </dev/tty ) 2>/dev/null; then printf 'Your email address (you are the owner): '; read -r OWNER_EMAIL </dev/tty
+    else die 2 "--local needs --owner-email (there is no terminal to ask on)."; fi
+  fi
+  printf '%s' "$OWNER_EMAIL" | grep -Eq '^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$' || die 2 "--owner-email must be a plain email address."
+  [ -n "$COMPANY" ] || COMPANY="My Company"
+  printf '%s' "$COMPANY" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--company is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
+  env_tmp=$(mktemp)
+  ( umask 077
+    { printf '# Tico on this machine only. To add a domain and sign-in later, see docs/install.md.\n'
+      printf 'TICO_COMPANY_NAME="%s"\nTICO_OWNER_EMAIL=%s\n' "$COMPANY" "$OWNER_EMAIL"
+      printf 'COMPOSE_PROFILES=updater\nTICO_UPDATER_URL=http://updater:8080\nTICO_TAG=%s\n' "$VERSION"
+    } > "$env_tmp" )
+  as_root install -m 0600 "$env_tmp" "$DIR/.env"
+  rm -f "$env_tmp"
+  start_stack
+  token=$(cd "$DIR" && as_root docker compose exec -T server cat /data/local-owner.token 2>/dev/null) || token=
+  say ""
+  say "Tico is running on this machine only."
+  if [ -n "$token" ]; then say "Open this once to sign in as $OWNER_EMAIL: http://127.0.0.1:8765/api/v2/local-signin?token=$token"
+  else say "Sign in as $OWNER_EMAIL with the token from: cd $DIR && docker compose exec server cat /data/local-owner.token"; fi
+  say "Add a domain and sign-in for your people later: docs/install.md, \"Add a domain and sign-in later\"."
+}
+
 # A runner started with a bare `docker run -v tico-runner:/home/runner` keeps its login and repositories in that
 # volume. The compose file can use the same volume, so switching to it keeps the enrolled runner instead of making a second.
 runner_env() {
@@ -475,6 +520,7 @@ if [ -f "$DIR/.env" ]; then
 fi
 
 fetch_bundle
+if [ -n "$LOCAL" ]; then run_local; exit 0; fi
 run_wizard "$@" || die 6 "The setup wizard did not finish. Run this again: it resumes where it stopped, and finished steps are skipped."
 say ""
 say "Next: add the computers that run your bots (Settings > Devices > Add computer in the app)."

@@ -265,7 +265,7 @@ class Settings:
         rehearsal = rehearsal_on()
         # Whatever else the environment holds, a rehearsal cannot reach the services it would otherwise talk to.
         quiet = (lambda value: "") if rehearsal else (lambda value: value)
-        return cls(
+        settings = cls(
             db_path=Path(path),
             registry_dir=Path(os.environ["TICO_REGISTRY_DIR"]) if os.environ.get("TICO_REGISTRY_DIR") else ROOT / "registry",
             company_integrations_dir=Path(os.environ["TICO_INTEGRATIONS_DIR"]) if os.environ.get("TICO_INTEGRATIONS_DIR") else None,
@@ -332,3 +332,11 @@ class Settings:
             slack_digest_minutes=max(0, int(os.environ.get("TICO_SLACK_DIGEST_MINUTES", "60") or "60")),
             slack_digest_cap=max(1, int(os.environ.get("TICO_SLACK_DIGEST_CAP", "200") or "200")),
         )
+        # Local by default, public only with sign-in: no domain and no sign-in setup runs on loopback, but a server
+        # that others can reach never starts without a way to sign in.
+        if not settings.loopback and not settings.proxy_kind and not settings.demo and not (
+                settings.local_owner_email and settings.local_owner_token):
+            raise RuntimeError(
+                settings.public_url + " is reachable by others, so it needs sign-in. Set TICO_AUTH_PROXY "
+                "(oidc, cloudflare or aws-alb), or point TICO_PUBLIC_URL at 127.0.0.1 to run on this machine only.")
+        return settings

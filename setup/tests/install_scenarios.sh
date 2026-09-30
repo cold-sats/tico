@@ -80,6 +80,19 @@ has fresh-wizard-passthrough "--domain tico.example.com --company Acme" "$args"
 has fresh-next-steps "Add computer" "$out"
 out=$(inst --dir /work/tun --tunnel --yes -- --domain t.example.com 2>&1); has tunnel-front-door "--front-door cloudflared" "$(cat /work/tun/wizard-args.txt)"
 
+# --- local quick start: no domain, no sign-in, no wizard --------------------------------------------------
+L=/work/local
+printf 'LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*\n' > $S/ss.out
+out=$(inst --dir $L --local --owner-email ana@acme.example --company Acme 2>&1); code_is local-exit 0 $? "$out"
+rm -f $S/ss.out
+[ ! -e $L/wizard-args.txt ] && ok local-skips-wizard || bad local-skips-wizard "wizard ran"
+grep -q '^TICO_OWNER_EMAIL=ana@acme.example$' $L/.env && ok local-env-owner || bad local-env-owner "$(cat $L/.env)"
+grep -q -e TICO_DOMAIN -e TICO_AUTH_PROXY $L/.env && bad local-env-has-no-domain "$(cat $L/.env)" || ok local-env-has-no-domain
+[ "$(stat -c %a $L/.env)" = 600 ] && ok local-env-private || bad local-env-private "$(stat -c %a $L/.env)"
+has local-says-local "this machine only" "$out"
+out=$(inst --dir /work/local2 --local 2>&1); code_is local-needs-email 2 $? "$out"
+out=$(inst --dir /work/local3 --local --tunnel --owner-email a@b.example 2>&1); code_is local-not-with-tunnel 2 $? "$out"
+
 # --- idempotent re-run: repair, keep .env ------------------------------------------------------------
 printf 'MY_CUSTOM_SETTING=keep-me\n' >> $D/.env
 before=$(sum $D/.env)

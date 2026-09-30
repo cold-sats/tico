@@ -18,7 +18,16 @@ A small pilot is what has been measured ([sizing](docs/sizing.md)).
 
 ## Quick start
 
-On a Linux server (about 2 GB, with a domain pointed at it), run the installer of the release you want:
+On your own computer, with no domain and no sign-in setup, run the installer of the release you want with `--local`:
+
+```bash
+curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --local --owner-email you@example.com
+```
+
+Tico runs at `http://127.0.0.1:8765` and the installer prints a link that signs you in. Add a domain and sign-in later
+([docs/install.md](docs/install.md#add-a-domain-and-sign-in-later)).
+
+For a team, on a Linux server (about 2 GB, with a domain pointed at it), run the installer with no flags:
 
 ```bash
 curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh

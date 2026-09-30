@@ -40,15 +40,17 @@ server_environment() {
     export TICO_UPDATER_TOKEN
   fi
 
+  # No domain and no sign-in setup is the quick start: a local server on loopback, the owner signs in with a token on
+  # this machine. "none" is the older spelling. A domain (a public address) always needs a sign-in.
   case "${TICO_AUTH_PROXY:-}" in
-    none)
-      # Test mode: the server trusts a local owner token, so it may only be reached on loopback.
+    none|'')
+      [ -z "${TICO_DOMAIN:-}" ] || die "TICO_DOMAIN is set, so people reach this server over a public address and it needs sign-in: set TICO_AUTH_PROXY (oidc or cloudflare), or unset TICO_DOMAIN to run on this machine only"
+      # The server may only be reached on loopback: it trusts a local owner token.
       export TICO_PUBLIC_URL=http://127.0.0.1:8765 TICO_LOCAL_OWNER_TOKEN_FILE=$DATA/local-owner.token
       unset TICO_AUTH_PROXY
       if [ ! -s "$TICO_LOCAL_OWNER_TOKEN_FILE" ]; then
         (umask 077; head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n' > "$TICO_LOCAL_OWNER_TOKEN_FILE")
       fi ;;
-    '') die "set TICO_AUTH_PROXY (oidc, cloudflare, or none for local testing)" ;;
     *)
       [ -n "${TICO_DOMAIN:-}" ] || die "set TICO_DOMAIN"
       export TICO_PUBLIC_URL="https://$TICO_DOMAIN" ;;
