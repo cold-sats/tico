@@ -2039,9 +2039,13 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
+            from . import usage_limits
+            default = usage_limits.company(c)
+
             def with_bot_state(row):
                 if row:
                     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
+                    row = usage_limits.overlay(c, row, default)      # over a spend limit: paused, and why
                 return row
             if bot:
                 auth.target(c, who, bot, need="read")
@@ -2907,7 +2911,7 @@ def create_app(settings=None):
     from .goal_routes import install as install_goal_routes
     install_goal_routes(app, store, auth, mutate, settings)
     from .usage import install as install_usage
-    install_usage(app, store, auth, settings)
+    install_usage(app, store, auth, mutate, settings)
     from .bot_tools import install as install_bot_tools
     install_bot_tools(app, store, auth, mutate, settings_admin)
     from .support import install as install_support

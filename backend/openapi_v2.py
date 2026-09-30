@@ -244,6 +244,16 @@ STABLE = [
      "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day or routine, "
      "optionally for one department. The owner and bot administrators see every bot; anyone else sees the bots they run "
      "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
+    ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
+     "The company default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may "
+     "see usage for", "UsageLimits"),
+    ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
+     "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
+     "count toward it (owner and bot administrators)", "UsageDefault"),
+    ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
+     "A bot's own daily and monthly limit in estimated USD; empty follows the company default. Owner and administrators, or "
+     "the person who runs the bot within the company default. A bot over a limit takes no new job until the period turns "
+     "over or the limit is raised", "BotUsageLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
 ]
@@ -530,6 +540,15 @@ SCHEMAS = {
                   "departments": items({"type": "string"}), "bot": "s", "name": "s", "daily": items({"type": "object", "additionalProperties": True}),
                   "routines": items({"type": "object", "additionalProperties": True})},
                  required=["from", "to", "prices_as_of", "totals"]),
+    "UsageLimit": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "source": {"type": "object", "description": "Where each cap comes "
+                       "from: bot, company or null"}, "day_spent": NUM_N, "month_spent": NUM_N,
+                       "percent": {"type": "integer", "description": "The highest share of a limit reached"},
+                       "blocked": {"enum": ["daily", "monthly", None], "description": "Set while a limit is met: the bot takes no new job"},
+                       "own_daily_usd": NUM_N, "own_monthly_usd": NUM_N, "may_edit": "b"}),
+    "UsageDefault": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"})}),
+    "UsageLimits": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"}),
+                        "may_edit_default": "b", "bots": {"type": "object", "additionalProperties": ref("UsageLimit")}}),
+    "BotUsageLimit": obj({"bot": "s", "limit": ref("UsageLimit")}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),
 }

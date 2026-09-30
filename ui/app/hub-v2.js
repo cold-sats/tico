@@ -90,6 +90,7 @@ function pausedNotice(slug) {
   const s = v2StatusOf(slug) || {};
   const when = since => since ? ` since ${new Date(since).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}` : '';
   let why = PAUSED_WHY[s.state], since = s.since;
+  if (s.state === 'paused' && /^Paused: over /.test(s.focus || '')) why = s.focus.replace(/^Paused: /, '');     // a spend limit (Usage)
   if (s.state === 'crashed')
     return `${empName(slug)} saved a stopped run for later${esc(when(since))} — only that request is paused; other work continues`;
   if (!why) {

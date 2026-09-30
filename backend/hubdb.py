@@ -491,10 +491,21 @@ ALTER TABLE turns ADD COLUMN billing TEXT;
 CREATE INDEX IF NOT EXISTS turns_started ON turns(started);
 """
 
+# Spend limits (backend/usage_limits.py): a bot's own daily and monthly cap in estimated USD (null: follow the
+# company default), and the warnings already sent, one per bot, period, limit and level.
+USAGE_LIMITS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS usage_limits (
+  bot TEXT PRIMARY KEY, daily_usd REAL, monthly_usd REAL, updated TEXT, updated_by TEXT);
+CREATE TABLE IF NOT EXISTS usage_alerts (
+  bot TEXT NOT NULL, period TEXT NOT NULL, level INTEGER NOT NULL, sent TEXT NOT NULL,
+  PRIMARY KEY (bot, period, level));
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
-              REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA]
+              REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
+              USAGE_LIMITS_SCHEMA]
 
 
 class Refused(Exception):

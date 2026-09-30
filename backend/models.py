@@ -959,6 +959,15 @@ class RunUsage(Contract):
     billing: Literal["api", "subscription"] = "api"   # `subscription`: a ChatGPT or Claude sign-in, not a key
 
 
+class UsageLimit(Contract):
+    daily_usd: float | None = None
+    monthly_usd: float | None = None
+
+
+class UsageDefault(UsageLimit):
+    count_subscription: bool = False
+
+
 class Completion(Contract):
     outcome: Literal["completed", "failed", "interrupted"]
     text: str = Field(default="", max_length=200_000)

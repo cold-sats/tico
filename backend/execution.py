@@ -3,7 +3,7 @@
 import json
 import secrets
 
-from . import inbox_isolation, providers, runner_versions
+from . import inbox_isolation, providers, runner_versions, usage_limits
 from .harnesses import reports_tool_calls
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
 
@@ -363,7 +363,8 @@ class Execution:
                         "SELECT 1 FROM bot_config pc WHERE pc.bot=j.bot AND pc.onboarding_state='needs_onboarding')) "
                         "ORDER BY CASE WHEN queued_message.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
                         (who.runner_id, body.bot, body.bot)).fetchall()
-        cooling = {}
+        cooling, over = {}, {}
+        default = usage_limits.company(c)
         def claimable(job):
             check = bot_readiness(ready, job['bot'])
             if check.get('ready') is not True:
@@ -392,6 +393,11 @@ class Execution:
                         (job['bot'], message['conversation_id'])).fetchone()
                 if held:
                     return False
+            # A bot over its spend limit takes no new job; the job waits, and a run already going is not touched.
+            if job['bot'] not in over:
+                over[job['bot']] = usage_limits.blocked(c, job['bot'], default=default)
+            if over[job['bot']]:
+                return False
             if job['bot'] not in cooling:
                 status = H.status(c, job['bot']) or {}
                 cooling[job['bot']] = (status.get('state') == 'limited' and status.get('since')
@@ -848,6 +854,7 @@ class Execution:
                 H.event(c, H.KEEPER, "job.coalesce", extra["id"], {"attempt_id": aid, "job_id": row["job_id"]})
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
                       tokens_out=body.tokens_out, summary=body.text[:2000], usage=self.run_usage(c, row, body))
+        usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
         if row["thread_id"] and body.tokens_in is not None:

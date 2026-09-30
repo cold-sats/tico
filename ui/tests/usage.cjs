@@ -9,12 +9,13 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 
 const day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 const figures = (runs, i, c, o, est, sub = 0) => ({runs, input_tokens: i, cached_tokens: c, output_tokens: o, est_cost_usd: est, subscription_equiv_usd: sub, unpriced_runs: 0});
+const limit = (daily, monthly, percent = 0, blocked = null) => ({daily_usd: daily, monthly_usd: monthly, own_daily_usd: daily, own_monthly_usd: monthly, percent, blocked, may_edit: true, source: {}});
 // Arriving in the wrong order on purpose.
 const ROWS = [
-  {bot: 'sales', name: 'Sales', department: 'Revenue', ...figures(3, 1000, 2000, 500, 0.4), share: 0.05},
-  {bot: 'support', name: 'Support', department: 'Revenue', ...figures(12, 900000, 2100000, 60000, 6.1, 1.5), share: 0.8},
-  {bot: 'inbox', name: 'Inbox', department: null, ...figures(5, 400, 0, 50, null), share: 0},
-  {bot: 'coo', name: 'COO', department: 'Ops', ...figures(4, 5000, 5000, 900, 0, 2.2), share: 0.15},
+  {bot: 'sales', name: 'Sales', department: 'Revenue', ...figures(3, 1000, 2000, 500, 0.4), share: 0.05, limit: limit(null, null)},
+  {bot: 'support', name: 'Support', department: 'Revenue', ...figures(12, 900000, 2100000, 60000, 6.1, 1.5), share: 0.8, limit: limit(5, 50, 122, 'daily')},
+  {bot: 'inbox', name: 'Inbox', department: null, ...figures(5, 400, 0, 50, null), share: 0, limit: limit(null, 20, 85)},
+  {bot: 'coo', name: 'COO', department: 'Ops', ...figures(4, 5000, 5000, 900, 0, 2.2), share: 0.15, limit: limit(null, null)},
 ];
 const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_usd: t.est_cost_usd + (r.est_cost_usd || 0), subscription_equiv_usd: t.subscription_equiv_usd + r.subscription_equiv_usd,
                                               input_tokens: 0, cached_tokens: 0, output_tokens: 0, unpriced_runs: 0}), {runs: 0, est_cost_usd: 0, subscription_equiv_usd: 0, input_tokens: 0, cached_tokens: 0, output_tokens: 0, unpriced_runs: 0});
@@ -26,6 +27,7 @@ const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_us
     const page = await ctx.newPage();
     const errors = [], asked = [];
     let empty = false;
+    const puts = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.route('**/*', route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -38,6 +40,8 @@ const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_us
       const config = {version: '0.2.18', update: null, app_name: 'Tico', usage_count_notice: false};
       if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@acme.example', cloud: true, registered: true, config});
       if (p === '/api/v2/config') return json(config);
+      if (p === '/api/v2/usage/limits' && req.method() === 'GET') return json({default: {daily_usd: 20, monthly_usd: null, count_subscription: false}, may_edit_default: true, bots: {}});
+      if (p.startsWith('/api/v2/usage/limits') && req.method() === 'PUT') { puts.push([p, JSON.parse(req.postData())]); return json({ok: true}); }
       if (p === '/api/v2/usage') {
         const q = Object.fromEntries(url.searchParams);
         asked.push(q);
@@ -82,6 +86,24 @@ const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_us
     assert.equal((await page.locator('.use-row[data-bot=inbox] .use-cost').innerText()).trim(), '—', 'a model with no price has no cost');
     assert.match(await page.locator('.use-row[data-bot=inbox] .use-tok').innerText(), /450 tokens/);
     assert.equal(await page.locator('.use-row[data-bot=support] .use-share i').evaluate(e => e.style.width), '100%');
+
+    // The limit cell: the caps, a warning chip near one and a Paused chip at one; a click edits it.
+    assert.equal((await page.locator('.use-row[data-bot=support] .use-limit').innerText()).replace(/\s+/g, ' ').trim(), 'Paused $5/day · $50/mo');
+    assert.equal((await page.locator('.use-row[data-bot=inbox] .use-limit').innerText()).replace(/\s+/g, ' ').trim(), '85% $20/mo');
+    assert.equal((await page.locator('.use-row[data-bot=sales] .use-limit').innerText()).trim(), 'Set limit');
+    await page.locator('.use-row[data-bot=sales] .use-limit').click();
+    const cap = page.locator('dialog.use-dialog');
+    assert.equal(await cap.locator('[name=daily_usd]').getAttribute('placeholder'), 'Default $20', 'the company default shows as the hint');
+    await cap.locator('[name=daily_usd]').fill('7.5');
+    await cap.locator('button[type=submit]').click();
+    await cap.waitFor({state: 'detached'});
+    assert.deepEqual(puts.at(-1), ['/api/v2/usage/limits/sales', {daily_usd: 7.5, monthly_usd: null}]);
+    await page.locator('#use-default').click();
+    await cap.locator('[name=monthly_usd]').fill('300');
+    await cap.locator('[name=count_subscription]').check();
+    await cap.locator('button[type=submit]').click();
+    await cap.waitFor({state: 'detached'});
+    assert.deepEqual(puts.at(-1), ['/api/v2/usage/limits', {daily_usd: 20, monthly_usd: 300, count_subscription: true}]);
 
     // The range switch asks for the days it says.
     for (const [label, expect] of [['Today', [day(0), day(0)]], ['30 days', [day(29), day(0)]], ['This month', [day(0).slice(0, 8) + '01', day(0)]]]) {

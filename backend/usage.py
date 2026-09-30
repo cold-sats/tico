@@ -9,12 +9,14 @@ Who sees what: the owner and the bot administrators see every bot; anyone else s
 run or own. A bot's own credentials see nothing here.
 """
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import Request
 
 from . import bot_access as A
-from . import providers, views
+from . import models as M
+from . import providers, usage_limits, views
 from .store import H, P, Problem
 
 GROUPS = ("bot", "day", "routine")
@@ -58,7 +60,7 @@ def spend(item):
     return (item["est_cost_usd"] or 0) + item["subscription_equiv_usd"]
 
 
-def install(app, store, auth, settings):
+def install(app, store, auth, mutate, settings):
     def own_bots(c, who):
         """The slugs `who` may see usage for: every bot for the owner and administrators, else the
         bots they run or own."""
@@ -108,6 +110,78 @@ def install(app, store, auth, settings):
                 "bot": found["bot"] if found else None,
                 "name": names.get(found["bot"], found["bot"]) if found else None, **figures(row)}
 
+    def limit_view(c, who, bot, default, allowed):
+        """A bot's limits as its row shows them: the effective caps and where they came from, the period's spend
+        against them, and whether the caller may change them."""
+        found = usage_limits.state(c, bot, default=default)
+        return {**found, "own_daily_usd": usage_limits.own(c, bot)["daily_usd"], "own_monthly_usd": usage_limits.own(c, bot)["monthly_usd"],
+                "may_edit": bot in allowed}
+
+    @app.get("/api/v2/usage/limits")
+    def limits(request: Request):
+        """The company default and the limits of every bot the caller may see usage for."""
+        who = request.state.identity
+        auth.domain(who)
+        if who.role not in ("owner", "human"):
+            raise Problem("forbidden", "Usage is for people", 403)
+        with store.read() as c:
+            default = usage_limits.company(c)
+            allowed = own_bots(c, who)
+            return {"default": default, "may_edit_default": bool(auth.bot_admin(who)),
+                    "bots": {bot: limit_view(c, who, bot, default, allowed) for bot in sorted(allowed)}}
+
+    def valid(value, name):
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= usage_limits.MAX_USD:
+            raise Problem("limit", f"{name} is an amount in USD above zero, or empty for none", 422)
+        return round(float(value), 6)
+
+    @app.put("/api/v2/usage/limits")
+    def set_default(request: Request, body: M.UsageDefault):
+        """The default for bots with no limit of their own (owner and bot administrators)."""
+        who = request.state.identity
+        auth.domain(who)
+
+        def work(c):
+            if not auth.bot_admin(who):
+                raise Problem("forbidden", "Only the owner and administrators set the company default", 403)
+            value = {"daily_usd": valid(body.daily_usd, "daily_usd"), "monthly_usd": valid(body.monthly_usd, "monthly_usd"),
+                     "count_subscription": bool(body.count_subscription)}
+            c.execute("INSERT INTO registry_metadata(key, value_json) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                      (usage_limits.KEY, json.dumps(value)))
+            H.event(c, who.actor, "usage.default", "company", value)
+            return {"default": usage_limits.company(c)}
+        return mutate(request, body, work)
+
+    @app.put("/api/v2/usage/limits/{bot}")
+    def set_limit(request: Request, bot: str, body: M.UsageLimit):
+        """A bot's own daily and monthly limit in estimated USD; empty follows the company default. A person who
+        runs the bot but is not an administrator may not go above the company default."""
+        who = request.state.identity
+        auth.domain(who)
+
+        def work(c):
+            if who.role not in ("owner", "human"):
+                raise Problem("forbidden", "Usage is for people", 403)
+            if not H.bot(c, bot) or not auth.visible_bot(c, who, bot):
+                raise Problem("not_found", "Bot not found", 404)
+            allowed = own_bots(c, who)
+            if bot not in allowed:
+                raise Problem("forbidden", "Limits are for a bot's owners and administrators", 403)
+            wanted = {"daily_usd": valid(body.daily_usd, "daily_usd"), "monthly_usd": valid(body.monthly_usd, "monthly_usd")}
+            default = usage_limits.company(c)
+            if not auth.bot_admin(who):
+                for key, value in wanted.items():
+                    if value is not None and default[key] is not None and value > default[key]:
+                        raise Problem("limit", f"The company default is ${default[key]:g}; a bot's limit can be lower, not higher", 403)
+            c.execute("INSERT INTO usage_limits(bot, daily_usd, monthly_usd, updated, updated_by) VALUES(?,?,?,?,?) "
+                      "ON CONFLICT(bot) DO UPDATE SET daily_usd=excluded.daily_usd, monthly_usd=excluded.monthly_usd, "
+                      "updated=excluded.updated, updated_by=excluded.updated_by", (bot, wanted["daily_usd"], wanted["monthly_usd"], H.now(), who.actor))
+            H.event(c, who.actor, "usage.limit-set", H.bot_actor(bot), wanted)
+            return {"bot": bot, "limit": limit_view(c, who, bot, default, allowed)}
+        return mutate(request, body, work)
+
     @app.get("/api/v2/usage")
     def usage(request: Request, group: str = "bot", department: str | None = None, bot: str | None = None):
         """Estimated model spend per bot, per day or per routine over `from`..`to` (UTC dates, default the last
@@ -138,13 +212,16 @@ def install(app, store, auth, settings):
                 routines = sorted((routine_row(c, r, names) for r in query(c, "coalesce(s.id, '')", ROUTINE_JOIN, {bot}, first, last)),
                                   key=lambda r: (-spend(r), -r["runs"]))
                 return {**base, "bot": bot, "name": names[bot], "department": depts.get(bot) or None,
+                        "limit": limit_view(c, who, bot, usage_limits.company(c), allowed),
                         "totals": totals(query(c, "'all'", "", {bot}, first, last)), "daily": series,
                         "routines": routines[:TOP_ROUTINES]}
             slugs = {s for s in allowed if not department or depts.get(s) == department}
             total = totals(query(c, "'all'", "", slugs, first, last))
             if group == "bot":
+                default = usage_limits.company(c)
                 rows = [{"bot": r["k"], "name": names.get(r["k"], r["k"]), "department": depts.get(r["k"]) or None,
-                         **figures(r)} for r in query(c, "t.bot", "", slugs, first, last)]
+                         **figures(r), "limit": limit_view(c, who, r["k"], default, allowed)}
+                        for r in query(c, "t.bot", "", slugs, first, last)]
             elif group == "day":
                 rows = [{"day": r["k"], **figures(r)} for r in query(c, "substr(t.started, 1, 10)", "", slugs, first, last)]
             else:

@@ -56,6 +56,7 @@ function pageUsage() {
         `<button type="button" role="tab" data-use-range="${k}" aria-selected="${k === state.range}">${label}</button>`).join('')}</div>
       <select id="use-dept" aria-label="Department" hidden></select>
       <span class="use-custom" hidden><input type="date" id="use-from" aria-label="From"><input type="date" id="use-to" aria-label="To"></span>
+      <button type="button" class="ghost use-default" id="use-default" hidden>Default limit</button>
     </div>
     <div id="use-body" aria-live="polite"></div>
   </div>`;
@@ -70,11 +71,26 @@ function pageUsage() {
     if (state.custom.from && state.custom.to && state.custom.from <= state.custom.to) { state.open = ''; useLoad(); }
   };
   $('#use-body').onclick = ev => {
+    const cap = ev.target.closest('[data-use-limit]');
+    if (cap) {
+      const row = (state.data?.rows || []).find(r => r.bot === cap.dataset.useLimit);
+      return void useLimitDialog(cap.dataset.useLimit, row?.name, row?.limit, state.limits?.default, () => void useLoad());
+    }
     const line = ev.target.closest('.use-line');
     if (line) return void useOpen(line.closest('.use-row').dataset.bot);
     if (ev.target.closest('[data-use-csv]')) useCsv();
   };
+  $('#use-default').onclick = () => useDefaultDialog(state.limits, () => { void useLimits(); void useLoad(); });
+  void useLimits();
   useLoad();
+}
+
+// The company default limit, and whether this person may change it.
+async function useLimits() {
+  const state = USE;
+  try { state.limits = await get('/v2/usage/limits'); } catch { state.limits = null; }
+  const button = $('#use-default');
+  if (USE === state && button) button.hidden = !state.limits?.may_edit_default;
 }
 
 const useParams = (state, extra) => {
@@ -114,6 +130,7 @@ function usePaint() {
       <strong id="use-total">${t.est_cost_usd == null ? '—' : useMoney(t.est_cost_usd)}</strong> · ${useRuns(t.runs)}
       ${t.subscription_equiv_usd > 0 ? `<div class="use-sub">≈ ${useMoney(t.subscription_equiv_usd)} API-equivalent on subscriptions</div>` : ''}</div>
     <ul class="use-list">${rows.map(r => `<li class="use-row" data-bot="${esc(r.bot)}">
+      ${useLimitButton(r.bot, r.name, r.limit)}
       <button type="button" class="use-line" aria-expanded="${state.open === r.bot}">
         <span class="use-who">${botAvatar(r.bot, 28)}<span class="use-name">${esc(r.name || r.bot)}</span></span>
         <span class="use-runs tnum">${useRuns(r.runs)}</span>
@@ -175,4 +192,59 @@ function useCsv() {
   link.download = `usage-${data.bot}-${data.from}-${data.to}.csv`;
   document.body.appendChild(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+// ----------------------------------------------------------------- limits
+// A bot's daily and monthly cap in estimated USD (backend/usage_limits.py). Over one, it takes no new job; at 80% its owner is told.
+const useCap = n => '$' + (n >= 100 || Number.isInteger(n) ? n.toLocaleString(undefined, {maximumFractionDigits: 0}) : n.toFixed(2));
+function useLimitText(limit) {
+  const parts = [];
+  if (limit?.daily_usd) parts.push(`${useCap(limit.daily_usd)}/day`);
+  if (limit?.monthly_usd) parts.push(`${useCap(limit.monthly_usd)}/mo`);
+  return parts.join(' · ');
+}
+// The cell on a Usage row and in Settings > Bots: the limit, a chip when it is near or met, and a click to change it.
+function useLimitButton(slug, name, limit) {
+  if (!limit?.may_edit) return '<span class="use-limit"></span>';
+  const text = useLimitText(limit);
+  const chip = limit.blocked ? '<span class="pill fail">Paused</span>' : limit.percent >= 80 ? `<span class="pill waiting">${limit.percent}%</span>` : '';
+  return `<button type="button" class="use-limit${text ? '' : ' none'}" data-use-limit="${esc(slug)}" aria-label="Limit for ${esc(name || slug)}"
+    title="${limit.blocked ? esc(`Over its ${limit.blocked} limit: no new work until it resets or the limit is raised`) : 'Change limit'}">${chip}<span>${text ? esc(text) : 'Set limit'}</span></button>`;
+}
+const useAmount = value => { const t = String(value).trim(); return t === '' ? null : Number(t); };
+function useDialog(label, body, save, done) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'tmodal use-dialog';
+  dialog.setAttribute('aria-label', label);
+  dialog.innerHTML = `<div class="tmodal-head"><span class="who">${esc(label)}</span><span class="spacer"></span><button type="button" class="ghost tmodal-x" data-close aria-label="Close">✕</button></div>
+    <form class="tmodal-body" novalidate>${body}<p class="err" data-error hidden></p>
+      <div class="use-dialog-row"><button type="button" class="ghost" data-close>Cancel</button><button type="submit" class="primary">Save</button></div></form>`;
+  document.body.appendChild(dialog);
+  dialog.querySelectorAll('[data-close]').forEach(b => b.onclick = () => dialog.close());
+  dialog.onclose = () => dialog.remove();
+  const form = dialog.querySelector('form'), err = dialog.querySelector('[data-error]');
+  form.onsubmit = async ev => {
+    ev.preventDefault(); err.hidden = true;
+    const submit = form.querySelector('[type=submit]'); submit.disabled = true;
+    try { await save(form); dialog.close(); done && done(); }
+    catch (e) { err.textContent = e.message; err.hidden = false; submit.disabled = false; }
+  };
+  dialog.showModal();
+  form.querySelector('input')?.focus();
+  return dialog;
+}
+const useField = (name, label, value, hint) => `<label>${label}<input type="number" name="${name}" min="0" step="any" inputmode="decimal" value="${value ?? ''}" placeholder="${esc(hint || 'No limit')}"></label>`;
+function useLimitDialog(slug, name, limit, company, done) {
+  const hint = key => company?.[key] ? 'Default ' + useCap(company[key]) : 'No limit';
+  useDialog(`Limit · ${name || slug}`,
+    useField('daily_usd', 'Daily, USD', limit?.own_daily_usd, hint('daily_usd')) + useField('monthly_usd', 'Monthly, USD', limit?.own_monthly_usd, hint('monthly_usd')),
+    form => put('/v2/usage/limits/' + encodeURIComponent(slug), {daily_usd: useAmount(form.daily_usd.value), monthly_usd: useAmount(form.monthly_usd.value)}), done);
+}
+function useDefaultDialog(limits, done) {
+  const now = limits?.default || {};
+  useDialog('Default limit',
+    useField('daily_usd', 'Daily, USD', now.daily_usd) + useField('monthly_usd', 'Monthly, USD', now.monthly_usd) +
+    `<label class="use-check"><input type="checkbox" name="count_subscription"${now.count_subscription ? ' checked' : ''}> Count subscription runs</label>`,
+    form => put('/v2/usage/limits', {daily_usd: useAmount(form.daily_usd.value), monthly_usd: useAmount(form.monthly_usd.value),
+                                    count_subscription: form.count_subscription.checked}), done);
 }
