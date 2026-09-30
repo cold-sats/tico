@@ -168,7 +168,8 @@ def install(app, store, auth, mutate, settings):
                 f"('open','doing','waiting') AND {readable} GROUP BY goal_id")}
             by_goal = K.goal_views(c, [r["id"] for r in rows])
             said = {}
-            for row in c.execute("SELECT * FROM goal_checkins ORDER BY ts"):
+            for row in c.execute("SELECT * FROM goal_checkins k WHERE ts=(SELECT max(ts) FROM goal_checkins "
+                                 "WHERE goal_id=k.goal_id)"):
                 said[row["goal_id"]] = dict(row)
             for row in rows:
                 row["kpis"] = by_goal.get(row["id"], [])
@@ -425,7 +426,7 @@ def install(app, store, auth, mutate, settings):
                 "SELECT * FROM goal_checkins WHERE kpi_id=? ORDER BY ts DESC LIMIT 5", (record["id"],)))
         return {"kpi": K.view(record, effective), "links": links, "readings": rows,
                 "definitions": [] if K.auto(record["id"]) else K.definitions(c, record["id"]),
-                "checkins": said, "proposals": G.proposals(c, "pending", kpi_id=record["id"]),
+                "checkins": said, "proposals": [{**p, "may_decide": decider(c, who, p)} for p in G.proposals(c, "pending", kpi_id=record["id"])],
                 "may_edit": may_edit_kpi(c, who, record), "may_log": may_log(c, who, record) and not K.auto(record["id"])}
 
     @app.get("/api/v2/kpis")

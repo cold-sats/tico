@@ -104,10 +104,15 @@ def test_a_persons_colour_sticks_until_they_hand_it_back(api):
     events = goal_of(api, goal["id"])["events"]
     assert [(e["new"], e["status_source"], e["status_by"]) for e in events if e["field"] == "status"] == [
         ("green", "auto", "bot:goal-manager"), ("red", "person", "human:ana"), ("green", "auto", "bot:goal-manager")]
+    # Time passing is what turns fresh data stale: a month on, with no new reading, the goal is gray, not green.
+    with api.app.state.store.transaction() as c:
+        G.refresh(c, at=datetime.now(timezone.utc) + timedelta(days=30))
+    later = goal_of(api, goal["id"])
+    assert later["status"] == "gray" and "missing" in later["status_note"] and later["status_source"] == "auto"
 
 
 def test_a_goal_without_kpis_is_coloured_by_its_owners_check_in_or_stays_gray(api):
-    goal = post(api, "goals", {"title": "Keep the books tidy", "owner": "ana"})["goal"]
+    goal = post(api, "goals", {"title": "Close the month on time", "owner": "ana"})["goal"]
     post(api, "goals/refresh", {})
     assert goal_of(api, goal["id"])["status"] is None                   # nothing to go on: no colour at all
     post(api, f"goals/{goal['id']}/checkins", {"body": "Month end is on Friday and two vendors are late.", "signal": "at_risk"})

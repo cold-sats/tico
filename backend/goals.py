@@ -633,6 +633,9 @@ def _payload_error(conn, kind, goal_id, kpi_id, payload):
                 K.clean(payload.get("kpi") or {})
                 if not (payload.get("kpi") or {}).get("name"):
                     return "name the KPI, or name an existing one with kpi_id"
+                owner = payload.get("owner")
+                if owner and owner != COMPANY and not H.resolve_actor(conn, owner):
+                    return f"no person or bot {owner} to own the KPI"
             _, error = K.validate_target(kpi(conn, payload["kpi_id"]) if payload.get("kpi_id")
                                          else {**{"direction": "up"}, **(payload.get("kpi") or {})},
                                          payload.get("target") or {"kind": "none"})
@@ -699,7 +702,9 @@ def decide(conn, actor, proposal_id, decision, note=""):
                 kpi_link(conn, actor, goal_id, payload["kpi_id"], target)
                 result = {"kpi_id": payload["kpi_id"]}
             else:
-                made = kpi_create(conn, actor, payload.get("owner") or (goal(conn, goal_id) or {}).get("owner"),
+                owner = payload.get("owner")
+                owner = (COMPANY if owner == COMPANY else H.resolve_actor(conn, owner)) if owner else None
+                made = kpi_create(conn, actor, owner or (goal(conn, goal_id) or {}).get("owner"),
                                   payload["kpi"], goal_id=goal_id, target=target)
                 result = {"kpi_id": made["id"]}
     conn.execute("UPDATE goal_proposals SET status=?, decided_by=?, decided_at=?, decision_note=?, result_json=? "
