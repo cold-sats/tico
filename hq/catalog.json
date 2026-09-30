@@ -1,0 +1,740 @@
+{
+ "cards": [
+  {
+   "business_only": true,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "AR Follow-up",
+   "suggest": "common",
+   "summary": "Drafts a payment reminder for every overdue invoice each Monday, friendly first and firmer later, with a one-page aging summary.",
+   "tags": [
+    "customers pay invoices late and nobody chases them",
+    "we forget to follow up on overdue invoices",
+    "chasing payments feels awkward",
+    "cash is tight because customers pay slowly",
+    "we can't see which invoices are overdue"
+   ],
+   "template": "ar-followup"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Board & Investor Updates",
+   "suggest": "common",
+   "summary": "Drafts the monthly investor update from the hub's goals, KPI readings and updates: metrics first, asks second, a short honest recap last.",
+   "tags": [
+    "writing the monthly investor update takes a day",
+    "we skip investor updates when things get busy",
+    "investors ask for numbers we scramble to find",
+    "board members ask what happened this month"
+   ],
+   "template": "board-updates"
+  },
+  {
+   "business_only": false,
+   "department": "finance",
+   "icon": "account_balance",
+   "lead": true,
+   "name": "Bookkeeping Assistant",
+   "suggest": "common",
+   "summary": "Proposes a category for every unsorted transaction and drafts the month-end close status for the person who keeps the books.",
+   "tags": [
+    "unsorted transactions pile up until month end",
+    "the month-end close drags on for days",
+    "we chase missing receipts every month",
+    "the books are weeks behind",
+    "the accountant keeps asking us the same questions"
+   ],
+   "template": "bookkeeping"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": true,
+   "name": "Chief of Staff",
+   "suggest": "common",
+   "summary": "Turns the goals, tasks, bot updates and meetings already in the hub into a weekly brief for the owner, chases stalled goals, and drafts Monday's agenda.",
+   "tags": [
+    "I don't know what is really going on across the company",
+    "goals stall and nobody notices",
+    "the Monday meeting has no agenda",
+    "things I asked for fall through the cracks",
+    "status updates take hours to compile"
+   ],
+   "template": "chief-of-staff"
+  },
+  {
+   "business_only": false,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "Content",
+   "suggest": "common",
+   "summary": "Plans the next four weeks of posts and articles and drafts one finished piece a week in the company's voice, for a person to publish.",
+   "tags": [
+    "we don't post regularly",
+    "nobody has time to write our blog posts",
+    "we don't know what to write about",
+    "our content sounds generic",
+    "content ideas never turn into published pieces"
+   ],
+   "template": "content"
+  },
+  {
+   "business_only": true,
+   "department": "sales",
+   "icon": "trending_up",
+   "lead": false,
+   "name": "Customer Success",
+   "suggest": "common",
+   "summary": "Writes a weekly renewal and health brief: renewals due in the next 120 days, the accounts at risk and why, and a drafted next touch for each.",
+   "tags": [
+    "renewals sneak up on us with no plan",
+    "we find out a customer is unhappy when they cancel",
+    "nobody prepares for quarterly customer reviews",
+    "customer health lives in five different places"
+   ],
+   "template": "customer-success"
+  },
+  {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "code",
+   "lead": false,
+   "name": "Docs Writer",
+   "suggest": "common",
+   "summary": "Finds READMEs and API docs in the product repositories that contradict last week's merged changes, and drafts the fix or a new how-to page as a file for an eng…",
+   "tags": [
+    "our README and API docs are out of date",
+    "docs don't match what we shipped",
+    "engineers hate writing documentation",
+    "new developers can't find how to do a task in our docs"
+   ],
+   "template": "docs-writer"
+  },
+  {
+   "business_only": false,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "Email Marketing",
+   "suggest": "common",
+   "summary": "Drafts the next campaign email or nurture sequence with three subject lines, a preview line and a send checklist, ready for a person to load and send.",
+   "tags": [
+    "writing campaign emails takes days",
+    "our newsletter goes out too rarely",
+    "launch emails go out late or not at all",
+    "we send one email to the whole list",
+    "our email open rates keep dropping"
+   ],
+   "template": "email-marketing"
+  },
+  {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "code",
+   "lead": true,
+   "name": "Engineering Lead",
+   "suggest": "common",
+   "summary": "Writes the weekly engineering summary from GitHub and the engineering bots: what shipped, which pull requests are stuck, incidents, and what is blocked.",
+   "tags": [
+    "I can't see what engineering shipped this week",
+    "nobody knows which pull requests are stuck",
+    "engineering status reports take me an hour to write",
+    "we don't track how long changes take to reach production",
+    "requests to engineering get lost between people"
+   ],
+   "template": "engineering-lead"
+  },
+  {
+   "business_only": false,
+   "department": "support",
+   "icon": "support_agent",
+   "lead": false,
+   "name": "Feedback Analyst",
+   "suggest": "common",
+   "summary": "Clusters the week's customer feedback into themes with counts, anonymised quotes and the change since last week, and ends with three suggested actions for prod…",
+   "tags": [
+    "customer feedback is scattered across tools",
+    "we don't know why customers complain most",
+    "nobody reads the survey comments",
+    "product doesn't hear what customers actually say",
+    "feature requests are never counted"
+   ],
+   "template": "feedback-analyst"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Mail Drafts",
+   "suggest": "common",
+   "summary": "Works one person's mailbox: sorts it with Tico's decision questions, drafts replies for approval, and flags what needs the person.",
+   "tags": [
+    "too much email",
+    "important messages get buried",
+    "replies take hours every day",
+    "I'm the bottleneck for every decision",
+    "leads and support mail land in my inbox and wait"
+   ],
+   "template": "inbox"
+  },
+  {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "code",
+   "lead": false,
+   "name": "Incident Scribe",
+   "suggest": "common",
+   "summary": "Builds the timeline while an incident runs and drafts a blameless postmortem afterwards, with impact, contributing factors and action items that each have an o…",
+   "tags": [
+    "postmortems never get written after an outage",
+    "nobody remembers the timeline of an incident",
+    "the same incident happens twice",
+    "incident action items get forgotten"
+   ],
+   "template": "incident-scribe"
+  },
+  {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "code",
+   "lead": false,
+   "name": "Issue Triage",
+   "suggest": "common",
+   "summary": "Labels and deduplicates new GitHub issues, drafts a request to the reporter for missing repro steps, links related issues, and writes the weekly issue digest.",
+   "tags": [
+    "issues pile up untriaged",
+    "the same bug is reported again and again",
+    "reports come in without repro steps",
+    "we don't know what users are hitting most",
+    "engineers lose hours sorting issues instead of fixing them"
+   ],
+   "template": "issue-triage"
+  },
+  {
+   "business_only": true,
+   "department": "legal",
+   "icon": "gavel",
+   "lead": true,
+   "name": "Legal Review",
+   "suggest": "common",
+   "summary": "Summarises each contract a person hands it in plain language, with a key-terms table and the clauses that differ from your preferred positions.",
+   "tags": [
+    "nobody reads the contracts before we sign",
+    "auto-renewals catch us by surprise",
+    "contract review waits on a lawyer for days",
+    "we don't know what we agreed to in old contracts"
+   ],
+   "template": "legal-review"
+  },
+  {
+   "business_only": false,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "Listening",
+   "suggest": "common",
+   "summary": "Sweeps public conversation every weekday morning for mentions, questions and competitor moves, and writes one short digest.",
+   "tags": [
+    "we don't hear what people say about us online",
+    "we miss questions asked in public forums",
+    "competitor moves surprise us",
+    "customers complain in public before we know",
+    "nobody has time to watch social media and forums"
+   ],
+   "template": "listening"
+  },
+  {
+   "business_only": true,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "Market Analyst",
+   "suggest": "common",
+   "summary": "Keeps one evidence-backed map of the company's market: who competes, who partners and where customers talk, and writes a weekly delta page of what changed.",
+   "tags": [
+    "we don't have a clear picture of our competitors",
+    "competitor facts live in people's heads and old decks",
+    "we lose deals to competitors we did not expect",
+    "nobody keeps track of who is in our market",
+    "we can't say who competes with whom or why"
+   ],
+   "template": "market"
+  },
+  {
+   "business_only": false,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": true,
+   "name": "Marketing Lead",
+   "suggest": "common",
+   "summary": "Drafts the weekly marketing summary from what the marketing bots reported: what moved, what is blocked, what is on the launch calendar and next week's prioriti…",
+   "tags": [
+    "nobody knows what marketing shipped this week",
+    "marketing wins and blockers never reach leadership",
+    "campaigns and launches collide on the calendar",
+    "marketing priorities change every week and nothing is written down",
+    "we get five marketing reports and no overall picture"
+   ],
+   "template": "marketing-lead"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Meeting Notes",
+   "suggest": "common",
+   "summary": "After each imported company meeting, writes the summary, the decisions and the action items, proposes tasks for their owners, and tells the right people once a…",
+   "tags": [
+    "meetings without follow-up",
+    "nobody remembers what we decided",
+    "action items get lost after the call",
+    "notes take an hour to write up",
+    "people who missed the meeting have no way to catch up"
+   ],
+   "template": "meeting-notes"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": true,
+   "name": "Ops Manager",
+   "suggest": "common",
+   "summary": "Turns the company's recurring duties into a short weekly checklist of what is due, overdue and blocked, and drafts the vendor follow-ups.",
+   "tags": [
+    "renewals and deadlines sneak up on us",
+    "recurring admin jobs depend on one person's memory",
+    "vendors go quiet and nobody follows up",
+    "nobody owns the company's checklists",
+    "we have no weekly view of what operations is doing"
+   ],
+   "template": "ops-manager"
+  },
+  {
+   "business_only": false,
+   "department": "hr",
+   "icon": "badge",
+   "lead": true,
+   "name": "People & HR Assistant",
+   "suggest": "common",
+   "summary": "Builds an onboarding checklist for every new hire and drafts answers to policy questions from the company's own handbook, with the page cited.",
+   "tags": [
+    "new hires start with nothing ready",
+    "onboarding depends on who remembers",
+    "people ask HR the same handbook questions again and again",
+    "the employee handbook is out of date or nobody reads it",
+    "we forget the 30 60 90 day check-ins"
+   ],
+   "template": "people-hr"
+  },
+  {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "code",
+   "lead": false,
+   "name": "PR Reviewer",
+   "suggest": "common",
+   "summary": "Reads every open pull request each weekday morning and drafts review comments for a person to post: a summary, risks, questions and nits, ordered by what block…",
+   "tags": [
+    "pull requests wait days for a first review",
+    "code reviews are shallow or inconsistent",
+    "pull requests are too big to review properly",
+    "reviewers keep missing the same kind of mistake",
+    "senior engineers spend their day reviewing"
+   ],
+   "template": "pr-reviewer"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Procurement",
+   "suggest": "common",
+   "summary": "Compares three to five vendors for each purchase request on weighted criteria and total cost, and drafts the questions for a person to send them.",
+   "tags": [
+    "we buy tools without comparing alternatives",
+    "choosing a vendor takes weeks of ad hoc research",
+    "we can't tell which vendor quote is really cheaper",
+    "vendor security questions get answered from scratch each time",
+    "purchase requests sit with nobody owning them"
+   ],
+   "template": "procurement"
+  },
+  {
+   "business_only": true,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "Product Marketing",
+   "suggest": "common",
+   "summary": "Turns each planned launch into a positioning statement, messaging pillars and a launch brief with a tier and checklist, and keeps sales battlecards current.",
+   "tags": [
+    "our launches go out with no plan",
+    "sales cannot explain how we differ from competitors",
+    "our positioning is unclear or keeps changing",
+    "customers do not understand what is new",
+    "sales battlecards are out of date"
+   ],
+   "template": "product-marketing"
+  },
+  {
+   "business_only": false,
+   "department": "product",
+   "icon": "lightbulb",
+   "lead": true,
+   "name": "Product Researcher",
+   "suggest": "common",
+   "summary": "Turns interviews, meeting transcripts, feedback and public sources into research briefs, problem statements and competitor feature comparisons for product deci…",
+   "tags": [
+    "customer interviews pile up unread",
+    "we build features without knowing the real problem",
+    "we lack research to back a product decision",
+    "we can't compare our features with competitors"
+   ],
+   "template": "product-researcher"
+  },
+  {
+   "business_only": true,
+   "department": "sales",
+   "icon": "trending_up",
+   "lead": false,
+   "name": "Proposal Writer",
+   "suggest": "common",
+   "summary": "Drafts proposals and questionnaire answers from your own past proposals and product docs, with every price, discount and date left as a marked gap for the sell…",
+   "tags": [
+    "every proposal is written from scratch",
+    "security questionnaires and RFPs eat days",
+    "proposals go out late and we lose the deal",
+    "each seller's proposal looks different"
+   ],
+   "template": "proposal-writer"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Recruiting Coordinator",
+   "suggest": "common",
+   "summary": "Drafts job posts from a role brief, summarises each application against the job's stated criteria, and drafts interview scheduling messages.",
+   "tags": [
+    "writing job posts takes forever",
+    "we drown in applications for every opening",
+    "candidates wait too long to hear back",
+    "interview scheduling is a game of email tag",
+    "every interviewer asks different questions"
+   ],
+   "template": "recruiting"
+  },
+  {
+   "business_only": false,
+   "department": "engineering",
+   "icon": "code",
+   "lead": false,
+   "name": "Release Notes",
+   "suggest": "common",
+   "summary": "Turns the pull requests merged since the last release into a draft changelog entry and plain-language release notes, grouped Added, Changed, Fixed and Security.",
+   "tags": [
+    "release notes are written by hand at the last minute",
+    "customers don't know what changed in each release",
+    "the changelog is out of date",
+    "we can't say what a release fixed"
+   ],
+   "template": "release-notes"
+  },
+  {
+   "business_only": false,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "Reputation",
+   "suggest": "common",
+   "summary": "Reads the company's public review listings every Monday, logs every review and drafts one batch per surface of honest replies and rule-based flags.",
+   "tags": [
+    "bad reviews are the first thing buyers see",
+    "we have too few reviews on the software review sites",
+    "unfair or fake reviews stay up",
+    "we don't know what is said about us on Yelp or Google",
+    "nobody answers our negative reviews"
+   ],
+   "template": "reputation"
+  },
+  {
+   "business_only": true,
+   "department": "sales",
+   "icon": "trending_up",
+   "lead": false,
+   "name": "Sales Drafter",
+   "suggest": "common",
+   "summary": "Researches leads and accounts, drafts first-touch and follow-up emails for a person to approve, and keeps the pipeline notes current.",
+   "tags": [
+    "leads go cold",
+    "follow-ups fall through the cracks",
+    "researching and writing outreach takes too long",
+    "pipeline notes are out of date",
+    "we don't know what to say to a new lead"
+   ],
+   "template": "sales"
+  },
+  {
+   "business_only": true,
+   "department": "sales",
+   "icon": "trending_up",
+   "lead": true,
+   "name": "Sales Lead",
+   "suggest": "common",
+   "summary": "Writes the weekly sales team summary: pipeline movement, stalled deals, what each sales bot produced and what is blocked.",
+   "tags": [
+    "I can't tell which deals are really moving",
+    "our sales meeting is spent reading the CRM aloud",
+    "nobody sees the whole sales pipeline in one place",
+    "new leads sit unassigned for days"
+   ],
+   "template": "sales-lead"
+  },
+  {
+   "business_only": true,
+   "department": "sales",
+   "icon": "trending_up",
+   "lead": false,
+   "name": "Sales Ops",
+   "suggest": "common",
+   "summary": "Audits the CRM every week for stale deals, missing next steps and duplicates, and writes the pipeline report from it.",
+   "tags": [
+    "our CRM data is stale and nobody trusts the forecast",
+    "deals have no next step or close date",
+    "duplicate contacts and leads keep piling up",
+    "the pipeline report takes hours to put together"
+   ],
+   "template": "sales-ops"
+  },
+  {
+   "business_only": true,
+   "department": "sales",
+   "icon": "trending_up",
+   "lead": false,
+   "name": "SDR & Lead Research",
+   "suggest": "common",
+   "summary": "Researches each new lead against your ideal customer profile every weekday morning and drafts a first-touch email for the best fits.",
+   "tags": [
+    "new leads are never researched before we reach out",
+    "we cannot tell which new leads are worth a call",
+    "inbound leads wait a day for a first reply",
+    "our outreach is generic and gets ignored"
+   ],
+   "template": "sdr-research"
+  },
+  {
+   "business_only": true,
+   "department": "marketing",
+   "icon": "campaign",
+   "lead": false,
+   "name": "SEO & AI Visibility",
+   "suggest": "common",
+   "summary": "Writes a weekly report on how the company shows up in search and in AI answers, with the three page fixes and content gaps worth doing first.",
+   "tags": [
+    "we don't know if AI assistants mention us",
+    "our website gets little organic traffic",
+    "competitors outrank us for what buyers search",
+    "nobody checks our pages for search problems",
+    "we don't know which pages to write to rank"
+   ],
+   "template": "seo-visibility"
+  },
+  {
+   "business_only": false,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Spend Watcher",
+   "suggest": "common",
+   "summary": "Reads the company's card, bank and cloud billing exports every Monday and reports what moved, what is new and what renews in the next 60 days.",
+   "tags": [
+    "software subscriptions nobody remembers signing up for",
+    "the cloud bill jumped and nobody knows why",
+    "we pay for seats nobody uses",
+    "renewals roll over before anyone checks them",
+    "nobody owns the software budget"
+   ],
+   "template": "spend-watcher"
+  },
+  {
+   "business_only": true,
+   "department": "operations",
+   "icon": "hub",
+   "lead": false,
+   "name": "Strategy & Planning",
+   "suggest": "common",
+   "summary": "Drafts next quarter's plan and OKRs from the goals, updates and meetings already in the hub, and grades last quarter, for the owner to edit.",
+   "tags": [
+    "we have no written plan for next quarter",
+    "our goals are vague and cannot be measured",
+    "quarterly planning takes weeks of meetings",
+    "nobody grades last quarter's results"
+   ],
+   "template": "strategy-planning"
+  },
+  {
+   "business_only": false,
+   "department": "support",
+   "icon": "support_agent",
+   "lead": false,
+   "name": "Support Agent",
+   "suggest": "common",
+   "summary": "Works each support ticket end to end as drafts: sorts it, asks the Librarian what the docs say, drafts the reply for a person to approve and chases what is sti…",
+   "tags": [
+    "support inbox is overflowing",
+    "customers wait too long for an answer",
+    "we answer the same questions again and again",
+    "we can't tell which problems are actually product bugs",
+    "only one person knows how to reply"
+   ],
+   "template": "support"
+  },
+  {
+   "business_only": false,
+   "department": "support",
+   "icon": "support_agent",
+   "lead": true,
+   "name": "Support Lead",
+   "suggest": "common",
+   "summary": "Drafts the weekly support summary every Monday: volume, first response and resolution times, the oldest waiting tickets, the questions that repeat and what nee…",
+   "tags": [
+    "I have no weekly view of how support is doing",
+    "nobody owns the support backlog",
+    "old tickets sit for weeks with no owner",
+    "support has no weekend or holiday coverage",
+    "support numbers take an hour to pull together"
+   ],
+   "template": "support-lead"
+  },
+  {
+   "business_only": false,
+   "department": "support",
+   "icon": "support_agent",
+   "lead": false,
+   "name": "Support QA",
+   "suggest": "common",
+   "summary": "Reviews a weekly sample of sent support replies against your scorecard and drafts coaching notes for a person.",
+   "tags": [
+    "we never review the replies we send",
+    "reply quality varies by who answers",
+    "we don't know if our support answers are accurate",
+    "new support hires get no feedback on their replies",
+    "we only find bad replies when a customer complains"
+   ],
+   "template": "support-qa"
+  }
+ ],
+ "departments": [
+  {
+   "description": "Finds, wins and keeps customers.",
+   "goal": "More qualified pipeline and deals that close.",
+   "head": "sales-lead",
+   "icon": "trending_up",
+   "id": "sales",
+   "name": "Sales",
+   "placeholder": "Inbound demos, a few big accounts, founder-led…",
+   "question": "What kind of sales do you do today?",
+   "software_only": false
+  },
+  {
+   "description": "Gets the word out and brings in demand.",
+   "goal": "Steady demand from the right people.",
+   "head": "marketing-lead",
+   "icon": "campaign",
+   "id": "marketing",
+   "name": "Marketing",
+   "placeholder": "Word of mouth, a newsletter, LinkedIn posts…",
+   "question": "How do people find you today?",
+   "software_only": false
+  },
+  {
+   "description": "Answers customers fast and well.",
+   "goal": "Every customer answered quickly, in your voice.",
+   "head": "support-lead",
+   "icon": "support_agent",
+   "id": "support",
+   "name": "Customer Support",
+   "placeholder": "A help@ inbox, live chat, the phone…",
+   "question": "Where do customers ask for help?",
+   "software_only": false
+  },
+  {
+   "description": "Keeps the books and the cash in order.",
+   "goal": "Clean books, paid invoices, no surprise bills.",
+   "head": "bookkeeping",
+   "icon": "account_balance",
+   "id": "finance",
+   "name": "Finance",
+   "placeholder": "QuickBooks, invoices on net 30, card spend…",
+   "question": "How do you handle money today?",
+   "software_only": false
+  },
+  {
+   "description": "Runs the day-to-day so nothing slips.",
+   "goal": "Work moves without anyone chasing it.",
+   "head": "ops-manager",
+   "icon": "hub",
+   "id": "operations",
+   "name": "Operations",
+   "placeholder": "Vendor emails, meeting notes, scheduling…",
+   "question": "What eats your week?",
+   "software_only": false
+  },
+  {
+   "description": "Reads the fine print before you sign.",
+   "goal": "Contracts reviewed and risks flagged early.",
+   "head": "legal-review",
+   "icon": "gavel",
+   "id": "legal",
+   "name": "Legal",
+   "placeholder": "Customer agreements, NDAs, vendor terms…",
+   "question": "What contracts cross your desk?",
+   "software_only": false
+  },
+  {
+   "description": "Hires, onboards and looks after people.",
+   "goal": "Good people hired and set up well.",
+   "head": "people-hr",
+   "icon": "badge",
+   "id": "hr",
+   "name": "HR",
+   "placeholder": "Two engineers this quarter, a few contractors…",
+   "question": "Are you hiring right now?",
+   "software_only": false
+  },
+  {
+   "description": "Decides what to build next.",
+   "goal": "Build what customers actually need.",
+   "head": "product-researcher",
+   "icon": "lightbulb",
+   "id": "product",
+   "name": "Product",
+   "placeholder": "Customer calls, a roadmap doc, feature requests…",
+   "question": "How do you decide what to build?",
+   "software_only": true
+  },
+  {
+   "description": "Builds and ships the software.",
+   "goal": "Ship faster with fewer bugs.",
+   "head": "engineering-lead",
+   "icon": "code",
+   "id": "engineering",
+   "name": "Engineering",
+   "placeholder": "GitHub, weekly releases, two developers…",
+   "question": "How does your team ship today?",
+   "software_only": true
+  }
+ ],
+ "version": "ee9999fd8f2a"
+}

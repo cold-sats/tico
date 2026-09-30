@@ -1,0 +1,82 @@
+# The departments of the first-run org builder (docs/onboarding.md), in the order they are offered.
+#
+# Each: `id`, `name`, a one-line `description` and `goal`, the one briefing `question` it asks, the input's
+# `placeholder`, a Material Symbols `icon`, and its `head`: the template that leads it and reports to the owner.
+# `software_only: true` is suggested only to a company whose product is software.
+# A card joins a department by its own `department:` field (a card without one falls back to its `pack`).
+# After editing this file or a card, run `python3 scripts/build_catalog_json.py` (it rebuilds hq/catalog.json).
+departments:
+  - id: sales
+    name: Sales
+    description: Finds, wins and keeps customers.
+    goal: More qualified pipeline and deals that close.
+    question: What kind of sales do you do today?
+    placeholder: Inbound demos, a few big accounts, founder-led…
+    icon: trending_up
+    head: sales-lead
+  - id: marketing
+    name: Marketing
+    description: Gets the word out and brings in demand.
+    goal: Steady demand from the right people.
+    question: How do people find you today?
+    placeholder: Word of mouth, a newsletter, LinkedIn posts…
+    icon: campaign
+    head: marketing-lead
+  - id: support
+    name: Customer Support
+    description: Answers customers fast and well.
+    goal: Every customer answered quickly, in your voice.
+    question: Where do customers ask for help?
+    placeholder: A help@ inbox, live chat, the phone…
+    icon: support_agent
+    head: support-lead
+  - id: finance
+    name: Finance
+    description: Keeps the books and the cash in order.
+    goal: Clean books, paid invoices, no surprise bills.
+    question: How do you handle money today?
+    placeholder: QuickBooks, invoices on net 30, card spend…
+    icon: account_balance
+    head: bookkeeping
+  - id: operations
+    name: Operations
+    description: Runs the day-to-day so nothing slips.
+    goal: Work moves without anyone chasing it.
+    question: What eats your week?
+    placeholder: Vendor emails, meeting notes, scheduling…
+    icon: hub
+    head: ops-manager
+  - id: legal
+    name: Legal
+    description: Reads the fine print before you sign.
+    goal: Contracts reviewed and risks flagged early.
+    question: What contracts cross your desk?
+    placeholder: Customer agreements, NDAs, vendor terms…
+    icon: gavel
+    head: legal-review
+  - id: hr
+    name: HR
+    description: Hires, onboards and looks after people.
+    goal: Good people hired and set up well.
+    question: Are you hiring right now?
+    placeholder: Two engineers this quarter, a few contractors…
+    icon: badge
+    head: people-hr
+  - id: product
+    name: Product
+    description: Decides what to build next.
+    goal: Build what customers actually need.
+    question: How do you decide what to build?
+    placeholder: Customer calls, a roadmap doc, feature requests…
+    icon: lightbulb
+    head: product-researcher
+    software_only: true
+  - id: engineering
+    name: Engineering
+    description: Builds and ships the software.
+    goal: Ship faster with fewer bugs.
+    question: How does your team ship today?
+    placeholder: GitHub, weekly releases, two developers…
+    icon: code
+    head: engineering-lead
+    software_only: true
