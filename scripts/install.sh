@@ -102,10 +102,15 @@ done
 if [ -n "$RUNNER" ]; then
   # These reach a file and a command line, so only plain values are taken.
   [ -z "$TUNNEL$DOCKER_ONLY" ] || die 2 "--runner cannot be combined with --tunnel or --docker-only."
-  printf '%s' "$RUNNER_URL" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$' || { usage >&2; die 2 "--runner needs --url https://your-tico-server (no path)."; }
-  printf '%s' "$RUNNER_CODE" | grep -Eq '^[A-Za-z0-9_-]+$' || { usage >&2; die 2 "--runner needs --code, the one-time code from Settings > Devices > Add computer."; }
-  [ -n "$RUNNER_LABEL" ] || RUNNER_LABEL=$(hostname 2>/dev/null || echo runner)
-  printf '%s' "$RUNNER_LABEL" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
+  # An existing .env already holds the join settings, so the flags are only needed to change them.
+  if [ -n "$RUNNER_URL" ] || [ ! -f "$DIR/.env" ]; then
+    printf '%s' "$RUNNER_URL" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$' || { usage >&2; die 2 "--runner needs --url https://your-tico-server (no path)."; }
+  fi
+  if [ -n "$RUNNER_CODE" ] || [ ! -f "$DIR/.env" ]; then
+    printf '%s' "$RUNNER_CODE" | grep -Eq '^[A-Za-z0-9_-]+$' || { usage >&2; die 2 "--runner needs --code, the one-time code from Settings > Devices > Add computer."; }
+  fi
+  [ -n "$RUNNER_LABEL" ] || [ -f "$DIR/.env" ] || RUNNER_LABEL=$(hostname 2>/dev/null || echo runner)
+  [ -z "$RUNNER_LABEL" ] || printf '%s' "$RUNNER_LABEL" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
 fi
 printf '%s' "$DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$' || die 2 "--dir must be an absolute path made of letters, digits and . _ - /"
 
@@ -373,11 +378,38 @@ runner_env() {
   rm -f "$env_tmp"
 }
 
+# The join flags given on this run replace their keys in an existing .env; every other line stays.
+update_runner_env() {
+  env_tmp=$(mktemp)
+  ( umask 077
+    as_root cat "$DIR/.env" | awk -v url="$RUNNER_URL" -v code="$RUNNER_CODE" -v label="$RUNNER_LABEL" '
+      /^TICO_URL=/ && url != "" { print "TICO_URL=" url; url = ""; next }
+      /^TICO_CODE=/ && code != "" { print "TICO_CODE=" code; code = ""; next }
+      /^TICO_RUNNER_LABEL=/ && label != "" { print "TICO_RUNNER_LABEL=\"" label "\""; label = ""; next }
+      { print }
+      END {
+        if (url != "") print "TICO_URL=" url
+        if (code != "") print "TICO_CODE=" code
+        if (label != "") print "TICO_RUNNER_LABEL=\"" label "\""
+      }' > "$env_tmp" )
+  as_root install -m 0600 "$env_tmp" "$DIR/.env"
+  rm -f "$env_tmp"
+}
+
 run_runner() {
   fetch_bundle
   step "Setting up the runner"
   if [ -f "$DIR/.env" ]; then
-    say "Keeping the settings in $DIR/.env."
+    changed=
+    [ -z "$RUNNER_URL" ] || changed="$changed TICO_URL"
+    [ -z "$RUNNER_CODE" ] || changed="$changed TICO_CODE"
+    [ -z "$RUNNER_LABEL" ] || changed="$changed TICO_RUNNER_LABEL"
+    if [ -n "$changed" ]; then
+      say "Updating${changed} in $DIR/.env from the options you gave; its other settings are kept."
+      update_runner_env
+    else
+      say "Keeping the settings in $DIR/.env."
+    fi
     if [ -n "$FORCED" ]; then
       as_root sh -c "umask 077; { grep -v -e '^TICO_TAG=' -e '^TICO_UPDATER_TAG=' '$DIR/.env' || true; printf 'TICO_TAG=%s\nTICO_UPDATER_TAG=%s\n' '$VERSION' '$VERSION'; } > '$DIR/.env.new' && mv '$DIR/.env.new' '$DIR/.env'"
     fi
@@ -404,7 +436,7 @@ run_runner() {
   ( cd "$DIR" && as_root docker compose $files pull --quiet && as_root docker compose $files up -d ) \
     || die 6 "docker compose failed in $DIR. Run 'docker compose $files logs' there."
   say ""
-  say "The runner is starting and joins $RUNNER_URL as \"$RUNNER_LABEL\"; it shows online in Settings > Devices in a minute."
+  say "The runner is starting; it shows online in Settings > Devices in a minute."
   say "It follows the server's release through its updater; sign the bots in to a model from Settings > Devices."
 }
 

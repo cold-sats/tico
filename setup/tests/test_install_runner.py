@@ -74,9 +74,10 @@ def test_runner_mode_writes_the_compose_file_and_a_pinned_env_and_starts_it(box)
 def test_running_it_again_keeps_the_env_and_a_bare_docker_run_switches_over_with_its_volume(box):
     assert install(box, *JOIN).returncode == 0
     (box["dir"] / ".env").write_text((box["dir"] / ".env").read_text() + "TICO_RUNNER_PINNED=1\n")
-    again = install(box, "--runner", "--url", "https://other.example.com", "--code", "zzz")
-    assert again.returncode == 0 and "TICO_RUNNER_PINNED=1" in (box["dir"] / ".env").read_text()
-    assert "https://tico.example.com" in (box["dir"] / ".env").read_text()      # the first join stays
+    before = (box["dir"] / ".env").read_text()
+    again = install(box, "--runner")                                    # no join flags: the update path
+    assert again.returncode == 0 and "Keeping the settings" in again.stdout
+    assert (box["dir"] / ".env").read_text() == before
     shutil.rmtree(box["dir"])
     box["log"].write_text("")
     switched = install(box, *JOIN, STUB_VOLUME="1", STUB_BARE="1")
@@ -86,3 +87,21 @@ def test_running_it_again_keeps_the_env_and_a_bare_docker_run_switches_over_with
     assert "docker rm -f tico-runner" in calls
     assert calls.index("docker rm -f tico-runner") < calls.index("up -d")
 
+
+
+def test_a_new_code_url_or_label_replaces_only_those_keys_of_an_existing_env(box):
+    assert install(box, *JOIN).returncode == 0
+    env = box["dir"] / ".env"
+    env.write_text(env.read_text() + "TICO_RUNNER_PINNED=1\n")
+    again = install(box, "--runner", "--code", "fresh-code_9", "--url", "https://new.example.com")
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "Updating TICO_URL TICO_CODE in" in again.stdout and "other settings are kept" in again.stdout
+    assert env.read_text().splitlines() == [
+        "TICO_URL=https://new.example.com", "TICO_CODE=fresh-code_9", 'TICO_RUNNER_LABEL="Ana\'s build box"',
+        "TICO_TAG=v0.2.0", "TICO_UPDATER_TAG=v0.2.0", "TICO_RUNNER_PINNED=1"]
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert "up -d" in box["log"].read_text()
+    # A key the file lacks is added, and a label alone leaves the join code as it was.
+    env.write_text("TICO_TAG=v0.2.0\n")
+    assert install(box, "--runner", "--label", "Box 2").returncode == 0
+    assert env.read_text().splitlines() == ["TICO_TAG=v0.2.0", 'TICO_RUNNER_LABEL="Box 2"']
