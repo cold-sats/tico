@@ -1,9 +1,10 @@
 // Offline browser regression for the first-run wizard: a company whose config
 // says onboarding_needed lands on #/welcome instead of Tasks and keeps a "Finish setup" entry; the
 // six steps save a draft with PUT /api/v2/onboarding on every Next (there is no assistant to name, and an
-// optional "Connect your agent" step opens connectAgent()). The company says what it does, and
-// the server proposes a starter team or a full org chart from that alone, each editable (names, reports-to, add, remove) with
-// nothing created until "Create my team", which posts /api/v2/onboarding/complete exactly once. After it: each
+// optional "Connect your agent" step opens connectAgent()). The company says what it does, then builds its org chart:
+// it picks departments, answers one question per department, sees "Recruiting bots…", checks the suggested bots and
+// watches the chart grow; the finished chart can rename or re-point a bot. Nothing is created until "Create my team",
+// which posts /api/v2/onboarding/complete exactly once. After it: each
 // starter shows "Needs onboarding" with a Start setup button that says "Let's set you up.", an admin can be
 // invited, bot owners named and where to keep keys found; the bot page and the org chart carry the same mark.
 // Settings -> Bots reuses the catalog cards. Fixtures only - no server, no network.
@@ -15,13 +16,20 @@ const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 // TICO_SCREENSHOT_DIR=<dir> saves screenshots of the first-run screens.
 // TICO_SHOT_SCHEME=dark takes them in the dark theme.
 const shots = process.env.TICO_SCREENSHOT_DIR, scheme = process.env.TICO_SHOT_SCHEME === 'dark' ? 'dark' : 'light';
-const shot = (page, name) => (shots ? page.screenshot({path: path.join(shots, `${name}-${scheme}.png`)}) : null);
+// A moment first, so a screen that animates in is photographed at rest.
+const shot = async (page, name) => { if (!shots) return; await page.waitForTimeout(650); await page.screenshot({path: path.join(shots, `${name}-${scheme}.png`)}); };
 
 const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'Initech Hub',
   assistant_name: 'Ace', assistant_bot: 'coo', public_url: 'https://initech.test',
   runner_url: 'https://initech.test', github_owner: 'initech-inc', local: false, release: '',
   onboarding_needed: true, version: '0.2.0', runner_compat: {version: '0.2.0', min_runner: '0.1.0'}};
 
+// One card of the org builder's catalog, in the shape the server renders it.
+function bot(template, name, department, icon, suggest, summary, extra = {}) {
+  return {template, slug: template, name, required: false, bootstrap: false, department, icon, suggest, summary, tags: [],
+          owns: ['its own work'], never: ['sends anything on its own'], runtime: 'codex', model: 'gpt-6-sol',
+          reasoning_effort: 'medium', recommend_when: [], instructions: `# ${name}\n\nDraft, never send.\n`, ...extra};
+}
 const CATALOG = [
   // The server renders every card with the company's names, so the assistant's reads as Ace.
   {template: 'assistant', slug: 'coo', name: 'Ace', required: true, default: true, bootstrap: true,
@@ -35,14 +43,18 @@ const CATALOG = [
    owns: ['bot repositories', 'setup tasks'], never: ['spends money'],
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'high', recommend_when: [],
    instructions: '# BotOps\n\nYou set up every other bot.\n'},
-  {template: 'chief-of-staff', slug: 'chief-of-staff', name: 'Chief of Staff', required: false, bootstrap: false, starter: true,
-   pack: 'basics', pains: ['goals stall and nobody notices'], prerequisites: [{tool: 'hub', why: 'Goals and tasks.', required: true}],
-   first_routine: {title: 'Weekly company brief', cadence: 'Fridays at 15:00'},
-   summary: 'Turns goals, tasks and updates into a weekly brief. Internal only.',
-   owns: ['the weekly brief'], never: ['messages anyone outside the company'],
-   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['always'],
-   instructions: '# Chief of Staff\n\nBrief the owner weekly.\n'},
+  // The org builder's cards: each with a department, a Material Symbols icon and how it is suggested
+  // (the department head, `default` pre-checked, `common` shown, `niche` under More until an answer names it).
+  bot('sales-manager', 'Sales Manager', 'sales', 'target', 'default', 'Runs the pipeline review and coaches the team.', {lead: true}),
+  bot('sdr', 'SDR', 'sales', 'mail', 'default', 'Researches accounts and writes first-touch emails.', {tags: ['outbound', 'cold email']}),
+  bot('account-manager', 'Account Manager', 'sales', 'person', 'common', 'Keeps existing accounts growing and renewing.', {tags: ['renewals']}),
+  bot('partner-scout', 'Partner Scout', 'sales', 'link', 'niche', 'Finds resellers and keeps them selling.', {tags: ['resellers', 'partners']}),
+  bot('marketing-lead', 'Marketing Lead', 'marketing', 'campaign', 'default', 'Owns the plan, the calendar and the numbers.', {lead: true}),
+  bot('social', 'Social', 'marketing', 'forum', 'default', 'Drafts posts and watches mentions.', {tags: ['linkedin', 'social']}),
+  bot('content-writer', 'Content Writer', 'marketing', 'article', 'common', 'Turns what you know into posts and guides.'),
+  bot('support-lead', 'Support Lead', 'support', 'support_agent', 'default', 'Keeps the queue healthy and the answers consistent.', {lead: true}),
   {template: 'support', slug: 'support', name: 'Support', required: false, bootstrap: false, starter: true, pack: 'support',
+   department: 'support', icon: 'chat_bubble', suggest: 'default', tags: ['inbox', 'tickets'],
    pains: ['support inbox is overflowing', 'customers wait too long for an answer'],
    prerequisites: [{tool: 'mail', why: 'Support mail is the intake.', required: true}, {tool: 'docs', why: 'The help centre.', required: false}],
    first_routine: {title: 'Daily support triage', cadence: 'Weekdays at 09:00'},
@@ -51,37 +63,42 @@ const CATALOG = [
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'high',
    recommend_when: ['has_support_inbox', 'uses_tickets', 'sells_to_consumers', 'uses_email'],
    instructions: '# Support\n\nAnswer the queue in the company voice.\n'},
-  {template: 'sales', slug: 'sales', name: 'Sales Drafter', required: false, bootstrap: false, starter: true, pack: 'sales', lead: true,
-   pains: ['leads go cold'], prerequisites: [{tool: 'crm', why: 'The pipeline.', required: true}],
-   first_routine: {title: 'Follow-up drafts', cadence: 'Weekdays at 10:00'},
-   summary: 'Drafts follow-ups for a person to send.',
-   owns: ['follow-up drafts'], never: ['sends mail on its own'],
-   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['sells_to_businesses'],
-   instructions: '# Sales Drafter\n\nDraft, never send.\n'},
-  {template: 'issue-triage', slug: 'issue-triage', name: 'Issue Triage', required: false, bootstrap: false, starter: true, pack: 'engineering', lead: true,
-   pains: ['issues pile up untriaged'], prerequisites: [{tool: 'github', why: 'The issues.', required: true}],
-   first_routine: {title: 'Daily triage', cadence: 'Weekdays at 08:00'},
-   summary: 'Labels and routes new issues.',
-   owns: ['issue labels'], never: ['closes issues without a person'],
-   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['uses_github'],
-   instructions: '# Issue Triage\n\nLabel, never close.\n'},
-  {template: 'social', slug: 'social', name: 'Social', required: false, bootstrap: false, pack: 'marketing',
-   summary: 'Drafts posts and watches mentions.',
-   owns: ['the posting calendar'], never: ['publishes without a person'],
-   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['uses_slack'],
-   instructions: '# Social\n\nDraft, never publish.\n'},
   {template: 'bookkeeper', slug: 'bookkeeper', name: 'Bookkeeper', required: false, bootstrap: false, pack: 'operations',
+   department: 'finance', icon: 'account_balance', suggest: 'default', lead: true,
    summary: 'Chases invoices and reconciles the ledger.',
    owns: ['the invoice ledger'], never: ['pays anything without a person'],
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'high', recommend_when: ['sells_to_businesses', 'has_pipeline'],
    instructions: '# Bookkeeper\n\nChase, never pay.\n'},
-  {template: 'inbox', slug: 'inbox', name: 'Inbox', required: false, bootstrap: false, starter: true, pack: 'basics',
+  bot('ops-manager', 'Ops Manager', 'operations', 'hub', 'default', 'Runs the weekly operating rhythm.', {lead: true}),
+  {template: 'chief-of-staff', slug: 'chief-of-staff', name: 'Chief of Staff', required: false, bootstrap: false, starter: true,
+   pack: 'basics', department: 'operations', icon: 'checklist', suggest: 'common',
+   pains: ['goals stall and nobody notices'], prerequisites: [{tool: 'hub', why: 'Goals and tasks.', required: true}],
+   first_routine: {title: 'Weekly company brief', cadence: 'Fridays at 15:00'},
+   summary: 'Turns goals, tasks and updates into a weekly brief. Internal only.',
+   owns: ['the weekly brief'], never: ['messages anyone outside the company'],
+   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['always'],
+   instructions: '# Chief of Staff\n\nBrief the owner weekly.\n'},
+  {template: 'inbox', slug: 'inbox', name: 'Mail Drafts', required: false, bootstrap: false, starter: true, pack: 'basics',
+   department: 'operations', icon: 'mail', suggest: 'common',
    pains: ['too much email'], prerequisites: [{tool: 'mail', why: 'A mailbox to read.', required: true}],
    first_routine: {title: 'Morning mail brief', cadence: 'Weekdays at 07:30'},
    summary: 'Reads one person mailbox on a cadence.',
    owns: ['the inbox pass'], never: ['sends mail on its own'],
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['has_personal_inbox'],
    instructions: '# Inbox\n\nRead, never send.\n'},
+  bot('counsel', 'Counsel', 'legal', 'gavel', 'default', 'Reads contracts and flags the risky clauses.', {lead: true}),
+  bot('people-partner', 'People Partner', 'hr', 'badge', 'default', 'Hires, onboards and answers policy questions.', {lead: true}),
+  bot('product-manager', 'Product Manager', 'product', 'lightbulb', 'default', 'Turns feedback into a ranked roadmap.', {lead: true}),
+  bot('engineering-lead', 'Engineering Lead', 'engineering', 'code', 'default', 'Plans the sprint and keeps releases moving.', {lead: true}),
+  {template: 'issue-triage', slug: 'issue-triage', name: 'Issue Triage', required: false, bootstrap: false, starter: true, pack: 'engineering',
+   department: 'engineering', icon: 'task_alt', suggest: 'default', tags: ['github', 'issues'],
+   pains: ['issues pile up untriaged'], prerequisites: [{tool: 'github', why: 'The issues.', required: true}],
+   first_routine: {title: 'Daily triage', cadence: 'Weekdays at 08:00'},
+   summary: 'Labels and routes new issues.',
+   owns: ['issue labels'], never: ['closes issues without a person'],
+   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['uses_github'],
+   instructions: '# Issue Triage\n\nLabel, never close.\n'},
+  bot('pr-reviewer', 'PR Reviewer', 'engineering', 'view_kanban', 'common', 'Reviews every pull request before a person does.'),
 ];
 
 // What Create leaves: the two starters are parked, one with its repository, one still being set up; Social is
@@ -98,35 +115,42 @@ const BOTS_AFTER = [
   {slug: 'social', display_name: 'Social', status: 'planned', template: 'social', onboarding_state: '',
    setup_task_id: 'task-social', repository_present: false},
 ];
-// What the server proposes from the answers (backend/onboarding.py `choose` and `full_chart`, tested there).
-const rec = (slug, why, signal = '') => {
-  const card = CATALOG.find(row => row.slug === slug);
-  return {template: card.template, slug, name: card.name, why: (signal ? signal + '. ' : '') + why, matched_pain: '',
-          prerequisites: card.prerequisites || []};
-};
-// The starter team is Chief of Staff, Support and Sales, plus Issue Triage when software is the product; the full chart
-// adds Engineering only then too.
-const advice = answers => {
-  const software = answers?.software_product === 'yes';
-  const recommendations = [rec('chief-of-staff', 'Turns goals, tasks and updates into a weekly brief.'),
-    rec('support', 'Answers customers and keeps the queue short.'), rec('sales', 'Drafts follow-ups for a person to send.'),
-    ...(software ? [rec('issue-triage', 'Labels and routes new issues.', 'Software is your product')] : [])];
-  const member = (slug, reports_to, lead) => ({...rec(slug, 'Runs the weekly brief.'), lead, reports_to});
-  return {recommendations, home: 'human:ana', held_back: [],
-    full_chart: {teams: [
-      {team: 'Leadership', lead: 'chief-of-staff', members: [member('chief-of-staff', 'human:ana', true), member('inbox', 'chief-of-staff', false)]},
-      {team: 'Sales', lead: 'sales', members: [member('sales', 'human:ana', true)]},
-      {team: 'Marketing', lead: 'social', members: [member('social', 'human:ana', true)]},
-      {team: 'Support', lead: 'support', members: [member('support', 'human:ana', true)]},
-      {team: 'Operations', lead: 'bookkeeper', members: [member('bookkeeper', 'human:ana', true)]},
-      ...(software ? [{team: 'Engineering', lead: 'issue-triage', members: [member('issue-triage', 'human:ana', true)]}] : [])], held_back: []}};
-};
+// The org builder's departments (templates/departments.yaml) and cards (GET /api/v2/onboarding/departments).
+const DEPARTMENTS = [
+  ['sales', 'Sales', 'trending_up', 'Finds, wins and keeps customers.', 'More qualified pipeline and deals that close.', 'What kind of sales do you do today?', 'Inbound demos, a few big accounts, founder-led…'],
+  ['marketing', 'Marketing', 'campaign', 'Gets the word out and brings in demand.', 'Steady demand from the right people.', 'How do people find you today?', 'Word of mouth, a newsletter, LinkedIn posts…'],
+  ['support', 'Customer Support', 'support_agent', 'Answers customers fast and well.', 'Every customer answered quickly, in your voice.', 'Where do customers ask for help?', 'A help@ inbox, live chat, the phone…'],
+  ['finance', 'Finance', 'account_balance', 'Keeps the books and the cash in order.', 'Clean books, paid invoices, no surprise bills.', 'How do you handle money today?', 'QuickBooks, invoices on net 30, card spend…'],
+  ['operations', 'Operations', 'hub', 'Runs the day-to-day so nothing slips.', 'Work moves without anyone chasing it.', 'What eats your week?', 'Vendor emails, meeting notes, scheduling…'],
+  ['legal', 'Legal', 'gavel', 'Reads the fine print before you sign.', 'Contracts reviewed and risks flagged early.', 'What contracts cross your desk?', 'Customer agreements, NDAs, vendor terms…'],
+  ['hr', 'HR', 'badge', 'Hires, onboards and looks after people.', 'Good people hired and set up well.', 'Are you hiring right now?', 'Two engineers this quarter, a few contractors…'],
+  ['product', 'Product', 'lightbulb', 'Decides what to build next.', 'Build what customers actually need.', 'How do you decide what to build?', 'Customer calls, a roadmap doc, feature requests…'],
+  ['engineering', 'Engineering', 'code', 'Builds and ships the software.', 'Ship faster with fewer bugs.', 'How does your team ship today?', 'GitHub, weekly releases, two developers…'],
+].map(([id, name, icon, description, goal, question, placeholder]) => ({id, name, icon, description, goal, question, placeholder,
+  head: CATALOG.find(card => card.department === id && card.lead)?.template || '', software_only: ['product', 'engineering'].includes(id)}));
+const deptCards = id => CATALOG.filter(card => card.department === id);
+// POST /api/v2/onboarding/recruit, as the server's local recommender would answer (backend/recruit_rank.py, tested there):
+// the head, then the defaults and commons, and a niche card only when the answer names one of its tags.
+function recruitFor({department, briefing, share}) {
+  const dept = DEPARTMENTS.find(row => row.id === department), words = String(briefing || '').toLowerCase();
+  const rows = [];
+  for (const card of deptCards(department).sort((a, b) => (b.lead ? 1 : 0) - (a.lead ? 1 : 0))) {
+    const tag = (card.tags || []).find(word => words.includes(word));
+    if (card.suggest === 'niche' && !tag) continue;
+    rows.push({template_id: card.template, why: tag ? `Matches “${tag}”` : card.lead ? `Heads ${dept.name} and reports to you`
+      : card.suggest === 'default' ? `A starting point for ${dept.name}` : `Common in ${dept.name}`});
+  }
+  return {bots: rows, suggested_default: deptCards(department).filter(card => card.lead).map(card => card.template),
+          source: share ? 'hq' : 'local', shared: !!share, off_by: ''};
+}
 
 (async () => {
   const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
   try {
     const context = await browser.newContext({viewport: {width: 1100, height: 800}, serviceWorkers: 'block', acceptDownloads: true, colorScheme: scheme});
     const puts = [], tourPosts = [], completes = [], definitions = [], created = [], enrollments = [], chats = [], invites = [], owners = [];
+    const recruits = [];
+    let hq = {available: true, off_by: ''}, slowRecruit = 0;
     let record = {
       names: {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace'},
       answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], software_product: '',
@@ -152,6 +176,11 @@ const advice = answers => {
         const file = path.join(__dirname, '..', module[1]);
         if (fs.existsSync(file)) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(file, 'utf8')});
       }
+      // The icon font, so the screenshots show icons and not their names.
+      if (p.startsWith('/vendor/')) {
+        const file = path.join(__dirname, '..', p);
+        if (fs.existsSync(file)) return route.fulfill({contentType: p.endsWith('.woff2') ? 'font/woff2' : 'application/javascript', body: fs.readFileSync(file)});
+      }
       if (p === '/api/me') return json(me);
       if (p === '/api/v2/config') return json(CONFIG);
       if (p === '/api/status') return json({cloud: true, keeper_alive: true, health_issues: [], active: [], recent_runs: []});
@@ -168,15 +197,22 @@ const advice = answers => {
           const body = request.postDataJSON();
           puts.push(body);
           record = {...record, ...body, machine};
-          return json({...record, ...advice(record.answers)});
+          return json({...record, home: 'human:ana'});
         }
-        return json({...record, machine, ...advice(record.answers)});
+        return json({...record, machine, home: 'human:ana'});
+      }
+      if (p === '/api/v2/onboarding/departments') return json({version: 'fixture', departments: DEPARTMENTS, cards: CATALOG.filter(card => card.department), hq});
+      if (p === '/api/v2/onboarding/recruit') {
+        const body = request.postDataJSON();
+        recruits.push(body);
+        if (slowRecruit) await new Promise(resolve => setTimeout(resolve, slowRecruit));
+        return json(recruitFor(body));
       }
       if (p === '/api/v2/onboarding/complete') {
         completes.push(request.postDataJSON());
         record = {...record, completed: '2026-09-16T10:00:00Z', needed: false,
                   bots: BOTS_AFTER.map(bot => ({...bot})), machine};
-        return json({...record, ...advice(record.answers)});
+        return json({...record, home: 'human:ana'});
       }
       if (p === '/api/v2/getting-started/state') { tourPosts.push(request.postDataJSON()); return json({tour: true, checklist: false, cards: [], skipped: []}); }
       if (p === '/api/v2/enrollments') { enrollments.push(request.postDataJSON()); return json({code: 'enroll-code', expires: '2026-09-16T10:15:00Z'}); }
@@ -244,73 +280,193 @@ const advice = answers => {
     await page.locator('#onb-size').selectOption('2-10');
     await page.locator('[data-onb-never][value=hire]').uncheck();
     await page.locator('#onb-next').click();
-    await page.locator('[data-team-start]').first().waitFor();
+    await page.locator('[data-ob-tile]').first().waitFor();
     assert.equal(puts.length, 2);
     assert.deepEqual(puts[1].answers, {
       what_we_do: 'We sell a live audio app and the studio software behind it.',
       customers: 'businesses', software_product: 'yes', team_size: '2-10', work_arrives: [], repetitive_work: '',
-      never_without_person: ['send', 'spend', 'publish'], pains: [], pains_text: '', tools: []});
+      never_without_person: ['send', 'spend', 'publish'], pains: [], pains_text: '', tools: [], departments: [], briefings: {}});
 
-    // ---- c: your team, straight after About: there is no step asking what hurts or which tools are used.
-    // The starter team is the way in: Chief of Staff, Support and Sales, plus Issue Triage because software is the product.
+    // ---- c: the org chart, straight after About: there is no step asking what hurts or which tools are used.
+    // First, which departments: Engineering and Product are suggested because software is the product; Legal and HR wait.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 6');
-    assert.equal(await page.locator('#onb-step [data-onb-pain], #onb-step [data-onb-tool], #onb-pains, #onb-pains-text, #onb-tools').count(), 0);
-    assert.doesNotMatch(await page.locator('.onb-progress').textContent(), /What hurts/);
-    assert.equal(await page.locator('[data-team-start=starter] input').isChecked(), true);
-    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'sales', 'support', 'issue-triage']);
-    assert.match(await page.locator('[data-team-builtin]').textContent(), /Built in: Ace, BotOps/);
-    assert.equal(await page.locator('[data-team-why=support]').textContent(),
-      'Answers customers and keeps the queue short.');
-    assert.equal(await page.locator('[data-team-why=issue-triage]').textContent(), 'Software is your product. Labels and routes new issues.');
-    // Tools gate nothing here: no "Needs" pills, and nothing held back. Each bot asks for what it needs when it starts.
-    assert.equal(await page.locator('[data-team-prereq], [data-team-held], [data-team-needs]').count(), 0);
-    assert.match(await page.locator('[data-team-bot=support]').textContent(), /First routine: Daily support triage/);
-    assert.equal(await page.locator('[data-team-reports=support]').inputValue(), 'human:ana');    // the company owner, by default
-    assert.match(await page.locator('[data-team-start=starter]').textContent(), /4 bots/);
-    // No limit and no nagging about the count: the note is only that nothing exists until Create.
-    assert.doesNotMatch(await page.locator('#onb-step').textContent(), /start with a few|too many|at most|no more than/i);
-    assert.equal(await page.locator('[data-onb-hint]').textContent(), 'Nothing exists until you create it.');
-    await shot(page, 'desktop-4-team-starter');
-    await page.locator('#team-add summary').click();
-    assert.equal(await page.locator('[data-team-add=inbox]').count(), 1);
-    assert.equal(await page.locator('[data-team-add-row=inbox] [data-team-needs]').count(), 0);
+    if (shots) await page.setViewportSize({width: 1440, height: 900});      // the org chart photographed on a laptop screen
+    assert.equal(await page.locator('#onb h1').textContent(), 'Your org chart');
+    assert.doesNotMatch(await page.locator('.onb-progress').textContent(), /What hurts|Your team/);
+    assert.equal(await page.locator('[data-onb-hint]').count(), 0);
+    assert.equal(await page.locator('.ob-title').textContent(), 'What departments do you want?');
+    const tilesOn = () => page.locator('[data-ob-tile][aria-pressed=true]').evaluateAll(els => els.map(el => el.dataset.obTile));
+    assert.deepEqual(await tilesOn(), ['sales', 'marketing', 'support', 'finance', 'operations', 'product', 'engineering']);
+    assert.equal(await page.locator('[data-ob-tile]').count(), 9);
+    // The chart is there from the start: the owner on top, the built-ins beside them, each chosen department waiting.
+    assert.match(await page.locator('#ob-chart [data-oc-ceo]').textContent(), /Ana Rivera\s*CEO/);
+    assert.match(await page.locator('#ob-chart [data-oc-builtins]').textContent(), /Ace\s*BotOps/);
+    assert.equal(await page.locator('#ob-chart .oc-dept.oc-pending').count(), 7);
+    await shot(page, 'desktop-3-departments');
+    await page.locator('[data-ob-tile=hr]').click();
+    await page.locator('[data-ob-tile=product]').click();
+    await page.locator('[data-ob-tile=hr]').click();
+    assert.deepEqual(await tilesOn(), ['sales', 'marketing', 'support', 'finance', 'operations', 'engineering']);
+    assert.equal(await page.locator('#ob-chart .oc-dept').count(), 6);
+    assert.match(await page.locator('#ob-start').textContent(), /Start with Sales/);
+    await page.locator('#ob-start').click();
 
-    // The full org chart: every template that fits, in teams with a lead, mirroring a company.
-    await page.locator('[data-team-start=full] input').check();
-    assert.deepEqual(await page.locator('[data-team-group]').evaluateAll(els => els.map(el => el.dataset.teamGroup)),
-      ['Leadership', 'Sales', 'Marketing', 'Support', 'Operations', 'Engineering']);
-    assert.match(await page.locator('[data-team-group=Leadership] h3').textContent(), /led by Chief of Staff/);
-    assert.match(await page.locator('[data-team-start=full]').textContent(), /7 bots in 6 teams/);
-    assert.equal(await page.locator('[data-team-reports=inbox]').inputValue(), 'chief-of-staff');   // a member reports to its lead
-    assert.equal(await page.locator('[data-team-reports=chief-of-staff]').inputValue(), 'human:ana');
-    assert.equal(await page.locator('[data-team-bot=social] .pill.ok', {hasText: 'Lead'}).count(), 1);
-    await shot(page, 'desktop-5-team-full');
-    // Both are fully editable: remove one, add it back, rename, and point a bot at another person or bot.
-    await page.locator('[data-team-remove=bookkeeper]').click();
-    assert.equal(await page.locator('[data-team-bot=bookkeeper]').count(), 0);
-    await page.locator('[data-team-remove=inbox]').click();
-    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'sales', 'social', 'support', 'issue-triage']);
-    await page.locator('[data-team-start=starter] input').check();                  // back to the starting team: the edits reset
-    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'sales', 'support', 'issue-triage']);
-    await page.locator('#team-add summary').click();
-    await page.locator('[data-team-add=social]').click();
-    await page.locator('[data-cat-name=support]').fill('Support desk');
-    await page.locator('[data-team-reports=support]').selectOption('chief-of-staff');
-    await page.locator('[data-team-reports=social]').selectOption('human:ben');
+    // One department at a time: its name, icon, what it is for, one question, and a place to answer.
+    await page.locator('#ob-brief').waitFor();
+    const plain = locator => locator.evaluate(el => { const copy = el.cloneNode(true); copy.querySelectorAll('.ob-ms').forEach(icon => icon.remove()); return copy.textContent.trim(); });
+    assert.equal(await page.locator('.ob-dept-head h2').textContent(), 'Sales');
+    assert.equal(await page.locator('.ob-kicker').textContent(), '1 of 6');
+    assert.equal(await page.locator('.ob-dept-head .ob-dept-icon').textContent(), 'trending_up');
+    assert.equal(await page.locator('.ob-desc').textContent(), 'Finds, wins and keeps customers.');
+    assert.equal(await plain(page.locator('.ob-goal')), 'More qualified pipeline and deals that close.');
+    assert.equal(await page.locator('.ob-question').textContent(), 'What kind of sales do you do today?');
+    assert.equal(await page.locator('#ob-brief').getAttribute('placeholder'), 'Inbound demos, a few big accounts, founder-led…');
+    // The toggle says what it sends; it follows the install's setting, which is on here.
+    assert.equal((await page.locator('.ob-hq').textContent()).trim(), 'Suggestions from Tico HQ (sends this answer)');
+    assert.equal(await page.locator('#ob-hq').isChecked(), true);
+    assert.equal(await page.locator('#ob-skip').isVisible(), true);
+    assert.match(await page.locator('#ob-chart [data-oc-dept=sales]').getAttribute('class'), /oc-cur/);
+    await shot(page, 'desktop-4-department');
+    slowRecruit = 1200;
+    await page.locator('#ob-brief').fill('Inbound demos, and a few resellers');
+    await page.locator('#ob-brief').press('Enter');
+    await page.locator('#ob-recruiting').waitFor();
+    assert.equal((await page.locator('#ob-recruiting').textContent()).trim(), 'Recruiting bots…');
+    assert.equal(await page.locator('[data-ob-said]').textContent(), 'Inbound demos, and a few resellers');
+    assert.match(await page.locator('#ob-chart [data-oc-dept=sales]').textContent(), /Recruiting…/);
+    await shot(page, 'desktop-5-recruiting');
+    await page.locator('#ob-suggested').waitFor();
+    slowRecruit = 0;
+    assert.deepEqual(recruits, [{department: 'sales', briefing: 'Inbound demos, and a few resellers', share: true}]);
+
+    // The suggestions: the head and the defaults start checked, a common bot waits, and the answer brought in a niche one.
+    const picked = () => page.locator('[data-ob-pick]:checked').evaluateAll(els => els.map(el => el.dataset.obPick));
+    const suggested = () => page.locator('#ob-suggested [data-ob-bot]').evaluateAll(els => els.map(el => el.dataset.obBot));
+    const chartBots = id => page.locator(`#ob-chart [data-oc-dept=${id}] [data-oc-bot]`).evaluateAll(els => els.map(el => el.dataset.ocBot));
+    assert.deepEqual(await suggested(), ['sales-manager', 'sdr', 'account-manager', 'partner-scout']);
+    assert.deepEqual(await picked(), ['sales-manager', 'sdr']);
+    assert.match(await page.locator('[data-ob-bot=sales-manager] .ob-bot-name').textContent(), /Sales Manager\s*Head/);
+    assert.equal(await plain(page.locator('[data-ob-why=sales-manager]')), 'Heads Sales and reports to you');
+    assert.equal(await plain(page.locator('[data-ob-why=partner-scout]')), 'Matches “resellers”');
+    assert.equal(await page.locator('[data-ob-bot=sdr] .ob-bot-sum').textContent(), 'Researches accounts and writes first-touch emails.');
+    // Every bot has an icon, the same on its card and on the chart.
+    assert.equal(await page.locator('[data-ob-bot=sdr] .ob-bot-icon').textContent(), 'mail');
+    assert.equal(await page.locator('#ob-chart [data-oc-bot=sdr] .oc-bicon').textContent(), 'mail');
+    assert.deepEqual(await chartBots('sales'), ['sales-manager', 'sdr']);
+    // Checking one grows the chart at once; the new node is the one that animates in.
+    await page.locator('[data-ob-bot=partner-scout]').click();
+    assert.deepEqual(await chartBots('sales'), ['sales-manager', 'sdr', 'partner-scout']);
+    assert.match(await page.locator('#ob-chart [data-oc-bot=partner-scout]').getAttribute('class'), /ob-new/);
+    assert.doesNotMatch(await page.locator('#ob-chart [data-oc-bot=sdr]').getAttribute('class'), /ob-new/);
+    assert.equal(await page.locator('#ob-chart-stats').textContent(), '6 departments · 3 bots');
+    assert.equal(await page.locator('#ob-more').count(), 0);                       // nothing left in Sales to show under More
+    await shot(page, 'desktop-6-suggestions');
+    assert.match(await page.locator('#ob-next').textContent(), /Next: Marketing/);
+    await page.locator('#ob-next').click();
+
+    // Marketing: the answer so far is saved as a draft, and the person turns the toggle off, so nothing leaves.
+    await page.locator('#ob-brief').waitFor();
+    assert.equal(await page.locator('.ob-dept-head h2').textContent(), 'Marketing');
+    assert.equal(puts.length, 3);
+    assert.deepEqual(puts[2].answers.departments, ['sales', 'marketing', 'support', 'finance', 'operations', 'engineering']);
+    assert.deepEqual(puts[2].answers.briefings, {sales: 'Inbound demos, and a few resellers'});
+    assert.deepEqual(Object.keys(puts[2].selected), ['coo', 'botops', 'sales-manager', 'sdr', 'partner-scout']);
+    await page.locator('.ob-hq').click();
+    assert.equal(await page.locator('#ob-hq').isChecked(), false);
+    await page.locator('#ob-brief').fill('LinkedIn posts and word of mouth');
+    await page.locator('#ob-go').click();
+    await page.locator('#ob-suggested').waitFor();
+    assert.deepEqual(recruits.at(-1), {department: 'marketing', briefing: 'LinkedIn posts and word of mouth', share: false});
+    assert.deepEqual(await picked(), ['marketing-lead', 'social']);
+    // Back is the question again, with the answer kept; the same answer does not ask twice.
+    await page.locator('#ob-back').click();
+    assert.equal(await page.locator('#ob-brief').inputValue(), 'LinkedIn posts and word of mouth');
+    await page.locator('#ob-brief').press('Enter');
+    await page.locator('#ob-suggested').waitFor();
+    assert.equal(recruits.length, 2);
+    await page.locator('#ob-next').click();
+
+    // Customer Support: no answer is an answer, and the toggle comes back on for it.
+    await page.locator('#ob-brief').waitFor();
+    assert.equal(await page.locator('.ob-dept-head h2').textContent(), 'Customer Support');
+    await page.locator('.ob-hq').click();
+    await page.locator('#ob-brief').press('Enter');
+    await page.locator('#ob-suggested').waitFor();
+    assert.deepEqual(recruits.at(-1), {department: 'support', briefing: '', share: true});
+    assert.deepEqual(await picked(), ['support-lead', 'support']);
+    await page.locator('#ob-next').click();
+
+    // Finance is skipped: no question asked, no bots, and the chart says so.
+    await page.locator('#ob-brief').waitFor();
+    assert.equal(await page.locator('.ob-dept-head h2').textContent(), 'Finance');
+    await page.locator('#ob-skip').click();
+    await page.locator('.ob-dept-head h2', {hasText: 'Operations'}).waitFor();
+    assert.match(await page.locator('#ob-chart [data-oc-dept=finance]').textContent(), /Skipped/);
+    assert.equal(recruits.filter(row => row.department === 'finance').length, 0);
+    await page.locator('#ob-brief').fill('Vendor emails, and too much email');
+    await page.locator('#ob-brief').press('Enter');
+    await page.locator('#ob-suggested').waitFor();
+    await page.locator('[data-ob-bot=chief-of-staff]').click();
+    await page.locator('[data-ob-bot=inbox]').click();                      // Mail Drafts asks whose mailbox; left for later
+    assert.equal(await page.locator('#ob-suggested [data-cat-mailbox=inbox]').count(), 1);
+    await page.locator('#ob-next').click();
+
+    // Engineering, the last one, leads to the finished chart.
+    await page.locator('.ob-dept-head h2', {hasText: 'Engineering'}).waitFor();
+    await page.locator('#ob-brief').fill('GitHub, and issues pile up');
+    await page.locator('#ob-brief').press('Enter');
+    await page.locator('#ob-suggested').waitFor();
+    assert.deepEqual(await picked(), ['engineering-lead', 'issue-triage']);
+    assert.match(await page.locator('#ob-next').textContent(), /See your org chart/);
+    await page.locator('#ob-next').click();
+
+    // The finished chart: every department with bots, its head under it and the team under the head.
+    await page.locator('#ob-summary').waitFor();
+    assert.equal(await page.locator('#ob-summary').textContent(), '5 departments · 12 bots');
+    assert.deepEqual(await page.locator('#ob-chart-big [data-oc-dept]').evaluateAll(els => els.map(el => el.dataset.ocDept)),
+      ['sales', 'marketing', 'support', 'operations', 'engineering']);
+    assert.equal(await page.locator('#ob-side').isVisible(), false);
+    await shot(page, 'desktop-7-chart');
+    // Mail Drafts still has no mailbox, so the chart cannot be taken further yet.
+    await page.locator('#onb-next').click();
+    await page.locator('#team-problem:not([hidden])').waitFor();
+    assert.match(await page.locator('#team-problem').textContent(), /Choose whose mailbox Mail Drafts reads/);
+    assert.equal(puts.length, 8);                                           // one draft per department answered or skipped
+    // Click a bot on the chart: rename it, point it at someone else, or choose the mailbox.
+    await page.locator('#ob-chart-big [data-oc-edit=inbox]').click();
+    await page.locator('[data-oc-editor=inbox] [data-cat-mailbox=inbox]').selectOption('ana');
+    await page.locator('[data-oc-done]').click();
+    await page.locator('#ob-chart-big [data-oc-edit=support]').click();
+    assert.equal(await page.locator('[data-oc-reports=support]').inputValue(), 'support-lead');     // a worker reports to its head
+    await page.locator('[data-oc-name=support]').fill('Support desk');
+    await page.locator('[data-oc-reports=support]').selectOption('chief-of-staff');
+    await page.locator('[data-oc-done]').click();
+    assert.match(await page.locator('#ob-chart-big [data-oc-bot=support]').textContent(), /Support desk\s*→ Chief of Staff/);
     // Two bots can never report to each other: a bot's options leave out everything under it.
-    assert.equal(await page.locator('[data-team-reports=chief-of-staff] option[value=support]').count(), 0);
-    assert.equal(await page.locator('[data-team-reports=support] option[value=support]').count(), 0);
-    assert.equal(await page.locator('[data-team-reports=support] option[value=chief-of-staff]').count(), 1);
+    await page.locator('#ob-chart-big [data-oc-edit=chief-of-staff]').click();
+    assert.equal(await page.locator('[data-oc-reports=chief-of-staff]').inputValue(), 'ops-manager');
+    assert.equal(await page.locator('[data-oc-reports=chief-of-staff] option[value=support]').count(), 0);
+    await page.locator('[data-oc-done]').click();
+    await page.locator('#ob-chart-big [data-oc-edit=social]').click();
+    await page.locator('[data-oc-reports=social]').selectOption('human:ben');
+    await page.locator('[data-oc-done]').click();
     await page.locator('#onb-next').click();
     await page.locator('#onb-enroll').waitFor();
-    assert.equal(puts.length, 3);
-    // The team goes to the server in the order to set it up: the starter team as chosen, then what was added.
-    assert.deepEqual(Object.keys(puts[2].selected), ['coo', 'botops', 'chief-of-staff', 'support', 'sales', 'issue-triage', 'social']);
-    assert.equal(puts[2].selected.support.display_name, 'Support desk');
-    assert.equal(puts[2].selected.support.reports_to, 'chief-of-staff');
-    assert.equal(puts[2].selected.social.reports_to, 'human:ben');
-    assert.equal(puts[2].selected['chief-of-staff'].reports_to, 'human:ana');
-    assert.equal(puts[2].selected.botops.reports_to, undefined);       // the built-ins keep their place
+    // The team goes to the server in the order to set it up: the built-ins, then each department's head and its team.
+    const team = puts.at(-1);
+    assert.deepEqual(Object.keys(team.selected), ['coo', 'botops', 'sales-manager', 'sdr', 'partner-scout', 'marketing-lead', 'social',
+      'support-lead', 'support', 'ops-manager', 'chief-of-staff', 'inbox', 'engineering-lead', 'issue-triage']);
+    const reports = Object.fromEntries(Object.entries(team.selected).map(([slug, row]) => [slug, row.reports_to]));
+    assert.deepEqual(reports, {coo: undefined, botops: undefined, 'sales-manager': 'human:ana', sdr: 'sales-manager', 'partner-scout': 'sales-manager',
+      'marketing-lead': 'human:ana', social: 'human:ben', 'support-lead': 'human:ana', support: 'chief-of-staff', 'ops-manager': 'human:ana',
+      'chief-of-staff': 'ops-manager', inbox: 'ops-manager', 'engineering-lead': 'human:ana', 'issue-triage': 'engineering-lead'});
+    assert.equal(team.selected.support.display_name, 'Support desk');
+    assert.match(team.selected.inbox.instructions, /Mailbox: ana@acme.example/);
+    assert.deepEqual(team.answers.departments, ['sales', 'marketing', 'support', 'operations', 'engineering']);
+    assert.deepEqual(team.answers.briefings, {sales: 'Inbound demos, and a few resellers', marketing: 'LinkedIn posts and word of mouth',
+      operations: 'Vendor emails, and too much email', engineering: 'GitHub, and issues pile up'});
+    let mark = puts.length;
+    if (shots) await page.setViewportSize({width: 1100, height: 800});
 
     // ---- d: this Mac. The enrollment file is the Settings flow; the commands keep <slug> literal.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 6');
@@ -342,7 +498,7 @@ const advice = answers => {
     machine = {runners: [{id: 'runner-1', label: "Ana's Mac", online: true}, {id: 'runner-2', label: 'Cloud box', online: true}, {id: 'runner-3', label: 'Old laptop', online: false}], enrolled: true};
     await page.locator('#onb-next').click();
     await page.locator('#onb-connect').waitFor();
-    assert.equal(puts.length, 4);
+    assert.equal(puts.length, mark + 1);
 
     // A runner that is already online is shown as ready; the Mac instructions fold away.
     await page.locator('#onb-back').click();
@@ -354,7 +510,7 @@ const advice = answers => {
     assert.equal(await page.locator('#onb-enroll').isVisible(), true);
     await page.locator('#onb-next').click();
     await page.locator('#onb-connect').waitFor();
-    assert.equal(puts.length, 5);
+    assert.equal(puts.length, mark + 2);
 
     // ---- e: connect your agent. Optional: the button opens the same modal as the sidebar's plug.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 5 of 6');
@@ -365,7 +521,7 @@ const advice = answers => {
     await page.waitForFunction(() => !document.querySelector('dialog.connect-agent'));
     await page.locator('#onb-next').click();
     await page.locator('#onb-finish').waitFor();
-    assert.equal(puts.length, 6);
+    assert.equal(puts.length, mark + 3);
 
     // ---- g: review, then create exactly once.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 6 of 6');
@@ -377,7 +533,10 @@ const advice = answers => {
     assert.doesNotMatch(review, /What hurts|Tools/);
     assert.match(review, /Send anything, Spend money, Publish anything/);
     assert.match(review, /Computers\s*Ana's Mac, Cloud box online/);
-    assert.match(await page.locator('[data-review-team]').textContent(), /Chief of Staff\s*→ Ana Rivera/);
+    assert.equal(await page.locator('[data-review-departments]').textContent(), 'Sales, Marketing, Customer Support, Operations, Engineering');
+    assert.match(await page.locator('[data-review-team]').textContent(), /Sales Manager\s*→ Ana Rivera/);
+    assert.match(await page.locator('[data-review-team]').textContent(), /SDR\s*→ Sales Manager/);
+    assert.match(await page.locator('[data-review-team]').textContent(), /Chief of Staff\s*→ Ops Manager/);
     assert.match(await page.locator('[data-review-team]').textContent(), /Support desk\s*→ Chief of Staff/);
     assert.match(await page.locator('[data-review-team]').textContent(), /Social\s*→ Ben Cole/);
     assert.doesNotMatch(review, /This Mac/);
@@ -482,8 +641,10 @@ const advice = answers => {
     await page.locator('#settings-add-catalog:not([disabled])').click();
     await page.locator('#catalog-picker-grid').waitFor();
     // The bots that already exist are not offered again, and nothing is forced on here.
-    assert.deepEqual(await page.locator('#catalog-picker-grid .cat-card').evaluateAll(
-      els => els.map(el => el.dataset.catCard)), ['botops', 'bookkeeper', 'inbox', 'issue-triage', 'sales', 'social']);
+    const offered = await page.locator('#catalog-picker-grid .cat-card').evaluateAll(els => els.map(el => el.dataset.catCard));
+    assert.equal(offered[0], 'botops');
+    assert.ok(['bookkeeper', 'inbox', 'issue-triage', 'social'].every(slug => offered.includes(slug)), offered.join());
+    assert.ok(!['coo', 'support', 'chief-of-staff'].some(slug => offered.includes(slug)), offered.join());
     assert.equal(await page.locator('#catalog-picker-grid [data-cat-toggle=botops]').isDisabled(), false);
     assert.equal(await page.locator('#catalog-picker-grid [data-cat-toggle=bookkeeper]').isChecked(), false);
     await page.locator('#catalog-picker-grid [data-cat-toggle=bookkeeper]').check();
@@ -518,7 +679,7 @@ const advice = answers => {
     assert.equal(created[1].display_name, 'Ana Rivera Inbox');
     assert.match(created[1].instructions, /Mailbox: ana@acme.example/);
 
-    // ---- phone width: the wizard is one column and never scrolls sideways.
+    // ---- phone width: the wizard is one column and never scrolls sideways; the chart is a strip above the card.
     record = {...record, completed: null, needed: true};
     const phone = await context.newPage();
     phone.on('pageerror', e => errors.push(e.message));
@@ -533,25 +694,57 @@ const advice = answers => {
     assert.equal(await fits(), true);
     await shot(phone, 'phone-1-about');
     await phone.locator('#onb-next').click();
-    await phone.locator('[data-team-start]').first().waitFor();
+    // The saved draft opens on its chart; the strip above is closed and says what is on it.
+    await phone.locator('#ob-summary').waitFor();
+    assert.equal(await phone.locator('#ob-summary').textContent(), '5 departments · 12 bots');
     assert.equal(await fits(), true);
-    assert.equal(await phone.locator('[data-team-bot]').count(), 5);     // the draft's own team, saved on the first visit
-    await phone.locator('[data-team-start=full] input').check();
+    await shot(phone, 'phone-7-chart');
+    await phone.locator('#ob-departments').click();
+    await phone.locator('[data-ob-tile]').first().waitFor();
+    assert.equal(await phone.locator('#ob-strip').isVisible(), true);
+    assert.equal(await phone.locator('#ob-chart').isVisible(), false);
+    assert.match(await phone.locator('#ob-strip').textContent(), /5 departments · 12 bots/);   // the skipped Finance is not counted
     assert.equal(await fits(), true);
-    await phone.locator('#team-add summary').click();
+    await shot(phone, 'phone-3-departments');
+    await phone.locator('#ob-strip').click();
+    assert.equal(await phone.locator('#ob-chart').isVisible(), true);
     assert.equal(await fits(), true);
-    await shot(phone, 'phone-4-team-full');
-    // Mail Drafts reads one person's mailbox, so the team cannot be taken further until it is chosen.
+    await shot(phone, 'phone-3b-strip-open');
+    await phone.locator('#ob-strip').click();
+    assert.equal(await phone.locator('#ob-chart').isVisible(), false);
+    await phone.locator('#ob-start').click();
+    await phone.locator('#ob-brief').waitFor();
+    assert.equal(await phone.locator('#ob-brief').inputValue(), 'Inbound demos, and a few resellers');     // the saved answer
+    assert.equal(await fits(), true);
+    await shot(phone, 'phone-4-department');
+    slowRecruit = 1200;
+    await phone.locator('#ob-go').click();
+    await phone.locator('#ob-recruiting').waitFor();
+    assert.equal(await fits(), true);
+    await shot(phone, 'phone-5-recruiting');
+    await phone.locator('#ob-suggested').waitFor();
+    slowRecruit = 0;
+    assert.equal(await fits(), true);
+    await shot(phone, 'phone-6-suggestions');
+
+    // An install that may not ask Tico HQ (here DO_NOT_TRACK) shows the toggle off, and says why.
+    hq = {available: false, off_by: 'DO_NOT_TRACK'};
+    await phone.goto('https://tico-ui.test/#/tasks');
+    await phone.goto('https://tico-ui.test/#/welcome');
+    await phone.locator('#onb-company').waitFor();
     await phone.locator('#onb-next').click();
-    await phone.locator('#team-problem').waitFor();
-    assert.match(await phone.locator('#team-problem').textContent(), /Choose whose mailbox Mail Drafts reads/);
-    await phone.locator('[data-cat-mailbox=inbox]').selectOption('ana');
-    assert.equal(await fits(), true);
+    await phone.locator('#onb-what').waitFor();
     await phone.locator('#onb-next').click();
-    await phone.locator('#onb-machine-ready').waitFor();
-    await phone.locator('#onb-more summary').click();
-    await phone.locator('#onb-enroll').waitFor();
-    assert.equal(await fits(), true);
+    await phone.locator('#ob-departments').click();
+    await phone.locator('#ob-start').click();
+    await phone.locator('#ob-brief').waitFor();
+    assert.equal(await phone.locator('#ob-hq').isChecked(), false);
+    assert.equal(await phone.locator('#ob-hq').isDisabled(), true);
+    assert.equal(await phone.locator('[data-ob-hq-off]').textContent(), 'Off: DO_NOT_TRACK is set');
+    await phone.locator('#ob-go').click();
+    await phone.locator('#ob-suggested').waitFor();
+    assert.equal(recruits.at(-1).share, false);
+    hq = {available: true, off_by: ''};
 
     // After Create, on a phone: the same one screen, one column.
     BOTS_AFTER.find(bot => bot.slug === 'chief-of-staff').onboarding_state = 'needs_onboarding';
@@ -579,6 +772,6 @@ const advice = answers => {
     assert.equal(await viewer.locator('#onb-company').count(), 0);
 
     assert.deepEqual(errors, []);
-    console.log('PASS: first-run wizard asks, proposes a starter team or a full chart, creates it once, parks each starter and starts its setup.');
+    console.log('PASS: first-run wizard asks, builds the org chart department by department, creates it once, parks each starter and starts its setup.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

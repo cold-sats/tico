@@ -1,67 +1,24 @@
-/* First run, the team: the starting point (a starter team, a full org chart, or just the built-ins),
-   the editable team, and the screen after Create (docs/onboarding.md).
-   The server does the choosing (GET/PUT /api/v2/onboarding answers `recommendations` and `full_chart`);
-   this only shows it, lets a person change anything, and sends the result. Nothing is created until
-   "Create my team". It shares the wizard's state (`ONB`) and the catalog cards' state (`catalogState`)
-   with index.html. */
-const FR_TEAMS = ['Leadership', 'Sales', 'Marketing', 'Support', 'Operations', 'Engineering'];   // backend/onboarding.py TEAMS
-const FR_TEAM_OF = {basics: 'Leadership', sales: 'Sales', marketing: 'Marketing', support: 'Support',
-                    operations: 'Operations', engineering: 'Engineering'};
-const frBlankTeam = () => ({mode: null, edited: false, order: [], defaults: {}, leads: new Set(), advice: ''});
+/* First run, the team: who each bot reports to, the review, and the screen after Create (docs/onboarding.md).
+   The org chart itself is built in ui/org-builder.js; this turns what is checked there into `selected` (the order to set
+   the bots up in, each with its reports-to), says what is wrong before Create, and shows the rest. Nothing is created
+   until "Create my team". It shares the wizard's state (`ONB`) and the catalog cards' state (`catalogState`) with
+   index.html. */
 const frOwner = () => (S.me?.id ? 'human:' + S.me.id : '');
 const frHome = state => state.record.home || frOwner();
 const frPeople = () => (SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.me?.id ? [{id: S.me.id, name: S.me.name}] : []));
 const frPersonName = id => frPeople().find(p => p.id === id)?.name || id;
 // The bot a card is created as: the assistant's card is named `coo` but the company's own bot is `assistantBot()`.
 const frBotSlug = card => (card.template === 'assistant' ? assistantBot() : card.slug);
-const frTeamOf = card => FR_TEAM_OF[card.pack] || 'Other';
-const frSentence = text => { const first = String(text || '').split(/(?<=[.!?])\s/)[0]; return first.length > 190 ? first.slice(0, 189) + '…' : first; };
 
 function frCollect(state, key) {
-  if (key === 'team' && state.catalog.cards.length) state.record.selected = frSelection(state);
+  if (state.catalog.cards.length) obCollect(state);
 }
 
-// ----------------------------------------------------------------- the team
-function frEnterTeam(state) {
-  const advice = JSON.stringify([state.record.recommendations, state.record.full_chart]);
-  if (state.team.mode === null) {
-    // A returning draft keeps its picks; a first visit starts from the starter team.
-    if (Object.keys(state.record.selected || {}).some(slug => !catalogCard(state.catalog, slug)?.required)) {
-      state.team = {...state.team, mode: 'custom', edited: true, advice};
-    } else frApplyMode(state, 'starter');
-  } else if (!state.team.edited && state.team.advice !== advice && ['starter', 'full'].includes(state.team.mode)) {
-    frApplyMode(state, state.team.mode);         // the answers changed and nothing was edited: the advice follows them
-  }
-  state.team.advice = advice;
-}
-function frApplyMode(state, mode) {
-  const cat = state.catalog, r = state.record, home = frHome(state);
-  cat.picked = new Set(cat.cards.filter(card => card.required).map(card => card.slug));
-  cat.decided = new Set();
-  for (const edit of Object.values(cat.edits)) delete edit.reports_to;
-  state.team = {mode, edited: false, order: [], defaults: {}, leads: new Set(),
-                advice: JSON.stringify([r.recommendations, r.full_chart])};
-  const chart = {};
-  for (const team of r.full_chart?.teams || []) for (const m of team.members) chart[m.slug] = {...m, team: team.team};
-  const add = (slug, reportsTo, lead) => {
-    const card = catalogCard(cat, slug);
-    if (!card || card.required) return;
-    cat.picked.add(slug);
-    if (!state.team.order.includes(slug)) state.team.order.push(slug);
-    state.team.defaults[slug] = reportsTo || home;
-    if (lead) state.team.leads.add(slug);
-  };
-  if (mode === 'starter') for (const rec of r.recommendations || []) add(rec.slug, home, false);
-  if (mode === 'full') {
-    // The best pain matches are set up first, whatever team they sit in.
-    for (const rec of r.recommendations || []) add(rec.slug, chart[rec.slug]?.reports_to, !!chart[rec.slug]?.lead);
-    for (const team of r.full_chart?.teams || []) for (const m of team.members) add(m.slug, m.reports_to, m.lead);
-  }
-}
-// What a bot reports to: what the person chose, else the starting point's own answer, else the owner.
+// ----------------------------------------------------------------- who reports to whom
+// What a bot reports to: what the person chose, else its department head, else the owner.
+const frRawReports = (state, slug) => state.catalog.edits[slug]?.reports_to ?? obDefaultReports(state, slug);
 function frReports(state, slug) {
-  const edit = state.catalog.edits[slug]?.reports_to;
-  const wanted = edit ?? state.team.defaults[slug] ?? frHome(state);
+  const wanted = frRawReports(state, slug);
   // A parent that was removed leaves its team to the owner rather than a bot that will not exist.
   return frParentOptions(state, slug).some(option => option.value === wanted) ? wanted : frHome(state);
 }
@@ -70,7 +27,6 @@ function frDescends(state, slug, of) {
   for (let at = slug; at && !seen.has(at); at = frRawReports(state, at)) { if (at === of) return true; seen.add(at); }
   return false;
 }
-const frRawReports = (state, slug) => state.catalog.edits[slug]?.reports_to ?? state.team.defaults[slug] ?? '';
 function frParentOptions(state, slug) {
   const cat = state.catalog, out = [];
   const owner = frOwner();
@@ -83,8 +39,17 @@ function frParentOptions(state, slug) {
   }
   return out;
 }
+function frParentName(state, value) {
+  const cat = state.catalog;
+  if (String(value).startsWith('human:')) return frPersonName(value.slice(6));
+  const card = cat.cards.find(row => frBotSlug(row) === value || row.slug === value);
+  return card ? catalogName(cat, card) : value;
+}
+// The team in the order it is set up: the built-ins, then each department's bots with its head first.
 function frSelection(state) {
-  const cat = state.catalog, rank = card => { const i = state.team.order.indexOf(card.slug); return i < 0 ? 999 : i; };
+  const cat = state.catalog, order = [];
+  for (const id of state.org.chosen) for (const card of obPicked(state, id)) order.push(obCatalogCard(state, card.template)?.slug);
+  const rank = card => { const i = order.indexOf(card.slug); return i < 0 ? 999 : i; };
   const cards = cat.cards.slice().sort((a, b) => (a.required === b.required ? 0 : a.required ? -1 : 1) || rank(a) - rank(b));
   const out = {};
   for (const card of cards) {
@@ -108,126 +73,18 @@ function frProblem(state) {
   }
   return catalogMissingMailbox(cat) ? 'Choose whose mailbox Mail Drafts reads.' : '';
 }
-function frWhy(state, card) {
-  const r = state.record, rec = (r.recommendations || []).find(row => row.slug === card.slug);
-  if (rec) return rec.why;
-  for (const team of r.full_chart?.teams || []) { const m = team.members.find(row => row.slug === card.slug); if (m) return m.why; }
-  return frSentence(card.summary);
-}
-function frRowHTML(state, card) {
-  const cat = state.catalog, slug = card.slug;
-  const options = frParentOptions(state, slug), current = frReports(state, slug);
-  const groups = ['People', 'Built in', 'Bots on your team'].map(group => {
-    const rows = options.filter(option => option.group === group);
-    return rows.length ? `<optgroup label="${esc(group)}">${rows.map(option =>
-      `<option value="${esc(option.value)}" ${option.value === current ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}</optgroup>` : '';
-  }).join('');
-  const people = card.template === 'inbox' ? catalogPeople() : [], chosen = cat.edits[slug]?.person || '';
-  const mailbox = people.length ? `<label class="cat-mailbox">Whose mailbox
-      <select data-cat-mailbox="${esc(slug)}" aria-label="Person whose inbox this bot reads">
-        <option value="">Choose a person…</option>
-        ${people.map(person => `<option value="${esc(person.id)}" ${person.id === chosen ? 'selected' : ''}>${esc(person.name || person.id)}${person.email ? ` · ${esc(person.email)}` : ''}</option>`).join('')}
-      </select></label>` : '';
-  return `<article class="team-bot" data-team-bot="${esc(slug)}">
-    <div class="team-bot-main">
-      <div class="team-bot-name"><input type="text" class="cat-name" data-cat-name="${esc(slug)}" value="${esc(catalogName(cat, card))}" maxlength="100" aria-label="Name for ${esc(card.name || slug)}">
-        ${state.team.leads.has(slug) ? '<span class="pill ok" title="Leads its team">Lead</span>' : ''}</div>
-      <p class="team-why" data-team-why="${esc(slug)}">${esc(frWhy(state, card))}</p>
-      ${card.first_routine?.title ? `<p class="team-routine muted">First routine: ${esc(card.first_routine.title)}</p>` : ''}
-      ${mailbox}
-    </div>
-    <div class="team-bot-side">
-      <label class="team-reports">Reports to <select data-team-reports="${esc(slug)}" aria-label="${esc(catalogName(cat, card))} reports to">${groups}</select></label>
-      <button class="ghost" type="button" data-team-remove="${esc(slug)}" aria-label="Remove ${esc(catalogName(cat, card))}">Remove</button>
-    </div></article>`;
-}
-function frListHTML(state) {
-  const cat = state.catalog;
-  const picked = cat.cards.filter(card => !card.required && cat.picked.has(card.slug));
-  const order = card => { const i = state.team.order.indexOf(card.slug); return i < 0 ? 999 : i; };
-  const groups = [...FR_TEAMS, 'Other'].map(team => {
-    const rows = picked.filter(card => frTeamOf(card) === team).sort((a, b) => order(a) - order(b));
-    if (!rows.length) return '';
-    const lead = rows.find(card => state.team.leads.has(card.slug));
-    return `<section class="team-group" data-team-group="${esc(team)}"><h3>${esc(team)}${lead ? `<span class="muted"> · led by ${esc(catalogName(cat, lead))}</span>` : ''}</h3>
-      ${rows.map(card => frRowHTML(state, card)).join('')}</section>`;
-  }).join('');
-  return groups || '<div class="empty" data-team-empty>No bots on your team yet.</div>';
-}
-function frAddHTML(state) {
-  const cat = state.catalog;
-  const rows = cat.cards.filter(card => !card.required && !cat.picked.has(card.slug));
-  const item = card => `<div class="team-add-row" data-team-add-row="${esc(card.slug)}"><div><strong>${esc(catalogName(cat, card))}</strong>
-        <p class="muted">${esc(frSentence(card.summary))}</p></div>
-      <button class="ghost" type="button" data-team-add="${esc(card.slug)}" aria-label="Add ${esc(catalogName(cat, card))}">Add</button></div>`;
-  return `<details class="team-add" id="team-add"${state.team.addOpen ? ' open' : ''}><summary>Add a bot${rows.length ? ` <span class="muted">(${rows.length} more in the catalog)</span>` : ''}</summary>
-    ${rows.length ? rows.map(item).join('') : '<p class="muted">Everything in the catalog is already on your team.</p>'}</details>`;
-}
-function frTeamHTML(state, actions) {
-  const r = state.record, starter = r.recommendations || [], teams = r.full_chart?.teams || [];
-  const full = teams.reduce((n, team) => n + team.members.length, 0), mode = state.team.mode;
-  const option = (value, title, text) => `<label class="team-start-opt${mode === value ? ' on' : ''}" data-team-start="${value}">
-      <input type="radio" name="onb-start" value="${value}" ${mode === value ? 'checked' : ''}><span><strong>${esc(title)}</strong><small>${esc(text)}</small></span></label>`;
-  return `<div class="team-start" role="radiogroup" aria-label="Starting point">
-      ${option('starter', 'Starter team', `${starter.length} bot${starter.length === 1 ? '' : 's'}`)}
-      ${option('full', 'Full org chart', `${full} bot${full === 1 ? '' : 's'} in ${teams.length} team${teams.length === 1 ? '' : 's'}`)}
-      ${option('empty', 'Just the built-ins', 'Add bots as you go')}
-    </div>
-    <p class="team-builtin muted" data-team-builtin>Built in: ${esc(state.catalog.cards.filter(card => card.required).map(card => catalogName(state.catalog, card)).join(', ') || 'BotOps')}</p>
-    <div id="team-list">${frListHTML(state)}</div>
-    <div id="team-add-host">${frAddHTML(state)}</div>
-    <p class="err" id="team-problem" role="alert" hidden></p>
-    ${actions('Next')}`;
-}
-function frRefresh(state) {
-  $('#team-list').innerHTML = frListHTML(state);
-  $('#team-add-host').innerHTML = frAddHTML(state);
-  const problem = frProblem(state), box = $('#team-problem');
-  if (box) { box.textContent = state.team.showProblem ? problem : ''; box.hidden = !(state.team.showProblem && problem); }
-}
-function frTeamWire(state) {
-  const host = $('#onb-step');
-  const edited = () => { state.team.edited = true; state.team.mode = state.team.mode === 'empty' ? 'custom' : state.team.mode; };
-  catalogWire($('#team-list'), state.catalog, () => { edited(); });     // names and the inbox's mailbox
-  host.querySelectorAll('[data-team-start] input').forEach(input => input.onchange = () => {
-    frApplyMode(state, input.value);
-    state.team.showProblem = false;
-    onbRender(state);
-  });
-  host.onclick = event => {
-    const remove = event.target.closest('[data-team-remove]'), add = event.target.closest('[data-team-add]');
-    if (!remove && !add) return;
-    const slug = (remove || add).dataset.teamRemove || (remove || add).dataset.teamAdd, cat = state.catalog;
-    if (remove) cat.picked.delete(slug); else { cat.picked.add(slug); if (!state.team.order.includes(slug)) state.team.order.push(slug); state.team.addOpen = true; }
-    cat.decided.add(slug); edited();
-    frRefresh(state);
-  };
-  host.onchange = event => {
-    const reports = event.target.closest('[data-team-reports]');
-    if (!reports) return;
-    (state.catalog.edits[reports.dataset.teamReports] ||= {}).reports_to = reports.value;
-    edited(); state.team.showProblem = true; frRefresh(state);
-  };
-  host.addEventListener('toggle', event => { if (event.target.id === 'team-add') state.team.addOpen = event.target.open; }, true);
-}
-// The advance from the team step: a cycle or a missing mailbox is said here, not after Create.
-function frCanAdvance(state) {
-  const problem = frProblem(state);
-  if (!problem) return true;
-  state.team.showProblem = true; frRefresh(state);
-  return false;
-}
 
 // ----------------------------------------------------------------- review
 function frSummaryTeamHTML(state) {
-  const cat = state.catalog;
-  const rows = cat.cards.filter(card => !card.required && cat.picked.has(card.slug));
-  const nameOf = value => value.startsWith('human:') ? frPersonName(value.slice(6))
-    : (catalogName(cat, cat.cards.find(card => frBotSlug(card) === value || card.slug === value) || {slug: value, name: value}));
+  const cat = state.catalog, org = state.org;
+  // In the order they are set up: each department's head first, then its team.
+  const rows = Object.keys(frSelection(state)).map(slug => catalogCard(cat, slug)).filter(card => card && !card.required);
   const built = cat.cards.filter(card => card.required).map(card => esc(catalogName(cat, card))).join(', ');
+  const departments = org.chosen.filter(id => obPicked(state, id).length).map(id => esc(obDept(org, id)?.name || id)).join(', ');
   return `<div><span class="k">Built in</span><span>${built || '—'}</span></div>
+    ${org.loaded ? `<div><span class="k">Departments</span><span data-review-departments>${departments || '—'}</span></div>` : ''}
     <div><span class="k">Your team</span><span data-review-team>${rows.length ? rows.map(card =>
-      `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(nameOf(frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the built-ins'}</span></div>`;
+      `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(frParentName(state, frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the built-ins'}</span></div>`;
 }
 
 // ----------------------------------------------------------------- after Create
