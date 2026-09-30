@@ -1,0 +1,37 @@
+name: recruiting                     # the slug: it matches the repository emp-recruiting and the label owner:recruiting
+display_name: "Recruiting Coordinator"
+labels: [owner:recruiting]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 45
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# the bot puts every draft on the task and asks for an approval.
+outbound_send: false
+
+# The first routine is declared but not armed (`enabled: false`). The bot arms it with
+# `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
+# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+schedules:
+  - id: weekly-hiring-pipeline
+    title: Weekly hiring pipeline summary
+    cron: "0 10 * * 5"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/weekly-hiring-pipeline.md
+    labels: [priority:p2]
+    enabled: false
+
+# What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
+# arrives in, never the value; declaring access here does not create it. Changing access is an
+# owner decision, so the bot files a task for the owner rather than editing this file.
+access: []
+# Optional, uncomment when connected. Reading the hiring mailbox lets a screening summary start from the real
+# application instead of a pasted one. The calendar is already readable by every bot.
+# access:
+#   - service: gmail
+#     identity: "jobs@example.com"
+#     can: [read, draft]          # never send: outbound_send stays false
+#     env: GOOGLE_SA_KEY
+#     note: "reads applications and leaves a draft reply or scheduling message; never files, rejects or sends"
