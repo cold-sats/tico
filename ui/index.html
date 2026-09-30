@@ -11149,7 +11149,7 @@ async function renderSettingsPeople() {
         <p class="muted">Marking someone as left ends their sign-in and API tokens.</p>
       </section>
       <section class="card" id="people-signin"><header><h2>Sign-in</h2></header>
-        <label class="onb-field"><span class="k">Who can join</span><textarea id="allow-who" rows="3" placeholder="hotmic.io&#10;ana@company.com"${S.me?.role === 'owner' ? '' : ' disabled'}>${esc([...view.allowed_domains, ...view.allowed].join('\n'))}</textarea>
+        <label class="onb-field"><span class="k">Who can join</span><textarea id="allow-who" rows="3" placeholder="acme.example&#10;ana@acme.example"${S.me?.role === 'owner' ? '' : ' disabled'}>${esc([...view.allowed_domains, ...view.allowed].join('\n'))}</textarea>
           <small>Emails or domains. Empty: add people by hand.</small>
           <small>Company domain: <span data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'none'}</span></small></label>
         <label class="onb-field" style="max-width:220px"><span class="k">Bot limit per member</span><input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
