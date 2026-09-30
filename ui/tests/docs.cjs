@@ -318,7 +318,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     page.on('pageerror', e => errors.push('card: ' + e.message));
     await page.goto('https://tico-ui.test/#/docs');
     await page.locator('[data-gs-card=docs]').waitFor();
-    assert.match(await page.locator('.docs-empty-note').first().textContent(), /Nothing written yet/);
+    assert.match(await page.locator('.docs-empty-note').first().textContent(), /No docs yet/);
     await shot(page, 'setup-card');
     const first = page.locator('[data-gs-docs] input[name=url]').first();
     await first.click();
