@@ -859,6 +859,7 @@ class Store:
                 from . import access
                 access.seed(c, self.settings, H.now())
                 access.retire_bot_lists(c, self.settings, H.now())
+                access.raise_bot_limit(c, H.now())
                 self.seed_goals(c)
                 G.ensure_botops_goal(c)
                 from . import routines as R

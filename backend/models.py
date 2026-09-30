@@ -841,6 +841,7 @@ class AccessPersonEdit(Contract):
     title: str | None = Field(default=None, max_length=120)
     team: str | None = Field(default=None, max_length=80)
     left: bool | None = None
+    sign_in: bool | None = None             # off keeps them on the roster but refuses their sign-in and tokens
     bot_admin: bool | None = None           # the old name for role: admin
     # Owners set roles; owners and admins set what a member may do (docs/permissions.md).
     role: Literal["admin", "member"] | None = None

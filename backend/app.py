@@ -885,15 +885,23 @@ def create_app(settings=None):
             roles = body.role is not None or body.bot_admin is not None
             if roles and who.role != "owner":
                 raise Problem("forbidden", "Only an owner makes or removes admins", 403)
-            # A role or add_people is authority; an email rewrites who is an Admin, and a team is an access
+            if body.sign_in is not None:
+                if pid == H.actor_id(who.actor):
+                    raise Problem("forbidden", "You cannot turn off your own sign-in", 403)
+                target = H.human(c, pid) or {}
+                if who.role != "owner" and str(target.get("email") or "").lower() in auth.bot_admins:
+                    raise Problem("forbidden", "Only an owner turns an admin's sign-in on or off", 403)
+            # A role, add_people or sign-in is authority; an email rewrites who is an Admin, and a team is an access
             # audience: each needs the requester's own click through BotOps.
-            if (roles or any(getattr(body, k) is not None for k in ("add_people", "email", "team"))) and risky(who):
+            if (roles or any(getattr(body, k) is not None for k in ("add_people", "sign_in", "email", "team"))) and risky(who):
                 changes = body.model_dump(exclude_none=True, exclude={"on_behalf_of"})
                 return propose_card(c, who, "POST", "/api/v2/access/people/" + pid, changes,
                                     "Change " + ", ".join(changes) + " for "
                                     + ((H.human(c, pid) or {}).get("name") or pid))
             roster, lists = views.roster(c), Access.load_access(c, settings)
             row, admins, changed = Access.edit_person(c, who.actor, roster, pid, body, lists, auth.owner_email)
+            if changed.get("sign_in") is False:
+                c.execute("DELETE FROM oidc_sessions WHERE human=?", (pid,))    # open browsers are signed out now
             if admins != lists["admins"]:
                 Access.save_access(c, who.actor, {"expected_revision": lists["revision"]}, H.now(),
                                    bot_admins=admins, settings=settings)

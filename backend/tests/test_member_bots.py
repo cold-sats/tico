@@ -258,3 +258,60 @@ def test_health_warns_when_members_bots_share_a_computer_with_shared_keys(api, b
         c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (encode({"schema_version": 1, "runtimes": {}, "bots": {}, "shared_env": True}), machine["runner_id"]))
     warned = [c for c in get(api, "health")["checks"] if c["id"] == "member_bots"]
     assert len(warned) == 1 and warned[0]["status"] == "warn" and "jira-manager" in warned[0]["summary"]
+
+
+def test_the_bot_limit_defaults_to_25_and_an_untouched_5_is_raised_once(api):
+    from backend import access as Access
+    assert get(api, "access", "ben-test")["member_bot_limit"] == 25
+    store = api.app.state.store
+
+    def upgrade(stored, events=()):
+        with store.transaction() as c:
+            c.execute("DELETE FROM registry_metadata WHERE key=?", (Access.BOT_LIMIT_RAISED,))
+            c.execute("DELETE FROM events WHERE action='access.limits_updated'")
+            record = {k: v for k, v in Access.load_access(c, store.settings).items() if k != "member_bot_limit"}
+            Access._store(c, Access.ACCESS, {**record, **({} if stored is None else {"member_bot_limit": stored})})
+            for before, after in events:
+                H.event(c, "human:ana", "access.limits_updated", "", {"before": before, "after": after})
+            Access.raise_bot_limit(c, H.now())
+            Access.raise_bot_limit(c, H.now())                       # once per database
+            return Access.load_access(c, store.settings)["member_bot_limit"]
+
+    assert upgrade(None) == 25
+    assert upgrade(5) == 25                                         # the old default, or saved along with the allow list
+    assert upgrade(5, [(5, 5)]) == 25
+    assert upgrade(7) == 7                                          # someone's own number stays
+    assert upgrade(5, [(7, 5)]) == 5                                # someone lowered it to 5 on purpose
+    with store.transaction() as c:
+        Access._store(c, Access.ACCESS, {**Access._load_json(c, Access.ACCESS), "member_bot_limit": 5})
+        assert Access.raise_bot_limit(c, H.now()) is None           # already done: a later 5 is a choice
+
+
+def test_sign_in_is_switched_per_person_and_never_for_the_owner(api):
+    assert api.get("/api/me", headers=headers("cara-test")).status_code == 200
+    # A member cannot, nobody switches off their own or the owner's, and only an owner switches an admin's.
+    assert call(api, "post", "access/people/ben", "cara-test", {"sign_in": False}).status_code == 403
+    assert call(api, "post", "access/people/ben", "ben-test", {"sign_in": False}).status_code == 403
+    assert call(api, "post", "access/people/ana", "ben-test", {"sign_in": False}).status_code == 409
+    assert call(api, "post", "access/people/cara", "ben-test", {"sign_in": False}).status_code == 200
+    cara = next(p for p in get(api, "access", "ben-test")["people"] if p["id"] == "cara")
+    assert (cara["sign_in"], cara["can_sign_in"], cara["left"]) == (False, False, False)
+    # Off: still on the roster, refused at every door, and cannot be made owner.
+    assert api.get("/api/me", headers=headers("cara-test")).status_code == 403
+    moved = call(api, "post", "access/owner", "ana-test", {"person": "cara", "expected_revision": 1, "confirm": True})
+    assert moved.status_code == 409 and moved.json()["error"]["code"] == "sign_in"
+    assert call(api, "post", "access/people/cara", "ben-test", {"sign_in": True}).status_code == 200
+    assert api.get("/api/me", headers=headers("cara-test")).status_code == 200
+
+
+def test_domain_sign_in_is_the_company_domain_on_the_allow_list(api):
+    view = get(api, "access", "ana-test")
+    assert (view["home_domain"], view["domain_sign_in"], view["directory"]) == ("acme.example", False, "")
+    auth = api.app.state.auth
+    assert not auth.admits("dan@acme.example")
+    body = {"allowed": view["allowed"], "allowed_domains": ["acme.example"], "expected_revision": view["revision"]}
+    assert call(api, "put", "access/allow", "ben-test", body).status_code == 403          # the owner's alone
+    assert call(api, "put", "access/allow", "ana-test", body).status_code == 200
+    view = get(api, "access", "ana-test")
+    assert view["domain_sign_in"] is True and view["allowed_domains"] == ["acme.example"]
+    assert auth.admits("dan@acme.example") and not auth.admits("dan@other.example")
