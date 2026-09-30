@@ -180,27 +180,43 @@ def _template_marks(settings):
     return _icon_cache
 
 
+_card_cache = {"key": None, "cards": []}
+_YAML = getattr(yaml, "CSafeLoader", yaml.SafeLoader)      # libyaml when the wheel has it: ten times faster on a card
+
+
 def read_cards(settings):
     """Every template on disk, unrendered. A missing or half-written catalog yields the cards
-    that do parse: onboarding still runs, it just has less to offer."""
+    that do parse: onboarding still runs, it just has less to offer. Parsing 90-odd cards takes
+    seconds, and a save asks once per bot it holds, so they are parsed again only when a file changes."""
+    root = Path(settings.catalog_dir)
     try:
-        folders = sorted(p for p in Path(settings.catalog_dir).iterdir() if p.is_dir())
+        folders = sorted(p for p in root.iterdir() if p.is_dir())
+        key = (str(root), tuple((f.name, *(_mtime(f / name) for name in (CARD_FILE, INSTRUCTIONS_FILE))) for f in folders))
     except OSError:
         return []
-    cards = []
-    for folder in folders:
-        try:
-            document = yaml.safe_load((folder / CARD_FILE).read_text())
-        except (OSError, yaml.YAMLError):
-            continue
-        if not isinstance(document, dict) or not str(document.get("template") or "").strip():
-            continue
-        try:
-            instructions = (folder / INSTRUCTIONS_FILE).read_text()
-        except OSError:
-            instructions = ""
-        cards.append(_card(document, instructions))
-    return cards
+    if _card_cache["key"] != key:
+        cards = []
+        for folder in folders:
+            try:
+                document = yaml.load((folder / CARD_FILE).read_text(), Loader=_YAML)
+            except (OSError, yaml.YAMLError):
+                continue
+            if not isinstance(document, dict) or not str(document.get("template") or "").strip():
+                continue
+            try:
+                instructions = (folder / INSTRUCTIONS_FILE).read_text()
+            except OSError:
+                instructions = ""
+            cards.append(_card(document, instructions))
+        _card_cache.update(key=key, cards=cards)
+    return [dict(card) for card in _card_cache["cards"]]
+
+
+def _mtime(path):
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def load(c):
@@ -378,8 +394,10 @@ class Onboarding:
         self._owner(who)
         record = load(c)
         selected = {}
+        known = {card["template"] for card in read_cards(self.settings)}
         for slug, choice in body.selected.items():
-            self._template(choice.template)
+            if choice.template not in known:
+                raise Problem("template", "No such template in the catalog: " + str(choice.template), 422)
             selected[slug] = {"template": choice.template, "display_name": choice.display_name,
                               "instructions": choice.instructions, "reports_to": choice.reports_to}
             self._reports_to_valid(c, slug, choice.reports_to)
