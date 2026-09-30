@@ -300,25 +300,6 @@ def create_bot(c, auth, who, body, settings_admin=None, settings=None):
     return {"task_id": task["id"], "slug": slug, "name": name}
 
 
-def docs_links(c, who, body):
-    """The links pasted into the Docs card: each becomes a linked doc (backend/docs.py). Tico keeps no
-    copy of what they point to. A repeat, or an address that is not a web address, is reported and skipped."""
-    from . import docs
-    _owner(who, "sets up the company's docs")
-    if not body.links:
-        raise Problem("kind", "Paste at least one link", 422)
-    linked, skipped = [], []
-    for item in body.links:
-        try:
-            linked.append(docs.add_link(c, who.actor, docs.LinkCreate(url=item.url, description=item.description)))
-        except Problem as exc:
-            if exc.code not in ("already_linked", "validation"):
-                raise
-            skipped.append({"url": item.url, "reason": exc.detail})
-    H.event(c, who.actor, "getting_started.docs_linked", "docs", {"linked": len(linked), "skipped": len(skipped)})
-    return {"linked": linked, "skipped": skipped}
-
-
 def _market_title(c, owner, actor):
     """A title this request can still open: the hub refuses a second live task with the same one."""
     marks = ",".join("?" * len(H.LIVE_STATUSES))
@@ -368,12 +349,6 @@ def install(app, store, auth, mutate, settings, settings_admin):
         who = request.state.identity
         _person(who)
         return mutate(request, body, lambda c: create_bot(c, auth, who, body, settings_admin, settings))
-
-    @app.post("/api/v2/getting-started/docs")
-    def docs(request: Request, body: M.GettingStartedDocs):
-        who = request.state.identity
-        _person(who)
-        return mutate(request, body, lambda c: docs_links(c, who, body))
 
     @app.post("/api/v2/getting-started/market")
     def market(request: Request, body: M.GettingStartedMarket):

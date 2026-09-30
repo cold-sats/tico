@@ -10,7 +10,6 @@ const gsLater = () => { try { return JSON.parse(sessionStorage.getItem(GS_LATER_
 const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.stringify([...new Set([...gsLater(), section])])); } catch { /* the card returns on reload */ } };
 
 const gsCards = {
-  docs: {owner: true, title: 'Where do your current docs live?'},
   market: {owner: true, title: 'Research your market'},
   tasks: {title: 'Tasks', text: 'Work for a bot or a person.',
           action: ['Create a task', '#task-new']},
@@ -26,7 +25,6 @@ const gsRoute = () => {
   if (['#/tasks', '#/board', '#/issues', '#/recurring'].includes(r) || r.startsWith('#/task/')) return 'tasks';
   if (at('#/goals')) return 'goals';
   if (at('#/market')) return 'market';
-  if (at('#/docs')) return 'docs';
   return '';
 };
 
@@ -118,7 +116,6 @@ function gsCard() {
   let body;
   if (sent) body = `<strong>${esc(spec.title)}</strong><p role="status">${sent.html}</p>`;
   else if (researching) body = gsResearchHtml(researching);
-  else if (section === 'docs') body = gsDocsForm();
   else if (section === 'market') body = gsMarketForm();
   else body = `<strong>${esc(spec.title)}</strong><p>${esc(spec.text)}</p>${spec.action
     ? `<div class="gs-card-actions"><button class="primary" type="button" data-gs-run="${esc(spec.action[1])}">${esc(spec.action[0])}</button></div>` : ''}`;
@@ -126,24 +123,6 @@ function gsCard() {
     <div class="gs-card-body">${body}</div>
     <div class="gs-card-side">${researching ? '' : `<button class="ghost gs-x" type="button" data-gs-later="${section}" aria-label="Not now">✕</button>`}
       ${sent || researching ? '' : `<button class="ghost gs-never" type="button" data-gs-dismiss="${section}">Don't show again</button>`}</div></aside>`;
-}
-
-// One row per link: the address, and what is in it. Kind is detected from the address (backend/docs.py).
-const gsLinkRow = () => `<div class="gs-link-row" data-gs-link-row>
-    <label class="gs-field"><span>Link</span><input name="url" type="url" maxlength="2000" autocomplete="off" inputmode="url" spellcheck="false" placeholder="https://drive.google.com/drive/folders/…"></label>
-    <label class="gs-field"><span>Description (optional)</span><input name="description" type="text" maxlength="300" autocomplete="off" placeholder="Help centre articles"></label>
-    <small class="gs-kind muted" data-gs-kind aria-live="polite"></small></div>`;
-
-function gsDocsForm() {
-  return `<strong>Where do your current docs live?</strong>
-    <p>Paste a link to each place: your help site, a Drive folder, a Notion page, a GitHub repository, anything. Tico keeps the links and never copies what is inside them.</p>
-    <form data-gs-docs>
-      <div data-gs-links>${gsLinkRow()}</div>
-      <button class="ghost gs-add" type="button" data-gs-add-link>Add another link</button>
-      <p class="err" data-gs-error hidden></p>
-      <div class="gs-card-actions"><button class="primary" type="submit">Link my docs</button></div>
-      <p class="gs-alt">No docs yet? <a href="#/docs/new">Write your first internal doc</a>. Files to upload? <a href="#/docs?import=1">Import them</a>.</p>
-    </form>`;
 }
 
 // One box: whatever the owner has about their market. The Librarian reads it and builds the map
@@ -258,21 +237,6 @@ function gsSent(section, html) {
 }
 
 const gsTaskLink = (id, text) => id ? `<a href="#/task/${esc(id)}">${text}</a>` : '';
-
-async function gsSubmitDocs(form) {
-  const links = [...form.querySelectorAll('[data-gs-link-row]')].map(row => ({
-    url: row.querySelector('[name=url]').value.trim(), description: row.querySelector('[name=description]').value.trim()}))
-    .filter(row => row.url);
-  if (!links.length) return gsFail(form, new Error('Paste at least one link.'));
-  form.querySelector('[type=submit]').disabled = true;
-  try {
-    const result = await post('/v2/getting-started/docs', {links});
-    if (!result.linked.length) return gsFail(form, new Error(result.skipped.map(row => `${row.url}: ${row.reason}`).join(' ')));
-    const skipped = result.skipped.length ? ` ${result.skipped.length} could not be added: ${result.skipped.map(row => esc(row.url)).join(', ')}.` : '';
-    gsSent('docs', `Linked ${result.linked.length} ${result.linked.length === 1 ? 'doc' : 'docs'}. <a href="#/docs">Open Docs</a>.${skipped}`);
-    window.dispatchEvent(new Event('tico-docs-changed'));
-  } catch (error) { gsFail(form, error); }
-}
 
 // ---------------------------------------------------------------- "What should your bot do?"
 function gsBotForm() {
@@ -503,8 +467,6 @@ document.addEventListener('click', event => {
   if (dismiss) { void gsState({card: dismiss.dataset.gsDismiss}); return; }
   const run = t.closest('[data-gs-run]');
   if (run) { gsWhenReady(run.dataset.gsRun); return; }
-  const addLink = t.closest('[data-gs-add-link]');
-  if (addLink) { const host = addLink.closest('form').querySelector('[data-gs-links]'); host.insertAdjacentHTML('beforeend', gsLinkRow()); host.lastElementChild.querySelector('input').focus(); return; }
   if (t.closest('[data-gs-build]')) { gsBotForm(); return; }
   if (t.closest('[data-gs-connect]')) { connectAgent(); return; }
   if (t.closest('[data-gs-tour]')) { gsTourStart(); return; }
@@ -518,29 +480,9 @@ document.addEventListener('click', event => {
     if (location.hash === link.getAttribute('href')) route(); else location.hash = link.getAttribute('href');
   }
 });
-// The docs card: a detected kind under each link, more rows on request, and a pasted list of links spread over rows.
-document.addEventListener('input', event => {
-  const row = event.target.closest('[data-gs-link-row]');
-  if (!row || event.target.name !== 'url') return;
-  const kind = window.DocsSearch?.kindOf(event.target.value);
-  row.querySelector('[data-gs-kind]').textContent = kind ? `Filed as ${DocsSearch.kind(kind).label}` : '';
-});
-document.addEventListener('paste', event => {
-  const row = event.target.closest?.('[data-gs-link-row]');
-  const lines = (event.clipboardData?.getData('text') || '').split(/\s*\n\s*/).map(l => l.trim()).filter(Boolean);
-  if (!row || event.target.name !== 'url' || lines.length < 2) return;
-  event.preventDefault();
-  const host = row.parentElement;
-  lines.slice(0, 20).forEach((line, i) => {
-    let target = [...host.querySelectorAll('[data-gs-link-row]')][[...host.children].indexOf(row) + i];
-    if (!target) { host.insertAdjacentHTML('beforeend', gsLinkRow()); target = host.lastElementChild; }
-    target.querySelector('[name=url]').value = line;
-    target.querySelector('[name=url]').dispatchEvent(new Event('input', {bubbles: true}));
-  });
-});
 document.addEventListener('submit', event => {
-  const docs = event.target.closest('[data-gs-docs]'), market = event.target.closest('[data-gs-market]');
-  if (!docs && !market) return;
+  const market = event.target.closest('[data-gs-market]');
+  if (!market) return;
   event.preventDefault();
-  if (docs) void gsSubmitDocs(docs); else void gsSubmitMarket(market);
+  void gsSubmitMarket(market);
 });

@@ -180,7 +180,6 @@ and stays closed for that person. It never blocks the page.
 
 | Section | The card | What it does |
 |---|---|---|
-| Docs (owner) | Where do your current docs live? Paste links (a help site, a Drive folder, a Notion page, a GitHub repository, anything), each with an optional description; "No docs yet" leads to writing a first internal doc, "Files to upload" to Import | `POST /api/v2/getting-started/docs` `{"links": [{"url", "description"}]}` makes each link a linked doc (kind detected from the address; Tico keeps no copy) and answers `{"linked": [...], "skipped": [...]}`. No task is filed and no bot is involved ([docs.md](docs.md)) |
 | Market (owner) | **Research your market**: one box for a website, a description or links to anything about the market, and **Start research** (with an **Attach files** link to the Docs import). Shown on the Market page and the Getting started page while the market is empty | `POST /api/v2/getting-started/market` `{"text"}` files one task, "Set up the market map", to the Librarian and answers `{"task_id", "bot": "librarian"}`; `409 librarian` while the Librarian is not running. The Librarian's `playbooks/market-setup.md` researches the sources and writes the market pages and graph ([librarian.md](librarian.md)). The page then shows "The Librarian is researching your market. This usually takes 5–10 minutes." until the market has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds |
 | Bots | In the org list while there are no bots of your own: **Connect a bot you already have** (the connect-an-agent dialog) or **Build one with BotOps** (the form above) | As above |
 | Tasks, Goals | One or two sentences and one action: create a task, set a first goal | Opens the real control on that page |
@@ -198,7 +197,7 @@ the caller's own choices. Runners and bots get `403`.
 | `GET /api/v2/getting-started` | Any person; the steps returned depend on their role |
 | `POST /api/v2/getting-started/state` | Any person, for themselves |
 | `POST /api/v2/getting-started/bot` | Owner or bot administrator |
-| `POST /api/v2/getting-started/docs`, `.../market` | Owner |
+| `POST /api/v2/getting-started/market` | Owner |
 
 The code is `backend/getting_started.py` and `ui/getting-started.js`. Tests: `backend/tests/test_getting_started.py`
 and `ui/tests/getting-started.cjs`.

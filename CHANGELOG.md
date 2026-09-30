@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+- **The Docs setup card** ("Where do your current docs live?") and `POST /api/v2/getting-started/docs`. The Docs page's
+  own empty state already offers writing a doc, importing and adding a link.
+
 ## [0.2.15] - 2026-09-30
 
 ### Added

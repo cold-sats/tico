@@ -79,12 +79,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       if (p === '/api/v2/getting-started' && method === 'GET') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true,
         cards_dismissed: started.cards, can_build: true, owner: me.role === 'owner', empty: {docs: true, market: false, tasks: false, updates: false, goals: false, meetings: false, ...started.empty}});
       if (p === '/api/v2/getting-started/state') return json({tour: true, checklist: true, cards: [], skipped: []});
-      if (p === '/api/v2/getting-started/docs') {
-        const body = req.postDataJSON(); requests.push({p, body, key: req.headers()['idempotency-key']});
-        const made = body.links.map(l => addLinked(l.url, titleOf(l.url), kindOf(l.url), l.description, me.role === 'owner' ? 'human:ana' : 'human:ben'));
-        started.empty.docs = false;
-        return json({linked: made.map(linkView), skipped: []});
-      }
       if (!p.startsWith('/api/v2/')) return json({});
       const api = p.slice(8);
       const body = ['POST', 'PATCH'].includes(method) && (req.headers()['content-type'] || '').includes('json') ? req.postDataJSON() : null;
@@ -309,34 +303,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     const imported = requests.findLast(r => r.api === 'docs/import');
     assert.equal(imported.name, 'handbook.md');
     assert.ok(imported.key, 'the upload carries an Idempotency-Key');
-    await page.close();
-
-    // ---- the Getting started card: pasted links become linked docs
-    started = {empty: {docs: true}, cards: []};
-    linked.length = 0; docs.clear();
-    page = await context.newPage();
-    page.on('pageerror', e => errors.push('card: ' + e.message));
-    await page.goto('https://tico-ui.test/#/docs');
-    await page.locator('[data-gs-card=docs]').waitFor();
-    assert.match(await page.locator('.docs-empty-note').first().textContent(), /No docs yet/);
-    await shot(page, 'setup-card');
-    const first = page.locator('[data-gs-docs] input[name=url]').first();
-    await first.click();
-    await page.evaluate(() => {
-      const target = document.querySelector('[data-gs-docs] input[name=url]');
-      const data = new DataTransfer(); data.setData('text', 'https://help.acme.example\nhttps://www.notion.so/Acme-Wiki\nhttps://github.com/acme/handbook');
-      target.dispatchEvent(new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true}));
-    });
-    assert.equal(await page.locator('[data-gs-link-row]').count(), 3);
-    assert.match(await page.locator('[data-gs-kind]').nth(1).textContent(), /Notion/);
-    await page.locator('[data-gs-link-row] input[name=description]').first().fill('Public help site');
-    await page.locator('[data-gs-docs] [type=submit]').click();
-    await page.locator('#gs-card [role=status]', {hasText: 'Linked 3 docs'}).waitFor();
-    assert.deepEqual(requests.findLast(r => r.p === '/api/v2/getting-started/docs').body.links.map(l => l.url),
-      ['https://help.acme.example', 'https://www.notion.so/Acme-Wiki', 'https://github.com/acme/handbook']);
-    await page.locator('.docs-link-main').nth(2).waitFor();                       // the Docs page refreshed behind the card
-    assert.deepEqual(linked.map(l => l.kind), ['website', 'notion', 'github']);
-    assert.equal(await page.locator('.docs-link-main').count(), 3);
     await page.close();
 
     // ---- a phone

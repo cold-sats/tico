@@ -160,15 +160,6 @@ class GettingStartedBot(Contract):
     name: str = Field(default="", max_length=80)
 
 
-class GettingStartedDocLink(Contract):
-    url: str = Field(min_length=1, max_length=2000)
-    description: str = Field(default="", max_length=300)
-
-
-class GettingStartedDocs(Contract):
-    links: list[GettingStartedDocLink] = Field(min_length=1, max_length=20)
-
-
 class GettingStartedMarket(Contract):
     text: str = Field(min_length=1, max_length=8000)
 
