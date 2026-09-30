@@ -105,14 +105,14 @@ class Bootstrap(unittest.TestCase):
     def test_only_the_machine_a_bot_is_assigned_to_writes_its_repository(self):
         rows = self.rows(entry("coo", "assistant", runner_id="another-mac"), entry("botops", "botops", runner_id=None))
         self.assertEqual(rows["coo"]["problems"], ["Missing bot repository or AGENT.md"])
-        self.assertFalse((self.projects / "emp-coo").exists())
-        self.assertFalse((self.projects / "emp-botops").exists())
+        self.assertFalse((self.projects / "bot-coo").exists())
+        self.assertFalse((self.projects / "bot-botops").exists())
         # A starter first run created says `materialize`: its computer sets it up the moment it is placed.
         # A bot BotOps builds from the same template stays missing until BotOps has.
         rows = self.rows(entry("seo", "specialist", materialize=True), entry("helper", "specialist"))
-        self.assertTrue((self.projects / "emp-seo" / "AGENT.md").is_file())
+        self.assertTrue((self.projects / "bot-seo" / "AGENT.md").is_file())
         self.assertEqual(rows["helper"]["problems"], ["Missing bot repository or AGENT.md"])
-        self.assertFalse((self.projects / "emp-helper").exists())
+        self.assertFalse((self.projects / "bot-helper").exists())
 
 if __name__ == "__main__":
     unittest.main()
