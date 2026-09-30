@@ -1,7 +1,7 @@
 # Tico
 
 Tico is an open-source operating system for a company's human and AI team (Apache-2.0). People file
-work, answer bots and approve actions in a web app; AI employee bots pick the work up, run it with
+work, answer bots and approve actions in a web app; bots pick the work up, run it with
 the company's own model subscriptions, and report back. It is built for companies from a handful of bots up.
 A small pilot is what has been measured ([sizing](docs/sizing.md)).
 

@@ -1,4 +1,4 @@
-"""The Slack gateway: a DM to Tico or an `@Tico` in a channel wakes the AI employee it is for.
+"""The Slack gateway: a DM to Tico or an `@Tico` in a channel wakes the bot it is for.
 
 One process, `python -m backend.slack_gateway`, supervised by `tico-slack-gateway.service` on the
 same host as the API. It holds a Socket Mode connection (an outbound websocket; nothing listens),

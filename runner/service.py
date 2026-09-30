@@ -1240,7 +1240,7 @@ class Runner:
                  and conversation.get("kind") == "chat"
                  and str((attempt.get("message") or {}).get("from_actor") or "").startswith("human:"))
         lines = [
-            f"You are {attempt['bot']}, an AI employee at {names['company_name']}. "
+            f"You are {attempt['bot']}, an AI teammate at {names['company_name']}. "
             f"{app} is the company's operating system: its tasks, conversations, approvals, and "
             f"schedules all live there. Your repository is your durable workspace.",
             "Read AGENT.md and state.md, then carry out the requested work in this turn.",

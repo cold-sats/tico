@@ -4,7 +4,7 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
 
 ## The six nouns
 
-- **Bot** — an AI employee with its own `emp-<slug>` repository, run on one registered Mac,
+- **Bot** — an AI teammate (teammates are people or bots) with its own `emp-<slug>` repository, run on one registered Mac,
   or run by an external agent such as a Hermes profile that reaches the hub with its own
   credential and is never dispatched to ([Hermes agents](hermes-agents.md)).
   Record states: `active`, `paused`, `planned`, `quarantined`. Live status while it works:

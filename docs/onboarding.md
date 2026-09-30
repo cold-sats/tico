@@ -175,7 +175,7 @@ from **?** (How Tico works) with **Take the tour**. That it was seen is kept per
 ### Bots
 
 There is no checklist, no card above any page and no card in the sidebar. While there are no bots of your own (the Create your
-first bot step is not done), one line of muted text sits under the org list: "Talk to BotOps to add or edit your AI employees",
+first bot step is not done), one line of muted text sits under the org list: "Talk to BotOps to add or edit your bots",
 with **BotOps** linking to its chat (`#/bot/botops`). It shows only to people who may add bots (the owner and bot administrators,
 `can_build`), and has nothing to close. Asking BotOps in chat is how a bot is added (`playbooks/build-me-a-bot.md`); connecting
 an agent you already have is the **Connect an agent** button in the sidebar footer.

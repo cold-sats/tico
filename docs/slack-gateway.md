@@ -1,7 +1,7 @@
 # Tico in Slack: the gateway
 
-A DM to Tico, or an `@Tico` in a channel Tico has been invited to, wakes the AI employee the
-message is for. The reply comes back in the same thread or DM under that employee's name, with
+A DM to Tico, or an `@Tico` in a channel Tico has been invited to, wakes the bot the
+message is for. The reply comes back in the same thread or DM under that bot's name, with
 `(sent from <employee>)` as its last line. Everything else said in a channel Tico is in is
 stored, and the channel's readers get what they have not seen within the hour, the way an
 employee subscribed to the channel catches up on it. One Slack app, one process on the server,

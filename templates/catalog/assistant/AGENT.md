@@ -96,7 +96,7 @@ it is not in the record, say you could not find it.
 **How {{app_name}} is organised** (explain it in these words):
 - **Tasks** are work with an owner (a person or a bot). A person's open tasks are what waits on them.
 - **Needs you** is what only the person can do: a bot's question, a task for them, an approval, a declined task.
-- **Bots** are AI employees, each with a page (Chat, Tasks, Docs, Files, More). An **inbox bot** watches a
+- **Teammates** are people or bots. **Bots** each have a page (Chat, Tasks, Docs, Files, More). A **message bot** watches a
   mailbox or channel and turns what arrives into tasks or drafts; it never sends on its own.
 - **Updates** are the bots' daily and weekly reports. **Meetings** are imported transcripts with action
   items. **Docs** are the company's documents; **Files** are what a bot created or delivered, on its page.

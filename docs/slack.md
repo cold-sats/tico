@@ -1,7 +1,7 @@
 # Slack
 
 Talk to your bots in Slack. DM Tico, or `@Tico` in a channel it has been invited to, and the message
-reaches the AI employee it is for; the reply comes back in the same thread under that employee's name.
+reaches the bot it is for; the reply comes back in the same thread under that bot's name.
 How messages are routed and stored is in [slack-gateway.md](slack-gateway.md).
 
 ## Set it up (about five minutes)

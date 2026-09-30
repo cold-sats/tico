@@ -215,7 +215,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     page = await open('#/updates');
     const hint = page.locator('#gs-org-hint');
     await hint.waitFor();
-    assert.equal(await hint.textContent(), 'Talk to BotOps to add or edit your AI employees');
+    assert.equal(await hint.textContent(), 'Talk to BotOps to add or edit your bots');
     assert.equal(await hint.locator('a').textContent(), 'BotOps');
     assert.equal(await hint.locator('a').getAttribute('href'), '#/bot/botops');
     assert.equal(await hint.locator('button').count(), 0);                 // no buttons, no X

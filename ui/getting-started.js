@@ -22,7 +22,7 @@ async function gsState(change) {
   } catch { /* a choice that did not save is asked again next time */ }
 }
 
-// "Talk to BotOps to add or edit your AI employees", for whoever may add bots, until there is one of your own.
+// "Talk to BotOps to add or edit your bots", for whoever may add bots, until there is one of your own.
 function gsOrgHint() {
   const line = $('#gs-org-hint');
   if (!line) return;

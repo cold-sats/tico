@@ -22,7 +22,7 @@
 # Events arrive over Socket Mode (an outbound websocket held by tico-slack-gateway.service on
 # the server; no public receiver, no signing secret): `app_mention` in any channel the app is
 # in, `message.im` for DMs to it, and `message.channels` / `message.groups` for everything
-# else said in a channel it is in. A person's DM or @Tico wakes the AI employee the router picks
+# else said in a channel it is in. A person's DM or @Tico wakes the bot the router picks
 # to at once; every other channel message is stored and reaches the channel's readers
 # (registry/slack-channels.yaml) on the hourly pass (docs/slack-gateway.md).
 # The app-level token (connections:write) is minted under Basic Information > App-Level Tokens.
@@ -32,8 +32,8 @@ display_information:
   description: "Tico: your AI COO and connection to your company's AI team."
   background_color: "#1f2933"
   long_description: >-
-    Tico is your AI COO and the single Slack app for your company's AI employees. DM it, or
-    @Tico in a channel it has been invited to, and the message reaches the AI employee it is for; the reply
+    Tico is your AI COO and the single Slack app for your company's bots. DM it, or
+    @Tico in a channel it has been invited to, and the message reaches the bot it is for; the reply
     comes back in the same thread under that employee's name. Bots also call the hub's connectors/slack.py to
     read channel history (including threads) and, for the small set of channels approved in
     registry/slack-channels.yaml, to post an update. Every post is recorded in the company's audit log with
