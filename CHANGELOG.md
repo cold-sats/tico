@@ -62,6 +62,10 @@ All notable changes to Tico are recorded here. The format follows
 - **Tico HQ's address is now `https://updates.tico.team`** (was `hq.tico.team`, which never went live). It is the default
   `TICO_HQ_URL` and the address PRIVACY.md and docs/telemetry.md name. An install on 0.2.15 asks the old address, gets no answer,
   and checks GitHub directly until it updates.
+- **Goals is one dense tree, like the org chart.** Every person and bot (goal or not) is one line, indented under whoever they
+  report to, with the goal to the right (cut short, whole in the tooltip) and its KPIs as chips; helpers sit apart. The **+ Goal**,
+  **+ Company goal** and **+ KPI** buttons are gone: tapping a line opens that owner's panel, where goals, colours, KPIs, targets,
+  readings and check-ins are added and edited. Needs you is a short strip on top.
 - Bot pages no longer show the automatic KPI tiles; link a bot's KPIs to a goal from the Goals page.
 - The Done list on a bot page shows its focus ring only for the keyboard.
 - **Settings > Recurring and Settings > Bots filters fit on one line**: a search box and compact menus with no labels

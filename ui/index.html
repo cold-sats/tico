@@ -1656,22 +1656,38 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .plain-message{white-space:pre-wrap;overflow-wrap:anywhere}
 .chat-time{font-size:10.5px;color:var(--muted);padding:0 4px}
 .p-hint{padding:0 4px 7px;font-size:12.5px}
-/* goals: company goals, then each person and bot that has goals */
-.goal-team{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:var(--s4) 2px var(--s2)}
-.goal-card{margin-bottom:var(--s3)}
-.goal-card>header{margin-bottom:var(--s1)}
-.goal-who{display:inline-flex;align-items:center;gap:8px;min-width:0}
-.goal-who a{color:inherit}
-.goal-rows{list-style:none;margin:0;padding:0}
-.goal-row{display:flex;align-items:baseline;gap:4px 12px;padding:9px 6px;margin:0 -6px;border-top:1px solid var(--line);border-radius:6px;cursor:pointer;line-height:1.35;font-size:14px}
-.goal-row:first-child{border-top:0}
-.goal-row:hover{background:var(--surface2)}
-.goal-title{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
-.goal-meta{display:inline-flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;justify-content:flex-end}
-.goal-prog{font-size:12.5px;color:var(--muted);white-space:nowrap}
-.goal-chip{font-size:11.5px;color:var(--muted);background:var(--surface2);border-radius:10px;padding:1px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.goal-row:hover .goal-chip{background:var(--bg)}
-li.goal-open{padding:10px 0;border-top:1px solid var(--line)}li.goal-open:first-child{border-top:0}
+/* goals: one tree, a line per owner (indent guides like the org chart), the goal to the right */
+.gt{--ind:14px;--name-w:230px;list-style:none;margin:0 0 var(--s5);padding:4px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.gt-row,.gt-group{display:grid;grid-template-columns:calc(var(--d,0) * var(--ind)) 28px max(48px,calc(var(--name-w) - var(--d,0) * var(--ind) - 28px)) minmax(0,1fr) auto;
+  grid-template-areas:"ind av name goal kpis";align-items:stretch;min-height:36px;padding:0 10px;font-size:13.5px;line-height:1.3}
+.gt-row{cursor:pointer}.gt-row:hover,.gt-row:focus-visible{background:var(--surface2);outline:none}
+.gt-ind{grid-area:ind;background:repeating-linear-gradient(to right,transparent 0 6px,var(--line) 6px 7px,transparent 7px var(--ind))}
+.gt-av,.gt-name,.gt-goal,.gt-kpis{display:flex;align-items:center;min-width:0}
+.gt-av{grid-area:av}.gt-name{grid-area:name;padding-right:12px}.gt-goal{grid-area:goal;gap:8px}.gt-kpis{grid-area:kpis;gap:6px;padding-left:12px}
+.gt-name>span,.gt-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gt-co .gt-name{font-weight:600}
+.gt-co-av{width:20px;height:20px;border-radius:5px;background:var(--ink);color:var(--bg);font-size:11px;font-weight:700}
+.gt-standing{color:var(--muted)}
+.gt-group{min-height:26px;grid-template-areas:"ind name name name name"}
+.gt-group>.gt-name{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.gt-sep{padding:12px 10px 4px;margin-top:6px;border-top:1px solid var(--line);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.gt-chip{display:inline-flex;align-items:center;gap:5px;max-width:120px;height:20px;padding:0 7px;border-radius:10px;background:var(--surface2);font-size:12px;white-space:nowrap}
+.gt-chip>.tnum{overflow:hidden;text-overflow:ellipsis}
+.gt-row:hover .gt-chip{background:var(--bg)}
+.gt-kmore{font-size:11.5px;color:var(--muted)}
+.gt-kn{display:none;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+.gt-needs{margin:0 0 var(--s3);padding:4px 10px;background:var(--surface);border:1px solid color-mix(in srgb,var(--wait) 45%,var(--line));border-radius:var(--radius)}
+.gt-needs-h{display:flex;align-items:center;gap:8px;height:28px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.gt-needs-h .cnt{font-size:11px;padding:0 6px;border-radius:9px;background:var(--wait-bg);color:var(--wait);letter-spacing:0}
+.gt-needs ul{list-style:none;margin:0;padding:0}
+@media (max-width:760px){
+  .gt{--ind:10px;padding:2px 0}
+  .gt-row{grid-template-columns:calc(var(--d,0) * var(--ind)) 26px minmax(0,1fr) auto;grid-template-areas:"ind av name kpis" "ind . goal goal";min-height:44px;padding:0 8px}
+  .gt-row.gt-cont{grid-template-areas:"ind . goal kpis"}
+  .gt-row>.gt-goal{padding-bottom:6px}.gt-row.gt-cont>.gt-goal{padding-bottom:0}
+  .gt-group{grid-template-columns:calc(var(--d,0) * var(--ind)) minmax(0,1fr);grid-template-areas:"ind name"}
+  .gt-chip,.gt-kmore{display:none}.gt-kn{display:inline-flex}
+}
 .goal-form{display:grid;gap:var(--s3);max-width:640px}
 .goal-fs{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
 .goal-f{display:grid;gap:4px;min-width:0}
@@ -1683,9 +1699,6 @@ li.goal-open{padding:10px 0;border-top:1px solid var(--line)}li.goal-open:first-
 .goal-actions button{height:36px;padding-top:0;padding-bottom:0}
 @media (max-width:760px){
   .goal-fs{grid-template-columns:1fr}
-  .goal-row{flex-wrap:wrap;padding:12px 6px}
-  .goal-meta{flex-basis:100%;justify-content:flex-start;flex-wrap:wrap}
-  .goal-chip{max-width:100%}
   .goal-f input,.goal-f select{height:44px;font-size:16px}
   .goal-actions button{height:44px}
   .goal-actions .primary{flex:1}
@@ -1712,8 +1725,6 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .gdot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block;background:var(--idle)}
 .gdot.green{background:var(--ok)}.gdot.yellow{background:var(--wait)}.gdot.red{background:var(--fail)}
 .gdot.none{background:transparent;border:1.5px solid var(--idle)}
-.goal-item{border-top:1px solid var(--line)}.goal-item:first-child{border-top:0}
-.goal-item .goal-row{border-top:0;align-items:center;gap:4px 10px}
 .goal-note{font-size:12.5px;line-height:1.4;color:var(--muted);margin:-4px 0 6px 19px;overflow-wrap:anywhere}
 .goal-note b{font-weight:600}.goal-suggest{margin-top:-2px}
 .kpi-lines{list-style:none;margin:0 0 4px 19px;padding:0}
@@ -1724,16 +1735,15 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .kpi-target{font-size:12px;color:var(--muted);white-space:nowrap}.kpi-owner{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .kspark{flex:none}.kspark polyline{fill:none;stroke:var(--muted);stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round}
 .kspark-end{fill:var(--idle)}.kspark-end.green{fill:var(--ok)}.kspark-end.yellow{fill:var(--wait)}.kspark-end.red{fill:var(--fail)}
-.kpi-tools{margin:0 0 4px 19px}.kpi-tools .linkish,.goal-auto{font-size:12.5px}
+.goal-auto{font-size:12.5px}
 .kpi-add-host{margin:4px 0 10px 19px}
-.goal-foot{margin:6px 0 24px}.goal-foot .kpi-add-host{margin-left:0}
 .goal-colour-row{display:grid;grid-template-columns:150px 1fr;gap:8px}
 .goal-colour-row input{box-sizing:border-box;width:100%;height:36px;padding:0 9px;font-size:14px}
 .goal-f textarea{box-sizing:border-box;width:100%;padding:7px 9px;font:inherit;font-size:14px;resize:vertical}
 .goal-form [hidden],.kpi-panel [hidden]{display:none!important}
-.goal-needs{border-color:color-mix(in srgb,var(--wait) 45%,var(--line))}
-.need-row{display:flex;align-items:center;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:14px;line-height:1.35}
-.need-row:first-child{border-top:0}.need-text{min-width:0;overflow-wrap:anywhere}
+.need-row{display:flex;align-items:center;gap:10px;min-height:32px;padding:4px 6px;margin:0 -6px;border-radius:6px;cursor:pointer;font-size:13.5px;line-height:1.3}
+.need-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gt-needs .kpi-prop{padding:4px 0;font-size:13.5px}.gt-needs .kpi-prop-main{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 8px}.gt-needs .kpi-prop-do button{height:28px}
 .kpi-prop{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
 .kpi-prop:first-child{border-top:0}
 .kpi-prop-main{display:flex;flex-direction:column;gap:2px;min-width:0}.kpi-prop-detail{overflow-wrap:anywhere}.kpi-prop-why{font-size:12.5px}
@@ -1741,6 +1751,25 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .kpi-props{list-style:none;margin:0;padding:0}
 .kpi-panel{width:min(600px,calc(100vw - 24px))}
 .kpi-panel .tmodal-body{max-height:calc(88vh - 56px)}
+/* the owner's panel: a sheet on the right (the bottom on a phone) */
+.gpanel{margin:0 0 0 auto;width:min(480px,100vw);max-width:100vw;height:100dvh;max-height:100dvh;border-radius:0;flex-direction:column}
+.gpanel[open]{display:flex}
+.gpanel .tmodal-head{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.gpanel .tmodal-body{flex:1;max-height:none;padding-top:4px}
+.gp-who{display:flex;align-items:center;gap:8px;min-width:0;font-size:15px;font-weight:600;color:var(--ink)}
+.gp-who>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-back{font-size:18px;line-height:1}
+.gp-goals{list-style:none;margin:0;padding:0}
+.gp-goal{padding:8px 0;border-top:1px solid var(--line)}.gp-goal:first-child{border-top:0}
+.gp-goal>.goal-form{margin:4px 0 10px}
+.gp-gline{display:flex;align-items:center;gap:10px;width:calc(100% + 12px);margin:0 -6px;padding:6px;border:0;border-radius:6px;background:none;color:var(--ink);font:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer}
+.gp-gline:hover{background:var(--surface2)}
+.gp-goal .kpi-check,.gp-goal .kpi-props,.gp-goal>.linkish{margin-left:19px}
+.gp-goal>.linkish{font-size:12.5px}
+.gp-goal .kpi-check{margin-top:6px}
+.gp-actions{display:flex;gap:8px;margin:12px 0 4px}
+.gp-add{margin-top:8px}
+.kpi-add [data-new],.kpi-add [data-target]{display:grid;gap:var(--s3)}
 .kpi-ptitle{display:flex;align-items:center;gap:8px;min-width:0;font-size:15px}.kpi-ptitle .who{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kpi-big{font-size:26px;font-weight:600;letter-spacing:-.01em}.kpi-why{font-size:12.5px;margin-top:2px}
 .kchart{display:block;width:100%;height:auto;margin:10px 0 4px}
@@ -1758,17 +1787,19 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .kpi-rv{min-width:64px;font-weight:600}.kpi-note{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kpi-by{margin-left:auto}
 .kpi-log,.kpi-edit-host{margin-top:12px}
 @media (max-width:760px){
-  .kpi-lines,.kpi-tools,.kpi-add-host,.goal-note{margin-left:19px}
+  .kpi-lines,.kpi-add-host,.goal-note{margin-left:19px}
   .kpi-line{flex-wrap:wrap;gap:2px 10px;min-height:44px;padding:8px 6px}
   .kpi-name{flex:1 1 calc(100% - 20px)}.kpi-name+*{margin-left:19px}
-  .kpi-tools .linkish,.goal-auto,.kpi-r .linkish,.kpi-used .linkish{min-height:36px;padding:0 6px;margin:0 -6px}
-  .need-row{padding:12px 6px}
+  .goal-auto,.gp-goal>.linkish,.kpi-r .linkish,.kpi-used .linkish{min-height:36px;padding:0 6px;margin:0 -6px}
+  .gp-goal>.linkish{margin-left:13px}
+  .need-row{min-height:44px}.need-text{white-space:normal;overflow-wrap:anywhere}
   .kpi-prop{flex-direction:column;align-items:stretch}.kpi-prop-do button{flex:1;height:44px}
   .goal-colour-row{grid-template-columns:1fr}.goal-colour-row input{height:44px;font-size:16px}
   .goal-f textarea{font-size:16px}
-  .goal-foot .ghost{height:44px}
+  .gp-actions .ghost{flex:1;height:44px}.gp-gline{min-height:44px}
   .kpi-panel{margin:auto 0 0;width:100%;max-width:100%;max-height:90vh;border-radius:14px 14px 0 0}
   .kpi-panel .tmodal-body{max-height:calc(90vh - 56px)}
+  .gpanel{height:fit-content;max-height:90dvh}
   .kpi-r{padding:9px 0}.kpi-by{margin-left:0}
 }
 /* tasks card */
@@ -12464,10 +12495,10 @@ async function botUpdatesCardLoad(slug) {
 }
 
 // ----------------------------------------------------------------- goals
-// The Goals page lists company goals first (only when there are some), then each person and bot
-// that has goals, in org-chart order. A goal's level comes from its owner: `company`, a person or a
-// bot. Its parent is optional ("Supports"); a goal with none is simply not linked. Tap a goal to
-// edit it. A bot reads its own with `hub goals`; nothing here is pushed into a run.
+// The Goals page is one tree: the company, then every person and bot as the org chart nests them,
+// one line each with their goal (ui/goals-kpis.js draws it and the panel a tap opens). A goal's level
+// comes from its owner: `company`, a person or a bot. Its parent is optional ("Supports"); a goal with
+// none is simply not linked. A bot reads its own with `hub goals`; nothing here is pushed into a run.
 let GOALS_ST = null;
 const goalLive = g => !['done', 'dropped'].includes(g.status);
 const goalRank = (a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9);
@@ -12616,15 +12647,15 @@ function goalNoteHtml(g, may) {
     ? `<div class="goal-note goal-suggest">Goal Manager suggests <b>${esc(g.suggest_status)}</b>${g.suggest_note ? ': ' + esc(g.suggest_note) : ''}${may ? ' <button class="linkish" type="button" data-goal-auto="' + esc(g.id) + '">Let Goal Manager set it</button>' : ''}</div>` : '';
   return (said ? `<div class="goal-note">${esc(said)}</div>` : '') + suggest;
 }
-function goalFormHtml(g, goals, {owner = '', company = false} = {}) {
+function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {}) {
   company = company || g.owner === GOAL_COMPANY;      // a company goal supports nothing
   const may = !g.id || goalMayEdit(g, goals);
   const me = mePerson(), mine = me ? 'human:' + me.id : '';
-  const choices = g.id || company ? [] : goalOwnerChoices(mine);
+  const choices = g.id || company || fixed ? [] : goalOwnerChoices(mine);   // fixed: the owner is whoever was tapped
   const who = owner || mine || choices[0]?.[0] || '';
   const kids = g.id ? goals.filter(x => goalLive(x) && x.parent_id === g.id).sort(goalRank) : [];
   return `<form class="goal-form goal-ed" data-goal-form="${esc(g.id || (company ? 'company' : 'new'))}" novalidate>
-      <label class="goal-f"><span>Goal</span><input type="text" name="title" maxlength="300" autocomplete="off" value="${esc(g.title || '')}"${may ? '' : ' readonly'} placeholder="${company ? 'What the company is going for' : 'What they are going for'}"></label>
+      <label class="goal-f"><span>Goal</span><input type="text" name="title" maxlength="300" autocomplete="off" value="${esc(g.title || '')}"${may ? '' : ' readonly'} placeholder="${company ? 'Reach 100 paying customers by June' : 'Answer every ticket the same day'}"></label>
       ${choices.length ? `<div class="goal-fs"><label class="goal-f"><span>Owner</span><select name="owner">${choices.map(([v, name]) => `<option value="${esc(v)}"${v === who ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></label>
         <label class="goal-f"><span>Supports</span><select name="parent">${goalSupportOptions(g, who, goals)}</select></label></div>`
       : company ? '' : `<label class="goal-f"><span>Supports</span><select name="parent"${may ? '' : ' disabled'}>${goalSupportOptions(g, g.owner || who, goals)}</select></label>`}
@@ -12637,7 +12668,7 @@ function goalFormHtml(g, goals, {owner = '', company = false} = {}) {
       </div>
     </form>`;
 }
-function bindGoalForm(form, g, goals, {company = false} = {}, done) {
+function bindGoalForm(form, g, goals, {company = false, owner = ''} = {}, done) {
   const title = form.elements.title, ownerSel = form.elements.owner, parentSel = form.elements.parent;
   const save = form.querySelector('[type=submit]');
   form.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
@@ -12672,7 +12703,7 @@ function bindGoalForm(form, g, goals, {company = false} = {}, done) {
         if (parentSel && parentSel.value !== (g.parent_id || '')) body.parent_id = parentSel.value;
         if (Object.keys(body).length) await post('/v2/goals/' + encodeURIComponent(g.id), body);
       } else {
-        const body = {title: words, owner: company ? GOAL_COMPANY : ownerSel ? ownerSel.value : 'me'};
+        const body = {title: words, owner: company ? GOAL_COMPANY : ownerSel ? ownerSel.value : owner || 'me'};
         if (parentSel?.value) body.parent_id = parentSel.value;
         await post('/v2/goals', body);
       }
@@ -12684,8 +12715,10 @@ function bindGoalForm(form, g, goals, {company = false} = {}, done) {
 }
 function pageGoals() {
   const open = S.route.startsWith(GOALS + '/') ? decodeURIComponent(S.route.slice(GOALS.length + 1)) : '';
-  const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, adding: '', kpiAdding: ''};
-  $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1><span class="spacer"></span><span id="goal-tools"></span></div>
+  const was = document.getElementById('goal-panel');
+  if (was) { was._state = null; if (was.open) was.close(); }
+  const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, panel: null};
+  $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1></div>
     <div id="goal-body"><p class="muted">Loading…</p></div>`;
   goalsLoad(state);
 }
@@ -12696,143 +12729,17 @@ function goalsApply(state, data, needs) {
   state.owners = data.owners || {};
   if (needs !== undefined) state.needs = needs?.items || [];
 }
+// Two requests: the tree and what needs you. The roster (people, bots, departments) is already in S.
 async function goalsLoad(state) {
-  let data, people, needs;
-  try { [data, people, needs] = await Promise.all([get('/v2/goals/tree'), get('/people').catch(() => null), v2Get('/v2/goals/needs-you')]); }
+  let data, needs;
+  try { [data, needs] = await Promise.all([get('/v2/goals/tree'), v2Get('/v2/goals/needs-you')]); }
   catch (e) { $('#goal-body').innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
   if (GOALS_ST !== state) return;
-  setPeople(people);
   goalsApply(state, data, needs);
   state.loaded = true;
   goalsRender(state);
-}
-// A goal's line: its status dot, its words and what it supports, then the note that says why it has that
-// colour and its KPIs, one line each.
-function goalKpiBlock(g, may, state) {
-  return kpiLinesHtml(g.kpis, {goal: g.id})
-    + (may ? (state.kpiAdding === g.id ? `<div class="kpi-add-host" data-kpi-add-host="${esc(g.id)}">${kpiAddHtml(g)}</div>`
-      : `<div class="kpi-tools"><button class="linkish" type="button" data-kpi-add-goal="${esc(g.id)}">+ KPI</button></div>`) : '');
-}
-function goalLine(g, goals = [], state = GOALS_ST, may = false) {
-  const parent = goals.find(x => x.id === g.parent_id);
-  const chip = parent ? `<span class="goal-meta"><span class="goal-chip" title="Supports ${esc(parent.title)}">supports ${esc(parent.title)}</span></span>` : '';
-  return `<li class="goal-item"><div class="goal-row" data-goal="${esc(g.id)}" tabindex="0" role="button">${gdot(g.status, g.status_note || '')}<span class="goal-title">${esc(g.title)}</span>${chip}</div>
-    ${goalNoteHtml(g, may)}${goalKpiBlock(g, may, state)}</li>`;
-}
-// The goal written on a person's profile (the Goals field): a line like any goal, saved back to the profile.
-function standingGoalLine(person, open) {
-  const goal = String(person.goals || '').trim();
-  if (!open) return `<li class="goal-row" data-goal-standing="${esc(person.id)}" tabindex="0" role="button"><span class="goal-title">${esc(goal)}</span></li>`;
-  const may = personCanEdit(person);
-  return `<li class="goal-open"><form class="goal-form goal-ed" data-standing-ed="${esc(person.id)}" novalidate>
-      <label class="goal-f"><span>Goal</span><input type="text" name="title" maxlength="2000" autocomplete="off" value="${esc(goal)}"${may ? '' : ' readonly'}></label>
-      <div class="goal-actions">${may ? '<button class="primary" type="submit">Save</button>' : ''}<button class="ghost" type="button" data-goal-cancel>${may ? 'Cancel' : 'Close'}</button></div>
-    </form></li>`;
-}
-function goalsRender(state) {
-  const body = $('#goal-body');
-  if (!body || !state.loaded) return;
-  const live = state.goals.filter(goalLive);
-  const isOwner = S.me?.role === 'owner';
-  const tools = $('#goal-tools');
-  if (tools) {
-    tools.innerHTML = `<button class="ghost" type="button" data-goal-new="new">+ Goal</button>${isOwner ? ' <button class="ghost" type="button" data-goal-new="company">+ Company goal</button>' : ''}`;
-    for (const b of tools.querySelectorAll('[data-goal-new]')) b.onclick = () => { state.adding = b.dataset.goalNew; state.open = ''; history.replaceState(null, '', GOALS); goalsRender(state); };
-  }
-  const mayCache = {}, mayOf = g => mayCache[g.id] ??= goalMayEdit(g, state.goals);
-  const line = g => g.id === state.open ? `<li class="goal-open">${goalFormHtml(g, state.goals)}${goalKpiBlock(g, mayOf(g), state)}</li>` : goalLine(g, state.goals, state, mayOf(g));
-  const owned = {};
-  for (const g of live.filter(g => g.owner !== GOAL_COMPANY)) (owned[g.owner] ||= []).push(g);
-  const card = (key, head, rows) => `<section class="card goal-card" data-goal-owner="${esc(key)}"><header><h2>${head}</h2></header><ul class="goal-rows">${rows}</ul></section>`;
-  const ownerHead = info => `<span class="goal-who">${info.avatar}${info.href ? `<a href="${info.href}">${esc(info.name)}</a>` : esc(info.name)}</span>`;
-  const seen = new Set(), by = orgTreeByParent();
-  const node = n => {
-    if (n.kind === 'group') {
-      const inner = (by['g:' + n.id] || []).map(node).join('');
-      return inner ? `<h3 class="goal-team">${esc(n.name)}</h3>${inner}` : '';
-    }
-    const actor = n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, key = n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name;
-    seen.add(actor);
-    const mine = (owned[actor] || []).sort(goalRank);
-    const standing = n.kind === 'person' ? String(n.person?.goals || '').trim() : '';
-    const profile = standing && !live.some(g => g.owner === actor && g.title.trim() === standing) ? standingGoalLine(n.person, state.open === 'p:' + n.id) : '';
-    const own = mine.length || profile ? card(actor, ownerHead(goalOwnerInfo(actor)), mine.map(line).join('') + profile) : '';
-    return own + (by[key] || []).map(node).join('');
-  };
-  const company = live.filter(g => g.owner === GOAL_COMPANY).sort(goalRank);
-  const adding = state.adding && state.adding !== 'company' ? card('new', 'New goal', `<li class="goal-open">${goalFormHtml({}, state.goals)}</li>`) : '';
-  const addingCompany = state.adding === 'company' ? `<li class="goal-open">${goalFormHtml({}, state.goals, {company: true})}</li>` : '';
-  const other = state.other.length ? `<section class="card goal-card" data-goal-owner="@other"><header><h2>Other KPIs</h2></header>${kpiLinesHtml(state.other, {owner: true})}</section>` : '';
-  const foot = `<div class="goal-foot">${state.kpiAdding === '@page' ? `<div class="kpi-add-host" data-kpi-add-host="@page">${kpiAddHtml(null)}</div>` : '<button class="ghost" type="button" data-kpi-add-page>+ KPI</button>'}</div>`;
-  const html = (goalNeedsHtml(state.needs) + adding
-    + (company.length || addingCompany ? card(GOAL_COMPANY, esc(goalOwnerInfo(GOAL_COMPANY).name), addingCompany + company.map(line).join('')) : '')
-    + (by[''] || []).map(node).join('')
-    + Object.keys(owned).filter(a => !seen.has(a)).map(a => card(a, ownerHead(goalOwnerInfo(a)), owned[a].sort(goalRank).map(line).join(''))).join('')
-    + other);
-  body.innerHTML = (html || '<p class="muted">No goals yet.</p>') + foot;
-  bindGoalLines(state);
-}
-function goalOpen(state, id) {
-  state.open = id; state.adding = '';
-  history.replaceState(null, '', id ? GOALS + '/' + encodeURIComponent(id) : GOALS);
-  goalsRender(state);
-  if (id) $('#goal-body .goal-open')?.scrollIntoView({block: 'nearest'});
-}
-function bindGoalLines(state) {
-  const body = $('#goal-body');
-  const openRow = li => { goalOpen(state, li.dataset.goal === state.open ? '' : li.dataset.goal); };
-  for (const li of body.querySelectorAll('[data-goal]')) {
-    li.onclick = () => openRow(li);
-    li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(li); } };
-  }
-  const reload = async () => { await goalsRefresh(); if (GOALS_ST === state) goalsRender(state); };
-  bindKpiLines(body);
-  bindProposals(body, reload);
-  for (const b of body.querySelectorAll('button[data-goal-auto]')) if (b.dataset.goalAuto) b.onclick = async () => {
-    b.disabled = true;
-    try { await post('/v2/goals/' + encodeURIComponent(b.dataset.goalAuto) + '/status/auto', {}); await reload(); }
-    catch (e) { toast(e.message || 'Could not hand the colour back', true); b.disabled = false; }
-  };
-  for (const b of body.querySelectorAll('[data-kpi-add-goal]')) b.onclick = () => { state.kpiAdding = b.dataset.kpiAddGoal; goalsRender(state); };
-  const addPage = body.querySelector('[data-kpi-add-page]');
-  if (addPage) addPage.onclick = () => { state.kpiAdding = '@page'; goalsRender(state); };
-  const kform = body.querySelector('[data-kpi-add]');
-  if (kform) kpiAddBind(kform, state.goals.find(g => g.id === kform.dataset.kpiAdd), async ok => { state.kpiAdding = ''; if (ok) await reload(); else goalsRender(state); });
-  for (const a of body.querySelectorAll('[data-goal-go]')) a.onclick = ev => {
-    if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
-    ev.preventDefault(); goalOpen(state, a.dataset.goalGo);
-  };
-  for (const li of body.querySelectorAll('[data-goal-standing]')) {
-    li.onclick = () => goalOpen(state, 'p:' + li.dataset.goalStanding);
-    li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); li.click(); } };
-  }
-  const close = () => { if (GOALS_ST === state) goalOpen(state, ''); };
-  const form = body.querySelector('[data-goal-form]');
-  if (form) {
-    const id = form.dataset.goalForm, company = id === 'company';
-    const g = state.goals.find(x => x.id === id) || {};
-    bindGoalForm(form, g, state.goals, {company}, close);
-    if (id === 'new' || company) form.scrollIntoView({block: 'nearest'});
-  }
-  const standing = body.querySelector('[data-standing-ed]');
-  if (standing) {
-    const person = (S.people || []).find(x => x.id === standing.dataset.standingEd);
-    const input = standing.elements.title;
-    standing.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); goalOpen(state, ''); } };
-    standing.querySelector('[data-goal-cancel]').onclick = () => goalOpen(state, '');
-    standing.onsubmit = async ev => {
-      ev.preventDefault();
-      const text = input.value.trim();
-      if (input.readOnly || !person) return;
-      if (text === String(person.goals || '').trim()) { goalOpen(state, ''); return; }
-      try {
-        const row = await post(`/v2/people/${encodeURIComponent(person.id)}`, {goals: text});
-        person.goals = row.goals;
-        goalOpen(state, '');
-      } catch (e) { toast(e.message || 'Could not save the goal', true); }
-    };
-    input.focus();
-  }
+  const g = state.open && state.goals.find(x => x.id === state.open);
+  if (g) goalPanelOpen(state, g.owner, {goal: g.id});
 }
 // The goals of whoever's page this is, at the top under their name: one line each. Tapping one
 // opens it on the Goals page.

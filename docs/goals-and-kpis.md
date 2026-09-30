@@ -153,18 +153,25 @@ and the value is worked out when it is read. Each has an id, `auto:<bot>:<metric
 
 A metric with nothing to measure has no reading and is gray: no message to the bot means no response time, not zero. Their
 history is the same measure at the end of each of the last fourteen days. The bot's page does not show them: link one to a
-goal from the Goals page (**+ KPI**), and it shows there like any KPI. Reading them needs Read on the bot, and they cannot be
+goal from its owner's panel on the Goals page (**Add KPI**), and it shows there like any KPI. Reading them needs Read on the bot, and they cannot be
 edited or logged to.
 
 ## The Goals page
 
-One page, company goals first, then a card for each person and bot in org order. Each goal shows its colour dot and its note
-(the generated reason, or "Set by Ana" and her note), and its KPIs inline, one line each: the KPI's dot, its name, the latest
-value and period, the target (`→ 65% by Dec 31` or `range 40–60`) and a tiny sparkline. Clicking a KPI opens its history
-(a chart and the readings with their evidence), its definition and version, its owner and the Goal Manager's latest
-check-in. **+ KPI** is on each goal and at the bottom of the page; **Other KPIs** lists the KPIs no goal uses. **Needs you**
-at the top holds red KPIs on goals you own, stale data on KPIs you own, and definitions and targets waiting for your
-confirmation.
+One tree, built like the org chart: the company on top, then every person and every bot that is not archived, indented
+under whoever they report to, whether or not they have a goal. Each is one line: the avatar and name, then the goal's
+colour dot and its title (cut short; the whole title is in the tooltip) and its KPIs as small chips, a dot and the latest
+value each (a count when there is no room). More goals follow on lines of their own under the first. The helpers (the
+assistant, BotOps, the Librarian, the Goal Manager and the Inbox Manager) are not roles, so they sit apart under **Helpers**.
+
+Tapping any line opens that owner's panel (a sheet at the bottom on a phone). It lists their goals: tap one to edit its
+words, what it supports and its colour (or **Let Goal Manager set it**). Under each goal are its KPIs, its latest
+check-in and **Add KPI**; tapping a KPI shows its history (a chart and the readings with their evidence), its definition
+and version, its owner, its targets and the Goal Manager's latest check-in, with a way back. **Add goal** and **Add KPI**
+(a KPI no goal uses yet) are at the bottom, owned by whoever was tapped, and the KPIs no goal uses are listed there too.
+Someone with no goal opens on a new one; the company line opens the company goal. **Needs you** is a short strip at the
+top, shown only when something waits: red KPIs on goals you own, stale data on KPIs you own, and definitions and targets
+waiting for your confirmation. The page is two requests, the tree and Needs you.
 
 ## Permissions
 
