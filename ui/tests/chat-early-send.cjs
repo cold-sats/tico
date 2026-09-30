@@ -1,0 +1,57 @@
+// Offline browser regression: typing into a bot's composer while its conversation is still loading.
+// The bot page redraws (a re-route) and the held snapshot lands after Return; the typed text and the
+// cursor survive the redraw, Return sends once, and the late snapshot does not wipe the sent message.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {html, uiFile} = require('./support/page.cjs');
+(async () => {
+  const browser = await chromium.launch({headless: true, channel: process.env.TICO_BROWSER_CHANNEL === undefined ? 'chrome' : process.env.TICO_BROWSER_CHANNEL || undefined});
+  try {
+    const page = await browser.newPage({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
+    const errors = [], sends = [];
+    page.on('pageerror', e => errors.push(e.message));
+    let release; const snapshotHeld = new Promise(done => release = done);
+    await page.route('**/*', async route => {
+      const url = new URL(route.request().url()), p = url.pathname;
+      const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
+      const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
+      if (ui && fs.existsSync(uiFile(ui[1])))
+        return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
+      if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
+      if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+      if (p === '/api/me') return json({id: 'ana', name: 'Ana', role: 'owner', cloud: true});
+      if (p === '/api/employees') return json([{name: 'botops', display_name: 'BotOps', host: 'keeper', status: 'active', can_chat: true, schedules: []}]);
+      if (p === '/api/issues') return json([]);
+      if (p === '/api/v2/conversations')
+        return json({conversations: url.searchParams.get('chat_with') ? [{id: 'c1', kind: 'chat', scope: 'personal', participants: ['human:ana', 'bot:botops']}] : []});
+      if (p.endsWith('/snapshot')) { await snapshotHeld; return json({messages: [], execution: null}); }   // the slow, empty load
+      if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+      if (p === '/api/v2/chat/botops') {
+        sends.push(route.request().postDataJSON().text);
+        return json({conversation: {id: 'c1'}, message: {id: 'm1', from_actor: 'human:ana', body: sends[0], created: new Date().toISOString()}});
+      }
+      return json({});
+    });
+    await page.goto('https://tico-ui.test/#/bot/botops');
+    const box = page.locator('#chat-composer textarea');
+    await box.waitFor();
+    assert.match(await page.locator('#conv-thread').innerText(), /Loading the thread/, 'still loading');
+    const text = 'A long message typed before the conversation finished loading';
+    await box.click(); await box.pressSequentially(text);
+    // The page redraws under the cursor.
+    await page.evaluate(() => { BOT = null; route(); });
+    assert.equal(await box.inputValue(), text, 'the text survives the redraw');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#chat-composer textarea')), true, 'the cursor stays in the box');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('#chat-composer textarea').value);
+    assert.deepEqual(sends, [text], 'Return sends it once');
+    release();                                       // the load that started before the send finishes
+    await page.waitForTimeout(500);
+    const thread = await page.locator('#conv-thread').innerText();
+    assert.match(thread, /A long message typed/, 'the sent message stays in the chat');
+    assert.doesNotMatch(thread, /Nothing yet/);
+    assert.deepEqual(errors, []);
+    console.log('ok');
+  } finally { await browser.close(); }
+})().catch(e => { console.error(e); process.exit(1); });
