@@ -34,6 +34,7 @@ log = logging.getLogger("tico.github_app")
 
 API = "https://api.github.com"
 STATE_TTL = 3600
+LIVE_TTL = 60                 # how long the installation's live permissions are trusted
 REFRESH_MARGIN = 300          # a cached token is dropped this long before GitHub expires it
 # What a bot's turn needs in its own repository, and nothing else.
 TURN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}
@@ -97,6 +98,7 @@ class GitHubApp:
     def __init__(self, settings, store, vault=None):
         self.settings, self.store, self.vault = settings, store, vault
         self.cache = {}
+        self.live = {}
         self.lock = threading.Lock()
         with store.transaction() as c:
             c.executescript(SCHEMA)
@@ -128,6 +130,7 @@ class GitHubApp:
                   (int(conversion["id"]), conversion["slug"], conversion["client_id"], org, int(administration),
                    str(conversion.get("html_url") or ""), sealed, nonce, H.now(), actor))
         self.cache.clear()
+        self.live.clear()
 
     def row(self, c=None):
         if c is not None:
@@ -147,6 +150,7 @@ class GitHubApp:
         c.execute("DELETE FROM github_app_states")
         c.execute("DELETE FROM service_health WHERE service=?", (GITHUB_HEALTH,))   # nothing left to be unhealthy
         self.cache.clear()
+        self.live.clear()
 
     # -- GitHub calls -----------------------------------------------------------------------
     def app_jwt(self, c, row):
@@ -190,6 +194,46 @@ class GitHubApp:
         with self.store.transaction() as c:
             c.execute("UPDATE github_app SET installation_id=? WHERE id='app'", (found["id"] if found else None,))
         return int(found["id"]) if found else None
+
+    def live_permissions(self, refresh=False):
+        """The installation's permissions as GitHub reports them now, cached briefly; None when they
+        cannot be learned (not installed, GitHub unreachable or silent), so callers keep what is stored."""
+        with self.lock:
+            hit = self.live.get("permissions")
+            if hit and hit[0] > time.time() and not refresh:
+                return hit[1]
+        try:
+            installation = self.installation()
+            with self.store.transaction() as c:
+                row = self.row(c)
+                token = self.app_jwt(c, row) if row else None
+            if not installation or not token:
+                return None
+            r = self._call("GET", f"/app/installations/{installation}", headers={"Authorization": "Bearer " + token})
+            permissions = r.json().get("permissions") if r.status_code < 300 else None
+        except (Problem, ValueError):
+            return None
+        if not isinstance(permissions, dict):
+            return None
+        with self.lock:
+            self.live["permissions"] = (time.time() + LIVE_TTL, permissions)
+        return permissions
+
+    def can_create_repos(self, refresh=False):
+        """Whether the app may create repositories: the installation's live Administration permission
+        (write), falling back to the stored choice when GitHub cannot be asked. The stored flag follows
+        the live value so status views stay right."""
+        row = self.row()
+        if not row:
+            return False
+        permissions = self.live_permissions(refresh)
+        if permissions is None:
+            return bool(row["administration"])
+        allowed = permissions.get("administration") == "write"
+        if allowed != bool(row["administration"]):
+            with self.store.transaction() as c:
+                c.execute("UPDATE github_app SET administration=? WHERE id='app'", (int(allowed),))
+        return allowed
 
     def mint(self, repos, permissions):
         """A token for the repositories (`owner/name` each), or the whole installation when there are none.
@@ -251,13 +295,13 @@ class GitHubApp:
         if not absent:
             return problem
         slugs = ", ".join(re.sub(r"^(?:emp|bot)-", "", repo.split("/", 1)[1]) for repo in absent)   # a bot's repository may be either
-        if (self.row() or {"administration": 1})["administration"]:
+        if self.can_create_repos():
             create = (f"Create it with BotOps: `hub bot repo-create {slugs.split(', ')[0]}` "
                       "(add `--empty` for a bot built locally, whose history its runner then pushes)")
         else:
             create = ("The GitHub App can't create repositories (Administration is off): create it yourself in GitHub "
-                      "(empty, for a bot built locally, whose history its runner then pushes), or reconnect GitHub with "
-                      "Administration turned on")
+                      "(empty, for a bot built locally, whose history its runner then pushes), or turn on "
+                      "Administration for the app in GitHub and accept it for the organisation")
         if selection == "all":
             return Problem("github_repo_missing", f"The repository {', '.join(absent)} does not exist yet on GitHub. {create}.", 409)
         return Problem("github_repo_not_accessible",
@@ -269,13 +313,13 @@ class GitHubApp:
         if not row:
             raise Problem("github_not_connected", "GitHub is not connected. Connect it in Tools first.", 409)
         name = "bot-" + slug.removeprefix("emp-")
-        if not row["administration"]:
+        if not self.can_create_repos(refresh=True):
             how = ("as an empty private repository" if empty else
                    f"from the {template} template (https://github.com/{template} > Use this template)")
             raise Problem(
                 "github_permission_missing",
                 f"The GitHub App was set up without permission to create repositories. Create {row['org']}/{name} "
-                f"yourself {how}, or reconnect GitHub with repository creation allowed.", 409)
+                f"yourself {how}, or turn on Administration for the app in GitHub and accept it for the organisation.", 409)
         token, _ = self.mint(None, CREATE_PERMISSIONS)
         if empty:
             # For a bot whose history already exists on a computer: nothing generated, the runner pushes into it.
@@ -387,7 +431,7 @@ def install_github_app(app, settings, store):
         if not row:
             return {"connected": False}
         return {"connected": True, "slug": row["slug"], "org": row["org"], "app_id": row["app_id"],
-                "administration": bool(row["administration"]), "installed": bool(row["installation_id"]),
+                "administration": service.can_create_repos(), "installed": bool(row["installation_id"]),
                 "install_url": f"https://github.com/apps/{row['slug']}/installations/new",
                 "settings_url": f"https://github.com/organizations/{row['org']}/settings/apps/{row['slug']}",
                 "uninstall_url": f"https://github.com/organizations/{row['org']}/settings/installations"}
@@ -535,9 +579,9 @@ def install_github_app(app, settings, store):
             with store.read() as c:
                 validate_identity(c, who)
                 row, bot = service.row(c), H.bot(c, slug)
-            if not row or not row["administration"]:
+            if not row or not service.can_create_repos(refresh=True):
                 raise Problem("forbidden", "GitHub was connected without permission to create repositories; "
-                              "the owner must reconnect it with that allowed", 403)
+                              "the owner must turn on Administration for the app in GitHub and accept it for the organisation", 403)
             if not bot or bot.get("state") == "archived":
                 raise Problem("forbidden", f"{slug} is not a bot being set up or running, so no repository is created for it", 403)
             if body.slug != slug and body.slug != "emp-" + slug:

@@ -32,6 +32,7 @@ class FakeGitHub:
         self.ttl = 3600
         self.generate_status = 201
         self.refuse = None                       # (status, message) for every token request
+        self.permissions = None                  # the installation's live permissions; None leaves them out
         self.missing, self.selection, self.forbidden = set(), "all", False   # repositories GitHub answers 404 for
 
     def __call__(self, request):
@@ -44,7 +45,10 @@ class FakeGitHub:
         if path == "/app/installations":
             return httpx.Response(200, json=self.installations)
         if path.startswith("/app/installations/") and not path.endswith("/access_tokens"):
-            return httpx.Response(200, json={"id": 77, "repository_selection": self.selection})
+            info = {"id": 77, "repository_selection": self.selection}
+            if self.permissions is not None:
+                info["permissions"] = self.permissions
+            return httpx.Response(200, json=info)
         if path.startswith("/repos/") and path.count("/") == 3:
             return httpx.Response(404 if path.split("/")[3] in self.missing else 200, json={})
         if path.endswith("/access_tokens"):
@@ -351,3 +355,36 @@ def test_a_row_written_before_app_only_recording_is_not_shown_and_disconnecting_
     assert api.post("/api/v2/github/app/disconnect", headers=auth()).status_code == 200
     with api.app_state.store.read() as c:
         assert not c.execute("SELECT 1 FROM service_health WHERE service='github:token'").fetchone()
+
+
+def stored_administration(api):
+    with api.app_state.store.read() as c:
+        return c.execute("SELECT administration FROM github_app").fetchone()["administration"]
+
+
+def test_live_write_permission_lets_create_repo_proceed_and_updates_the_stored_flag(api, gh):
+    connect(api)                                        # set up without Administration
+    assert stored_administration(api) == 0
+    gh.permissions = {"administration": "write", "contents": "write"}   # the owner added it later and accepted it
+    assert api.get("/api/v2/github/app", headers=auth()).json()["administration"] is True
+    assert stored_administration(api) == 1
+    r = api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth())
+    assert r.status_code == 200, r.text
+    assert gh.of("/repos")
+
+
+def test_live_permissions_without_administration_refuse_even_when_the_stored_flag_says_yes(api, gh):
+    connect(api, administration="true")
+    gh.permissions = {"contents": "write", "metadata": "read"}
+    r = api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth())
+    assert r.status_code == 409
+    assert "turn on Administration for the app in GitHub and accept it for the organisation" in r.text
+    assert not gh.of("/repos")
+    assert stored_administration(api) == 0
+    assert api.get("/api/v2/github/app", headers=auth()).json()["administration"] is False
+
+
+def test_unreadable_live_permissions_keep_the_stored_flag(api, gh):
+    connect(api, administration="true")                 # GitHub's answer has no permissions
+    assert api.get("/api/v2/github/app", headers=auth()).json()["administration"] is True
+    assert api.post("/api/v2/github/repos", json={"slug": "newbie", "empty": True}, headers=auth()).status_code == 200
