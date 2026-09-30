@@ -236,14 +236,20 @@ def test_the_company_domain_and_who_may_add_people_by_default(api):
     assert me["company_role"] == "member" and me["can_add_people"] is True and me["company_domains"] == ["acme.example"]
 
 
-def test_a_public_mail_owner_has_no_company_domain_so_members_add_nobody():
+def test_a_public_mail_owner_falls_back_to_the_domains_on_the_roster(api):
     import pytest as _pytest
     from backend import access as Access
     from backend.store import Problem
     assert Access.domain_of("ana@gmail.com") in Access.PUBLIC_MAIL
-    with _pytest.raises(Problem):
+    with _pytest.raises(Problem):                    # nothing to go on at all: members add nobody
         Access.check_may_add(None, None, {"email": "m@gmail.com"}, "member", "x@gmail.com", [])
     Access.check_may_add(None, None, None, "admin", "x@gmail.com", [])       # an admin may add anyone
+    with api.app.state.store.transaction() as c:                            # a Gmail-owned team whose people are at acme.example
+        Access._store(c, Access.OWNER, {"email": "ana@gmail.com", "revision": 1})
+    view = get(api, "access", "ben-test")
+    assert view["company_domains"] == ["acme.example"] and view["company_domain_source"] == "team"
+    me = api.get("/api/me", headers=headers("cara-test")).json()
+    assert me["can_add_people"] is True and me["company_domains"] == ["acme.example"]
 
 
 def test_health_warns_when_members_bots_share_a_computer_with_shared_keys(api, botops):

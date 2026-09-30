@@ -23,7 +23,7 @@ const ONB_NEVER = [['send', 'Send anything'], ['spend', 'Spend money'], ['publis
 // Kept with a number in them: a person reads the answer, and an older record's chooser read the largest number.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
 const ONB_BLANK = {
-  names: {company_name: '', app_name: '', assistant_name: '', owner_name: ''},
+  names: {company_name: '', app_name: '', assistant_name: '', owner_name: '', team_domain: ''},
   answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
             never_without_person: ['send', 'spend', 'publish', 'hire'], software_product: '', departments: [], briefings: {}},
   selected: {}, completed: null, home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
@@ -32,6 +32,8 @@ let ONB = null;
 const onbDefaultKind = () => (S.config?.in_docker ? 'linux' : 'mac');
 // Their own name: the roster's when it is not just an address, else the sign-in's display name when the proxy sends one.
 const onbOwnerGuess = () => (S.me?.name && !/@/.test(S.me.name) ? S.me.name : S.me?.sign_in_name || '');
+// A team whose owner signs in with public mail (Gmail) and has no company address on the roster is asked its email domain, once.
+const onbAsksDomain = () => S.me?.role === 'owner' && !(S.me.company_domains || []).length;
 function onbStop() { if (ONB) clearInterval(ONB.poll); ONB = null; }
 function pageWelcome() {
   // Only the owner may set a company up; everyone else has no reason to see the address either.
@@ -138,6 +140,8 @@ function onbStepHTML(state, key) {
       <input type="text" id="onb-app" maxlength="60" value="${esc(names.app_name)}"></label>
     <label class="onb-field"><span class="k">Your name</span>
       <input type="text" id="onb-owner" maxlength="100" value="${esc(names.owner_name)}" placeholder="Optional" autocomplete="name"></label>
+    ${onbAsksDomain() ? `<label class="onb-field"><span class="k">Team email domain</span>
+      <input type="text" id="onb-domain" maxlength="100" value="${esc(names.team_domain)}" placeholder="Optional, such as acme.com" autocomplete="off" inputmode="url"></label>` : ''}
     ${actions('Next')}`;
   if (key === 'about') return `
     <label class="onb-field"><span class="k">What you do</span>
@@ -296,7 +300,8 @@ function onbCollect(state, key) {
   const r = state.record;
   if (key === 'names' && $('#onb-company')) r.names = {
     ...r.names, company_name: $('#onb-company').value.trim(), app_name: $('#onb-app').value.trim(),
-    owner_name: ($('#onb-owner')?.value || '').trim()};
+    owner_name: ($('#onb-owner')?.value || '').trim(),
+    ...($('#onb-domain') ? {team_domain: $('#onb-domain').value.trim()} : {})};
   // The answers this page no longer asks (where work arrives, repetitive work) are kept as they were saved.
   if (key === 'about' && $('#onb-what')) r.answers = {...r.answers,
     what_we_do: $('#onb-what').value.trim(),

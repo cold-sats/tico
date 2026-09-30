@@ -267,14 +267,42 @@ def domain_of(email):
     return email.rsplit("@", 1)[1] if "@" in email else ""
 
 
+def roster_domains(c):
+    """The company email domains already on the roster (never gmail.com and its kind), the most common first."""
+    stored = _load_json(c, "people")
+    people = stored.get("people") if stored else H.humans(c)
+    counts = {}
+    for person in people or []:
+        domain = domain_of((person or {}).get("email"))
+        if domain and domain not in PUBLIC_MAIL and _DOMAIN.fullmatch(domain) and not (person or {}).get("hidden"):
+            counts[domain] = counts.get(domain, 0) + 1
+    return sorted(counts, key=lambda domain: (-counts[domain], domain))
+
+
+def team_domain(value):
+    """The team's email domain as first run takes it: blank, or a company domain (never gmail.com and its kind)."""
+    domain = str(value or "").strip().lower().lstrip("@")
+    if not domain:
+        return ""
+    if not _DOMAIN.fullmatch(domain):
+        raise Problem("team_domain", f"{domain!r} is not a domain like company.com", 422)
+    if domain in PUBLIC_MAIL:
+        raise Problem("team_domain", f"{domain} is a public mail domain, not a company's", 422)
+    return domain
+
+
 def company_domains(c, settings, owner_email=""):
     """The email domains that make someone a coworker: the ones the owner allows to sign in, else the
-    owner's own when that is a company address (never gmail.com and its kind)."""
+    owner's own when that is a company address (never gmail.com and its kind). A team whose owner uses
+    public mail has the domain the owner named at first run, then the company domains already on the roster."""
     listed = load_access(c, settings)["allowed_domains"]
     if listed:
         return listed
     domain = domain_of(owner_email or load_owner(c, settings)["email"])
-    return [domain] if domain and domain not in PUBLIC_MAIL else []
+    if domain and domain not in PUBLIC_MAIL:
+        return [domain]
+    named = str((((_load_json(c, "onboarding") or {}).get("names") or {}).get("team_domain")) or "").strip().lower()
+    return list(dict.fromkeys([*([named] if named else []), *roster_domains(c)]))
 
 
 def role_of(access, owner_email, email):
@@ -504,7 +532,8 @@ def view(c, settings, roster, proxy_kind, owner_id):
         k: access[k] for k in ("allowed", "allowed_domains", "admins", "bot_admins", "member_bot_limit", "revision",
                                "updated", "updated_by")},
         "company_domains": domains_,
-        "company_domain_source": "allowed" if access["allowed_domains"] else "owner" if domains_ else "none",
+        "company_domain_source": ("allowed" if access["allowed_domains"] else "owner" if home_domain(owner["email"], []) else
+                                  "team" if domains_ else "none"),
         # "Anyone at <home_domain> can sign in" is that domain on the allow list.
         "home_domain": home, "domain_sign_in": bool(home) and home in access["allowed_domains"],
         # How people get here: a directory source set means Sync, none means they are added by hand.

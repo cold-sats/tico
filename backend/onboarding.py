@@ -40,7 +40,7 @@ INSTRUCTIONS_FILE = "AGENT.md"
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
 NEEDS_ONBOARDING = "needs_onboarding"
 ONBOARDED = "onboarded"
-EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": "", "owner_name": ""}
+EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": "", "owner_name": "", "team_domain": ""}
 # `pains`, `pains_text` and `tools` are no longer asked. An older record keeps them and a client may still send them;
 # nothing reads them. `departments` are the org builder's chosen departments, in order, and `briefings` the one-line
 # answer given for each.
@@ -414,8 +414,12 @@ class Onboarding:
             selected[slug] = {"template": choice.template, "display_name": choice.display_name,
                               "instructions": choice.instructions, "reports_to": choice.reports_to}
             self._reports_to_valid(c, slug, choice.reports_to)
-        record.update(names=body.names.model_dump(), answers=body.answers.model_dump(),
-                      selected=selected)
+        names = body.names.model_dump()
+        if "team_domain" in body.names.model_fields_set:
+            names["team_domain"] = Access.team_domain(names["team_domain"])
+        else:
+            names["team_domain"] = record["names"].get("team_domain") or ""      # a client that never asks keeps it
+        record.update(names=names, answers=body.answers.model_dump(), selected=selected)
         # The owner's name goes on their roster entry (first run only knew their email).
         owner = self.auth.owner_id(c)
         if owner and body.names.owner_name.strip():

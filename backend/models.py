@@ -877,6 +877,8 @@ class OnboardingNames(Contract):
     assistant_name: str = Field(default="", max_length=100)
     # The owner's own name, saved on their roster entry; blank leaves it as it is.
     owner_name: str = Field(default="", max_length=100)
+    # The team's email domain, for a team whose owner uses public mail: members may add coworkers at it.
+    team_domain: str = Field(default="", max_length=100)
 
 
 class OnboardingAnswers(Contract):

@@ -240,6 +240,24 @@ def test_the_team_is_created_with_no_provider_and_no_computer_and_starts_once_th
         assert providers.bot_choice(c, api.app.state.store.settings, config)[0] == "codex"
 
 
+def test_a_gmail_owner_names_the_team_domain_once_and_members_may_add_coworkers_there(environment):
+    api = environment(owner_email="morgan@gmail.com")
+    def domains():
+        return api.get("/api/me", headers=signed_in()).json()["company_domains"]
+    with api.app.state.store.transaction() as c:     # the roster has no company address either
+        c.execute("DELETE FROM registry_metadata WHERE key='people'")
+        c.execute("UPDATE humans SET email='morgan@gmail.com'")
+    assert domains() == []
+    body = {"names": {"company_name": "Acme", "app_name": "Atlas", "team_domain": "@Initech.example"}}
+    assert api.put("/api/v2/onboarding", json=body, headers=signed_in()).json()["names"]["team_domain"] == "initech.example"
+    assert domains() == ["initech.example"]
+    assert api.put("/api/v2/onboarding", json={"names": {"team_domain": "gmail.com"}}, headers=signed_in()).status_code == 422
+    kept = api.put("/api/v2/onboarding", json={"names": {"company_name": "Acme"}}, headers=signed_in())
+    assert kept.json()["names"]["team_domain"] == "initech.example"           # a client that never asks leaves it
+    cleared = api.put("/api/v2/onboarding", json={"names": {"team_domain": ""}}, headers=signed_in())
+    assert cleared.json()["names"]["team_domain"] == "" and domains() == []
+
+
 def _states(api):
     with api.app.state.store.read() as c:
         return {row["slug"]: row["state"] for row in c.execute("SELECT slug,state FROM bots")}

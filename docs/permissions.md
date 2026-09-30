@@ -63,8 +63,9 @@ Settings > People (owners and admins) shows each person on one row: their role (
   whatever the capability says.
 
 The **company domain** is the domain(s) the owner allows to sign in (Settings > People, **Anyone at <domain> can sign in**); when
-none is set it is the owner's own email domain, unless that is a public mail service such as gmail.com, in which case there is none
-and members add nobody until the owner sets one. A newly added person goes on the roster and on the sign-in list, so they can
+none is set it is the owner's own email domain. When that is a public mail service such as gmail.com, it is the team email domain the
+owner gave at first run (**Names**, optional), then the company domains of the people already on the roster; with none of those,
+members add nobody until the owner adds a person or sets a domain. A newly added person goes on the roster and on the sign-in list, so they can
 actually sign in.
 
 **Can sign in** off keeps a person on the roster and the org chart but refuses their sign-in, sessions and API tokens until it is

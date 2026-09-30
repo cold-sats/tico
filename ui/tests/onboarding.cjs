@@ -289,10 +289,15 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.evaluate(() => { const was = S.me; S.me = {...was, name: 'ana@acme.example', sign_in_name: 'Ana R.'};
       const proxied = onbOwnerGuess(); S.me = {...was, name: 'ana@acme.example'}; const bare = onbOwnerGuess(); S.me = was; return [proxied, bare].join('|'); }), 'Ana R.|');
     await page.locator('#onb-owner').fill('Ana M. Rivera');
+    // No company address on the roster (a Gmail owner): the team's email domain is asked once, optionally; with one, it is not.
+    assert.equal(await page.locator('#onb-domain').getAttribute('placeholder'), 'Optional, such as acme.com');
+    assert.equal(await page.evaluate(() => { const was = S.me.company_domains; S.me.company_domains = ['acme.example'];
+      const asked = onbAsksDomain(); S.me.company_domains = was; return asked; }), false);
+    await page.locator('#onb-domain').fill('initech.test');
     await page.locator('#onb-next').click();
     await page.locator('#onb-what').waitFor();
     assert.equal(puts.length, 1);
-    assert.deepEqual(puts[0].names, {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace', owner_name: 'Ana M. Rivera'});
+    assert.deepEqual(puts[0].names, {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace', owner_name: 'Ana M. Rivera', team_domain: 'initech.test'});
     assert.equal(await page.evaluate(() => S.me.name), 'Ana M. Rivera');           // the page follows the save
     // Nobody has chosen a team yet, so the first draft carries none; BotOps and the assistant are built whatever is chosen.
     assert.deepEqual(puts[0].selected, {});
