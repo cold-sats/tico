@@ -833,6 +833,12 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
   .settings-bots-table .sb-cell-access::before{content:"Access · ";color:var(--muted)}
   .sb-row{grid-template-columns:minmax(0,1fr) auto}.sb-row>span:first-child{grid-column:1/-1}
 }
+.prov-list{display:grid;gap:2px;margin:0 0 var(--s4)}
+.prov{display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px;padding:6px 0;min-height:36px}
+.prov strong{font-weight:600}
+.prov .muted{font-size:13px;min-width:0}
+.prov-routed{gap:6px 14px;padding-top:10px}
+.prov-chip{display:inline-flex;align-items:center;gap:4px;font-size:13.5px}
 .settings-bots-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .settings-bots-filters label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);min-width:0}
 .settings-bots-filters .settings-inline-select{min-width:0;max-width:min(240px,100%)}
@@ -3839,7 +3845,7 @@ function issueComposer(host, n, mode) {
     <textarea aria-label="${closing ? 'Optional closing note' : 'Comment'} on #${esc(n)}" placeholder="${closing ? 'Optional closing note…' : 'What should the bot know?'}"></textarea>
     <div class="row"><button class="${closing ? 'ghost danger' : 'primary'}" type="submit">${closing ? 'Close issue' : 'Send to bot'}</button>
       <button class="ghost" type="button" data-issue-cancel>Cancel</button><span class="muted" data-issue-msg></span></div>
-    <p class="issue-help">${closing ? 'Closing resolves this item; it does not approve the proposed action.' : 'This leaves Needs you while the bot works. It returns only if the bot needs another decision.'}</p>
+    <p class="issue-help">${closing ? 'Closing does not approve the proposed action.' : 'Leaves Needs you until the bot needs another decision.'}</p>
   </form>`;
   const form = $('form', host), box = $('textarea', host), msg = $('[data-issue-msg]', host);
   $('[data-issue-cancel]', host).onclick = () => { host.hidden = true; host.innerHTML = ''; };
@@ -4305,7 +4311,7 @@ function taskOutcomeNote(task, action) {
     const closing = !!action.close;
     dialog.innerHTML = `<form class="tmodal-body">
       <h2>${closing ? 'Close this request' : 'Finish this request'}</h2>
-      <p class="muted">${closing ? 'Why are you closing it?' : 'What did you decide or complete?'} ${esc(actorLabel(task.requester))} will receive this result.</p>
+      <p class="muted">${closing ? 'Why close it?' : 'What did you decide or do?'}</p>
       <textarea required maxlength="4000" aria-label="Result or decision" placeholder="State the result or decision explicitly."></textarea>
       <div class="row"><button class="ghost" type="button" data-cancel>Cancel</button>
         <button class="primary" type="submit">${closing ? 'Close task' : 'Mark done'}</button></div>
@@ -4332,7 +4338,7 @@ function v2ReplyBox(button, conversation) {
     <textarea aria-label="Reply in this conversation" placeholder="Your reply…"></textarea>
     <div class="row"><button class="primary" type="submit">Send</button>
       <button class="ghost" type="button" data-v2-cancel>Cancel</button><span class="muted" data-v2-msg></span></div>
-    <p class="issue-help">This goes into the conversation as a message; the bot picks it up on its next turn.</p></form>`;
+    </form>`;
   const form = $('form', host), box = $('textarea', host), msg = $('[data-v2-msg]', host);
   $('[data-v2-cancel]', host).onclick = () => { host.hidden = true; host.innerHTML = ''; };
   form.onsubmit = async ev => {
@@ -5799,7 +5805,7 @@ function meetImportOpen(state) {
       <header><h2>Import a meeting</h2><button class="ghost" type="button" id="import-close" aria-label="Close import">✕</button></header>
       <label>Transcript file <input type="file" id="import-file" accept=".txt,.vtt,.srt,.json,.md,text/plain,text/vtt,application/json"></label>
       <label>Or paste a transcript <textarea id="import-text" rows="9" placeholder="Paste a transcript"></textarea></label>
-      <p class="hint">Plain text (Name: text, optional [mm:ss]), WebVTT, SRT or JSON segments.</p>
+      <p class="hint">Text, WebVTT, SRT or JSON.</p>
       <div class="import-grid">
         <label>Title <input type="text" id="import-title" maxlength="300" autocomplete="off"></label>
         <label>Date and time <input type="datetime-local" id="import-when" name="when"></label>
@@ -6211,7 +6217,7 @@ function pagePerson(id, tab) {
     ${tabs.map(t => `<button data-pt="${t}" role="tab" class="${t === tab ? 'cur' : ''}">${PERSON_TAB_LABELS[t]}</button>`).join('')}
   </div>
   ${tabs.includes('assistant') ? `<div id="pane-assistant" ${tab === 'assistant' ? '' : 'hidden'}>
-    <section class="card conv"><header><h2>Assistant</h2><span class="sub">private to you; acts as you, never more</span></header>
+    <section class="card conv"><header><h2>Assistant</h2></header>
       <div id="assistant-chat"></div></section></div>` : ''}
   <div id="pane-profile" ${tab === 'profile' ? '' : 'hidden'}>
     <section class="card"><header><h2>Contact</h2></header>
@@ -6227,18 +6233,18 @@ function pagePerson(id, tab) {
       <div id="person-id">${p.title || p.team ? `<div class="meta">${esc([...new Set([p.title, p.team ? teamLabel(p.team) : ''].filter(Boolean))].join(' · '))}</div>` : ''}
         ${p.about ? `<div class="role">${esc(about.lead)}${about.rest ? `<span id="goal-rest" hidden> ${esc(about.rest)}</span> <button class="linkish" type="button" id="goal-more" aria-expanded="false">more</button>` : ''}</div>`
           : edit && !p.title ? '<div class="muted">No title or description yet.</div>' : ''}</div></section>` : ''}
-    <section class="card tasks" id="person-tasks-card"><header><h2>Tasks</h2><span class="sub">assigned to ${esc(firstName(p.name) || p.id)}</span>
+    <section class="card tasks" id="person-tasks-card"><header><h2>Tasks</h2>
         <button class="ghost" type="button" id="person-task-add" aria-haspopup="dialog">+ Add task</button></header>
       <div id="person-tasks">Loading…</div></section>
     ${fieldEditor('Goals', p.goals, {placeholder: 'What they are trying to get done.', save: edit})}
     ${fieldEditor('Notes', p.notes, {placeholder: 'Working notes about this person. Visible to people who can open this profile.', rows: 8, save: edit})}
     ${reports.length ? `<section class="card"><header><h2>Reports</h2></header>
       <div>${reports.map(row => `<a class="chip" href="#/person/${encodeURIComponent(row.id)}">${personAvatar(row, 20)}<span>${esc(firstName(row.name) || row.id)}</span></a>`).join('')}</div></section>` : ''}
-    ${(bots.length || under.length) ? `<section class="card"><header><h2>Bots</h2><span class="sub">primary user and direct reports in the tree</span></header>
+    ${(bots.length || under.length) ? `<section class="card"><header><h2>Bots</h2></header>
       <div>${[...new Map([...bots, ...under].map(e => [e.name, e])).values()].map(e => `<a class="chip" href="#/bot/${esc(e.name)}">${avatar(e.name, 20, stateOf(e.name))}<span>${shownName(e)}</span>${runtimeTag(e)}</a>`).join('')}</div></section>` : ''}
   </div>
   <div id="pane-pslack" ${tab === 'slack' ? '' : 'hidden'}>
-    <section class="card conv"><header><h2>Tico in Slack</h2><span class="sub">DMs through the one Tico Slack app, including their replies</span></header>
+    <section class="card conv"><header><h2>Tico in Slack</h2></header>
       <div id="person-slack">Loading…</div></section>
   </div>`;
   void headGoalsLoad('human:' + p.id);
@@ -6667,12 +6673,12 @@ async function pageBot(slug, tab) {
   </div>
 
   ${limited ? '' : `<div id="pane-history" hidden>
-    <section class="card"><header><h2>Updates</h2><span class="sub">what it reported, newest first</span></header>
+    <section class="card"><header><h2>Updates</h2></header>
       <div id="bot-history" class="bot-history"><div class="empty">Loading…</div></div></section>
   </div>
   `}
   <div id="pane-more" hidden>
-    ${limited ? `    <section class="card"><header><h2>About</h2><span class="sub">what you can see of this bot</span></header>
+    ${limited ? `    <section class="card"><header><h2>About</h2></header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>Run by</dt><dd>${esc(botPersonName(e.operator))}</dd>
@@ -6681,7 +6687,7 @@ async function pageBot(slug, tab) {
           : String(e.reports_to || '').startsWith('human:') ? `<dt>Reports to</dt><dd>${esc(botPersonName(e.reports_to.slice(6)))}</dd>` : ''}
         <dt>Your access</dt><dd>${e.my_access.write ? 'You can see this bot and send it requests. Its work is not open to you: only the requests and tasks you make show here.' : 'You can see this bot. Its work is not open to you, and you cannot send it requests.'}</dd>
       </dl></section>
-` : `    <section class="card"><header><h2>Setup</h2><span class="sub">who uses it, what runs it</span>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
+` : `    <section class="card"><header><h2>Setup</h2>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>People</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
@@ -6697,26 +6703,26 @@ async function pageBot(slug, tab) {
       <p>${esc(v2StatusOf(slug)?.focus || 'Paused after refused actions.')}${/refused writes today$/.test(v2StatusOf(slug)?.focus || '') ? ' It resumes by itself within an hour.' : ''}</p>
       <p class="muted" id="bot-quarantine-result"></p>
     </section>` : ''}
-    <section class="card" id="bot-updates-card"><header><h2>Updates</h2><span class="sub">it reports in, one bot at a time each morning</span></header>
+    <section class="card" id="bot-updates-card"><header><h2>Updates</h2></header>
       <div id="bot-updates"><div class="empty">Loading…</div></div></section>
     <section class="card" id="bot-goals-card"><header><h2>Goals</h2>
         <button class="linkish" type="button" id="bot-goals-add">Add goal</button></header>
       <div id="bot-goals-list"><div class="empty">Loading…</div></div></section>
-    ${keeper ? `<section class="card"><header><h2>Status history</h2><span class="sub">every change in the last 7 days</span></header>
+    ${keeper ? `<section class="card"><header><h2>Status history</h2></header>
       <div id="v2-history"><div class="empty">Loading…</div></div></section>` : ''}
-    <section class="card"><header><h2>Access</h2><span class="sub">what this bot may touch · not listed means not allowed</span></header>
+    <section class="card"><header><h2>Access</h2></header>
       ${accessTable(e)}</section>
 
-    <section class="card" id="bot-routines"><header><h2>Routines</h2><span class="sub">${e.status === 'active' ? 'the server queues a task at each scheduled time' : 'armed only once this bot is active'}</span></header>
+    <section class="card" id="bot-routines"><header><h2>Routines</h2></header>
       <div id="bot-routines-list">${botRoutinesHTML(e, slug)}</div>
     </section>
 
-    <section class="card"><header><h2>Runs</h2><span class="sub"><a href="#/runs">all runs</a></span></header>
+    <section class="card"><header><h2>Runs</h2></header>
       ${(rs => rs.length ? `<div id="bot-recent-runs">${runsTable(rs, false)}</div>`
         : '<div id="bot-recent-runs" data-pending="1"><div class="muted">Loading…</div></div>'
       )((S.status?.recent_runs || []).filter(r => r.employee === slug).slice(0, 10))}</section>
 
-    <section class="card" id="sess-card"><header><h2>Session</h2><span class="sub">${S.me?.cloud ? 'provider thread pointer on the Hub; files stay on the Mac; recovery pack rebuilds if resume fails' : "the runtime's own file, not a replay"}</span></header>
+    <section class="card" id="sess-card"><header><h2>Session</h2></header>
       <div class="sess-head" id="sess-head">Loading…</div>
       <div id="sess-turns"></div></section>
 `}
@@ -6726,8 +6732,8 @@ async function pageBot(slug, tab) {
   </div>
 
   ${limited ? '<div id="pane-docs" hidden>' : `<div id="pane-docs" hidden>
-    <section class="card"><header><h2>Instructions</h2><span class="sub">${S.me?.cloud ? 'published role snapshot from the cloud registry' : "AGENT.md in the bot's repo, read-only here"}</span></header><div class="md" id="agent">Loading…</div></section>
-    <section class="card"><header><h2>Working notes</h2><span class="sub">${S.me?.cloud ? 'published cloud status; local private files stay on the runner' : 'what the bot keeps for itself between runs'}</span></header>
+    <section class="card"><header><h2>Instructions</h2></header><div class="md" id="agent">Loading…</div></section>
+    <section class="card"><header><h2>Working notes</h2></header>
       <div class="tabs" id="tabs"></div><div class="md" id="doc">Loading…</div></section>
   `}
   </div>`;
@@ -6744,7 +6750,7 @@ async function pageBot(slug, tab) {
   } else {
     if (BOT_PILL) chatDraftSave(BOT_PILL);
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
-    $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)}${limited ? '' : ' and read its work'}, but not send it requests. Ask the person who runs it for Write access.</p></section>`;
+    $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
   if (!limited) void botGoalLoad(slug);
   if (isKeeper(slug) && !limited) void botTickerLoad(slug);
@@ -7777,7 +7783,7 @@ function hubModalHTML(t, it) {
         <div><div class="lbl">Links &amp; files</div><div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}
           ${files.map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join('')}
           ${!links.length && !files.length ? '<span class="muted">none</span>' : ''}
-          <form class="inline" data-modal-link><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="paste a link (a PR, a doc)" aria-label="Add a link" size="22"></form></div></div>
+          <form class="inline" data-modal-link><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link" size="22"></form></div></div>
       </div>
       <div class="task-file-preview" data-task-file-preview hidden></div>
       ${(t.children || []).length || t.parts?.total ? `<div class="tsection"><div class="lbl">Parts ${t.parts?.total ? `<span class="muted">${t.parts.done} of ${t.parts.total} done</span>` : ''}</div>
@@ -7952,18 +7958,18 @@ function openTaskCreate(owner = '', opts = {}) {
     <div class="tmodal-body">
       <form class="task" id="task-create-form">
         ${parent ? `<p class="muted">Part of <b>${esc(parent.title)}</b></p>` : ''}
-        <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="What should they do? Plain words, start with a verb for a person."></div>
+        <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="Email Dana the renewal brief"></div>
         <label>For <select name="owner" required aria-label="Who this task is for">${taskOwnerOptions(owner)}</select></label>
         <div class="r3">
           <label>Labels <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Labels, comma separated" size="18"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
           <label><input type="checkbox" name="top"> Top of their queue</label>
         </div>
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
-        <textarea name="body" aria-label="Details" placeholder="Details, links, and what done looks like. For a person: put the ask in the first line."></textarea>
-        <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="A link to attach (a pull request, a document)" aria-label="Link">
+        <textarea name="body" aria-label="Details" placeholder="Details"></textarea>
+        <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Link (pull request, doc)" aria-label="Link">
         ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
-        <p class="muted hint">You are adding this, so you close it. A person needs a verb in the title (Email, Ask, Send…) and the ask in the first line of details.</p>
+        <p class="muted hint">You close it. For a person, start the title with a verb.</p>
       </form>
     </div>`;
   $('[data-modal-close]', d).onclick = () => d.close();
@@ -8288,15 +8294,15 @@ function routineEditorOpen(r = null, bot = '') {
   const mine = (S.emps || []).filter(e => e.status !== 'archived' && routineMayEdit({bot: e.name}));
   const kind = editing && r.on ? 'event' : 'cron';
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="routine-editor-title">${editing ? 'Edit routine' : 'New routine'}</h2><span class="spacer"></span><button class="ghost" type="button" data-routine-close aria-label="Close">✕</button></div>
-    <div class="bot-editor-body"><p class="muted">When it is due, the bot gets a task with this text. The text is what the bot is told, in plain words.</p>
+    <div class="bot-editor-body">
       <div class="bot-editor-grid">
         <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => `<option value="${esc(e.name)}" ${e.name === slug ? 'selected' : ''}>${esc(e.display_name || e.name)}</option>`).join('')}</select></label>
         <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off"></label>
         <label>Runs<select name="kind"><option value="cron" ${kind === 'cron' ? 'selected' : ''}>On a schedule</option><option value="event" ${kind === 'event' ? 'selected' : ''}>When something happens</option></select></label>
-        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"><small>Five fields: minute hour day-of-month month day-of-week.</small></label>
+        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"></label>
         <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${ROUTINE_EVENTS.map(([v, w]) => `<option value="${v}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
         <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
-        <label class="bot-editor-wide">What the bot is told<textarea name="text" maxlength="100000" placeholder="Go through the inbox and…">${esc(r?.text || '')}</textarea></label>
+        <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the inbox and…">${esc(r?.text || '')}</textarea></label>
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button><button class="ghost" type="button" data-routine-close>Cancel</button><span class="muted" data-routine-status></span></div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-routine-status]');
@@ -8832,7 +8838,7 @@ function messagingDetail(data) {
       <section class="msg-section msg-scheduled"><h2>Scheduled work</h2>${messagingRuns(data)}</section>
     </div>
     <section class="msg-example-inbox" aria-labelledby="msg-examples-title">
-      <header class="msg-example-head"><h2 id="msg-examples-title">Example messages</h2><p>Review messages this bot encountered and the actions it took. Open one to see its thread, labels, and rule matches.</p></header>
+      <header class="msg-example-head"><h2 id="msg-examples-title">Example messages</h2></header>
       ${messagingEvidence(data)}
     </section>
   </div>`;
@@ -8943,7 +8949,7 @@ function pageSql() {
       <div class="row sql-bar"><button class="primary" type="button" id="sql-run">Run</button><span class="muted">⌘↩ / Ctrl+Enter</span><span class="mono muted" id="sql-meta" role="status"></span></div>
       <div class="err" id="sql-error" hidden></div>
       <div class="sql-results" id="sql-results"></div>
-      <details class="sql-examples"><summary>Examples</summary><p>Read-only, one statement at a time. Private data and secrets are protected by the database. <a href="${GH}/blob/main/docs/hub-sql.md" target="_blank" rel="noopener">Tables and examples</a>.</p><ul>${SQL_EXAMPLES.map(([title, sql], i) =>
+      <details class="sql-examples"><summary>Examples</summary><p>Read-only, one statement. <a href="${GH}/blob/main/docs/hub-sql.md" target="_blank" rel="noopener">Tables and examples</a></p><ul>${SQL_EXAMPLES.map(([title, sql], i) =>
         `<li><a href="#" data-sql-example="${i}">${esc(title)}</a><code>${esc(sql)}</code></li>`).join('')}</ul></details>
     </section>`;
   $('#sql-run').onclick = () => sqlRun();
@@ -9122,9 +9128,9 @@ async function pageIntegrations() {
       <dt>Writes</dt><dd><span class="pill ${page.writes === 'never' ? 'ok' : page.writes === 'approval' ? 'waiting' : ''}">${esc(page.writes)}</span> · owner ${esc(page.owner)}${page.aliases?.length ? ' · also <span class="mono">' + page.aliases.map(esc).join(', ') + '</span>' : ''}</dd>
       <dt>Declared as</dt><dd><pre class="mono">${esc(page.declared_as.trim())}</pre></dd></dl></section>
     <section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>
-    ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2><span class="sub">${page.queries.length} in the catalog · <code>hub queries ${esc(page.service)} &lt;term&gt;</code></span></header>
+    ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2></header>
       <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
-    <section class="card" id="int-learnings"><header><h2>Learnings</h2><span class="sub">the log under the page · <code>hub learn ${esc(page.service)} "…"</code></span></header>
+    <section class="card" id="int-learnings"><header><h2>Learnings</h2></header>
       <div class="int-learn"><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
       <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a person folds them into the page over time.</span></div></div>
       <div id="int-learning-list">${page.learnings.map(learningHtml).join('') || '<div class="empty">Nothing learned yet.</div>'}</div></section>`;
@@ -9231,30 +9237,30 @@ function pageSettings() {
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
     </div>
     <div class="settings-pane" id="settings-devices" role="tabpanel">
-      <section class="card"><div class="settings-toolbar"><p>Add the computer that runs your bots: a Mac, or a Linux or cloud server. Add a new bot from here; change an existing bot on its page.</p>
+      <section class="card"><div class="settings-toolbar"><span></span>
         <div class="row">${settingsCanCreateBots() ? '<button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from catalog</button>' : ''}</div></div>
         <div id="set-machines"><div class="empty">Loading…</div></div></section>
-      ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2><span class="sub">call ${esc(appName())} from a script as yourself; a token is you for everything except making more tokens</span></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
+      ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
       <div id="settings-assistant"></div>
-      <section class="card"><header><h2>Bots</h2><span class="sub">people, model, and computer</span></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Bots</h2></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div></div>
     ${settingsIsAdmin() ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
     <div class="settings-pane" id="settings-providers" role="tabpanel" hidden>
-      <section class="card"><header><h2>AI providers</h2><span class="sub">which vendors bots may use, and the default model</span></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>AI providers</h2></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
-      <section class="card"><header><h2>Recurring</h2><span class="sub">every routine on every bot</span></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Recurring</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-cloud" role="tabpanel" hidden>
       <section class="card"><header><h2>Cloud services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section>
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2><span class="sub">a GitHub App in your organization gives each bot access to its own repository</span></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2><span class="sub">Fireflies, Zoom, Google Meet and Granola transcripts, filed into Meetings by a computer that holds their credentials</span></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2><span class="sub">DMs and @mentions in Slack reach your bots</span></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
     </div>
-    <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2><span class="sub">audited changes with safe undo when nothing newer conflicts</span></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
+    <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
     <dialog class="tmodal" id="people-dialog" aria-label="People"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
@@ -9355,7 +9361,7 @@ async function vaultLoad() {
     const data = await vaultFetch();
     if (INT_CRED_SERVICE && $('#int-cred-dialog')?.open) intCredPaint();
     if (!data || !host?.isConnected || SETTINGS_TAB !== 'credentials') return;
-    host.innerHTML = `<div class="settings-toolbar"><div><h2>Credentials</h2><p>Encrypted passwords and keys. Owners authorize access to each credential.</p></div>
+    host.innerHTML = `<div class="settings-toolbar"><div><h2>Credentials</h2></div>
       <div class="row">${data.can_manage ? '<button class="primary" id="vault-add" type="button">Add credential</button>' : ''}<button class="ghost" id="vault-refresh" type="button">Refresh</button></div></div>
       <input id="vault-search" type="search" aria-label="Find a credential" placeholder="Search by name, username or key name" autocomplete="off">
       <p class="muted" id="vault-count"></p><div id="vault-list"></div>`;
@@ -9419,7 +9425,7 @@ function vaultEdit(row) {
     <label>Type<select name="kind">${['api_key','password','token','file','connection'].map(kind=>`<option value="${kind}" ${row?.kind===kind?'selected':''}>${esc(kind.replace('_',' '))}</option>`).join('')}</select></label>
     <label>Bot key name (optional)<input name="env" type="text" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" autocomplete="off" spellcheck="false" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
     <label class="bot-editor-wide">${row?.stored ? 'New password or key (leave blank to keep current)' : 'Password or key'}<textarea name="secret" aria-label="New password or key" autocomplete="off" spellcheck="false"></textarea></label>
-    <p class="muted bot-editor-wide">Access is granted separately after saving.</p><p class="err bot-editor-wide" id="vault-error"></p>
+    <p class="err bot-editor-wide" id="vault-error"></p>
     <button class="primary" type="submit">Save credential</button></form>`);
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault(); const form=event.target,button=form.querySelector('[type=submit]');button.disabled=true;
@@ -9434,7 +9440,7 @@ function vaultShare(id) {
   const row=VAULT.credentials.find(row=>row.id===id);
   const choices=[...(VAULT.can_manage ? VAULT.people.map(person=>({subject:'human:'+person.id,label:person.name || person.email})) : []),
     ...VAULT.bots.map(bot=>({subject:'bot:'+bot.id,label:bot.name+' (bot)'}))];
-  const dialog=vaultDialog('Access to '+row.name,`<p>People granted access can reveal this credential and attach it to bots they manage. Revoking their access also revokes those delegated bot connections.</p>
+  const dialog=vaultDialog('Access to '+row.name,`<p class="muted">Revoking access also revokes the bot connections they made.</p>
     <div>${row.grants.map(grant=>`<div class="row"><span>${esc(vaultSubject(grant.subject))}${grant.parent_id?' · delegated':''}</span>${VAULT.can_manage?`<button class="ghost" type="button" data-revoke="${esc(grant.id)}">Revoke</button>`:''}</div>`).join('') || '<p>Owners only.</p>'}</div>
     <form id="vault-grant-form"><label>Grant access to<select name="subject" required>${choices.map(choice=>`<option value="${esc(choice.subject)}">${esc(choice.label)}</option>`).join('')}</select></label>
     <button class="primary" type="submit" ${choices.length?'':'disabled'}>Grant access</button><p class="err" id="vault-error"></p></form>`);
@@ -9549,9 +9555,8 @@ async function executionReview(bot) {
       <p><strong>Why Tico paused this request</strong><br>${esc(job.reason)}</p>
       <details><summary>Original request</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(job.request)}</div></details>
       <details${job.attempt?.final_text || job.output.some(event=>event.text) ? ' open' : ''}><summary>${job.attempt?.final_text || job.output.some(event=>event.text) ? 'What the run saved' : 'No answer was saved'}</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('\n') || 'The run ended without saving an answer.')}</div></details>
-      <p><strong>Did this run finish an outside action?</strong><br>If nothing happened, Tico can try the request again. If something happened or you are unsure, Tico will leave this delivery stopped.</p>
+      <p><strong>Did an outside action finish?</strong><br>If not, Tico can retry. If it did or you are unsure, it stays stopped.</p>
       <label>Anything Tico should know? <span class="muted">Optional</span><textarea name="note" aria-label="Details for Tico" maxlength="4000" placeholder="For example: the draft exists, but nothing was sent."></textarea></label>
-      <p class="muted">No immediate action is required. You can close this window and come back later.</p>
       <div class="row"><button type="submit" name="decision" value="resume">Nothing happened — try again</button><button type="submit" name="decision" value="dismiss" class="ghost">Done or unsure — don’t retry</button></div>
       <p data-result role="status"></p>
     </form>`).join('') : '<p>No stopped runs remain.</p>';
@@ -9587,10 +9592,10 @@ const ACCESS_LEVELS = [
   ['write', 'Write', 'send it messages, tasks, notes and comments'],
 ];
 const ACCESS_PRESETS = [
-  ['open', 'Open', 'Everyone sees it, reads its work and can send it requests.'],
-  ['requests', 'Visible, requests only', 'Everyone sees it and can send it requests; only the people you choose read its work.'],
-  ['private', 'Private', 'Only the people, teams and bots you choose see it, read its work or send it requests.'],
-  ['custom', 'Custom', 'Choose who sees, reads and writes separately.'],
+  ['open', 'Open', 'Everyone'],
+  ['requests', 'Requests only', 'Everyone sends requests; chosen people read its work'],
+  ['private', 'Private', 'Chosen people only'],
+  ['custom', 'Custom', 'See, read and write separately'],
 ];
 const accessTeamName = id => (S.orgGroups || []).find(g => g.id === id)?.name || teamLabel(id);
 const accessEmpty = () => ({everyone: false, people: [], teams: [], bots: []});
@@ -9629,9 +9634,9 @@ async function settingsEditBotOwners(slug) {
   const listed = new Set((e.bot_owners || []).map(o => o.id));
   const people = SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.people || []).filter(p => !p.hidden);
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-owners-title">Who owns ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-owners-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body"><p class="muted">Owners may change this bot: its instructions, model, routines, who can see it, and who else owns it. Whoever it reports up to and the admins are owners too. ${e.operator ? `${esc(settingsPersonName(e.operator))} runs its computer and is always an owner.` : ''}</p>
+    <div class="owner-picker-body">${e.operator ? `<p class="muted">${esc(settingsPersonName(e.operator))} runs its computer and is always an owner.</p>` : ''}
       <div class="owner-options">${people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${listed.has(person.id) || person.id === e.operator ? 'checked' : ''} ${person.id === e.operator ? 'disabled' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
-      <div class="row"><button class="primary" type="submit">Save owners</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owners-close]').forEach(button => button.onclick = () => dialog.close());
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault();
@@ -9696,16 +9701,16 @@ async function settingsEditAccess(slug) {
   const paintPickers = () => {
     const host = dialog.querySelector('[data-access-pickers]');
     host.innerHTML = preset === 'open' ? ''
-      : preset === 'requests' ? picker(['read'], 'Who can read its work', 'Everyone still sees it and can send it requests.', false)
-      : preset === 'private' ? picker(['see', 'read', 'write'], 'Who can use it', 'They see it, read its work and send it requests. Nobody else sees it.', false)
+      : preset === 'requests' ? picker(['read'], 'Who can read its work', '', false)
+      : preset === 'private' ? picker(['see', 'read', 'write'], 'Who can use it', '', false)
       : ACCESS_LEVELS.map(([key, label, what]) => picker([key], label, what, true)).join('');
   };
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="access-editor-title">Access to ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-access-close aria-label="Close">✕</button></div>
-    <div class="access-body"><p class="muted">Who may see this bot, read its work and send it requests. The owner, the bot itself and the people it reports up to always have full access. Anyone who can read or write can also see it.</p>
-      <fieldset class="access-presets"><legend>Preset</legend>${ACCESS_PRESETS.map(([value, label, hint]) =>
+    <div class="access-body">
+      <fieldset class="access-presets"><legend>Access</legend>${ACCESS_PRESETS.map(([value, label, hint]) =>
         `<label><input type="radio" name="preset" value="${value}" ${value === preset ? 'checked' : ''}><span>${esc(label)}<small>${esc(hint)}</small></span></label>`).join('')}</fieldset>
       <div data-access-pickers></div>
-      <div class="row"><button class="primary" type="submit">Save access</button><button class="ghost" type="button" data-access-close>Cancel</button><span class="muted" data-access-status role="status"></span></div></div></form>`;
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-access-close>Cancel</button><span class="muted" data-access-status role="status"></span></div></div></form>`;
   paintPickers();
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-access-status]');
   dialog.querySelectorAll('[data-access-close]').forEach(button => button.onclick = () => dialog.close());
@@ -9835,7 +9840,7 @@ async function settingsAgentCredential(slug) {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
   dialog.innerHTML = `<header><h2>${rotating ? 'New agent credential' : 'Agent credential'} for ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
     <div class="agent-credential-body">
-      <p>This token is shown once. It is the bot's own identity at ${esc(appName())}: the hub's rules apply to everything it does, and revoking it here stops it at once.</p>
+      <p>Shown once. It is this bot's identity; revoking it stops the bot at once.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>On the box that runs the Hermes profile, one command installs the hub as an MCP server in the profile and a heartbeat timer:
         <div class="row"><code data-command>curl -fsSL -H "Authorization: Bearer ${esc(issued.token)}" ${esc(setup.url)}/api/v2/agents/setup-script -o hermes_agent.py &amp;&amp; python3 hermes_agent.py install --profile ${esc(e.agent?.profile || slug)} --url ${esc(setup.url)} --bot ${esc(slug)} --token ${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
@@ -9866,7 +9871,7 @@ async function renderSettingsTokens() {
     : '<div class="empty">No tokens yet.</div>';
   el.innerHTML = `${table}
     <form class="row settings-token-form" id="settings-token-form">
-      <label>Label <input name="label" type="text" required maxlength="80" autocomplete="off" placeholder="what runs with it" aria-label="Token label"></label>
+      <label>Label <input name="label" type="text" required maxlength="80" autocomplete="off" placeholder="CI script" aria-label="Token label"></label>
       <label>Expires in <input name="days" type="number" inputmode="numeric" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
       <button class="primary" type="submit">New token</button>
     </form>`;
@@ -9887,7 +9892,7 @@ function settingsTokenShow(issued) {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
   dialog.innerHTML = `<header><h2>Token ${esc(issued.label)}</h2><button class="ghost" type="button" data-close>Close</button></header>
     <div class="agent-credential-body">
-      <p>This token is shown once and will not be shown again. Anything done with it is done by you; it cannot make or revoke tokens. It expires ${esc(new Date(issued.expires_at).toLocaleDateString())}.</p>
+      <p>Shown once. It acts as you, and expires ${esc(new Date(issued.expires_at).toLocaleDateString())}.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>In a shell, for the <code>hub</code> command line and scripts:<div class="row"><code data-command>export HUB_API_URL=${esc(location.origin)} HUB_TOKEN=${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
     </div>`;
@@ -9908,7 +9913,7 @@ function connectAgent() {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal connect-agent';
   dialog.setAttribute('aria-labelledby', 'ca-title');
   dialog.innerHTML = `<header class="ca-head"><div><h2 id="ca-title">Connect an agent</h2>
-      <p class="ca-intro">Your agent works your bots through ${esc(appName())}'s MCP server as you, with a token of its own.</p></div>
+      </div>
       <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
     <form class="ca-body" data-connect-form>
       <fieldset class="ca-field"><legend class="ca-label">Agent</legend>
@@ -9952,7 +9957,7 @@ ${skill.text}`;
       <ol class="ca-steps"><li>Copy the block below.</li><li>Paste it into ${esc(name)}.</li><li>Ask it “who needs me”.</li></ol>
       <div class="ca-block"><div class="ca-block-head"><span>tico-hub · ${esc(label)}</span><button class="ghost ca-copy" type="button" data-copy-setup>Copy</button></div>
         <pre data-setup>${esc(setup)}</pre></div>
-      <p class="ca-note">Anything it does is signed as you via the agent. The token is shown once and will not be shown again; it expires ${esc(new Date(issued.expires_at).toLocaleDateString())}. Revoke it any time in Settings → Devices → API tokens.</p>
+      <p class="ca-note">Shown once; expires ${esc(new Date(issued.expires_at).toLocaleDateString())}. Revoke it in Devices › API tokens.</p>
     </div>`;
     const copy = dialog.querySelector('[data-copy-setup]');
     let reset = 0;
@@ -10064,9 +10069,9 @@ function settingsBulkModelDialog() {
         <div class="settings-combo" data-bot-choice="" data-kind="model" data-current="${esc(choice ? settingsChoiceValue(choice.harness, choice.model, choice.effort) : '')}">
           <input type="search" autocomplete="off" spellcheck="false" value="${esc(label)}" aria-label="Model and effort for the selected bots" placeholder="Search harness or model">
           <div class="settings-combo-list" role="listbox"></div></div>
-        ${choice ? `<p>Destination: <strong>${esc(label)}</strong></p>` : '<p class="muted">Choose the model and effort every selected bot should use.</p>'}
-        <div class="transition-progress"><strong>Each change starts a fresh local provider session for that bot.</strong>
-          <p>${esc(appName())} keeps every bot's cloud conversation and task history. A bot in the middle of a turn is left alone and listed below; retry it once it finishes.</p></div>
+        ${choice ? `<p>Destination: <strong>${esc(label)}</strong></p>` : ''}
+        <div class="transition-progress"><strong>Each bot starts a fresh provider session.</strong>
+          <p>History is kept. A bot mid-turn is skipped; retry it after.</p></div>
         <ul class="settings-bulk-list" data-bulk-list>${bots.map(e => `<li data-bulk-bot="${esc(e.name)}" data-state="pending"><span>${esc(e.display_name || e.name)}</span><span class="settings-cell-note">${esc(settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e)))}</span></li>`).join('')}</ul>
         <p role="status" data-bulk-summary></p>
         <div class="transition-actions"><button class="primary" type="button" data-bulk-apply ${choice ? '' : 'disabled'}>Change ${bots.length} bot${bots.length === 1 ? '' : 's'}</button><button class="ghost" type="button" data-bulk-close>Cancel</button></div></div>`;
@@ -10222,7 +10227,7 @@ async function settingsCatalogPicker() {
   const have = new Set(S.emps.filter(row => row.status !== 'archived').map(row => row.name));
   const state = catalogState(cards.filter(card => !have.has(card.slug)), {lock: false});
   const body = $('#catalog-picker-body');
-  body.innerHTML = `<p class="muted">Each bot is created planned, with the instructions below as its AGENT.md. Edit the name or the instructions before you add it.</p>
+  body.innerHTML = `
     <div class="cat-grid" id="catalog-picker-grid">${catalogGridHTML(state)}</div>
     <div class="row" style="margin-top:16px"><button class="primary" type="submit">Add selected</button>
       <button class="ghost" type="button" data-catalog-close>Cancel</button><span class="muted" id="catalog-picker-status"></span></div>`;
@@ -10361,13 +10366,13 @@ function renderSettingsMachines() {
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
   el.innerHTML = `${cards ? `<div class="scroll"><table class="settings-table"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No machines registered yet.</div>'}
-    ${agents ? `<h3 class="settings-agents-title">External agents</h3><p class="muted">Bots run by a harness outside ${esc(appName())}, such as a Hermes profile. Each reports in with its own credential; nothing is dispatched to it.</p><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Operator</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
+    ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Operator</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
     <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Machine operator">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
-      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server (Docker)</option></select>
+      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option></select>
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
-      <p class="machine-enroll-status" id="machine-enroll-status">Creates a private 15-minute setup, then gives you the command to run on that computer. Registration never assigns bots automatically.</p></div>`;
+      <p class="machine-enroll-status" id="machine-enroll-status"></p></div>`;
   const machineDefaultLabel = () => `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#machine-kind').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
@@ -10380,13 +10385,13 @@ function renderSettingsMachines() {
       if ($('#machine-kind').value === 'linux') {
         const {code} = await enrollmentCode(operator);
         const commands = dockerRunnerCommands(code, label, S.config?.default_runtime);
-        status.innerHTML = `One-time code for <strong>${esc(label)}</strong>, good for 15 minutes. On that server, run:${commands.map(([note, command], i) => `<br><span class="muted">${esc(note)}</span><br><code>${esc(command)}</code> <button class="ghost" type="button" data-machine-copy="${i}">Copy</button>`).join('')}`;
+        status.innerHTML = `Code for <strong>${esc(label)}</strong>, good 15 minutes. Run on that server:${commands.map(([note, command], i) => `<br><span class="muted">${esc(note)}</span><br><code>${esc(command)}</code> <button class="ghost" type="button" data-machine-copy="${i}">Copy</button>`).join('')}`;
         status.querySelectorAll('[data-machine-copy]').forEach(button => button.onclick = () =>
           void copyText(commands[Number(button.dataset.machineCopy)][1]).then(() => toast('Command copied')));
         return;
       }
       const filename = await enrollmentDownload(operator, label);
-      status.innerHTML = `Setup file downloaded for <strong>${esc(label)}</strong>. On that Mac, open Terminal in the Tico checkout and run:<br><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code> <button class="ghost" type="button" id="copy-enrollment-command">Copy command</button> <button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
+      status.innerHTML = `Setup file downloaded. Run on that Mac:<br><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code> <button class="ghost" type="button" id="copy-enrollment-command">Copy command</button> <button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
       $('#copy-enrollment-command').onclick = () => void copyText(`scripts/setup-runner.sh "$HOME/Downloads/${filename}"`).then(() => toast('Setup command copied'));
       $('#copy-enrollment-prompt').onclick = () => void copyText(settingsEnrollmentPrompt(operator, filename)).then(() => toast('Machine setup prompt copied'));
     } catch (error) { toast(error.message, true); }
@@ -10482,7 +10487,7 @@ function settingsEditBot(slug = '') {
     (settingsIsAdmin() || machine.accepts_member_bots)).map(machine =>
     `<option value="${esc(machine.id)}" data-operator="${esc(machine.operator)}">${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('');
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close">✕</button></div>
-    <div class="bot-editor-body"><p class="muted">This definition is saved directly in the ${esc(appName())} backend. No application deploy is required.</p>
+    <div class="bot-editor-body">
       <div class="bot-editor-grid">
         <label>Bot slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : 'required'}></label>
         <label>Display name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
@@ -10490,9 +10495,9 @@ function settingsEditBot(slug = '') {
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
         <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>"Replies only": no cold calls, but its manager and anyone holding its ticket get through. "Tasks only": work arrives as a task and nothing else — no bot may chat it at all. People are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
-        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required><small>A bare name, owner/name, or a full https repository URL.</small></label>
+        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
-        <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot<small>Work expected to end; shows a flag, not the word in its name.</small></label>
+        <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per person</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
@@ -10505,7 +10510,7 @@ function settingsEditBot(slug = '') {
           </div></label>
         <label>Computer operator<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
-        <p class="bot-editor-wide muted">Everyone can see it, read its work and send it requests. Change who can, once it is added, under Access.</p>`}
+        <p class="bot-editor-wide muted">Everyone can use it. Change that under Access once it is added.</p>`}
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select><button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-bot-status]');
@@ -10643,9 +10648,9 @@ function settingsEditOwners(slug) {
   if (!e || !dialog) return;
   const selected = new Set((e.users || []).map(person => person.id));
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="owner-picker-title">Who ${esc(e.display_name)} works for</h2><span class="spacer"></span><button class="ghost" type="button" data-owner-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body"><p class="muted">Selected people are who this bot works for: they share its room when it uses a shared conversation. Who may use it is its Access. This does not change the machine that runs it.</p>
+    <div class="owner-picker-body">
       <div class="owner-options">${SETTINGS_DATA.people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${selected.has(person.id) ? 'checked' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
-      <div class="row"><button class="primary" type="submit">Save people</button><button class="ghost" type="button" data-owner-close>Cancel</button><span id="owner-picker-status" class="muted"></span></div></div></form>`;
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-owner-close>Cancel</button><span id="owner-picker-status" class="muted"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owner-close]').forEach(button => button.onclick = () => dialog.close());
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault();
@@ -10692,8 +10697,8 @@ function settingsConfirmTransition(e, kind, target) {
     };
     dialog.innerHTML = `<div class="tmodal-head"><h2 id="transition-title">${label} · ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-confirm-cancel aria-label="Close">✕</button></div>
       <div class="transition-body"><p>Destination: <strong>${esc(target)}</strong></p>
-        <div class="transition-progress"><strong>This starts a fresh local provider session.</strong>
-          <p>Knowledge held only inside the current local session will be reset. ${esc(appName())} keeps the complete cloud conversation and task history, and first asks the bot to save a structured checkpoint for the new session. That checkpoint is a handoff, not an exact copy of hidden provider state.</p></div>
+        <div class="transition-progress"><strong>This starts a fresh provider session.</strong>
+          <p>The bot saves a checkpoint first. History is kept; session-only context is lost.</p></div>
         <div class="transition-actions"><button class="primary" type="button" data-confirm-prepare>Prepare change</button><button class="ghost" type="button" data-confirm-cancel>Cancel</button></div></div>`;
     dialog.querySelector('[data-confirm-prepare]').onclick = () => finish(true);
     dialog.querySelectorAll('[data-confirm-cancel]').forEach(button => button.onclick = () => finish(false));
@@ -10731,9 +10736,8 @@ function settingsTransitionHTML(t) {
   const force = ['blocked','failed'].includes(t.state);
   return `<div class="tmodal-head"><h2 id="transition-title">${t.kind === 'model' ? 'Change model settings' : 'Move bot'} · ${esc(name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-transition-close aria-label="Close">✕</button></div>
     <div class="transition-body"><p>Destination: <strong>${esc(settingsTransitionTarget(t))}</strong></p>
-      <p class="muted">This change starts a fresh local provider session. Cloud history and the prepared handoff remain available, but knowledge held only inside the old local session is reset.</p>
-      <div class="transition-progress"><strong>${esc(status)}</strong>${t.state === 'preparing' ? '<p class="muted">The change applies automatically after every checkpoint is safely stored. You may close this window.</p>' : ''}</div>
-      ${force ? `<p class="muted">The destination has already been validated. The problem above is with reading the current session for its handoff.</p><p class="err">Changing without a checkpoint preserves raw ${esc(appName())} history, but the new session will not receive a prepared handoff.</p>` : ''}
+      <div class="transition-progress"><strong>${esc(status)}</strong>${t.state === 'preparing' ? '<p class="muted">It applies when checkpoints are saved. You can close this.</p>' : ''}</div>
+      ${force ? `<p class="err">Without a checkpoint the new session starts with no handoff. History is kept.</p>` : ''}
       <div class="transition-actions">${force ? '<button class="fail" type="button" data-transition-force>Change without checkpoint</button>' : ''}
         ${pending ? '<button class="ghost" type="button" data-transition-cancel>Cancel change</button>' : ''}
         ${t.state === 'applied' ? '<button class="primary" type="button" data-transition-done>Done</button>' : ''}</div></div>`;
@@ -11047,16 +11051,20 @@ function providersModels(view, models, enabled) {
     .map(model => ({id: model.id, label: `${labels[model.provider] || model.provider} · ${model.label}`,
                     recommended: (view.providers || []).some(row => row.recommended === model.id)}));
 }
+// One line per provider: box, name, a few muted words. The vendors that run through OpenRouter share one line.
+const PROVIDER_LINE = {openai: 'Codex, ChatGPT or API key', anthropic: 'Claude Code, Claude or API key', google: 'Gemini CLI, API key',
+  xai: 'Grok Build, Grok or API key', cursor: 'Cursor agent, Cursor or API key'};
 function providersFormHTML(view, models, id, editable = true) {
   const enabled = view.enabled || [], dis = editable ? '' : ' disabled';
+  const box = row => `<input type="checkbox" data-provider value="${esc(row.id)}" ${enabled.includes(row.id) ? 'checked' : ''}${dis}>`;
+  const rows = view.providers || [];
+  const direct = rows.filter(row => PROVIDER_LINE[row.id]), routed = rows.filter(row => !PROVIDER_LINE[row.id]);
   return `<div id="${id}" data-providers-form>
-    <div class="onb-field"><span class="k">Which AI providers do you use?</span>
-      <div class="onb-choices" style="flex-direction:column">${(view.providers || []).map(row =>
-        `<label><input type="checkbox" data-provider value="${esc(row.id)}" ${enabled.includes(row.id) ? 'checked' : ''}${dis}>
-          <span><strong>${esc(row.label)}</strong> <small class="muted">${esc(row.detail)}</small></span></label>`).join('')}</div></div>
-    <label class="onb-field"><span class="k">Default model</span>
-      <select data-provider-model${dis}></select>
-      <small>Every bot that has no model of its own runs on this one.</small></label></div>`;
+    <div class="prov-list" role="group" aria-label="Providers">${direct.map(row =>
+      `<label class="prov">${box(row)}<strong>${esc(row.label)}</strong><span class="muted">${esc(PROVIDER_LINE[row.id])}</span></label>`).join('')}
+      ${routed.length ? `<div class="prov prov-routed"><span class="muted">Via OpenRouter</span>${routed.map(row =>
+        `<label class="prov-chip">${box(row)}${esc(row.label)}</label>`).join('')}</div>` : ''}</div>
+    <label class="onb-field"><span class="k">Default model</span><select data-provider-model${dis}></select></label></div>`;
 }
 function providersFillModels(root, view, models, keep) {
   const enabled = [...root.querySelectorAll('[data-provider]:checked')].map(input => input.value);
@@ -11129,10 +11137,10 @@ function peopleCapabilityRows(p) {
   const add = p.add_people_default ? 'default' : p.add_people ? 'yes' : 'no';
   return `<label class="onb-field"><span class="k"><input type="checkbox" name="create_bots" ${p.create_bots ? 'checked' : ''}> Can add bots</span></label>
     <label class="onb-field"><span class="k">Can add people</span><select name="add_people">
-      <option value="default" ${add === 'default' ? 'selected' : ''}>Default: coworkers in the company domain</option>
-      <option value="yes" ${add === 'yes' ? 'selected' : ''}>Yes: coworkers in the company domain</option>
+      <option value="default" ${add === 'default' ? 'selected' : ''}>Coworkers (default)</option>
+      <option value="yes" ${add === 'yes' ? 'selected' : ''}>Coworkers</option>
       <option value="no" ${add === 'no' ? 'selected' : ''}>No</option></select></label>
-    <p class="muted">Adding someone outside the company domain always needs an owner or an admin.</p>`;
+    <p class="muted">Anyone outside the company domain needs an admin.</p>`;
 }
 const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
 function peopleAccessLabel(p) {
@@ -11159,26 +11167,18 @@ async function renderSettingsPeople() {
         ${p.owner || p.left || !p.email || S.me?.role !== 'owner' ? '' : '<button class="ghost" type="button" data-person-act="owner">Make owner</button>'}
       </td></tr>`).join('');
     el.innerHTML = `
-      ${proxy ? `<div class="card" id="people-proxy-note"><p class="muted" style="margin:0">Sign-in goes through ${esc(proxy)}. Adding someone here does not let them past it: also allow their email in that policy, or they will be stopped before they reach this app.</p></div>` : ''}
-      <section class="card"><header><h2>People</h2><span class="sub">who is on the roster and who can sign in</span>
+      ${proxy ? `<div class="card" id="people-proxy-note"><p class="muted" style="margin:0">Sign-in goes through ${esc(proxy)}. Also allow new people's emails there.</p></div>` : ''}
+      <section class="card"><header><h2>People</h2>
         <span class="spacer"></span><button class="primary" type="button" id="people-add">Add a person</button></header>
         <div class="table-scroll"><table class="settings-table settings-people"><thead><tr><th>Person</th><th>Title · team</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-        <p class="muted">Marking someone as left removes them from the chart, ends their API tokens and stops them signing in.</p>
+        <p class="muted">Marking someone as left ends their sign-in and API tokens.</p>
       </section>
-      <section class="card" id="people-domain"><header><h2>Company domain</h2><span class="sub">who counts as a coworker</span></header>
-        <p><strong data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'None'}</strong>
-          <span class="muted">${{allowed: ' · from the allowed domains below', owner: ' · taken from the owner\'s email; set allowed domains below to change it', none: ' · the owner uses a public mail address, so no one counts as a coworker until a domain is set below'}[view.company_domain_source]}</span></p>
-        <p class="muted">A member may add a coworker whose email is at this domain (unless switched off for them); adding anyone else needs an owner or an admin. A new person is put on the roster and the sign-in list, so they can sign in.</p>
-        <div class="onb-actions"><label class="onb-field" style="max-width:260px"><span class="k">Most active bots one member may have</span><input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
-          <button class="ghost" type="button" id="member-bot-limit-save">Save limit</button><span class="spacer"></span><span class="muted" id="member-bot-limit-status"></span></div>
-      </section>
-      <section class="card"><header><h2>Who may join</h2><span class="sub">people not on the roster who sign in for the first time${S.me?.role === 'owner' ? '' : ' · the owner sets this'}</span></header>
-        <div id="people-allow">
-          <label class="onb-field"><span class="k">Allowed emails</span><textarea id="allow-emails" rows="3" placeholder="one per line">${esc(view.allowed.join('\n'))}</textarea></label>
-          <label class="onb-field"><span class="k">Allowed domains</span><textarea id="allow-domains" rows="2" placeholder="company.com">${esc(view.allowed_domains.join('\n'))}</textarea></label>
-          <p class="muted">Anyone at these addresses or domains who signs in is added to the roster as a normal person. Leave both empty to add people by hand only.</p>
-          <div class="onb-actions"><button class="primary" type="button" id="allow-save"${S.me?.role === 'owner' ? '' : ' disabled'}>Save</button><span class="spacer"></span><span class="muted" id="allow-status"></span></div>
-        </div>
+      <section class="card" id="people-signin"><header><h2>Sign-in</h2></header>
+        <label class="onb-field"><span class="k">Who can join</span><textarea id="allow-who" rows="3" placeholder="hotmic.io&#10;ana@company.com"${S.me?.role === 'owner' ? '' : ' disabled'}>${esc([...view.allowed_domains, ...view.allowed].join('\n'))}</textarea>
+          <small>Emails or domains. Empty: add people by hand.</small>
+          <small>Company domain: <span data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'none'}</span></small></label>
+        <label class="onb-field" style="max-width:220px"><span class="k">Bot limit per member</span><input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+        <div class="onb-actions"><button class="primary" type="button" id="signin-save">Save</button><span class="spacer"></span><span class="muted" id="signin-status"></span></div>
       </section>
       <section class="card" id="directory-sync"></section>`;
     window.mountDirectorySync?.($('#directory-sync'), renderSettingsPeople);   // ui/directory-sync.js
@@ -11199,17 +11199,21 @@ async function renderSettingsPeople() {
       const d = peopleDialog('Add a person', `<form>${peopleFormRows()}${actions('Add')}</form>`);
       submit(d, f => post('/v2/access/people', Object.fromEntries(f)), 'Person added');
     };
-    $('#member-bot-limit-save').onclick = async () => {
-      const status = $('#member-bot-limit-status'); status.textContent = 'Saving…';
-      try { await put('/v2/access/limits', {member_bot_limit: Number($('#member-bot-limit').value)}); status.textContent = 'Saved'; }
-      catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
+    // One field holds emails and domains: an entry with no @, or starting *@ or @, is a domain.
+    const splitWho = text => {
+      const emails = [], domains = [];
+      for (const entry of peopleLines(text)) {
+        if (/^\*?@/.test(entry) || !entry.includes('@')) domains.push(entry.replace(/^\*?@/, '').toLowerCase());
+        else emails.push(entry.toLowerCase());
+      }
+      return {allowed: [...new Set(emails)], allowed_domains: [...new Set(domains)]};
     };
-    $('#allow-save').onclick = async () => {
-      const status = $('#allow-status'); status.textContent = 'Saving…';
+    $('#signin-save').onclick = async () => {
+      const status = $('#signin-status'); status.textContent = 'Saving…';
       try {
-        await put('/v2/access/allow', {allowed: peopleLines($('#allow-emails').value),
-          allowed_domains: peopleLines($('#allow-domains').value), expected_revision: view.revision});
-        toast('Who may join saved'); await renderSettingsPeople();
+        if (S.me?.role === 'owner') await put('/v2/access/allow', {...splitWho($('#allow-who').value), expected_revision: view.revision});
+        await put('/v2/access/limits', {member_bot_limit: Number($('#member-bot-limit').value)});
+        toast('Sign-in saved'); await renderSettingsPeople();
       } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
     };
     el.querySelectorAll('[data-person-act]').forEach(button => button.onclick = async () => {
@@ -11219,7 +11223,7 @@ async function renderSettingsPeople() {
         try { await post(path, act === 'admin' ? {role: p.role === 'admin' ? 'member' : 'admin'} : {left: false}); await renderSettingsPeople(); }
         catch (error) { toast(error.message, true); }
       } else if (act === 'edit') {
-        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${peopleCapabilityRows(p)}${p.owner ? '<p class="muted">To change the owner, make someone else the owner first.</p>' : ''}${actions('Save')}</form>`);
+        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${peopleCapabilityRows(p)}${p.owner ? '<p class="muted">Make someone else owner to change this.</p>' : ''}${actions('Save')}</form>`);
         if (p.owner) d.querySelector('[name=email]').readOnly = true;
         submit(d, f => {
           const body = Object.fromEntries([...f].filter(([k]) => !['create_bots', 'add_people'].includes(k)));
@@ -11230,12 +11234,12 @@ async function renderSettingsPeople() {
           return post(path, body);
         }, 'Saved');
       } else if (act === 'left') {
-        const d = peopleDialog('Mark ' + p.name + ' as left?', `<form><p>${esc(p.name)} drops off the org chart, their API tokens stop working and they can no longer sign in. Their history stays.</p>${actions('Mark as left', true)}</form>`);
+        const d = peopleDialog('Mark ' + p.name + ' as left?', `<form><p>Ends their sign-in and API tokens. Their history stays.</p>${actions('Mark as left', true)}</form>`);
         submit(d, () => post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}), p.name + ' marked as left');
       } else if (act === 'owner') {
         const old = view.people.find(q => q.owner);
         const d = peopleDialog('Make ' + p.name + ' the owner?', `<form>
-          <p>${esc(p.name)} (${esc(p.email)}) becomes the owner right away. Only the owner can change people, who may join, providers and ownership, so you will lose those controls${old ? ` as ${esc(old.name)}` : ''}.</p>
+          <p>${esc(p.name)} becomes owner now. You lose the owner's controls.</p>
           <label class="onb-field"><span class="k"><input type="checkbox" name="admin"> Keep ${esc(old?.name || 'the current owner')} as a bot administrator</span></label>
           <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" type="text" autocomplete="off" spellcheck="false"></label>
           ${actions('Transfer ownership', true)}</form>`);

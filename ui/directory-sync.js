@@ -13,22 +13,22 @@ window.mountDirectorySync = async function (host, onChange) {
   } catch (error) { host.innerHTML = `<div class="empty">${text(error.message)}</div>`; return; }
   if (!host.isConnected) return;
   const HELP = {
-    google: 'Create a service account with domain-wide delegation for the read-only scope <code>admin.directory.user.readonly</code> (add <code>admin.directory.group.member.readonly</code> to filter by group), then paste its JSON key and the admin it acts as. Steps are in docs/people.md.',
-    entra: 'Register an app in Microsoft Entra with the application permissions <code>User.Read.All</code> (and <code>GroupMember.Read.All</code> to filter by group), grant admin consent, and create a client secret. Steps are in docs/people.md.',
-    scim: 'Create a token, then give your identity provider the base URL and the token. Turn group provisioning off. Steps for Okta and Entra are in docs/people.md.'};
+    google: 'Service account with domain-wide delegation, scope <code>admin.directory.user.readonly</code> (plus <code>admin.directory.group.member.readonly</code> for groups). Steps: docs/people.md.',
+    entra: 'App with <code>User.Read.All</code> (plus <code>GroupMember.Read.All</code> for groups), admin consent, and a client secret. Steps: docs/people.md.',
+    scim: 'Give your identity provider the base URL and a token. Turn group provisioning off. Steps: docs/people.md.'};
   const last = view.last?.at
     ? `Last sync ${text(new Date(view.last.at).toLocaleString())}: ${view.last.ok === false ? `failed, ${text(view.last.error)}` : view.last.held ? 'held for your confirmation' : 'ok'}`
     : 'Never synced';
   const saved = view.credentials[view.source];
   host.innerHTML = `
-    <header><h2>Directory sync</h2><span class="sub">add and remove people from your company directory</span></header>
+    <header><h2>Directory sync</h2></header>
     <form data-ds-form style="display:grid;gap:10px;max-width:560px">
       <label>Source <select name="source">
-        <option value="">None: add people by hand</option><option value="google">Google Workspace</option>
+        <option value="">None</option><option value="google">Google Workspace</option>
         <option value="entra">Microsoft Entra ID</option><option value="scim">SCIM (Okta, Entra provisioning, JumpCloud)</option></select></label>
       <p class="muted" data-ds-help></p>
       <div data-ds-creds="google" hidden>
-        <label>Service account JSON key <textarea name="service_account_json" rows="3" autocomplete="off" spellcheck="false" placeholder="${saved?.configured ? 'Saved. Paste a new key to replace it.' : '{ &quot;type&quot;: &quot;service_account&quot;, ... }'}"></textarea></label>
+        <label>Service account key <textarea name="service_account_json" rows="3" autocomplete="off" spellcheck="false" placeholder="${saved?.configured ? 'Saved. Paste a new key to replace it.' : '{ &quot;type&quot;: &quot;service_account&quot;, ... }'}"></textarea></label>
         <label>Admin to act as <input name="admin_email" type="email" autocomplete="email" spellcheck="false" placeholder="admin@company.com"></label>
       </div>
       <div data-ds-creds="entra" hidden>
@@ -43,14 +43,14 @@ window.mountDirectorySync = async function (host, onChange) {
         <label>Only these email domains <textarea name="domains" rows="2" spellcheck="false" placeholder="company.com">${text(view.filter.domains.join('\n'))}</textarea></label>
         <label>Sync every <select name="interval_minutes"><option value="0">Only when I press Sync now</option><option value="60">hour</option><option value="360">6 hours</option><option value="1440">day</option></select></label>
       </div>
-      <label>Ask me first when a sync would mark more than <input name="mass_leave_limit" type="number" inputmode="numeric" min="0" max="10000" style="width:80px" value="${text(view.mass_leave_limit)}"> people as left</label>
-      <p class="muted">Everyone synced can sign in, so keep the filter to the people who should use this app. People you added by hand are never removed by a sync, and the owner is never marked left.</p>
+      <label>Confirm when a sync would mark more than <input name="mass_leave_limit" type="number" inputmode="numeric" min="0" max="10000" style="width:80px" value="${text(view.mass_leave_limit)}"> people as left</label>
+      <p class="muted">Everyone synced can sign in. Hand-added people and the owner are never removed.</p>
       <div class="row"><button class="primary" type="submit">Save</button>
         <button class="ghost" type="button" data-ds-now>Sync now</button></div>
     </form>
     <div data-ds-scim hidden style="margin-top:10px">
       <p>Base URL <code>${text(view.scim.url)}</code></p>
-      <p class="muted">${view.scim.enabled ? `Token created ${text(new Date(view.scim.created).toLocaleString())}. It is shown once; make a new one to replace it.` : 'No token yet.'}</p>
+      <p class="muted">${view.scim.enabled ? `Token created ${text(new Date(view.scim.created).toLocaleString())}. Shown once.` : 'No token yet.'}</p>
       <button class="ghost" type="button" data-ds-token>${view.scim.enabled ? 'Replace token' : 'Create token'}</button>
       <p data-ds-token-out></p>
     </div>
@@ -116,7 +116,7 @@ window.mountDirectorySync = async function (host, onChange) {
         ${list('Mark as left', p.leaves, r => `${text(r.name || r.email)} <span class="muted">${text(r.email)}: ${text(r.reason)}</span>`)}
         ${list('Protected', p.protected, r => `${text(r.email)} <span class="muted">${text(r.reason)}</span>`)}
         ${list('Skipped', p.skipped, r => `${text(r.email)} <span class="muted">${text(r.reason)}</span>`)}
-        ${need.first ? '<p class="muted">This is the first sync, so it needs your confirmation.</p>' : ''}
+        ${need.first ? '<p class="muted">The first sync needs your confirmation.</p>' : ''}
         ${need.mass_leave ? `<p class="err">This would mark more than ${text(preview.mass_leave_limit)} people as left. Check the list before you confirm.</p>` : ''}
         ${needs ? '<label><input type="checkbox" data-ds-confirm> I have reviewed this list and want to apply it</label>' : ''}
         <div class="row"><button class="primary" type="button" data-ds-apply ${any ? '' : 'disabled'}>${any ? 'Apply' : 'Nothing to apply'}</button></div></div>`;

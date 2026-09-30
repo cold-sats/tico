@@ -136,7 +136,7 @@ function gsCard() {
 // One row per link: the address, and what is in it. Kind is detected from the address (backend/docs.py).
 const gsLinkRow = () => `<div class="gs-link-row" data-gs-link-row>
     <label class="gs-field"><span>Link</span><input name="url" type="url" maxlength="2000" autocomplete="off" inputmode="url" spellcheck="false" placeholder="https://drive.google.com/drive/folders/…"></label>
-    <label class="gs-field"><span>What is in it? (optional)</span><input name="description" type="text" maxlength="300" autocomplete="off" placeholder="Help centre articles"></label>
+    <label class="gs-field"><span>Description (optional)</span><input name="description" type="text" maxlength="300" autocomplete="off" placeholder="Help centre articles"></label>
     <small class="gs-kind muted" data-gs-kind aria-live="polite"></small></div>`;
 
 function gsDocsForm() {
