@@ -58,6 +58,9 @@ All notable changes to Tico are recorded here. The format follows
   for a chooser to read. A test checks every starter for them.
 - A catalog template's `schedules:` entry may say `enabled: false`: `hub bot create` and first-run setup then seed the
   routine paused, and the bot arms it after a person approves its first result.
+- **BotOps starts with a goal.** "Keep the bots running smoothly": help people and bots create new bots and edit existing ones so they
+  run smoothly, and watch for bot issues and resolve them. It is BotOps's own goal with no parent, set by the keeper (the actor the seeded
+  goals use) when BotOps is set up, and once on start for a company that already has BotOps and no goal for it. Deleting it keeps it gone.
 
 ### Changed
 - First run has seven steps (names, about, what hurts and what you use, your team, a computer, your agent, review) and finishes with **Create
@@ -71,6 +74,13 @@ All notable changes to Tico are recorded here. The format follows
   pain phrase used twice) instead of a list of six.
 - The Mail Drafts (`inbox`) template now starts with one paused morning brief instead of three weekday passes and a weekend pass,
   reads only its own mailbox (no `org_read`), and does not label or archive until the person turns filing on.
+- **The Goals page is simpler.** Company goals come first and only when there are some (the owner adds one with **+ Company goal**), then
+  each person and bot that has goals in org-chart order, each goal with its status, progress and a "supports" chip when it is linked.
+  Tapping a goal opens one form: Goal, an optional **Supports** select (Nothing by default) and Save; **+ Goal** makes a new one for
+  anyone you may set goals for. It works on a phone and in both themes.
+- **The org panel shows a bot's harness as a small icon.** Where it said "Codex" or "Claude" beside a bot's name there is now the
+  OpenAI, Anthropic, Google, xAI, Cursor or OpenRouter mark, muted and about 13px, with "Runs on Codex" as its title and label. The
+  name truncates before the mark, and a bot with no harness shows nothing. The same mark sits beside the name on a bot's page.
 
 ### Fixed
 - **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched
@@ -79,6 +89,13 @@ All notable changes to Tico are recorded here. The format follows
   each entry into `allowed` or `allowed_domains` (the stored shape is unchanged) and refuses, naming the entry, anything that could
   never match (`a*@company.com`, a malformed address) and a public mail domain such as gmail.com, which would let anyone with such an
   account join.
+- **A bot's own goal is no longer shown as the company goal.** The Goals page treated every goal with no parent as a company goal, so a
+  goal a bot set for itself sat under the company's name, and bots were told to ask a person for a parent goal. A goal's level now comes
+  from its owner (`company`, a person or a bot), and a goal needs no parent: a person or a bot sets its own with none, and it is simply
+  not linked. `hub goal create --owner me --title "..."` works with no `--parent`; only `--owner company` is the owner's. Goals that
+  were company goals before (a person's goal with no parent and goals under it) become company goals owned by `company` on upgrade.
+- **The bot page's update history icon matches the Updates icon** in the left rail, and the Recurring card no longer has an icon the
+  other cards lack.
 
 ### Security
 - A bot may invite only people on the company roster to a calendar event (`hub calendar schedule`); an invitation to any other address is
@@ -87,6 +104,7 @@ All notable changes to Tico are recorded here. The format follows
   issues, so its access is now read-only and its harness settings deny `gh issue edit` and `gh issue comment`. It proposes, with the exact
   commands on the task, and a person runs them until the owner turns writing on. The audit of what each starter can send is in
   [Starter bots](docs/starter-bots.md#what-stops-a-starter-sending-things-outside-the-company).
+
 
 ## [0.2.13] - 2026-09-29
 

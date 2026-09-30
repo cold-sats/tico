@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import yaml
 
+from . import goals as G
 from . import models as M
 from . import providers
 from . import releases, replication, runner_versions
@@ -613,6 +614,8 @@ class Onboarding:
                 self._setup_task(c, who, slug, choice, card, record["answers"])
             if card.get("bootstrap"):
                 self._seed_routines(c, who, slug, choice["template"])
+            if slug == BOTOPS:
+                G.ensure_botops_goal(c)
         for slug, parent in parents.items():
             row = c.execute("SELECT revision,reports_to FROM bot_config WHERE bot=?", (slug,)).fetchone()
             if row["reports_to"] != parent:

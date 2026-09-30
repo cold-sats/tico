@@ -165,11 +165,12 @@ body.native #rail{display:block}
 .person-mail-link{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;margin-left:2px;border-radius:6px;color:var(--muted);font-family:"Material Symbols Outlined";font-size:19px;text-decoration:none}
 .person-mail-link:hover,.person-mail-link.cur{background:var(--surface2);color:var(--accent);text-decoration:none}
 .tree .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Which harness runs a bot: a whisper beside the name. The name keeps its width; this yields first. */
-.rt{flex:0 100 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px;font-weight:400;line-height:1;margin-left:2px}
+/* Which harness runs a bot: a small muted mark beside the name. The name truncates before the mark does. */
+.rt{flex:none;display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;margin-left:3px;color:var(--muted);opacity:.8}
+.rt svg{width:100%;height:100%;display:block}
+.rt .tool-initials{font-size:8px;font-weight:600;line-height:1;letter-spacing:0}
 .tree a.node .nm{flex:0 1 auto}
-.botid h1 .rt{margin-left:8px;vertical-align:middle}
-@media (max-width:520px){.tree .rt{display:none}}
+.botid h1 .rt{width:16px;height:16px;margin-left:8px;vertical-align:middle}
 .tree .cnt{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;background:var(--surface2);padding:0 6px;border-radius:9px}
 .tree .cnt.needs{color:var(--wait);background:var(--wait-bg);font-weight:600;border:1px solid color-mix(in srgb,var(--wait) 35%,transparent);min-width:18px;height:18px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
 .tree-alert{margin-left:auto;margin-right:2px;flex:none;width:16px;height:16px;border-radius:50%;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;line-height:1;color:var(--wait);background:var(--wait-bg);border:1px solid color-mix(in srgb,var(--wait) 35%,transparent)}
@@ -1232,7 +1233,6 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .bot-back{display:inline-block;margin:0 0 var(--s3);font-size:13px}
 .bot-recurring>header{display:flex;align-items:center;gap:8px;margin-bottom:var(--s2)}
 .bot-recurring>header .linkish{margin-left:auto;font-size:12.5px;text-decoration:none}
-.bot-recurring-ic{font-size:16px;width:16px;height:16px;opacity:.7}
 .bot-recurring-list{list-style:none;margin:0;padding:0}
 .bot-recurring-list li{display:flex;align-items:center;gap:var(--s3);padding:7px 0;border-top:1px solid var(--line);font-size:13px}
 .bot-recurring-list li:first-child{border-top:0}
@@ -1547,30 +1547,46 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .plain-message{white-space:pre-wrap;overflow-wrap:anywhere}
 .chat-time{font-size:10.5px;color:var(--muted);padding:0 4px}
 .p-hint{padding:0 4px 7px;font-size:12.5px}
-/* goals: every node on the org chart says what it is for */
-.goal-org{display:flex;flex-direction:column;gap:2px;font-size:12.5px}
-.goal-col{display:flex;flex-direction:column;gap:2px}
-.goal-kids{margin-left:14px;padding-left:10px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
-.goal-group{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 6px 2px}
-.goal-node{display:grid;grid-template-columns:40px minmax(140px,190px) 1fr;gap:8px;align-items:start;padding:3px 6px;border-radius:5px}
-.goal-node:hover{background:var(--surface2)}
-.goal-node.company{background:var(--surface2);padding:6px;margin-bottom:6px}
-.goal-node.company .goal-node-name{font-size:13.5px}
-.goal-node .goal-node-name{font-weight:500;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.goal-node .goal-node-name a{color:inherit}
-.goal-node .goal-node-sub{display:block;font-size:11px;font-weight:400;color:var(--muted);line-height:14px;margin-top:-3px}
+/* goals: company goals, then each person and bot that has goals */
+.goal-team{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:var(--s4) 2px var(--s2)}
+.goal-card{margin-bottom:var(--s3)}
+.goal-card>header{margin-bottom:var(--s1)}
+.goal-who{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.goal-who a{color:inherit}
+.goal-rows{list-style:none;margin:0;padding:0}
+.goal-row{display:flex;align-items:baseline;gap:4px 12px;padding:9px 6px;margin:0 -6px;border-top:1px solid var(--line);border-radius:6px;cursor:pointer;line-height:1.35;font-size:14px}
+.goal-row:first-child{border-top:0}
+.goal-row:hover{background:var(--surface2)}
+.goal-title{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.goal-meta{display:inline-flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;justify-content:flex-end}
+.goal-prog{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.goal-chip{font-size:11.5px;color:var(--muted);background:var(--surface2);border-radius:10px;padding:1px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goal-row:hover .goal-chip{background:var(--bg)}
+li.goal-open{padding:10px 0;border-top:1px solid var(--line)}li.goal-open:first-child{border-top:0}
+.goal-form{display:grid;gap:var(--s3);max-width:640px}
+.goal-fs{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3)}
+.goal-f{display:grid;gap:4px;min-width:0}
+.goal-f>span{font-size:12px;color:var(--muted)}
+.goal-f input,.goal-f select{box-sizing:border-box;width:100%;height:36px;padding:0 9px;font-size:14px;text-overflow:ellipsis}
+.goal-f input[readonly]{color:var(--muted)}
+.goal-actions{display:flex;align-items:center;gap:var(--s2)}
+.goal-actions .spacer{flex:1}
+.goal-actions button{height:36px;padding-top:0;padding-bottom:0}
+@media (max-width:760px){
+  .goal-fs{grid-template-columns:1fr}
+  .goal-row{flex-wrap:wrap;padding:12px 6px}
+  .goal-meta{flex-basis:100%;justify-content:flex-start;flex-wrap:wrap}
+  .goal-chip{max-width:100%}
+  .goal-f input,.goal-f select{height:44px;font-size:16px}
+  .goal-actions button{height:44px}
+  .goal-actions .primary{flex:1}
+}
+/* the bot page's Goals card: a goal edited in place */
 .goal-lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px;min-width:0}
 .goal-lines li{display:flex;align-items:center;gap:7px;line-height:20px;cursor:pointer;border-radius:4px;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .goal-lines li:hover{background:var(--surface)}
 .goal-lines li>span:last-child{overflow:hidden;text-overflow:ellipsis}
-.goal-lines .goal-standing a{min-width:0;overflow:hidden;text-overflow:ellipsis;color:inherit}
-.goal-lines .goal-none{color:var(--muted);cursor:default;font-size:11.5px}
 .head-goals{margin-top:6px;font-size:13px}.head-goals:empty{display:none}.head-goals li{padding-left:0}.head-goals li:hover{background:var(--surface2)}
-.goal-lines .goal-none:hover{background:none}
-/* one goal, edited in place */
-.goal-lines li.goal-add{color:var(--muted);font-size:11.5px}.goal-lines li.goal-add:hover{color:var(--ink)}
-.goal-lines li.goal-open,.goal-lines li.goal-adding{display:block;white-space:normal;overflow:visible;cursor:default;background:var(--surface);padding:4px 6px;margin:2px 0}
-.goal-lines li.goal-open:hover,.goal-lines li.goal-adding:hover{background:var(--surface)}
 .goal-ed-row{display:flex;align-items:center;gap:4px}
 input.goal-ed-text{flex:1;min-width:0;width:100%;font:inherit;color:var(--ink);background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;margin-left:-6px}
 input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-text:focus{outline:none;border-color:var(--accent);background:var(--bg)}
@@ -1581,32 +1597,8 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .goal-ed-change{display:block;width:100%;text-align:left;border:0;background:none;padding:2px 0;font:inherit;font-size:11.5px;color:var(--muted);cursor:pointer}
 .goal-ed-change u{text-underline-offset:2px}
 @media (max-width:760px){.goal-ed-change{padding:10px 0;font-size:14px}.goal-ed-pick{font-size:16px;width:100%;min-height:40px}}
-.goal-ed-kids{display:flex;flex-direction:column;gap:1px;margin-top:6px;font-size:12px}
-.goal-ed-kids>span{font-size:11px;color:var(--muted)}.goal-ed-kids a{color:var(--ink)}
-.goal-group{display:flex;align-items:center;gap:4px}
-.goal-node-av{display:flex;align-items:center;justify-content:flex-end;gap:2px}
-.goal-fold{flex:none;width:18px;height:20px;padding:0;border:0;background:none;color:var(--muted);font-size:11px;line-height:20px;cursor:pointer;border-radius:4px}
-.goal-fold:hover{color:var(--ink);background:var(--surface2)}
-.goal-folded-sum{color:var(--muted);font-size:11.5px;line-height:20px;cursor:pointer}
-@media (max-width:760px){.goal-node{grid-template-columns:auto 1fr}.goal-node .goal-lines,.goal-node .goal-folded-sum{grid-column:2}.goal-kids{margin-left:6px;padding-left:8px}
-  /* Goals were hard to tap on a phone. Taller rows, more room between them. */
-  .goal-org,.goal-col,.goal-kids{gap:8px}
-  .goal-node{padding:8px 6px}
-  .goal-node .goal-node-name{font-size:15px;line-height:28px}
-  .goal-lines{gap:6px}
-  .goal-lines li{min-height:40px;line-height:20px;font-size:14.5px;padding:8px 8px;white-space:normal}
-  .goal-lines li.goal-add,.goal-lines .goal-none{min-height:36px;font-size:13.5px}
-  .goal-group{padding:10px 6px 4px;font-size:12px}
-  .goal-fold{width:32px;height:32px;font-size:14px;line-height:32px}
-  .goal-folded-sum{line-height:28px;font-size:13px}
-}
-.goal-form{display:grid;gap:8px;margin-top:8px}
-.goal-form .r{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
-.goal-events{font-size:12.5px;color:var(--muted);display:grid;gap:4px}
-.goal-events b{color:var(--ink);font-weight:500}
-.goal-tasks a{display:block;font-size:13px;padding:4px 0}
-.goal-unread{font-size:11px;color:var(--wait)}
-@media (max-width:640px){.kpi-spark{display:none}}
+.goal-ed-kids{display:flex;flex-direction:column;gap:1px;font-size:12.5px}
+.goal-ed-kids>span{font-size:12px;color:var(--muted)}.goal-ed-kids a{color:var(--ink)}
 /* tasks card */
 .tasks>header{align-items:center}
 .tasks>header .sub{margin-left:auto}
@@ -3114,17 +3106,20 @@ const isTempBot = e => !!e?.temp || TEMP_RE.test(e?.display_name || '');
 const shownName = e => isTempBot(e)
   ? `<span class="proj" title="temporary: expected to end">\u2691</span>${esc(e.display_name.replace(TEMP_RE, ''))}`
   : esc(e.display_name || '');
-// The harness a bot runs on, in plain words, as a muted tag beside its name. One rule: the
-// harness (runtime), never the provider or model; the model rides in the tooltip. No runtime, no tag.
-const RUNTIME_LABELS = {codex: 'Codex', claude: 'Claude', gemini: 'Gemini', antigravity: 'Antigravity', grok: 'Grok',
-  pi: 'OpenRouter', openrouter: 'OpenRouter', hermes: 'Hermes', grokbot: 'Grok Bot', 'grok-bot': 'Grok Bot'};
+// The harness a bot runs on, as a small muted mark beside its name (ui/tool-icons.js). One rule: the
+// harness (runtime), never the provider or model; the model rides in the tooltip. No runtime, nothing shown.
+const RUNTIME_LABELS = {codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini', antigravity: 'Antigravity', grok: 'Grok',
+  cursor: 'Cursor', pi: 'OpenRouter', openrouter: 'OpenRouter', hermes: 'Hermes', grokbot: 'Grok Bot', 'grok-bot': 'Grok Bot'};
+const RUNTIME_MARKS = {codex: 'openai', claude: 'anthropic', gemini: 'google', antigravity: 'google', grok: 'xai',
+  grokbot: 'xai', 'grok-bot': 'xai', cursor: 'cursor', pi: 'openrouter', openrouter: 'openrouter'};
 function runtimeTag(e) {
   const raw = String(e?.harness || e?.resolved_runtime || e?.runtime || '').trim().toLowerCase();
   if (!raw) return '';
   const label = RUNTIME_LABELS[raw] || raw.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const model = e.resolved_model || e.model || '';
   const source = !model ? '' : e.model_source === 'company' ? ' (company default)' : e.model_source === 'bot' ? " (this bot's own choice)" : '';
-  return `<span class="rt" aria-hidden="true" title="${esc(label + (model ? ' \u00b7 ' + model : '') + source)}">${esc(label)}</span>`;
+  const mark = window.toolIcons?.markup({logo_key: RUNTIME_MARKS[raw], name: label}) || '';
+  return `<span class="rt" role="img" aria-label="Runs on ${esc(label)}" title="${esc('Runs on ' + label + (model ? ' \u00b7 ' + model : '') + source)}">${mark}</span>`;
 }
 // A bot's `order` (its definition, Settings or registry) puts a pipeline in sequence without
 // numbering the names: siblings with an order come first, lowest first; the rest keep A-Z.
@@ -6463,7 +6458,7 @@ function botGoalAdd(slug) {
   const host = $('#bot-goal-adding');
   if (!host) return;
   host.hidden = false; $('#bot-goals-none')?.remove();
-  goalOptions().then(goals => goalAddInline(host, 'bot:' + slug, goals, () => botGoalsCardLoad(slug)));
+  goalAddInline(host, 'bot:' + slug, () => botGoalsCardLoad(slug));
 }
 function botGoalRender(slug, g, count) {
   const el = $('#bot-goal');
@@ -6477,9 +6472,8 @@ function botGoalRender(slug, g, count) {
     el.innerHTML = `<span class="muted">No goal</span> · <a href="#" class="bot-goal-set" id="bot-goal-set">Set goal</a>`;
     $('#bot-goal-set').onclick = async e => {
       e.preventDefault();
-      const goals = await goalOptions();
       el.innerHTML = '<span class="bot-goal-new"></span>';
-      goalAddInline(el.firstChild, 'bot:' + slug, goals, () => botGoalLoad(slug));
+      goalAddInline(el.firstChild, 'bot:' + slug, () => botGoalLoad(slug));
     };
     return;
   }
@@ -6503,7 +6497,7 @@ function botRecurringHTML(e, slug) {
     : !r.active ? '<span class="pill">not armed</span>'
     : r.on ? '<span class="muted">on event</span>'
     : r.next ? `<span class="tnum" title="${esc(fmt(r.next))}">${esc(until(r.next))}</span>` : '<span class="muted">—</span>';
-  return `<header><h2>Recurring</h2>${rows.length ? '<span class="nav-icon bot-recurring-ic" aria-hidden="true">repeat</span>' : ''}<a class="linkish" href="#/bot/${encodeURIComponent(slug)}/more">Manage</a></header>
+  return `<header><h2>Recurring</h2><a class="linkish" href="#/bot/${encodeURIComponent(slug)}/more">Manage</a></header>
     ${rows.length ? `<ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}" data-routine="${esc(r.id || r.title)}">
         <span class="bot-recurring-what"><span class="ttl">${esc(r.title)}</span><span class="when">${esc(words(r))}</span></span>
         <span class="bot-recurring-next">${next(r)}</span></li>`).join('')}</ul>`
@@ -6620,7 +6614,7 @@ async function pageBot(slug, tab) {
         return `<button type="button" data-bt="${t}" role="tab" aria-label="${label}" title="${label}"><span class="nav-icon bt-icon" aria-hidden="true">${BOT_TAB_ICONS[t] || 'more_horiz'}</span><span class="bt-label">${label}</span></button>`; }).join('')}
     </div>
     ${limited ? '' : '<section class="bot-goal" id="bot-goal" aria-label="Goal"><span class="muted">Loading the goal…</span></section>'}
-    ${isKeeper(slug) && !limited ? `<a class="ghost bot-more-btn bot-history-btn" id="bot-history-btn" href="${base}/history" aria-label="Update history" title="Update history"><span class="nav-icon" aria-hidden="true">history</span></a>` : ''}
+    ${isKeeper(slug) && !limited ? `<a class="ghost bot-more-btn bot-history-btn" id="bot-history-btn" href="${base}/history" aria-label="Update history" title="Update history"><span class="nav-icon" aria-hidden="true">dynamic_feed</span></a>` : ''}
     <a class="ghost bot-more-btn" id="bot-more-btn" href="${base}/more" aria-label="More" title="More"><span class="nav-icon" aria-hidden="true">more_vert</span></a>
   </div>
   <div id="bot-onboard-host">${frBotBannerHTML(e)}</div>
@@ -11972,19 +11966,16 @@ async function botUpdatesCardLoad(slug) {
 }
 
 // ----------------------------------------------------------------- goals
-// A goal is one line of plain English, edited in place. The page is the org
-// chart with each person's and bot's icon, name and goals; tap a goal to edit it, see the goal it
-// supports (the link icon changes that) and the goals that support it. No colour, measures,
-// description or history on the page. A bot reads its own with `hub goals`; nothing here is
-// pushed into a run.
+// The Goals page lists company goals first (only when there are some), then each person and bot
+// that has goals, in org-chart order. A goal's level comes from its owner: `company`, a person or a
+// bot. Its parent is optional ("Supports"); a goal with none is simply not linked. Tap a goal to
+// edit it. A bot reads its own with `hub goals`; nothing here is pushed into a run.
 let GOALS_ST = null;
-function goalState(g) { return g.status || 'proposed'; }
-function goalStatusLabel(g) {
-  return {green: 'Green', yellow: 'Yellow', red: 'Red', done: 'Done', dropped: 'Dropped'}[g.status] || 'Proposed';
-}
 const goalLive = g => !['done', 'dropped'].includes(g.status);
 const goalRank = (a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9);
+const GOAL_COMPANY = 'company';
 function goalOwnerInfo(actor) {
+  if (actor === GOAL_COMPANY) return {kind: 'company', id: GOAL_COMPANY, name: S.config?.company_name || 'Company', avatar: '', href: ''};
   const [kind, id] = String(actor || '').split(':');
   if (kind === 'bot') {
     const e = S.emps.find(x => x.name === id);
@@ -11993,73 +11984,57 @@ function goalOwnerInfo(actor) {
   const p = (S.people || []).find(x => x.id === id);
   return {kind: 'person', id, name: p?.name || id, avatar: personAvatar(p || {id, name: id}, 20), href: `#/person/${encodeURIComponent(id)}`};
 }
-// Mirrors the hub's rule: the goal's owner, the owner of the goal it supports, or the owner.
-function goalMayEdit(g, goals = []) {
-  if (S.me?.role === 'owner') return true;
-  const me = mePerson(), actor = me ? 'human:' + me.id : '';
-  const parent = goals.find(x => x.id === g.parent_id);
-  return Boolean(actor && (g.owner === actor || parent?.owner === actor));
-}
-// A new goal supports the first goal of the nearest person or bot above its owner on the org
-// chart, else the first company goal; the link icon changes it. Only the owner writes a
-// company goal, so everyone else's goal needs something to support.
-function goalDefaultParent(owner, goals) {
-  const live = goals.filter(goalLive), up = {};
-  for (const [parent, kids] of Object.entries(orgTreeByParent())) for (const n of kids)
-    up[n.kind === 'group' ? 'g:' + n.id : n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name] = parent;
-  const [kind, id] = String(owner || '').split(':');
-  let key = up[(kind === 'bot' ? 'b:' : 'p:') + id];
-  for (let hops = 0; key && hops < 20; hops++, key = up[key]) {
-    const actor = key.startsWith('p:') ? 'human:' + key.slice(2) : key.startsWith('b:') ? 'bot:' + key.slice(2) : '';
-    const g = actor && live.filter(x => x.owner === actor).sort(goalRank)[0];
-    if (g) return g.id;
-  }
-  return live.filter(g => !g.parent_id).sort(goalRank)[0]?.id || '';
-}
-// The goal it supports, not itself or anything under it (that would be a loop).
 // Where an owner sits on the org chart: its node key and the chain of keys above it.
 function goalOrgPlace(owner) {
   const up = {};
-  const by = orgTreeByParent();
-  for (const [parent, kids] of Object.entries(by)) for (const n of kids)
+  for (const [parent, kids] of Object.entries(orgTreeByParent())) for (const n of kids)
     up[n.kind === 'group' ? 'g:' + n.id : n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name] = parent;
   const key = String(owner || '').startsWith('human:') ? 'p:' + owner.slice(6) : String(owner || '').startsWith('bot:') ? 'b:' + owner.slice(4) : '';
   const above = new Set();
   for (let at = up[key]; at && !above.has(at); at = up[at]) above.add(at);
   return {key, parent: up[key] || '', above};
 }
-// A goal supports one above its owner on the org chart, or one alongside it
-// (same place on the chart). Never one of its own supporters (that would loop).
-function goalLinkOptions(g, goals) {
-  const below = new Set([g.id]);
-  for (let grew = true; grew;) {
+// Mirrors the hub's rule: the goal's owner, the owner of the goal it supports, or anyone above the
+// owner on the org chart; the environment's owner edits every goal.
+function goalMayEdit(g, goals = []) {
+  if (S.me?.role === 'owner') return true;
+  const me = mePerson(), actor = me ? 'human:' + me.id : '';
+  if (!actor) return false;
+  const parent = goals.find(x => x.id === g.parent_id);
+  return g.owner === actor || parent?.owner === actor || goalOrgPlace(g.owner).above.has('p:' + me.id);
+}
+// The options of a "Supports" select: Nothing first (a goal needs no parent), then company goals,
+// goals above the owner on the org chart, and goals alongside it. Never the goal itself or anything
+// under it (that would loop).
+function goalSupportOptions(g, owner, goals) {
+  const below = new Set(g.id ? [g.id] : []);
+  for (let grew = Boolean(g.id); grew;) {
     grew = false;
     for (const x of goals) if (x.parent_id && below.has(x.parent_id) && !below.has(x.id)) { below.add(x.id); grew = true; }
   }
-  const me = goalOrgPlace(g.owner);
-  const rows = {above: [], alongside: []};
+  const me = goalOrgPlace(owner);
+  const rows = {company: [], above: [], alongside: []};
   for (const x of goals) {
     if (!goalLive(x) || below.has(x.id)) continue;
     const them = goalOrgPlace(x.owner);
-    const where = !x.parent_id || me.above.has(them.key) ? 'above'
-      : them.key === me.key || (them.parent && them.parent === me.parent) ? 'alongside' : '';
+    const where = x.owner === GOAL_COMPANY ? 'company' : me.above.has(them.key) ? 'above'
+      : them.key && (them.key === me.key || (them.parent && them.parent === me.parent)) ? 'alongside' : '';
     if (where || x.id === g.parent_id) rows[where || 'above'].push(x);
   }
-  const option = x => `<option value="${esc(x.id)}"${x.id === g.parent_id ? ' selected' : ''}>${esc(x.title)} · ${esc(goalOwnerInfo(x.owner).name)}</option>`;
+  const option = x => `<option value="${esc(x.id)}"${x.id === g.parent_id ? ' selected' : ''}>${esc(x.title)}${x.owner === GOAL_COMPANY ? '' : ' · ' + esc(goalOwnerInfo(x.owner).name)}</option>`;
   const group = (label, list) => list.length ? `<optgroup label="${label}">${list.sort(goalRank).map(option).join('')}</optgroup>` : '';
-  const none = S.me?.role === 'owner' || !g.parent_id
-    ? `<option value=""${g.parent_id ? '' : ' selected'}>Nothing: a company goal</option>` : '';
-  return none + group('Above on the org chart', rows.above) + group('Alongside', rows.alongside);
+  return `<option value=""${g.parent_id ? '' : ' selected'}>Nothing</option>`
+    + group('Company', rows.company) + group('Above on the org chart', rows.above) + group('Alongside', rows.alongside);
 }
-// One goal, editable in place: the words, the link icon, and what it supports.
+const goalLinkOptions = (g, goals) => goalSupportOptions(g, g.owner, goals);
+// One goal, editable in place (the bot page's Goals card): the words, and what it supports.
 function goalEditorHtml(g, goals) {
   const may = goalMayEdit(g, goals), parent = goals.find(x => x.id === g.parent_id);
   return `<div class="goal-ed" data-goal-ed="${esc(g.id)}">
       <div class="goal-ed-row"><input class="goal-ed-text" type="text" maxlength="300" value="${esc(g.title)}" aria-label="Goal"${may ? '' : ' readonly'}>
-        ${may ? `<button class="ghost goal-ed-link" type="button" title="Link to the goal this supports" aria-label="Link to the goal this supports"><span class="nav-icon" aria-hidden="true">link</span></button>` : ''}</div>
-      ${may ? `<button type="button" class="goal-ed-supports goal-ed-change" aria-label="Change the goal this supports">${parent ? `Supports <u>${esc(parent.title)}</u>` : 'A company goal · <u>link it to a goal</u>'}</button>`
-        : `<div class="goal-ed-supports">${parent ? `Supports <a href="${GOALS}/${encodeURIComponent(parent.id)}" data-goal-go="${esc(parent.id)}">${esc(parent.title)}</a>`
-        : g.parent_id ? '' : 'A company goal'}</div>`}
+        ${may ? `<button class="ghost goal-ed-link" type="button" title="Change the goal this supports" aria-label="Change the goal this supports"><span class="nav-icon" aria-hidden="true">link</span></button>` : ''}</div>
+      ${may ? `<button type="button" class="goal-ed-supports goal-ed-change" aria-label="Change the goal this supports">Supports <u>${esc(parent ? parent.title : 'nothing')}</u></button>`
+        : parent ? `<div class="goal-ed-supports">Supports <a href="${GOALS}/${encodeURIComponent(parent.id)}" data-goal-go="${esc(parent.id)}">${esc(parent.title)}</a></div>` : ''}
       ${may ? `<select class="goal-ed-pick" hidden aria-label="The goal this supports">${goalLinkOptions(g, goals)}</select>` : ''}
     </div>`;
 }
@@ -12097,8 +12072,8 @@ function bindGoalEditor(el, g, done) {
     } catch (e) { toast(e.message || 'Could not link the goal', true); }
   };
 }
-// "Add goal" becomes an empty line; Enter or leaving it with words saves it.
-function goalAddInline(host, owner, goals, done, {company = false} = {}) {
+// "Add goal" becomes an empty line; Enter or leaving it with words saves it. No parent: it is simply not linked.
+function goalAddInline(host, owner, done) {
   host.innerHTML = `<input class="goal-ed-text goal-add-text" type="text" maxlength="300" aria-label="New goal" placeholder="Plain English: what they are going for">`;
   const input = host.querySelector('input');
   input.focus();
@@ -12113,17 +12088,86 @@ function goalAddInline(host, owner, goals, done, {company = false} = {}) {
     if (!title) { done?.(null); return; }
     saving = true;
     try {
-      const parent = company ? '' : goalDefaultParent(owner, goals);
-      const out = await post('/v2/goals', {title, owner: company ? 'me' : owner, parent_id: parent || null});
+      const out = await post('/v2/goals', {title, owner});
       await goalsRefresh();
       done?.(out.goal);
     } catch (e) { toast(e.message || 'Could not add the goal', true); saving = false; input.focus(); }
   };
 }
+
+// The Goals page's editor: one form for a new goal and an existing one. Goal, Owner (new goals),
+// Supports (optional, Nothing by default) and one Save.
+const GOAL_STATUS_PILL = {green: ['ok', 'On track'], yellow: ['waiting', 'At risk'], red: ['fail', 'Off track']};
+function goalProgress(g) {
+  const k = (g.kpis || []).find(x => x.latest && x.latest.value != null);
+  if (!k) return '';
+  const n = v => Number(v).toLocaleString(undefined, {maximumFractionDigits: 1});
+  return `${n(k.latest.value)}${k.target != null ? ' / ' + n(k.target) : ''}${k.unit ? ' ' + k.unit : ''}`;
+}
+function goalOwnerChoices(mine) {
+  if (S.me?.role !== 'owner') return mine ? [[mine, 'Me']] : [];
+  return [...(S.people || []).filter(p => !p.hidden).map(p => ['human:' + p.id, p.name || p.id]),
+          ...shownEmps().map(e => ['bot:' + e.name, e.display_name || e.name])];
+}
+function goalFormHtml(g, goals, {owner = '', company = false} = {}) {
+  company = company || g.owner === GOAL_COMPANY;      // a company goal supports nothing
+  const may = !g.id || goalMayEdit(g, goals);
+  const me = mePerson(), mine = me ? 'human:' + me.id : '';
+  const choices = g.id || company ? [] : goalOwnerChoices(mine);
+  const who = owner || mine || choices[0]?.[0] || '';
+  const kids = g.id ? goals.filter(x => goalLive(x) && x.parent_id === g.id).sort(goalRank) : [];
+  return `<form class="goal-form goal-ed" data-goal-form="${esc(g.id || (company ? 'company' : 'new'))}" novalidate>
+      <label class="goal-f"><span>Goal</span><input type="text" name="title" maxlength="300" autocomplete="off" value="${esc(g.title || '')}"${may ? '' : ' readonly'} placeholder="${company ? 'What the company is going for' : 'What they are going for'}"></label>
+      ${choices.length ? `<div class="goal-fs"><label class="goal-f"><span>Owner</span><select name="owner">${choices.map(([v, name]) => `<option value="${esc(v)}"${v === who ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select></label>
+        <label class="goal-f"><span>Supports</span><select name="parent">${goalSupportOptions(g, who, goals)}</select></label></div>`
+      : company ? '' : `<label class="goal-f"><span>Supports</span><select name="parent"${may ? '' : ' disabled'}>${goalSupportOptions(g, g.owner || who, goals)}</select></label>`}
+      ${kids.length ? `<div class="goal-ed-kids"><span>Supported by</span>${kids.map(k =>
+        `<a href="${GOALS}/${encodeURIComponent(k.id)}" data-goal-go="${esc(k.id)}">${esc(k.title)} <span class="muted">· ${esc(goalOwnerInfo(k.owner).name)}</span></a>`).join('')}</div>` : ''}
+      <div class="goal-actions">
+        ${may ? '<button class="primary" type="submit">Save</button>' : ''}<button class="ghost" type="button" data-goal-cancel>${may ? 'Cancel' : 'Close'}</button>
+        <span class="spacer"></span>${may && g.id ? '<button class="ghost danger" type="button" data-goal-remove>Remove</button>' : ''}
+      </div>
+    </form>`;
+}
+function bindGoalForm(form, g, goals, {company = false} = {}, done) {
+  const title = form.elements.title, ownerSel = form.elements.owner, parentSel = form.elements.parent;
+  const save = form.querySelector('[type=submit]');
+  form.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
+  form.querySelector('[data-goal-cancel]').onclick = () => done();
+  if (ownerSel) ownerSel.onchange = () => { parentSel.innerHTML = goalSupportOptions(g, ownerSel.value, goals); };
+  const remove = form.querySelector('[data-goal-remove]');
+  if (remove) remove.onclick = async () => {
+    remove.disabled = true;
+    try { await post('/v2/goals/' + encodeURIComponent(g.id) + '/status', {status: 'dropped', note: ''}); toast('Goal removed'); await goalsRefresh(); done(true); }
+    catch (e) { toast(e.message || 'Could not remove the goal', true); remove.disabled = false; }
+  };
+  form.onsubmit = async ev => {
+    ev.preventDefault();
+    if (!save) return;
+    const words = title.value.trim();
+    if (!words) { title.focus(); return; }
+    save.disabled = true;
+    try {
+      if (g.id) {
+        const body = {};
+        if (words !== g.title) body.title = words;
+        if (parentSel && parentSel.value !== (g.parent_id || '')) body.parent_id = parentSel.value;
+        if (Object.keys(body).length) await post('/v2/goals/' + encodeURIComponent(g.id), body);
+      } else {
+        const body = {title: words, owner: company ? GOAL_COMPANY : ownerSel ? ownerSel.value : 'me'};
+        if (parentSel?.value) body.parent_id = parentSel.value;
+        await post('/v2/goals', body);
+      }
+      await goalsRefresh();
+      done(true);
+    } catch (e) { toast(e.message || 'Could not save the goal', true); save.disabled = false; }
+  };
+  title.focus();
+}
 function pageGoals() {
   const open = S.route.startsWith(GOALS + '/') ? decodeURIComponent(S.route.slice(GOALS.length + 1)) : '';
   const state = GOALS_ST = {goals: [], loaded: false, open, adding: ''};
-  $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1></div>
+  $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1><span class="spacer"></span><span id="goal-tools"></span></div>
     <div id="goal-body"><p class="muted">Loading…</p></div>`;
   goalsLoad(state);
 }
@@ -12137,70 +12181,60 @@ async function goalsLoad(state) {
   state.loaded = true;
   goalsRender(state);
 }
-// A goal line: its words; the open one is the editor with the goals that support it.
-function goalLine(g) {
-  return `<li data-goal="${esc(g.id)}"><span>${esc(g.title)}</span></li>`;
+// A goal's line: its words, its status and progress if it has them, and what it supports.
+function goalLine(g, goals = []) {
+  const parent = goals.find(x => x.id === g.parent_id), pill = GOAL_STATUS_PILL[g.status], progress = goalProgress(g);
+  const meta = (pill ? `<span class="pill ${pill[0]}">${pill[1]}</span>` : '') + (progress ? `<span class="goal-prog tnum">${esc(progress)}</span>` : '')
+    + (parent ? `<span class="goal-chip" title="Supports ${esc(parent.title)}">supports ${esc(parent.title)}</span>` : '');
+  return `<li class="goal-row" data-goal="${esc(g.id)}" tabindex="0" role="button"><span class="goal-title">${esc(g.title)}</span>${meta ? `<span class="goal-meta">${meta}</span>` : ''}</li>`;
 }
-function goalOpenLine(g, goals) {
-  const kids = goals.filter(x => goalLive(x) && x.parent_id === g.id).sort(goalRank);
-  return `<li class="goal-open">${goalEditorHtml(g, goals)}
-      ${kids.length ? `<div class="goal-ed-kids"><span>Supported by</span>${kids.map(k =>
-        `<a href="${GOALS}/${encodeURIComponent(k.id)}" data-goal-go="${esc(k.id)}">${esc(k.title)} <span class="muted">· ${esc(goalOwnerInfo(k.owner).name)}</span></a>`).join('')}</div>` : ''}</li>`;
-}
-// The goal written on a person's profile (the Goals field). It taps open in place like any goal
-// and saves back to the profile; it has no link, since nothing supports it in the hub.
+// The goal written on a person's profile (the Goals field): a line like any goal, saved back to the profile.
 function standingGoalLine(person, open) {
-  const goal = String(person.goals || '').trim(), key = 'p:' + person.id;
-  if (!open) return `<li class="goal-standing" data-goal-standing="${esc(person.id)}"><span>${esc(goal)}</span></li>`;
-  return `<li class="goal-open"><div class="goal-ed" data-standing-ed="${esc(person.id)}"><div class="goal-ed-row">
-      <input class="goal-ed-text" type="text" maxlength="2000" value="${esc(goal)}" aria-label="Goal"${personCanEdit(person) ? '' : ' readonly'}></div>
-      <div class="goal-ed-supports">On ${esc(firstName(person.name) || person.id)}'s profile</div></div></li>`;
+  const goal = String(person.goals || '').trim();
+  if (!open) return `<li class="goal-row" data-goal-standing="${esc(person.id)}" tabindex="0" role="button"><span class="goal-title">${esc(goal)}</span></li>`;
+  const may = personCanEdit(person);
+  return `<li class="goal-open"><form class="goal-form goal-ed" data-standing-ed="${esc(person.id)}" novalidate>
+      <label class="goal-f"><span>Goal</span><input type="text" name="title" maxlength="2000" autocomplete="off" value="${esc(goal)}"${may ? '' : ' readonly'}></label>
+      <div class="goal-actions">${may ? '<button class="primary" type="submit">Save</button>' : ''}<button class="ghost" type="button" data-goal-cancel>${may ? 'Cancel' : 'Close'}</button></div>
+    </form></li>`;
 }
-const GOAL_FOLD_KEY = 'tico.goals.folded';
-const GOAL_FOLDED = new Set((() => { try { return JSON.parse(localStorage.getItem(GOAL_FOLD_KEY) || '[]'); } catch { return []; } })());
 function goalsRender(state) {
   const body = $('#goal-body');
   if (!body || !state.loaded) return;
   const live = state.goals.filter(goalLive);
-  const me = mePerson(), owner = S.me?.role === 'owner';
-  const line = g => g.id === state.open ? goalOpenLine(g, state.goals) : goalLine(g);
-  const add = (actor, company) => state.adding === actor
-    ? `<li class="goal-adding" data-goal-adding="${esc(actor)}"${company ? ' data-company="1"' : ''}></li>`
-    : `<li class="goal-add" data-goal-add="${esc(actor)}"${company ? ' data-company="1"' : ''}>Add goal</li>`;
-  const company = live.filter(g => !g.parent_id).sort(goalRank);
+  const isOwner = S.me?.role === 'owner';
+  const tools = $('#goal-tools');
+  if (tools) {
+    tools.innerHTML = `<button class="ghost" type="button" data-goal-new="new">+ Goal</button>${isOwner ? ' <button class="ghost" type="button" data-goal-new="company">+ Company goal</button>' : ''}`;
+    for (const b of tools.querySelectorAll('[data-goal-new]')) b.onclick = () => { state.adding = b.dataset.goalNew; state.open = ''; history.replaceState(null, '', GOALS); goalsRender(state); };
+  }
+  const line = g => g.id === state.open ? `<li class="goal-open">${goalFormHtml(g, state.goals)}</li>` : goalLine(g, state.goals);
   const owned = {};
-  for (const g of live.filter(g => g.parent_id)) (owned[g.owner] ||= []).push(g);
-  const by = orgTreeByParent();
-  // Sections and people fold. The choice is remembered on this device.
-  const fold = (key, label) => `<button type="button" class="goal-fold" data-goal-fold="${esc(key)}" aria-expanded="${!GOAL_FOLDED.has(key)}" aria-label="${GOAL_FOLDED.has(key) ? 'Expand' : 'Collapse'} ${esc(label)}">${GOAL_FOLDED.has(key) ? '▸' : '▾'}</button>`;
+  for (const g of live.filter(g => g.owner !== GOAL_COMPANY)) (owned[g.owner] ||= []).push(g);
+  const card = (key, head, rows) => `<section class="card goal-card" data-goal-owner="${esc(key)}"><header><h2>${head}</h2></header><ul class="goal-rows">${rows}</ul></section>`;
+  const ownerHead = info => `<span class="goal-who">${info.avatar}${info.href ? `<a href="${info.href}">${esc(info.name)}</a>` : esc(info.name)}</span>`;
+  const seen = new Set(), by = orgTreeByParent();
   const node = n => {
     if (n.kind === 'group') {
-      const key = 'g:' + n.id, shut = GOAL_FOLDED.has(key);
-      return `<div class="goal-col"><div class="goal-group">${fold(key, n.name)}<span>${esc(n.name)}</span></div>${shut ? '' : `<div class="goal-kids">${kids(key)}</div>`}</div>`;
+      const inner = (by['g:' + n.id] || []).map(node).join('');
+      return inner ? `<h3 class="goal-team">${esc(n.name)}</h3>${inner}` : '';
     }
-    const actor = n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name;
-    const info = goalOwnerInfo(actor);
+    const actor = n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, key = n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name;
+    seen.add(actor);
     const mine = (owned[actor] || []).sort(goalRank);
     const standing = n.kind === 'person' ? String(n.person?.goals || '').trim() : '';
-    const profileGoal = standing && !live.some(g => g.owner === actor && g.title.trim() === standing)
-      ? standingGoalLine(n.person, state.open === 'p:' + n.id) : '';
-    const mayAdd = owner || (me && actor === 'human:' + me.id);
-    const key = n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name, reports = (by[key] || []).length;
-    const count = mine.length + (profileGoal ? 1 : 0), shut = GOAL_FOLDED.has(key) && !(state.open && mine.some(g => g.id === state.open));
-    const foldable = count || reports;
-    const summary = [count ? `${count} goal${count === 1 ? '' : 's'}` : '', reports ? `${reports} report${reports === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
-    return `<div class="goal-col"><div class="goal-node${shut ? ' folded' : ''}">
-        <span class="goal-node-av">${foldable ? fold(key, info.name) : ''}${info.avatar}</span>
-        <span class="goal-node-name"><a href="${info.href}">${esc(info.name)}</a></span>
-        ${shut ? `<span class="goal-folded-sum" data-goal-fold="${esc(key)}">${esc(summary)}</span>`
-          : `<ul class="goal-lines">${mine.map(line).join('')}${profileGoal}${mayAdd ? add(actor) : !mine.length && !profileGoal ? '<li class="goal-none">no goal</li>' : ''}</ul>`}
-      </div>${shut ? '' : `<div class="goal-kids">${kids(key)}</div>`}</div>`;
+    const profile = standing && !live.some(g => g.owner === actor && g.title.trim() === standing) ? standingGoalLine(n.person, state.open === 'p:' + n.id) : '';
+    const own = mine.length || profile ? card(actor, ownerHead(goalOwnerInfo(actor)), mine.map(line).join('') + profile) : '';
+    return own + (by[key] || []).map(node).join('');
   };
-  const kids = key => (by[key] || []).map(node).join('');
-  body.innerHTML = `<div class="goal-org">
-    <div class="goal-node company"><span></span><span class="goal-node-name">${esc(S.config?.company_name || 'Company')}</span>
-      <ul class="goal-lines">${company.map(line).join('')}${owner ? add('company', true) : company.length ? '' : '<li class="goal-none">no company goal yet</li>'}</ul></div>
-    ${kids('')}</div>`;
+  const company = live.filter(g => g.owner === GOAL_COMPANY).sort(goalRank);
+  const adding = state.adding && state.adding !== 'company' ? card('new', 'New goal', `<li class="goal-open">${goalFormHtml({}, state.goals)}</li>`) : '';
+  const addingCompany = state.adding === 'company' ? `<li class="goal-open">${goalFormHtml({}, state.goals, {company: true})}</li>` : '';
+  const html = (adding
+    + (company.length || addingCompany ? card(GOAL_COMPANY, esc(goalOwnerInfo(GOAL_COMPANY).name), addingCompany + company.map(line).join('')) : '')
+    + (by[''] || []).map(node).join('')
+    + Object.keys(owned).filter(a => !seen.has(a)).map(a => card(a, ownerHead(goalOwnerInfo(a)), owned[a].sort(goalRank).map(line).join(''))).join(''));
+  body.innerHTML = html || '<p class="muted">No goals yet.</p>';
   bindGoalLines(state);
 }
 function goalOpen(state, id) {
@@ -12211,48 +12245,46 @@ function goalOpen(state, id) {
 }
 function bindGoalLines(state) {
   const body = $('#goal-body');
-  for (const b of body.querySelectorAll('[data-goal-fold]')) b.onclick = ev => {
-    ev.preventDefault(); ev.stopPropagation();
-    const key = b.dataset.goalFold;
-    GOAL_FOLDED.has(key) ? GOAL_FOLDED.delete(key) : GOAL_FOLDED.add(key);
-    try { localStorage.setItem(GOAL_FOLD_KEY, JSON.stringify([...GOAL_FOLDED])); } catch {}
-    goalsRender(state);
-  };
-  for (const li of body.querySelectorAll('[data-goal]')) li.onclick = () => goalOpen(state, li.dataset.goal === state.open ? '' : li.dataset.goal);
+  const openRow = li => { goalOpen(state, li.dataset.goal === state.open ? '' : li.dataset.goal); };
+  for (const li of body.querySelectorAll('[data-goal]')) {
+    li.onclick = () => openRow(li);
+    li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(li); } };
+  }
   for (const a of body.querySelectorAll('[data-goal-go]')) a.onclick = ev => {
     if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
     ev.preventDefault(); goalOpen(state, a.dataset.goalGo);
   };
-  for (const li of body.querySelectorAll('[data-goal-add]')) li.onclick = () => {
-    state.adding = li.dataset.goalAdd; state.open = ''; goalsRender(state);
-  };
-  const adding = body.querySelector('[data-goal-adding]');
-  if (adding) goalAddInline(adding, adding.dataset.goalAdding, state.goals, g => {
-    state.adding = '';
-    if (g) goalOpen(state, g.id); else goalsRender(state);
-  }, {company: adding.dataset.company === '1'});
-  for (const li of body.querySelectorAll('[data-goal-standing]')) li.onclick = () => goalOpen(state, 'p:' + li.dataset.goalStanding);
+  for (const li of body.querySelectorAll('[data-goal-standing]')) {
+    li.onclick = () => goalOpen(state, 'p:' + li.dataset.goalStanding);
+    li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); li.click(); } };
+  }
+  const close = () => { if (GOALS_ST === state) goalOpen(state, ''); };
+  const form = body.querySelector('[data-goal-form]');
+  if (form) {
+    const id = form.dataset.goalForm, company = id === 'company';
+    const g = state.goals.find(x => x.id === id) || {};
+    bindGoalForm(form, g, state.goals, {company}, close);
+    if (id === 'new' || company) form.scrollIntoView({block: 'nearest'});
+  }
   const standing = body.querySelector('[data-standing-ed]');
   if (standing) {
     const person = (S.people || []).find(x => x.id === standing.dataset.standingEd);
-    const input = standing.querySelector('input');
-    input.onkeydown = ev => {
-      if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
-      if (ev.key === 'Escape') { input.value = String(person.goals || '').trim(); input.blur(); }
-    };
-    input.onblur = async () => {
+    const input = standing.elements.title;
+    standing.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); goalOpen(state, ''); } };
+    standing.querySelector('[data-goal-cancel]').onclick = () => goalOpen(state, '');
+    standing.onsubmit = async ev => {
+      ev.preventDefault();
       const text = input.value.trim();
-      if (input.readOnly || !person || text === String(person.goals || '').trim()) return;
+      if (input.readOnly || !person) return;
+      if (text === String(person.goals || '').trim()) { goalOpen(state, ''); return; }
       try {
         const row = await post(`/v2/people/${encodeURIComponent(person.id)}`, {goals: text});
         person.goals = row.goals;
-        goalOpen(state, text ? state.open : '');
-      } catch (e) { toast(e.message || 'Could not save the goal', true); input.value = String(person.goals || '').trim(); }
+        goalOpen(state, '');
+      } catch (e) { toast(e.message || 'Could not save the goal', true); }
     };
+    input.focus();
   }
-  const open = body.querySelector('.goal-open [data-goal-ed]');
-  const g = open && state.goals.find(x => x.id === open.dataset.goalEd);
-  if (g) bindGoalEditor(open, g, removed => { if (GOALS_ST === state) goalOpen(state, removed ? '' : state.open); });
 }
 // The goals of whoever's page this is, at the top under their name: one line each. Tapping one
 // opens it on the Goals page.
@@ -12263,7 +12295,7 @@ async function headGoalsLoad(actor) {
   const r = await v2Get(`/v2/goals?owner=${encodeURIComponent(actor)}`);
   if (HEAD_GOALS !== actor || !$('#head-goals')) return;
   const mine = (r?.goals || []).filter(goalLive);
-  el.innerHTML = mine.map(goalLine).join('');
+  el.innerHTML = mine.map(g => `<li data-goal="${esc(g.id)}"><span>${esc(g.title)}</span></li>`).join('');
   el.hidden = !mine.length;
   const standing = $('#head-standing'); if (standing) standing.hidden = Boolean(mine.length);
   for (const li of el.querySelectorAll('[data-goal]')) li.onclick = () => openGoal(li.dataset.goal);

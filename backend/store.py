@@ -860,6 +860,7 @@ class Store:
                 access.seed(c, self.settings, H.now())
                 access.retire_bot_lists(c, self.settings, H.now())
                 self.seed_goals(c)
+                G.ensure_botops_goal(c)
                 from . import routines as R
                 if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=41").fetchone():
                     # No daily open-tasks run per bot; one BotOps sweep instead.
@@ -870,6 +871,12 @@ class Store:
                     # and this table holds its hash. CREATE TABLE IF NOT EXISTS above installs
                     # it; the marker makes the contract visible to release checks.
                     c.execute("INSERT INTO cloud_migrations VALUES(42,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=43").fetchone():
+                    # A company goal is one owned by `company`, not just one with no parent. A
+                    # person's goal with no parent and goals under it used to be the company goal.
+                    c.execute("UPDATE goals SET owner='company' WHERE parent_id IS NULL AND owner LIKE 'human:%' "
+                              "AND id IN (SELECT parent_id FROM goals WHERE parent_id IS NOT NULL)")
+                    c.execute("INSERT INTO cloud_migrations VALUES(43,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,

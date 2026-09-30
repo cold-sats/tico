@@ -17,7 +17,7 @@ const gsCards = {
           action: ['Create a task', '#task-new']},
   updates: {title: 'Updates', text: 'Each bot posts a few bullets every day, and a fuller look on Fridays. They land here as they arrive.'},
   goals: {title: 'Goals', text: 'A goal says, in plain English, what a bot or a person is going for, with a colour for how it is going.',
-          action: ['Set a first goal', '[data-goal-add]']},
+          action: ['Set a first goal', '[data-goal-new="new"]']},
   meetings: {title: 'Meetings', text: 'Import a meeting transcript and your bots pick out the tasks and follow-ups.',
              action: ['Import a transcript', '#notes-import']},
 };

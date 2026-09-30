@@ -41,7 +41,8 @@ which shows you only what you may see; tables and examples in hub `docs/hub-sql.
 create --owner <person>` (a decision or a review), `hub task ask` (one question that unblocks you;
 the question is the only thing they should have to read), `hub approval request` (a send, spend,
 publish, merge) or `hub notice` (fyi). Keep `hub status set` to one factual line as you work.
-Say how a goal of yours is going with `hub goal status <id> red|yellow|green "<one sentence>"`
+Set a goal of your own with `hub goal create --owner me --title "..."`; it needs no parent, so never ask a
+person for one. Say how a goal of yours is going with `hub goal status <id> red|yellow|green "<one sentence>"`
 when you know, and log a number you measured with `hub kpi log <kpi-id> <value>`; a guess is
 `--estimate`, never a measurement. A
 file a person should open (a report, a draft) is published with `hub files publish <path>` (see

@@ -45,7 +45,7 @@ the server (`backend/hubdb.py`), never here.
                                            them, and your reports' goals; --all is every goal
     hub goal show <id>                     the goal, its KPIs and readings, tasks naming it, history
     hub goal create --owner me|X --title "..." [--parent ID] [--body "..."|--body-file f] [--top]
-                                           propose a goal; whoever owns the parent gives its first colour
+                                           set a goal; a parent is optional. With one, whoever owns the parent gives its first colour
     hub goal status <id> red|yellow|green|done|dropped "<one sentence>"
     hub goal update <id> [--title ...] [--body ...|--body-file f] [--parent ID|--parent ""] [--owner X]
                     [--rank N|--top]
@@ -483,10 +483,10 @@ def parser():
     s = goal.add_parser("show")
     s.add_argument("id")
     s.set_defaults(fn="goal show")
-    s = goal.add_parser("create", help="propose a goal; whoever owns the parent gives its first colour")
-    s.add_argument("--owner", required=True, help="me, a bot slug, or a person id")
+    s = goal.add_parser("create", help="set a goal; a parent is optional, and whoever owns it gives the first colour")
+    s.add_argument("--owner", required=True, help="me, a bot slug, or a person id (company: a company goal, the owner only)")
     s.add_argument("--title", required=True)
-    s.add_argument("--parent", help="the goal this one serves; only the owner creates one without")
+    s.add_argument("--parent", help="the goal this one supports, if any; not needed")
     s.add_argument("--body", default="")
     s.add_argument("--body-file", dest="body_file")
     s.add_argument("--top", action="store_true", help="put it first in the owner's order")
@@ -501,7 +501,7 @@ def parser():
     s.add_argument("--title")
     s.add_argument("--body")
     s.add_argument("--body-file", dest="body_file")
-    s.add_argument("--parent", help='the goal it serves; "" makes it a company goal')
+    s.add_argument("--parent", help='the goal it supports; "" unlinks it')
     s.add_argument("--owner")
     s.add_argument("--rank", type=int)
     s.add_argument("--top", action="store_true")
