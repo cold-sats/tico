@@ -460,7 +460,7 @@ Levers set in **Settings → Bots**, not in the repository:
 - **`hermes`** is the one harness that is not a CLI on a registered computer: the bot is
   a Hermes profile somewhere else, with its own model, reached through a credential minted in
   Settings and never dispatched to. Model, effort, fallback and computer do not apply to it.
-  [Hermes agents](hermes-agents.md) has the whole picture.
+  [Hermes agents](hermes-agents.md) connects one in 2 minutes and covers the rest.
 
 Effort is where the budget goes. A useful split:
 

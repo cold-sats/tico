@@ -1,178 +1,176 @@
 # Hermes agents
 
-A bot that is run by a [Hermes](https://hermes-agent.nousresearch.com/) profile instead of by
-a registered computer. Tico knows it is there, knows whether it is alive, and gives it a
-credential it can use against Tico when it chooses to. Tico never starts a run for it.
+A [Hermes](https://hermes-agent.nousresearch.com/) profile can be a bot in Tico. Tico knows it is
+there, shows whether it is alive, and gives it a credential to use when it chooses. Tico never
+starts a run for it.
+
+## Connect a Hermes profile in 2 minutes
+
+You need the profile to exist already (`hermes profile create <name>`), and to know the runner
+address of your Tico: the hostname in **Settings → Computers → Add computer**, for example
+`runner.acme.example`. Use the runner address, not the public one (see Troubleshooting).
+
+1. On the computer that runs the profile:
+
+   ```bash
+   curl -fsSL https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py \
+     && python3 hermes_agent.py pair --profile <name> --url https://<runner host>
+   ```
+
+   It prints a code like `K7QM-4F2P` and waits up to 10 minutes. No token to copy.
+2. In Tico, tell BotOps: **"Connect my Hermes profile `<name>`, code K7QM-4F2P."** BotOps adds
+   the bot if it does not exist yet, then approves the code as you. You can also approve it
+   yourself in **Settings → Bots → Pair**. Only a bot's owner or an admin can approve.
+3. In the profile's chat, run `/reload-mcp` (or restart its gateway). The profile now has every
+   `hub_*` tool.
+4. Test it: message the bot in Tico, then ask the profile to check its inbox. It should answer
+   in the same chat.
+
+The `pair` command sets up the profile's config, saves the credential on the computer and
+starts a heartbeat timer, then prints what it did. It never prints the credential.
+
+The setup script downloads without a sign-in from the runner address (Tico 0.2.26 and later). If
+you get a sign-in page instead, you used the public address: use `runner.<domain>`.
+
+### The manual way
+
+1. **Settings → Bots → Add bot.** Pick the model `hermes/profile's own model`. The computer
+   field goes grey: a Hermes bot has no computer. Save.
+2. **Create credential** in the bot's Computer column. The credential is shown once. The dialog
+   gives one install command to run on the computer that runs the profile:
+
+   ```bash
+   curl -fsSL -H "Authorization: Bearer <credential>" https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py \
+     && python3 hermes_agent.py install --profile <name> --url https://<runner host> --bot <slug> --token <credential>
+   ```
+
+3. `/reload-mcp` in the profile.
+
+Members can add Hermes bots too, and each one counts toward their bot limit
+([people.md](people.md)).
+
+## Using it day to day
+
+Nothing pushes work to a Hermes bot. It reads its messages when its own cron job, or a person
+talking to it, makes it look. Give it a cron job. Run this once, for the profile:
+
+```bash
+hermes -p <name> cron create "every 10m" \
+  "Check your Tico inbox with hub_message_list. For each message or task waiting: read the
+conversation, answer in that conversation with hub_message_send, move your tasks forward with
+hub_task_update, then mark what you handled with hub_message_mark_read. If nothing is waiting,
+stop and reply 'idle'." \
+  --deliver local --name "Tico inbox"
+```
+
+Hermes's own cron docs describe the job options; the schedule and the prompt are all Tico needs.
+
+**Skip empty runs.** The heartbeat reply says what is waiting. Put this first in the prompt, and
+an empty check costs almost nothing:
+
+> First run `python3 ~/.config/tico/agents/hermes_agent.py status --profile <name>`. If
+> `last_reply.waiting` shows 0 messages and 0 tasks, reply 'idle' and stop.
+
+`status` prints the saved settings and the last heartbeat reply, including `waiting`.
+
+What the profile can do is the same tool list every bot has (`clients/hubtools.py`): messages,
+tasks, questions, approvals, status, SQL and the rest. With a Tico checkout on the computer the
+`hub` CLI works too, with `HUB_API_URL` and `HUB_TOKEN`.
+
+## Keep it working
+
+- **Update.** `python3 hermes_agent.py update --profile <name>` fetches the current script and
+  replaces the copy the timer runs. Run it after each Tico update. It also removes older duplicate
+  heartbeat jobs; a reinstall does the same.
+- **Doctor.** `python3 hermes_agent.py doctor --profile <name>` checks the setup (config,
+  credential, reach to Tico, timer, last heartbeat) and scans the profile's saved prompts and cron
+  jobs for old tool names. It says what to fix.
+- **Move to another computer.** Run `pair` on the new computer with the same profile name and
+  approve it. Approving replaces the credential, so the old computer stops with a 401. On the old
+  computer run `python3 hermes_agent.py uninstall --profile <name>`.
+- **Rotate or revoke.** Settings → Bots → the bot's Computer column, or ask BotOps. Rotating
+  replaces the credential at once; pair again, or install the new one. Revoking stops it for
+  good. Revoke if the computer is lost. When you archive a Hermes bot, Tico offers to revoke its
+  credential.
+- **Renamed tools (0.2.21).** The `hub_*` tools were renamed: `hub_inbox` is now
+  `hub_message_list`, `hub_say` is `hub_message_send`, `hub_ack` is `hub_message_mark_read`.
+  Old names now answer "X was renamed Y". After updating, `/reload-mcp`, change any saved prompt
+  or cron job that uses an old name, and let `doctor` find the ones you miss.
+
+## Troubleshooting
+
+| You see | What it means | Do this |
+|---|---|---|
+| Heartbeat or tool says **409**, "bot is archived" | The bot was archived. The agent stops and retries only once an hour. | Restore the bot (Restore button, `hub bot restore <slug>`, or ask BotOps). It reconnects by itself. |
+| **401** | The credential was revoked or replaced. | Pair again (`pair`) and approve it. |
+| A login page instead of JSON, or `curl` gets HTML | You used the public address behind Cloudflare Access. | Use `runner.<domain>` ([connect-an-agent.md](connect-an-agent.md)). |
+| Two heartbeats a minute, or double answers | A duplicate heartbeat job from an older install. | Run `update`. It removes older jobs. `doctor` lists what it found. |
+| The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Check the profile has the cron job above (`hermes -p <name> cron list`) and that it runs. |
+| Tool not found | An old tool name. | See renamed tools above. |
+| The bot answers on Slack or Telegram with no Tico rules | A gateway on Slack or Telegram bypasses Tico's message limits and checks. | Turn the gateway off for a bot that should speak only through Tico. |
+
+Health flags an archived bot whose agent is still reporting in: revoke its credential or restore
+it.
 
 ## What it is
 
-One Hermes profile is one bot. A profile is a separate Hermes home directory with its own
-`config.yaml`, `SOUL.md`, memory, skills, sessions and cron; five profiles on one computer are five
-independent agents that share a binary, and to Tico they are five bots. Each has its own slug,
-display name, place on the team tree, Chat page, repository, credential and heartbeat. The computer
-itself is not a thing Tico tracks, because nothing is dispatched to it: if the computer goes down,
-all its bots go offline at once, which is the honest thing to show.
+One profile is one bot. A profile is its own Hermes home with its own `config.yaml`, `SOUL.md`,
+memory, skills, sessions and cron. Five profiles on one computer are five bots. Each has its own
+name, place on the team chart, Chat page, repository, credential and heartbeat. Tico does not
+track the computer, because nothing is dispatched to it: if it goes down, all its bots go offline
+together.
 
-What is the same as every other bot: the record (name, description, reporting line, status,
-owners), the Chat page, tasks, routines, the rules in the write layer. A Hermes bot
-acts only as itself, may message only active bots and humans, and is linted and capped like
-any bot when it writes to a human.
-
-What is different:
+Everything else is like any bot: name, description, reporting line, status, owners, Chat,
+tasks, routines and the rules in the write layer. A Hermes bot acts only as itself, may message
+only active bots and humans, and is checked and capped like any bot when it writes to a human.
 
 | | A bot on a computer | A Hermes bot |
 |---|---|---|
 | Harness | `openai`, `claude`, `gemini`, `antigravity`, `grok`, `pi` | `hermes` |
-| Model and effort | chosen in Settings | the profile's own; the heartbeat reports what it is |
-| Where it runs | a registered computer, chosen in Settings | wherever the profile lives; not tracked |
-| Credential | a 90 s lease per run, minted by the runner's claim | one standing credential per bot, minted in Settings and revocable there |
-| A message to it | queues a job the runner claims | waits until the agent reads it |
-| Liveness | runner heartbeat every 15 s; offline after 60 s | a plain heartbeat every minute; offline after 180 s |
-| Runs, tokens, usage limits, fallback, interrupted review | yes | no: nothing is dispatched, so there is nothing to lease or review |
-| Repository | `bot-<slug>`, pushed by the runner after each run | `bot-<slug>` for backup; the profile directory minus credentials and sessions, pushed by the computer |
+| Model and effort | chosen in Settings | the profile's own, reported by the heartbeat |
+| Where it runs | a computer, chosen in Settings | wherever the profile lives; not tracked |
+| Credential | a 90 s lease per run | one standing credential per bot, made in Settings and revocable there |
+| A message to it | queues a job the computer claims | waits until the agent reads it |
+| Liveness | computer heartbeat every 15 s; offline after 60 s | heartbeat every minute; offline after 180 s |
+| Runs, tokens, usage limits, fallback | yes | no: nothing is dispatched |
+| Repository | `bot-<slug>`, pushed after each run | `bot-<slug>` for backup, pushed from the computer |
 
-## Connect one by pairing
+### What the pages say
 
-The short way, with nothing to copy: on the computer that runs the profile,
-
-```bash
-curl -fsSL https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py
-python3 hermes_agent.py pair --profile <name> --url https://<runner host>
-```
-
-It prints a code such as `K7QM-4F2P` and waits up to ten minutes. Tell BotOps "connect my Hermes profile <name>, code K7QM-4F2P"
-(it registers the bot if it is new, approves the code and checks the heartbeat; `playbooks/connect-a-hermes-profile.md`), or open
-**Settings → Bots → the bot → Pair** and type the code. Approving makes the bot's credential (the one **Create credential**
-makes; it replaces any earlier one) and hands it to the profile once, where the connector installs it as `install` does. The
-code is single use, lasts ten minutes, and only the bot's owner or an admin may approve it. `GET /api/v2/agents/setup-script`
-needs no sign-in: the connector is open source and holds no secret.
-
-The endpoints: `POST /api/v2/agents/pairings` (no sign-in; 10 an hour per address, 20 waiting at most),
-`GET /api/v2/agents/pairings/<id>` with `X-Pairing-Secret` (`pending`, `approved` once with the token, then `claimed`;
-`expired`, `declined`), and `POST /api/v2/agents/pairings/approve|decline` for a person or BotOps as them. `hub agent pair
-approve <code> --bot <slug>` and `hub agent pair decline <code>` do the same.
-
-## Register one
-
-1. **Settings → Bots → Add bot.** Pick the model `hermes/profile's own model`. The computer
-   field goes grey: an external harness has no computer. Save. The bot appears planned or
-   active like any other, and until it has a credential **Needs attention** says so.
-2. **Create credential** in the bot's Computer column. The token is shown once. The dialog
-   gives one command for the computer that runs the profile:
-
-   ```bash
-   curl -fsSL -H "Authorization: Bearer <token>" https://<hub>/api/v2/agents/setup-script -o hermes_agent.py \
-     && python3 hermes_agent.py install --profile <name> --url https://<hub> --bot <slug> --token <token>
-   ```
-
-   The Tico address in that command is the runner hostname (`TICO_RUNNER_URL`, for Acme
-   `runner.acme.example`), where a bearer token is accepted without the human sign-in. The
-   public address answers a bare bearer with the login page.
-
-   The installer (`clients/hermes_agent.py`, standard library only) checks the token against
-   `GET /api/v2/me`, writes `mcp_servers.tico` into the profile's `config.yaml` with the token
-   in the profile's `.env` as `TICO_AGENT_TOKEN`, saves the credential under
-   `~/.config/tico/agents/<profile>.json` (mode 600), posts one heartbeat, and installs a timer
-   that posts one every minute: a launchd job on macOS, a systemd user timer on Linux. It
-   prints what it did. `python3 hermes_agent.py status --profile <name>` shows the last reply;
-   `uninstall` removes the timer, the env line and the MCP entry.
-
-   **Or pair with a code, with no token to copy.** On the computer, with `hermes_agent.py` from `/api/v2/agents/setup-script`, run
-   `python3 hermes_agent.py pair --profile <name> --url https://<hub>`. It prints a code and the
-   sentence to tell BotOps ("connect my Hermes profile <name>, code K7QM-4F2P"; or Settings → Bots →
-   the bot → Pair), then waits up to ten minutes. When a person or BotOps approves it for a bot, the
-   connector receives the credential itself and does exactly what `install` does. The token is never
-   printed. An expired or declined code changes nothing; run `pair` again.
-
-   **Keeping it healthy.**
-   - `update --profile <name>` downloads the newest connector from the saved address (with the
-     connector's own User-Agent, which Cloudflare requires), replaces the installed copy atomically
-     at mode 600 and runs the install steps again with the saved values.
-   - `doctor --profile <name>` checks, in plain words: the credential file is mode 600, the MCP
-     entry is in `config.yaml`, the `.env` token is present (never shown), the heartbeat timer is
-     loaded, the last heartbeat reply, and `GET /api/v2/me`. It also lists every file and line in
-     `SOUL.md`, `skills/`, cron definitions and `memories/` that still use a tool name renamed in
-     Tico 0.2.21, with the new name. It reports only and edits nothing.
-   - `install`, `pair` and `update` remove an older job for the same profile, such as the
-     launchd label `com.tidy.tico-agent.<name>` (any label ending in `tico-agent.<name>` that runs a
-     `hermes_agent.py`), so there is never a second heartbeat.
-   - A heartbeat the hub refuses because the bot is archived (`409`, `bot_archived`) prints "Bot <slug>
-     is archived in Tico: restore it (ask BotOps) or run uninstall" and is retried once an hour instead
-     of every minute until it succeeds; a revoked credential (`401`) prints "credential revoked: run
-     pair again" and backs off the same way.
-3. **Reload the profile's MCP servers**: `/reload-mcp` in a running chat, or restart its
-   gateway. From then on the profile has every `hub_*` tool: `hub_message_list`, `hub_message_send`,
-   `hub_task_*`, `hub_approval_*`, `hub_bot_status_set`, `hub_sql`, `hub_message_mark_read`, and the rest, the
-   same tool table (`clients/hubtools.py`) every bot has. With a Tico checkout on the computer the
-   `hub` CLI works with the same token in `HUB_API_URL` and `HUB_TOKEN`.
-
-The Settings **Computers** card lists every external agent under the computers: harness,
-profile, version, platform, model, provider, and when it last reported in.
-
-## What the pages say
-
-- **Chat.** A message to the bot saves and appears; no job is queued. One line above the
-  composer says the bot is a Hermes agent that reads its messages on its own schedule and is
-  reporting in, or that it has not reported in since a time, or that it has no credential
-  yet. There is no *Saved — queued* or *Working*: nothing here promises a reply.
-- **Needs attention.** *X has no agent credential* until one is minted; *X's hermes agent has
-  not reported in* with the last heartbeat and how many unread messages wait for it
-  once it is three minutes silent.
-- **The bot page, More → Setup.** *Run by: hermes agent · profile <name> · version · platform*,
-  and whether it is reporting in. Model is what the last heartbeat reported.
-- **Runs** stays empty for these bots. Tico records what the agent does through the API
-  (tasks touched, messages sent, status set) exactly as it does for every bot.
-
-## How the agent works its messages
-
-Nothing pushes to Hermes. The profile's own cron, a human talking to it on its gateway, or
-its own habit decides when it looks. When it does:
-
-1. `hub_message_list` lists the messages and notices waiting and the open tasks it owns.
-2. It reads the conversation (`hub_task_show` for a task; the message carries
-   `conversation_id`) and answers with `hub_message_send` in that conversation, or moves the task with
-   `hub_task_update`, or asks with `hub_task_ask`, or requests an approval.
-3. `hub_message_mark_read` marks a message read so it stops showing as unread. A runner does this for other
-   bots; a Hermes bot is its own delivery.
-
-The heartbeat reply carries `waiting: {messages, tasks}`, so a Hermes cron job can run
-`python3 hermes_agent.py status --profile <name>` and decide whether a run is worth starting.
+- **Chat.** A message to the bot is saved; no job is queued. A line above the composer says the
+  bot reads its messages on its own schedule and is reporting in, or when it last reported, or
+  that it has no credential yet. Nothing promises a reply.
+- **Needs attention.** "X has no agent credential" until one exists. "X's hermes agent has not
+  reported in" after three minutes, with how many messages wait.
+- **Bot page, More → Setup.** Run by hermes agent, the profile, version and platform, and whether
+  it is reporting in.
+- **Settings → Computers** lists every Hermes profile: profile, version, platform, model and when
+  it last reported.
+- **Runs** stays empty. What the agent does through the API (tasks, messages, status) is recorded
+  as for every bot.
 
 ## The credential
 
-- It acts as `bot:<slug>` under the same authorization every run token gets, with one
-  difference: a run sees the conversations it was handed for one run, the agent sees
-  every conversation the bot is in. One credential is the whole bot.
-- It stops working when the bot is paused or quarantined (`409`), and when it is revoked or
-  rotated in Settings (`401`). Rotating replaces the token at once; install the new one on the
-  computer.
-- It stops working when the bot is archived (`409`, code `bot_archived`). Archiving a Hermes bot revokes the credential
-  unless the box is unticked; if the credential is left in place and the profile keeps reporting in, Health says so until
-  the bot is restored (Settings → Bots → Archived → Restore, `hub bot restore <bot>`, `POST /api/v2/bots/<bot>/restore`)
-  or the credential is revoked.
-- It cannot heartbeat as a runner, claim jobs, or act as a human. A runner credential cannot
-  heartbeat as an agent.
-- It is a standing credential on another computer, which is a departure from the per-run lease
-  every other bot has. Keep the profile's `.env` and `~/.config/tico/agents/` at mode 600, and
-  revoke from Settings if the computer is lost.
+- It acts as `bot:<slug>` under the same rules a run token has, except that a run sees only the
+  conversations it was handed, and the agent sees every conversation the bot is in.
+- It stops working when the bot is paused or quarantined (409), archived (409), or when the
+  credential is revoked or replaced (401).
+- It cannot act as a computer or as a human, and a computer's credential cannot heartbeat as an
+  agent.
+- It is a standing credential on another computer. Keep the profile's `.env` and
+  `~/.config/tico/agents/` readable only by you (mode 600), and revoke it if the computer is lost.
 
 ## The repository
 
-Keep `bot-<slug>` for backup: the profile directory's `config.yaml`, `SOUL.md`, `memories/`,
-`skills/` and cron definitions, with `.env` and the sessions database ignored. Hermes's own
-profile distributions deliberately leave memories out, so a plain repository is the right shape.
-A commit-and-push from the same timer, or a Hermes cron job, keeps it current. The bot record's
-repository field points at it; nothing in Tico reads or writes it for a Hermes bot.
+Keep `bot-<slug>` as a backup: the profile's `config.yaml`, `SOUL.md`, `memories/`, `skills/` and
+cron definitions, with `.env` and the sessions database left out. A commit and push from a timer or
+a Hermes cron job keeps it current. The bot's repository field points at it; Tico does not read or
+write it.
 
-## Decisions taken
+## Why it works this way
 
-- **No runner on the Hermes computer.** Hermes is not recreated on top of Hermes; its loop, memory,
-  skills and gateway stay its own. Tico is the record, the credential and the presence.
-- **The profile is the unit.** One profile, one bot, one credential, one heartbeat.
-- **The heartbeat is not an agent run.** A timer and a plain HTTP call prove the computer and the
-  profile, cheaply and reliably. Whether the model works shows in what the bot does.
-- **A message to a Hermes bot never queues a job.** The queue trigger skips external harnesses;
-  the chat line says the message waits for it.
-- **The profile keeps its own gateway if the owner wants it.** Traffic on Slack or Telegram
-  through Hermes bypasses Tico's human-facing lint and message limits; the bot page does
-  not pretend otherwise. Turn the gateway off for a bot that should only speak through Tico.
+- **No Tico software running Hermes.** Its loop, memory, skills and gateway stay its own. Tico is
+  the record, the credential and the presence.
+- **The heartbeat is not an agent run.** A timer and one HTTP call prove the computer and profile
+  are there. Whether the model works shows in what the bot does.
+- **A message never queues a job for a Hermes bot.** The chat line says it waits for the agent.
