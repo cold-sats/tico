@@ -1,8 +1,10 @@
 /* Settings > Cloud services > Meeting importers (owner). Turns Fireflies, Zoom, Google Meet and
    Granola on, picks the enrolled computer that runs each one, and shows how it is doing. Their
-   credentials are never typed here: they are files on that computer (docs/meetings.md). */
-window.mountMeetingImporters = async function (host) {
+   credentials are never typed here: they are files on that computer (docs/meetings.md).
+   `only` shows one importer (the setup dialog on the Meetings page) and `onChange` runs after a save. */
+window.mountMeetingImporters = async function (host, options) {
   if (!host) return;
+  const {only = '', onChange} = options || {};
   const esc = value => { const s = document.createElement('span'); s.textContent = value ?? ''; return s.innerHTML; };
   const when = value => value ? (typeof ago === 'function' ? ago(value) : new Date(value).toLocaleString()) : 'never';
   const labels = {off: 'Off', waiting: 'Waiting for the computer', syncing: 'Syncing', delayed: 'Delayed', error: 'Error'};
@@ -12,18 +14,18 @@ window.mountMeetingImporters = async function (host) {
   if (!host.isConnected) return;
   const machines = state.computers || [];
   if (!Array.isArray(state.importers)) { host.innerHTML = '<div class="empty">Meeting importers are unavailable.</div>'; return; }
-  host.innerHTML = (state.importers || []).map(i => {
+  host.innerHTML = (state.importers || []).filter(i => !only || i.source === only).map(i => {
     const options = ['<option value="">Choose a computer</option>'].concat(machines.map(m =>
       `<option value="${esc(m.id)}"${m.id === i.runner_id ? ' selected' : ''}>${esc(m.label)}${m.platform ? ' (' + esc(m.platform) + ')' : ''}${m.online ? '' : ' - offline'}</option>`)).join('');
     const facts = i.enabled ? `<p class="muted" data-imp-facts>Last sync ${esc(when(i.last_success))} · last import ${esc(when(i.last_import))} · ${Number(i.imported_total) || 0} imported</p>` : '';
     const error = i.error ? `<p role="alert" data-imp-error>${esc(i.error)}</p>` : '';
-    return `<form class="meeting-importer" data-importer="${esc(i.source)}" style="display:grid;gap:8px;padding:12px 0;border-top:1px solid var(--line)">
+    return `<form class="meeting-importer" data-importer="${esc(i.source)}" style="display:grid;gap:8px;padding:12px 0;${only ? '' : 'border-top:1px solid var(--line)'}">
       <div class="row"><strong>${esc(i.name)}</strong><span class="muted" data-imp-status>${esc(labels[i.status] || i.status)}</span></div>
       <div class="row"><label><input type="checkbox" name="enabled"${i.enabled ? ' checked' : ''} aria-label="Enable ${esc(i.name)}"> Enabled</label>
         <label>Runs on <select name="runner" aria-label="Computer that runs ${esc(i.name)}">${options}</select></label>
         <button class="primary" type="submit" aria-label="Save ${esc(i.name)}">Save</button></div>
       ${facts}${error}
-      <details><summary>Set up credentials</summary>
+      <details${only && !i.enabled ? ' open' : ''}><summary>Set up credentials</summary>
         <p class="muted">On the computer you chose, create <code>${esc(i.setup.file)}</code> in its projects folder (mode 600) with:</p>
         <pre>${i.setup.keys.map(k => esc(k) + '=').join('\n')}</pre>
         <p class="muted">Steps and scopes: ${esc(i.setup.doc)}. Check the computer with <code>python -m runner importers-doctor</code>.</p></details>
@@ -37,8 +39,31 @@ window.mountMeetingImporters = async function (host) {
       button.disabled = true;
       try {
         await post('/v2/meeting-importers/' + form.dataset.importer, {enabled: form.enabled.checked, runner_id: form.runner.value});
-        window.mountMeetingImporters(host);
+        window.mountMeetingImporters(host, options);
+        if (onChange) onChange();
       } catch (error) { message.textContent = error.message; button.disabled = false; }
     };
   });
+};
+
+/* The Meetings page's source tiles open one importer's setup in a dialog, so nobody leaves the page. */
+window.openMeetingImporter = function (source, name, onChange) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'tmodal import-modal';
+  dialog.setAttribute('aria-label', 'Connect ' + name);
+  const title = document.createElement('h2'), close = document.createElement('button'), host = document.createElement('div');
+  title.textContent = name; title.style.margin = '0';
+  close.type = 'button'; close.className = 'ghost'; close.textContent = '✕'; close.setAttribute('aria-label', 'Close');
+  host.innerHTML = '<div class="empty">Loading…</div>';
+  const head = document.createElement('header');
+  head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0';
+  head.append(title, close);
+  host.style.padding = '0 18px 14px';
+  dialog.append(head, host);
+  document.body.appendChild(dialog);
+  close.onclick = () => dialog.close();
+  dialog.onclick = e => { if (e.target === dialog) dialog.close(); };
+  dialog.addEventListener('close', () => dialog.remove());
+  dialog.showModal();
+  window.mountMeetingImporters(host, {only: source, onChange});
 };

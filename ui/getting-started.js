@@ -18,8 +18,6 @@ const gsCards = {
   updates: {title: 'Updates', text: 'Each bot posts a few bullets every day, and a fuller look on Fridays. They land here as they arrive.'},
   goals: {title: 'Goals', text: 'A goal says, in plain English, what a bot or a person is going for, with a colour for how it is going.',
           action: ['Set a first goal', '[data-goal-new="new"]']},
-  meetings: {title: 'Meetings', text: 'Import a meeting transcript and your bots pick out the tasks and follow-ups.',
-             action: ['Import a transcript', '#notes-import']},
 };
 
 const gsRoute = () => {
@@ -28,7 +26,6 @@ const gsRoute = () => {
   if (at('#/updates')) return 'updates';
   if (['#/tasks', '#/board', '#/issues', '#/recurring'].includes(r) || r.startsWith('#/task/')) return 'tasks';
   if (at('#/goals')) return 'goals';
-  if (at('#/meetings')) return 'meetings';
   if (at('#/market')) return 'market';
   if (at('#/docs')) return 'docs';
   return '';
@@ -331,7 +328,7 @@ const GS_STEPS = [
   ['#nav-organisation', 'Your bots', 'Your bots are listed here. Open one to chat, see its work and change its settings.'],
   ['[data-nav="docs"]', 'Docs', 'Your company docs, searchable, with questions answered from them.'],
   ['[data-nav="market"]', 'Market', 'A map of your competitors, customers and channels that a bot keeps current.'],
-  ['[data-nav="meetings"]', 'Meetings', 'Import a transcript and bots pull out the tasks and follow-ups.'],
+  ['[data-nav="meetings"]', 'Meetings', 'Connect a source or add notes, and bots pull out the tasks and follow-ups.'],
 ];
 let GS_TOUR = null;
 

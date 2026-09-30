@@ -13,8 +13,7 @@ in the tool that made it. Media files can be attached too.
 
 | Door | For | How |
 |---|---|---|
-| **Import** on the Meetings page | a person with a transcript file or a paste | pick or drop a `.txt`, `.vtt`, `.srt` or `.json` file, or paste; set the title, date, participants and source |
-| **Add meeting notes** on the Meetings page | a person who wants to write notes by hand | title, date and time (default now), participants from the roster plus emails or names, markdown notes, and an optional bot to send them to. Files through this same API as source `manual` with `notes` and no transcript |
+| **Add notes** on the Meetings page | a person with notes to write, a transcript file or a paste | title, date and time (default now), participants from the roster plus emails or names, markdown notes, and an optional bot to send them to. **Upload a file** (or drop one on the dialog) or **Paste** adds a transcript: a `.txt`, `.vtt`, `.srt` or `.json` file, with its source (`upload` by default) and an optional recording link. Files through this same API: notes alone as source `manual`, a transcript as the source you chose |
 | `hub meetings import <file>` | a person or script on a computer | `hub meetings import call.vtt --title "Pricing call" --date 2026-09-28T16:00 --participant dana@example.com --source zoom --external-id 123` |
 | `hub_meetings_import` (MCP) | a person's own agent | the same fields; the agent reads the file and sends the text |
 | `POST /api/v2/meetings/import` | anything else | one JSON body, below |
@@ -162,9 +161,11 @@ and 365; it makes one bounded pass, then exits. Restart the service afterward. O
 service to stop: move `secrets/close-calls.env` aside so the runner stops the job, run the backfill, then put it back. The worker stops with an
 error if a single day exceeds its 5,000-activity page limit, so narrow the window and retry.
 
-The **Sources** strip on the Meetings page shows the worker's heartbeat: **Needs setup** until the
-worker connects, **Syncing** after a recent successful pull, **Delayed** when its heartbeat is stale,
-**Error** after a failed pull, with the last sync, last import and the number of activities waiting. An importer turned on in Settings appears in the same strip.
+The **Sources** strip on the Meetings page shows a tile for Close and for each importer below, with the worker's
+heartbeat in one word: **Connect** until the worker connects, **Connected** (with the last import) after a recent
+successful pull, **Delayed** when its heartbeat is stale, **Error** after a failed pull. With no meetings yet, the
+page shows the same tiles large, with **Add notes**. A tile opens that source's setup: Close its integration page,
+the others a dialog with the same form as Settings > Cloud services > Meeting importers (owners only).
 
 ## Meeting importers
 

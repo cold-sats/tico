@@ -194,7 +194,7 @@ and stays closed for that person. It never blocks the page.
 | Docs (owner) | Where do your current docs live? Paste links (a help site, a Drive folder, a Notion page, a GitHub repository, anything), each with an optional description; "No docs yet" leads to writing a first internal doc, "Files to upload" to Import | `POST /api/v2/getting-started/docs` `{"links": [{"url", "description"}]}` makes each link a linked doc (kind detected from the address; Tico keeps no copy) and answers `{"linked": [...], "skipped": [...]}`. No task is filed and no bot is involved ([docs.md](docs.md)) |
 | Market (owner) | What you sell, to whom, main competitors, where customers talk online | `POST /api/v2/getting-started/market` saves the answers (registry key `market-context`) and files a research task to `market-analyst`; when that bot does not exist, the task goes to BotOps to set it up from the `market` template first |
 | Bots | In the org list while there are no bots of your own: **Connect a bot you already have** (the connect-an-agent dialog) or **Build one with BotOps** (the form above) | As above |
-| Tasks, Goals, Meetings | One or two sentences and one action: create a task, set a first goal, import a transcript | Opens the real control on that page |
+| Tasks, Goals | One or two sentences and one action: create a task, set a first goal | Opens the real control on that page |
 | Updates | What daily and Friday updates are | Nothing to do |
 
 ### What is stored, and who may do what
