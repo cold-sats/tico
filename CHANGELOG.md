@@ -77,6 +77,24 @@ All notable changes to Tico are recorded here. The format follows
   `access_bypass`). Muse, Claude and Dots show letters rather than marks: Meta and Anthropic allow theirs only with approval,
   and Dots has none. ChatGPT signs in to MCP servers with OAuth only, so it cannot use a token and has no tile; Dots reaches
   apps through ChatGPT's plugins and is expected to be the same. See `docs/connect-an-agent.md`.
+- **Settings > People is one choice and one list.** At the top: **Add manually** or **Sync with directory** (a saved directory
+  source means Sync; going back to manual stops the sync and keeps the people it added). Manual is one inline row, an email and an
+  optional name. Sync shows the source, its last sync and **Sync now**, with the filters, the interval and the "ask me first if
+  more than 10 would be marked as left" number under **Options**; every sync is still previewed and confirmed as before. **Anyone
+  at <domain> can sign in** is one switch in place of the Who can join box: it adds or removes the company domain in
+  `allowed_domains`. Nothing stored is rewritten: other domains and addresses already on the list keep working and show as chips
+  the owner can remove, and a domain typed into the add row is added to the list. Each person is one row with their role (the
+  owner switches Admin and Member in place), a **Can sign in** switch and a ⋯ menu (Can add bots, Can add people, Make owner,
+  Mark as left, which keeps its confirm); the title and team column and the Edit dialog are gone, and everything saves when it
+  changes. The Cloudflare Access sentence is gone: Tico does not change the Access policy, so after an add one line says "Also
+  allow them in Cloudflare Access" (or your Cognito user pool), linking to docs/people.md.
+- **Can sign in is a per-person switch.** Off keeps someone on the roster and the org chart but refuses their sign-in, their
+  browser sessions and their API tokens until it is on again (`sign_in` on `POST /api/v2/access/people/{id}`). Owners and admins
+  switch it for members, only the owner for an admin, nobody for themselves or the owner, and BotOps only through a Confirm card.
+  Someone with it off cannot be made owner.
+- **The bot limit per member defaults to 25** (it was 5). On upgrade, a company whose stored limit is 5 moves to 25 once: the old
+  page saved the limit with every allow-list save, so a stored 5 cannot be told apart from the default. A 5 someone set by changing it
+  from another number (an `access.limits_updated` event) stays, and so does any other number.
 - Bot pages no longer show the automatic KPI tiles; link a bot's KPIs to a goal from the Goals page.
 - The Done list on a bot page shows its focus ring only for the keyboard.
 - **Settings > Recurring and Settings > Bots filters fit on one line**: a search box and compact menus with no labels

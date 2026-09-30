@@ -57,24 +57,32 @@ class Identity:
     confirmed: bool = False
 
 
-def has_left(c, pid):
-    """Marked as left on the roster (backend/app.py person_update), which also ended their tokens."""
+def standing(c, pid):
+    """"left" when marked as left on the roster (backend/app.py person_update, which also ended their tokens),
+    "off" when an owner or admin turned their sign-in off (Settings > People), else ""."""
     row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
     if not row:
-        return False
+        return ""
     try:
         people = json.loads(row[0]).get("people") or []
     except (ValueError, AttributeError):
-        return False
-    return any(p.get("id") == pid and p.get("hidden") for p in people if isinstance(p, dict))
+        return ""
+    for p in people:
+        if isinstance(p, dict) and p.get("id") == pid:
+            return "left" if p.get("hidden") else "off" if p.get("sign_in") is False else ""
+    return ""
 
 
 def validate_identity(c, who):
     if who.role in ("owner", "human"):
         if not H.human(c, H.actor_id(who.actor)):
             raise Problem("identity", "Unknown person", 401)
-        if has_left(c, H.actor_id(who.actor)):
+        barred = standing(c, H.actor_id(who.actor))
+        # The owner can always sign in: nobody turns the owner's sign-in off (backend/access.py edit_person).
+        if barred == "left":
             raise Problem("identity", "This person has left the company", 403)
+        if barred == "off" and who.role != "owner":
+            raise Problem("identity", "Sign-in is off for this account. Ask an admin to turn it on", 403)
         return
     if who.role == "bot" and who.agent:
         record = c.execute("SELECT revoked_at FROM agents WHERE bot=?", (H.actor_id(who.actor),)).fetchone()
@@ -275,7 +283,7 @@ class Auth:
         if not row or not str(row["owner_actor"] or "").startswith("human:"):
             return None
         human = H.human(c, H.actor_id(row["owner_actor"]))
-        if not human or has_left(c, human["id"]):
+        if not human or standing(c, human["id"]):
             return None
         email = str(human.get("email") or "").lower()
         return Identity(row["owner_actor"], "owner" if email and email == self.owner_email else "human",
@@ -579,7 +587,7 @@ class Auth:
     def identity_for_actor(self, c, actor):
         """Rebuild a human identity for deferred work without elevating its permissions."""
         human = H.human(c, H.actor_id(actor)) if str(actor).startswith("human:") else None
-        if not human or has_left(c, human["id"]):
+        if not human or standing(c, human["id"]):
             raise Problem("identity", "The person who requested this change is no longer on the roster", 403)
         email = str(human.get("email") or "").lower()
         role = "owner" if email and email == self.owner_email else "human"

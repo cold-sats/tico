@@ -70,6 +70,8 @@ def _person(row):
             "external_id": _clean(row.get("external_id")),
             "directory_left": bool(row.get("directory_left")),
             "create_bots": row.get("create_bots") is not False,
+            # Off: still on the roster and the chart, but refused at sign-in and on every token (backend/auth.py).
+            "sign_in": row.get("sign_in") is not False,
             "add_people": row.get("add_people") if isinstance(row.get("add_people"), bool) else None}
 
 

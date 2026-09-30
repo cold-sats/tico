@@ -54,17 +54,22 @@ Everyone on the roster has one company role:
 | **Admin** | people the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot but the built-in ones (below), people and computers (enrol, revoke, open to members' bots); set what members may do and the bot limit. They cannot make or remove admins or owners, and they are not credential administrators |
 | **Member** | everyone else | create and manage their own bots, add coworkers, and use the bots they are allowed to |
 
-Settings > People (owners and admins) shows each person's role and two capabilities, editable per member:
+Settings > People (owners and admins) shows each person on one row: their role (the owner switches Admin and Member there), a
+**Can sign in** switch, and a ⋯ menu with two capabilities per member:
 
 - **Can add bots** (`create_bots`): on for everyone unless switched off.
 - **Can add people** (`add_people`): on by default for coworkers, that is people whose email is in the company domain. A
   member with it on may add a person whose email is in the company domain. Adding anyone outside it needs an owner or an admin,
   whatever the capability says.
 
-The **company domain** is the domain(s) the owner allows to sign in (Settings > People, Sign-in > Who can join); when none is set it is
-the owner's own email domain, unless that is a public mail service such as gmail.com, in which case there is none and members add
-nobody until the owner sets one. It is shown under the box on the Sign-in card. A newly added person goes on the roster and on the
-sign-in list, so they can actually sign in.
+The **company domain** is the domain(s) the owner allows to sign in (Settings > People, **Anyone at <domain> can sign in**); when
+none is set it is the owner's own email domain, unless that is a public mail service such as gmail.com, in which case there is none
+and members add nobody until the owner sets one. A newly added person goes on the roster and on the sign-in list, so they can
+actually sign in.
+
+**Can sign in** off keeps a person on the roster and the org chart but refuses their sign-in, sessions and API tokens until it is
+on again. Owners and admins switch it for members; only the owner switches it for an admin; nobody switches it for themselves or
+for the owner.
 
 **Credential administrators** are the owner and whoever `TICO_CREDENTIAL_ADMINS` names, nobody else: being an Admin does not
 let someone write shared credentials, whatever an earlier version did. Add a person to that list to give them the vault.
@@ -73,8 +78,8 @@ let someone write shared credentials, whatever an earlier version did. Add a per
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
 `librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
 
-A member may have at most **5 active bots** by default; owners and admins have no limit. An admin changes the number in
-Settings > People. Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
+A member may have at most **25 active bots** by default; owners and admins have no limit. An admin changes the number in
+Settings > People (**Bot limit per member**). Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
 ([First run](onboarding.md#what-create-does)) is parked, does nothing on its own and costs nothing, so it does not count; it counts once
 it says it is onboarded, and that call answers `bot_limit` when the member is already at their limit.
 

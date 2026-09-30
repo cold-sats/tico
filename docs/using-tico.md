@@ -78,6 +78,6 @@ Ana can review all mailboxes; other people see only mailboxes granted by the ros
 channel history is owner-only in this view.
 
 **How do I add a person or a bot?**
-A person needs the Cloudflare Access policy, `registry/hub-access.yaml` and the roster
-(`registry/people.yaml`) to allow the address — ask Ana; there is no form yet. A bot: **Settings →
-Bots → Add bot**, then create its repository from `templates/employee-repo/` on the Mac that will run it.
+A person: **Settings → People → Add manually** (an owner or admin), or sync them from the company
+directory there; behind Cloudflare Access, also allow the address in its policy ([People](people.md)). A
+bot: **Settings → Bots → Add bot**, then create its repository from `templates/employee-repo/` on the Mac that will run it.

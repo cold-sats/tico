@@ -8,6 +8,7 @@ the owner changes them in the app without editing a file or restarting:
   access  {allowed, allowed_domains, admins,         who may join, who the Admins are (`bot_admins` is
           member_bot_limit}                          the old name, still read and kept in step for
                                                      one release), and how many bots a member may have
+                                                     (MEMBER_BOT_LIMIT when unset)
 
 The roster stays the gate for sign-in: a person on it (and not marked as left) is in. An
 address on `allowed`, or at an allowed domain, joins the roster on its first verified sign-in.
@@ -65,7 +66,10 @@ def _access_seed(settings):
             "bot_admins": emails(document.get("bot_admins"))}
 
 
-MEMBER_BOT_LIMIT = 5
+MEMBER_BOT_LIMIT = 25
+# The default before 0.2.16. A stored 5 is taken for that default, not a choice (raise_bot_limit).
+OLD_BOT_LIMIT = 5
+BOT_LIMIT_RAISED = "access_bot_limit"
 # Addresses at these are anyone's: they never make someone a "coworker" of the owner.
 PUBLIC_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com",
                "ymail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com",
@@ -135,6 +139,26 @@ def retire_bot_lists(c, settings, now):
         logging.getLogger("tico.access").warning("%s (found: %s)", RETIRED_NOTICE, ", ".join(present))
         _store(c, BOT_ACCESS_NOTICE, {"message": RETIRED_NOTICE, "lists": present, "created": now})
     return present
+
+
+def raise_bot_limit(c, now):
+    """Once per database: a company still on the old default of 5 bots per member gets the new default.
+
+    The old page saved the limit with every allow-list save, so a stored 5 does not show that anyone chose it.
+    It counts as chosen only when someone changed it to 5 from another number (an `access.limits_updated`
+    event whose `before` is not 5); any other stored number is kept. Returns the limit in force afterwards."""
+    if _load_json(c, BOT_LIMIT_RAISED) is not None:
+        return None
+    stored = _load_json(c, ACCESS)
+    before = stored.get("member_bot_limit") if stored else None
+    chosen = c.execute(
+        "SELECT 1 FROM events WHERE action='access.limits_updated' AND json_extract(detail_json,'$.after')=? "
+        "AND coalesce(json_extract(detail_json,'$.before'),-1)<>? LIMIT 1", (OLD_BOT_LIMIT, OLD_BOT_LIMIT)).fetchone()
+    raised = stored is not None and before == OLD_BOT_LIMIT and not chosen
+    if raised:
+        _store(c, ACCESS, {**stored, "member_bot_limit": MEMBER_BOT_LIMIT})
+    _store(c, BOT_LIMIT_RAISED, {"migrated": now, "before": before, "raised": raised})
+    return MEMBER_BOT_LIMIT if raised or before is None else before
 
 
 def bot_access_notice(c):
@@ -334,6 +358,10 @@ def edit_person(c, actor, roster, pid, body, access, owner_email):
         admins = [row["email"] if e == old_email else e for e in admins]
     if body.left is False and row.get("hidden"):
         row["hidden"], changed["restored"] = False, True
+    if body.sign_in is not None:
+        if row["email"] and row["email"] == owner_email:
+            raise Problem("owner", "The owner can always sign in", 409)
+        row["sign_in"], changed["sign_in"] = bool(body.sign_in), bool(body.sign_in)
     role = body.role if body.role is not None else (None if body.bot_admin is None else "admin" if body.bot_admin else "member")
     if role is not None:
         if row["email"] == owner_email:
@@ -414,6 +442,8 @@ def transfer(c, actor, roster, owner, target_id, *, expected_revision, previous_
         raise Problem("not_found", "Choose someone who is active on the roster", 404)
     if not target["email"]:
         raise Problem("email", "The new owner needs an email address to sign in with", 422)
+    if not target.get("sign_in", True):
+        raise Problem("sign_in", "Turn on sign-in for them first", 409)
     if target["email"] == owner["email"]:
         raise Problem("conflict", "That person is already the owner", 409)
     previous = P.person_by_email(owner["email"], roster)
@@ -431,10 +461,21 @@ def transfer(c, actor, roster, owner, target_id, *, expected_revision, previous_
     return load_owner(c, settings)
 
 
+def home_domain(owner_email, allowed_domains):
+    """The domain the People tab offers as "Anyone at <domain> can sign in": the owner's own when it is a
+    company address, else the first allowed domain, else none."""
+    domain = domain_of(owner_email)
+    if domain and domain not in PUBLIC_MAIL:
+        return domain
+    return (allowed_domains or [""])[0]
+
+
 def view(c, settings, roster, proxy_kind, owner_id):
     """What the People tab renders."""
+    from . import directory
     owner, access = load_owner(c, settings), load_access(c, settings)
     domains_ = company_domains(c, settings, owner["email"])
+    home = home_domain(owner["email"], access["allowed_domains"])
     people = []
     for p in roster["people"]:
         left = bool(p.get("hidden"))
@@ -445,10 +486,15 @@ def view(c, settings, roster, proxy_kind, owner_id):
                        "create_bots": can_create_bots(p, role),
                        "add_people": can_add_people(p, role, domains_),
                        "add_people_default": p.get("add_people") is None,
-                       "can_sign_in": bool(p["email"]) and not left})
+                       "sign_in": bool(p.get("sign_in", True)),
+                       "can_sign_in": bool(p["email"]) and not left and bool(p.get("sign_in", True))})
     return {"owner": {**owner, "person": owner_id}, "people": people, **{
         k: access[k] for k in ("allowed", "allowed_domains", "admins", "bot_admins", "member_bot_limit", "revision",
                                "updated", "updated_by")},
         "company_domains": domains_,
         "company_domain_source": "allowed" if access["allowed_domains"] else "owner" if domains_ else "none",
+        # "Anyone at <home_domain> can sign in" is that domain on the allow list.
+        "home_domain": home, "domain_sign_in": bool(home) and home in access["allowed_domains"],
+        # How people get here: a directory source set means Sync, none means they are added by hand.
+        "directory": directory.load(c)["source"],
         "proxy": proxy_kind}
