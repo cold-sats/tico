@@ -19,7 +19,7 @@ from clients import hubcli
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "assistant", "task", "goal", "kpi",
                "proposal", "market", "listening", "tool", "routine", "approval", "brief", "mcp", "needs-you", "run", "team", "health",
-               "update", "grokbot", "calendar", "sql", "db", "classify", "decision", "template", "bot", "human", "api", "computer",
+               "update", "grokbot", "calendar", "sql", "db", "classify", "decision", "template", "bot", "human", "group", "api", "computer",
                "credential", "support"]
 
 
@@ -379,8 +379,15 @@ class BotSetup(unittest.TestCase):
         self.assertEqual((args.fn, args.email, args.name), ("human add", "sean@acme.example", "Sean"))
         args = hubcli.parser().parse_args(["bot", "create", "seo", "--record-only", "--reports-to", "human:cara"])
         self.assertEqual((args.fn, args.record_only, args.template, args.reports_to), ("bot create", True, None, "human:cara"))
+        args = hubcli.parser().parse_args(["group", "update", "--name", "SEO", "--parent", "marketing", "--add-bot", "seo", "--add-bot", "links"])
+        self.assertEqual((args.fn, args.group, args.name, args.parent, args.add_bots),
+                         ("group update", None, "SEO", "marketing", ["seo", "links"]))
+        args = hubcli.parser().parse_args(["group", "update", "seo", "--parent", "", "--remove-human", "cara"])
+        self.assertEqual((args.fn, args.group, args.parent, args.remove_humans), ("group update", "seo", "", ["cara"]))
+        self.assertEqual(hubcli.parser().parse_args(["group", "list"]).fn, "group list")
         from clients import hubtools
         self.assertEqual(hubtools.audience("everyone"), {"everyone": True})
+        self.assertEqual(hubtools.audience("group:legal"), {"people": [], "teams": ["legal"], "bots": []})
         self.assertEqual(hubtools.audience("ben,team:legal,bot:analyst,human:dee"),
                          {"people": ["ben", "dee"], "teams": ["legal"], "bots": ["analyst"]})
 
