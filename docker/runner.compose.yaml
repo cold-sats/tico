@@ -2,7 +2,7 @@
 #   easiest: `sh install.sh --runner --url https://your-tico --code <one-time code> --label <name>` (the release's installer)
 #   by hand: write .env with TICO_URL=https://your-tico, TICO_CODE=<one-time code>, TICO_RUNNER_LABEL=<name>,
 #   TICO_TAG and TICO_UPDATER_TAG=<the server's release, vX.Y.Z>, then `docker compose -f runner.compose.yaml up -d`
-# The code from Settings > Devices > Add computer is used once, at the first start; the login and the bots'
+# The code from Settings > Computers > Add computer is used once, at the first start; the login and the bots'
 # repositories stay in the runner-home volume, so later starts and updates need no code.
 # The updater sidecar keeps this runner on the release its server runs (docs/updates.md). It alone holds the
 # Docker socket; set TICO_RUNNER_PINNED=1 in .env to keep the runner where it is.

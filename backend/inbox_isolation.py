@@ -69,8 +69,8 @@ def check(c, bot, runner_id, people):
                      f"`hub api POST runners/{runner_id}/inbox-sharing '{{\"allowed\": true}}'`.")
         raise Problem("inbox_isolation", f"{bot} reads a mailbox with a key that can open every mailbox in the company, "
                       f"so it cannot share a computer with {', '.join(clash)}. Add a computer for {bot} "
-                      f"(Settings > Devices) and place it there." + offer, 409)
+                      f"(Settings > Computers) and place it there." + offer, 409)
     if not mine and inbox:
         raise Problem("inbox_isolation", f"{', '.join(inbox)} reads a mailbox with a key that can open every mailbox in "
                       f"the company, so this computer is kept for it alone. Add a computer for {bot} "
-                      f"(Settings > Devices) and place it there.", 409)
+                      f"(Settings > Computers) and place it there.", 409)

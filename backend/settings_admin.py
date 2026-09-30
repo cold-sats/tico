@@ -211,7 +211,7 @@ class SettingsAdmin:
                 # A member's bot goes on their own computer, or one an admin has opened to members' bots.
                 runner, note = None, ("That computer does not take bots members create, so " + body.display_name
                                       + " is registered but not placed. Ask an admin to place it, or to let that "
-                                        "computer accept members' bots (Settings > Devices)")
+                                        "computer accept members' bots (Settings > Computers)")
         if not H.human(c, operator):
             raise Problem("not_found", "Computer operator is not on the roster", 404)
         owners, _ = self._people(c, body.owners or [operator])
@@ -249,7 +249,7 @@ class SettingsAdmin:
                 assignment = dict(c.execute("SELECT * FROM assignments WHERE bot=?", (body.slug,)).fetchone())
             elif not note:
                 note = ("No computer takes " + body.display_name + " yet, so it is on but not running. Add a computer, or ask an "
-                        "admin to open one to members' bots (Settings > Devices); it starts on its own when one can take it")
+                        "admin to open one to members' bots (Settings > Computers); it starts on its own when one can take it")
         H.event(c, who.actor, "bot.definition_created", body.slug,
                 {"operator": operator, "owners": owners, "runner": body.runner_id})
         return {**self.definition(c, body.slug), "owners": owners, "assignment": assignment,

@@ -5,7 +5,7 @@
         [--member-token <a member's API token>] [--only build-jira-bot,change-model] [--json out.json]
 
 The server needs BotOps running on a computer with a model (a dev install or a demo whose runner is real; the plain
-demo answers bots with one line and cannot be scored). API tokens come from Settings > Devices. The owner token seeds
+demo answers bots with one line and cannot be scored). API tokens come from Settings > Computers. The owner token seeds
 each scenario and reads the result; `as: member` scenarios ask BotOps as the member. A simulated person answers cards
 the way the scenario says (`person:`); each answer is a step. Scenarios that are `live_only` need a real turn to write
 a file in a bot's repository and are skipped by the scripted tests (backend/tests/test_botops_evals.py).

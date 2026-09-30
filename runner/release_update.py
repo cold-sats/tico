@@ -361,7 +361,7 @@ class Follower:
             return "no updater is set up; run docker compose pull && docker compose up -d on this box"
         return ("no updater is set up; move this runner onto the compose file that has one: on this box run "
                 f"curl -fsSL https://github.com/ticoteam/tico/releases/download/v{want}/install.sh | sh -s -- --runner "
-                "--url <your Tico address> --code <new code from Settings > Devices > Add computer> --label <name>")
+                "--url <your Tico address> --code <new code from Settings > Computers > Add computer> --label <name>")
 
     def decide(self):
         want = self.desired or ""

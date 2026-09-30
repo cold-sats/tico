@@ -131,7 +131,7 @@ def _rejected_summary(rows):
     first = ", ".join(sorted({f"{name} on {label}" for label, name, _, _ in rows}))
     when, why = rows[0][2], rows[0][3]
     return (f"Sign-in rejected for {first}" + (f" at {when}" if when else "") + (f": {why}" if why else ".")
-            + " Replace the key in the runner's secrets, or sign in again from Settings > Devices. "
+            + " Replace the key in the runner's secrets, or sign in again from Settings > Computers. "
             "It takes no work that needs it until then.")
 
 
@@ -289,13 +289,13 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("computers", "Computers", "bad", "No computer is set up. Bots need one to run.", fixes))
     elif not online:
         checks.append(_check("computers", "Computers", "bad", "Every computer is offline.",
-                             [_fix("Open Devices", "#/settings", "devices")] if full else []))
+                             [_fix("Open Computers", "#/settings", "devices")] if full else []))
     elif len(online) < len(computers):
         off = [x for x in computers if not x["online"]]
         checks.append(_check("computers", "Computers", "warn",
                              f"{len(online)} of {len(computers)} online. Offline: "
                              + ", ".join(x["label"] for x in off) + ".",
-                             [_fix("Open Devices", "#/settings", "devices")] if full else []))
+                             [_fix("Open Computers", "#/settings", "devices")] if full else []))
     else:
         checks.append(_check("computers", "Computers", "ok", f"{_plural(len(online), 'computer')} online."))
 
@@ -308,12 +308,12 @@ def view(c, who, settings, auth, github, config):
                                  [_fix("Choose providers", "#/settings", "providers")]))
         elif online and not signed and rejected:
             checks.append(_check("models", "Models", "bad", _rejected_summary(rejected),
-                                 [_fix("Open Devices", "#/settings", "devices")]))
+                                 [_fix("Open Computers", "#/settings", "devices")]))
         elif online and not signed:
             checks.append(_check("models", "Models", "bad", "No online computer is signed in to your model.",
-                                 [_fix("Open Devices", "#/settings", "devices")]))
+                                 [_fix("Open Computers", "#/settings", "devices")]))
         elif signed and rejected:
-            checks.append(_check("models", "Models", "warn", f"{signed} is signed in on another computer. " + _rejected_summary(rejected), [_fix("Open Devices", "#/settings", "devices")]))
+            checks.append(_check("models", "Models", "warn", f"{signed} is signed in on another computer. " + _rejected_summary(rejected), [_fix("Open Computers", "#/settings", "devices")]))
         elif signed:
             checks.append(_check("models", "Models", "ok", f"{signed} is signed in."))
         else:
@@ -323,9 +323,9 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("computer_signin", "Computer sign-in", "warn",
                              "; ".join(f"{label}: sign in to {model}" for label, model in unsigned[:5])
                              + ("." if len(unsigned) <= 5 else f"; and {len(unsigned) - 5} more.")
-                             + " Sign in from Settings > Devices (BotOps can start it). To have new computers sign in by "
+                             + " Sign in from Settings > Computers (BotOps can start it). To have new computers sign in by "
                              "themselves, store the company's model key in Credentials and give it to every computer.",
-                             [_fix("Open Devices", "#/settings", "devices"), _fix("Open Credentials", "#/credentials")]))
+                             [_fix("Open Computers", "#/settings", "devices"), _fix("Open Credentials", "#/credentials")]))
     if full and (versions := runner_versions.health_check(computers)):
         checks.append(versions)
     if waiting:
@@ -333,7 +333,7 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("waiting", "Bots waiting", "warn" if online else "bad",
                              f"{_plural(len(waiting), 'bot')} cannot run because their computer is offline"
                              + (f": {names}." if full else "."),
-                             [_fix("Open Devices", "#/settings", "devices")] if full else []))
+                             [_fix("Open Computers", "#/settings", "devices")] if full else []))
     else:
         checks.append(_check("waiting", "Bots waiting", "ok", "Every active bot has a computer that is up."))
     if slow:
@@ -363,15 +363,15 @@ def view(c, who, settings, auth, github, config):
                              "Bots members created run on a computer that holds keys every bot there receives "
                              "(secrets/_shared.env): " + "; ".join(f"{label}: {', '.join(bots[:3])}" for label, bots in beside[:3])
                              + ". A member's bot instructions could ask a run for them. Move those bots to a computer "
-                             "with no shared keys and open only that one to members' bots (Settings > Devices).",
-                             [_fix("Open Devices", "#/settings", "devices")]))
+                             "with no shared keys and open only that one to members' bots (Settings > Computers).",
+                             [_fix("Open Computers", "#/settings", "devices")]))
     exposed = _mail_key_exposed(c) if full else []
     if exposed:
         checks.append(_check("mail_key", "Mail key", "warn",
                              "The company's Google mail key can be read by every bot on " + ", ".join(exposed[:3])
                              + ". A bot talked into it could read every mailbox. Use a Linux Docker runner with the "
                              "current runner.compose.yaml, where the runner keeps the key to itself (docs/mail.md).",
-                             [_fix("Open Devices", "#/settings", "devices")]))
+                             [_fix("Open Computers", "#/settings", "devices")]))
     if full:
         checks.append(_github(c, github))
         slack = _slack(c)

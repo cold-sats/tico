@@ -613,7 +613,7 @@ def finish(io: IO, s: Settings, deps: Deps, records, runner: remote.Shell | None
         if not s.backup_url:
             io.say(f"\nNote: {bk.LOCAL_WARNING}")
         io.say("The in-app checklist continues from there. Next, add the computer that runs your bots: your Mac via "
-               "Settings > Devices > Add computer, or a Linux box with `python3 -m setup runner`.")
+               "Settings > Computers > Add computer, or a Linux box with `python3 -m setup runner`.")
         return 0
     io.say("\nNot everything passed. Fix the hints above and run `python3 -m setup doctor --domain " + s.domain + "`.")
     return 1

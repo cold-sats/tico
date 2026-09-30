@@ -8,6 +8,9 @@
 #   sh install.sh --runner --url https://tico.example.com --code <code> --label "Build box" [--version vX.Y.Z]
 #   sh install.sh --runner --name mail --url http://server:8765 --code <code> --server-network tico_default
 #
+# On a Mac, --local and --runner work the same and install into ~/tico and ~/tico-runner (Docker Desktop must be
+# running; nothing needs sudo). The team install is Linux only.
+#
 # --local runs Tico on this machine only (http://127.0.0.1:8765, the owner signs in with a token): no domain, no DNS, no
 # OIDC client. The domain and sign-in are added later in .env (docs/install.md, "Add a domain and sign-in later").
 #
@@ -37,7 +40,12 @@ MIN_MEM_KB=900000   # a 1 GB machine reports a little under 1,000,000 kB
 MIN_DISK_KB=1000000
 VERSION_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
 
-DIR=${TICO_INSTALL_DIR:-/opt/tico}
+# A Mac (Docker Desktop) keeps its files in the home folder: /opt needs sudo there, and nothing else does.
+MAC=
+[ "$(uname -s)" != Darwin ] || MAC=1
+BASE=/opt
+[ -z "$MAC" ] || BASE=${HOME:-/tmp}
+DIR=${TICO_INSTALL_DIR:-$BASE/tico}
 VERSION=
 FORCED=
 YES=
@@ -64,7 +72,7 @@ usage() {
 Usage: install.sh [options] [-- tico-setup flags]
 
   --version vX.Y.Z   install this release (default: the release this script came from)
-  --dir PATH         install directory (default /opt/tico)
+  --dir PATH         install directory (default /opt/tico; ~/tico on a Mac)
   --yes, -y          do not ask for confirmation
   --local            quick start on this machine only: no domain and no sign-in setup (add them later in .env)
   --owner-email E    with --local: the owner's email (asked when omitted)
@@ -73,7 +81,7 @@ Usage: install.sh [options] [-- tico-setup flags]
   --docker-only      only make sure Docker and Compose are installed (used for runner boxes)
   --runner           set up a computer that runs bots for a Tico server (Docker Compose, with the updater sidecar)
   --url URL          with --runner: the Tico server, such as https://tico.example.com
-  --code CODE        with --runner: the one-time code from Settings > Devices > Add computer (15 minutes, single use)
+  --code CODE        with --runner: the one-time code from Settings > Computers > Add computer (15 minutes, single use)
   --label NAME       with --runner: the computer's name in Tico (default: this host's name)
   --name NAME        with --runner: add another computer on this host (for a message bot). It gets its own directory
                      (/opt/tico-runner-<name>), containers, volume and updater; the label defaults to NAME
@@ -87,7 +95,7 @@ EOF
 }
 
 as_root() {
-  if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi
+  if [ "$(id -u)" = 0 ] || [ -n "$MAC" ]; then "$@"; else sudo "$@"; fi
 }
 
 while [ $# -gt 0 ]; do
@@ -130,7 +138,7 @@ if [ -n "$RUNNER_NAME" ]; then
   printf '%s' "$RUNNER_SLUG" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' || die 2 "--name needs letters or digits, such as --name mail."
   RUNNER_PROJECT=tico-runner-$RUNNER_SLUG
 fi
-[ -n "$RUNNER" ] && [ -z "$DIR_GIVEN" ] && DIR=/opt/$RUNNER_PROJECT
+[ -n "$RUNNER" ] && [ -z "$DIR_GIVEN" ] && DIR=$BASE/$RUNNER_PROJECT
 if [ -n "$RUNNER" ]; then
   # These reach a file and a command line, so only plain values are taken.
   [ -z "$TUNNEL$DOCKER_ONLY" ] || die 2 "--runner cannot be combined with --tunnel or --docker-only."
@@ -139,7 +147,7 @@ if [ -n "$RUNNER" ]; then
     printf '%s' "$RUNNER_URL" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$' || { usage >&2; die 2 "--runner needs --url https://your-tico-server (no path)."; }
   fi
   if [ -n "$RUNNER_CODE" ] || [ ! -f "$DIR/.env" ]; then
-    printf '%s' "$RUNNER_CODE" | grep -Eq '^[A-Za-z0-9_-]+$' || { usage >&2; die 2 "--runner needs --code, the one-time code from Settings > Devices > Add computer."; }
+    printf '%s' "$RUNNER_CODE" | grep -Eq '^[A-Za-z0-9_-]+$' || { usage >&2; die 2 "--runner needs --code, the one-time code from Settings > Computers > Add computer."; }
   fi
   [ -n "$RUNNER_LABEL" ] || [ -f "$DIR/.env" ] || RUNNER_LABEL=${RUNNER_NAME:-$(hostname 2>/dev/null || echo runner)}
   [ -z "$RUNNER_LABEL" ] || printf '%s' "$RUNNER_LABEL" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
@@ -152,13 +160,17 @@ printf '%s' "$DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$' || die 2 "--dir must be an a
 
 preflight() {
   step "Checking this machine"
-  [ "$(uname -s)" = Linux ] || die 3 "Tico installs on Linux servers only (this is $(uname -s))."
+  if [ -n "$MAC" ]; then
+    [ -n "$LOCAL$RUNNER" ] || die 3 "The team install is for Linux servers. On this Mac, run it again with --local (Tico on this Mac only), or with --runner to join a server's computer."
+  else
+    [ "$(uname -s)" = Linux ] || die 3 "Tico installs on Linux servers only (this is $(uname -s))."
+  fi
   case $(uname -m) in
     x86_64|amd64) arch=amd64 ;;
     aarch64|arm64) arch=arm64 ;;
     *) die 3 "Unsupported CPU $(uname -m): the images are built for x86_64 and arm64." ;;
   esac
-  if [ "$(id -u)" != 0 ]; then
+  if [ "$(id -u)" != 0 ] && [ -z "$MAC" ]; then
     command -v sudo >/dev/null 2>&1 || die 3 "Run this as root, or install sudo: it needs to install Docker and write $DIR."
     if ! sudo -n true 2>/dev/null; then
       say "This needs administrator rights; sudo may ask for your password."
@@ -168,9 +180,14 @@ preflight() {
       else die 3 "sudo needs a password and there is no terminal. Run as root or with passwordless sudo."; fi
     fi
   fi
-  mem_kb=$(awk '/^MemTotal:/ {print $2}' "$MEMINFO" 2>/dev/null || true)
-  [ -n "${mem_kb:-}" ] || die 3 "Could not read the memory size from $MEMINFO."
-  [ "$mem_kb" -ge "$MIN_MEM_KB" ] || die 3 "Needs at least 1 GB of memory (this machine has $((mem_kb / 1024)) MB); 2 GB is comfortable."
+  if [ -n "$MAC" ]; then
+    mem_kb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 ))
+    [ "$mem_kb" -ge "$MIN_MEM_KB" ] || mem_kb=$MIN_MEM_KB   # Docker Desktop sets its own limit; do not guess
+  else
+    mem_kb=$(awk '/^MemTotal:/ {print $2}' "$MEMINFO" 2>/dev/null || true)
+    [ -n "${mem_kb:-}" ] || die 3 "Could not read the memory size from $MEMINFO."
+    [ "$mem_kb" -ge "$MIN_MEM_KB" ] || die 3 "Needs at least 1 GB of memory (this machine has $((mem_kb / 1024)) MB); 2 GB is comfortable."
+  fi
   probe=$DIR
   while [ ! -d "$probe" ]; do probe=$(dirname "$probe"); done
   disk_kb=$(df -Pk "$probe" | awk 'NR==2 {print $4}')
@@ -182,7 +199,7 @@ preflight() {
       fi
     done
   fi
-  say "ok: Linux $arch, $((mem_kb / 1024)) MB memory, $((disk_kb / 1024)) MB free disk"
+  say "ok: $([ -n "$MAC" ] && echo macOS || echo Linux) $arch, $((mem_kb / 1024)) MB memory, $((disk_kb / 1024)) MB free disk"
 }
 
 port_busy() {
@@ -262,7 +279,11 @@ install_docker() {
 
 ensure_docker() {
   step "Docker"
-  if ! compose_ok; then install_docker; fi
+  if [ -n "$MAC" ]; then
+    if ! { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }; then
+      die 5 "Docker is not running. Install Docker Desktop (https://www.docker.com/products/docker-desktop/), open it, wait until it says it is running, and run this again."
+    fi
+  elif ! compose_ok; then install_docker; fi
   if ! as_root docker info >/dev/null 2>&1; then
     if command -v systemctl >/dev/null 2>&1; then as_root systemctl enable --now docker >/dev/null 2>&1 || true; fi
     as_root docker info >/dev/null 2>&1 || die 5 "The Docker daemon is not running. Start it (systemctl start docker) and run this again."
@@ -417,6 +438,8 @@ run_local() {
   say "Tico is running on this machine only."
   if [ -n "$token" ]; then say "Open this once to sign in as $OWNER_EMAIL: http://127.0.0.1:8765/api/v2/local-signin?token=$token"
   else say "Sign in as $OWNER_EMAIL with the token from: cd $DIR && docker compose exec server cat /data/local-owner.token"; fi
+  say "In the app, follow Finish setup: name the team, pick its groups, and use Add computer to join this computer."
+  say "Bots need an AI provider to run: Settings > AI providers, any time."
   say "Add a domain and sign-in for your people later: docs/install.md, \"Add a domain and sign-in later\"."
 }
 
@@ -524,9 +547,9 @@ run_runner() {
   ( cd "$DIR" && as_root docker compose $files pull --quiet && as_root docker compose $files up -d ) \
     || die 6 "docker compose failed in $DIR. Run 'docker compose $files logs' there."
   say ""
-  say "The runner is starting; it shows online in Settings > Devices in a minute."
+  say "The runner is starting; it shows online in Settings > Computers in a minute."
   [ -z "$RUNNER_SLUG" ] || say "Its files are in $DIR and its container is $RUNNER_PROJECT."
-  say "It follows the server's release through its updater; sign the bots in to a model from Settings > Devices."
+  say "It follows the server's release through its updater; sign the bots in to a model from Settings > Computers."
 }
 
 # ---------------------------------------------------------------------------------------------- main
@@ -567,5 +590,5 @@ fetch_bundle
 if [ -n "$LOCAL" ]; then run_local; exit 0; fi
 run_wizard "$@" || die 6 "The setup wizard did not finish. Run this again: it resumes where it stopped, and finished steps are skipped."
 say ""
-say "Next: add the computers that run your bots (Settings > Devices > Add computer in the app)."
+say "Next: add the computers that run your bots (Settings > Computers > Add computer in the app)."
 say "Later checks: cd $DIR && sudo ./scripts/tico-setup doctor --domain <your domain>"
