@@ -155,6 +155,10 @@ Automatic rollback covers a release that does not come up. To go back by choice:
   sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.2.12/' .env && docker compose -f runner.compose.yaml up -d updater
   ```
 
+- **v0.2.16 to v0.2.18:** the update is in the app, with no manual steps. Browser tabs left open show "New version · Reload".
+  A Mac runner's helper jobs now restart on their own after an update; on v0.2.17 or older, run `scripts/tico restart all` once
+  after updating. If you run your own HQ, its `backup` service in `hq/compose.yaml` must run as uid 10005 (fixed in v0.2.18).
+
 ## For maintainers
 
 Bump `MIN_RUNNER_RELEASE` in the release that changes the runner/server contract, and say so in the changelog.

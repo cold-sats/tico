@@ -141,8 +141,9 @@ Secrets never appear on the command line, in the plan, in logs or in the reposit
   container. Any failed check prints a fix beside it.
 - Most of the time goes to DNS: seconds with Route 53 or Cloudflare and a token, and up to your DNS provider's
   propagation time (the wizard waits up to 20 minutes and can be resumed) when you add the record yourself.
-- Opening the URL shows Google or Microsoft sign-in, then the app with a **first-run checklist**: add a computer,
-  enable a model provider, create your first bot. Nothing runs bots yet: the next section is the step that does.
+- Opening the URL shows Google or Microsoft sign-in, then the **setup wizard**: AI providers (when none are chosen yet),
+  then Names, About the company, Your org chart, Add a computer, Connect your agent and Review and create. Nothing runs
+  bots until a computer is added: the next section is the step that does.
 
 ### When something fails
 
