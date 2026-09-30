@@ -7,6 +7,19 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **First run has one step fewer: "What hurts, and what you use" is gone.** The pain chips grouped by team, "In your own words" and the
+  "What do you already use?" tool checkboxes are removed, so the wizard is seven steps (AI providers, Names, About the company, Your team,
+  Add the computer, Connect your agent, Review and create). The team is now chosen from "About the company" alone. The **starter team** is
+  Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when software is the product, and at most one more starter when the
+  "What you do" text obviously matches a card's `pains` or summary. The **full org chart** is every starter template grouped by team with each
+  pack's `lead: true` template as lead; Engineering is included only when software is the product, and a company that sells only to
+  consumers skips templates whose `recommend_when` names `sells_to_businesses` but not `sells_to_consumers`. Tools no longer gate anything at
+  onboarding: templates are never held back for a missing tool, the "Needs Mail" pills are gone, and each bot asks for what it needs in its own
+  Start setup. `answers.pains`, `pains_text` and `tools` are still accepted and ignored, `held_back` is always empty and `pain_options` is no
+  longer served. `FEATURED_PAINS`, the tool and signal tags (nothing sets `uses_github` or `uses_meetings` any more; cards may still list them) and the
+  pain chip CSS are removed, and the Getting started "next bot" hint no longer quotes a pain.
+
 ## [0.2.14] - 2026-09-30
 
 ### Added

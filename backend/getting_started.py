@@ -110,21 +110,15 @@ def own_bots(c, settings):
 
 def _next_bot(c, settings):
     """The starter bot to set up next: parked (`needs_onboarding`), in the order first run put them, which
-    puts the one matching the top pain first. Returns (slug, name, why), or None when nothing is waiting."""
-    from . import onboarding
+    puts the team's first bot first. Returns (slug, name, why), or None when nothing is waiting."""
     rows = c.execute("SELECT bc.bot,b.display_name,bc.config_json FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                      "WHERE bc.onboarding_state='needs_onboarding' AND b.state!='archived'").fetchall()
     if not rows:
         return None
     ranked = sorted(((json.loads(row["config_json"] or "{}"), row) for row in rows),
                     key=lambda pair: (pair[0].get("setup_rank", 999), pair[1]["bot"]))
-    config, row = ranked[0]
-    answers = onboarding.load(c)["answers"]
-    card = next((card for card in onboarding.read_cards(settings) if card["template"] == config.get("template")), None)
-    score, pain = onboarding.pain_match(card, answers.get("pains"), " ".join(
-        [answers.get("pains_text") or "", answers.get("repetitive_work") or ""])) if card else (0, "")
-    why = ("It matches what hurts most: \"" + pain + "\". " if pain else "") \
-        + "Press Start setup on its page and answer its questions; it drafts a first result for you to approve."
+    row = ranked[0][1]
+    why = "Press Start setup on its page and answer its questions; it drafts a first result for you to approve."
     return row["bot"], row["display_name"], why
 
 

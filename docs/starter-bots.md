@@ -1,7 +1,7 @@
 # Starter bots
 
 The catalog holds 38 templates, enough to staff a company of ten to a hundred people, in six packs that become the six teams of the
-full org chart. A company picks about five of them for a starter team and gets a first useful, reviewable result in its first session,
+full org chart. A company starts from a team of three or four (Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when software is the product) and gets a first useful, reviewable result in its first session,
 or builds the whole org chart in one click and sets each bot up when its turn comes: every bot is created parked in "Needs
 onboarding" and costs nothing until someone sets it up. They run on what a company already has, and none of them acts outside the
 company on its own. The catalog format is in [First run](onboarding.md); how to write and tune a bot is in
@@ -128,21 +128,20 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 | Field | What it holds |
 |---|---|
 | `pack` | `basics`, `sales`, `marketing`, `support`, `operations` or `engineering`: the team the template sits in on the full org chart (Leadership, Sales, Marketing, Support, Operations, Engineering), and how a chooser groups templates. Those are the only six teams the chooser has (`TEAMS` in `backend/onboarding.py`), so finance templates use `operations` and product research uses `engineering` |
-| `lead` | `true` on exactly one template per pack: the team's coordinator, and the person the rest of the team reports to on the full chart. Chief of Staff for Leadership. The catalog test requires exactly one. `full_chart` in `backend/onboarding.py` does not read the field yet and picks a team's lead by best match, so a card carrying it changes nothing until it does |
-| `pains` | Plain phrases a person might say ("too much email", "leads go cold", "meetings without follow-up"). The first-run screen shows about a dozen of them as chips (`FEATURED_PAINS` in `backend/onboarding.py`, two per team), and the local chooser matches a company's stated pains against them |
-| `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. A required tool the company did not tick means the chooser does not propose the template (it says what it needs); a person can still add it |
+| `lead` | `true` on exactly one template per pack: the team's coordinator, and the person the rest of the team reports to on the full chart. Chief of Staff for Leadership. The catalog test requires exactly one. `full_chart` in `backend/onboarding.py` reads it: the lead sits first in its team and the rest report to it |
+| `pains` | Plain phrases a person might say ("too much email", "leads go cold", "meetings without follow-up"). The first-run wizard no longer shows them. The chooser matches a company's free-text "What you do" against them (and against the summary) to add at most one more starter, so write them as words a company would use |
+| `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. Onboarding no longer asks which tools a company uses and never holds a template back for one: the bot asks for what it needs in its own Start setup conversation, so list what it needs there. Keep `required` for what the bot cannot work at all without |
 | `onboarding` | Four to seven `{ask, why}` questions the bot asks on its first message |
 | `first_routine` | `{title, cadence, output, draft_only: true}`: the reviewable internal artifact the bot produces first |
 | `approval_required` | Actions that always need a person's Confirm: send, post, comment on GitHub, change a CRM stage, arm a routine |
 | `example_output` | Path, inside the template, to a short sample of excellent output under `knowledge/examples/` |
 | `when` | Optional, existing: one sentence saying who wants the template |
 
-`recommend_when` tags come from [First run](onboarding.md#the-chooser). `uses_meetings` and `uses_github` are derived from the tools a
-company ticks (a meetings importer, GitHub), and a ticked tool that names a starter outright recommends it even with no matching pain, so
-only Meeting Notes and Issue Triage use those two tags; every other template names a situation instead (`sells_software`, `uses_crm`,
-`has_support_inbox`) or a broad one (`uses_docs`, `uses_email`), or the starter team would fill with everything a ticked tool touches. Only
-Chief of Staff is `always`. A required tool the company did not tick holds the template back, so require only what the bot cannot work
-without: `hub` (files and tasks a person hands it) is an honest requirement for a bot fed by exports.
+`recommend_when` says who the template is for (see [First run](onboarding.md#the-chooser)). The chooser reads only two of its tags:
+`sells_to_businesses` without `sells_to_consumers` marks a template as business-only, and a company that sells only to consumers does not get
+it on the full org chart. Every other tag (`sells_software`, `uses_crm`, `uses_github`, `uses_meetings`, `has_support_inbox`, `always`) is
+descriptive and matched to nothing, so use the ones a reader would expect. Engineering templates (`pack: engineering`) are offered only
+to a company whose product is software, whatever they list.
 
 ```yaml
 template: sales

@@ -3,8 +3,8 @@
 A company starts with three built-in bots: the assistant, which is each person's private Assistant
 chat (backend/assistant.py) and works in the background (Slack routing, meetings' Auto delivery),
 BotOps, which builds every other bot, and the Librarian, which answers questions from the company's
-docs (backend/librarian.py). Onboarding names the company, asks the first-run questions, chooses at most
-five starter templates against the answers (`choose`), and on completion defines the chosen bots. A
+docs (backend/librarian.py). Onboarding names the company, asks the first-run questions, chooses a starter team
+of about four bots against the answers (`choose`), and on completion defines the chosen bots. A
 starter is created at once, `needs_onboarding`, and its repository is materialized by the computer;
 every other template is still a task for BotOps. Nothing here reaches a machine: it writes definitions
 and tasks.
@@ -35,45 +35,34 @@ INSTRUCTIONS_FILE = "AGENT.md"
 # its AGENT.md is written against the company that is about to adopt it. The wizard no longer
 # asks for assistant_name; an empty one falls back to TICO_ASSISTANT_NAME (display_names).
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
-# Which catalog tag each answer implies. The free-text answers are never parsed: BotOps and
-# the owner read them, the recommender does not.
-WORK_ARRIVES = {"email": ("uses_email",), "slack": ("uses_slack",), "crm": ("uses_crm",),
-                # A ticket queue is a support inbox; one answer earns both tags.
-                "tickets": ("uses_tickets", "has_support_inbox")}
-SMALL_TEAM = 10
-# The starter team is the best pain matches, what a ticked tool names outright and the always-useful
-# Chief of Staff: about three to five bots. It is a starting point, not a limit: the full org chart
-# proposes every template that fits, and either can be edited freely before Create.
+# The starter team is a fixed core, and one more when software is the product. It is a starting point, not a
+# limit: the full org chart proposes every template that fits, and either can be edited freely before Create.
+STARTER_CORE = ("chief-of-staff", "support", "sales")
+STARTER_SOFTWARE = ("issue-triage",)
 STARTER_TEAM_MAX = 5
-MAX_PAIN_PICKS = 2
+# Free text in "About" may add one more obvious fit: a card's `pains` phrase found in it, or at least this many
+# words in common with the card's summary.
+SUMMARY_WORDS = 3
 # A card's `pack` is the team it sits in on the org chart. Teams appear in this order.
 TEAMS = {"basics": "Leadership", "sales": "Sales", "marketing": "Marketing", "support": "Support",
          "operations": "Operations", "engineering": "Engineering"}
 OTHER_TEAM = "Other"
 NEEDS_ONBOARDING = "needs_onboarding"
 ONBOARDED = "onboarded"
-# What each ticked tool implies, as catalog tags (`recommend_when`) and as a prerequisite a card lists.
-TOOL_TAGS = {"mail": ("uses_email",), "chat": ("uses_slack",), "crm": ("uses_crm", "has_pipeline"),
-             "github": ("uses_github",), "meetings": ("uses_meetings",), "docs": ("uses_docs",)}
-# A ticked tool that names a starter outright: it recommends the card even with no matching pain.
-SIGNAL_TAGS = {"uses_github": "You use GitHub", "uses_meetings": "You use a meetings importer"}
-# Tools every company has whatever it ticked (Tico itself, the public web and its calendar).
-ALWAYS_TOOLS = ("hub", "web", "calendar")
-# Older answers said where work arrives; each implies a tool.
-WORK_TOOLS = {"email": "mail", "slack": "chat", "crm": "crm", "tickets": "mail"}
 STOP_WORDS = frozenset("""a an and are as at be but by can do does for from get gets had has have how i if in into is it its
 just like more most much my no not of on one or our out over so than that the their them then there these they this those
 to too up us was we were what when where which who why will with without you your really still every again things thing
 going about people""".split())
 
 EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": ""}
+# `pains`, `pains_text` and `tools` are no longer asked. An older record keeps them and a client may still send them;
+# nothing reads them.
 EMPTY_ANSWERS = {"what_we_do": "", "customers": "", "team_size": "", "work_arrives": [],
                  "repetitive_work": "", "never_without_person": [], "pains": [], "pains_text": "",
                  "tools": [], "software_product": ""}
 ANSWER_LABELS = (("what_we_do", "What we do"), ("customers", "Customers"),
                  ("team_size", "Team size"), ("work_arrives", "Work arrives by"),
-                 ("repetitive_work", "Repetitive work"), ("pains", "Top pains"),
-                 ("pains_text", "In their words"), ("tools", "Tools they use"),
+                 ("repetitive_work", "Repetitive work"),
                  ("software_product", "Software is the product"),
                  ("never_without_person", "Never without a person"))
 
@@ -229,44 +218,6 @@ def config_view(c, settings, who=None):
     return value
 
 
-def tools_of(answers):
-    """What the company already uses: the tools it ticked, plus what an older answer to "where does
-    work arrive" implies, plus the three every company has (ALWAYS_TOOLS)."""
-    have = set(ALWAYS_TOOLS) | set(answers.get("tools") or [])
-    for value in answers.get("work_arrives") or []:
-        tool = WORK_TOOLS.get(re.sub(r"^uses_", "", str(value)))
-        if tool:
-            have.add(tool)
-    return have
-
-
-def tags(answers):
-    """The catalog tags an answer set implies; `always` matches any card that asks for it."""
-    derived = {"always"}
-    customers = str(answers.get("customers") or "")
-    if customers in ("businesses", "both"):
-        derived.add("sells_to_businesses")
-    if customers in ("consumers", "both"):
-        derived.add("sells_to_consumers")
-    for value in answers.get("work_arrives") or []:
-        derived.update(WORK_ARRIVES.get(re.sub(r"^uses_", "", str(value)), ()))
-    for tool in tools_of(answers):
-        derived.update(TOOL_TAGS.get(tool, ()))
-    if str(answers.get("software_product") or "") == "yes":
-        derived.add("sells_software")
-    # "1-5", "6-10", "12 people": the largest number the person wrote is the team's size.
-    sizes = [int(n) for n in re.findall(r"\d+", str(answers.get("team_size") or ""))]
-    if sizes and max(sizes) <= SMALL_TEAM:
-        derived.add("small_team")
-    # A company that gates publishing publishes; one with a CRM or business customers has a
-    # pipeline; one that publishes wants to hear what is said about it.
-    if "publish" in (answers.get("never_without_person") or []):
-        derived.update({"publishes_content", "tracks_mentions"})
-    if derived & {"sells_to_businesses", "uses_crm"}:
-        derived.add("has_pipeline")
-    return derived
-
-
 def _stem(word):
     for suffix in ("ing", "ed", "es", "s"):
         if word.endswith(suffix) and len(word) - len(suffix) >= 3:
@@ -279,197 +230,101 @@ def _stems(text):
             if len(word) > 2 and word not in STOP_WORDS}
 
 
-def pain_match(card, chips, text):
-    """How well a company's stated pains match a card's `pains`: (score, the card's phrase that matched).
-
-    A chip ticked from the card's own phrases is a strong match. Free text matches a phrase when it
-    shares all of the phrase's words, at least two of them, or its one or two keywords."""
-    score, best = 0, ""
-    phrases = {" ".join(sorted(_stems(phrase))): phrase for phrase in card.get("pains") or []}
-    for chip in chips or []:
-        hit = phrases.get(" ".join(sorted(_stems(chip))))
-        if hit:
-            score, best = score + 10, best or hit
-    words = _stems(text)
-    for phrase in card.get("pains") or []:
-        wanted = _stems(phrase)
-        shared = wanted & words
-        if shared and (len(shared) >= 2 or len(shared) == len(wanted) or len(wanted) <= 2):
-            score, best = score + len(shared), best or phrase
-    return score, best
-
-
 def _first_sentence(text, limit=190):
     first = re.split(r"(?<=[.!?])\s", str(text or "").strip(), maxsplit=1)[0]
     return first if len(first) <= limit else first[:limit - 1].rstrip() + "…"
 
 
-def _prerequisite_rows(card, have):
-    return [{**row, "met": row["tool"] in have} for row in card.get("prerequisites") or []]
+def fits(card, answers):
+    """Whether a template suits this company, from "About the company" alone: Engineering is for a company whose
+    product is software, and a card whose `recommend_when` names business customers but never consumers (a
+    business-only card) is skipped by a company that sells only to consumers. Tools decide nothing here: each bot asks for
+    what it needs when it starts."""
+    when = set(card["recommend_when"])
+    if card.get("pack") == "engineering" and str(answers.get("software_product") or "") != "yes":
+        return False
+    if str(answers.get("customers") or "") == "consumers" and "sells_to_businesses" in when and "sells_to_consumers" not in when:
+        return False
+    return True
+
+
+def _text_fit(card, text):
+    """How well the company's own description matches a card: (score, the card's pain phrase that matched).
+    A `pains` phrase counts when every one of its words is in the text; a summary counts when it shares SUMMARY_WORDS
+    words. Words are compared by stem, without the common ones."""
+    words, best, score = _stems(text), "", 0
+    for phrase in card.get("pains") or []:
+        wanted = _stems(phrase)
+        shared = len(wanted & words)
+        if wanted and shared == len(wanted):
+            score, best = score + shared, best or phrase
+    shared = len(words & _stems(card["summary"]))
+    return score + (shared if shared >= SUMMARY_WORDS else 0), best
 
 
 def choose(cards, answers, limit=STARTER_TEAM_MAX):
-    """The starter team: about three to five bots for these answers, best first, each with why.
-
-    The best one or two pain matches, then the starters a ticked tool names outright (GitHub, a
-    meetings importer), then every starter that asks for `always` (Chief of Staff). A card whose
-    required tool the company did not tick is never proposed; it is `held_back` with what it needs,
-    because a bot that cannot read anything only disappoints. The built-ins (required cards) are
-    always there and are not part of this. Returns (recommendations, held_back). `full_chart` is the
-    other starting point.
+    """The starter team, best first, each with why: Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when
+    software is the product, plus at most one more starter the company's own description obviously fits (a phrase from
+    the card's `pains`, or several words of its summary; ties go to the first name). Nothing else about the answers, and no
+    tool, changes it. The built-ins (required cards) are always there and are not part of this. Returns the
+    recommendations. `full_chart` is the other starting point.
     """
-    derived, have = tags(answers), tools_of(answers)
-    chips, text = answers.get("pains") or [], " ".join(
-        str(answers.get(key) or "") for key in ("pains_text", "repetitive_work"))
-    eligible, held = [], []
-    for card in (card for card in cards if not card["required"]):
-        missing = [row for row in card.get("prerequisites") or [] if row["required"] and row["tool"] not in have]
-        (held if missing else eligible).append((card, missing))
-    scored = []
-    for card, _ in eligible:
-        score, phrase = pain_match(card, chips, text)
-        hits = len((set(card["recommend_when"]) & derived) - {"always"})
-        scored.append({"card": card, "pain": score, "phrase": phrase, "tags": hits})
-    scored.sort(key=lambda row: (-row["pain"], -row["tags"], row["card"]["name"].lower()))
+    by_slug = {card["template"]: card for card in cards if not card["required"]}
+    names = [*STARTER_CORE, *(STARTER_SOFTWARE if str(answers.get("software_product") or "") == "yes" else ())]
     picks, why = [], {}
-
-    def take(row, reason):
-        if row["card"]["template"] not in why:
-            picks.append(row["card"])
-            why[row["card"]["template"]] = reason
-
-    for row in [row for row in scored if row["pain"] > 0][:MAX_PAIN_PICKS]:
-        take(row, {"matched_pain": row["phrase"], "signal": ""})
-    if not picks:
-        # Nothing said matches a card's words: the best fit for who they sell to and how work arrives.
-        for row in [row for row in scored if row["tags"] > 0 and "always" not in row["card"]["recommend_when"]][:1]:
-            take(row, {"matched_pain": "", "signal": ""})
-    for row in scored:
-        signals = [SIGNAL_TAGS[tag] for tag in sorted(set(row["card"]["recommend_when"]) & derived & set(SIGNAL_TAGS))]
-        if signals:
-            take(row, {"matched_pain": "", "signal": signals[0]})
-    for row in scored:
-        if "always" in row["card"]["recommend_when"]:
-            take(row, {"matched_pain": "", "signal": ""})
-    # An always-useful card keeps its slot: trim the weakest earlier pick rather than lose it.
-    keepers = [card for card in picks if "always" in card["recommend_when"]]
-    rest = [card for card in picks if card not in keepers]
-    chosen = rest[:max(0, limit - len(keepers))] + keepers[:limit]
-    recommendations = []
-    for card in (card for card in picks if card in chosen):
-        reason = why[card["template"]]
-        recommendations.append({
-            "template": card["template"], "slug": card["slug"], "name": card["name"],
-            "why": _why(reason, card["summary"]),
-            "matched_pain": reason["matched_pain"],
-            "prerequisites": _prerequisite_rows(card, have)})
-    held_back = []
-    for card, missing in held:
-        score, phrase = pain_match(card, chips, text)
-        if score > 0 or set(card["recommend_when"]) & derived & set(SIGNAL_TAGS):
-            held_back.append(_held(card, phrase, missing))
-    return recommendations, held_back[:3]
+    for name in names:
+        if name in by_slug:
+            picks.append(by_slug[name])
+            why[name] = {"matched_pain": "", "signal": "Software is your product" if name in STARTER_SOFTWARE else ""}
+    text = str(answers.get("what_we_do") or "")
+    if text.strip():
+        scored = []
+        for card in by_slug.values():
+            if card in picks or card.get("lead") or not card["starter"] or not fits(card, answers):
+                continue
+            score, phrase = _text_fit(card, text)
+            if score > 0:
+                scored.append((-score, card["name"].lower(), card, phrase))
+        if scored:
+            _, _, card, phrase = min(scored, key=lambda row: row[:2])
+            picks.append(card)
+            why[card["template"]] = {"matched_pain": phrase, "signal": "It fits what you do"}
+    return [{"template": card["template"], "slug": card["slug"], "name": card["name"],
+             "why": _why(why[card["template"]], card["summary"]), "matched_pain": why[card["template"]]["matched_pain"],
+             "prerequisites": card.get("prerequisites") or []} for card in picks[:limit]]
 
 
 def _why(reason, summary):
-    story = ("You said \"" + reason["matched_pain"] + "\". " if reason.get("matched_pain")
-             else reason["signal"][:1].upper() + reason["signal"][1:] + ". " if reason.get("signal") else "")
+    story = reason["signal"][:1].upper() + reason["signal"][1:] + ". " if reason.get("signal") else ""
     return story + _first_sentence(summary)
 
 
 def full_chart(cards, answers, home=""):
-    """The other starting point: every template that fits these answers, grouped into the teams of a
-    real org chart, each team with a lead and the rest reporting to it. A team's lead is its pack's
-    `lead: true` template (Ops Manager, Support Lead, ...), added even when nothing said points at it.
-    Leads report to `home` (the company owner). A template whose required tool the company did not tick is left out, and named in
-    `held_back` with what it needs. It fits when it matches a pain, names a ticked tool or one of the
-    answers' tags, or is for every company. Returns {"teams": [...], "held_back": [...]}.
+    """The other starting point: every starter template that fits the company (`fits`), grouped into the teams of a real
+    org chart, each team with a lead and the rest reporting to it. A team's lead is its pack's `lead: true` template (Ops
+    Manager, Support Lead, ...); a team without one is led by its first member. Leads report to `home` (the company
+    owner). Returns {"teams": [...], "held_back": []}: nothing is held back for a missing tool.
     """
-    derived, have = tags(answers), tools_of(answers)
-    chips, text = answers.get("pains") or [], " ".join(
-        str(answers.get(key) or "") for key in ("pains_text", "repetitive_work"))
-    teams, held, leads = {}, [], {}
-
-    def member(card, reason, score, overlap):
-        return {"template": card["template"], "slug": card["slug"], "name": card["name"],
-                "why": _why(reason, card["summary"]), "matched_pain": reason["matched_pain"],
-                "prerequisites": _prerequisite_rows(card, have), "lead": bool(card.get("lead")),
-                "_order": (0 if card.get("lead") else 1, 0 if "always" in card["recommend_when"] else 1, -score, -len(overlap - {"always"}), card["name"].lower())}
-
-    for card in (card for card in cards if not card["required"]):
-        missing = [row for row in card.get("prerequisites") or [] if row["required"] and row["tool"] not in have]
-        score, phrase = pain_match(card, chips, text)
-        overlap = set(card["recommend_when"]) & derived
-        if missing:
-            if score > 0 or overlap & set(SIGNAL_TAGS):
-                held.append(_held(card, phrase, missing))
-            continue
+    teams = {}
+    for card in (card for card in cards if not card["required"] and card["starter"] and fits(card, answers)):
         team = TEAMS.get(card.get("pack") or "", OTHER_TEAM)
-        if card.get("lead"):
-            leads[team] = (card, score, overlap)
-        if not (score > 0 or overlap):
-            continue
-        signals = [SIGNAL_TAGS[tag] for tag in sorted(overlap & set(SIGNAL_TAGS))]
-        teams.setdefault(team, []).append(member(card, {"matched_pain": phrase, "signal": signals[0] if signals else ""},
-                                                 score, overlap))
-    # A team that has anyone in it gets its pack's lead, even when nothing said points at the lead itself.
-    for team, rows in teams.items():
-        if team in leads and not any(row["lead"] for row in rows):
-            card, score, overlap = leads[team]
-            rows.append(member(card, {"matched_pain": "", "signal": ""}, score, overlap))
+        teams.setdefault(team, []).append(card)
     ordered = []
     for team in [*TEAMS.values(), OTHER_TEAM]:
-        members = sorted(teams.get(team, []), key=lambda row: row["_order"])
+        members = sorted(teams.get(team, []), key=lambda card: (not card.get("lead"), card["name"].lower()))
         if not members:
             continue
-        # The template marked `lead: true` leads; a team with none (or whose lead needs a tool that was not
-        # ticked) is led by its first member.
         lead = members[0]["slug"]
-        for row in members:
-            row.pop("_order")
-            row["lead"] = row["slug"] == lead
-            row["reports_to"] = home if row["lead"] else lead
-        ordered.append({"team": team, "lead": lead, "members": members})
-    return {"teams": ordered, "held_back": held[:5]}
-
-
-def _held(card, phrase, missing):
-    needs = " and ".join(row["tool"] for row in missing)
-    return {"template": card["template"], "name": card["name"], "needs": [row["tool"] for row in missing],
-            "why": (("It matches \"" + phrase + "\" but it needs ") if phrase else "It needs ")
-                   + needs + ", which you did not tick."}
+        ordered.append({"team": team, "lead": lead, "members": [
+            {"template": card["template"], "slug": card["slug"], "name": card["name"],
+             "why": _first_sentence(card["summary"]), "matched_pain": "",
+             "prerequisites": card.get("prerequisites") or [], "lead": card["slug"] == lead,
+             "reports_to": home if card["slug"] == lead else lead} for card in members]})
+    return {"teams": ordered, "held_back": []}
 
 
 def recommend(cards, answers):
-    return [row["template"] for row in choose(cards, answers)[0]]
-
-
-# The pains the wizard shows as chips: two per team, the ones people say most. Every card's `pains` still
-# match what someone types or ticks; this only chooses what is on the screen (a test keeps each phrase real).
-FEATURED_PAINS = {
-    "basics": ["I don't know what is really going on across the company", "too much email"],
-    "sales": ["leads go cold", "I can't tell which deals are really moving"],
-    "marketing": ["we don't post regularly", "we don't have a clear picture of our competitors"],
-    "support": ["support inbox is overflowing", "customers wait too long for an answer"],
-    "operations": ["meetings without follow-up", "renewals and deadlines sneak up on us"],
-    "engineering": ["issues pile up untriaged", "pull requests wait days for a first review"],
-}
-
-
-def pain_options(cards):
-    """The phrases a person can tick as their pains: every card's own, each with its template, its team
-    and whether it is `featured` (on the screen). The wizard shows the featured ones; a pain that was
-    ticked earlier stays visible."""
-    seen, options = set(), []
-    order = {pack: i for i, pack in enumerate(TEAMS)}
-    for card in sorted(cards, key=lambda card: (order.get(card.get("pack") or "", len(order)), card["name"].lower())):
-        pack = card.get("pack") or ""
-        for phrase in card.get("pains") or []:
-            if phrase not in seen:
-                seen.add(phrase)
-                options.append({"text": phrase, "template": card["template"], "team": TEAMS.get(pack, OTHER_TEAM),
-                                "featured": phrase in FEATURED_PAINS.get(pack, ())})
-    return options
+    return [row["template"] for row in choose(cards, answers)]
 
 
 def _answer_lines(answers):
@@ -545,13 +400,12 @@ class Onboarding:
     def view(self, c, who):
         record = load(c)
         cards = self.catalog(c)
-        recommendations, held_back = choose(cards, record["answers"])
+        recommendations = choose(cards, record["answers"])
         owner = self.auth.owner_id(c)
         home = "human:" + owner if owner and H.human(c, owner) else ""
         return {**record, "recommended": [row["template"] for row in recommendations],
-                "recommendations": recommendations, "held_back": held_back,
+                "recommendations": recommendations, "held_back": [],
                 "full_chart": full_chart(cards, record["answers"], home), "home": home,
-                "pain_options": pain_options(cards),
                 "bots": self._bots(c), "machine": self._machine(c),
                 "needed": needed(c, who, record)}
 

@@ -21,7 +21,7 @@ const checklist = () => [
   item('github', 'GitHub is connected', false, {optional: true, why: 'Lets bots keep their work in your GitHub.', href: '#/settings', tab: 'cloud'}),
   item('botops', 'BotOps is active', true),
   item('first_bot', 'Create your first bot', false, {why: 'Say what it should do and BotOps builds it.', action: 'create-bot'}),
-  item('next_bot', 'Set up Support Triage', false, {why: 'It matches what hurts most: "support inbox is overflowing". Press Start setup on its page and answer its questions; it drafts a first result for you to approve.', href: '#/bot/support'}),
+  item('next_bot', 'Set up Support Triage', false, {why: 'Press Start setup on its page and answer its questions; it drafts a first result for you to approve.', href: '#/bot/support'}),
   item('first_output', 'First approved output', false, {why: 'Set up a starter bot and approve the first thing it drafts. That is the point of the team.', href: '#/bot/support'}),
   item('first_update', 'Your first update arrived', false, {why: 'Each active bot posts a short update every day.', href: '#/updates'}),
 ];
@@ -106,7 +106,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       first_bot: 'todo', next_bot: 'todo', first_output: 'todo', first_update: 'todo'});
     // Coaching: the next bot to set up (the top pain's), and the first approved output instead of a count of bots.
     assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /Set up Support Triage/);
-    assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /support inbox is overflowing/);
+    assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /Press Start setup on its page/);
     assert.equal(await page.locator('[data-gs-item=next_bot] .gs-item-actions a').getAttribute('href'), '#/bot/support');
     assert.match(await page.locator('[data-gs-item=first_output]').textContent(), /First approved output/);
     assert.match(await page.locator('[data-gs-item=model]').textContent(), /run `codex login`/);

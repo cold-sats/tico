@@ -26,85 +26,126 @@ def answers(**said):
     return {**O.EMPTY_ANSWERS, **said}
 
 
-def test_the_chooser_offers_a_small_starter_team_and_a_full_org_chart():
-    """Pains, ticked tools and the sale decide both starting points; the starter team stays near five."""
-    said = answers(pains=["support inbox is overflowing"], tools=["mail", "docs"], customers="consumers")
-    team, held = O.choose(CARDS, said)
-    assert [row["template"] for row in team] == ["support", "chief-of-staff"]
-    assert team[0]["matched_pain"] == "support inbox is overflowing" and "support inbox is overflowing" in team[0]["why"]
-    assert {row["tool"]: row["met"] for row in team[0]["prerequisites"]}["mail"] is True
+def slugs(rows):
+    return [row["template"] for row in rows]
 
-    # Free text works too, and a ticked GitHub or meetings tool names its starter outright.
-    said = answers(pains_text="we lose track of what was decided in meetings and issues pile up",
-                   tools=["meetings", "github", "mail", "crm"], customers="businesses", software_product="yes")
-    team, _ = O.choose(CARDS, said)
-    assert {row["template"] for row in team} == {"meeting-notes", "issue-triage", "chief-of-staff"}
-    # A pain with no tool to serve it is held back, never proposed: an inbox bot with no mailbox to read.
-    team, held = O.choose(CARDS, answers(pains_text="email is out of control"))
-    assert [row["template"] for row in team] == ["chief-of-staff"]
-    assert held[0]["template"] == "inbox" and held[0]["needs"] == ["mail"]
 
-    # The starter team is about five whatever is ticked; the full chart is everything that fits.
-    everything = answers(pains=[p["text"] for p in O.pain_options(CARDS)], tools=["mail", "chat", "crm", "github", "meetings", "docs"],
-                         customers="both", software_product="yes")
-    team, _ = O.choose(CARDS, everything)
-    assert len(team) <= O.STARTER_TEAM_MAX and "chief-of-staff" in [row["template"] for row in team]
-    chart = O.full_chart(CARDS, everything, "human:morgan")
-    grouped = {row["team"]: [m["template"] for m in row["members"]] for row in chart["teams"]}
-    assert list(grouped) == ["Leadership", "Sales", "Marketing", "Support", "Operations", "Engineering"]
-    # Everything ticked builds the whole company: every template in the catalog, in six teams.
-    assert sum(map(len, grouped.values())) == len([card for card in CARDS if not card["required"]]) >= 25
-    assert "issue-triage" in grouped["Engineering"] and len(grouped["Engineering"]) > 1
-    # A typical answer set (a business-to-business software company, mail, chat, CRM, GitHub, meetings and docs, two pains)
-    # gets about thirty-five bots in six teams, and a small consumer brand about twenty.
-    typical = answers(pains=["leads go cold", "support inbox is overflowing"], tools=["mail", "chat", "crm", "github", "meetings", "docs"],
-                      customers="businesses", software_product="yes", team_size="30")
-    teams = O.full_chart(CARDS, typical, "human:morgan")["teams"]
-    assert sum(len(row["members"]) for row in teams) >= 25 and len(teams) == 6
-    assert len(O.choose(CARDS, typical)[0]) <= O.STARTER_TEAM_MAX
+def chart_of(said, home="human:morgan"):
+    return O.full_chart(CARDS, said, home)
+
+
+def grouped(chart):
+    return {row["team"]: [m["template"] for m in row["members"]] for row in chart["teams"]}
+
+
+def test_the_starter_team_is_three_bots_and_a_fourth_when_software_is_the_product():
+    """Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage for a software company; tools and pains change nothing."""
+    plain = O.choose(CARDS, answers(customers="businesses", software_product="no"))
+    assert slugs(plain) == ["chief-of-staff", "support", "sales"]
+    assert [row["slug"] for row in plain] == ["chief-of-staff", "support", "sales"]
+    assert all(row["why"] and row["matched_pain"] == "" for row in plain)
+    software = O.choose(CARDS, answers(customers="businesses", software_product="yes"))
+    assert slugs(software) == ["chief-of-staff", "support", "sales", "issue-triage"]
+    assert software[3]["why"].startswith("Software is your product. ")
+    # Nothing else in the answers moves it: not the sale, the size, work arriving, nor an old record's pains or ticked tools.
+    assert slugs(O.choose(CARDS, answers())) == slugs(plain)
+    assert slugs(O.choose(CARDS, answers(customers="consumers", team_size="3", work_arrives=["email", "crm"]))) == slugs(plain)
+    old = answers(pains=["leads go cold"], pains_text="email is out of control", tools=["mail", "github", "meetings"])
+    assert slugs(O.choose(CARDS, old)) == slugs(plain)
+    assert O.recommend(CARDS, answers(software_product="yes")) == slugs(software)
+
+
+def test_a_description_may_add_one_obvious_starter_and_no_more():
+    """Simple word matching on "What you do" against a card's pains and summary adds at most one card, predictably."""
+    said = answers(what_we_do="An online shop: writing campaign emails takes days and we never send a newsletter.")
+    team = O.choose(CARDS, said)
+    assert slugs(team) == ["chief-of-staff", "support", "sales", "email-marketing"]
+    assert team[3]["matched_pain"] == "writing campaign emails takes days"
+    assert team[3]["why"].startswith("It fits what you do. ")
+    assert O.choose(CARDS, said) == team                                          # the same answers give the same team
+    assert len(O.choose(CARDS, {**said, "software_product": "yes"})) == 5 == O.STARTER_TEAM_MAX
+    # A description that matches nothing, or nothing at all, adds nothing; nor does it add a lead, an Engineering card for a
+    # company that has no software, or a card the company is not for.
+    assert len(O.choose(CARDS, answers(what_we_do="We make candles."))) == 3
+    assert len(O.choose(CARDS, answers(what_we_do=""))) == 3
+    triage = answers(what_we_do="issues pile up untriaged and pull requests wait days for a first review")
+    assert "issue-triage" not in slugs(O.choose(CARDS, triage)) and len(O.choose(CARDS, triage)) == 3
+    assert {"engineering-lead", "pr-reviewer"} & set(slugs(O.choose(CARDS, {**triage, "software_product": "yes"}))) == {"pr-reviewer"}
+    assert "sales-lead" not in slugs(O.choose(CARDS, answers(what_we_do="leads go cold and I can't tell which deals are really moving")))
+
+
+def test_the_full_chart_is_every_starter_grouped_by_team_and_engineering_only_for_software():
+    """Every starter template, each pack's lead in front; Engineering appears only when software is the product."""
+    starters = {card["template"] for card in CARDS if card["starter"]}
+    assert len(starters) >= 25 and not any(card["required"] for card in CARDS if card["template"] in starters)
+    chart = chart_of(answers(customers="both", software_product="yes"))
+    teams = grouped(chart)
+    assert list(teams) == ["Leadership", "Sales", "Marketing", "Support", "Operations", "Engineering"]
+    assert {slug for members in teams.values() for slug in members} == starters
+    assert {"issue-triage", "engineering-lead", "pr-reviewer"} <= set(teams["Engineering"])
+    assert chart["held_back"] == []
     leaders = {row["team"]: row["lead"] for row in chart["teams"]}
     assert leaders == {"Leadership": "chief-of-staff", "Sales": "sales-lead", "Marketing": "marketing-lead",
                        "Support": "support-lead", "Operations": "ops-manager", "Engineering": "engineering-lead"}
     assert all(row["members"][0]["slug"] == row["lead"] and row["members"][0]["lead"] for row in chart["teams"])
     assert not any(m["lead"] for row in chart["teams"] for m in row["members"][1:])
     reports = {m["slug"]: m["reports_to"] for row in chart["teams"] for m in row["members"]}
-    assert reports["chief-of-staff"] == "human:morgan" and reports["mail-drafts" if "mail-drafts" in reports else "inbox"] == "chief-of-staff"
-    assert len({r for r in reports.values() if r.startswith("human:")}) == 1          # every lead reports to the owner
-    assert len(O.full_chart(CARDS, answers(), "human:morgan")["teams"]) == 1          # no answers: Chief of Staff only
+    assert reports["chief-of-staff"] == "human:morgan" and reports["inbox"] == "chief-of-staff"
+    assert reports["sales"] == "sales-lead" and reports["sales-lead"] == "human:morgan"
+    assert {r for r in reports.values() if r.startswith("human:")} == {"human:morgan"}      # every lead reports to the owner
+
+    # No software: the same company without the whole Engineering team, and nothing else missing.
+    without = grouped(chart_of(answers(customers="both", software_product="no")))
+    assert "Engineering" not in without and without["Sales"] == teams["Sales"]
+    assert {slug for members in without.values() for slug in members} == starters - set(teams["Engineering"])
+    assert "Engineering" not in grouped(chart_of(answers()))                                  # and it is not the default
+    # Nothing about pains, tools or size shrinks or grows the chart.
+    assert grouped(chart_of(answers(customers="both", software_product="yes", pains=["leads go cold"], tools=["mail"], team_size="3"))) == teams
 
 
-def test_a_team_is_led_by_its_packs_lead_template_even_when_a_pain_names_another_member():
-    """The `lead: true` card leads the team and comes first; without GitHub the Engineering lead cannot be offered."""
-    assert {card["pack"]: card["template"] for card in CARDS if card["lead"]} == {
-        "basics": "chief-of-staff", "sales": "sales-lead", "marketing": "marketing-lead", "support": "support-lead",
-        "operations": "ops-manager", "engineering": "engineering-lead"}
-    chart = O.full_chart(CARDS, answers(pains=["support inbox is overflowing"], tools=["mail", "docs"]), "human:morgan")
-    support = {row["team"]: row for row in chart["teams"]}["Support"]
-    assert support["lead"] == "support-lead" and support["members"][0]["slug"] == "support-lead"
-    assert {m["slug"]: m["reports_to"] for m in support["members"]} == {
-        "support-lead": "human:morgan", **{m["slug"]: "support-lead" for m in support["members"][1:]}}
-    assert "support" in [m["slug"] for m in support["members"]]
-    # No GitHub: Engineering's lead needs it and is held back, so the team is led by its first member instead of by nothing.
-    chart = O.full_chart(CARDS, answers(pains=["support inbox is overflowing"], tools=["mail"], software_product="yes"), "human:morgan")
-    assert "engineering-lead" not in [m["slug"] for row in chart["teams"] for m in row["members"]]
+def test_a_consumer_only_company_skips_the_templates_written_for_business_customers():
+    """A card whose `recommend_when` names sells_to_businesses but not sells_to_consumers is business-only."""
+    business_only = {card["template"] for card in CARDS if card["starter"] and "sells_to_businesses" in card["recommend_when"]
+                     and "sells_to_consumers" not in card["recommend_when"]}
+    assert {"sales", "sales-lead", "ar-followup", "legal-review", "strategy-planning"} <= business_only
+    consumers = grouped(chart_of(answers(customers="consumers", software_product="yes")))
+    offered = {slug for members in consumers.values() for slug in members}
+    assert not offered & business_only and "Sales" not in consumers
+    assert {"support", "content", "email-marketing", "inbox"} <= offered
+    # Businesses, both, and a company that did not say all keep them.
+    for customers in ("businesses", "both", ""):
+        kept = {slug for members in grouped(chart_of(answers(customers=customers, software_product="yes"))).values() for slug in members}
+        assert business_only <= kept, customers
+    # A team led by a business-only template is led by its first member when that template is skipped.
+    assert all(row["lead"] == row["members"][0]["slug"] for row in chart_of(answers(customers="consumers"))["teams"])
 
 
-def test_the_wizard_features_two_pains_per_team_and_every_pain_still_matches():
-    """About a dozen chips, two per team, each a real pain of a card in that pack; the rest stay matchable."""
-    options = O.pain_options(CARDS)
-    featured = [row for row in options if row["featured"]]
-    assert len(featured) == 12 and len(options) > 100
-    assert {row["team"] for row in featured} == set(O.TEAMS.values())
-    assert all(sum(1 for row in featured if row["team"] == team) == 2 for team in O.TEAMS.values())
-    # Every curated phrase is a pain of a card in its own pack (a rename in a card fails here, not silently on screen).
-    packs = {card["template"]: card["pack"] for card in CARDS}
-    for pack, phrases in O.FEATURED_PAINS.items():
-        for phrase in phrases:
-            assert any(row["text"] == phrase and packs[row["template"]] == pack for row in options), phrase
-    # A pain that is not on screen still matches: ticking or typing it proposes its bot.
-    hidden = next(row for row in options if not row["featured"] and row["template"] == "ar-followup")
-    team, _ = O.choose(CARDS, answers(pains=[hidden["text"]], tools=["mail"]))
-    assert "ar-followup" in [row["template"] for row in team]
+def test_tools_gate_nothing_at_onboarding():
+    """No template is held back or proposed differently for a tool: each bot asks for what it needs when it starts."""
+    said = answers(customers="businesses", software_product="yes")
+    ticked = {**said, "tools": ["mail", "chat", "crm", "github", "meetings", "docs"]}
+    assert O.choose(CARDS, ticked) == O.choose(CARDS, said)
+    assert chart_of(ticked) == chart_of(said)
+    rows = [m for row in chart_of(said)["teams"] for m in row["members"]]
+    assert any(row["prerequisites"] for row in rows)                                # still described, never a condition
+    assert not any("met" in need for row in rows for need in row["prerequisites"])
+    assert not hasattr(O, "pain_options") and not hasattr(O, "FEATURED_PAINS")
+
+
+def test_the_onboarding_record_serves_the_two_starting_points_and_ignores_old_answers(environment):
+    """GET and PUT keep their shape: `held_back` is empty, `pain_options` is gone, and pains and tools are kept but never read."""
+    api = environment()
+    real_starters(api, "chief-of-staff", "support", "sales", "issue-triage")
+    who = signed_in()
+    saved = api.put("/api/v2/onboarding", headers=who, json={"answers": {
+        "what_we_do": "We sell software to studios", "customers": "businesses", "software_product": "yes",
+        "pains": ["leads go cold"], "pains_text": "email is out of control", "tools": ["mail", "github"]}})
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["recommended"] == ["chief-of-staff", "support", "sales", "issue-triage"] == slugs(body["recommendations"])
+    assert body["held_back"] == [] and body["full_chart"]["held_back"] == [] and "pain_options" not in body
+    assert body["answers"]["pains"] == ["leads go cold"] and body["answers"]["tools"] == ["mail", "github"]     # kept, not read
+    assert api.get("/api/v2/onboarding", headers=who).json()["recommended"] == body["recommended"]
 
 
 def real_starters(api, *names):

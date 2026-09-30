@@ -817,9 +817,8 @@ class OnboardingAnswers(Contract):
     repetitive_work: str = Field(default="", max_length=2000)
     never_without_person: list[Literal["send", "spend", "publish", "hire"]] = Field(
         default_factory=list, max_length=4)
-    # The first-run questions behind the local chooser (backend/onboarding.py `choose`). `pains` are
-    # phrases ticked from the starter cards, `pains_text` is the person's own words, and `tools` is
-    # what the company already uses: it decides which starters can work at all.
+    # The wizard no longer asks `pains`, `pains_text` or `tools`; they are still accepted, kept as sent
+    # and never read (backend/onboarding.py `choose` reads only the answers above).
     pains: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=8)
     pains_text: str = Field(default="", max_length=1000)
     tools: list[Literal["mail", "chat", "crm", "github", "meetings", "docs"]] = Field(
