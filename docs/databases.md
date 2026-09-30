@@ -402,7 +402,7 @@ process, so restart the server after a change.
 Named queries reach the runner over the hub's API at query time (`hub db <name> --query <id>` asks
 the server for the statement), so a catalog update is a server deploy only.
 
-**What stays upstream.** Integration pages for public services, `hub db`, the driver setup and this
+**What stays upstream.** Integration pages for the services Tico has built-in support for, `hub db`, the driver setup and this
 guide. What belongs in your config is anything with a company name, host, table or person in it.
 Do not send upstream pull requests that contain them.
 

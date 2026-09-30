@@ -38,5 +38,5 @@ schedules:
 #     identity: the company account
 #     can: [read]
 #     env: STRIPE_API_KEY
-#     note: "reads invoices and payments to check what is paid; read-only restricted key (integrations/stripe.md)"
+#     note: "reads invoices and payments to check what is paid; read-only restricted key"
 access: []

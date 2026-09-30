@@ -1,14 +1,18 @@
 # Integrations
 
-One page per outside system the company uses, written for a bot about to touch it and for a
-person deciding whether it may. Each page says what the system is, what data it holds, the
-exact commands a bot runs, the rules (read/write gates, approvals, what never to do), useful
-recipes and the gotchas people have already hit. The pages ship with every release, so
-hub.example.com serves them (`GET /api/v2/integrations`, the **Integrations** page) and every bot
-reads them from its checkout (`$HUB_DIR/integrations/<service>.md`, or `hub integration
-<service>`).
+One page per outside system, written for a bot about to touch it and for a person deciding
+whether it may. Each page says what the system is, what data it holds, the exact commands a bot
+runs, the rules (read/write gates, approvals, what never to do), useful recipes and the gotchas
+people have already hit. The server serves them (`GET /api/v2/integrations`, the
+**Integrations** page) and every bot reads them with `hub integration <service>`.
 
-Nothing secret goes in here: the names of environment variables and 1Password items are fine,
+This folder ships only the outside services Tico has built-in support for: GitHub, Slack, Mail
+(Gmail and Google Calendar), the Aside browser, Close (the call importer), and the databases
+`hub db` reads (PostgreSQL, MySQL, MongoDB, SQLite). Every other service a company uses gets a
+page in its own config ("Your company's own pages", below). Tico's own features (the hub
+database, file storage, Credentials, decisions) are documented in `docs/`, not here.
+
+Nothing secret goes in here: the names of environment variables and credentials are fine,
 their values never.
 
 ## The page
@@ -22,8 +26,8 @@ title: PostHog
 kind: api                   # api | sql | browser | mail | cli  (sql = any database read through `hub db`)
 summary: One line for the list.
 access: How a bot reaches it (the connector, CLI or API), one line.
-credentials:                # env var names and the 1Password item they come from; never values
-  - POSTHOG_API_KEY — vault item "the company Posthog Read Only", copied to secrets/_shared.env by scripts/vault-sync.sh
+credentials:                # env var names and where the value lives; never values
+  - POSTHOG_API_KEY — a read-only key, granted from Settings → Credentials or in the bot's secrets file
 declared_as: |              # the `access:` entry a bot carries in employee.yaml
   - service: posthog
     can: [read]
@@ -44,17 +48,18 @@ the decision log or the learnings).
 
 ## Your company's own pages
 
-This folder is what ships with a release. Your own integrations (a company database, an internal
-tool) and their query catalogs belong in your private config, in `<TICO_REGISTRY_DIR>/integrations/`
-(or the folder `TICO_INTEGRATIONS_DIR` names): the same page format, layered over these, a page with
-the same name replacing ours. `postgres.md`, `mysql.md` and `sqlite.md` here document `hub db`, which
+This folder is what ships with a release. Your own integrations (a CRM, analytics, billing, a
+company database, an internal tool) and their query catalogs belong in your private config, in
+`<TICO_REGISTRY_DIR>/integrations/` (or the folder `TICO_INTEGRATIONS_DIR` names): the same page
+format, layered over these, a page with the same name replacing ours. Restart the server after a
+change; [docs/databases.md](../docs/databases.md), "A private company config", has the deploy steps. `postgres.md`, `mysql.md` and `sqlite.md` here document `hub db`, which
 reads a company database read-only; [docs/databases.md](../docs/databases.md) sets it up.
 
 ## Queries
 
 `queries/<service>.yaml` is the catalog of useful queries for a `kind: sql` integration: a list
-of `{id, title, description, category, tags, database, sql, params}`. `queries/hub-sql.yaml` is
-written by hand from `docs/hub-sql.md`. A MongoDB entry has `mongo:` (op, collection, filter or pipeline, with
+of `{id, title, description, category, tags, database, sql, params}`. None ship; a company adds
+its own next to its pages. A MongoDB entry has `mongo:` (op, collection, filter or pipeline, with
 `{"$param": name}` for values) in place of `sql:`; see `templates/company-config/integrations/queries/atlas.yaml`. `hub queries <service> [term]` searches them; `hub queries <service> --id
 <id>` prints one.
 

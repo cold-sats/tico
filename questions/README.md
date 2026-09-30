@@ -1,7 +1,7 @@
 # Decision questions
 
 One file per decision the company makes with the decision model (optionally TypeSafe's Jev, System One)
-(`integrations/typesafe.md`, `skills/decisions/SKILL.md`). The decision model takes a JSON state and typed
+(`skills/decisions/SKILL.md`). The decision model takes a JSON state and typed
 questions (`noul` for yes/no, `choice`, `score`, the same format as OpenRouter's Decisions API) and
 answers each with a calibrated probability; it writes no prose. The primitive is
 one call (`hub_decisions`, `hub decisions`, `clients/judge.py`) and it never changes. What changes,

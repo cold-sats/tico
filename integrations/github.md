@@ -5,7 +5,8 @@ kind: cli
 summary: The company's repositories and each bot's own emp-<slug> repository, reached with a per-bot token from the company's GitHub App, or with the computer's own git access when no app is connected.
 access: "`gh` and `git` in a turn; the runner's git credential helper supplies the bot's app token when the GitHub App is connected, otherwise the computer's own login is used"
 credentials:
-  - none of the bot's own to manage — with the GitHub App, the runner fetches a short-lived token scoped to the bot's repository (`POST /api/v2/github/token`) and never stores it; without it, the computer's inherited `gh` and `git` login
+  - none to manage — a short-lived GitHub App token per bot
+  - without the app, the computer's own `gh` and `git` login
 declared_as: |
   # Access to a bot's own emp-<slug> repository is implicit; no entry is needed.
   - service: github
@@ -31,7 +32,6 @@ Issues; it lives in the hub (`hub task ...`).
 |---|---|---|
 | `<org>/emp-<slug>` | each bot's own repository | the owning bot may commit directly or open and merge a tested PR; the runner pushes commits from its checkout after each turn |
 | product and docs repositories | whatever the company keeps there | as the bot's `access:` entry says; review PRs unless it says `write` |
-| `ticoteam/tico` | this hub: backend, runner, clients, docs, policies | authorized maintainers may merge after required checks |
 
 Extra repositories a bot may read are granted by the owner (Settings, the bot's GitHub
 repositories); they must be in the connected organization.
@@ -62,9 +62,6 @@ For a repository whose merge still needs human review, request that exact action
   remains gated.
 - Never push to another repository's default branch. Changes go on a branch as a draft or review
   PR, unless the bot's `access:` entry says `write`.
-- Ordinary shared-internal docs PRs that change only `docs/` in `ticoteam/tico` may be
-  self-merged by their authorized author (`policies/documentation.md`); authorized maintainers
-  may also merge other Tico PRs after checks (`policies/approvals.md`).
 - Your own `emp-<slug>` repository: commit directly to `main` for small internal changes, or use
   a PR and merge it yourself. The runner pushes its current checkout after a turn and fast-forwards
   that checkout before the next one. Use a separate worktree for a PR branch, or return the runner

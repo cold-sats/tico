@@ -28,7 +28,7 @@ schedules:
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # Exports arrive as files on a task, so no access is declared to start. Optional read-only views,
 # uncomment when the owner connects one (changing access is an owner decision). Neither entry may
-# ever carry write or send; the token is read-only at the source (integrations/brex.md, mercury.md).
+# ever carry write or send; the token is read-only at the source.
 # access:
 #   - service: brex
 #     identity: the company account

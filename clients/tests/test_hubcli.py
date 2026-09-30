@@ -48,8 +48,8 @@ class Remote(unittest.TestCase):
 
 
 PAGE = {
-    "service": "hub-sql", "title": "Hub database (SQL)", "kind": "sql", "summary": "Read-only SQL over the hub.",
-    "writes": "never", "owner": "ana", "aliases": ["sqlite"], "access": "hub sql in a turn",
+    "service": "warehouse", "title": "Warehouse", "kind": "sql", "summary": "The company warehouse.",
+    "writes": "never", "owner": "ana", "aliases": ["wh"], "access": "hub sql in a turn",
     "credentials": ["none"], "declared_as": "nothing to declare\n",
     "body": "## What it is\n\nThe hub database.\n\n## Rules\n\n- One SELECT.\n",
     "queries": [
@@ -60,7 +60,7 @@ PAGE = {
          "tags": ["tasks"], "database": "hub.sqlite",
          "sql": "SELECT ts, actor FROM task_events WHERE task_id=:task ORDER BY ts\n",
          "params": [{"name": "task", "type": "text", "label": "Task id", "required": True}]}],
-    "learnings": [{"id": "L1", "integration": "hub-sql", "actor": "bot:seo", "text": "Compare timestamps as text.",
+    "learnings": [{"id": "L1", "integration": "warehouse", "actor": "bot:seo", "text": "Compare timestamps as text.",
                    "created": "2026-09-15T10:00:00Z"}],
 }
 
@@ -101,14 +101,14 @@ class Stub(BaseHTTPRequestHandler):
             return self.reply(200, {"goal_id": "G1", "checkins": []})
         if self.path == "/api/v2/integrations":
             return self.reply(200, {"integrations": [
-                {"service": "hub-sql", "title": "Hub database (SQL)", "kind": "sql", "summary": "Read-only SQL over the hub.",
+                {"service": "warehouse", "title": "Warehouse", "kind": "sql", "summary": "The company warehouse.",
                  "access": "hub sql in a turn", "credentials": ["none"], "declared_as": "nothing to declare\n",
                  "writes": "never", "owner": "ana", "aliases": [], "query_count": 2, "learning_count": 1},
                 {"service": "slack", "title": "Slack", "kind": "api", "summary": "Channels and DMs.",
                  "access": "connectors/slack.py", "credentials": ["SLACK_BOT_TOKEN — shared"],
                  "declared_as": "env: SLACK_BOT_TOKEN\n",
                  "writes": "allowed", "owner": "ana", "aliases": [], "query_count": 0, "learning_count": 0}]})
-        if self.path in ("/api/v2/integrations/hub-sql", "/api/v2/integrations/sqlite"):
+        if self.path in ("/api/v2/integrations/warehouse", "/api/v2/integrations/wh"):
             return self.reply(200, PAGE)
         if self.path.startswith("/api/v2/integrations/"):
             return self.reply(404, {"error": {"code": "not_found", "detail": "No integration named " + self.path.rsplit("/", 1)[1]}})
@@ -146,10 +146,10 @@ class Stub(BaseHTTPRequestHandler):
         if self.path == "/api/v2/tasks/T1/files":
             return self.reply(200, {"file": {"id": "F1", "name": body["name"], "url": "/api/v2/files/F1"},
                                     "link": "https://tico.test/api/v2/files/F1"})
-        if self.path == "/api/v2/integrations/hub-sql/learnings":
+        if self.path == "/api/v2/integrations/warehouse/learnings":
             if not body.get("text"):
                 return self.reply(422, {"error": {"code": "validation", "detail": "text: too short"}})
-            return self.reply(200, {"id": "L2", "integration": "hub-sql", "actor": "bot:coo", "text": body["text"],
+            return self.reply(200, {"id": "L2", "integration": "warehouse", "actor": "bot:coo", "text": body["text"],
                                     "created": "2026-09-15T11:00:00Z"})
         if self.path == "/api/v2/judge":
             options = list(body["questions"]["covered"]["criteria"]) if "covered" in body["questions"] else []

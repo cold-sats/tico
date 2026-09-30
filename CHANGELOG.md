@@ -7,6 +7,23 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+- **The integration pages that were specific to one company.** A new company's **Integrations** page listed dozens of
+  services one company happened to use. The release now ships a page only for an outside service Tico has built-in support
+  for: GitHub, Slack, Mail (Gmail and Google Calendar), the Aside browser, Close (the call importer behind Meetings), and the
+  databases `hub db` reads (PostgreSQL, MySQL, MongoDB, SQLite). Gone: AWS, Brex, Bright Data, Calendly, Click2Mail,
+  ElevenLabs, Gemini, Geocodio, Google Ads, Google Search Console, HeyGen, LinkedIn, Mercury, Meta Ads, OpenRouter, Pangram,
+  Peec, PostHog, Postiz, QuiverAI, Reddit, Sentry, Stripe, Upfluence, Web search, X, xAI and the decisions provider. Tico's own features are no
+  longer listed as integrations: Credentials is `docs/credential-vault.md` (now with the secrets files, 1Password references and
+  `scripts/vault-sync.sh`), the hub database is `docs/hub-sql.md`, files are `docs/files.md`, and decisions are
+  `skills/decisions/SKILL.md` (now with its limits and what the audit keeps). A company adds its own pages, and their query
+  catalogs, in `<TICO_REGISTRY_DIR>/integrations/` (or the folder `TICO_INTEGRATIONS_DIR` names); they are listed beside the
+  shipped ones, and a page with the same name replaces the shipped one (`integrations/README.md`, `docs/databases.md`).
+
+### Fixed
+- An integration page whose query catalog holds MongoDB entries no longer fails to open; the entry shows as JSON. The
+  Integrations page shows the filter only when the list is long, and says "No integrations." when there are none.
+
 ## [0.2.15] - 2026-09-30
 
 ### Added
