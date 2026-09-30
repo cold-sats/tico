@@ -31,10 +31,9 @@ function frParentOptions(state, slug) {
   const cat = state.catalog, out = [];
   const owner = frOwner();
   for (const person of frPeople()) out.push({value: 'human:' + person.id, label: (person.name || person.id) + (('human:' + person.id) === owner ? ' (you)' : ''), group: 'People'});
+  // Helpers (the built-ins, a helper card) are not on the chart, so nobody reports to one.
   for (const card of cat.cards) {
-    const bot = frBotSlug(card);
-    if (card.required && cat.picked.has(card.slug)) out.push({value: bot, label: catalogName(cat, card), group: 'Built in'});
-    else if (!card.required && cat.picked.has(card.slug) && card.slug !== slug && !frDescends(state, card.slug, slug))
+    if (!card.required && card.kind !== 'helper' && cat.picked.has(card.slug) && card.slug !== slug && !frDescends(state, card.slug, slug))
       out.push({value: card.slug, label: catalogName(cat, card), group: 'Bots on your team'});
   }
   return out;
@@ -71,20 +70,23 @@ function frProblem(state) {
       if (!catalogCard(cat, at) || catalogCard(cat, at).required) break;
     }
   }
-  return catalogMissingMailbox(cat) ? 'Choose whose mailbox Mail Drafts reads.' : '';
+  const inbox = cat.cards.find(card => card.template === 'inbox');
+  return catalogMissingMailbox(cat) ? `Choose whose mailbox ${catalogName(cat, inbox)} reads.` : '';
 }
 
 // ----------------------------------------------------------------- review
 function frSummaryTeamHTML(state) {
   const cat = state.catalog, org = state.org;
   // In the order they are set up: each department's head first, then its team.
-  const rows = Object.keys(frSelection(state)).map(slug => catalogCard(cat, slug)).filter(card => card && !card.required);
-  const built = cat.cards.filter(card => card.required).map(card => esc(catalogName(cat, card))).join(', ');
+  const rows = Object.keys(frSelection(state)).map(slug => catalogCard(cat, slug)).filter(card => card && !card.required && card.kind !== 'helper');
+  // Helpers are not on the chart: the built-ins, and a helper card when it is switched on.
+  const helpers = cat.cards.filter(card => card.required || (card.kind === 'helper' && cat.picked.has(card.slug)))
+    .map(card => esc(catalogName(cat, card))).join(', ');
   const departments = org.chosen.filter(id => obPicked(state, id).length).map(id => esc(obDept(org, id)?.name || id)).join(', ');
-  return `<div><span class="k">Built in</span><span>${built || '—'}</span></div>
+  return `<div><span class="k">Helpers</span><span data-review-helpers>${helpers || '—'}</span></div>
     ${org.loaded ? `<div><span class="k">Departments</span><span data-review-departments>${departments || '—'}</span></div>` : ''}
     <div><span class="k">Your team</span><span data-review-team>${rows.length ? rows.map(card =>
-      `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(frParentName(state, frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the built-ins'}</span></div>`;
+      `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(frParentName(state, frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the helpers'}</span></div>`;
 }
 
 // ----------------------------------------------------------------- after Create

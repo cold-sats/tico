@@ -2112,10 +2112,11 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .ob-compose .ob-cta{flex:none}
 .ob-hq-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;margin-top:14px}
 .ob-hq{display:inline-flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);cursor:pointer}
-.ob-hq input{-webkit-appearance:none;appearance:none;position:relative;width:34px;height:20px;margin:0;border-radius:10px;background:color-mix(in srgb,var(--ink) 22%,var(--surface));cursor:pointer;transition:background-color .15s;vertical-align:middle}
-.ob-hq input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
-.ob-hq input:checked{background:var(--accent)}
-.ob-hq input:checked::after{transform:translateX(14px)}
+.ob-hq input,.ob-helper input{-webkit-appearance:none;appearance:none;position:relative;width:34px;height:20px;margin:0;border-radius:10px;background:color-mix(in srgb,var(--ink) 22%,var(--surface));cursor:pointer;transition:background-color .15s;vertical-align:middle}
+.ob-hq input::after,.ob-helper input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.ob-hq input:checked,.ob-helper input:checked{background:var(--accent)}
+.ob-hq input:checked::after,.ob-helper input:checked::after{transform:translateX(14px)}
+.ob-hq input:focus-visible,.ob-helper input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ob-hq.off{cursor:default;opacity:.75}
 .ob-hq-off{font-size:12px;color:var(--muted)}
 .ob-said{display:flex;justify-content:flex-end;align-items:center;gap:6px;margin:0 0 18px}
@@ -2138,7 +2139,6 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .ob-bot:hover{border-color:color-mix(in srgb,var(--dc) 45%,var(--line))}
 .ob-bot input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .ob-bot:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
-.ob-bot-icon{width:38px;height:38px;border-radius:11px;font-size:22px;background:color-mix(in srgb,var(--dc) 12%,var(--surface));color:var(--dci);transition:background-color .15s,color .15s}
 .ob-bot-body{display:flex;flex-direction:column;min-width:0}
 .ob-bot-name{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:14.5px;font-weight:600;line-height:1.3}
 .ob-head{padding:1px 6px;border-radius:6px;background:color-mix(in srgb,var(--dc) 14%,transparent);color:var(--dci);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
@@ -2147,9 +2147,15 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .ob-bot-why .ob-ms{font-size:15px}
 .ob-bot-check{position:absolute;top:13px;right:13px;width:21px;height:21px;border-radius:7px;border:1.5px solid color-mix(in srgb,var(--ink) 25%,var(--line));font-size:16px;color:transparent;transition:all .15s}
 .ob-bot.on{border-color:var(--dc);background:color-mix(in srgb,var(--dc) 5%,var(--surface))}
-.ob-bot.on .ob-bot-icon{background:var(--dc);color:#fff}
 .ob-bot.on .ob-bot-check{background:var(--dc);border-color:var(--dc);color:#fff}
 .ob-mailbox{display:grid;gap:3px;padding:0 4px;font-size:12px;color:var(--muted)}
+.ob-helpers{margin-top:18px}
+.ob-helpers h3{margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.ob-helper{display:grid;gap:8px;max-width:420px;padding:8px 12px 8px 8px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.ob-helper+.ob-helper{margin-top:8px}
+.ob-helper-toggle{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:500;cursor:pointer}
+.ob-helper-toggle span{flex:1;min-width:0}
+.ob-helper .ob-mailbox{padding:0 0 2px 38px}
 .ob-mailbox select{font-size:13px}
 .ob-more{margin-top:14px}
 .ob-more summary{display:inline-flex;gap:6px;align-items:center;padding:6px 2px;cursor:pointer;color:var(--muted);font-size:13.5px;font-weight:500;list-style:none}
@@ -2186,8 +2192,6 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 .oc-top{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-bottom:var(--rg)}
 .oc-ceo{display:inline-flex;padding:5px 14px 5px 5px;border-radius:999px;border-color:color-mix(in srgb,var(--ink) 18%,var(--line))}
 .oc-ceo .av,.oc-ceo img{flex:none}
-.oc-builtins{display:flex;flex-wrap:wrap;gap:5px}
-.oc-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 3px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--muted);font-size:11.5px}
 .oc-empty{margin:4px 0 0 var(--gut);color:var(--muted);font-size:12.5px}
 .oc-rows{position:relative}
 .oc-rows::before{content:"";position:absolute;left:var(--spine);top:calc(-1 * var(--rg));height:calc(var(--rg) + var(--drop) / 2);border-left:1.5px solid var(--oc-line)}
@@ -2206,9 +2210,7 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 .oc-bot::before{content:"";position:absolute;left:-18px;top:0;width:14px;height:24px;border-left:1.5px solid var(--oc-line);border-bottom:1.5px solid var(--oc-line);border-bottom-left-radius:8px}
 .oc-bot:not(:last-child)::after{content:"";position:absolute;left:-18px;top:0;bottom:0;border-left:1.5px solid var(--oc-line)}
 .oc-bnode{min-height:36px;padding:5px 10px 5px 5px;border-radius:10px}
-.oc-bicon{width:24px;height:24px;border-radius:7px;font-size:15px;background:color-mix(in srgb,var(--dc) 11%,var(--surface));color:var(--dci)}
 .oc-head>.oc-bnode{border-color:color-mix(in srgb,var(--dc) 45%,var(--line))}
-.oc-head .oc-bicon{background:var(--dc);color:#fff}
 .oc-cur>.oc-dnode{border-color:var(--dc);box-shadow:0 0 0 3px color-mix(in srgb,var(--dc) 18%,transparent)}
 .oc-cur>.oc-dnode .oc-icon{background:var(--dc);color:#fff}
 .oc-recruiting>.oc-dnode{animation:ocPulse 1.2s ease-in-out infinite}
@@ -3779,12 +3781,13 @@ function orgDragWire(tree, byParent) {
   tree.addEventListener('dragover', ev => {
     const target = ev.target.closest('[data-org]'); if (!target || !dragging || target.dataset.org === dragging) return;
     if (dragging.startsWith('p:') && !target.dataset.org.startsWith('p:')) return;   // a person reports to a person
+    if (target.hasAttribute('data-helper')) return;                                     // helpers are not on the chart
     ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
     tree.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target')); target.classList.add('drop-target');
   });
   tree.addEventListener('dragleave', ev => { ev.target.closest?.('[data-org]')?.classList.remove('drop-target'); });
   tree.addEventListener('drop', async ev => {
-    const target = ev.target.closest('[data-org]'); if (!target || !dragging) return;
+    const target = ev.target.closest('[data-org]'); if (!target || !dragging || target.hasAttribute('data-helper')) return;
     ev.preventDefault();
     const from = dragging, to = target.dataset.org; dragging = null;
     target.classList.remove('drop-target');
@@ -3889,9 +3892,31 @@ $('#org-history').onclick = () => {
   }
   renderTree();
 };
+// Helpers (the built-ins, and bots made from a `kind: helper` card such as the Inbox Manager) serve people rather than
+// hold a place on the org chart, so the sidebar lists them in a Helpers group of their own after it. Only the grouping
+// changes: `reports_to` is untouched, and a bot that reports to a helper hangs where the helper would have.
+const HELPERS_GROUP = '__helpers';
+const isHelperBot = e => isBuiltInBot(e.name) || !!e.helper;
+function orgTreeWithHelpers(byParent) {
+  const out = {}, helpers = [], bot = {}, parentOf = {};
+  for (const [parent, kids] of Object.entries(byParent)) for (const n of kids) if (n.kind === 'bot') { bot['b:' + n.name] = n; parentOf['b:' + n.name] = parent; }
+  const lift = parent => {
+    for (let hops = 0; bot[parent] && isHelperBot(bot[parent]) && hops < 5; hops++) parent = parentOf[parent] || '';
+    return parent;
+  };
+  for (const [parent, kids] of Object.entries(byParent)) for (const n of kids) {
+    if (n.kind === 'bot' && isHelperBot(n)) helpers.push(n);
+    else (out[lift(parent)] ||= []).push(n);
+  }
+  if (helpers.length) {
+    (out[''] ||= []).push({kind: 'group', id: HELPERS_GROUP, name: 'Helpers', helpers: true});
+    out['g:' + HELPERS_GROUP] = helpers;
+  }
+  return out;
+}
 function renderTree() {
   ensureCollapsed();
-  const byParent = orgTreeByParent();
+  const byParent = orgTreeWithHelpers(orgTreeByParent());
   const curBot = S.route.startsWith('#/bot/') ? S.route.slice(6).split('/')[0] : null;
   const curPerson = S.route.startsWith('#/person/') ? decodeURIComponent(S.route.slice(9).split('/')[0]) : null;
   // only "needs you" surfaces through a collapsed parent; running is not something to chase
@@ -3903,6 +3928,7 @@ function renderTree() {
   const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
   const rec = (parent, depth) => (byParent[parent] || []).slice()
     .sort((a, b) => {
+      if (!!a.helpers !== !!b.helpers) return a.helpers ? 1 : -1;        // the Helpers group comes last
       if ((a.kind === 'group') !== (b.kind === 'group')) {
         // At the company root, department labels lead. Under a person, their bots and
         // people come first and the next department (Engineering under Product) follows.
@@ -3937,9 +3963,10 @@ function renderTree() {
         ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
     const e = node, key = 'b:' + e.name, st = stateOf(e.name), n = needsMeCount(e.name), kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
+    const helper = isHelperBot(e);                 // not on the chart: nothing is dragged onto or out of it
     return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
       ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(e.display_name)}">›</button>` : ''}
-      <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${!flat && orgMayMove(key) ? ' draggable="true"' : ''}>
+      <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${helper ? ' data-helper' : ''}${!flat && !helper && orgMayMove(key) ? ' draggable="true"' : ''}>
         ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${runtimeTag(e)}${frTreeMark(e)}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${treeBadge(n, st)}</a></div>

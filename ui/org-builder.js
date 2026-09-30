@@ -2,7 +2,9 @@
    bots into it, and watch the chart grow beside the conversation. The server has the departments and cards
    (GET /api/v2/onboarding/departments) and the suggestions (POST /api/v2/onboarding/recruit, from Tico HQ or its local
    recommender); this page shows them and keeps what is checked in the wizard's catalog state (`state.catalog.picked`),
-   from which ui/first-run.js builds `selected`. Nothing exists until "Create my team". */
+   from which ui/first-run.js builds `selected`. Nothing exists until "Create my team". Helpers (the built-ins and any
+   `kind: helper` card, the Inbox Manager) are not on the chart: the built-ins are always created, and a helper card is
+   one switch under Helpers on the finished chart, off until someone turns it on. */
 const OB_ICONS = {goal: 'flag', go: 'arrow_forward', why: 'auto_awesome', edit: 'edit', chart: 'account_tree',
                   bot: 'smart_toy', expand: 'expand_more'};
 // One hue per department; a department this page does not know gets one from its id.
@@ -24,6 +26,9 @@ const obDeptCards = (org, id) => org.cards.filter(card => card.department === id
 const obCatalogCard = (state, template) => state.catalog.cards.find(card => card.template === template);
 const obCardOf = (state, slug) => state.org.cards.find(card => obCatalogCard(state, card.template)?.slug === slug);
 const obPlural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// A bot on the chart wears the avatar it will have once created: its blob, with its template's icon.
+const obAvatar = (slug, card, size) => botAvatar({slug, icon: card.icon}, size);
+const obHelpers = state => state.catalog.cards.filter(card => card.kind === 'helper');
 const obCurrent = org => org.chosen[org.at];
 function obHead(org, id) {
   const dept = obDept(org, id), cards = obDeptCards(org, id);
@@ -108,7 +113,7 @@ function obBotNodeHTML(state, card, head, big) {
   const sub = moved ? `→ ${esc(frParentName(state, reports))}` : head ? 'Head' : '';
   return `<li class="oc-bot${head ? ' oc-head' : ''}${obFresh(state, 'b:' + slug)}" data-oc-bot="${esc(slug)}">
       <button type="button" class="oc-node oc-bnode" data-oc-edit="${esc(slug)}"${big ? ` aria-expanded="${editing}"` : ' tabindex="-1"'}>
-        ${obIcon(card.icon, 'oc-bicon')}<span class="oc-text"><strong data-oc-label="${esc(slug)}">${esc(catalogName(cat, row))}</strong>${sub ? `<small>${sub}</small>` : ''}</span></button>
+        ${obAvatar(slug, card, 24)}<span class="oc-text"><strong data-oc-label="${esc(slug)}">${esc(catalogName(cat, row))}</strong>${sub ? `<small>${sub}</small>` : ''}</span></button>
       ${editing ? obEditHTML(state, slug) : ''}</li>`;
 }
 function obDeptNodeHTML(state, id, big) {
@@ -133,25 +138,22 @@ function obCols(state, count) {
   const most = Math.max(1, Math.min(count || 1, 4, Math.floor((width - 40) / 220)));
   return Math.ceil((count || 1) / Math.ceil((count || 1) / most));
 }
-// The person at the top, the built-ins beside them, and each department hanging off one line with its bots below.
+// The person at the top and each department hanging off one line with its bots below; helpers are not on it.
 // Beside the conversation it is one column; the finished chart spreads the departments into rows.
 function obChartHTML(state, big) {
-  const org = state.org, cat = state.catalog, me = S.me || {};
+  const org = state.org, me = S.me || {};
   const depts = big ? org.chosen.filter(id => obPicked(state, id).length) : org.chosen;
   const cols = big ? obCols(state, depts.length) : 1, rows = [];
   for (let i = 0; i < depts.length; i += cols) rows.push(depts.slice(i, i + cols));
-  const builtins = cat.cards.filter(card => card.required && cat.picked.has(card.slug));
   return `<div class="oc${big ? ' oc-big' : ''}" style="--cols:${cols}">
-      <div class="oc-top"><div class="oc-node oc-ceo" data-oc-ceo>${personAvatar(me, 28)}<span class="oc-text"><strong>${esc(me.name || 'You')}</strong><small>CEO</small></span></div>
-        ${builtins.length ? `<div class="oc-builtins" data-oc-builtins>${builtins.map(card =>
-          `<span class="oc-chip" title="Built in">${avatar(frBotSlug(card), 16)}${esc(catalogName(cat, card))}</span>`).join('')}</div>` : ''}</div>
+      <div class="oc-top"><div class="oc-node oc-ceo" data-oc-ceo>${personAvatar(me, 28)}<span class="oc-text"><strong>${esc(me.name || 'You')}</strong><small>CEO</small></span></div></div>
       ${rows.length ? `<div class="oc-rows">${rows.map(row => `<div class="oc-row" style="--k:${row.length}">${row.map(id => obDeptNodeHTML(state, id, big)).join('')}</div>`).join('')}</div>`
         : '<p class="oc-empty">Departments appear here.</p>'}
     </div>`;
 }
 function obEditHTML(state, slug) {
   const cat = state.catalog, card = catalogCard(cat, slug), current = frReports(state, slug);
-  const groups = ['People', 'Built in', 'Bots on your team'].map(group => {
+  const groups = ['People', 'Bots on your team'].map(group => {
     const rows = frParentOptions(state, slug).filter(option => option.group === group);
     return rows.length ? `<optgroup label="${esc(group)}">${rows.map(option =>
       `<option value="${esc(option.value)}" ${option.value === current ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}</optgroup>` : '';
@@ -159,7 +161,6 @@ function obEditHTML(state, slug) {
   return `<div class="oc-edit" data-oc-editor="${esc(slug)}">
       <label>Name<input type="text" data-oc-name="${esc(slug)}" value="${esc(catalogName(cat, card))}" maxlength="100"></label>
       <label>Reports to<select data-oc-reports="${esc(slug)}">${groups}</select></label>
-      ${card.template === 'inbox' ? obMailboxHTML(state, slug) : ''}
       <div class="oc-edit-actions"><button class="ghost" type="button" data-oc-remove="${esc(slug)}">Remove</button>
         <span class="spacer"></span><button class="primary" type="button" data-oc-done>Done</button></div></div>`;
 }
@@ -202,12 +203,11 @@ function obBotCardHTML(state, card, why, head) {
   const on = state.catalog.picked.has(row.slug);
   return `<div class="ob-bot-wrap"><label class="ob-bot${on ? ' on' : ''}" data-ob-bot="${esc(row.slug)}">
       <input type="checkbox" data-ob-pick="${esc(row.slug)}" ${on ? 'checked' : ''} aria-label="Add ${esc(catalogName(state.catalog, row))}">
-      ${obIcon(card.icon, 'ob-bot-icon')}
+      ${obAvatar(row.slug, card, 38)}
       <span class="ob-bot-body"><span class="ob-bot-name">${esc(catalogName(state.catalog, row))}${head ? '<span class="ob-head">Head</span>' : ''}</span>
         <span class="ob-bot-sum">${esc(card.summary)}</span>
         ${why ? `<span class="ob-bot-why" data-ob-why="${esc(row.slug)}">${obIcon(OB_ICONS.why)}${esc(why)}</span>` : ''}</span>
-      <span class="ob-ms ob-bot-check" aria-hidden="true">check</span></label>
-      ${on && row.template === 'inbox' ? obMailboxHTML(state, row.slug) : ''}</div>`;
+      <span class="ob-ms ob-bot-check" aria-hidden="true">check</span></label></div>`;
 }
 function obDeptHTML(state) {
   const org = state.org, id = obCurrent(org), dept = obDept(org, id), step = org.step;
@@ -237,7 +237,7 @@ function obDeptHTML(state) {
       ${more.length ? `<details class="ob-more" id="ob-more"${moreOpen ? ' open' : ''}><summary>More in ${esc(dept.name)} <span class="muted">${more.length}</span></summary>
         <div class="ob-bots">${more.map(card => obBotCardHTML(state, card, '', card.template === head)).join('')}</div></details>` : ''}`;
   }
-  const forward = step === 'suggest' ? `<button class="primary ob-cta" type="button" id="ob-next">${next ? `Next: ${esc(next.name)}` : 'See your org chart'}${obIcon(OB_ICONS.go)}</button>` : '';
+  const forward = step === 'suggest' ? `<button class="primary ob-cta" type="button" id="ob-next">${next ? `Next: ${esc(next.name)}` : 'See org chart'}${obIcon(OB_ICONS.go)}</button>` : '';
   return `<article class="ob-card ob-dept" data-ob-dept="${esc(id)}" data-ob-step="${esc(step)}" style="--dc:${obColor(id)}">
       <header class="ob-dept-head">${obIcon(dept.icon, 'ob-dept-icon')}<div><div class="ob-kicker">${org.at + 1} of ${org.chosen.length}</div><h2>${esc(dept.name)}</h2></div></header>
       <p class="ob-desc">${esc(dept.description)}</p>
@@ -247,10 +247,22 @@ function obDeptHTML(state) {
         <button class="ghost" type="button" id="ob-skip">Skip department</button><span class="spacer"></span>${forward}</div>
     </article>`;
 }
+// Helpers sit apart from the chart: one switch each, off by default, and the Inbox Manager asks whose mailbox here.
+function obHelpersHTML(state) {
+  const cat = state.catalog, cards = obHelpers(state);
+  if (!cards.length) return '';
+  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Helpers</h3>${cards.map(card => {
+    const on = cat.picked.has(card.slug);
+    return `<div class="ob-helper${on ? ' on' : ''}" data-ob-helper-row="${esc(card.slug)}"><label class="ob-helper-toggle">${obAvatar(card.slug, card, 28)}
+        <span>${esc(catalogName(cat, card))}</span><input type="checkbox" role="switch" data-ob-helper="${esc(card.slug)}" ${on ? 'checked' : ''}></label>
+      ${on && card.template === 'inbox' ? obMailboxHTML(state, card.slug) : ''}</div>`;
+  }).join('')}</section>`;
+}
 function obFinishHTML(state) {
   return `<div class="ob-card ob-finish">
       <h2 class="ob-title" id="ob-summary">${esc(obStats(state, true))}</h2>
       <div class="ob-canvas" id="ob-chart-big">${obChartHTML(state, true)}</div>
+      ${obHelpersHTML(state)}
       <p class="err" id="team-problem" role="alert" hidden></p>
       <div class="onb-actions"><button class="ghost" type="button" id="ob-back">Back</button>
         <button class="ghost" type="button" id="ob-departments">Departments</button><span class="spacer"></span>
@@ -419,13 +431,18 @@ function obWire(state) {
   root.onchange = event => {
     const target = event.target;
     if (target.id === 'ob-hq') { org.share = target.checked; return; }
+    const helper = target.closest('[data-ob-helper]');
+    if (helper) {
+      if (helper.checked) state.catalog.picked.add(helper.dataset.obHelper); else state.catalog.picked.delete(helper.dataset.obHelper);
+      org.touched = true;
+      obRender(state);                                     // the Inbox Manager asks whose mailbox
+      return;
+    }
     const pick = target.closest('[data-ob-pick]');
     if (pick) {
       const slug = pick.dataset.obPick;
       if (pick.checked) state.catalog.picked.add(slug); else state.catalog.picked.delete(slug);
       org.touched = true;
-      const card = catalogCard(state.catalog, slug);
-      if (card?.template === 'inbox') { obRender(state); return; }      // it asks whose mailbox
       pick.closest('.ob-bot')?.classList.toggle('on', pick.checked);
       obRenderChart(state);
       return;

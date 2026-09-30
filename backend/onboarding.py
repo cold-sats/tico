@@ -142,19 +142,28 @@ def _card(document, instructions):
 # A template's avatar symbol: a Material Symbols name (card.yaml `icon`). Read on every bot list, so
 # the names are parsed again only when a card file changes.
 ICON_NAME = re.compile(r"^[a-z0-9_]{1,48}$")
-_icon_cache = {"key": None, "icons": {}}
+_icon_cache = {"key": None, "icons": {}, "helpers": frozenset()}
 
 
 def template_icons(settings):
     """{template: icon name} for every card that names a well-formed icon."""
+    return _template_marks(settings)["icons"]
+
+
+def helper_templates(settings):
+    """The templates whose card says `kind: helper`: a bot made from one serves a person and sits outside the org chart."""
+    return _template_marks(settings)["helpers"]
+
+
+def _template_marks(settings):
     root = Path(settings.catalog_dir)
     try:
         files = sorted(root.glob("*/" + CARD_FILE))
         key = (str(root), tuple((p.name, p.parent.name, p.stat().st_mtime_ns) for p in files))
     except OSError:
-        return {}
+        return {"icons": {}, "helpers": frozenset()}
     if _icon_cache["key"] != key:
-        icons = {}
+        icons, helpers = {}, set()
         for path in files:
             try:
                 document = yaml.safe_load(path.read_text())
@@ -165,8 +174,10 @@ def template_icons(settings):
             template, icon = str(document.get("template") or "").strip(), str(document.get("icon") or "").strip()
             if template and ICON_NAME.match(icon):
                 icons[template] = icon
-        _icon_cache.update(key=key, icons=icons)
-    return _icon_cache["icons"]
+            if template and document.get("kind") == "helper":
+                helpers.add(template)
+        _icon_cache.update(key=key, icons=icons, helpers=frozenset(helpers))
+    return _icon_cache
 
 
 def read_cards(settings):

@@ -676,12 +676,16 @@ def install_views(app, store, auth, mutate, task_view):
         company = providers.load(c, store.settings)
         rows = []
         access = auth.bot_accesses(c, who)
-        # The Material Symbol a bot's avatar wears: its own, else its template's.
-        from .onboarding import template_icons
-        icons = template_icons(store.settings)
+        # The Material Symbol a bot's avatar wears: its own, else its template's. A bot made from a `kind: helper` card
+        # serves a person, and the UI shows it with the built-ins, apart from the org chart.
+        from .onboarding import helper_templates, template_icons
+        icons, helpers = template_icons(store.settings), helper_templates(store.settings)
 
         def icon_of(config):
             return str(config.get("icon") or "") or icons.get(str(config.get("template") or ""), "")
+
+        def helper(config):
+            return str(config.get("template") or "") in helpers
         for bot in H.bots(c):
             slug = bot["slug"]
             level = access.get(slug, auth.FULL)
@@ -712,6 +716,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "operator": registry["operator"] if registry else None,
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
                              "icon": icon_of(configs.get(slug, {}) or {}),
+                             "helper": helper(configs.get(slug, {}) or {}),
                              "can_chat": may_chat(c, auth, who, slug)})
                 continue
             config = configs.get(slug, {})
@@ -737,7 +742,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "goals": (registry["goals"] if registry else "") or "",
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
-                         "icon": icon_of(config),
+                         "icon": icon_of(config), "helper": helper(config),
                          "my_access": level, **policy, "can_chat": may_chat(c, auth, who, slug)})
         return rows
 
