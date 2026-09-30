@@ -160,7 +160,7 @@ class Builder:
                              for slug, template, _ in D.BOTS if slug not in ("coo", "botops")}}),))
             # The tour is over; the checklist stays because GitHub, its one optional step, is not connected.
             c.execute("INSERT INTO preferences VALUES('human:ana','onboarding.progress',?,?)",
-                      (encode({"tour": True, "checklist": False, "skipped": [], "cards": []}), H.now()))
+                      (encode({"tour": True, "checklist": False, "skipped": []}), H.now()))
         self.write(record)
 
     def computers(self):

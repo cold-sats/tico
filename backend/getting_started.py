@@ -1,14 +1,13 @@
-"""After the wizard: the Getting started checklist, the tour and the section cards.
+"""After the wizard: the Getting started checklist, the tour and the market research request.
 
 The checklist is computed from what the database says right now (a runner's last heartbeat, a
 bot's row, a finished task), so a step can never be ticked by hand and can never stay ticked
 after the thing it names goes away. What a person may do by hand is limited to their own
-choices: skipping an optional step, closing the tour, closing a card, hiding the checklist.
+choices: skipping an optional step, closing the tour, hiding the checklist.
 Those live in the person's `preferences` row, so each person has their own.
 """
 
 import json
-import re
 
 from . import model_login, providers
 from .store import H, Problem, encode, readiness_document
@@ -18,10 +17,8 @@ BOTOPS = "botops"
 LIBRARIAN = "librarian"
 MARKET_TASK = "Set up the market map"
 ONLINE_SECONDS = 120
-# Sections whose card a person can close, and the checklist items a person may skip.
-CARDS = ("docs", "market", "bots", "tasks", "updates", "goals", "meetings")
+# The checklist items a person may skip.
 OPTIONAL = ("github",)
-EMPTY_STATE = {"tour": False, "checklist": False, "skipped": [], "cards": []}
 
 
 def _person(who):
@@ -43,8 +40,7 @@ def load_state(c, who):
         stored = {}
     stored = stored if isinstance(stored, dict) else {}
     return {"tour": bool(stored.get("tour")), "checklist": bool(stored.get("checklist")),
-            "skipped": [k for k in stored.get("skipped") or [] if k in OPTIONAL],
-            "cards": [k for k in stored.get("cards") or [] if k in CARDS]}
+            "skipped": [k for k in stored.get("skipped") or [] if k in OPTIONAL]}
 
 
 def save_state(c, who, state):
@@ -60,10 +56,6 @@ def change_state(c, who, body):
         state["tour"] = body.tour
     if body.checklist is not None:
         state["checklist"] = body.checklist
-    if body.card:
-        if body.card not in CARDS:
-            raise Problem("kind", "A card is one of " + ", ".join(CARDS), 422)
-        state["cards"] = sorted({*state["cards"], body.card})
     if body.skip:
         if body.skip not in OPTIONAL:
             raise Problem("kind", "Only optional steps can be skipped: " + ", ".join(OPTIONAL), 422)
@@ -193,19 +185,11 @@ def view(c, who, settings, auth, github=None):
     settled = [i for i in items if i["done"] or i["skipped"]]
     return {"items": items, "done": len(settled), "total": len(items),
             "complete": len(settled) == len(items), "dismissed": state["checklist"],
-            "tour_seen": state["tour"], "cards_dismissed": state["cards"],
+            "tour_seen": state["tour"],
             "can_build": auth.bot_admin(who), "owner": who.role == "owner"}
 
 
 # ------------------------------------------------------------------ actions
-def _slug(text, taken):
-    base = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:32].strip("-") or "new-bot"
-    slug, n = base, 2
-    while slug in taken:
-        slug, n = base + "-" + str(n), n + 1
-    return slug
-
-
 def _task(c, auth, who, owner, title, body):
     from . import rooms
     return H.task_create(c, who.actor, title, body, "bot:" + owner, allow_planned=True,
@@ -220,70 +204,6 @@ def _active(c, slug):
 def _botops(c):
     if not _active(c, BOTOPS):
         raise Problem("botops", "BotOps is not active yet. It starts once a computer hosts it.", 409)
-
-
-def _company(c):
-    from . import onboarding
-    return "\n".join(onboarding._answer_lines(onboarding.load(c)["answers"]))
-
-
-def _host(c, who):
-    """The computer a requested bot goes on: the one hosting BotOps, else the single online
-    computer. None when neither is clear or it is another person's; the task then says so."""
-    row = c.execute("SELECT r.id,r.operator FROM assignments a JOIN runners r ON r.id=a.runner_id "
-                    "WHERE a.bot=? AND r.revoked_at IS NULL", (BOTOPS,)).fetchone()
-    if not row:
-        online = _online_runners(c)
-        row = c.execute("SELECT id,operator FROM runners WHERE id=?", (online[0]["id"],)).fetchone() \
-            if len(online) == 1 else None
-    if row and (who.role == "owner" or row["operator"] == H.actor_id(who.actor)):
-        return row
-    return None
-
-
-def _planned_bot(c, settings_admin, settings, who, slug, name, what):
-    """The server record BotOps cannot create for itself: without it the bot is invisible to
-    the org chart and to routines. It stays planned; activating it is a person's call."""
-    from . import models as M
-    owner = settings_admin.auth.owner_id(c)
-    _, model = providers.resolve(providers.load(c, settings))
-    choice = settings_admin.models.get(model) or {}
-    host = _host(c, who)
-    first = re.split(r"(?<=[.!?])\s", what.strip(), maxsplit=1)[0]
-    settings_admin.create_bot(c, who, M.BotDefinitionCreate(
-        slug=slug, display_name=name, description=first[:300], status="planned",
-        reports_to="human:" + owner if owner and H.human(c, owner) else None,
-        model=model, effort=choice.get("default_effort") or "medium",
-        owners=[H.actor_id(who.actor)], runner_id=host["id"] if host else None))
-    return host
-
-
-def create_bot(c, auth, who, body, settings_admin=None, settings=None):
-    if not auth.bot_admin(who):
-        raise Problem("forbidden", "Only the owner or a bot administrator may ask for a new bot", 403)
-    _botops(c)
-    taken = {row["slug"] for row in c.execute("SELECT slug FROM bots")}
-    source = body.name or " ".join(body.what.split()[:3])
-    slug = _slug(source, taken)
-    name = body.name or slug.replace("-", " ").title()
-    # The hub refuses a second live task with the same title, so a repeat name says its slug.
-    title = "Build a bot: " + name + (" (" + slug + ")" if slug != _slug(source, set()) else "")
-    host = _planned_bot(c, settings_admin, settings, who, slug, name, body.what)
-    placed = ("- computer: assigned (the one that hosts BotOps, or the only one online)" if host else
-              "- computer: not assigned. Neither BotOps's computer nor a single online one was "
-              "clear, so leave placement to the owner.")
-    text = "\n".join([
-        "Build a new bot for us: " + name + ".", "",
-        "What it should do, in the owner's words:", "", body.what, "",
-        "- slug: " + slug, "- display name: " + name,
-        "- template: none chosen. Pick the closest one in the catalog, or tailor AGENT.md to the job.",
-        "- hub record: already created, state planned, repository emp-" + slug + ". Do not create "
-        "another. Build the repository, attach its daily and weekly routines and get it ready; "
-        "leave it planned, the owner activates it.", placed,
-        "", "What the company told us during onboarding:", _company(c)])
-    task = _task(c, auth, who, BOTOPS, title, text)
-    H.event(c, who.actor, "getting_started.bot_requested", slug, {"task": task["id"]})
-    return {"task_id": task["id"], "slug": slug, "name": name}
 
 
 def _market_title(c, owner, actor):
@@ -312,7 +232,7 @@ def market_context(c, auth, who, body):
     return {"task_id": task["id"], "bot": LIBRARIAN}
 
 
-def install(app, store, auth, mutate, settings, settings_admin):
+def install(app, store, auth, mutate, settings):
     from fastapi import Request
 
     from . import models as M
@@ -329,12 +249,6 @@ def install(app, store, auth, mutate, settings, settings_admin):
     def state(request: Request, body: M.GettingStartedState):
         who = request.state.identity
         return mutate(request, body, lambda c: change_state(c, who, body))
-
-    @app.post("/api/v2/getting-started/bot")
-    def bot(request: Request, body: M.GettingStartedBot):
-        who = request.state.identity
-        _person(who)
-        return mutate(request, body, lambda c: create_bot(c, auth, who, body, settings_admin, settings))
 
     @app.post("/api/v2/getting-started/market")
     def market(request: Request, body: M.GettingStartedMarket):

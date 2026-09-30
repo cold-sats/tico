@@ -6,8 +6,9 @@ agent, and press **Create my team**. Every company gets the assistant, BotOps, t
 Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
 the moment it is placed, and BotOps sets up every other template.
 
-The wizard is the first of three pieces, all described below: the wizard, a short tour, and the bot card.
-[After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the owner asks for market research. To choose a first team and get the most from it, read the [onboarding guide](onboarding-guide.md).
+The wizard is the first of three pieces, all described below: the wizard, a short tour, and a line under the org list
+that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the
+owner asks for market research. To choose a first team and get the most from it, read the [onboarding guide](onboarding-guide.md).
 
 Nobody else sees the wizard. Only the owner may write onboarding, and the sidebar entry
 **Finish setup** appears only while it is unfinished.
@@ -126,8 +127,8 @@ The wizard is done once, by the owner. Everything after it is per person, so a t
 joins later gets the same help without the owner doing anything.
 
 ```
-wizard  ->  tour (once)  ->  bot card
-             replay: ?        until closed or a bot exists
+wizard  ->  tour (once)  ->  "Talk to BotOps" line
+             replay: ?        until a bot of your own exists
 ```
 
 ### The tour
@@ -139,17 +140,11 @@ from **?** (How Tico works) with **Take the tour**. That it was seen is kept per
 
 ### Bots
 
-**Build one with BotOps** (on the bot card, below) opens **What should your bot do?** (a description and an optional name).
-It files a task for BotOps titled `Build a bot: <name>` with the slug, the description and the
-onboarding answers, via `POST /api/v2/getting-started/bot`. That needs BotOps active and the owner or
-a bot administrator. The task names no template, so BotOps picks the closest one
-(`playbooks/set-up-a-bot.md`).
-
-### The bot card
-
-There is no checklist and no card above any page. The one card left sits in the org list while there are no bots of your
-own: **Connect a bot you already have** (the connect-an-agent dialog) or **Build one with BotOps** (the form above). Its X
-closes it for good, kept for that person.
+There is no checklist, no card above any page and no card in the sidebar. While there are no bots of your own (the Create your
+first bot step is not done), one line of muted text sits under the org list: "Talk to BotOps to add or edit your AI employees",
+with **BotOps** linking to its chat (`#/bot/botops`). It shows only to people who may add bots (the owner and bot administrators,
+`can_build`), and has nothing to close. Asking BotOps in chat is how a bot is added (`playbooks/build-me-a-bot.md`); connecting
+an agent you already have is the **Connect an agent** button in the sidebar footer.
 
 ### An empty Market page
 
@@ -168,15 +163,14 @@ Market page is drawn. The code is `ui/market-page.js`.
 ### What is stored, and who may do what
 
 A person's choices are one row in `preferences` (key `onboarding.progress`, the same per-person store as
-`/api/v2/preferences/{key}`): tour seen and the bot card closed.
+`/api/v2/preferences/{key}`): whether they saw the tour.
 `POST /api/v2/getting-started/state` writes only the caller's own row, and the read shows only
 the caller's own choices. Runners and bots get `403`.
 
 | Endpoint | Who |
 |---|---|
-| `GET /api/v2/getting-started` | Any person (the bot card and the tour read it) |
+| `GET /api/v2/getting-started` | Any person (the BotOps line and the tour read it) |
 | `POST /api/v2/getting-started/state` | Any person, for themselves |
-| `POST /api/v2/getting-started/bot` | Owner or bot administrator |
 | `POST /api/v2/getting-started/market` | Owner |
 
 The code is `backend/getting_started.py` and `ui/getting-started.js`. Tests: `backend/tests/test_getting_started.py`

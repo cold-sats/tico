@@ -1,6 +1,7 @@
-/* After the wizard: the tour and the bot card in the sidebar (docs/onboarding.md). What the card shows
-   comes from GET /api/v2/getting-started; the only things kept per person are their own choices (tour
-   seen, card closed). The Market page's empty state (ui/market-page.js) is where the market is asked for. */
+/* After the wizard: the tour, and one line under the org list while there are no bots of your own
+   (docs/onboarding.md). Whether that line shows comes from GET /api/v2/getting-started; the only thing
+   kept per person is whether they saw the tour. The Market page's empty state (ui/market-page.js) is
+   where the market is asked for. */
 let GS = null;                     // the last answer, or null when the server has none to give
 let GS_LOAD = 0;
 
@@ -10,96 +11,23 @@ async function gsRefresh() {
   const data = await v2Get('/v2/getting-started');
   if (seq !== GS_LOAD) return GS;
   GS = data && Array.isArray(data.items) ? data : null;
-  gsDraw();
+  gsOrgHint();
   return GS;
-}
-
-function gsDraw() {
-  gsOrgCard();
 }
 
 async function gsState(change) {
   try {
     const next = await post('/v2/getting-started/state', change);
-    if (GS && next) {
-      GS = {...GS, tour_seen: next.tour, dismissed: next.checklist, cards_dismissed: next.cards};
-      const skipped = new Set(next.skipped || []);
-      GS.items = GS.items.map(item => ({...item, skipped: item.optional && !item.done && skipped.has(item.id)}));
-      const settled = GS.items.filter(item => item.done || item.skipped).length;
-      GS = {...GS, done: settled, complete: settled === GS.total};
-    }
+    if (GS && next) GS = {...GS, tour_seen: next.tour};
   } catch { /* a choice that did not save is asked again next time */ }
-  gsDraw();
 }
 
-function gsOrgCard() {
-  const host = $('#gs-org-card');
-  if (!host) return;
+// "Talk to BotOps to add or edit your AI employees", for whoever may add bots, until there is one of your own.
+function gsOrgHint() {
+  const line = $('#gs-org-hint');
+  if (!line) return;
   const bot = GS?.items.find(item => item.id === 'first_bot');
-  const shown = !!bot && !bot.done && GS.can_build && !GS.cards_dismissed.includes('bots');
-  host.hidden = !shown;
-  if (!shown) { host.innerHTML = ''; return; }
-  host.innerHTML = `<p><strong>No bots of your own yet.</strong></p>
-    <div class="gs-org-actions">
-      <button class="ghost" type="button" data-gs-connect>Connect a bot you already have</button>
-      <button class="ghost" type="button" data-gs-build>Build one with BotOps</button>
-    </div>
-    <button class="ghost gs-x" type="button" data-gs-dismiss="bots" aria-label="Close this">✕</button>`;
-}
-
-// ---------------------------------------------------------------- "What should your bot do?"
-const gsTaskLink = (id, text) => id ? `<a href="#/task/${esc(id)}">${text}</a>` : '';
-
-function gsBotForm() {
-  const dialog = document.createElement('dialog');
-  dialog.className = 'tmodal gs-form';
-  dialog.setAttribute('aria-labelledby', 'gs-bot-title');
-  dialog.innerHTML = `<form data-gs-bot>
-    <header><h2 id="gs-bot-title">What should your bot do?</h2>
-      <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
-    <label class="gs-field"><span>What should it do?</span>
-      <textarea name="what" rows="4" maxlength="2000" required placeholder="Answer the support inbox every morning and flag anything urgent."></textarea></label>
-    <label class="gs-field"><span>Name (optional)</span><input name="name" type="text" maxlength="80" autocomplete="off" placeholder="Help Desk"></label>
-    <p role="status" data-gs-status></p>
-    <div class="gs-card-actions"><button class="ghost" type="button" data-close data-gs-close>Cancel</button>
-      <button class="ghost" type="button" data-gs-another hidden>Build another</button>
-      <button class="primary" type="submit">Ask BotOps</button></div></form>`;
-  document.body.appendChild(dialog);
-  // The dialog belongs to the page it was opened on; going elsewhere (the task link, a rail item) ends it.
-  const leave = () => dialog.close();
-  window.addEventListener('hashchange', leave);
-  dialog.addEventListener('close', () => { window.removeEventListener('hashchange', leave); dialog.remove(); });
-  dialog.addEventListener('click', event => {
-    if (event.target === dialog || event.target.closest('[data-close]')) dialog.close();
-  });
-  dialog.querySelector('form').onsubmit = async event => {
-    event.preventDefault();
-    const form = event.target, status = form.querySelector('[data-gs-status]');
-    form.querySelector('[type=submit]').disabled = true;
-    try {
-      const made = await post('/v2/getting-started/bot', {what: form.what.value.trim(), name: form.name.value.trim()});
-      status.innerHTML = `Sent to BotOps. ${gsTaskLink(made.task_id, 'Open the task')}`;
-      form.querySelector('[type=submit]').hidden = true;
-      form.querySelector('[data-gs-close]').textContent = 'Done';
-      form.querySelector('[data-gs-another]').hidden = false;
-      void gsRefresh();
-    } catch (error) {
-      status.textContent = error.message;
-      form.querySelector('[type=submit]').disabled = false;
-    }
-  };
-  dialog.querySelector('[data-gs-another]').onclick = event => {
-    const form = dialog.querySelector('form');
-    form.reset();
-    form.querySelector('[data-gs-status]').textContent = '';
-    form.querySelector('[type=submit]').hidden = false;
-    form.querySelector('[type=submit]').disabled = false;
-    form.querySelector('[data-gs-close]').textContent = 'Cancel';
-    event.target.hidden = true;
-    form.what.focus();
-  };
-  dialog.showModal();
-  dialog.querySelector('textarea').focus();
+  line.hidden = !(bot && !bot.done && GS.can_build);
 }
 
 // ---------------------------------------------------------------- the tour
@@ -220,10 +148,6 @@ window.gsBoot = function () {
 // ---------------------------------------------------------------- one listener for all of it
 document.addEventListener('click', event => {
   const t = event.target;
-  const dismiss = t.closest('[data-gs-dismiss]');
-  if (dismiss) { void gsState({card: dismiss.dataset.gsDismiss}); return; }
-  if (t.closest('[data-gs-build]')) { gsBotForm(); return; }
-  if (t.closest('[data-gs-connect]')) { connectAgent(); return; }
   if (t.closest('[data-gs-tour]')) { gsTourStart(); return; }
   const link = t.closest('[data-gs-tab]');
   if (link) {

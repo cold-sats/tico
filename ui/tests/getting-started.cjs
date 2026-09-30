@@ -1,9 +1,10 @@
 // Offline regression for the pieces around the wizard: there is no checklist and no card above any page; an
 // empty Market page is where the owner asks for research (one box, the Librarian is asked, and a notice shows
-// until the market has content), and a quiet empty state for everyone else; the bot card opens the two ways
-// in and stays closed; the tour is replayable from Help, traps focus, closes on Escape and works in the phone
-// drawer. Fixtures only - no server.
-// TICO_SCREENSHOT_DIR=<dir> saves the review screenshots (the market's empty states in both themes, and a phone).
+// until the market has content), and a quiet empty state for everyone else; one line under the org list
+// points at BotOps while there are no bots of your own; the tour is replayable from Help, traps focus, closes
+// on Escape and works in the phone drawer. Fixtures only - no server.
+// TICO_SCREENSHOT_DIR=<dir> saves the review screenshots (the market's empty states and the sidebar line in both
+// themes, and a phone).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -47,15 +48,15 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
   try {
     const context = await browser.newContext({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
     const calls = [];
-    let items = checklist(), role = 'owner';
-    let dismissed = {tour: true, checklist: false, cards: [], skipped: []};
+    let items = checklist(), role = 'owner', canBuild = true;
+    let dismissed = {tour: true, checklist: false, skipped: []};
     let librarianOff = false, polls = [];
     let market = {entities: [], docs: [{id: 'market/overview', title: 'Overview', seeded: true, fetched: '2026-01-01T00:00:00Z'}]};
     const view = () => {
       const rows = items.map(row => ({...row, skipped: row.optional && !row.done && dismissed.skipped.includes(row.id)}));
       const done = rows.filter(row => row.done || row.skipped).length;
       return {items: rows, done, total: rows.length, complete: done === rows.length, dismissed: dismissed.checklist,
-              tour_seen: dismissed.tour, cards_dismissed: dismissed.cards, can_build: true, owner: role === 'owner'};
+              tour_seen: dismissed.tour, can_build: canBuild, owner: role === 'owner'};
     };
     await context.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -81,11 +82,9 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
         const body = req.postDataJSON(); calls.push({p, body});
         if (body.tour !== undefined) dismissed.tour = body.tour;
         if (body.checklist !== undefined) dismissed.checklist = body.checklist;
-        if (body.card) dismissed.cards = [...new Set([...dismissed.cards, body.card])];
         if (body.skip) dismissed.skipped = [...new Set([...dismissed.skipped, body.skip])];
-        return json({tour: dismissed.tour, checklist: dismissed.checklist, cards: dismissed.cards, skipped: dismissed.skipped});
+        return json({tour: dismissed.tour, checklist: dismissed.checklist, skipped: dismissed.skipped});
       }
-      if (p === '/api/v2/getting-started/bot') { calls.push({p, body: req.postDataJSON()}); return json({task_id: 't-bot', slug: 'help-desk', name: 'Help Desk'}); }
       if (p === '/api/v2/getting-started/market') {
         const body = req.postDataJSON(); calls.push({p, body});
         if (librarianOff) return json({error: {code: 'librarian', detail: 'The Librarian is not running yet.'}}, 409);
@@ -117,36 +116,6 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     // The old address lands on Tasks.
     page = await open('#/getting-started');
     await page.waitForFunction(() => location.hash === '#/tasks');
-
-    // The bot card's "Build one with BotOps" asks what the bot should do and files it for BotOps.
-    await page.locator('#gs-org-card [data-gs-build]').click();
-    await page.locator('dialog.gs-form[open]').waitFor();
-    assert.equal(await page.locator('dialog.gs-form h2').textContent(), 'What should your bot do?');
-    await page.locator('dialog.gs-form textarea').fill('Answer the support inbox every morning.');
-    await page.locator('dialog.gs-form input[name=name]').fill('Help Desk');
-    await page.locator('dialog.gs-form [type=submit]').click();
-    await page.locator('dialog.gs-form a[href="#/task/t-bot"]').waitFor();
-    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/bot', body: {what: 'Answer the support inbox every morning.', name: 'Help Desk'}});
-    // Sent: Cancel becomes Done, and "Build another" starts over with an empty form.
-    assert.equal(await page.locator('dialog.gs-form [data-gs-close]').textContent(), 'Done');
-    await page.locator('dialog.gs-form [data-gs-another]').click();
-    assert.equal(await page.locator('dialog.gs-form textarea').inputValue(), '');
-    assert.equal(await page.locator('dialog.gs-form [type=submit]').isVisible(), true);
-    assert.equal(await page.locator('dialog.gs-form [data-gs-close]').textContent(), 'Cancel');
-    assert.equal(await page.locator('dialog.gs-form [data-gs-another]').isHidden(), true);
-    await page.locator('dialog.gs-form textarea').fill('Post the weekly numbers.');
-    await page.locator('dialog.gs-form [type=submit]').click();
-    await page.locator('dialog.gs-form a[href="#/task/t-bot"]').waitFor();
-    await page.locator('dialog.gs-form [data-gs-close]').click();
-    await page.waitForFunction(() => !document.querySelector('dialog.gs-form'));
-
-    // The dialog belongs to its page: navigating away closes it.
-    await page.locator('#gs-org-card [data-gs-build]').click();
-    await page.locator('dialog.gs-form[open]').waitFor();
-    await page.evaluate(() => { location.hash = '#/bot/botops'; });
-    await page.waitForFunction(() => !document.querySelector('dialog.gs-form'));
-    await page.evaluate(() => { location.hash = '#/updates'; });
-
     await page.close();
 
     // ---- Market: an empty market is the page's own empty state: one box, the Librarian is asked, and a
@@ -242,18 +211,35 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     assert.equal(await page.locator('[data-gs-card]').count(), 0);
     await page.close();
 
-    // ---- Bots: the rail offers the two ways in until closed
+    // ---- Bots: one quiet line under the org list while there are no bots of your own, for whoever may add them
     page = await open('#/updates');
-    assert.equal(await page.locator('#gs-org-card [data-gs-connect]').count(), 1);
-    await page.locator('#gs-org-card [data-gs-connect]').click();
-    await page.locator('dialog.connect-agent[open]').waitFor();
-    await page.locator('dialog.connect-agent [data-close]').click();
-    await page.locator('#gs-org-card [data-gs-build]').click();
-    await page.locator('dialog.gs-form[open]').waitFor();
-    await page.keyboard.press('Escape');
-    await page.locator('#gs-org-card [data-gs-dismiss=bots]').click();
-    await page.waitForFunction(() => document.querySelector('#gs-org-card').hidden);
+    const hint = page.locator('#gs-org-hint');
+    await hint.waitFor();
+    assert.equal(await hint.textContent(), 'Talk to BotOps to add or edit your AI employees');
+    assert.equal(await hint.locator('a').textContent(), 'BotOps');
+    assert.equal(await hint.locator('a').getAttribute('href'), '#/bot/botops');
+    assert.equal(await hint.locator('button').count(), 0);                 // no buttons, no X
+    assert.equal(await page.locator('#gs-org-card, [data-gs-build], [data-gs-connect], [data-gs-dismiss]').count(), 0);
+    if (shots) for (const colorScheme of ['light', 'dark']) {
+      await page.setViewportSize({width: 1440, height: 900});
+      await page.emulateMedia({colorScheme});
+      await page.waitForTimeout(150);
+      await page.screenshot({path: path.join(shots, `sidebar-botops-line-${colorScheme}.png`)});
+    }
+    await hint.locator('a').click();
+    await page.waitForFunction(() => location.hash === '#/bot/botops');
     await page.close();
+    // ...and it is gone once there is a bot of your own, and never shown to someone who cannot add bots.
+    items = items.map(row => row.id === 'first_bot' ? {...row, done: true, why: ''} : row);
+    page = await open('#/updates');
+    assert.equal(await page.locator('#gs-org-hint').isHidden(), true);
+    await page.close();
+    items = checklist();
+    canBuild = false;
+    page = await open('#/updates');
+    assert.equal(await page.locator('#gs-org-hint').isHidden(), true);
+    await page.close();
+    canBuild = true;
 
     // ---- the tour: replay from Help, focus stays inside, Escape closes and is remembered
     page = await open('#/help');
@@ -316,6 +302,6 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.close();
 
     assert.deepEqual(errors, []);
-    console.log('PASS: no checklist or card slot; the empty Market page files its ask and shows the notice until there is content; the bot card opens both ways in; the tour traps focus.');
+    console.log('PASS: no checklist or card slot; the empty Market page files its ask and shows the notice until there is content; the BotOps line shows until there is a bot of your own; the tour traps focus.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

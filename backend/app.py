@@ -2870,7 +2870,7 @@ def create_app(settings=None):
     from .scim import install_scim
     install_scim(app, settings, store)
     from .getting_started import install as install_getting_started
-    install_getting_started(app, store, auth, mutate, settings, settings_admin)
+    install_getting_started(app, store, auth, mutate, settings)
     from .health import install as install_health
     install_health(app, store, auth, settings)
     from .assistant import install as install_assistant
