@@ -9,7 +9,8 @@ sparkline and a pace work the way they do for a KPI a person or the Goal Manager
   first_response_min  median minutes from a message to the bot to its first reply in that conversation (7 days)
   approval_rate_30d   the share of its approval requests a person approved, over the last thirty days
   failed_runs_7d      runs that ended failed in the last seven days
-  cost_7d             what its runs cost in the last seven days, when the runs recorded a cost
+  cost_7d             what its runs cost in the last seven days, estimated from their tokens (usage.py); runs on a
+                      subscription sign-in are left out
 
 A metric with nothing to measure over its window (no message was sent to it, no approval was decided,
 no run recorded a cost) has no reading, and no reading is missing data, never zero.
@@ -35,7 +36,8 @@ METRICS = {
     "failed_runs_7d": {"name": "Failed runs (7d)", "unit": "runs", "direction": "down", "window": 7,
                        "definition": "Runs of this bot that ended failed in the last 7 days."},
     "cost_7d": {"name": "Model cost (7d)", "unit": "$", "direction": "down", "window": 7,
-                "definition": "What this bot's runs cost in the last 7 days, where the runs recorded a cost."},
+                "definition": "Estimated list-price cost of this bot's runs in the last 7 days, from their tokens; runs on a "
+                                    "ChatGPT or Claude sign-in are not counted."},
 }
 
 
@@ -86,7 +88,10 @@ def value(conn, slug, key, at=None):
         return float(conn.execute("SELECT count(*) FROM attempts WHERE bot=? AND state='failed' "
                                   "AND coalesce(finished, created)>? AND coalesce(finished, created)<=?",
                                   (slug, since, end)).fetchone()[0])
-    row = conn.execute("SELECT sum(cost), count(cost) FROM turns WHERE bot=? AND started>? AND started<=?",
+    # The estimate from each run's token counts (backend/usage.py), else the cost a run recorded itself.
+    # A subscription run costs nothing extra, so only runs billed by the API count.
+    row = conn.execute("SELECT sum(coalesce(est_cost_usd, cost)), count(coalesce(est_cost_usd, cost)) FROM turns "
+                       "WHERE bot=? AND started>? AND started<=? AND coalesce(billing, 'api') != 'subscription'",
                        (slug, since, end)).fetchone()
     return round(row[0], 4) if row and row[1] else None
 

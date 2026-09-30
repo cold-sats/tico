@@ -318,7 +318,13 @@ class GeminiHost(Host):
         if result:
             inp, out, total = usage_tokens(result.get("stats"))
             if total:
-                self.emit("tokens", thread_id, turn, input=inp, output=out, total=total)
+                stats = result.get("stats") if isinstance(result.get("stats"), dict) else {}
+                try:
+                    cached = int(stats.get("cached") or 0)
+                except (TypeError, ValueError):
+                    cached = 0
+                self.emit("tokens", thread_id, turn, input=inp, output=out, total=total,
+                          usage={"input": inp, "cached": cached, "output": out})
         if interrupted:
             self.emit("turn_completed", thread_id, turn, status="interrupted")
         elif result and result.get("status") == "success" and returncode == 0 and not model_mismatch:

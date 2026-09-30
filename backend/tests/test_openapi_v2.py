@@ -157,4 +157,6 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("listGoalProposals", "get", "/api/v2/goal-proposals")
     call("getGoalsNeedsYou", "get", "/api/v2/goals/needs-you")
     call("decideGoalProposal", "post", "/api/v2/goal-proposals/%s/decide" % proposal["id"], json={"decision": "confirm"})
+    call("getUsage", "get", "/api/v2/usage")
+    call("getUsage", "get", "/api/v2/usage", params={"bot": "ops", "from": "2026-01-01", "to": "2026-01-03"})
     call("getHealth", "get", "/api/v2/health")

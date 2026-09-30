@@ -2906,6 +2906,8 @@ def create_app(settings=None):
     install_librarian(app, store, auth, mutate, onboarding)
     from .goal_routes import install as install_goal_routes
     install_goal_routes(app, store, auth, mutate, settings)
+    from .usage import install as install_usage
+    install_usage(app, store, auth, settings)
     from .bot_tools import install as install_bot_tools
     install_bot_tools(app, store, auth, mutate, settings_admin)
     from .support import install as install_support

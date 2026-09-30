@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Usage: estimated model spend per bot.** Account menu > Usage shows what the bots' runs cost, for Today, 7 days, 30 days, This month
+  or a custom range, by department, one row per bot with its tokens, estimate and share; a bot opens to a daily chart, its top routines
+  and a CSV. The runner sums each run's tokens (input, cached input, output) and sends them with the result; the server prices them from
+  a per-model list-price table (`providers.PRICES`, dated `prices_as_of`). A model with no price shows its tokens and a dash. Runs on a
+  ChatGPT or Claude sign-in are shown as "API-equivalent" and never added to spend. `GET /api/v2/usage` (owner and administrators see
+  every bot, anyone else the bots they run) is in the v2 contract; the bot KPI `cost_7d` reads the same estimate (docs/usage.md).
+
 ## [0.2.17] - 2026-09-30
 
 ### Added

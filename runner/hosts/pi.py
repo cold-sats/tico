@@ -71,6 +71,26 @@ def usage_tokens(usage):
     return inp, out, total
 
 
+def usage_increment(usage):
+    """{input, cached, output} for one assistant message's usage object. Pi keeps cache reads and writes
+    apart from `input`; the meter counts them all as input, the reads also as cached."""
+    u = usage if isinstance(usage, dict) else {}
+
+    def count(*keys):
+        for key in keys:
+            try:
+                value = int(u.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0
+            if value:
+                return value
+        return 0
+    read = count("cacheRead", "cache_read", "cachedTokens")
+    inp = count("input", "input_tokens", "inputTokens", "prompt_tokens", "promptTokens") + read + count("cacheWrite", "cache_write")
+    return {"input": inp, "cached": read,
+            "output": count("output", "output_tokens", "outputTokens", "completion_tokens", "completionTokens")}
+
+
 def openrouter_key(env):
     """The machine OpenRouter key. Not taken from a bot secrets file."""
     env = env or {}
@@ -280,6 +300,11 @@ class PiHost(Host):
                 if total:
                     self.emit("tokens", tid, turn, input=inp, output=out, total=total)
         elif kind == "message_end":
+            done = msg.get("message")
+            if isinstance(done, dict) and done.get("role") == "assistant" and isinstance(done.get("usage"), dict):
+                # One assistant message ends once, so this is where its tokens are counted.
+                inp, out, total = usage_tokens(done["usage"])
+                self.emit("tokens", tid, turn, input=inp, output=out, total=total, usage=usage_increment(done["usage"]))
             text = self._assistant_text(msg.get("message"))
             if text:
                 self._reply[turn] = text

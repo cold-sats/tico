@@ -74,6 +74,14 @@ def usage_tokens(usage):
     return inp, out, inp + out
 
 
+def cached_tokens(usage):
+    """The prompt tokens Claude read from its cache, which list price bills at the cached rate."""
+    try:
+        return int((usage if isinstance(usage, dict) else {}).get("cache_read_input_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 class ClaudeHost(Host):
     name = "claude"
     supports_steer = False
@@ -307,7 +315,8 @@ class ClaudeHost(Host):
             inp, out, total = usage_tokens(result.get("usage"))
             if total:
                 self.emit("tokens", tid, turn, input=inp, output=out, total=total,
-                          cost_usd=result.get("total_cost_usd"))
+                          cost_usd=result.get("total_cost_usd"),
+                          usage={"input": inp, "cached": cached_tokens(result.get("usage")), "output": out})
         if interrupted:
             self.emit("turn_completed", tid, turn, status="interrupted")
         elif result and not result.get("is_error") and rc == 0:

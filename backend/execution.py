@@ -626,6 +626,24 @@ class Execution:
                     and not c.execute("SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')",
                                       (row["bot"],)).fetchone())
 
+    def run_usage(self, c, row, body):
+        """The turn's usage columns from the tokens its runner counted, or None when it counted none.
+        The model is the one the runner ran (a fallback harness runs another than the bot's own), else
+        the model the bot resolves to; the cost is the list-price estimate, empty for a model with no price."""
+        used = body.usage
+        if not used or not (used.input_tokens or used.cached_tokens or used.output_tokens):
+            return None
+        runtime, model = used.runtime, used.model
+        if not model or model == providers.DEFAULT:
+            config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
+            runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
+        catalog = providers.MODEL_BY_ID.get(model) or {}
+        provider = catalog.get("provider") or providers.runtime_provider(runtime or catalog.get("runtime"))
+        return {"input_tokens": used.input_tokens, "cached_tokens": used.cached_tokens,
+                "output_tokens": used.output_tokens, "model": model or None, "provider": provider or None,
+                "est_cost_usd": providers.estimate_cost(model, used.input_tokens, used.cached_tokens, used.output_tokens),
+                "billing": used.billing}
+
     def file_result(self, c, row, body):
         """A result whose job this runner no longer speaks for: a review decided it, another
         attempt owns the work now, or the bot moved to another Mac. The run is recorded against
@@ -636,7 +654,7 @@ class Execution:
         c.execute("UPDATE attempts SET final_text=?,result_json=? WHERE id=?",
                   (body.text, encode(body.model_dump()), row["id"]))
         H.turn_finish(c, H.KEEPER, row["id"], exit_code=body.outcome, tokens_in=body.tokens_in,
-                      tokens_out=body.tokens_out, summary=body.text[:2000])
+                      tokens_out=body.tokens_out, summary=body.text[:2000], usage=self.run_usage(c, row, body))
         H.event(c, H.KEEPER, "attempt.late-result", row["id"],
                 {"bot": row["bot"], "job_id": row["job_id"], "outcome": body.outcome})
         return {"attempt_id": row["id"], "outcome": body.outcome, "message": None, "filed": True}
@@ -829,7 +847,7 @@ class Execution:
                 H.mark_delivered(c, H.KEEPER, extra["message_id"])
                 H.event(c, H.KEEPER, "job.coalesce", extra["id"], {"attempt_id": aid, "job_id": row["job_id"]})
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
-                      tokens_out=body.tokens_out, summary=body.text[:2000])
+                      tokens_out=body.tokens_out, summary=body.text[:2000], usage=self.run_usage(c, row, body))
         config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
         if row["thread_id"] and body.tokens_in is not None:

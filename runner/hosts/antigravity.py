@@ -139,7 +139,9 @@ class AntigravityHost(Host):
                              for k in ("input_tokens", "output_tokens", "cache_read_tokens")}
                     self._usage = usage
                     self.emit("tokens", tid, turn, input=delta["input_tokens"], output=delta["output_tokens"],
-                              cached=delta["cache_read_tokens"], total=delta["input_tokens"] + delta["output_tokens"])
+                              cached=delta["cache_read_tokens"], total=delta["input_tokens"] + delta["output_tokens"],
+                              usage={"input": delta["input_tokens"], "cached": delta["cache_read_tokens"],
+                                     "output": delta["output_tokens"]})
                     self._turn = None
                     if result.get("status") == "SUCCESS":
                         self.emit("message", tid, turn, text=result.get("response", "").strip(), final=True)

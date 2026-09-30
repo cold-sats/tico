@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from clients.tico import APIError, Client
-from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles
+from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -1405,6 +1405,7 @@ class Runner:
         reply, outcome, tokens, limited, retryable, fallback = "", "interrupted", {}, False, False, None
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
+        meter, ran = [usage.Meter()], [config.get("model") or "", config.get("runtime") or ""]
         try:
             try:
                 env = base_env = self.environment(attempt)
@@ -1444,6 +1445,7 @@ class Runner:
                     """Drain the host until the turn ends: (outcome, reply, tokens, limited, retryable)."""
                     reply, tokens, outcome, limited, retryable = "", {}, "interrupted", False, False
                     acted, last_flush, complete = False, 0, False
+                    meter[0] = usage.Meter()           # a fallback harness counts its own turn
                     while not complete:
                         if self.stop.is_set() or lost.is_set() or time.monotonic() >= limit:
                             host.interrupt(thread, turn)
@@ -1463,6 +1465,7 @@ class Runner:
                                     reply = clean.get("text", "")
                                 if kind == "tokens":
                                     tokens = event
+                                    meter[0].add(event)
                             if kind == "turn_completed":
                                 outcome = "interrupted" if event.get("status") == "interrupted" else "completed"
                                 complete = True
@@ -1552,6 +1555,7 @@ class Runner:
                               "model": hop["model"], "reasoning_effort": hop["reasoning_effort"]}
                 persistent, fallback = (hop["harness"] == "antigravity" and hop["runtime"] == "gemini"), hop["harness"]
                 current[0] = hop["runtime"]
+                ran[:] = [hop["model"] or "", hop["runtime"] or ""]
                 reply, outcome, tokens, limited, retryable = "", "interrupted", {}, False, False
                 primary = config.get("harness") or runtime
                 self.state.append(aid, "diagnostic",
@@ -1598,8 +1602,10 @@ class Runner:
                 if scrubbed != reply:
                     log(f"Tico runner: {bot}: took local file links or other repositories' paths out of the reply")
                     reply = scrubbed
+            spent = meter[0].report(ran[0], ran[1], self.billing(bot, ran[1]))
             completion = self.state.finish(aid, {"outcome": outcome, "text": reply,
                                                 "tokens_in": tokens.get("input"), "tokens_out": tokens.get("output"),
+                                                **({"usage": spent} if spent else {}),
                                                 **({"limited": True} if limited else {}),
                                                 **({"retryable": True} if retryable and not limited else {}),
                                                 **({"fallback": fallback} if fallback else {}),
@@ -1608,7 +1614,7 @@ class Runner:
                                                    if auth_rejected and outcome == "failed" else {})})
             try:
                 self.flush(aid)
-                self.client.post(f"attempts/{aid}/complete", completion, key=f"complete:{aid}")
+                self.complete(aid, completion)
                 if outcome == "completed":
                     # The next turn on this thread forwards only what the room said after this.
                     self.state.cursor(thread, attempt["message"]["id"])
@@ -1645,6 +1651,25 @@ class Runner:
                 done.set()
                 renewer.join(timeout=2)
 
+    def complete(self, aid, completion):
+        """Send a result. A server from before usage refuses the field outright (422): the result must not
+        be lost over it, so it goes again without, and the same for a result kept across a restart."""
+        try:
+            return self.client.post(f"attempts/{aid}/complete", completion, key=f"complete:{aid}")
+        except APIError as exc:
+            if exc.status != 422 or "usage" not in completion:
+                raise
+            return self.client.post(f"attempts/{aid}/complete", {k: v for k, v in completion.items() if k != "usage"},
+                                    key=f"complete:{aid}:no-usage")
+
+    def billing(self, bot, runtime):
+        """`subscription` when the runtime this bot runs on is signed in with a plan (ChatGPT, Claude), else `api`."""
+        row = (getattr(self, "runtime_rows", None) or {}).get(runtime) or {}
+        profile = self.profile(bot)
+        if profile and (row.get("profiles") or {}).get(profile.name):
+            row = row["profiles"][profile.name]
+        return usage.billing_for(runtime, row.get("detail"))
+
     def recover_output(self):
         files_publish.drain(self)           # files a restart or an outage left queued (runner/files_publish.py)
         for row in self.state.unfinished():
@@ -1656,7 +1681,7 @@ class Runner:
                     completion = json.loads(row["completion"])
                 else:
                     completion = self.state.finish(row["id"], {"outcome": "interrupted", "text": "Runner restarted during execution"})
-                self.client.post(f"attempts/{row['id']}/complete", completion, key=f"complete:{row['id']}")
+                self.complete(row["id"], completion)
                 self.state.phase(row["id"], "synced")
             except APIError as exc:
                 if not exc.retryable:
@@ -1679,6 +1704,7 @@ class Runner:
         eligible = self.client.get("runners/eligible")
         candidates = self.readiness_candidates(assignments, eligible)
         runtimes = self.runtime_report(candidates)
+        self.runtime_rows = runtimes
         checks = self.preflight(candidates, runtimes)
         agent_instructions, instruction_versions = self.changed_agent_instructions(assignments)
         # Install on demand: only what the enabled providers and this runner's bots need.

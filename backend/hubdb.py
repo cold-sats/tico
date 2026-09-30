@@ -477,10 +477,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS market_insights_source_ref
   ON market_insights(reported_by, source_ref) WHERE source_ref IS NOT NULL;
 """
 
+# Usage (backend/usage.py): what a run's tokens were, on which model, and what they cost at list price.
+# `billing` is `subscription` for a run on a ChatGPT or Claude sign-in, whose cost is an API-equivalent
+# and not money spent. Every statement is safe to run twice.
+USAGE_SCHEMA = """
+ALTER TABLE turns ADD COLUMN input_tokens INTEGER;
+ALTER TABLE turns ADD COLUMN cached_tokens INTEGER;
+ALTER TABLE turns ADD COLUMN output_tokens INTEGER;
+ALTER TABLE turns ADD COLUMN model TEXT;
+ALTER TABLE turns ADD COLUMN provider TEXT;
+ALTER TABLE turns ADD COLUMN est_cost_usd REAL;
+ALTER TABLE turns ADD COLUMN billing TEXT;
+CREATE INDEX IF NOT EXISTS turns_started ON turns(started);
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
-              REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA]
+              REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA]
 
 
 class Refused(Exception):
@@ -2749,12 +2763,20 @@ def turn_start(conn, actor, bot_slug, thread_id=None, trigger="message", message
 
 
 def turn_finish(conn, actor, turn_id, exit_code="ok", tokens_in=None, tokens_out=None, cost=None,
-                summary=None):
-    """Close a turn. `exit_code` is the `exit` column (`exit` is a builtin, not a keyword here)."""
+                summary=None, usage=None):
+    """Close a turn. `exit_code` is the `exit` column (`exit` is a builtin, not a keyword here).
+    `usage` is what the run cost in tokens: input_tokens, cached_tokens, output_tokens, model, provider,
+    est_cost_usd and billing (see USAGE_SCHEMA)."""
     _writer(conn, actor)
     ts = now()
     conn.execute("UPDATE turns SET finished=?, exit=?, tokens_in=?, tokens_out=?, cost=?, summary=? "
                  "WHERE id=?", (ts, exit_code, tokens_in, tokens_out, cost, summary, turn_id))
+    if usage:
+        conn.execute("UPDATE turns SET input_tokens=:input_tokens, cached_tokens=:cached_tokens, "
+                     "output_tokens=:output_tokens, model=:model, provider=:provider, est_cost_usd=:est_cost_usd, "
+                     "billing=:billing WHERE id=:id",
+                     {"input_tokens": None, "cached_tokens": None, "output_tokens": None, "model": None,
+                      "provider": None, "est_cost_usd": None, "billing": None, **usage, "id": turn_id})
     row = _one(conn, "SELECT * FROM turns WHERE id=?", (turn_id,))
     if row:
         conn.execute("UPDATE bots SET last_turn_at=? WHERE slug=?", (ts, row["bot"]))

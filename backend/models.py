@@ -940,6 +940,16 @@ class AuthRejected(Contract):
     reason: str = Field(default="", max_length=300)
 
 
+class RunUsage(Contract):
+    """What a run spent, as its runner counted it: uncached input, cached input and output tokens."""
+    input_tokens: int = Field(default=0, ge=0, le=10**12)
+    cached_tokens: int = Field(default=0, ge=0, le=10**12)
+    output_tokens: int = Field(default=0, ge=0, le=10**12)
+    model: str = Field(default="", max_length=120)
+    runtime: str = Field(default="", max_length=60)
+    billing: Literal["api", "subscription"] = "api"   # `subscription`: a ChatGPT or Claude sign-in, not a key
+
+
 class Completion(Contract):
     outcome: Literal["completed", "failed", "interrupted"]
     text: str = Field(default="", max_length=200_000)
@@ -950,6 +960,7 @@ class Completion(Contract):
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     auth_rejected: AuthRejected | None = None  # the provider refused this computer's key or sign-in
+    usage: RunUsage | None = None  # the run's token counts and the model that ran it
 
 
 class Retry(Contract):
