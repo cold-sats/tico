@@ -20,7 +20,7 @@ queries:
   - {name: plan, type: text, label: Plan, required: false, default: team}
 - id: signups-by-region
   title: Signups by region
-  description: Accounts created since a date, counted per region (never lists people).
+  description: Accounts created since a date, counted per region (never lists humans).
   category: growth
   tags: [signups, region]
   database: atlas

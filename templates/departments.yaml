@@ -1,10 +1,10 @@
-# The departments a company builds its org chart from, in the order onboarding offers them.
+# The groups a team builds its team chart from, in the order setup offers them.
 #
-# Each catalog card names its department (`department:` in templates/catalog/<id>/card.yaml), and exactly one card
-# per department is its head (`lead: true`, the template named in `head:` below). The head's card lists the rest of
-# the department in `team_templates:`; a card's `suggest:` says whether it is pre-checked (default), offered (common)
+# Each template card names its group (`department:` in templates/catalog/<id>/card.yaml), and exactly one card
+# per group is its head (`lead: true`, the template named in `head:` below). The head's card lists the rest of
+# the group in `team_templates:`; a card's `suggest:` says whether it is pre-checked (default), offered (common)
 # or offered only when the briefing asks for it (niche). `icon` is a Material Symbols name in the font the UI ships
-# (ui/vendor/fonts/icons.txt). `software_only: true` departments are offered only when software is the product.
+# (ui/vendor/fonts/icons.txt). `software_only: true` groups are offered only when software is the product.
 # clients/tests/test_catalog.py checks this file against the cards. docs/starter-bots.md lists every template.
 
 departments:
@@ -19,7 +19,7 @@ departments:
 
   - id: marketing
     name: Marketing
-    description: "Makes the right people aware of the company and gives sales a steady flow of interested buyers."
+    description: "Makes the right people aware of your team and gives sales a steady flow of interested buyers."
     goal: "Be known by the customers you want"
     question: "How do customers find you today?"
     placeholder: "Mostly word of mouth and search; a monthly newsletter, some paid social, two trade shows a year"
@@ -37,7 +37,7 @@ departments:
 
   - id: finance
     name: Finance
-    description: "Keeps the books current, cash visible and bills paid and collected, with every number ready for a person to check."
+    description: "Keeps the books current, cash visible and bills paid and collected, with every number ready for a human to check."
     goal: "Know where the money is"
     question: "How do you keep the books and handle bills and invoices today?"
     placeholder: "Online accounting software and an outside accountant; we invoice monthly and chase late payers by hand"
@@ -46,16 +46,16 @@ departments:
 
   - id: operations
     name: Operations
-    description: "Keeps the company running: vendors, purchases, projects, IT, the office and the checklists nobody should forget."
+    description: "Keeps the team running: vendors, purchases, projects, IT, the office and the checklists nobody should forget."
     goal: "Run smoothly, nothing dropped"
-    question: "What keeps the company running day to day that someone has to remember?"
+    question: "What keeps the team running day to day that someone has to remember?"
     placeholder: "Vendor renewals, buying laptops, the office lease, weekly project check-ins and our field crew schedule"
     icon: settings_suggest
     head: ops-manager
 
   - id: legal
     name: Legal
-    description: "Reviews contracts, keeps the company's filings and policies current and flags risk early, as summaries for a person and never legal advice."
+    description: "Reviews contracts, keeps the team's filings and policies current and flags risk early, as summaries for a human and never legal advice."
     goal: "Sign with eyes open"
     question: "What legal work comes up for you today, and who handles it?"
     placeholder: "Customer contracts and NDAs every week, a privacy question now and then; an outside lawyer for anything big"
@@ -91,12 +91,12 @@ departments:
     head: engineering-lead
     software_only: true
 
-# Not a department the picker offers. The built-in Assistant already covers a person's own brief and inbox, so these
-# templates are never suggested by default; a company can still add them from the catalog.
+# Not a group the picker offers. The built-in Assistant already covers a human's own brief and messages, so these
+# templates are never suggested by default; a team can still add them from a template.
 extras:
   - id: leadership
     name: Leadership
-    description: "Support for the founders and executives: a weekly brief across the company and the quarterly plan."
+    description: "Support for the founders and executives: a weekly brief across the team and the quarterly plan."
     goal: "Keep the leaders focused"
     icon: star
     head: chief-of-staff

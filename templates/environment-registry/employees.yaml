@@ -1,15 +1,15 @@
-# Seed roster for a new company environment. The database imports this file once, when the
-# environment is created; after that the company's own Settings page is authoritative and this
-# file is history. `clients/environments.py` copies it in, filling in this company's names.
+# Seed roster for a new team environment. The database imports this file once, when the
+# environment is created; after that the team's own Settings page is authoritative and this
+# file is history. `clients/environments.py` copies it in, filling in this team's names.
 #
 # Only the two bootstrap bots are seeded: the assistant the app talks to, and the bot engineer
 # that sets every other bot up. The runner materializes these two itself from
 # `templates/catalog/assistant` and `templates/catalog/botops`. Every other bot is picked during
-# onboarding from the catalog and created by BotOps, so it never belongs in this seed.
+# setup from a template and created by BotOps, so it never belongs in this seed.
 # Both start `planned`; activate them once their repositories exist in the workspace and a
 # subscription profile is signed in.
 # Fields: name (slug, matches the repo emp-<name>), display_name, reports_to (slug or null),
-# status (planned|active|paused), repo, description. Runtime and model come from the company's provider choice.
+# status (planned|active|paused), repo, description. Runtime and model come from the team's provider choice.
 
 # No runtime or model here on purpose: the owner chooses the AI providers and a default model
 # during setup, and every bot without its own choice runs on that default.
@@ -23,11 +23,11 @@ employees:
     reports_to: null
     status: planned
     repo: emp-coo
-    description: "The assistant {{company_name}} talks to in {{app_name}}: keeps the task list, routes work to the other bots, and asks for the decisions only a person can make."
+    description: "The assistant {{company_name}} talks to in {{app_name}}: keeps the task list, routes work to the other bots, and asks for the decisions only a human can make."
 
   - name: botops
     display_name: "BotOps"
     reports_to: coo
     status: planned
     repo: emp-botops
-    description: "The engineer that sets up every other bot from the catalog and keeps their repositories, instructions and readiness working."
+    description: "The engineer that sets up every other bot from a template and keeps their repositories, instructions and readiness working."

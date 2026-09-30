@@ -5,7 +5,7 @@ kind: sql
 summary: Acme's reporting PostgreSQL replica (customers, orders, products), read through `hub db warehouse`.
 access: "`hub db warehouse \"<select>\"` or `hub db warehouse --query <id>`; read-only, audited."
 credentials:
-  - DB_WAREHOUSE_URL — read-only connection string, in secrets/_shared.env on the runner computer (or a vault credential granted to the bot)
+  - DB_WAREHOUSE_URL — read-only connection string, in secrets/_shared.env on the runner computer (or a credential granted to the bot)
 declared_as: |
   - service: postgres
     identity: read-only role on the reporting replica
@@ -59,5 +59,5 @@ hub db warehouse "SELECT status, count(*) FROM orders WHERE placed_at >= :since 
 
 ## Learnings
 
-What bots and people learn about this database is added with `hub learn warehouse "..."` and shown
-under this page; a person folds it into the page over time. The page is the rule.
+What bots and humans learn about this database is added with `hub learn warehouse "..."` and shown
+under this page; a human folds it into the page over time. The page is the rule.

@@ -48,7 +48,7 @@ queries:
   - {name: top, type: int, label: How many, required: false, default: "10"}
 - id: new-customers-by-region
   title: New customers by region
-  description: Customers created since a date, counted per region (never lists people).
+  description: Customers created since a date, counted per region (never lists humans).
   category: customers
   tags: [customers, region, growth]
   database: warehouse
