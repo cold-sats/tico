@@ -13,6 +13,7 @@ from backend import hubdb as H
 from backend import slack_gateway as G
 from backend.config import Settings
 from backend.store import Store, encode
+from clients import judge as J
 
 TEAM, APP, BOT_USER, BOT_ID = "T02F3S2SD", "A0BU75YSGT1", "U0BUS6WA4SY", "B0BUNG973DY"
 MARKETING, DM = "C0000000001", "D0AAAAAAA"
@@ -481,3 +482,68 @@ def test_a_channel_message_is_stored_and_reaches_the_readers_once_on_the_hourly_
     assert len({r["conversation_id"] for r in rows(hub, "SELECT conversation_id FROM slack_digests WHERE reader='cmo'")}) == 1
     assert "Second post" in digests(hub)[-1]["body"] and "Launch copy" not in digests(hub)[-1]["body"]
 
+
+
+# ----------------------------------------------------------------------------- the question cap
+class CappedJudge:
+    """The real contract's cap and shape check on every call; answers by question id."""
+
+    def __init__(self, scores, fail=None):
+        self.scores, self.fail, self.calls = scores, fail, []
+
+    def __call__(self, state, questions, label=None):
+        self.calls.append(list(questions))
+        J.validate(state, questions, label)           # more than J.MAX_QUESTIONS is refused, as the real call does
+        if self.fail:
+            raise self.fail
+        return {"model": "judge-1.13.0", "usage": {}, "ms": 1,
+                "answers": {qid: {"noul": self.scores.get(qid, 0.05)} for qid in questions}}
+
+
+def add_bots(hub, count):
+    with hub.transaction() as c:
+        H.sync_registry(c, {f"bot-{n:02d}": {"name": f"bot-{n:02d}", "runtime": "fake", "status": "active",
+                                              "display_name": f"Bot {n:02d}"} for n in range(count)}, {})
+
+
+def test_a_shared_dm_with_56_active_bots_is_asked_in_calls_within_the_cap_and_routed(gateway, hub):
+    add_bots(hub, 56 - 6)                     # the fixture already has six active bots
+    with hub.read() as c:
+        assert len(gateway.fleet(c)) == 56
+    gateway._judge = engine = CappedJudge({"asks": 0.9, "bot:bot-49": 0.95, "bot:legal": 0.7})
+    result = send(gateway, "please draft the vendor terms", channel=DM, kind="message")
+    assert result["state"] == "routed", result
+    assert [r["bot"] for r in result["decision"]["recipients"]] == ["bot-49", "legal"]
+    assert [len(call) for call in engine.calls] == [40, 19], "56 bots and the three fixed questions, split at the cap"
+    assert sorted(q for call in engine.calls for q in call) == sorted(set(q for call in engine.calls for q in call)), \
+        "no question is asked twice"
+    assert len(result["decision"]["scores"]) == 56
+    assert events(hub)[0]["state"] == "routed"
+
+
+def test_a_decision_the_model_refuses_ends_failed_with_the_reason_and_tells_the_human(gateway, hub):
+    gateway._judge = CappedJudge({}, fail=J.JudgeError("invalid", "at most 40 questions in one call"))
+    result = send(gateway, "please draft the vendor terms", channel=DM, kind="message")
+    assert result["state"] == "failed" and "at most 40 questions" in result["reason"]
+    event = events(hub)[0]
+    assert event["state"] == "failed" and "decisions: at most 40 questions" in event["reason"]
+    assert [p["channel"] for p in gateway.slack.posts] == [DM]
+    assert "nobody has it" in gateway.slack.posts[0]["text"]
+    gateway.clock.advance(3600)
+    assert gateway.tick()["events"] == [], "a failed message is never picked up again"
+    assert len(gateway._judge.calls) == 1 and jobs(hub) == []
+
+
+def test_a_decision_outage_retries_for_ten_minutes_and_then_fails_instead_of_looping(gateway, hub):
+    gateway._judge = CappedJudge({}, fail=J.JudgeError("unavailable", "TypeSafe answered 503", 503, retryable=True))
+    assert send(gateway, "hello there", channel=DM, kind="message")["state"] == "received"
+    assert gateway.slack.posts == [], "a short outage tells nobody"
+    gateway.clock.advance(G.RETRY_SECONDS)
+    assert [e["state"] for e in gateway.tick()["events"]] == ["received"], "retried after a minute"
+    gateway.clock.advance(G.ROUTE_GIVE_UP_SECONDS)
+    final = gateway.tick()["events"][-1]
+    assert final["state"] == "failed" and "still failing after 10 minutes" in final["reason"]
+    assert events(hub)[0]["state"] == "failed" and len(gateway.slack.posts) == 1
+    calls = len(gateway._judge.calls)
+    gateway.clock.advance(3600)
+    assert gateway.tick()["events"] == [] and len(gateway._judge.calls) == calls

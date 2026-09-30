@@ -29,7 +29,7 @@ app into their DM, so it shows up there too.
 
 ## How a message is routed
 
-Every accepted message is one decision call, through the same primitive every bot has
+Every accepted message is one decision, through the same primitive every bot has
 (`clients/judge.py`, `skills/decisions/SKILL.md`); the three fixed questions are the shared set
 `questions/slack-route.json` and the call is labelled `slack-route@1`. The state the decision model reads:
 
@@ -42,7 +42,8 @@ Every accepted message is one decision call, through the same primitive every bo
 - the active roster: slug, display name, group, description, `reports_to`. Paused, planned and
   quarantined bots are not offered.
 
-The questions, all in that one call: one `noul` "should this go to <bot>?" per active bot, plus
+The questions, asked in as many calls as needed (a call holds at most 40, so 56 active bots make two;
+the answers are merged by question id): one `noul` "should this go to <bot>?" per active bot, plus
 "is this a reply to the bot that last asked here?", "does it ask for anything at all?" and "does
 it name a bot explicitly?". Only the per-bot scores and "asks for anything" decide the
 recipients; "reply to the bot that last asked" and "names a bot" are stored for tuning and
@@ -57,7 +58,9 @@ The decision model reading the previous routing and the open ask in its state, n
 | a chosen bot the write layer refuses (paused or quarantined since the roster was read) | drops it with the reason; the assistant (or BotOps) if that empties the set |
 
 Without a decisions key every message goes to the assistant (or BotOps) and the message says so
-(`routed_by: default`). When the decision model is unreachable, the event stays the event pending and retries after a minute.
+(`routed_by: default`). When the decision model is unreachable, the message stays pending and retries after a minute, for up to
+ten minutes. A refused call, or one still failing after that, ends the message as `failed` with the
+reason on it, and Tico tells the human in the thread; nothing retries a failed message.
 
 Every score and answer is stored: on the event (`slack_events.routing_json`) and on the message
 (`refs.routing`), where the conversation view shows it as a chip (`routed by decisions to Legal 92%`).

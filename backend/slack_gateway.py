@@ -12,8 +12,9 @@ so there is no public receiver and no signing secret. What it does, in order, fo
 2. **Persist before acknowledging.** The event goes into `slack_events` (unique on Slack's event
    id and on `channel, ts`) before the envelope is acked, so a crash never loses a message and a
    redelivery never routes one twice.
-3. **Route with the decision model.** One call per message (`clients/judge.py` is the client, the
-   fixed questions are `questions/slack-route.json`): the message, the sender, the channel and its registry purpose, the last twelve
+3. **Route with the decision model.** One decision per message, asked in as many calls as the
+   question cap needs (`clients/judge.py` is the client, the fixed questions are
+   `questions/slack-route.json`): the message, the sender, the channel and its registry purpose, the last twelve
    exchanges in the thread with the bot each went to, the thread's previous routing, and the
    active roster as state; one `noul` "should this go to <bot>?" per active bot plus "is this a
    reply to the bot that last asked here?", "does it ask for anything?" and "does it name a
@@ -21,7 +22,9 @@ so there is no public receiver and no signing secret. What it does, in order, fo
    every bot at or above `slack_route_threshold` is a recipient, best `slack_max_recipients` by
    confidence; none means the assistant (`coo`) with the candidates named; a recipient the write
    layer refuses (paused, quarantined) is dropped with the reason, and the assistant again if
-   that empties the set. Every score and answer is stored on the event and on the message.
+   that empties the set. Every score and answer is stored on the event and on the message. A call
+   that cannot be answered is retried for `ROUTE_GIVE_UP_SECONDS`; one that is refused, or still
+   failing after that, ends the message as `failed` with the reason, and the human is told in the thread.
 4. **Write into the hub** through `hubdb.say`, as the verified person, never as Tico: each
    recipient gets its own `direct` conversation mapped to the Slack thread in `slack_threads`
    (or continues the one it already has there). The guardrails in `docs/how-it-works.md` apply
@@ -94,6 +97,7 @@ TEXT_CHARS = 4_000              # what one Slack message may carry, in and out
 POST_CHARS = 3_800              # a mirrored reply, before the footer
 TICK_SECONDS = 2                # how often the loop looks for replies to mirror
 RETRY_SECONDS = 60              # an event the decision model could not answer waits this long before the next try
+ROUTE_GIVE_UP_SECONDS = 600     # unanswered this long, a message is failed and the human told, never retried again
 RATE_LIMIT_DEFAULT = 30         # seconds, when Slack's Retry-After is unreadable
 MAX_POST_ATTEMPTS = 10          # rate-limit retries before a post is given up as failed
 MAX_BOTS = 60
@@ -704,6 +708,19 @@ class Gateway:
         out.update(JUDGE_SET["questions"])
         return out
 
+    def ask(self, state, fleet):
+        """The decision model's answers to every question, in calls of at most `J.MAX_QUESTIONS`.
+
+        The questions are independent and their ids unique, so the calls' answers merge into one
+        map. A call that fails fails the whole ask; nothing is routed from half the answers."""
+        questions = self.questions(fleet)
+        ids = list(questions)
+        answers = {}
+        for start in range(0, len(ids), J.MAX_QUESTIONS):
+            batch = {qid: questions[qid] for qid in ids[start:start + J.MAX_QUESTIONS]}
+            answers.update(self.judge(state, batch, JUDGE_LABEL)["answers"])
+        return answers
+
     def state(self, c, event, person, channel):
         return {"message": {"text": event["text"], "from": {"id": person["id"], "name": person["name"],
                                                             "team": person.get("team") or None,
@@ -864,6 +881,29 @@ class Gateway:
                 {"state": state, "channel": event["channel"], "thread_ts": event["thread_ts"], "reason": reason,
                  "recipients": [r["bot"] for r in (decision or {}).get("recipients") or []]})
 
+    def routing_error(self, event, person, exc):
+        """The decision model could not answer. A refusal, or an outage that outlasted
+        `ROUTE_GIVE_UP_SECONDS`, ends the message as `failed` and tells the human; a short outage
+        leaves it `received` for the next try. Never an endless loop."""
+        actor = "human:" + person["id"]
+        expired = H.shift(event["received"], seconds=ROUTE_GIVE_UP_SECONDS) <= self.clock()
+        if exc.retryable and not expired:
+            with self.store.transaction() as c:
+                self.finish(c, event, "received", actor=actor, reason=f"decisions: {exc}")
+            LOG.error("Event %s waits: %s", event["event_id"], exc)
+            return {"event_id": event["event_id"], "state": "received", "reason": str(exc)}
+        reason = f"decisions: {exc}" + (f" (still failing after {ROUTE_GIVE_UP_SECONDS // 60} minutes)" if exc.retryable else "")
+        with self.store.transaction() as c:
+            self.finish(c, event, "failed", actor=actor, reason=reason)
+        LOG.error("Event %s failed: %s", event["event_id"], reason)
+        try:
+            self.slack.post_message(event["channel"], event["reply_ts"] or None,
+                                    "Sorry, I could not work out which bot should get your message, so nobody has it. "
+                                    "Please send it again in a few minutes. If it keeps happening, tell the team that runs Tico.")
+        except Exception as post_exc:               # the failure is recorded either way
+            LOG.warning("Could not tell the human in %s that routing failed: %s", event["channel"], type(post_exc).__name__)
+        return {"event_id": event["event_id"], "state": "failed", "reason": reason}
+
     def process(self, event):
         """One persisted event, start to finish. Network calls happen outside the write lock."""
         with self.store.read() as c:
@@ -882,12 +922,9 @@ class Gateway:
             decision = self.default_decision(fleet)
         else:
             try:
-                answers = self.judge(state, self.questions(fleet), JUDGE_LABEL)["answers"]
+                answers = self.ask(state, fleet)
             except J.JudgeError as exc:
-                with self.store.transaction() as c:
-                    self.finish(c, event, "received", actor="human:" + person["id"], reason=f"decisions: {exc}")
-                LOG.error("Event %s waits: %s", event["event_id"], exc)
-                return {"event_id": event["event_id"], "state": "received", "reason": str(exc)}
+                return self.routing_error(event, person, exc)
             decision = self.decide(answers, fleet)
         with self.store.transaction() as c:
             if not decision["recipients"]:

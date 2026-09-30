@@ -28,3 +28,12 @@ def test_a_server_update_recreates_only_the_server_never_the_updater(monkeypatch
     # the snapshot (`exec server python ...`) and the switch (`up ... server`) touch the server, never the updater service
     assert all("server" in a for a in calls) and not any("updater" in a for a in calls)
     assert "TICO_TAG=v0.2.0" in (tmp_path / ".env").read_text()
+
+
+def test_the_slack_gateway_gets_every_sign_in_setting_the_server_gets():
+    import yaml
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    auth = {"TICO_AUTH_PROXY", "TICO_ACCESS_ISSUER", "TICO_ACCESS_AUDIENCE", "TICO_OIDC_ISSUER", "TICO_OIDC_CLIENT_ID",
+            "TICO_OIDC_CLIENT_SECRET", "TICO_OIDC_ALLOWED_DOMAINS"}
+    assert auth <= set(services["server"]["environment"])
+    assert auth <= set(services["slack"]["environment"])
