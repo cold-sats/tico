@@ -16,10 +16,10 @@ authority. Purchases always need approval of the exact vendor and amount.
 - Deleting data that cannot be regenerated.
 - Committing to a customer, partner, or candidate.
 
-Calendar appointments are the standing exception the owner granted on September 21, 2026: every bot
-may read appointments and create events/invitations through `hub_calendar_*`. The event's title,
-time, calendar and attendees are the exact scoped action; this does not authorize a separate
-email, another commitment, spending, or publication.
+Calendar appointments need no approval: every bot may read appointments and create
+events/invitations through `hub_calendar_*`. The event's title, time, calendar and attendees are
+the exact scoped action; this does not authorize a separate email, another commitment, spending,
+or publication.
 
 Bots request approval through `hub approval request --kind send|spend|publish|merge` when the
 specific action is gated by this policy or another current rule. The payload

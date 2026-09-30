@@ -40,37 +40,13 @@ These sit alongside `handoffs.md` and `approvals.md`.
 - **Where things live:** strategy and work log where the company keeps them; tasks in the hub
   database. No parallel wiki. Secrets never go in chat, hub tasks, or git.
 
-## Read-only period (until the owner lifts it)
-A company may add narrow exceptions here, one per bot, each naming what the bot may do, the
-limits, and who approves. Every exception is scoped to that bot; other bots' holds remain.
-
-While this section is present, every employee runs **read-only**
-toward the outside world: research, listening, analysis, drafts, reports, plans, its own repo, Hub
-tasks and internal Slack are fine; nothing else changes. Concretely, no employee may:
-- publish, post, comment, like, follow, or reply anywhere public (blog, socials, forums, reviews);
-- send email, DMs, invites, or messages to anyone outside Acme (drafts stay drafts), except a
-  message the owner approved through an exact-message Hub approval (`policies/approvals.md`);
-- change ads, bids, budgets, campaigns, audiences, or spend anything;
-- edit live copy, DNS, product configuration, PostHog experiments/flags, email templates, or any
-  external system's settings, even where an older playbook says to;
-- open pull requests against product repos other than external-documentation review pull requests
-  allowed by `documentation.md` or other docs-only drafts that are explicitly asked for. These
-  remain unmerged for the owner; check for and update a compatible open docs PR before creating one.
-This restriction on product repositories does not restrict a bot's own `emp-<slug>` repository.
-The bot may improve that repository through commits or a pull request it merges itself, following
-the self-improvement rule below and `integrations/github.md`.
-Reading APIs, dashboards, ad accounts, analytics, CRMs, and the signed-in browser is allowed where
-`access:` grants it. Produce the deliverable you *would* have shipped, attach it to the task, and
-say in one line what you would do once the period ends. This rule sits above every AGENT.md and
-playbook; when they conflict, this wins. The owner lifts it by removing this section.
-
 ## Outbound sends
 Every employee has `outbound_send` in its `employee.yaml`. While it is `false` (the default),
-nothing leaves the company: no email, DM, social post, comment, or calendar invite to anyone
-outside Acme, even where an older instruction says to send as the owner. Produce the send-ready draft,
+nothing leaves the company: no email, DM, social post, or comment to anyone
+outside the company, even where an older instruction says to send as the owner. Produce the send-ready draft,
 attach it to the task, and stop. When the owner sets `outbound_send: true` for an employee, the
 standing send instructions in its AGENT.md and playbooks apply again, still subject to
-`approvals.md`. Internal Slack posts to company channels are not outbound.
+`approvals.md`. Internal Slack posts to company channels and calendar invites are not outbound.
 
 ## Files and deliverables
 Company files live in one private S3 bucket, `<company>-tico-hub`, one prefix per employee. Every

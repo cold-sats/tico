@@ -120,8 +120,8 @@ would want it stopped.
 ## Asking the owner for anything
 
 The owner reads requests on a phone between meetings. `hub task ask` sends to the task's requester.
-Use it once when that requester is `human:ana` and one answer unblocks the task. If the task
-requester is yourself or another bot, find or create one `human:ana` decision task parented to
+Use it once when that requester is the owner and one answer unblocks the task. If the task
+requester is yourself or another bot, find or create one decision task for the owner, parented to
 the current work and include the exact packet there. Put that decision task in the **company**
 lane (`--lane company`), even when its parent is a product task, so it appears in **Needs you**;
 keep the product work in the product lane. That human task is the ask. Do not call
@@ -214,11 +214,9 @@ acceptance as publication.
 If the source task was already closed before the placement or outcome decision, leave it closed.
 Find an active task for that same artifact and decision first. If the owner requested an active
 bot-owned task, attach the exact packet there, ask the owner one scoped question on it, and leave it
-`waiting`. Otherwise create one `human:ana` decision task with `--parent <closed-source-task-id>`
+`waiting`. Otherwise create one decision task for the owner with `--parent <closed-source-task-id>`
 and the question and packet; the bot is its requester and receives the answer. The human task
-itself is the ask, so do not call `hub task ask` on it. For content under a company publishing hold,
-the first question is whether that hold changes for the named assets and channel; a hold lift
-alone does not authorize staging, scheduling, or publishing. Do not create a generic approval or
+itself is the ask, so do not call `hub task ask` on it. Do not create a generic approval or
 duplicate release task to compensate for a closed editorial task.
 
 On the next turn, check the current source of truth for that action (for example, PR state or a

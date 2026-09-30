@@ -76,4 +76,4 @@ keep unrelated product code out of it. The task handoff to the owner links the o
 and says what changed; it never claims the documentation shipped before the owner merges it.
 
 Opening or updating this review pull request is not itself public publishing. Any other public
-publish, deletion, or live-copy change follows `approvals.md` and the company-wide read-only rule.
+publish, deletion, or live-copy change follows `approvals.md`.
