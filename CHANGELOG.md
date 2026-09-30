@@ -41,6 +41,19 @@ All notable changes to Tico are recorded here. The format follows
   (new: label and duplicate proposals, drafted repro requests and a weekly digest for companies on GitHub). Each has an
   onboarding conversation on its first message, a first routine that produces a reviewable draft, a sample of excellent
   output, and a list of what always needs a person's Confirm. See [Starter bots](docs/starter-bots.md).
+- **A catalog for a whole company.** Thirty-three new templates take the catalog from 10 to 39, so the **Full org chart** builds a real
+  company: a typical business-to-business software company that ticks mail, chat, a CRM, GitHub, meetings and docs gets about 35 bots in
+  six teams instead of 5 in 4. Leadership: Strategy & Planning, Board & Investor Updates. Sales: Sales Lead, SDR & Lead Research, Sales
+  Ops (read only on the CRM), Proposal Writer, Customer Success. Marketing: Marketing Lead, SEO & AI Visibility, Email Marketing (drafts,
+  never sends), Product Marketing. Support: Support Lead, Knowledge Base Writer, Support QA, Feedback Analyst. Operations: Ops Manager,
+  Recruiting Coordinator, People & HR Assistant, Legal Review (summaries for a person, not legal advice), Procurement, Bookkeeping Assistant
+  and Spend Watcher and AR Follow-up (read exports, never post, pay or send). Engineering: Engineering Lead, PR Reviewer, Release Notes,
+  Incident Scribe, Docs Writer, Product Researcher. Each has an onboarding conversation, a paused first routine, a sample output for the
+  fictional company Acme and the list of what needs a person's Confirm, and its method is cited in [Starter bots](docs/starter-bots.md).
+  Bots start parked in Needs onboarding and cost nothing until set up.
+- Catalog cards may carry `lead: true`: exactly one template per pack, the team's coordinator (Chief of Staff for Leadership). The four
+  team-lead templates are small: a weekly team summary drafted from what the team's bots reported and routing proposals, never the
+  team's own work.
 - Catalog cards carry `pack`, `pains`, `prerequisites`, `onboarding`, `first_routine`, `approval_required` and `example_output`
   for a chooser to read. A test checks every starter for them.
 - A catalog template's `schedules:` entry may say `enabled: false`: `hub bot create` and first-run setup then seed the
@@ -50,6 +63,12 @@ All notable changes to Tico are recorded here. The format follows
 - First run has seven steps (names, about, what hurts and what you use, your team, a computer, your agent, review) and finishes with **Create
   my team**. The catalog cards' `pack` is the team a template sits in; content, listening, market and reputation are `marketing`.
   The sample outputs in the starter templates are fenced as stand-ins.
+- Content, Market Analyst, Listening and Reputation now have the full starter card (pains, prerequisites, onboarding, a first routine
+  that starts paused, an approval list and a sample) and are created parked like the rest. Reputation declares `read` on its review
+  surfaces and Slack and keeps `act` and `post` as a commented block the owner enables after the first approved batch; the three
+  templates that allowed `gh issue *` no longer do; Market Analyst no longer names a `cmo` it has no bot for.
+- The catalog test now covers every template generically (fields, line limit, paused routines, no send verbs, one lead per pack, no
+  pain phrase used twice) instead of a list of six.
 - The Mail Drafts (`inbox`) template now starts with one paused morning brief instead of three weekday passes and a weekend pass,
   reads only its own mailbox (no `org_read`), and does not label or archive until the person turns filing on.
 

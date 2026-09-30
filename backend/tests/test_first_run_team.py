@@ -52,7 +52,16 @@ def test_the_chooser_offers_a_small_starter_team_and_a_full_org_chart():
     chart = O.full_chart(CARDS, everything, "human:morgan")
     grouped = {row["team"]: [m["template"] for m in row["members"]] for row in chart["teams"]}
     assert list(grouped) == ["Leadership", "Sales", "Marketing", "Support", "Operations", "Engineering"]
-    assert sum(map(len, grouped.values())) > len(team) and grouped["Engineering"] == ["issue-triage"]
+    # Everything ticked builds the whole company: every template in the catalog, in six teams.
+    assert sum(map(len, grouped.values())) == len([card for card in CARDS if not card["required"]]) >= 25
+    assert "issue-triage" in grouped["Engineering"] and len(grouped["Engineering"]) > 1
+    # A typical answer set (a business-to-business software company, mail, chat, CRM, GitHub, meetings and docs, two pains)
+    # gets about thirty-five bots in six teams, and a small consumer brand about twenty.
+    typical = answers(pains=["leads go cold", "support inbox is overflowing"], tools=["mail", "chat", "crm", "github", "meetings", "docs"],
+                      customers="businesses", software_product="yes", team_size="30")
+    teams = O.full_chart(CARDS, typical, "human:morgan")["teams"]
+    assert sum(len(row["members"]) for row in teams) >= 25 and len(teams) == 6
+    assert len(O.choose(CARDS, typical)[0]) <= O.STARTER_TEAM_MAX
     leaders = {row["team"]: row["lead"] for row in chart["teams"]}
     assert leaders["Leadership"] == "chief-of-staff" and leaders["Marketing"] in grouped["Marketing"]
     reports = {m["slug"]: m["reports_to"] for row in chart["teams"] for m in row["members"]}

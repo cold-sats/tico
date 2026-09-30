@@ -112,54 +112,95 @@ class Materialize(unittest.TestCase):
         self.assertIn("A turn happened here.", (path / "state.md").read_text())
 
 
-STARTERS = ("chief-of-staff", "support", "sales", "meeting-notes", "inbox", "issue-triage")
-PACKS = ("basics", "sales", "support", "operations", "engineering", "marketing")
+PACKS = ("basics", "sales", "marketing", "support", "operations", "engineering")
+# The tags backend/onboarding.py derives from a company's answers, and the tools a prerequisite may name.
+TAGS = {"always", "sells_to_businesses", "sells_to_consumers", "sells_software", "small_team", "uses_email", "uses_slack", "uses_crm",
+        "uses_tickets", "has_support_inbox", "uses_github", "uses_meetings", "uses_docs", "has_pipeline", "publishes_content",
+        "tracks_mentions", "has_personal_inbox"}
+TOOLS = {"hub", "mail", "chat", "crm", "github", "meetings", "calendar", "docs", "web"}
+
+
+def starters(directory):
+    """Every template a company can pick: all but the built-ins the platform always creates."""
+    return sorted(card["template"] for card in catalog.cards(directory) if not card.get("required") and not card.get("bootstrap"))
 
 
 class StarterBots(unittest.TestCase):
-    """The six starter templates (docs/starter-bots.md) carry the fields a chooser and a first
-    session depend on, and none of them starts a routine before a person has approved it."""
+    """Every catalog template (docs/starter-bots.md) carries the fields a chooser and a first session depend on,
+    and none of them starts a routine before a person has approved it or reaches outside the company on its own."""
 
-    def test_every_starter_is_complete_and_draft_first(self):
-        directory = catalog.ROOT / "templates/catalog"
-        for name in STARTERS:
-            folder, where = directory / name, f"template {name}"
-            card = catalog.card(name, directory)
-            self.assertTrue(card, where)
-            self.assertIn(card.get("pack"), PACKS, where)
-            for field in ("pains", "owns", "never", "approval_required"):
-                self.assertTrue(card.get(field) and all(isinstance(x, str) for x in card[field]), f"{where}: {field}")
-            self.assertTrue(card["recommend_when"], where)
-            for need in card["prerequisites"]:
-                self.assertTrue(need["tool"] and need["why"] and isinstance(need["required"], bool), where)
-            self.assertTrue(any(need["required"] for need in card["prerequisites"]), where)
-            self.assertTrue(4 <= len(card["onboarding"]) <= 7, where)
-            self.assertTrue(all(q.get("ask") and q.get("why") for q in card["onboarding"]), where)
-            first = card["first_routine"]
-            self.assertTrue(first["title"] and first["cadence"] and first["output"], where)
-            self.assertIs(first["draft_only"], True, where)
-            self.assertTrue((folder / card["example_output"]).is_file(), where)
-            agent = (folder / "AGENT.md").read_text()
-            self.assertLessEqual(len(agent.splitlines()), 150, where)
-            for heading in ("## Owns", "## Never without approval", "## First message: onboarding"):
-                self.assertIn(heading, agent, where)
-            playbooks = [p for p in (folder / "playbooks").glob("*.md") if p.name != "README.md"]
-            self.assertGreaterEqual(len(playbooks), 3, where)
-            self.assertTrue((folder / "playbooks/onboarding.md").is_file(), where)
-            manifest = yaml.safe_load((folder / "employee.yaml").read_text())
-            self.assertIs(manifest["outbound_send"], False, where)
-            routines = validate_schedules(manifest["schedules"], lambda rel: (folder / rel).read_text())
-            self.assertEqual(len(routines), 1, where)
-            self.assertIs(routines[0]["enabled"], False, f"{where}: the first routine waits for a person's yes")
-            for access in manifest["access"]:
-                # Nothing a starter can do reaches outside the company on its own: no send, and no write to a
-                # service (a person applies what it proposes, until the owner turns writing on).
-                self.assertFalse({"send", "write", "modify", "delete"} & set(access.get("can", [])), where)
-            allowed = json.loads((folder / ".claude/settings.json").read_text())["permissions"]["allow"]
-            for entry in allowed:
-                self.assertNotRegex(entry, r"^Bash\(gh (issue|pr|api) (\*|comment|edit|create|close)", f"{where}: {entry}")
-            # The last step of onboarding tells the hub a person approved the first routine.
-            self.assertIn("hub bot onboarded", (folder / "playbooks/onboarding.md").read_text(), where)
+    directory = catalog.ROOT / "templates/catalog"
+
+    def test_every_template_is_complete_and_draft_first(self):
+        names = starters(self.directory)
+        self.assertGreaterEqual(len(names), 25)
+        for name in names:
+            with self.subTest(template=name):
+                self.check(name)
+
+    def test_every_pack_has_one_lead_and_no_pain_phrase_is_offered_twice(self):
+        cards = [catalog.card(name, self.directory) for name in starters(self.directory)]
+        for pack in PACKS:
+            leads = [card["template"] for card in cards if card.get("pack") == pack and card.get("lead") is True]
+            self.assertEqual(len(leads), 1, f"pack {pack} needs exactly one `lead: true` card, has {leads}")
+        self.assertEqual([card["template"] for card in cards if card.get("pack") == "basics" and card.get("lead")], ["chief-of-staff"])
+        phrases = [phrase.lower() for card in cards for phrase in card["pains"]]
+        self.assertEqual(len(phrases), len(set(phrases)), "a pain phrase belongs to one template")
+
+    def check(self, name):
+        folder, where = self.directory / name, f"template {name}"
+        card = catalog.card(name, self.directory)
+        self.assertTrue(card, where)
+        self.assertIn(card.get("pack"), PACKS, where)
+        for field in ("pains", "owns", "never", "approval_required"):
+            self.assertTrue(card.get(field) and all(isinstance(x, str) for x in card[field]), f"{where}: {field}")
+        self.assertTrue(3 <= len(card["pains"]) <= 6 and all(len(x) <= 90 for x in card["pains"]), f"{where}: pains")
+        # The first sentence of the summary is the "why" line a person reads in onboarding: concrete, and not cut short.
+        summary = card["summary"]
+        self.assertTrue(summary.strip(), where)
+        first = summary.strip().split(". ")[0]
+        self.assertTrue(40 <= len(first) <= 185, f"{where}: the first sentence of the summary is {len(first)} characters")
+        self.assertNotRegex(summary, r"(?i)fits how you|\btidy\b", where)
+        self.assertTrue(card["recommend_when"] and set(card["recommend_when"]) <= TAGS, f"{where}: recommend_when")
+        if name != "chief-of-staff":
+            self.assertNotIn("always", card["recommend_when"], f"{where}: only Chief of Staff is for every company")
+        for need in card["prerequisites"]:
+            self.assertTrue(need["tool"] in TOOLS and need["why"] and isinstance(need["required"], bool), where)
+        self.assertTrue(any(need["required"] for need in card["prerequisites"]), where)
+        self.assertTrue(4 <= len(card["onboarding"]) <= 7, where)
+        self.assertTrue(all(q.get("ask") and q.get("why") for q in card["onboarding"]), where)
+        first = card["first_routine"]
+        self.assertTrue(first["title"] and first["cadence"] and first["output"], where)
+        self.assertIs(first["draft_only"], True, where)
+        self.assertTrue(any("routine" in x.lower() for x in card["approval_required"]), f"{where}: arming a routine needs a Confirm")
+        example = folder / card["example_output"]
+        self.assertTrue(example.is_file(), where)
+        self.assertIn("Acme", example.read_text(), where)
+        agent = (folder / "AGENT.md").read_text()
+        self.assertLessEqual(len(agent.splitlines()), 150, where)
+        self.assertTrue(agent.startswith("# {{bot_name}}"), where)
+        for heading in ("## Owns", "## Never without approval", "## First message: onboarding"):
+            self.assertIn(heading, agent, where)
+        playbooks = [p for p in (folder / "playbooks").glob("*.md") if p.name != "README.md"]
+        self.assertGreaterEqual(len(playbooks), 3, where)
+        self.assertTrue((folder / "playbooks/onboarding.md").is_file(), where)
+        manifest = yaml.safe_load((folder / "employee.yaml").read_text())
+        self.assertEqual(manifest["name"], card["slug"], where)
+        self.assertIs(manifest["outbound_send"], False, where)
+        routines = validate_schedules(manifest["schedules"], lambda rel: (folder / rel).read_text())
+        self.assertTrue(routines and routines[0]["title"] == first["title"], f"{where}: the first routine is the card's")
+        for routine in routines:
+            self.assertIs(routine["enabled"], False, f"{where}: a routine waits for a person's yes")
+        for access in manifest["access"]:
+            # Nothing a starter can do reaches outside the company on its own: no send, and no write to a
+            # service (a person applies what it proposes, until the owner turns writing on).
+            self.assertFalse({"send", "write", "modify", "delete"} & set(access.get("can", [])), where)
+        allowed = json.loads((folder / ".claude/settings.json").read_text())["permissions"]["allow"]
+        for entry in allowed:
+            self.assertNotRegex(entry, r"^Bash\(gh (issue|pr|api) (\*|comment|edit|create|close|review|merge)", f"{where}: {entry}")
+        # The last step of onboarding tells the hub a person approved the first routine.
+        self.assertIn("hub bot onboarded", (folder / "playbooks/onboarding.md").read_text(), where)
+
 
 if __name__ == "__main__":
     unittest.main()
