@@ -190,12 +190,13 @@ def run(body, subject="", to=(), cc=(), slug="", reply_to="", is_reply=None,
         allowance=None, thread_participants=None, internal_domains=("acme.example",),
         forbidden_phrases=(), signature_names=None,
         now=None, tz_name=DEFAULT_TZ, busy=None, check_calendar=False, slot=None,
-        minutes=DEFAULT_MEETING_MINUTES, approved_externals=False):
+        minutes=DEFAULT_MEETING_MINUTES, approved_externals=False, forwarding=False):
     """Every rule, in id order. Returns a Result; nothing here raises on a bad draft.
 
     `approved_externals` is True when a per-message approval Issue names every external
     address on the message (policy.approval_check(...)["full"]); L056 then does not apply,
-    because the owner chose those recipients personally.
+    because the owner chose those recipients personally. `forwarding` is True when the message only goes to the
+    owner's own forward targets (policy.is_forward): it quotes the sender, so a link on another host is not a breach.
     """
     tz = zone(tz_name)
     now = (now or datetime.now(tz)).astimezone(tz)
@@ -225,7 +226,7 @@ def run(body, subject="", to=(), cc=(), slug="", reply_to="", is_reply=None,
         host = host.split(":")[0].lower()
         if host not in allowed_hosts:
             bad_hosts.append(u)
-    if bad_hosts:
+    if bad_hosts and not forwarding:
         f.append(finding("L010", "error",
                          "URL on a host that is not an internal domain: " + ", ".join(bad_hosts[:3]),
                          "Only " + " and ".join(allowed_hosts) + " may appear in mail the hub "

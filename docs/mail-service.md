@@ -100,18 +100,28 @@ with the reason attached; it never silently drops the work.
 - Global kill switch and per-mailbox pause. Flip one line and everything becomes drafts.
 - Bot may use this mailbox with this verb (from `tools:`). `outbound_send: false` means
   `send` produces a draft and a note, always.
-- Internal (@acme.example) versus external recipients. External sends need one of: a standing
-  allowance in the policy file (Influencer: recipient must be in its creator table, 10 per day,
-  never the same address twice) or `--approval-issue`, which is a closed `owner:ana`
-  `type:decision` GitHub Issue, a decided Tico `send` approval, or Ana's Tico message
-  telling this bot to send.
-- Caps: sends per bot per day, per-recipient cooldown (14 days unless they wrote last),
+- Internal (@acme.example) versus external recipients. With `outbound_send: true`, which is the owner saying yes
+  to this bot sending, three kinds of recipient need no per-message approval: an internal address, an address the
+  owner lists under `forward_to:` in the bot's `bot.yaml` (their other email, say), and the sender of the thread
+  the bot is replying to (a reply, to that one person, nobody added; an outside Cc makes it something else).
+  Any other external recipient needs one of: a standing allowance in the policy file (Influencer: recipient must be
+  in its creator table, 10 per day, never the same address twice) or `--approval-issue`, which is a closed
+  `owner:ana` `type:decision` GitHub Issue, a decided Tico `send` approval, or Ana's Tico message telling this bot
+  to send. With `outbound_send: false`, none of this applies and a send is a draft.
+- With no registry (a Docker computer has no `registry/mail-policy.yaml`) the policy is built in: sending is on
+  globally, internal domains are the ones the bot's mailbox and the team roster use (public providers such as
+  gmail.com never count), the caps are 20 sends a day, one external recipient, no external Cc, no attachments, and
+  the blocklist is empty. A `registry/mail-policy.yaml`, where there is one, replaces all of it.
+- Caps, which apply to every send including those three kinds: sends per bot per day, per-recipient cooldown (14 days
+  unless they wrote last; 0 in the built-in policy, because the forward address is written to again and again and
+  the daily cap is the brake),
   one external recipient per message, no CC or BCC outside acme.example, no attachments unless the
   policy allows them for that bot. A per-message approval (below) lifts the recipient
   count, the external Cc rule and the cooldown for that one message; never the daily cap, the
   blocklist, or attachments.
 - Blocklist of addresses and domains bots never email (press, counterparties, anyone Ana
-  lists), and a "Ana handles personally" list that forces `hub/needs-owner`.
+  lists), and a "Ana handles personally" list that forces `hub/needs-owner`. Both beat a forward address and a
+  reply to a sender.
 
 **Per-message approval.** Ana sometimes approves one
 exact message: these words, to these humans, once. The approval task says so with a line in
@@ -262,8 +272,9 @@ access to `mail_*` is owner-only.
   create and delete a throwaway event. Run by preflight before any message bot goes active.
 - Week one: all three bots read and draft only (`outbound_send: false`). Ana reviews
   drafts in Gmail and on the tasks. Week two, if the drafts are good: `outbound_send: true` for
-  Influencer with the 10-per-day creator allowance. The message bots never send
-  without a per-message approval task; Ana can also just send the draft herself.
+  Influencer with the 10-per-day creator allowance. A message bot sends only once its owner turns sending on
+  (`outbound_send: true`, asked of BotOps in chat; docs/mail.md, "Turning sending on"), and then only to the
+  three kinds of recipient above without a per-message approval; Ana can also just send the draft herself.
 
 ## Build order (about three working days of bot time)
 

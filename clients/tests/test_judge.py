@@ -66,5 +66,38 @@ class Contract(unittest.TestCase):
         J.validate({"subject": "hi"}, QUESTIONS, label="mail-triage@1")
 
 
+class Sets(unittest.TestCase):
+    def test_the_triage_set_the_inbox_template_ships_is_the_release_s_own(self):
+        shipped = ROOT / "templates/catalog/inbox/questions/mail-triage.json"
+        self.assertEqual(shipped.read_text(), (ROOT / "questions/mail-triage.json").read_text())
+        self.assertEqual(J.load_set("mail-triage", root=shipped.parent)["label"], J.load_set("mail-triage")["label"])
+
+    def test_a_computer_without_this_checkout_s_questions_finds_the_bot_s_own_copy(self):
+        import os, tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as empty, tempfile.TemporaryDirectory() as repo:
+            (Path(repo) / "questions").mkdir()
+            (Path(repo) / "questions/mail-triage.json").write_text((ROOT / "questions/mail-triage.json").read_text())
+            with mock.patch.object(J, "QUESTIONS_DIR", Path(empty)), mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("HUB_DIR", None)
+                os.environ.pop("TICO_QUESTIONS_DIR", None)
+                cwd = os.getcwd()
+                try:
+                    os.chdir(empty)
+                    with self.assertRaises(J.JudgeError) as gone:
+                        J.load_set("mail-triage")                  # nowhere: still the same clear refusal
+                    self.assertEqual(gone.exception.code, "not_found")
+                    os.chdir(repo)
+                    self.assertEqual(J.load_set("mail-triage")["id"], "mail-triage")
+                finally:
+                    os.chdir(cwd)
+                os.chdir(empty)
+                try:
+                    os.environ["HUB_DIR"] = repo
+                    self.assertEqual(J.load_set("mail-triage")["id"], "mail-triage")
+                finally:
+                    os.chdir(cwd)
+
+
 if __name__ == "__main__":
     unittest.main()

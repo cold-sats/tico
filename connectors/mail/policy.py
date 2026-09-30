@@ -17,8 +17,16 @@ Two entry points:
 Order of the send chain (docs/mail-service.md, "The guardrails"):
 
   global.send_enabled -> mailbox paused -> the employee declares `send` on this mailbox ->
-  outbound_send: true -> recipient is internal | an allowance covers it | --approval-issue N ->
+  outbound_send: true -> recipient is internal | a forward target the owner listed (`forward_to:` in
+  bot.yaml) | the sender of the thread being replied to | an allowance covers it | --approval-issue N ->
   caps -> blocklist -> owner_handles_personally
+
+With `outbound_send: true` the owner has already said yes: the first three kinds of recipient need no
+per-message approval. Everything else still needs an allowance or an approval, and the caps, the blocklist and
+owner-handles-personally apply to every send.
+
+With no registry (a Docker computer: TICO_REGISTRY_DIR is unset) there is no mail-policy.yaml; `builtin()` is
+the policy then. A registry file, when there is one, is the policy and wins.
 
 Nothing here talks to Google. A GitHub approval-Issue check shells out to `gh` through the `RUN`
 seam; a Tico approval or owner message is read through `HUB_GET`. Tests replace both.
@@ -26,6 +34,7 @@ seam; a Tico approval or owner message is read through `HUB_GET`. Tests replace 
 
 import csv, json, os, re, subprocess
 from datetime import datetime
+from pathlib import Path
 
 from . import (DEFAULT_TZ, Failure, PROJECTS, REGISTRY, Refused, load_yaml, owner_handle,
                parse_since, zone)
@@ -50,6 +59,17 @@ LIST_KEYS = ("addresses", "domains")
 FALLBACK_DEFAULTS = {"max_sends_per_day": 20, "per_recipient_cooldown_days": 14,
                      "max_external_recipients": 1, "allow_cc_external": False,
                      "allow_attachments": False}
+
+# What a computer with no registry runs on: sending is on globally (each bot still needs `outbound_send: true` and a
+# `send` verb), the caps are the usual ones, and nothing is on the blocklist. The per-recipient wait is 0 days because the
+# recipients that need no approval (a forward target, the sender of the thread being answered) are written to again and
+# again; the daily cap is the brake. A registry's own policy file sets its own.
+BUILTIN_DEFAULTS = dict(FALLBACK_DEFAULTS, per_recipient_cooldown_days=0)
+# Mail providers anyone can sign up to: a roster address there says nothing about the team's own domain.
+PUBLIC_MAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "ymail.com",
+    "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com", "pm.me", "hey.com", "fastmail.com",
+    "gmx.com", "gmx.net", "mail.com", "zoho.com", "yandex.com", "qq.com", "163.com"})
 
 RUN = subprocess.run                                    # the `gh` seam; tests replace it
 
@@ -79,9 +99,76 @@ def _addrs(value, where):
     return out
 
 
-def load(path=None):
-    """The parsed, validated policy. Any problem here is exit 1, not a downgrade."""
+def load(path=None, slug=""):
+    """The parsed, validated policy. Any problem here is exit 1, not a downgrade. With no path and no
+    registry/mail-policy.yaml (a Docker computer) it is `builtin(slug)`; a file that exists is always read."""
+    if path is None and not Path(POLICY_FILE).exists():
+        return builtin(slug)
     return validate(load_yaml(path or POLICY_FILE, "registry/mail-policy.yaml"))
+
+
+def _walk_emails(value, found, depth=0):
+    if depth > 8:
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key) == "email" and isinstance(item, str):
+                found.append(item)
+            else:
+                _walk_emails(item, found, depth + 1)
+    elif isinstance(value, list):
+        for item in value[:2000]:
+            _walk_emails(item, found, depth + 1)
+
+
+def team_domains(slug="", env=None):
+    """The team's own mail domains, for a computer with no registry: `TICO_INTERNAL_DOMAINS` when the owner names
+    them, else the domain of the bot's own mailbox (the company's Workspace domain) and the domains on the team
+    roster (the registry's people.yaml, else the hub's org chart), leaving out public providers like gmail.com."""
+    env = os.environ if env is None else env
+    found = []
+
+    def add(domain, public_ok=False):
+        domain = str(domain or "").strip().lower().lstrip("@").rsplit("@", 1)[-1]
+        if domain and "." in domain and domain not in found and (public_ok or domain not in PUBLIC_MAIL_DOMAINS):
+            found.append(domain)
+
+    for domain in re.split(r"[,\s]+", env.get("TICO_INTERNAL_DOMAINS") or ""):
+        add(domain, public_ok=True)
+    if found:
+        return found
+    try:
+        from . import access                                # noqa: PLC0415 - avoids a cycle
+        for entry in access.entries(access.load(slug or access.employee(None, env))):
+            if str(entry.get("service", "")).lower() == "gmail":
+                add(entry.get("identity"))
+    except Exception:                                       # no bot, no manifest: the roster still counts
+        pass
+    emails = []
+    try:
+        people = load_yaml(REGISTRY / "people.yaml", "registry/people.yaml").get("people") or []
+        _walk_emails(people, emails)
+    except Exception:
+        pass
+    if not emails:
+        try:
+            _walk_emails(HUB_GET("org"), emails)
+        except Exception:
+            pass
+    for email in emails:
+        add(email)
+    return found
+
+
+def builtin(slug="", env=None):
+    """The policy a computer with no registry runs on (see BUILTIN_DEFAULTS): sending on globally, the team's own
+    domains as internal, the usual caps, no allowances, an empty blocklist."""
+    return {"send_enabled": True, "sandbox_mailbox": "", "internal_domains": team_domains(slug, env),
+            "mailboxes": {}, "defaults": dict(BUILTIN_DEFAULTS),
+            "blocklist": {k: [] for k in LIST_KEYS},
+            "owner_handles_personally": {k: [] for k in LIST_KEYS},
+            "allowances": [], "forbidden_phrases": [], "signature_names": [],
+            "scheduling": {k: "" for k in SCHEDULING_KEYS}, "builtin": True}
 
 
 def validate(data):
@@ -165,6 +252,7 @@ def validate(data):
         "forbidden_phrases": [str(x).strip().lower() for x in (data.get("forbidden_phrases") or [])],
         "signature_names": [str(x).strip().lower() for x in (data.get("signature_names") or [])],
         "scheduling": {k: str(scheduling.get(k) or "").strip() for k in SCHEDULING_KEYS},
+        "builtin": False,
     }
 
 
@@ -559,6 +647,37 @@ def outbound_send(slug, manifest=None):
     return bool((manifest or {}).get("outbound_send", False))
 
 
+def forward_targets(slug, manifest=None):
+    """The addresses the owner lists as `slug`'s forward targets (`forward_to:` in bot.yaml); none for an unreadable
+    or missing manifest, and none for the owner's own handle (who needs no list)."""
+    if str(slug).strip().lower() == OWNER:
+        return []
+    try:
+        from . import access                            # noqa: PLC0415 - avoids a cycle
+        return access.forward_to(manifest if manifest is not None else access.load(slug))
+    except Failure:
+        return []
+
+
+def is_forward(pol, slug, to, manifest=None):
+    """Whether every outside address on `to` is one of the bot's forward targets (and there is one): the message is
+    the bot passing mail on to the owner, whose text quotes whatever the sender wrote."""
+    outside = externals(pol, to)
+    return bool(outside) and outbound_send(slug, manifest) \
+        and all(a in set(forward_targets(slug, manifest)) for a in outside)
+
+
+def inbound_senders(messages, mailbox=""):
+    """Who wrote into a thread, from its normalized messages: every `from` that is not the mailbox itself."""
+    box = str(mailbox or "").strip().lower()
+    out = []
+    for m in messages or []:
+        addr = str((m or {}).get("from") or "").strip().lower()
+        if addr and addr != box and addr not in out:
+            out.append(addr)
+    return out
+
+
 def _where(slug):
     """`bot-<slug>/bot.yaml` (or an older bot's `emp-<slug>/employee.yaml`), as a message names the manifest."""
     from . import access                                # noqa: PLC0415 - avoids a cycle
@@ -608,12 +727,13 @@ def _decide(checks, gate="", reason=""):
 
 def check_send(pol, slug, mailbox, to, cc=(), attachments=0, thread_id="",
                approval=None, manifest=None, verbs=None, conn=None, now=None,
-               root=None, repo=HUB_REPO):
+               root=None, repo=HUB_REPO, thread_senders=()):
     """The whole chain. Never raises for a policy problem - the caller downgrades to a draft.
 
     `verbs` is the employee's declared gmail verbs on this mailbox (access.resolve); pass None
     and it is looked up. `conn` is the mail database, for the caps; without it caps are skipped
-    (a --dry-run with no state).
+    (a --dry-run with no state). `thread_senders` are the addresses that wrote into the thread this
+    message answers (`inbound_senders`); with `outbound_send: true`, a reply goes to them without an approval.
     """
     checks = []
 
@@ -669,8 +789,23 @@ def check_send(pol, slug, mailbox, to, cc=(), attachments=0, thread_id="",
         ok("outbound_send", "true")
 
     allowance = allowance_for(pol, slug, box)
+    # The owner turned sending on (`outbound_send: true` itself, not an approval lifting it): three kinds of
+    # recipient then need no per-message yes. Internal addresses are not in `ext`; the other two are here.
+    standing = {}
+    if outbound_send(slug, manifest):
+        targets = set(forward_targets(slug, manifest))
+        senders = set(a.strip().lower() for a in thread_senders or []) if thread_id and not ext_cc else set()
+        for addr in ext:
+            if addr in targets:
+                standing[addr] = "a forward target the owner listed"
+            elif addr in to and addr in senders:
+                standing[addr] = "the sender of the thread being replied to"
+    need = [a for a in ext if a not in standing]
     if not ext:
         ok("recipient", "every recipient is internal")
+    elif not need:
+        ok("recipient", "; ".join(f"{a} is {why}" for a, why in standing.items())
+                        + ": no per-message approval while outbound_send is on")
     else:
         why = []
         covered = False
@@ -679,10 +814,11 @@ def check_send(pol, slug, mailbox, to, cc=(), attachments=0, thread_id="",
                 table = allowed_recipients(allowance, root)
             except Failure as e:
                 table, why = set(), why + [e.msg]
-            missing = [a for a in ext if a not in table]
+            missing = [a for a in need if a not in table]
             if not missing:
                 covered = True
-                ok("recipient", f"the {slug} allowance covers {', '.join(ext)}")
+                ok("recipient", f"the {slug} allowance covers {', '.join(need)}"
+                   + (f"; {', '.join(standing)} needs no approval" if standing else ""))
             else:
                 why.append(f"{', '.join(missing)} is not an eligible row in "
                            f"{allowance['recipients'].get('path') or 'the allowance list'}")
@@ -697,7 +833,9 @@ def check_send(pol, slug, mailbox, to, cc=(), attachments=0, thread_id="",
         elif not covered:
             why.append("and no --approval-issue was given")
         if not covered:
-            return no("recipient", "; ".join(why))
+            return no("recipient", "; ".join(why)
+                      + ". With outbound_send on, only internal addresses, forward_to targets in bot.yaml and the "
+                        "sender of the thread being replied to go without one")
 
     caps = caps_for(pol, allowance)
     if full:
@@ -763,7 +901,9 @@ def describe(pol, slug, mailbox=None, root=None):
     caps = caps_for(pol, a)
     out = {"employee": slug, "mailbox": box, "send_enabled": pol["send_enabled"],
            "mailbox_paused": paused(pol, box) if box else None,
-           "outbound_send": outbound_send(slug), "caps": caps,
+           "outbound_send": outbound_send(slug), "forward_to": forward_targets(slug),
+           "policy_source": "built-in defaults (no registry)" if pol.get("builtin") else str(POLICY_FILE),
+           "caps": caps,
            "internal_domains": pol["internal_domains"],
            "blocklist": pol["blocklist"], "owner_handles_personally":
                pol["owner_handles_personally"], "allowance": None}

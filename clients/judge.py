@@ -352,11 +352,23 @@ def from_env(env=None):
 
 
 # ----------------------------------------------------------------------------- question sets
+def question_dirs(env=None, cwd=None):
+    """Where else a question set may be: `TICO_QUESTIONS_DIR`, the checkout a turn names in `HUB_DIR`, and the `questions/`
+    folder in the bot's own repository (a message bot's template ships `questions/mail-triage.json`), which a computer
+    without this checkout's folder layout still has."""
+    env = os.environ if env is None else env
+    found = [env.get("TICO_QUESTIONS_DIR"), Path(env["HUB_DIR"]) / "questions" if env.get("HUB_DIR") else None,
+             Path(cwd or os.getcwd()) / "questions"]
+    return [Path(d) for d in found if d]
+
+
 def load_set(name, root=None):
     """One question set from `questions/<name>.json`, validated, with its `label`."""
     if not isinstance(name, str) or not name or any(ch in name for ch in "/\\.") :
         raise JudgeError("invalid", f"{name!r} is not a question set name")
     path = Path(root or QUESTIONS_DIR) / (name + ".json")
+    if not root and not path.is_file():
+        path = next((d / (name + ".json") for d in question_dirs() if (d / (name + ".json")).is_file()), path)
     try:
         data = json.loads(path.read_text())
     except OSError:

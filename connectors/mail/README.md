@@ -227,9 +227,12 @@ allowances:
 
 The send chain, in order: `global.send_enabled`, then the mailbox pause, then the employee
 declaring the `send` verb on this mailbox, then `outbound_send: true` in its `employee.yaml`,
-then the recipient being internal or covered by an allowance or named by `--approval-issue N`,
+then the recipient being internal, listed in the bot's `forward_to:`, the sender of the thread being replied to, covered
+by an allowance, or named by `--approval-issue N` (the first three need no approval once `outbound_send` is true),
 then the caps, then the blocklist, then owner-handles-personally. Every one of those failing is
-a **downgrade to a draft with a reason**, exit 0. Only a broken policy file is an error, exit 1.
+a **downgrade to a draft with a reason**, exit 0. Only a broken policy file is an error, exit 1. With no
+`registry/mail-policy.yaml` (a Docker computer) `policy.builtin()` is the policy: sending on, the team's domains internal,
+the usual caps, an empty blocklist.
 
 `check_draft` is the short version - blocklist, owner-handles-personally, attachments - and that
 one refuses with exit 2, because a draft nobody may write is a mistake to fix rather than

@@ -106,7 +106,7 @@ class Ctx:
     @property
     def policy(self):
         if self._policy is None:
-            self._policy = pl.load()
+            self._policy = pl.load(slug=self.slug)
         return self._policy
 
     def audit(self, action, target="", detail=None):
@@ -1333,7 +1333,7 @@ def make_draft(ctx, to, subject, body, reply_to="", cc=(), slot=None,
                  forbidden_phrases=policy["forbidden_phrases"],
                  signature_names=pl.signature_names(policy, ctx.mailbox), busy=busy,
                  check_calendar=check_calendar, slot=slot, minutes=minutes,
-                 approved_externals=approved)
+                 approved_externals=approved, forwarding=pl.is_forward(policy, ctx.slug, to))
     target = thread_id or ",".join(to)
     ctx.audit("lint", target, {"ok": res.ok, "errors": [x["id"] for x in res["errors"]],
                                "warnings": [x["id"] for x in res["warnings"]]})
@@ -1500,7 +1500,8 @@ def attempt_send(ctx, draft_id, to, cc, subject, thread_id, msgs, verdict, appro
         base["review_advisory"] = review_note
 
     decision = pl.check_send(ctx.policy, ctx.slug, ctx.mailbox, to, cc, thread_id=thread_id,
-                             approval=approval, verbs=None, conn=ctx.conn)
+                             approval=approval, verbs=None, conn=ctx.conn,
+                             thread_senders=pl.inbound_senders(msgs, ctx.mailbox))
     if not decision.allowed:
         return downgrade(decision["reason"], decision["gate"], decision["checks"])
     if ctx.dry:
@@ -1562,7 +1563,8 @@ def cmd_send(args):
                  internal_domains=policy["internal_domains"],
                  forbidden_phrases=policy["forbidden_phrases"],
                  signature_names=pl.signature_names(policy, ctx.mailbox), slot=args.slot,
-                 approved_externals=bool(appr and appr["full"]))
+                 approved_externals=bool(appr and appr["full"]),
+                 forwarding=pl.is_forward(policy, ctx.slug, to))
     ctx.audit("lint", args.draft, {"ok": res.ok, "errors": [x["id"] for x in res["errors"]],
                                    "warnings": [x["id"] for x in res["warnings"]]})
     if not res.ok:
@@ -1711,9 +1713,10 @@ def cmd_policy_show(args):
             mailbox, _ = access.resolve(slug, None, "read")
         except Refused:
             mailbox = ""
-    d = pl.describe(pl.load(), slug, mailbox)
+    policy = pl.load(slug=slug)
+    d = pl.describe(policy, slug, mailbox)
     manifest = access.load(slug)
-    d["scheduling_send"] = (pl.scheduling_enabled(pl.load(), slug, mailbox)
+    d["scheduling_send"] = (pl.scheduling_enabled(policy, slug, mailbox)
                             and manifest.get("scheduling_send") is True)
     d["scheduling_scope"] = "template-only influencer and BD-confirmed scheduling; excludes legal and investors"
     if args.json:
@@ -1723,6 +1726,8 @@ def cmd_policy_show(args):
              f"  global send switch      {'on' if d['send_enabled'] else 'OFF (everything is a draft)'}",
              f"  mailbox paused          {d['mailbox_paused']}",
              f"  outbound_send           {d['outbound_send']} (general email)",
+             f"  forward_to              {', '.join(d['forward_to']) or '(none)'}",
+             f"  policy                  {d['policy_source']}",
              f"  scheduling_send         {d['scheduling_send']} (mail scheduling only)",
              f"  internal domains        {', '.join(d['internal_domains'])}",
              f"  sends per day           {d['caps']['max_sends_per_day']}",
@@ -1738,9 +1743,10 @@ def cmd_policy_show(args):
                   f"    caps      {json.dumps(a['caps'], sort_keys=True)}",
                   f"    urls      {a['urls']['required_pattern'] or '(no required pattern)'}"]
     else:
-        lines += ["", "  no standing allowance: an external send needs --approval-issue "
-                      "(a matching GitHub Issue, a Tico send approval, or the owner's message "
-                      "telling this employee to send)."]
+        lines += ["", "  no standing allowance. With outbound_send on, a send to an internal address, to a forward_to "
+                      "target, or as a reply to the sender of the thread needs no approval; any other external "
+                      "send needs --approval-issue (a matching GitHub Issue, a Tico send approval, or the "
+                      "owner's message telling this employee to send)."]
     print("\n".join(lines))
     return 0
 

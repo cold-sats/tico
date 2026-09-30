@@ -41,6 +41,21 @@ def where(slug):
     return f"{p.parent.name}/{p.name}"
 
 
+def forward_to(manifest):
+    """The addresses the owner lists as this bot's forward targets: `forward_to:` in bot.yaml (a list, or one
+    comma-separated string), lowercased, one of each. Mail to them needs no per-message approval once
+    `outbound_send` is on (docs/mail.md, "Turning sending on")."""
+    raw = (manifest or {}).get("forward_to")
+    if isinstance(raw, str):
+        raw = raw.replace(";", ",").split(",")
+    out = []
+    for item in raw if isinstance(raw, (list, tuple)) else []:
+        addr = str(item or "").strip().lower()
+        if "@" in addr and " " not in addr and addr not in out:
+            out.append(addr)
+    return out
+
+
 def employee(slug=None, env=None):
     """The employee this run is. --as wins, then HUB_BOT or HUB_EMPLOYEE (both set by the runner)."""
     env = os.environ if env is None else env

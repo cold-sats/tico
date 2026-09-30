@@ -119,12 +119,21 @@ new draft. The thread gets `hub/drafted`, so Ana can see it in Gmail.
 $HUB_DIR/scripts/mail.sh send --draft r-882... --issue 128 [--approval-issue 131] [--dry-run]
 ```
 
-**A send needs an approval task unless a standing allowance covers the recipient.** Internal
-addresses (`@acme.example`) need neither. Everyone else needs one of: an allowance in
-`registry/mail-policy.yaml` that lists the recipient (Influencer's creator table is one), or
-`--approval-issue N` where N is a **closed** task in Tico with `owner:ana` and
-`type:decision` whose title or body names that address or the thread. `mail policy show` says
-which of those you have.
+**Once the owner has turned sending on (`outbound_send: true` in the bot's `bot.yaml`), the bot follows its rules without
+asking for each message, to three kinds of recipient:**
+
+1. **Anyone in the team's own domain** (`@acme.example` here).
+2. **The sender of the thread it is replying to**: `reply --thread <id>`, to that one person, with nobody added. A
+   message that also copies someone outside, or goes to a second outside address, is not covered.
+3. **The addresses the owner lists as forward targets**: `forward_to:` in the bot's `bot.yaml`, usually the owner's other
+   email. BotOps sets it when the owner asks.
+
+Everyone else needs one of: an allowance in `registry/mail-policy.yaml` that lists the recipient (Influencer's creator
+table is one), or `--approval-issue N` where N is a **closed** task in Tico with `owner:ana` and `type:decision`
+whose title or body names that address or the thread. With `outbound_send: false` a send is always a draft. The
+daily cap, the wait between messages to one person, the blocklist and the people the owner handles personally apply
+to every send, the three kinds above included. `mail policy show` says which of these you have, what `forward_to`
+holds, and which policy it is reading.
 
 `send` always answers in JSON and always exits 0 for a policy refusal. A refusal is a
 **downgrade**, not an error:
@@ -413,11 +422,35 @@ the job (and show a sign-in problem in Settings until the key is there).
 | `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` for the connectors job; a bot's run is given `TICO_PROJECTS_DIR`, so its first `mail.sh` builds `<home>/workspace/runtime/mail/venv` (the bot user can write it) |
 | `TICO_MAIL_RUNTIME_DIR` mail.db, audit log | `<projects>/runtime/mail` | same, under `workspace/runtime/mail` |
 | `GOOGLE_SA_KEY` | `<projects>/secrets/google-sa.json` | the runner's state directory (`~/state-<id>/google-sa.json`) |
-| `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot mailbox rules do |
+| `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot mailbox rules do. There is no `mail-policy.yaml` either, so the mail policy is the built-in one (below) |
+| `TICO_INTERNAL_DOMAINS` | the domains the policy file lists | optional, comma separated: the team's own mail domains when there is no policy file. Without it they come from the bot's mailbox and the team roster |
 
 Nothing in the connectors job is Mac-only: the key is a file on both (no Keychain), and there is no browser automation
 in it. What stays Mac-only is launchd (`scripts/tico install`; Linux uses the runner's own supervisor) and
 `connectors/browser.py`, the signed-in browser tool bots use, which needs a desktop browser.
+
+## Turning sending on
+
+A message bot starts with sending off: everything it writes is a draft for the human. The owner turns it on by asking
+BotOps in chat, in plain words: "let my Inbox Manager reply to support senders that support has it, and forward job,
+partnership, investor and press mail to me at <address> with the subject `🔔 Tico inbound: <subject>`, plus a
+Needs you task". BotOps does it as that person (they must own the bot or manage it, and the server says so if they do not):
+it sets `outbound_send: true` and `forward_to:` in the bot's `bot.yaml`, writes the rules into the bot's
+`playbooks/inbox-preferences.md` under `## Sending`, and answers with one message naming the three kinds of recipient that
+now go without an approval. BotOps never turns sending on by itself; the owner asks, and can ask for it to be turned off.
+
+**Computers with no registry (Docker).** A Docker computer has no `registry/` folder, so nothing gives the mail tool a
+`mail-policy.yaml`. Its policy is built in: sending on globally, the team's own domains as internal (from the bot's mailbox
+and the team roster, never gmail.com and other public providers; `TICO_INTERNAL_DOMAINS` names them outright), the usual
+caps (20 sends a day, one outside recipient, no outside Cc, no attachments), no wait between messages to the same person
+(the forward address gets many messages), and an empty blocklist. `mail policy show` prints "built-in defaults". Put a
+`mail-policy.yaml` in the registry and that file is the policy instead. The message bot's template also carries
+`questions/mail-triage.json`, so the decision questions are in the bot's own repository wherever it runs.
+
+**The decision model.** `mail.sh inbox --decisions` and the spam and injection check (`hub classify`) ask the
+server's decision model. Put `TYPESAFE_API_KEY` in the server's `.env`, or one of the company's model keys
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`); `compose.yaml` hands them to
+the server, and without any of them the check answers "unchecked" and the bot works the mail as it always did.
 
 ## Unsubscribe before model triage
 
