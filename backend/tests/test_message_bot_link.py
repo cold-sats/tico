@@ -100,13 +100,13 @@ def test_backfill_links_the_bot_whose_mailbox_is_a_person_s_email(api):
 
 
 def test_backfill_with_one_person_on_the_roster_links_a_mailbox_on_another_domain(api):
-    old_message_bot(api, "inbox-manager", "Mailbox: chris@tico.example\n")
+    old_message_bot(api, "inbox-manager", "Mailbox: ana@tico.example\n")
     assert backfill(api) == []                                                            # three people: whose is it?
     with api.app.state.store.transaction() as c:
         c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('people',?)", (encode({"people": [
-            {"id": "chris", "email": "chris@tico.team", "primary_for": ["*"]}]}),))
+            {"id": "ana", "email": "ana@acme.example", "primary_for": ["*"]}]}),))
     assert backfill(api) == ["inbox-manager"]
-    assert inbox_bot_of(api, "chris") == "inbox-manager" and mailbox_of(api, "inbox-manager") == "chris@tico.example"
+    assert inbox_bot_of(api, "ana") == "inbox-manager" and mailbox_of(api, "inbox-manager") == "ana@tico.example"
 
 
 def test_backfill_leaves_what_is_a_choice_for_an_owner(api):
