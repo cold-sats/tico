@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-09-30
+
 ### Added
 - **First run asks what hurts, then proposes a team.** The wizard now asks what the company does, its top one or two pains (chips taken
   from the starter cards, plus free text), the tools it already uses (mail, chat, CRM, GitHub, a meetings importer, docs), who it sells to
@@ -685,7 +687,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.13...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.14...HEAD
+[0.2.14]: https://github.com/ticoteam/tico/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/ticoteam/tico/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/ticoteam/tico/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/ticoteam/tico/compare/v0.2.10...v0.2.11
