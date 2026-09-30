@@ -15,6 +15,21 @@ The bot key name becomes an environment variable only for a granted bot, during 
 
 The initial migration inventories the existing bot secrets directory and resolves its configured 1Password references. Values are encrypted locally before upload. It adds no grants, preserves existing local files, and imports machine-login metadata without exporting browser sessions. All raw migration evidence remains outside Git.
 
+## Credentials asked for in the chat
+
+A bot that needs a key opens a **credential card** in the conversation where it asked (`hub credential request <VARIABLE> --for-bot <bot> --label
+"your Jira login" --format "you@company.com:API token" --help-url https://...`): the title says what it is for, the input shows the exact format,
+"Get one" opens the page where the token is made, and Save sends the value from the browser to `POST /api/v2/credential-requests/{id}/save`.
+The server checks its shape (a `:` where the format has one; never echoing the value), stores it in this vault under the variable's name
+(a credential already holding that name for that bot is replaced, one shared with other bots is left alone), grants it to that one bot, and wakes the
+asking bot with "Saved". The value is in no message, event, receipt or log, and never reaches the model. Only the person who was asked, or a
+credential admin, can fill a card, and only a credential admin can store (the vault's rule); anyone else sees who to ask.
+
+If a person pastes a secret into the chat instead, BotOps stores it with `hub credential set <VARIABLE> --for-bot <bot>` (the value on standard input,
+never on the command line) as that person, and the server takes the pasted words out of their messages, the run's recorded events and the answers kept
+for retries, replacing them with `•••• saved as <VARIABLE>`; later events of the same run are scrubbed as they arrive. The runner masks granted values in
+what it posts and logs. `hub message redact <id>` does the same for one message.
+
 ## Secrets files on the runner computer
 
 `<workspace>/secrets/_shared.env` (every turn on that computer inherits it) and
@@ -40,10 +55,11 @@ breaks the `op://` form; reference it by its item id.
 
 ## Rules for bots
 
-- Secrets never go in chat, hub tasks, git, logs, reports or prompts. A key-shaped string in a
-  draft fails mail lint for this reason.
-- A missing key is not yours to work around: file a task for the owner naming the variable and
-  stop. `$HUB_DIR/scripts/preflight.sh <slug>` shows every declared secret as present or missing.
+- Secrets never go in hub tasks, git, logs, reports or prompts. A key-shaped string in a
+  draft fails mail lint for this reason. A bot that needs one opens a card in the chat; BotOps stores what a person
+  pastes and removes it from the conversation.
+- A missing key is not yours to work around: open the card (`hub credential request`), or for a task no person is in,
+  name the variable on the task and stop. `$HUB_DIR/scripts/preflight.sh <slug>` shows every declared secret as present or missing.
 - Saving a credential is not permission to use it. Only an `access:` entry (and, for the hub
   vault, a grant) connects a bot to a secret. Changing `access:` is a task for the owner.
 - A granted value exists only for that run; do not copy it anywhere that outlives the turn.

@@ -8,6 +8,9 @@ README; this page starts where you can open **Settings → Bots** and press **Ad
 [How it works](how-it-works.md), [Using Tico](using-tico.md), [Routines](routines.md) and
 [Shared credentials](credential-vault.md).
 
+BotOps takes a bot all the way to working when a person asks in chat: it builds it, opens a card for any login it needs, puts it on a computer,
+turns it on, starts its setup and runs one small test, then reports in one message ([permissions](permissions.md#botops-acts-as-the-person-who-asked)).
+
 ## Start from the catalog, and let BotOps build it
 
 Very little of this has to be done by hand. `templates/catalog/<template>/` holds the bot templates

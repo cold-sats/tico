@@ -143,6 +143,22 @@ The commands (with MCP tools of the same names):
 | `hub bot onboarded [slug]` | a starter bot's own call, once a person approved its first routine: it stops being `needs_onboarding` (its manager may call it for it) |
 | `hub people add <email> [--name] [--title] [--reports-to]`, `hub people list` | the roster |
 
+| `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
+| `hub bot go-live <bot>` | places it if it has no computer, turns it on, and for a starter bot starts its setup chat as the requester |
+| `hub bot model <bot> [<model>] [--effort E]`, `hub bot pause\|resume <bot>` | the model (none: list the choices), stop and restart |
+| `hub routine on\|off <key> --bot <bot>` | a routine on or off |
+| `hub computers`, `hub fleet-check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
+| `hub credential request\|set\|list` | a card for a secret in the chat, storing one a person pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
+| `hub support file "<message>"` | tells the Tico team about a gap or a fault: a Confirm card shows the exact message, and nothing is sent until they confirm |
+| `hub api <METHOD> <path> ['{json}']` | any other v2 route, as the requester |
+
+`hub api` (and every friendly command above) sends `X-Tico-On-Behalf-Of: turn`. The server answers the request **as the requester**, so its own
+checks are the only gate: a member is refused what only an owner may do, an owner is not. A route is one of three kinds
+(`backend/botops_act.py`): it **runs at once** (bots, routines, goals, tasks, docs, access, models, placement, credential grants), it comes
+back as a **Confirm card** (below), or it is **not delegable** at all: tokens and enrollment codes, approvals, transferring ownership, a
+stored secret's own routes, agent credentials. Reads are the requester's reads. A secret never travels in a `hub api` body (a key named
+`secret`, `password`, `token`, `api_key` and the like is refused).
+
 Everyday edits to a bot the person owns happen at once, and each is undoable from Settings > Bots history.
 
 ### What always needs their click
@@ -155,7 +171,14 @@ BotOps, the owner and the admins cannot confirm for them.
 - making someone an Admin, granting `add_people`, changing roles, or changing a person's email (it decides who is an Admin) or team
   (it is an access audience);
 - giving a bot a stored credential (a tool registration that uses a shared credential or another bot's);
-- placing a member's bot on a computer that is neither its operator's nor open to members' bots (admins only).
+- placing a member's bot on a computer that is neither its operator's nor open to members' bots (admins only);
+- deleting (archiving) a bot, removing a computer, and letting a computer take members' bots;
+- changing the company's AI providers, who may sign in, or a spending limit (raising what a bot may spend);
+- updating Tico, the directory sync, disconnecting Slack or GitHub;
+- a message in their name (`/messages`, `/chat`), a decision on a goal proposal, and a support message to the Tico team.
+
+What only an owner or an admin may ask for (providers, sign-in and member limits, the company spending limit, a computer taking members' bots,
+updates, directory, disconnecting) is refused at once for a member, not handed over as a card that would fail.
 
 The card shows every field the request carries, and its description, written by the server and never by the bot, names each field it
 changes and, for a placement, the computer and whether it takes members' bots.
@@ -169,6 +192,13 @@ act with the company's full authority, or for whoever a piece of text names, one
 So it borrows one person's rights at a time, only from the message that person typed to it in chat, never more than they have, and
 the few changes that widen who can get in or what a bot can hold need that person's own click. For the same reason a member's bot goes
 only on computers set aside for members' bots: bots on one computer are not isolated from each other.
+
+### A computer for every active bot
+
+A bot that becomes active without a computer (added active, turned on, resumed, or built by BotOps) is placed by the server: on the company's
+only computer, else the least busy online one that takes it (a bot BotOps builds prefers BotOps's own computer, where its repository is). A member's bot goes on that member's own computer or one opened to members' bots,
+and never on a closed one. With none that takes it the bot stays as it is and the answer says so; the scheduler places it as soon as one can
+(`backend/placement.py`). People see a bot that is only set up, not yet turned on, as "Setting up".
 
 ## Write without Read
 

@@ -7,6 +7,64 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-09-30
+
+### Added
+- **BotOps finishes the job.** A person asks in chat and BotOps does what they could do in the app, as them: any v2 route through
+  `hub api <METHOD> <path> ['{json}']` (the server answers as the requester, so a member is refused what only an owner may do and an
+  owner is not; reads are the requester's reads), and friendly commands for the common ones: `hub bot place|go-live|model|pause|resume`,
+  `hub routine on|off`, `hub person add`, `hub computers`, `hub fleet-check`, `hub support file`. What always needs their click (adding
+  people and admin changes, deleting, computers for members, spending limits, providers, updating Tico, a message in their name) comes
+  back as one Confirm card, never two; a member is told at once when only an owner or admin may ask. A secret never travels in a
+  `hub api` body, and tokens, enrollment codes, approvals and ownership transfer are not reachable at all (docs/permissions.md).
+- **An active bot always has a computer.** A bot that becomes active without one (added active, turned on, resumed, built by BotOps) is
+  put on the company's only computer, or the least busy online one that takes it; a member's bot goes on its member's computer or one
+  opened to members' bots. With none that takes it the answer says so and the scheduler places it when one can. `hub bot go-live` places,
+  turns on and starts a starter bot's setup. A bot that is only set up, not yet on, reads "Setting up" everywhere a person sees it.
+- **A credential card in the chat.** A bot that needs a secret opens a card where it asked (`hub credential request <VARIABLE> --for-bot
+  <bot> --label ... --format ... --help-url ...`): what it is for, the exact format as the placeholder, a "Get one" link and Save. The value
+  goes from the browser straight to Credentials under the variable's name and is granted to that one bot; the bot is woken with "Saved" and
+  tests the connection. It is in no message, event, receipt or log, and never reaches the model. A wrong shape is refused without echoing
+  it; only the person asked, or a credential admin, can fill it (docs/credential-vault.md).
+- **`hub credential set`, and a pasted secret taken out of the chat.** BotOps stores a secret a person pastes (the value on standard input,
+  never the command line), as them and for the bot they name, and the pasted words are replaced by `•••• saved as <VARIABLE>` in their
+  messages, the run's recorded events and the retry receipts; later events of the run are scrubbed as they arrive. `hub credential list`
+  shows names, variables and grants, never a value; `hub message redact <id>` does one message.
+- **The runner scrubs granted secrets.** Each turn's granted values (as typed, URL-encoded or base64) are masked with `••••` in every event,
+  the final reply and the runner log, and in the text files the turn changed; a commit that holds one is not pushed or published.
+- **`hub fleet-check`.** Bots with no computer, computers offline, failing runs, a login a bot needs, setup that never finished, bots paused
+  (or over their spending limit) or stopped, most urgent first, each with the one command that fixes it. `GET /api/v2/fleet/check`,
+  `GET /api/v2/computers`.
+- **The Tico manual in every install.** The release's `docs/*.md` is a read-only docs collection, indexed by heading and kept apart from
+  company docs (no write routes, not in the company list). `hub docs search` lists its pages after the company's, labelled "Tico manual"
+  with the file and a link at the release tag; `--manual` restricts to it and `hub docs read manual:<name>` reads a page. The Librarian
+  and BotOps cite it. `GET /api/v2/docs/search?collection=company|manual|all`, `GET /api/v2/docs/manual[/{name}]`.
+- **Built-in bots follow the release.** A built-in bot's instructions and playbooks (`AGENT.md`, `playbooks/`, `skills/`) are refreshed
+  from the template when the template changed, once per runner start and before the bot's turn; a stamp keeps the digest, so what the
+  bot improved stays until the product changes that file, and what it had is kept in the repository's history. Older installs are brought up once.
+- **A spam and prompt-injection check on inbound support.** HQ judges each new ticket (`legit`, `spam`, `injection_risk`, `unchecked`) with
+  the TypeSafe judge when `HQ_JUDGE_KEY` is set; no key sends nothing and every ticket is `unchecked`. Spam is held out of the queue
+  (`GET /v1/staff/tickets?status=held`) until staff release or correct it (`POST /v1/staff/tickets/{id}/verdict`, recorded); an
+  `injection_risk` ticket is filed with a warning and the Support Agent handles it read-only. It fails open after 3 seconds and logs only the
+  verdict and reason. `gh-support` screens issues and Discussions through `POST /v1/staff/judge`, and `hub classify` does the same for inbound
+  email (docs/support.md, PRIVACY.md).
+- **BotOps evals.** `evals/botops/` has six scenarios (build a Jira-like bot, read-only on GitHub, why isn't it live, tell me issues to
+  solve, a member asks for an owner-only change, change a model), a scorer (done, person steps, jargon words, duplicate messages) and
+  `run.py`, which drives a real BotOps on a dev install on demand and never in CI. A scripted layer replays each through the real tools with no model.
+
+### Changed
+- **BotOps acts, then reports.** Its instructions and playbooks now say: do what is reversible and within the requester's rights, then say
+  what was done; ask only for a secret (the card), money, something irreversible or an outside send. One short message in plain words,
+  ending with at most one next step, and no internal terms. "Tell me issues to solve" runs the fleet check and fixes what it can. It never
+  sends a person to a settings page for what a command does; if the product cannot, it files `hub support file` (a card shows the exact
+  words). `build-me-a-bot` ends with the bot live: built, on a computer, its logins, turned on, setup started, one test, one report.
+- **Supporting BotOps in the app.** A support message BotOps drafts is sent only when the person confirms the card that shows it; the
+  Librarian answers "how do I..." from the manual.
+
+### Fixed
+- **Credentials could not be added from the app.** `#/credentials` led to Integrations, whose "Add credential" needed a vault that nothing
+  loaded. Owners and credential admins now see a Credentials section on Integrations with Add, Edit and Grant access.
+
 ## [0.2.18] - 2026-09-30
 
 ### Added
@@ -1006,7 +1064,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.18...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.19...HEAD
+[0.2.19]: https://github.com/ticoteam/tico/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/ticoteam/tico/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/ticoteam/tico/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/ticoteam/tico/compare/v0.2.15...v0.2.16
