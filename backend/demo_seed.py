@@ -151,12 +151,16 @@ class Builder:
         entries = {e["name"]: {**registry["defaults"], **e, "host": "keeper", "tasks": "hub"} for e in registry["employees"]}
         store.seed(entries=entries)
 
+        # The record names each bot as its card does, like the registry above, so the catalog reads the same.
+        card_names = {card["template"]: card["name"] for card in onboarding.read_cards(self.settings)}
+
         def record(c):
             names = {"company_name": D.COMPANY, "app_name": self.settings.app_name,
                      "assistant_name": self.settings.assistant_name}
             c.execute("INSERT INTO registry_metadata VALUES('onboarding',?)", (encode({
                 "names": names, "answers": D.ANSWERS, "completed": self.ago(days=6.9).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "selected": {slug: {"template": template, "display_name": slug.title(), "instructions": ""}
+                "selected": {slug: {"template": template, "display_name": card_names.get(template, slug.title()),
+                                    "instructions": ""}
                              for slug, template, _ in D.BOTS if slug not in ("coo", "botops")}}),))
             # The tour is over; the checklist stays because GitHub, its one optional step, is not connected.
             c.execute("INSERT INTO preferences VALUES('human:ana','onboarding.progress',?,?)",
