@@ -195,10 +195,21 @@ img.av-photo{object-fit:cover;background:var(--surface2)}
 .av.needs::after,.av.failed::after{content:"";position:absolute;inset:-4px;border-radius:inherit;pointer-events:none}
 .av.needs::after{inset:auto -1px -1px auto;width:8px;height:8px;background:var(--wait);border:2px solid var(--surface);box-shadow:none;animation:none}  /* a quiet dot, not a pulsing ring */
 .av.failed::after{box-shadow:0 0 0 2px var(--fail)}
+/* A bot is a soft blob (botAvatar draws the outline); its symbol or initials sit on top, as before. */
+.av.blob{background:none;box-shadow:none;isolation:isolate}
+.av-shape{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:-1;pointer-events:none}
+.av-shape path{fill:var(--av-fill)}
+.av.bot-tico .av-shape path{stroke:#ffffff26;stroke-width:1px;vector-effect:non-scaling-stroke}
+.av-glyph{display:inline-flex;align-items:center;justify-content:center;width:1em;height:1em;overflow:hidden;color:#fff;user-select:none;
+  font-family:"Material Symbols Outlined";font-weight:300;font-style:normal;line-height:1;letter-spacing:normal;text-transform:none;white-space:nowrap;
+  font-variation-settings:"FILL" 0,"wght" 300,"GRAD" 0,"opsz" 24;font-feature-settings:"liga";-webkit-font-feature-settings:"liga";-webkit-font-smoothing:antialiased}
+/* Working: the outline eases to its second shape and back (CSS `d`; WebKit gets the same as SMIL). */
+@keyframes av-morph{0%,100%{d:var(--d0)}50%{d:var(--d1)}}
+.av.morph .av-shape path{animation:av-morph 3.6s ease-in-out infinite}
 .node.cur{background:linear-gradient(90deg,var(--surface2),transparent)}
 .chip{display:inline-flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap}
 .chip:hover{text-decoration:none;color:var(--accent)}
-@media (prefers-reduced-motion:reduce){.av::after,.av{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.av::after,.av,.av-shape path{animation:none!important}}
 
 .proj{color:var(--muted);font-size:.85em;margin-right:5px}
 /* dots */
@@ -3247,12 +3258,97 @@ const BOT_AVATARS = {
 };
 const avInitials = slug => (String(slug || '').split(/[-_ ]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('') || '?').toUpperCase();
 const avHue = slug => { let h = 7; for (let i = 0; i < String(slug).length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360; return h; };
-function avatar(slug, size = 18, state) {
-  const meta = BOT_AVATARS[slug];
-  const box = `data-av="${esc(slug)}" style="width:${size}px;height:${size}px`;
-  if (meta?.tico) return `<span class="av bot-tico ${state || ''}" ${box}" aria-hidden="true"></span>`;
-  if (meta?.icon) return `<span class="av bot-symbol ${state || ''}" ${box};--bot-color:${meta.color};--bot-icon:url('assets/bot-symbols/${meta.icon}.svg')" aria-hidden="true"></span>`;
-  return `<span class="av av-initials ${state || ''}" ${box};--hue:${avHue(slug)};font-size:${Math.round(size * 0.42)}px" aria-hidden="true">${esc(avInitials(slug))}</span>`;
+// Bots are soft blobs and people are circles, so the shape says which is which before the name does.
+// A bot's outline comes from its slug through a seeded PRNG, the same on every page and every load:
+// six to eight points a few percent in or out from a circle, joined by one smooth closed curve. While
+// the bot works, the outline eases to a second outline from the same seed and back.
+const BLOB_WOBBLE = 0.08;           // how far a point may sit from the circle, as a share of the radius
+const BLOB_MORPH_S = 3.6;           // one full breath while working, in seconds
+const BLOB_CSS_MORPH = !!window.CSS?.supports?.('d', 'path("M0 0")');   // WebKit has no CSS `d`: it gets SMIL
+const TEMPLATE_ICON = /^[a-z0-9_]{1,48}$/;
+const blobCache = new Map();
+const blobSeed = text => { let h = 2166136261; for (const ch of String(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+function blobRandom(seed) {                  // mulberry32: small, fast and the same in every browser
+  return () => {
+    seed = (seed + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// A closed curve through the points as cubic Béziers, each handle along the polar tangent with the
+// length that draws an exact circle when every radius is equal: a wobble of 0 is a circle. Every
+// outline is M, n Cs and Z, so any two outlines of one bot interpolate point for point.
+function blobPath(radii, angles) {
+  const n = radii.length, f = v => v.toFixed(1), wrap = i => (i + n) % n;
+  const theta = i => angles[wrap(i)] + 2 * Math.PI * Math.floor(i / n);   // unwrapped, so gaps stay positive
+  const pt = i => [50 + radii[wrap(i)] * Math.cos(theta(i)), 50 + radii[wrap(i)] * Math.sin(theta(i))];
+  const slope = i => (radii[wrap(i + 1)] - radii[wrap(i - 1)]) / (theta(i + 1) - theta(i - 1));   // dr/dθ
+  const tangent = i => { const a = theta(i), r = radii[wrap(i)], dr = slope(i);
+    return [dr * Math.cos(a) - r * Math.sin(a), dr * Math.sin(a) + r * Math.cos(a)]; };
+  let d = `M${f(pt(0)[0])} ${f(pt(0)[1])}`;
+  for (let i = 0; i < n; i++) {
+    const k = 4 / 3 * Math.tan((theta(i + 1) - theta(i)) / 4), [p1, p2, t1, t2] = [pt(i), pt(i + 1), tangent(i), tangent(i + 1)];
+    d += `C${f(p1[0] + k * t1[0])} ${f(p1[1] + k * t1[1])} ${f(p2[0] - k * t2[0])} ${f(p2[1] - k * t2[1])} ${f(p2[0])} ${f(p2[1])}`;
+  }
+  return d + 'Z';
+}
+function blobShape(slug, size) {
+  const wobble = BLOB_WOBBLE * (size < 16 ? 0.75 : 1), key = `${slug}|${wobble}`;   // below the org tree's 16 px, less wobble
+  if (blobCache.has(key)) return blobCache.get(key);
+  const rnd = blobRandom(blobSeed(slug)), n = 6 + Math.floor(rnd() * 3), turn = rnd() * 2 * Math.PI;
+  const angles = Array.from({length: n}, (_, i) => turn + (i + (rnd() - 0.5) * 0.2) * 2 * Math.PI / n);
+  const bumps = Array.from({length: n}, () => rnd() * 2 - 1), drift = Array.from({length: n}, () => rnd() * 2 - 1);
+  const radii = xs => { const m = xs.reduce((a, b) => a + b, 0) / n; return xs.map(x => 48 * (1 + wobble * Math.max(-1, Math.min(1, x - m)))); };
+  const shape = {d: blobPath(radii(bumps), angles),
+    // the working outline keeps most of the bot's own bumps, so it breathes rather than turns into another bot
+    morph: blobPath(radii(bumps.map((b, i) => b * 0.55 + drift[i] * 0.45)), angles),
+    delay: -Math.round(rnd() * BLOB_MORPH_S * 100) / 100};   // bots working at once do not breathe in step
+  blobCache.set(key, shape);
+  return shape;
+}
+const reducedMotion = () => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const blobMorphStyle = shape => `--d0:path('${shape.d}');--d1:path('${shape.morph}');animation-delay:${shape.delay}s`;
+const blobSmil = shape => `<animate attributeName="d" values="${shape.d};${shape.morph};${shape.d}" dur="${BLOB_MORPH_S}s" begin="${shape.delay}s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".42 0 .58 1;.42 0 .58 1"/>`;
+// Working: running a turn by the status poll, or answering in the chat that is open (the dots are moving).
+function botWorking(slug) {
+  if (S.v2?.status?.[slug]?.state === 'running' || S.status?.active?.some(a => a.employee === slug)) return true;
+  return !!(V2C?.slug === slug && V2C.live && (V2C.live.text || v2PendingText(V2C).mode === 'run'));
+}
+// One avatar for every bot: a slug, or a row or card with {slug|name, icon}. The symbol inside is the
+// template's Material Symbol when it names one, else the built-in art, else initials; the Assistant
+// keeps its mark. `state` is stateOf's word, drawn as the corner dot or ring.
+function botAvatar(bot, size = 18, state) {
+  const slug = typeof bot === 'string' ? bot : bot?.slug || bot?.name || '';
+  const row = typeof bot === 'object' && bot ? bot : S.emps?.find(e => e.name === slug);
+  const meta = BOT_AVATARS[slug], hue = avHue(slug);
+  const icon = !meta?.tico && TEMPLATE_ICON.test(row?.icon || '') ? row.icon : '';
+  const kind = meta?.tico ? 'bot-tico' : icon ? 'bot-glyph' : meta?.icon ? 'bot-symbol' : 'av-initials';
+  const fill = meta?.tico ? '#172221' : meta?.color || `hsl(${hue} 38% 45%)`;
+  const vars = kind === 'bot-symbol' ? `;--bot-color:${meta.color};--bot-icon:url('assets/bot-symbols/${meta.icon}.svg')`
+    : kind === 'av-initials' ? `;--hue:${hue};font-size:${Math.round(size * 0.42)}px` : '';
+  const inner = kind === 'bot-glyph' ? `<span class="av-glyph" style="font-size:${Math.round(size * 0.7)}px">${esc(icon)}</span>`
+    : kind === 'av-initials' ? esc(avInitials(slug)) : '';
+  const shape = blobShape(slug, size), working = state === 'running' || state === 'working' || botWorking(slug);
+  const path = working
+    ? `<path d="${shape.d}" style="${blobMorphStyle(shape)}">${BLOB_CSS_MORPH || reducedMotion() ? '' : blobSmil(shape)}</path>`
+    : `<path d="${shape.d}"/>`;
+  return `<span class="av blob ${kind} ${state || ''}${working ? ' morph' : ''}" data-av="${esc(slug)}" style="width:${size}px;height:${size}px;--av-fill:${fill}${vars}" aria-hidden="true">`
+    + `<svg class="av-shape" viewBox="0 0 100 100" focusable="false">${path}</svg>${inner}</span>`;
+}
+const avatar = botAvatar;
+// Polls and the open chat change who is working without redrawing every avatar: this follows them.
+function botAvatarsSync() {
+  for (const el of document.querySelectorAll('.av.blob[data-av]')) {
+    const on = botWorking(el.dataset.av), path = el.querySelector('.av-shape path');
+    if (on === el.classList.contains('morph') || !path) continue;
+    const shape = blobShape(el.dataset.av, parseFloat(el.style.width) || 18);
+    el.classList.toggle('morph', on);
+    path.replaceChildren();
+    if (!on) { path.removeAttribute('style'); continue; }
+    path.setAttribute('style', blobMorphStyle(shape));
+    if (!BLOB_CSS_MORPH && !reducedMotion()) path.innerHTML = blobSmil(shape);
+  }
 }
 
 // People: Workspace/Slack photo when we have one, otherwise the same initials circle as a bot with no art.
@@ -3947,7 +4043,7 @@ function needsYouItem(i, folded, showName = true) {
     const previews = requestPreviewKeys(text);
     return `<details class="req" data-n="${i.number}"${folded ? ' hidden data-folded' : ''}>
       <summary>
-        ${avatar(askerSlug || personHandle(asker), 24)}
+        ${askerSlug ? avatar(askerSlug, 24) : personCircle(personHandle(asker), 24)}
         <span class="req-text">${showName ? `<span class="req-from">${askerSlug ? empName(askerSlug) : 'A bot'}:</span> ` : ''}${esc(ask)}</span>
         ${due.label ? `<time class="req-meta" datetime="${due.iso}" title="Needed by ${esc(due.label)}">${esc(due.label)}</time>` : '<span class="req-meta"></span>'}
         <span class="req-arrow" aria-hidden="true">›</span>
@@ -5058,6 +5154,7 @@ function v2ChatRender(state) {
   state.prepending = false;
   v2Jump(state, state.rendered);
   state.rendered = true;
+  botAvatarsSync();                     // the bot breathes while it answers
   const older = $('#conv-older');
   if (older) {
     older.innerHTML = state.nextBefore ? '<button class="ghost" type="button" data-cloud-older>Load older messages</button>' : '';
@@ -11083,7 +11180,7 @@ async function refresh(force) {
   } catch (e) { S.status = null; }
   await v2Refresh();                    // hub.db status and needs-you (docs/history/hub-v2.md)
   if (S.me?.cloud) void updUnreadRefresh();
-  renderTree(); renderHeartbeat(); pausedRender();
+  renderTree(); renderHeartbeat(); pausedRender(); botAvatarsSync();
   if (BOT?.tab === 'chat' && !BOT.split) void loadBotChatTasks(BOT.slug);
   if (BOT && $('#bot-alert')) $('#bot-alert').innerHTML = botAlertHTML(BOT.slug);   // an alert comes and goes with the poll
   if (BOT && $('#bot-onboard-host') && ($('#bot-onboard') ? '1' : '') !== (frNeedsSetup(S.emps.find(x => x.name === BOT.slug)) ? '1' : '')) frBotRefresh(BOT.slug);   // the mark clears when the bot says it is set up

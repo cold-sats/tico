@@ -11,6 +11,13 @@ All notable changes to Tico are recorded here. The format follows
 - **Tico HQ's address is now `https://updates.tico.team`** (was `hq.tico.team`, which never went live). It is the default
   `TICO_HQ_URL`, and the address PRIVACY.md and docs/telemetry.md name. An install on 0.2.15 asks the old address, gets no
   answer, and checks GitHub directly as before until it updates.
+- **Bot avatars are soft blobs that breathe while the bot works.** Every bot avatar (org panel, bot page, chat, Settings > Bots, tasks,
+  Updates, Goals) is now a slightly organic outline instead of a circle: six to eight points a few percent in or out from round, drawn
+  from the bot's slug so each bot keeps its own shape on every page and load. People stay plain circles, so the two read apart at a glance.
+  The colour and the symbol, initials or Assistant mark inside are unchanged. While a bot runs a turn, or answers in the open chat, its
+  outline eases to a second shape and back every few seconds (CSS `d` in Chrome and Firefox, SMIL in Safari and the macOS app); with
+  reduced motion it stays still. A bot whose template names an `icon` shows that Material Symbol inside its blob: `/api/employees`
+  now carries each bot's `icon`, from its own definition or its template's card.
 
 ## [0.2.15] - 2026-09-30
 
@@ -88,7 +95,6 @@ All notable changes to Tico are recorded here. The format follows
   Start setup. `answers.pains`, `pains_text` and `tools` are still accepted and ignored, `held_back` is always empty and `pain_options` is no
   longer served. `FEATURED_PAINS`, the tool and signal tags (nothing sets `uses_github` or `uses_meetings` any more; cards may still list them) and the
   pain chip CSS are removed, and the Getting started "next bot" hint no longer quotes a pain.
-
 
 ## [0.2.14] - 2026-09-30
 

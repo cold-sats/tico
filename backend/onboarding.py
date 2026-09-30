@@ -146,6 +146,36 @@ def _card(document, instructions):
             "instructions": instructions}
 
 
+# A template's avatar symbol: a Material Symbols name (card.yaml `icon`). Read on every bot list, so
+# the names are parsed again only when a card file changes.
+ICON_NAME = re.compile(r"^[a-z0-9_]{1,48}$")
+_icon_cache = {"key": None, "icons": {}}
+
+
+def template_icons(settings):
+    """{template: icon name} for every card that names a well-formed icon."""
+    root = Path(settings.catalog_dir)
+    try:
+        files = sorted(root.glob("*/" + CARD_FILE))
+        key = (str(root), tuple((p.name, p.parent.name, p.stat().st_mtime_ns) for p in files))
+    except OSError:
+        return {}
+    if _icon_cache["key"] != key:
+        icons = {}
+        for path in files:
+            try:
+                document = yaml.safe_load(path.read_text())
+            except (OSError, yaml.YAMLError):
+                continue
+            if not isinstance(document, dict):
+                continue
+            template, icon = str(document.get("template") or "").strip(), str(document.get("icon") or "").strip()
+            if template and ICON_NAME.match(icon):
+                icons[template] = icon
+        _icon_cache.update(key=key, icons=icons)
+    return _icon_cache["icons"]
+
+
 def read_cards(settings):
     """Every template on disk, unrendered. A missing or half-written catalog yields the cards
     that do parse: onboarding still runs, it just has less to offer."""

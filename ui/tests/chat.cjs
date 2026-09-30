@@ -93,6 +93,22 @@ async function liveReply(browser) {
   await page.locator('#v2-live').waitFor();
   const paragraphs=await page.locator('#v2-live p').allInnerTexts();
   assert.deepEqual(paragraphs,['Keep the bot planned.','I filed the build.'],'each message is its own paragraph');
+  // Avatars: a bot is an SVG blob that morphs while it answers; a person stays a circle; motion stops under reduced motion.
+  const av=await page.evaluate(()=>{
+    const el=document.querySelector('#bot-top .av'),path=el?.querySelector('svg.av-shape path');
+    const probe=document.createElement('div');
+    probe.innerHTML=personCircle('Ana Reyes',22)+botAvatar({name:'ops',icon:'rocket_launch'},22);
+    document.body.append(probe);
+    const [person,glyph]=probe.children;
+    return {blob:!!el?.classList.contains('blob'),d:/^M[\d.]+ [\d.]+(C[-\d. ]+){6,8}Z$/.test(path?.getAttribute('d')||''),
+      morph:!!el?.classList.contains('morph'),moving:getComputedStyle(path).animationName==='av-morph'||!!path.querySelector('animate'),
+      person:!person.querySelector('svg')&&getComputedStyle(person).borderRadius==='50%',
+      glyph:glyph.querySelector('.av-glyph')?.textContent,same:botAvatar('ops',22)===botAvatar('ops',22)};
+  });
+  assert.deepEqual(av,{blob:true,d:true,morph:true,moving:true,person:true,glyph:'rocket_launch',same:true},'bot blob, person circle');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await page.evaluate(()=>{const p=document.querySelector('#bot-top .av-shape path');
+    return getComputedStyle(p).animationName==='none'&&!botAvatar('ops',36).includes('<animate');}),true,'reduced motion: no morph');
   assert.deepEqual(errors,[]);
   console.log('chat live reply: ok');
 }
