@@ -1,5 +1,5 @@
-/* First run, the team: what hurts and what the company uses, the starting point (a starter team, a full
-   org chart, or just the built-ins), the editable team, and the screen after Create (docs/onboarding.md).
+/* First run, the team: the starting point (a starter team, a full org chart, or just the built-ins),
+   the editable team, and the screen after Create (docs/onboarding.md).
    The server does the choosing (GET/PUT /api/v2/onboarding answers `recommendations` and `full_chart`);
    this only shows it, lets a person change anything, and sends the result. Nothing is created until
    "Create my team". It shares the wizard's state (`ONB`) and the catalog cards' state (`catalogState`)
@@ -7,15 +7,6 @@
 const FR_TEAMS = ['Leadership', 'Sales', 'Marketing', 'Support', 'Operations', 'Engineering'];   // backend/onboarding.py TEAMS
 const FR_TEAM_OF = {basics: 'Leadership', sales: 'Sales', marketing: 'Marketing', support: 'Support',
                     operations: 'Operations', engineering: 'Engineering'};
-const FR_TOOLS = [
-  ['mail', 'Mail', 'Google Workspace or another inbox'], ['chat', 'Chat', 'Slack'], ['crm', 'CRM', 'HubSpot, Salesforce, a sheet'],
-  ['github', 'GitHub', 'issues and pull requests'], ['meetings', 'Meetings importer', 'Fireflies, Zoom, Google Meet, Granola'],
-  ['docs', 'Docs', 'Drive, Notion, a help site']];
-const FR_TOOL_NAME = {web: 'Public web', mail: 'Mail', chat: 'Chat', crm: 'CRM', github: 'GitHub', meetings: 'Meetings importer',
-                      docs: 'Docs', calendar: 'Calendar'};
-// Where each ticked tool is connected: shown on the screen after Create, once.
-const FR_TOOL_LINK = {mail: ['Mail', '#/integrations'], chat: ['Slack', 'settings:cloud'], crm: ['CRM', '#/integrations'],
-                      github: ['GitHub', 'settings:cloud'], meetings: ['Meeting importers', 'settings:cloud'], docs: ['Docs', '#/docs']};
 const frBlankTeam = () => ({mode: null, edited: false, order: [], defaults: {}, leads: new Set(), advice: ''});
 const frOwner = () => (S.me?.id ? 'human:' + S.me.id : '');
 const frHome = state => state.record.home || frOwner();
@@ -26,41 +17,8 @@ const frBotSlug = card => (card.template === 'assistant' ? assistantBot() : card
 const frTeamOf = card => FR_TEAM_OF[card.pack] || 'Other';
 const frSentence = text => { const first = String(text || '').split(/(?<=[.!?])\s/)[0]; return first.length > 190 ? first.slice(0, 189) + '…' : first; };
 
-// ----------------------------------------------------------------- what hurts, and what the company uses
-function frHave(answers) {
-  const have = new Set(['hub', 'web', 'calendar', ...(answers.tools || [])]);
-  const implied = {email: 'mail', slack: 'chat', crm: 'crm', tickets: 'mail'};
-  for (const value of answers.work_arrives || []) { const tool = implied[String(value).replace(/^uses_/, '')]; if (tool) have.add(tool); }
-  return have;
-}
-function frNeedsHTML(state, actions) {
-  const a = state.record.answers, options = state.record.pain_options || [];
-  const ticked = new Set(a.pains || []);
-  // The server marks about a dozen pains as `featured`, two per team. Every card's pains still match what is said;
-  // a pain ticked earlier (a returning draft) stays on the screen under its team.
-  const shown = options.filter(option => option.featured || ticked.has(option.text));
-  const chip = option => `<label class="onb-chip"><input type="checkbox" data-onb-pain value="${esc(option.text)}" ${ticked.has(option.text) ? 'checked' : ''}><span>${esc(option.text)}</span></label>`;
-  const groups = [...FR_TEAMS, 'Other'].map(team => {
-    const rows = shown.filter(option => (option.team || 'Other') === team);
-    return rows.length ? `<div class="onb-pain-group" data-pain-team="${esc(team)}"><span class="onb-pain-team">${esc(team)}</span>
-        <div class="onb-chips">${rows.map(chip).join('')}</div></div>` : '';
-  }).join('');
-  return `<div class="onb-field"><span class="k">What hurts most right now?</span>
-      <div class="onb-pain-groups" id="onb-pains" role="group" aria-label="What hurts most">${groups}</div></div>
-    <label class="onb-field"><span class="k">In your own words</span>
-      <textarea id="onb-pains-text" maxlength="1000" placeholder="Support mail piles up over the weekend and nobody owns the follow-ups.">${esc(a.pains_text)}</textarea></label>
-    <div class="onb-field"><span class="k">What do you already use?</span>
-      <div class="onb-choices" id="onb-tools">${FR_TOOLS.map(([value, label, hint]) =>
-        `<label title="${esc(hint)}"><input type="checkbox" data-onb-tool value="${value}" ${(a.tools || []).includes(value) ? 'checked' : ''}>${esc(label)}</label>`).join('')}</div></div>
-    ${actions('Next')}`;
-}
 function frCollect(state, key) {
-  const r = state.record;
-  if (key === 'needs' && $('#onb-pains-text')) r.answers = {...r.answers,
-    pains: [...document.querySelectorAll('[data-onb-pain]:checked')].map(input => input.value).slice(0, 8),
-    pains_text: $('#onb-pains-text').value.trim(),
-    tools: [...document.querySelectorAll('[data-onb-tool]:checked')].map(input => input.value)};
-  if (key === 'team' && state.catalog.cards.length) r.selected = frSelection(state);
+  if (key === 'team' && state.catalog.cards.length) state.record.selected = frSelection(state);
 }
 
 // ----------------------------------------------------------------- the team
@@ -150,17 +108,6 @@ function frProblem(state) {
   }
   return catalogMissingMailbox(cat) ? 'Choose whose mailbox Mail Drafts reads.' : '';
 }
-function frPrereqHTML(state, card) {
-  const have = frHave(state.record.answers);
-  const rows = (card.prerequisites || []).filter(row => row.tool !== 'hub');
-  if (!rows.length) return '';
-  return `<span class="team-prereq" data-team-prereq="${esc(card.slug)}">${rows.map(row => {
-    const name = FR_TOOL_NAME[row.tool] || row.tool, met = have.has(row.tool);
-    return row.required
-      ? `<span class="pill ${met ? 'ok' : 'waiting'}" title="${esc(row.why)}">${met ? '' : 'Needs '}${esc(name)}</span>`
-      : `<span class="pill" title="${esc(row.why)}">${esc(name)}, optional</span>`;
-  }).join('')}</span>`;
-}
 function frWhy(state, card) {
   const r = state.record, rec = (r.recommendations || []).find(row => row.slug === card.slug);
   if (rec) return rec.why;
@@ -186,7 +133,6 @@ function frRowHTML(state, card) {
       <div class="team-bot-name"><input type="text" class="cat-name" data-cat-name="${esc(slug)}" value="${esc(catalogName(cat, card))}" maxlength="100" aria-label="Name for ${esc(card.name || slug)}">
         ${state.team.leads.has(slug) ? '<span class="pill ok" title="Leads its team">Lead</span>' : ''}</div>
       <p class="team-why" data-team-why="${esc(slug)}">${esc(frWhy(state, card))}</p>
-      ${frPrereqHTML(state, card)}
       ${card.first_routine?.title ? `<p class="team-routine muted">First routine: ${esc(card.first_routine.title)}</p>` : ''}
       ${mailbox}
     </div>
@@ -209,18 +155,12 @@ function frListHTML(state) {
   return groups || '<div class="empty" data-team-empty>No bots on your team yet.</div>';
 }
 function frAddHTML(state) {
-  const cat = state.catalog, held = state.record.held_back || [];
+  const cat = state.catalog;
   const rows = cat.cards.filter(card => !card.required && !cat.picked.has(card.slug));
-  const have = frHave(state.record.answers);
-  const item = card => {
-    const missing = (card.prerequisites || []).filter(row => row.required && !have.has(row.tool));
-    return `<div class="team-add-row" data-team-add-row="${esc(card.slug)}"><div><strong>${esc(catalogName(cat, card))}</strong>
-        <p class="muted">${esc(frSentence(card.summary))}</p>${frPrereqHTML(state, card)}
-        ${missing.length ? `<p class="muted" data-team-needs>Needs ${esc(missing.map(row => FR_TOOL_NAME[row.tool] || row.tool).join(' and '))}, which you did not tick.</p>` : ''}</div>
+  const item = card => `<div class="team-add-row" data-team-add-row="${esc(card.slug)}"><div><strong>${esc(catalogName(cat, card))}</strong>
+        <p class="muted">${esc(frSentence(card.summary))}</p></div>
       <button class="ghost" type="button" data-team-add="${esc(card.slug)}" aria-label="Add ${esc(catalogName(cat, card))}">Add</button></div>`;
-  };
   return `<details class="team-add" id="team-add"${state.team.addOpen ? ' open' : ''}><summary>Add a bot${rows.length ? ` <span class="muted">(${rows.length} more in the catalog)</span>` : ''}</summary>
-    ${held.length ? `<ul class="team-held">${held.map(row => `<li class="muted" data-team-held="${esc(row.template)}">${esc(row.why)}</li>`).join('')}</ul>` : ''}
     ${rows.length ? rows.map(item).join('') : '<p class="muted">Everything in the catalog is already on your team.</p>'}</details>`;
 }
 function frTeamHTML(state, actions) {
@@ -309,7 +249,6 @@ function frBotRowHTML(state, bot, botOps) {
 }
 function frNextHTML(state) {
   const bots = (state.record.bots || []).filter(bot => bot.slug !== assistantBot() && bot.slug !== 'botops' && bot.slug !== 'librarian' && bot.slug !== 'goal-manager');
-  const tools = (state.record.answers.tools || []).filter(tool => FR_TOOL_LINK[tool]);
   const owners = bots.map(bot => `<div class="fr-owner" data-fr-owner-row="${esc(bot.slug)}"><span>${esc(bot.display_name || bot.slug)}</span>
       <select data-fr-owner="${esc(bot.slug)}" aria-label="Add an owner for ${esc(bot.display_name || bot.slug)}"><option value="">Add an owner…</option>${frPeople().map(person =>
         `<option value="${esc(person.id)}">${esc(person.name || person.id)}${('human:' + person.id) === frOwner() ? ' (you)' : ''}</option>`).join('')}</select>
@@ -322,7 +261,7 @@ function frNextHTML(state) {
     <section class="card fr-card" id="fr-owners"><header><h2>Who owns each bot</h2></header>
       ${owners || '<p class="muted">No bots yet.</p>'}</section>
     <section class="card fr-card" id="fr-tools"><header><h2>Connect your tools</h2></header>
-      <ul class="fr-tools">${tools.map(tool => `<li>${esc(FR_TOOL_LINK[tool][0])} <a href="${esc(FR_TOOL_LINK[tool][1])}" data-fr-link="${esc(tool)}">Open</a></li>`).join('')}
+      <ul class="fr-tools">
         <li>Keys and tokens <a href="#/credentials" data-fr-link="credentials">Credentials</a></li>
         <li>Everything else <a href="#/integrations" data-fr-link="integrations">Integrations</a></li></ul>
       <p class="fr-secrets" data-fr-secrets><strong>Enter secrets in those fields, never in a chat with a bot.</strong> One pasted into a chat is leaked: rotate it.</p></section>`;
@@ -373,12 +312,6 @@ function frWireNext(state) {
       if (note) note.textContent = (done.bot_owners || []).map(o => o.name || o.id).join(', ') + ' own it';
     } catch (error) { if (note) note.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
     select.value = ''; select.disabled = false;
-  });
-  document.querySelectorAll('[data-fr-link]').forEach(link => link.onclick = event => {
-    const href = link.getAttribute('href');
-    if (!href.startsWith('settings:')) return;
-    event.preventDefault();
-    SETTINGS_TAB = href.slice(9); location.hash = SETTINGS;
   });
 }
 

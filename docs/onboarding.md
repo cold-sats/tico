@@ -1,7 +1,7 @@
 # First run
 
 The first time the owner opens a new environment, the app is a wizard at `#/welcome`: name the
-company, say what it does and what hurts, pick a starting team, add a computer (a Linux Docker runner or a Mac), optionally connect your own
+company, say what it does, pick a starting team, add a computer (a Linux Docker runner or a Mac), optionally connect your own
 agent, and press **Create my team**. Every company gets the assistant, BotOps, the Librarian and the Goal Manager, and none of them can be archived.
 Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
 the moment it is placed, and BotOps sets up every other template.
@@ -25,8 +25,7 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 | Screen | What it asks | What it stores |
 |---|---|---|
 | Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
-| About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Free text is never parsed; it is shown to a person and written into every bot's `knowledge/company.md` |
-| What hurts, and what you use | The top one or two pains (about a dozen chips grouped by team, two each, and free text) and the tools already in use: mail, chat, CRM, GitHub, a meetings importer, docs | `answers.pains`, `pains_text`, `tools`. Nothing leaves the computer: the chooser runs in the hub |
+| About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. These answers, and only these, choose the team on the next screen. The description is also shown to a person and written into every bot's `knowledge/company.md` |
 | Your team | A starting point (a starter team, a full org chart or just the built-ins), then every bot: its name, who it reports to, remove, and add | `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug; the owner by default). Nothing is created yet |
 | Set up a computer | Nothing if a runner is already online (the server's own); otherwise download a setup file, then run three commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
 | Connect your agent | Optional: **Connect an agent** makes a personal token and the MCP setup to paste into Grok Bot, Meta Muse or another agent | Nothing in onboarding; the token is the owner's own (`POST /api/v2/me/tokens`) |
@@ -40,52 +39,41 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 | `what_we_do` | Free text, up to 2000 characters |
 | `customers` | `businesses`, `consumers`, `both`, or empty |
 | `software_product` | `yes`, `no`, or empty: whether software is the product |
-| `team_size` | Free text. The chooser reads the largest number in it |
-| `pains` | Up to eight phrases, ticked from the starter cards' `pains` |
-| `pains_text` | Free text, up to 1000 characters: what hurts, in their words |
-| `tools` | Any of `mail`, `chat`, `crm`, `github`, `meetings`, `docs` |
+| `team_size` | Free text, a choice from the wizard's list. Shown to a person; the chooser does not read it |
 | `never_without_person` | Any of `send`, `spend`, `publish`, `hire`. All four start ticked |
-| `work_arrives`, `repetitive_work` | The earlier questions. The wizard no longer asks them, an older record keeps them, and `work_arrives` still implies a tool (`email` is mail, `slack` is chat, `crm` is CRM, `tickets` is mail) |
+| `work_arrives`, `repetitive_work`, `pains`, `pains_text`, `tools` | Earlier questions. The wizard no longer asks them: "What hurts, and what you use" is gone, so there are no pain chips, no "in your own words" box and no tool checkboxes. An older record keeps them and a custom client may still send them; the hub accepts them and reads none |
 
 ### The chooser
 
 The hub chooses locally, from the answers and the catalog, with no network call. `GET` and `PUT /api/v2/onboarding` answer with two starting
-points and every card's pain phrases (`pain_options`, each with its `team` and whether it is `featured`: the twelve the screen shows,
-two per team, from `FEATURED_PAINS` in `backend/onboarding.py`; the rest still match what is ticked or typed). A template is only ever proposed when its **required prerequisites** are met: a
-starter that needs mail is not proposed to a company that did not tick mail, and is named in `held_back` with what it needs. It can still be
-added by hand.
+points, `recommendations` (the starter team) and `full_chart`. They depend only on "About the company": what you do, who you sell to, whether
+software is the product and, for nothing but display, the team size. **Tools decide nothing.** A bot that needs mail, GitHub or a CRM asks for
+it in its own **Start setup** conversation (its template's `onboarding` and `prerequisites`), so nothing is held back for a missing tool:
+`held_back` stays in the response, always empty, for clients that read it.
 
-**Starter team** (`recommendations`, about three to five bots, each with a one-line `why` and its prerequisites):
+**Starter team** (`recommendations`, three or four bots, each with a one-line `why`):
 
-1. The best one or two pain matches. A chip that is one of a card's own `pains` is a strong match; free text matches a phrase when it shares
-   all of its words, at least two of them, or its one or two keywords.
-2. Then the starters a ticked tool names outright: `uses_github` (GitHub ticked) for Issue Triage, `uses_meetings` (a meetings importer) for
-   Meeting Notes.
-3. Then every starter that asks for `always` (Chief of Staff), which keeps its place: it is the first thing dropped from the list of
-   others, not the last.
+1. Chief of Staff (the lead), Support Agent (`support`) and Sales Drafter (`sales`).
+2. Issue Triage (`issue-triage`) as well when software is the product.
+3. If "What you do" has text, at most one more starter that it obviously fits: a card whose `pains` phrase has every one of its words in the
+   text (compared by stem, ignoring common words), or whose summary shares at least three words with it. The card with the highest score wins
+   and a tie goes to the first name. Lead templates, and templates that do not fit the company (below), are never added. With no text, or
+   no match, the team is just steps 1 and 2.
 
-With no pain matched, the best fit for who they sell to and how work arrives is proposed instead. The `why` is the matched pain, or the tool
-that named the card, and the first sentence of its summary; with neither, just the summary.
+**Full org chart** (`full_chart`): every starter template that fits, grouped into the teams of a company: Leadership, Sales, Marketing,
+Support, Operations and Engineering (the card's `pack`), each with a **lead** and the rest reporting to it. A team's lead is its pack's
+`lead: true` template (Ops Manager, Support Lead, ...); a team with none is led by its first member. The leads report to the company owner.
+A template fits unless:
 
-**Full org chart** (`full_chart`): every catalog template that fits, grouped into the teams of a company: Leadership, Sales, Marketing,
-Support, Operations and Engineering (the card's `pack`), each with a **lead** and the rest reporting to it. The leads report to the company
-owner. A template fits when it matches a pain, names a ticked tool, overlaps a tag the answers imply, or is for every company.
+- it is an Engineering template and software is not the product (Engineering is included only when software is), or
+- the company sells only to consumers and the card's `recommend_when` names `sells_to_businesses` but not `sells_to_consumers`, which is how
+  a card marks itself business-only (the whole Sales team and a few templates in Leadership, Marketing and Operations, such as Strategy Planning, Market and AR Follow-up).
 
-Both are starting points and there is no limit: the person adds, removes, renames and re-points anything before Create. The best pain
-match is set up first (`setup_rank`), in either mode.
+Both are starting points and there is no limit: the person adds, removes, renames and re-points anything before Create. The starter team is
+set up in the order shown (`setup_rank`), in either mode.
 
-The tags the answers imply, for a card's `recommend_when`:
-
-| Answer | Tag |
-|---|---|
-| Any answers at all | `always` |
-| Customers: businesses or both | `sells_to_businesses` |
-| Customers: consumers or both | `sells_to_consumers` |
-| Software is the product | `sells_software` |
-| Mail, chat or a CRM ticked (or work arriving that way) | `uses_email`, `uses_slack`, `uses_crm` |
-| GitHub, a meetings importer or docs ticked | `uses_github`, `uses_meetings`, `uses_docs` |
-| Work arrives as tickets | `uses_tickets` and `has_support_inbox` |
-| Team size with no number above 10 | `small_team` |
+A card's `recommend_when` tags are no longer matched to the answers, except the business and consumer ones above. `uses_github` and
+`uses_meetings` stay valid tags a card may list; nothing sets them.
 
 ### What Create does
 
@@ -129,7 +117,7 @@ parked and answers people only.
 - **Invite an admin**: a name and an email. The person joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/people`,
   then `POST /api/v2/access/people/{id}` with `role: admin`). Tico sends no email.
 - **Who owns each bot**: add a person as a co-owner of any bot (`POST /api/v2/bots/{bot}/co-owners`; [permissions](permissions.md#bot-owners)).
-- **Connect your tools**: links to the places a ticked tool is connected (Settings > Cloud services, Integrations, Credentials). Secrets
+- **Connect your tools**: links to Credentials and Integrations, where keys and connections go. Secrets
   are entered in those fields, **never in a chat with a bot**; the BotOps playbook says the same, and a secret pasted into a chat is treated as
   leaked.
 
@@ -167,7 +155,7 @@ self-reported and nothing stays ticked once the thing it names goes away.
 | GitHub is connected | The GitHub App is stored and installed (`backend/github_app.py`). Optional: it can be skipped, and a skipped step counts toward the total | Owner |
 | BotOps is active | The `botops` bot's state is `active` | Owner, bot administrators |
 | Create your first bot | Any bot other than the assistant and BotOps exists and is not archived | Owner, bot administrators |
-| Set up the next bot | Done when no starter is waiting; while one is, the label names it (the one matching the top pain first, by `setup_rank`), says why, and links to its page, where **Start setup** is | Owner, bot administrators |
+| Set up the next bot | Done when no starter is waiting; while one is, the label names it (the first of the team, by `setup_rank`), says why, and links to its page, where **Start setup** is | Owner, bot administrators |
 | First approved output | A starter bot has said it is onboarded (`onboarding_state: onboarded`): a person approved its first routine, which is the first output reviewed. It replaces a count of set-up bots, and completes by one | Everyone |
 | Your first update arrived | The `updates` table has a row | Everyone |
 
@@ -252,10 +240,10 @@ check result and the one thing to read before activating.
 It never activates a bot, never creates a credential, and never overwrites a repository that
 already exists.
 
-## The assistant, BotOps and the Librarian are built in
+## The assistant, BotOps, the Librarian and the Goal Manager are built in
 
-Every company gets all of them, and none is a choice: their cards are `required: true` in the wizard, so the wizard
-builds them whatever else is ticked, and both become active once a computer is enrolled ([Activating](#activating)).
+Every company gets all four, and none is a choice: their cards are `required: true` in the wizard, so the wizard
+builds them whatever else is ticked, and they become active once a computer is enrolled ([Activating](#activating)).
 The assistant is every person's private [Assistant](assistant.md) (a tab on their own page); it also works in the
 background: it routes Slack messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews
 BotOps' refused writes, and runs its own routines.
@@ -323,7 +311,7 @@ The catalog ships 38 starter templates in six packs, each with a card; [Starter 
   `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`, `pack` (its team: `basics`, `sales`,
   `marketing`, `support`, `operations` or `engineering`), `lead` (one per pack: it leads its team on the full org chart), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`,
   `approval_required` and `example_output`. The server serves all of them except `onboarding` and `example_output`, and the chooser reads
-  `pack`, `pains`, `prerequisites` and `recommend_when` ([Starter bots](starter-bots.md)). A card with a `first_routine` and an
+  `pack`, `lead`, `pains`, `summary` and `recommend_when`; `prerequisites` are shown by the bot's own setup, not by onboarding ([Starter bots](starter-bots.md)). A card with a `first_routine` and an
   `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot onboarded`.
 - Everything else in the folder is the repository the bot starts from: `AGENT.md`,
   `employee.yaml`, `playbooks/`, `knowledge/`, `memory/`, `state.md`, `.env.example`, `.gitignore`.
@@ -332,10 +320,9 @@ The catalog ships 38 starter templates in six packs, each with a card; [Starter 
 - `required: true` means the wizard always includes it. `bootstrap: true` means the machine
   materializes it itself and no BotOps task is filed for it. Both are true for the assistant and
   BotOps only.
-- `recommend_when` matches the tags in the table above. A card may carry others, and the shipped cards do
-  (`publishes_content`, `tracks_mentions`, `has_pipeline`), which the answers derive from what is gated and who they sell to. The `inbox` card
-  asks for `has_personal_inbox`, which no answer derives, so it is proposed only by a matching pain and always needs a person's mailbox
-  chosen alongside it.
+- `recommend_when` says who a card is for. The chooser reads only `sells_to_businesses` and `sells_to_consumers` (business-only cards, above); the rest
+  (`publishes_content`, `has_pipeline`, `uses_github`, ...) are descriptive and harmless. The `inbox` card needs a person's mailbox chosen
+  alongside it whenever it is on the team.
 - The release ships `templates/catalog` as `.yaml` and `.md` files only, which is all the server
   reads. The full folder is materialized from the checkout on the Mac, so a template only works
   for real once that Mac has pulled it. `TICO_CATALOG_DIR` points either side at another catalog.

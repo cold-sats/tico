@@ -1,11 +1,11 @@
 // Offline browser regression for the first-run wizard: a company whose config
 // says onboarding_needed lands on #/welcome instead of Tasks and keeps a "Finish setup" entry; the
-// seven steps save a draft with PUT /api/v2/onboarding on every Next (there is no assistant to name, and an
-// optional "Connect your agent" step opens connectAgent()). The company answers what hurts and what it uses;
-// the server proposes a starter team or a full org chart, each editable (names, reports-to, add, remove) with
+// six steps save a draft with PUT /api/v2/onboarding on every Next (there is no assistant to name, and an
+// optional "Connect your agent" step opens connectAgent()). The company says what it does, and
+// the server proposes a starter team or a full org chart from that alone, each editable (names, reports-to, add, remove) with
 // nothing created until "Create my team", which posts /api/v2/onboarding/complete exactly once. After it: each
 // starter shows "Needs onboarding" with a Start setup button that says "Let's set you up.", an admin can be
-// invited, bot owners named and tools' places found; the bot page and the org chart carry the same mark.
+// invited, bot owners named and where to keep keys found; the bot page and the org chart carry the same mark.
 // Settings -> Bots reuses the catalog cards. Fixtures only - no server, no network.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -51,6 +51,20 @@ const CATALOG = [
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'high',
    recommend_when: ['has_support_inbox', 'uses_tickets', 'sells_to_consumers', 'uses_email'],
    instructions: '# Support\n\nAnswer the queue in the company voice.\n'},
+  {template: 'sales', slug: 'sales', name: 'Sales Drafter', required: false, bootstrap: false, starter: true, pack: 'sales', lead: true,
+   pains: ['leads go cold'], prerequisites: [{tool: 'crm', why: 'The pipeline.', required: true}],
+   first_routine: {title: 'Follow-up drafts', cadence: 'Weekdays at 10:00'},
+   summary: 'Drafts follow-ups for a person to send.',
+   owns: ['follow-up drafts'], never: ['sends mail on its own'],
+   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['sells_to_businesses'],
+   instructions: '# Sales Drafter\n\nDraft, never send.\n'},
+  {template: 'issue-triage', slug: 'issue-triage', name: 'Issue Triage', required: false, bootstrap: false, starter: true, pack: 'engineering', lead: true,
+   pains: ['issues pile up untriaged'], prerequisites: [{tool: 'github', why: 'The issues.', required: true}],
+   first_routine: {title: 'Daily triage', cadence: 'Weekdays at 08:00'},
+   summary: 'Labels and routes new issues.',
+   owns: ['issue labels'], never: ['closes issues without a person'],
+   runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'medium', recommend_when: ['uses_github'],
+   instructions: '# Issue Triage\n\nLabel, never close.\n'},
   {template: 'social', slug: 'social', name: 'Social', required: false, bootstrap: false, pack: 'marketing',
    summary: 'Drafts posts and watches mentions.',
    owns: ['the posting calendar'], never: ['publishes without a person'],
@@ -85,35 +99,27 @@ const BOTS_AFTER = [
    setup_task_id: 'task-social', repository_present: false},
 ];
 // What the server proposes from the answers (backend/onboarding.py `choose` and `full_chart`, tested there).
-const FEATURED = [['Leadership', 'chief-of-staff', 'I don\'t know what is really going on across the company', 'too much email'],
-  ['Sales', 'sales', 'leads go cold', 'I can\'t tell which deals are really moving'],
-  ['Marketing', 'content', 'we don\'t post regularly', 'we don\'t have a clear picture of our competitors'],
-  ['Support', 'support', 'support inbox is overflowing', 'customers wait too long for an answer'],
-  ['Operations', 'meeting-notes', 'meetings without follow-up', 'renewals and deadlines sneak up on us'],
-  ['Engineering', 'issue-triage', 'issues pile up untriaged', 'pull requests wait days for a first review']];
-const PAINS = [...FEATURED.flatMap(([team, template, ...texts]) => texts.map(text => ({text, template, team, featured: true}))),
-               {text: 'goals stall and nobody notices', template: 'chief-of-staff', team: 'Leadership', featured: false},
-               {text: 'we answer the same questions again and again', template: 'support', team: 'Support', featured: false}];
-const rec = (slug, why, pain = '') => {
+const rec = (slug, why, signal = '') => {
   const card = CATALOG.find(row => row.slug === slug);
-  return {template: card.template, slug, name: card.name, why, matched_pain: pain,
-          prerequisites: (card.prerequisites || []).map(row => ({...row, met: row.tool === 'hub'}))};
+  return {template: card.template, slug, name: card.name, why: (signal ? signal + '. ' : '') + why, matched_pain: '',
+          prerequisites: card.prerequisites || []};
 };
+// The starter team is Chief of Staff, Support and Sales, plus Issue Triage when software is the product; the full chart
+// adds Engineering only then too.
 const advice = answers => {
-  const said = (answers?.pains || []).includes('support inbox is overflowing');
-  const ticked = new Set(answers?.tools || []);
-  const support = rec('support', 'You said "support inbox is overflowing". Answers customers and keeps the queue short.', 'support inbox is overflowing');
-  support.prerequisites = support.prerequisites.map(row => ({...row, met: ticked.has(row.tool)}));
-  const recommendations = [...(said ? [support] : []), rec('chief-of-staff', 'Turns goals, tasks and updates into a weekly brief.')];
+  const software = answers?.software_product === 'yes';
+  const recommendations = [rec('chief-of-staff', 'Turns goals, tasks and updates into a weekly brief.'),
+    rec('support', 'Answers customers and keeps the queue short.'), rec('sales', 'Drafts follow-ups for a person to send.'),
+    ...(software ? [rec('issue-triage', 'Labels and routes new issues.', 'Software is your product')] : [])];
   const member = (slug, reports_to, lead) => ({...rec(slug, 'Runs the weekly brief.'), lead, reports_to});
-  return {recommendations, pain_options: PAINS, home: 'human:ana',
-    held_back: ticked.has('meetings') ? [] : [{template: 'meeting-notes', name: 'Meeting Notes', needs: ['meetings'],
-      why: 'It matches "meetings without follow-up" but it needs meetings, which you did not tick.'}],
+  return {recommendations, home: 'human:ana', held_back: [],
     full_chart: {teams: [
       {team: 'Leadership', lead: 'chief-of-staff', members: [member('chief-of-staff', 'human:ana', true), member('inbox', 'chief-of-staff', false)]},
+      {team: 'Sales', lead: 'sales', members: [member('sales', 'human:ana', true)]},
       {team: 'Marketing', lead: 'social', members: [member('social', 'human:ana', true)]},
       {team: 'Support', lead: 'support', members: [member('support', 'human:ana', true)]},
-      {team: 'Operations', lead: 'bookkeeper', members: [member('bookkeeper', 'human:ana', true)]}], held_back: []}};
+      {team: 'Operations', lead: 'bookkeeper', members: [member('bookkeeper', 'human:ana', true)]},
+      ...(software ? [{team: 'Engineering', lead: 'issue-triage', members: [member('issue-triage', 'human:ana', true)]}] : [])], held_back: []}};
 };
 
 (async () => {
@@ -211,7 +217,7 @@ const advice = answers => {
     await page.locator('#onb-company').waitFor();
     assert.equal(await page.locator('#nav-welcome').evaluate(el => el.hidden), false);
     assert.match(await page.locator('#nav-welcome').textContent(), /Finish setup/);
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 1 of 7');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 1 of 6');
 
     // ---- a: names, prefilled from config, with no explanation under them. The assistant
     // works in the background and is not named here; its configured name rides along unchanged.
@@ -229,7 +235,7 @@ const advice = answers => {
     assert.deepEqual(puts[0].answers.never_without_person, ['send', 'spend', 'publish', 'hire']);
 
     // ---- b: about the company. The four "never" boxes start checked; one comes off here.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 2 of 7');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 2 of 6');
     assert.equal(await page.locator('[data-onb-never][value=hire]').isChecked(), true);
     await shot(page, 'desktop-1-about');
     await page.locator('#onb-what').fill('We sell a live audio app and the studio software behind it.');
@@ -238,63 +244,43 @@ const advice = answers => {
     await page.locator('#onb-size').selectOption('2-10');
     await page.locator('[data-onb-never][value=hire]').uncheck();
     await page.locator('#onb-next').click();
-    await page.locator('#onb-pains').waitFor();
+    await page.locator('[data-team-start]').first().waitFor();
     assert.equal(puts.length, 2);
     assert.deepEqual(puts[1].answers, {
       what_we_do: 'We sell a live audio app and the studio software behind it.',
       customers: 'businesses', software_product: 'yes', team_size: '2-10', work_arrives: [], repetitive_work: '',
       never_without_person: ['send', 'spend', 'publish'], pains: [], pains_text: '', tools: []});
 
-    // ---- c: what hurts (chips from the starter cards, and free text) and what the company uses. Nothing leaves this computer.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 7');
-    await shot(page, 'desktop-2-needs-empty');
-    assert.equal(await page.locator('[data-onb-hint]').textContent(), 'Stays on this computer.');
-    assert.equal(await page.locator('#onb-step small').count(), 0);           // one hint line, under the title
-    // Only the featured pains show, grouped by team; the others still match what is typed.
-    assert.equal(await page.locator('[data-onb-pain]').count(), 12);
-    assert.deepEqual(await page.locator('[data-pain-team]').evaluateAll(els => els.map(el => el.dataset.painTeam)),
-      ['Leadership', 'Sales', 'Marketing', 'Support', 'Operations', 'Engineering']);
-    assert.equal(await page.locator('[data-pain-team=Support] [data-onb-pain]').count(), 2);
-    assert.equal(await page.locator('[data-onb-pain][value="goals stall and nobody notices"]').count(), 0);     // not featured
-    await page.locator('[data-onb-pain][value="support inbox is overflowing"]').check();
-    await page.locator('#onb-pains-text').fill('Weekend support mail waits until Monday.');
-    await page.locator('[data-onb-tool][value=mail]').check();
-    await page.locator('[data-onb-tool][value=github]').check();
-    assert.deepEqual(await page.locator('[data-onb-tool]').evaluateAll(els => els.map(el => el.value)), ['mail', 'chat', 'crm', 'github', 'meetings', 'docs']);
-    await shot(page, 'desktop-3-needs');
-    await page.locator('#onb-next').click();
-    await page.locator('[data-team-start]').first().waitFor();
-    assert.equal(puts.length, 3);
-    assert.deepEqual([puts[2].answers.pains, puts[2].answers.pains_text, puts[2].answers.tools],
-      [['support inbox is overflowing'], 'Weekend support mail waits until Monday.', ['mail', 'github']]);
-
-    // ---- d: your team. The starter team is the way in: the best pain match and Chief of Staff, each with why and its needs.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 7');
+    // ---- c: your team, straight after About: there is no step asking what hurts or which tools are used.
+    // The starter team is the way in: Chief of Staff, Support and Sales, plus Issue Triage because software is the product.
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 6');
+    assert.equal(await page.locator('#onb-step [data-onb-pain], #onb-step [data-onb-tool], #onb-pains, #onb-pains-text, #onb-tools').count(), 0);
+    assert.doesNotMatch(await page.locator('.onb-progress').textContent(), /What hurts/);
     assert.equal(await page.locator('[data-team-start=starter] input').isChecked(), true);
-    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'support']);
+    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'sales', 'support', 'issue-triage']);
     assert.match(await page.locator('[data-team-builtin]').textContent(), /Built in: Ace, BotOps/);
     assert.equal(await page.locator('[data-team-why=support]').textContent(),
-      'You said "support inbox is overflowing". Answers customers and keeps the queue short.');
-    assert.match(await page.locator('[data-team-prereq=support]').textContent(), /Mail/);       // ticked: met, not "Needs Mail"
-    assert.doesNotMatch(await page.locator('[data-team-prereq=support]').textContent(), /Needs/);
+      'Answers customers and keeps the queue short.');
+    assert.equal(await page.locator('[data-team-why=issue-triage]').textContent(), 'Software is your product. Labels and routes new issues.');
+    // Tools gate nothing here: no "Needs" pills, and nothing held back. Each bot asks for what it needs when it starts.
+    assert.equal(await page.locator('[data-team-prereq], [data-team-held], [data-team-needs]').count(), 0);
     assert.match(await page.locator('[data-team-bot=support]').textContent(), /First routine: Daily support triage/);
     assert.equal(await page.locator('[data-team-reports=support]').inputValue(), 'human:ana');    // the company owner, by default
-    assert.match(await page.locator('[data-team-start=starter]').textContent(), /2 bots/);
+    assert.match(await page.locator('[data-team-start=starter]').textContent(), /4 bots/);
     // No limit and no nagging about the count: the note is only that nothing exists until Create.
     assert.doesNotMatch(await page.locator('#onb-step').textContent(), /start with a few|too many|at most|no more than/i);
     assert.equal(await page.locator('[data-onb-hint]').textContent(), 'Nothing exists until you create it.');
     await shot(page, 'desktop-4-team-starter');
-    // A pain with no tool to serve it is held back and said so, under Add a bot.
     await page.locator('#team-add summary').click();
-    assert.match(await page.locator('[data-team-held=meeting-notes]').textContent(), /needs meetings, which you did not tick/);
     assert.equal(await page.locator('[data-team-add=inbox]').count(), 1);
+    assert.equal(await page.locator('[data-team-add-row=inbox] [data-team-needs]').count(), 0);
 
     // The full org chart: every template that fits, in teams with a lead, mirroring a company.
     await page.locator('[data-team-start=full] input').check();
     assert.deepEqual(await page.locator('[data-team-group]').evaluateAll(els => els.map(el => el.dataset.teamGroup)),
-      ['Leadership', 'Marketing', 'Support', 'Operations']);
+      ['Leadership', 'Sales', 'Marketing', 'Support', 'Operations', 'Engineering']);
     assert.match(await page.locator('[data-team-group=Leadership] h3').textContent(), /led by Chief of Staff/);
-    assert.match(await page.locator('[data-team-start=full]').textContent(), /5 bots in 4 teams/);
+    assert.match(await page.locator('[data-team-start=full]').textContent(), /7 bots in 6 teams/);
     assert.equal(await page.locator('[data-team-reports=inbox]').inputValue(), 'chief-of-staff');   // a member reports to its lead
     assert.equal(await page.locator('[data-team-reports=chief-of-staff]').inputValue(), 'human:ana');
     assert.equal(await page.locator('[data-team-bot=social] .pill.ok', {hasText: 'Lead'}).count(), 1);
@@ -303,9 +289,9 @@ const advice = answers => {
     await page.locator('[data-team-remove=bookkeeper]').click();
     assert.equal(await page.locator('[data-team-bot=bookkeeper]').count(), 0);
     await page.locator('[data-team-remove=inbox]').click();
-    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'social', 'support']);
+    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'sales', 'social', 'support', 'issue-triage']);
     await page.locator('[data-team-start=starter] input').check();                  // back to the starting team: the edits reset
-    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'support']);
+    assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'sales', 'support', 'issue-triage']);
     await page.locator('#team-add summary').click();
     await page.locator('[data-team-add=social]').click();
     await page.locator('[data-cat-name=support]').fill('Support desk');
@@ -317,17 +303,17 @@ const advice = answers => {
     assert.equal(await page.locator('[data-team-reports=support] option[value=chief-of-staff]').count(), 1);
     await page.locator('#onb-next').click();
     await page.locator('#onb-enroll').waitFor();
-    assert.equal(puts.length, 4);
-    // The team goes to the server in the order to set it up: the best pain match first, then Chief of Staff, then what was added.
-    assert.deepEqual(Object.keys(puts[3].selected), ['coo', 'botops', 'support', 'chief-of-staff', 'social']);
-    assert.equal(puts[3].selected.support.display_name, 'Support desk');
-    assert.equal(puts[3].selected.support.reports_to, 'chief-of-staff');
-    assert.equal(puts[3].selected.social.reports_to, 'human:ben');
-    assert.equal(puts[3].selected['chief-of-staff'].reports_to, 'human:ana');
-    assert.equal(puts[3].selected.botops.reports_to, undefined);       // the built-ins keep their place
+    assert.equal(puts.length, 3);
+    // The team goes to the server in the order to set it up: the starter team as chosen, then what was added.
+    assert.deepEqual(Object.keys(puts[2].selected), ['coo', 'botops', 'chief-of-staff', 'support', 'sales', 'issue-triage', 'social']);
+    assert.equal(puts[2].selected.support.display_name, 'Support desk');
+    assert.equal(puts[2].selected.support.reports_to, 'chief-of-staff');
+    assert.equal(puts[2].selected.social.reports_to, 'human:ben');
+    assert.equal(puts[2].selected['chief-of-staff'].reports_to, 'human:ana');
+    assert.equal(puts[2].selected.botops.reports_to, undefined);       // the built-ins keep their place
 
     // ---- d: this Mac. The enrollment file is the Settings flow; the commands keep <slug> literal.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 5 of 7');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 6');
     assert.equal(await page.locator('#onb-machine-status').textContent(), 'No computer enrolled yet');
     await shot(page, 'desktop-5b-machine');
     // Not a Mac-only story: computers can be Macs or Linux/cloud boxes, on a subscription or an API key.
@@ -356,7 +342,7 @@ const advice = answers => {
     machine = {runners: [{id: 'runner-1', label: "Ana's Mac", online: true}, {id: 'runner-2', label: 'Cloud box', online: true}, {id: 'runner-3', label: 'Old laptop', online: false}], enrolled: true};
     await page.locator('#onb-next').click();
     await page.locator('#onb-connect').waitFor();
-    assert.equal(puts.length, 5);
+    assert.equal(puts.length, 4);
 
     // A runner that is already online is shown as ready; the Mac instructions fold away.
     await page.locator('#onb-back').click();
@@ -368,10 +354,10 @@ const advice = answers => {
     assert.equal(await page.locator('#onb-enroll').isVisible(), true);
     await page.locator('#onb-next').click();
     await page.locator('#onb-connect').waitFor();
-    assert.equal(puts.length, 6);
+    assert.equal(puts.length, 5);
 
     // ---- e: connect your agent. Optional: the button opens the same modal as the sidebar's plug.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 6 of 7');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 5 of 6');
     await shot(page, 'desktop-5c-agent');
     await page.locator('#onb-connect').click();
     await page.locator('dialog.connect-agent[open]').waitFor();
@@ -379,17 +365,16 @@ const advice = answers => {
     await page.waitForFunction(() => !document.querySelector('dialog.connect-agent'));
     await page.locator('#onb-next').click();
     await page.locator('#onb-finish').waitFor();
-    assert.equal(puts.length, 7);
+    assert.equal(puts.length, 6);
 
     // ---- g: review, then create exactly once.
-    assert.equal(await page.locator('#onb-count').textContent(), 'Step 7 of 7');
+    assert.equal(await page.locator('#onb-count').textContent(), 'Step 6 of 6');
     await shot(page, 'desktop-5d-review');
     const review = await page.locator('#onb-step').textContent();
     assert.match(review, /Initech Hub/);
     assert.match(review, /Businesses/);
     assert.match(review, /Software is the product\s*Yes/);
-    assert.match(review, /What hurts\s*support inbox is overflowing; Weekend support mail waits until Monday\./);
-    assert.match(review, /Tools\s*Mail, GitHub/);
+    assert.doesNotMatch(review, /What hurts|Tools/);
     assert.match(review, /Send anything, Spend money, Publish anything/);
     assert.match(review, /Computers\s*Ana's Mac, Cloud box online/);
     assert.match(await page.locator('[data-review-team]').textContent(), /Chief of Staff\s*→ Ana Rivera/);
@@ -435,9 +420,9 @@ const advice = answers => {
     await page.locator('[data-fr-owner=support]').selectOption('ben');
     await page.locator('[data-fr-owned=support]', {hasText: 'Ben Cole own it'}).waitFor();
     assert.deepEqual(owners, [['support', {add: ['ben'], remove: []}]]);
-    // Tools are connected once, in the hub's own fields, and never in a chat.
+    // Keys are entered once, in the hub's own fields, and never in a chat.
     assert.deepEqual(await page.locator('#fr-tools [data-fr-link]').evaluateAll(els => els.map(el => el.dataset.frLink)),
-      ['mail', 'github', 'credentials', 'integrations']);
+      ['credentials', 'integrations']);
     assert.equal(await page.locator('[data-fr-link=credentials]').getAttribute('href'), '#/credentials');
     assert.match(await page.locator('[data-fr-secrets]').textContent(), /Enter secrets in those fields, never in a chat with a bot/);
     // What was typed survives the progress poll (only the rows are redrawn).
@@ -498,7 +483,7 @@ const advice = answers => {
     await page.locator('#catalog-picker-grid').waitFor();
     // The bots that already exist are not offered again, and nothing is forced on here.
     assert.deepEqual(await page.locator('#catalog-picker-grid .cat-card').evaluateAll(
-      els => els.map(el => el.dataset.catCard)), ['botops', 'bookkeeper', 'inbox', 'social']);
+      els => els.map(el => el.dataset.catCard)), ['botops', 'bookkeeper', 'inbox', 'issue-triage', 'sales', 'social']);
     assert.equal(await page.locator('#catalog-picker-grid [data-cat-toggle=botops]').isDisabled(), false);
     assert.equal(await page.locator('#catalog-picker-grid [data-cat-toggle=bookkeeper]').isChecked(), false);
     await page.locator('#catalog-picker-grid [data-cat-toggle=bookkeeper]').check();
@@ -548,13 +533,9 @@ const advice = answers => {
     assert.equal(await fits(), true);
     await shot(phone, 'phone-1-about');
     await phone.locator('#onb-next').click();
-    await phone.locator('#onb-pains').waitFor();
-    assert.equal(await fits(), true);
-    await shot(phone, 'phone-2-needs');
-    await phone.locator('#onb-next').click();
     await phone.locator('[data-team-start]').first().waitFor();
     assert.equal(await fits(), true);
-    assert.equal(await phone.locator('[data-team-bot]').count(), 3);     // the draft's own team, saved on the first visit
+    assert.equal(await phone.locator('[data-team-bot]').count(), 5);     // the draft's own team, saved on the first visit
     await phone.locator('[data-team-start=full] input').check();
     assert.equal(await fits(), true);
     await phone.locator('#team-add summary').click();

@@ -5,22 +5,24 @@ the 38 starter templates does is in [Starter bots](starter-bots.md). BotOps and 
 
 ## Pick your first bots
 
-Start from what hurts, not from what a bot could do.
+Start from what your company does, not from what a bot could do.
 
-1. **Name one or two pains** in the first-run questions, in the words you would use to a colleague ("the support inbox overflows on
-   weekends", "nobody follows up after meetings"). The chooser matches them against what each template is for.
-2. **Tick the tools you already use.** A bot that cannot read your mail, tickets or repository cannot help, so a template that needs a tool
-   you did not tick is held back and says what it needs. Connecting the tool comes after your team is created.
-3. **Choose a starting point.**
-   - **Starter team**: the best matches for your pains plus Chief of Staff, about three to five bots. The easiest place to start.
-   - **Full org chart**: every template that fits, grouped into teams (Leadership, Sales, Marketing, Support, Operations, Engineering)
-     with a lead for each, so the chart looks like your company. A big chart is safe: a bot you have not set up yet is parked, does nothing
-     on its own and costs nothing.
+1. **Say what you do** in "About the company": what the company does, who it sells to, whether software is its product and how big it is.
+   That is all the first-run questions ask. There is no list of pains to tick and no list of tools: the team is chosen from those answers.
+2. **Choose a starting point.**
+   - **Starter team**: Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage if software is your product, and at most one more
+     if your description obviously points at it. Three to five bots, and the easiest place to start.
+   - **Full org chart**: every starter template that fits, grouped into teams (Leadership, Sales, Marketing, Support, Operations,
+     Engineering) with a lead for each, so the chart looks like your company. Engineering appears only if software is your product, and a
+     company that sells only to consumers skips the templates written for business customers. A big chart is safe: a bot you have not set up
+     yet is parked, does nothing on its own and costs nothing.
    - **Just the built-ins**: the Assistant, BotOps, the Librarian and the Goal Manager, and add the rest as you go.
-4. **Edit before you create.** Rename a bot, choose who it reports to (a person or another bot on the chart; you by default), remove
+3. **Edit before you create.** Rename a bot, choose who it reports to (a person or another bot on the chart; you by default), remove
    what you do not need, add what is missing. Nothing exists until **Create my team**.
+4. **Connect tools when a bot asks.** Onboarding does not ask which tools you use and no bot is held back for a missing one. When you press
+   **Start setup** on a bot, it tells you what it needs (a mailbox, tickets, a repository, a CRM) and where to connect it.
 
-There is no limit on how many bots to create, but set them up one at a time, best match first. The Getting started checklist names the
+There is no limit on how many bots to create, but set them up one at a time, in the order they are listed. The Getting started checklist names the
 next one.
 
 ## Set one up, together

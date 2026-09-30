@@ -132,13 +132,13 @@ Rust and the Tauri CLI (`cargo install tauri-cli`) are needed only for the deskt
    hosted install, or `env create` run without seeding) first sees "Which AI providers do you
    use?" with a default model. The next two screens set the company, app and
    assistant names, which override what `env create` recorded, then ask what the company does, who
-   it sells to, how big the team is, where work arrives, what repeats, and what must never happen
+   it sells to, whether software is its product, how big the team is, and what must never happen
    without a person. Every **Next** saves a draft, and every bot is created with those answers in
    its `knowledge/company.md`.
 
 6. **Pick your bots.** The catalog in `templates/catalog/` is shown as cards: what each bot owns,
    what it will never do, what it runs on, and the `AGENT.md` it would be created with, which you
-   can edit before taking it. The assistant and BotOps are required; the answers tick the rest.
+   can edit before taking it. The assistant and BotOps are required; a starter team (or a full org chart) is proposed from what you said the company does.
 
 7. **Set up this Mac.** **Add computer** downloads a private 15 minute setup file, and the screen
    prints the three commands to run in this checkout. `enroll` creates the workspace (mode 700,

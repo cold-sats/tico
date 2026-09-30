@@ -2043,18 +2043,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .task-chat .row{display:flex;gap:8px}
 
 /* first run (#/welcome): one screen per step, then the bot catalog as cards */
-/* first run, the team (ui/first-run.js): pains as chips, the starting point, the editable team, the screen after Create */
-.onb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-.onb-chip{position:relative;display:inline-flex}
-.onb-chip input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
-.onb-chip span{display:inline-block;padding:4px 12px;border:1px solid var(--line);border-radius:15px;background:var(--surface);font-size:13px;line-height:1.35}
-.onb-chip input:checked+span{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent)}
-.onb-chip input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
-.onb-pain-groups{display:grid;gap:var(--s2);margin-top:6px}
-.onb-pain-group{display:grid;grid-template-columns:96px minmax(0,1fr);gap:var(--s2);align-items:start}
-.onb-pain-team{font-size:12px;color:var(--muted);padding-top:9px}
-.onb-pain-group .onb-chips{margin-top:0}
-@media (max-width:640px){.onb-pain-group{grid-template-columns:1fr;gap:0}.onb-pain-team{padding-top:0}}
+/* first run, the team (ui/first-run.js): the starting point, the editable team, the screen after Create */
 .onb-more{margin-top:var(--s2);font-size:13px}.onb-more summary{cursor:pointer;color:var(--muted)}
 .team-start{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s3);margin-bottom:var(--s3)}
 .team-start-opt{display:flex;gap:var(--s2);align-items:flex-start;padding:var(--s3);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);cursor:pointer;min-width:0}
@@ -2071,7 +2060,6 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .team-bot-name .cat-name{max-width:320px}
 .team-why{margin:4px 0 6px;font-size:13px}
 .team-routine{margin:6px 0 0;font-size:12px}
-.team-prereq{display:inline-flex;flex-wrap:wrap;gap:4px}
 .team-bot-side{display:grid;gap:var(--s2);justify-items:end;flex:none;width:210px}
 .team-reports{display:grid;gap:3px;width:100%;font-size:12px;color:var(--muted)}
 .team-reports select{width:100%;font-size:13px}
@@ -2079,7 +2067,6 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .team-add summary{cursor:pointer;font-weight:500}
 .team-add-row{display:flex;gap:var(--s3);align-items:flex-start;justify-content:space-between;padding:var(--s3) 0;border-top:1px solid var(--line)}
 .team-add-row p{margin:2px 0 4px;font-size:12.5px}
-.team-held{margin:var(--s2) 0;padding-left:18px;font-size:12.5px}
 .fr-card{margin-top:var(--s4)}.fr-card header{flex-wrap:wrap;gap:2px var(--s3)}
 .fr-form{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s3)}.fr-form .onb-actions{grid-column:1/-1;margin-top:0}
 .fr-owner{display:flex;align-items:center;gap:var(--s3);padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.fr-owner:last-of-type{border-bottom:0}
@@ -11412,26 +11399,26 @@ async function renderSettingsPeople() {
 // Mac; connect your own agent if you have one; finish. BotOps then builds every chosen bot.
 // Every Next saves a draft, so a closed tab loses nothing. There is no assistant
 // to name in the wizard: people talk to it in the Assistant tab on their own page, act through their own agent, or use a bot's Chat tab.
-const ONB_STEPS = ['names', 'about', 'needs', 'team', 'machine', 'agent', 'review'];
+const ONB_STEPS = ['names', 'about', 'team', 'machine', 'agent', 'review'];
 // A company that has not chosen its AI providers starts there; state.steps is fixed at load, so the
 // step does not vanish from the list the moment it is saved.
 const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEPS] : ONB_STEPS;
-const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company', needs: 'What hurts, and what you use',
+const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company',
                     team: 'Your team', machine: 'Add the computer that runs your bots', agent: 'Connect your agent', review: 'Review and create'};
 // At most one short hint line under a step's title; most steps have none.
-const ONB_BLURB = {needs: 'Stays on this computer.', team: 'Nothing exists until you create it.', agent: 'Optional.'};
+const ONB_BLURB = {team: 'Nothing exists until you create it.', agent: 'Optional.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
 const ONB_NEVER = [['send', 'Send anything'], ['spend', 'Spend money'], ['publish', 'Publish anything'], ['hire', 'Hire anyone']];
-// Written with a number in them because the recommender reads the largest number it can find.
+// Kept with a number in them: a person reads the answer, and an older record's chooser read the largest number.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
 const ONB_BLANK = {
   names: {company_name: '', app_name: '', assistant_name: ''},
   answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
-            never_without_person: ['send', 'spend', 'publish', 'hire'], pains: [], pains_text: '', tools: [], software_product: ''},
+            never_without_person: ['send', 'spend', 'publish', 'hire'], software_product: ''},
   selected: {}, completed: null, recommended: [], recommendations: [], held_back: [], full_chart: {teams: [], held_back: []},
-  pain_options: [], home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
+  home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
 let ONB = null;
 function onbStop() { if (ONB) clearInterval(ONB.poll); ONB = null; }
 function pageWelcome() {
@@ -11473,7 +11460,7 @@ function onbAdopt(state, record) {
     selected: {...(row.selected || {})},
     recommended: row.recommended || [],
     recommendations: row.recommendations || [], held_back: row.held_back || [],
-    full_chart: {teams: [], held_back: [], ...(row.full_chart || {})}, pain_options: row.pain_options || [], home: row.home || '',
+    full_chart: {teams: [], held_back: [], ...(row.full_chart || {})}, home: row.home || '',
     bots: row.bots || [],
     machine: {...blank.machine, ...(row.machine || {})}};
   // The server stores "not answered yet" as an empty list; the four rules start on.
@@ -11559,7 +11546,6 @@ function onbStepHTML(state, key) {
       <div class="onb-choices">${ONB_NEVER.map(([value, label]) =>
         `<label><input type="checkbox" data-onb-never value="${value}" ${(a.never_without_person || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
     ${actions('Next')}`;
-  if (key === 'needs') return frNeedsHTML(state, actions);
   if (key === 'team') return frTeamHTML(state, actions);
   if (key === 'machine') {
     // A runner that is already online (the server's own, installed with the hub) needs no setup.
@@ -11632,8 +11618,6 @@ function onbSummaryHTML(state) {
     ${label('Sells to', ONB_CUSTOMERS.find(([value]) => value === a.customers)?.[1] || '')}
     ${label('Software is the product', a.software_product ? (a.software_product === 'yes' ? 'Yes' : 'No') : '')}
     ${label('Team size', a.team_size)}
-    ${label('What hurts', [...(a.pains || []), a.pains_text].filter(Boolean).join('; '))}
-    ${label('Tools', choice(FR_TOOLS.map(([value, name]) => [value, name]), a.tools))}
     ${label('Never without a person', choice(ONB_NEVER, a.never_without_person))}
     ${label('Computers', onbMachineStatus(r))}
     ${frSummaryTeamHTML(state)}
@@ -11729,7 +11713,7 @@ async function onbSave(state) {
   if (saved.machine) state.record.machine = {...state.record.machine, ...saved.machine};
   if (Array.isArray(saved.recommended)) { state.record.recommended = saved.recommended; onbApplyRecommended(state); }
   // What the server now proposes for these answers: the starter team, the full chart and what it held back.
-  for (const key of ['recommendations', 'held_back', 'pain_options']) if (Array.isArray(saved[key])) state.record[key] = saved[key];
+  for (const key of ['recommendations', 'held_back']) if (Array.isArray(saved[key])) state.record[key] = saved[key];
   if (saved.full_chart && typeof saved.full_chart === 'object') state.record.full_chart = {teams: [], held_back: [], ...saved.full_chart};
   if (typeof saved.home === 'string') state.record.home = saved.home;
   return saved;
