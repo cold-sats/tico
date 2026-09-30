@@ -26,7 +26,7 @@ All notable changes to Tico are recorded here. The format follows
   read-only. Replies are drafted, approved by a person, then posted by `software/hq-tickets reply` only for the exact approved text.
   Both do nothing until configured (docs/support.md).
 - **First run: an optional "Your name" on the Names step.** It is saved on the owner's roster entry, so the org chart and the sidebar show
-  a name and not `chris@example.com`. It is prefilled from the roster, or from the display name Cloudflare Access or the AWS load
+  a name and not `ana@example.com`. It is prefilled from the roster, or from the display name Cloudflare Access or the AWS load
   balancer vouches for (`name` claim; `sign_in_name` in `/api/me`); left blank, nothing changes.
 - **First run: the computer step opens on "A Linux or cloud server (Docker)"** when the server itself runs in Docker (`in_docker` in the
   config), and an online computer folds the step to one line, `<label> online`.
