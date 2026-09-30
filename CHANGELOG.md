@@ -7,6 +7,26 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-09-30
+
+### Added
+- **Pair a Hermes profile with a code, no token to copy.** On the profile's computer:
+  `curl -fsSL https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py && python3 hermes_agent.py pair --profile <name> --url https://<runner host>`
+  prints a code; tell BotOps "connect my Hermes profile <name>, code XXXX-XXXX", or use Pair in Settings → Bots. BotOps registers the
+  bot if needed and approves as the human who asked; the credential goes straight to the profile and is never shown. `hub agent pair
+  approve|decline`, `hub_agent_pair_approve|decline`. BotOps playbook `connect-a-hermes-profile`. The setup script downloads without a
+  sign-in from the runner address.
+- **Hermes connector:** `update` (the latest connector, in place), `reinstall`, and `doctor` (checks the wiring and lists old tool
+  names in the profile's prompts and skills by file and line). Installs remove older heartbeat jobs for the same profile. An archived
+  bot or a revoked credential gets one clear line and a retry once an hour.
+- **Restore an archived bot:** a Restore button under Settings → Bots → Archived, `hub bot restore`, `POST /api/v2/bots/{bot}/restore`.
+  BotOps restores, rotates and revokes a Hermes bot's credential as the human who asked.
+
+### Changed
+- Archiving a Hermes bot revokes its credential by default (a checkbox), and Health flags an archived bot whose agent still reports in.
+- A call to a tool renamed in 0.2.21 answers with its new name ("`hub_say` was renamed `hub_message_send`").
+- docs/hermes-agents.md leads with the two-minute pairing path, a cron recipe, upkeep and troubleshooting.
+
 ## [0.2.25] - 2026-09-30
 
 ### Added
