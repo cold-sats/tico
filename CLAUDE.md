@@ -1,7 +1,7 @@
 # Tico
 
 Tico is an open-source operating system for a company's human and AI team (Apache-2.0): a FastAPI
-server in `backend/`, the one-page web UI in `ui/index.html`, the runner in `runner/`, the `hub`
+server in `backend/`, the one-page web UI in `ui/` (`index.html`, `app/`, `styles/`; see ui/README.md), the runner in `runner/`, the `hub`
 CLI and MCP tool table in `clients/`, and a Tauri desktop shell in `app/`. `README.md` says how to
 run it and `docs/how-it-works.md` describes the system.
 

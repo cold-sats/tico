@@ -34,7 +34,8 @@ def test_pages_and_api_refuse_foreign_framing(api):
         assert headers["x-frame-options"] == "SAMEORIGIN"
         assert "frame-ancestors 'self'" in headers["content-security-policy"]
     page = api.get("/", headers={"Authorization": "Bearer ana-test"}).headers["content-security-policy"]
-    assert "script-src 'self' 'sha256-" in page and "unsafe-inline" not in page
+    # The page has no inline script (its code is ui/app/*.js), so only our own files may run.
+    assert page.startswith("script-src 'self';") and "unsafe-inline" not in page and "sha256-" not in page
 
 
 class EmptyEmailProxy:

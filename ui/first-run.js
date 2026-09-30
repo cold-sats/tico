@@ -2,7 +2,7 @@
    The org chart itself is built in ui/org-builder.js; this turns what is checked there into `selected` (the order to set
    the bots up in, each with its reports-to), says what is wrong before Create, and shows the rest. Nothing is created
    until "Create my team". It shares the wizard's state (`ONB`) and the catalog cards' state (`catalogState`) with
-   index.html. */
+   ui/app/welcome.js and ui/app/catalog.js. */
 const frOwner = () => (S.me?.id ? 'human:' + S.me.id : '');
 const frHome = state => state.record.home || frOwner();
 const frPeople = () => (SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.me?.id ? [{id: S.me.id, name: S.me.name}] : []));

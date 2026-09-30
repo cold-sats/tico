@@ -206,7 +206,7 @@ fn open_meeting_window(app: &App, id: &str) {
 }
 
 /// The page's side of the bridge: `window.ticoNative(name).postMessage(body)`, which
-/// `nativeHandler(name)` in ui/index.html looks for; `/TicoHub/` in the user agent marks the
+/// `nativeHandler(name)` in ui/app/native.js looks for; `/TicoHub/` in the user agent marks the
 /// page native. (WKWebView's own `window.webkit.messageHandlers` cannot be replaced, so the
 /// shell has its own name.)
 const BRIDGE_SCRIPT: &str = r#"
@@ -334,7 +334,7 @@ fn toggle_window_mode(app: &App) {
 }
 
 // Search from the View menu (⌘K) or the tray: bring the window forward, then the page opens
-// its own search dialog (`window.ticoSearch` in ui/index.html). The menu accelerator takes
+// its own search dialog (`window.ticoSearch` in ui/app/search.js). The menu accelerator takes
 // ⌘K before the webview sees it, so the page's own shortcut still works everywhere else.
 fn open_search(app: &App) {
     show_window(app);

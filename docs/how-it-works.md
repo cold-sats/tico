@@ -262,7 +262,7 @@ made or revoked is an `events` row (`token.create`, `token.revoke`).
 | `connectors/` | shared Slack, mail/calendar and browser adapters bots use instead of vendor APIs |
 | `integrations/` | one page per outside system (what it is, how a bot uses it, rules, recipes) and the query catalogs; served as **Integrations** and `hub integration <service>`, with the learnings bots add |
 | `questions/` | the question sets the decision model answers (`hub_decisions`, `hub decisions`, `mail inbox --decisions`, the meeting brain): one versioned JSON file per decision, with its thresholds |
-| `ui/` | the web interface (`index.html` and its scripts, browser tests) |
+| `ui/` | the web interface (`index.html`, `app/` scripts, `styles/`, feature scripts, browser tests; see `ui/README.md`) |
 | `app/` | the native macOS shell around hub.acme.example |
 | `infra/` | the EC2 stack, release packaging, deploy and restore scripts |
 | `scripts/` | `tico` (operate the runner), `hub` (the bots' CLI), setup, publishing and maintenance |

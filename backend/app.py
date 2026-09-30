@@ -189,17 +189,19 @@ def create_app(settings=None):
         return JSONResponse({"error": {"code": "storage_unavailable", "detail": "Please retry shortly",
                                        "retryable": True}}, status_code=503)
 
-    # Bot text reaches the page as HTML; scripts run only from our own files and the page's
-    # one inline block, so a tag that slips through a renderer cannot run.
+    # Bot text reaches the page as HTML; scripts run only from our own files (ui/app, ui/*.js), so a
+    # tag that slips through a renderer cannot run. The page carries no inline script today; one that
+    # is added to index.html is allowed by its hash, and any other inline script is refused.
     import base64
     import hashlib
     try:
         inline = re.findall(r"<script>(.*?)</script>", (settings.ui_dir / "index.html").read_text(), re.S)
     except OSError:
         inline = []
-    hashes = " ".join("'sha256-" + base64.b64encode(hashlib.sha256(block.encode()).digest()).decode() + "'"
-                      for block in inline)
-    PAGE_POLICY = f"script-src 'self' {hashes}; object-src 'none'; base-uri 'none'; frame-ancestors 'self'"
+    hashes = ["'sha256-" + base64.b64encode(hashlib.sha256(block.encode()).digest()).decode() + "'"
+              for block in inline]
+    PAGE_POLICY = ("script-src " + " ".join(["'self'", *hashes])
+                   + "; object-src 'none'; base-uri 'none'; frame-ancestors 'self'")
 
     from concurrent.futures import ThreadPoolExecutor
     from .timing import Timing
@@ -297,8 +299,8 @@ def create_app(settings=None):
             if response.status_code >= 500 and not getattr(request.state, "telemetry_captured", False):
                 telemetry.capture("request", status=response.status_code)
             # The page and its files (StaticFiles sends an ETag) may be kept by the browser and
-            # revalidated: an unchanged 830 KB index.html comes back as a 304, not in full on
-            # every load (slow loads on a phone). A deploy writes new files, so the
+            # revalidated: an unchanged script or stylesheet (ui/app, ui/styles) comes back as a 304, not in
+            # full on every load (slow loads on a phone). A deploy writes new files, so the
             # ETag changes and the new page arrives at once. Icons and images under /assets/ are
             # fresh for an hour. Everything else, the API above all, is never stored. Nothing
             # is kept by the CDN.
@@ -2912,7 +2914,7 @@ def create_app(settings=None):
     install_watchers(app, store, auth, execution, mutate)
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
-    # The page loads its scripts from /tico/ui/ (ui/index.html), so the same directory is
+    # The page loads its scripts and styles from /tico/ui/ (ui/index.html), so the same directory is
     # mounted there as well as at the root.
     app.mount("/tico/ui", StaticFiles(directory=settings.ui_dir, html=True), name="ui-prefixed")
     app.mount("/", StaticFiles(directory=settings.ui_dir, html=True), name="ui")

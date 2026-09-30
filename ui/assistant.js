@@ -2,7 +2,7 @@
    assistant. It answers lookups at once (what is waiting on you, search, "open X", how do I ...) and
    hands everything else to the assistant bot, which acts as you and never more. Anything with a side
    effect that matters arrives as a Confirm / Cancel card; only your click runs it.
-   index.html calls window.assistantChat.mount(host, deps) when the tab opens and
+   ui/app/person-page.js calls window.assistantChat.mount(host, deps) when the tab opens and
    window.assistantChat.prefill(text) from search ("Ask the Assistant..."); deps keeps this file
    free of the page's globals (get, post, esc, me). */
 (function () {

@@ -1,4 +1,4 @@
-// The Meetings page (ui/index.html pageNotes, ui/meeting-importers.js): a header with search and one
+// The Meetings page (ui/app/meetings.js pageNotes, ui/meeting-importers.js): a header with search and one
 // "Add notes" button, a strip of source tiles (Granola, Fireflies, Zoom, Google Meet, Close) that each say
 // Connect or Connected, an empty state that offers both ways in, filters and rows only once there is a
 // meeting, setup in a dialog, and a transcript upload inside Add notes. Light and dark, desktop and phone.

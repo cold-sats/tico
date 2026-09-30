@@ -1,0 +1,74 @@
+/* ui/app/settings-providers.js — Settings > AI providers
+   Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
+'use strict';
+
+// ----------------------------------------------------------------- AI providers
+// Which model vendors this company uses and the default model (backend/providers.py). One form
+// serves the first-run step and Settings; the server derives the runtime from the model.
+function providersModels(view, models, enabled) {
+  const labels = Object.fromEntries((view.providers || []).map(row => [row.id, row.label]));
+  return (models || []).filter(model => !model.deprecated && enabled.includes(model.provider))
+    .map(model => ({id: model.id, label: `${labels[model.provider] || model.provider} · ${model.label}`,
+                    recommended: (view.providers || []).some(row => row.recommended === model.id)}));
+}
+// One line per provider: box, name, a few muted words. The vendors that run through OpenRouter share one line.
+const PROVIDER_LINE = {openai: 'Codex, ChatGPT or API key', anthropic: 'Claude Code, Claude or API key', google: 'Gemini CLI, API key',
+  xai: 'Grok Build, Grok or API key', cursor: 'Cursor agent, Cursor or API key'};
+function providersFormHTML(view, models, id, editable = true) {
+  const enabled = view.enabled || [], dis = editable ? '' : ' disabled';
+  const box = row => `<input type="checkbox" data-provider value="${esc(row.id)}" ${enabled.includes(row.id) ? 'checked' : ''}${dis}>`;
+  const rows = view.providers || [];
+  const direct = rows.filter(row => PROVIDER_LINE[row.id]), routed = rows.filter(row => !PROVIDER_LINE[row.id]);
+  return `<div id="${id}" data-providers-form>
+    <div class="prov-list" role="group" aria-label="Providers">${direct.map(row =>
+      `<label class="prov">${box(row)}<strong>${esc(row.label)}</strong><span class="muted">${esc(PROVIDER_LINE[row.id])}</span></label>`).join('')}
+      ${routed.length ? `<div class="prov prov-routed"><span class="muted">Via OpenRouter</span>${routed.map(row =>
+        `<label class="prov-chip">${box(row)}${esc(row.label)}</label>`).join('')}</div>` : ''}</div>
+    <label class="onb-field"><span class="k">Default model</span><select data-provider-model${dis}></select></label></div>`;
+}
+function providersFillModels(root, view, models, keep) {
+  const enabled = [...root.querySelectorAll('[data-provider]:checked')].map(input => input.value);
+  const select = root.querySelector('[data-provider-model]');
+  const options = providersModels(view, models, enabled);
+  const wanted = options.some(row => row.id === keep) ? keep
+    : (options.find(row => row.recommended) || options[0] || {}).id || '';
+  select.innerHTML = options.length ? options.map(row =>
+    `<option value="${esc(row.id)}" ${row.id === wanted ? 'selected' : ''}>${esc(row.label)}</option>`).join('')
+    : '<option value="">Tick a provider first</option>';
+}
+function providersWire(root, view, models) {
+  if (!root) return;
+  providersFillModels(root, view, models, view.default?.model || '');
+  root.querySelectorAll('[data-provider]').forEach(input => input.onchange = () =>
+    providersFillModels(root, view, models, root.querySelector('[data-provider-model]').value));
+}
+const providersCollect = root => ({
+  enabled: [...root.querySelectorAll('[data-provider]:checked')].map(input => input.value),
+  model: root.querySelector('[data-provider-model]').value});
+async function providersSave(view, chosen) {
+  return put('/v2/providers', {enabled: chosen.enabled, model: chosen.model, expected_revision: view.revision || 0});
+}
+async function renderSettingsProviders() {
+  const el = $('#set-providers'); if (!el) return;
+  const owner = S.me?.role === 'owner';
+  try {
+    const view = await get('/v2/providers');
+    if (!$('#set-providers')) return;
+    el.innerHTML = `${providersFormHTML(view, SETTINGS_DATA.models, 'set-prov', owner)}
+      ${owner ? '<div class="onb-actions"><button class="primary" type="button" id="set-prov-save">Save</button><span class="spacer"></span><span class="muted" id="set-prov-status"></span></div>'
+        : '<p class="muted">Only the owner can change this.</p>'}`;
+    providersWire($('#set-prov'), view, SETTINGS_DATA.models);
+    const save = $('#set-prov-save');
+    if (save) save.onclick = async () => {
+      const chosen = providersCollect($('#set-prov')), status = $('#set-prov-status');
+      if (!chosen.enabled.length) { status.innerHTML = '<span class="err">Tick at least one provider.</span>'; return; }
+      save.disabled = true; status.textContent = 'Saving…';
+      try {
+        const saved = await providersSave(view, chosen);
+        SETTINGS_DATA.enabledProviders = saved.enabled; SETTINGS_DATA.defaultModel = saved.default?.model || '';
+        toast('AI providers saved');
+        await renderSettingsProviders();
+      } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; save.disabled = false; }
+    };
+  } catch (error) { el.innerHTML = `<div class="err">${esc(error.message)}</div>`; }
+}

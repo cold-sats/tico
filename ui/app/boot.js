@@ -1,0 +1,46 @@
+/* ui/app/boot.js — Last: native class, service worker registration and the boot sequence
+   Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
+'use strict';
+
+setDrawer(false);
+if (/TicoHub/.test(navigator.userAgent)) document.body.classList.add('native');
+// installable app: the server maps /manifest.webmanifest and /sw.js at the root like /assets/
+if ('serviceWorker' in navigator) window.addEventListener('load', () => {
+  const had = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!had || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('/sw.js?v=40', {updateViaCache: 'none'}).then(reg => reg.update()).catch(() => {});
+});
+(async () => {
+  try {
+    const [st, emps, issues, me, people] = await Promise.all([get('/status').catch(() => null), get('/employees'), get('/issues').catch(() => []), get('/me').catch(() => null), get('/people').catch(() => ({people: []}))]);
+    applyConfig(me?.config);           // company-facing names before the first render
+    S.status = st; S.emps = namedRoster(emps); S.issues = issues; S.me = me; setPeople(people);
+  } catch (e) {
+    $('#main').innerHTML = `<section class="card"><h2>Hub server not running</h2><p>Start it with <code>scripts/tico server start</code> in the Tico repo, or install it with <code>scripts/tico server install</code> so it runs at login.</p><p class="err">${esc(e.message)}</p></section>`;
+    return;
+  }
+  if (S.me?.cloud) {
+    window.TicoObservability?.start();
+    setInterval(() => window.TicoObservability?.start(), 30000);
+  }
+  await v2Refresh();
+  void orgHistorySync();
+  window.gsBoot?.();
+  window.hlBoot?.();
+  // A company that has never been set up opens on its first run, not on an empty Chat.
+  if (BOOT_DEFAULT_ROUTE && S.config.onboarding_needed) history.replaceState(null, '', WELCOME);
+  route(); renderHeartbeat(); renderAccount();
+  if (S.me?.cloud) void updUnreadRefresh();
+  nativeHandler('windowMode')?.postMessage('state');
+  // A tab in the background does not poll (each poll is the status, the issues, Needs you and
+  // the open bot's tasks); coming back to a stale tab refreshes it at once.
+  let refreshedAt = Date.now();
+  const poll = () => { refreshedAt = Date.now(); return refresh(false); };
+  setInterval(() => { if (!document.hidden) void poll(); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - refreshedAt > 30000) void poll(); });
+})();

@@ -3,7 +3,7 @@
    page at a time. A stored file opens in Tico's own viewer (deps.openFile), a linked document at its
    provider in a new tab (the provider decides who may open it). Adding a link, promoting and removing
    are the API and the bot's own tools (PATCH /api/v2/files/{id}), not buttons here.
-   index.html calls window.botFiles.mount(host, deps) once per bot page; deps keeps this file free
+   ui/app/bot-page.js calls window.botFiles.mount(host, deps) once per bot page; deps keeps this file free
    of the page's globals (get, esc, openFile). */
 (function () {
   const FILE_ICONS = {document: 'article', spreadsheet: 'view_list', slides: 'view_kanban', image: 'auto_awesome',

@@ -3,7 +3,7 @@
    ui/tool-icons.js has it and the name's first two letters otherwise; a red dot marks a tool with a
    problem. Hover or focus opens a popover with the details, a tap opens it as a sheet on a phone, a
    click pins it, Escape closes it. More than eight tools show "+N", which opens the whole list.
-   index.html calls window.botTools.mount(host, deps) once per bot page; deps keeps this file free of
+   ui/app/bot-page.js calls window.botTools.mount(host, deps) once per bot page; deps keeps this file free of
    the page's globals (get, esc). Nothing here reads a secret: the server sends names, never values. */
 (function () {
   const MAX_ICONS = 8;

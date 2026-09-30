@@ -9,7 +9,7 @@
    The Librarian cites [Internal doc · Title](doc:<id>) and [Linked · host](https://...). `doc:<id>` is
    turned into the Docs page route here and nowhere else (docHref). Its text is bot text: it only ever
    reaches the page through safeMd, the sanitizing renderer, never as raw HTML. Globals used from
-   index.html: get, post, esc, safeMd, API, toast. */
+   ui/app: get, post, esc, safeMd, API, toast. */
 (function () {
   const css = `
 .dask-backdrop{position:fixed;inset:0;z-index:1500;background:rgba(10,14,18,.4)}

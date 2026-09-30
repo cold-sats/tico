@@ -223,7 +223,7 @@
     });
   }
 
-  // The one hook the Help page calls after it draws itself (ui/index.html, pageHelp).
+  // The one hook the Help page calls after it draws itself (ui/app/help.js, pageHelp).
   window.supportHelp = async function supportHelp(page) {
     css();
     if (!page || page.querySelector('#support-mine')) return;
