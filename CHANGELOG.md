@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `install.sh --runner --name <name>` adds another computer on the same host (a message bot needs its own): its own
+  directory, compose project, container, home volume and updater. The updater's helper container is named per project so two
+  updaters on one host do not remove each other's.
+
 ## [0.2.20] - 2026-09-30
 
 ### Fixed

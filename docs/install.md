@@ -278,6 +278,22 @@ is no `.env` yet. Run with none of them, the installer keeps the `.env` as it is
 curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner --code <new code>
 ```
 
+**Add a second computer on the same host (for a message bot).** A message bot must have a computer of its
+own, so a second one on the same host is the usual next step ([mail](mail.md)). Give it a name and run the installer again with
+a new code from Settings > Devices > Add computer; the first computer is not touched:
+
+```
+curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner --name mail \
+  --url http://server:8765 --server-network tico_default --code <code> --label "Mail computer"
+```
+
+`--name` makes its own directory, `/opt/tico-runner-mail`, with its own compose project and container (`tico-runner-mail`, so
+`docker exec tico-runner-mail ...`), its own home volume (`tico-runner-mail_runner-home`, so logins and repositories are not
+shared) and its own updater; `--label` defaults to the name. `--server-network` works as above, and `--dir` still overrides
+the directory. The settings that differ from the first computer are in `runner.override.yaml` there, which updates keep. Each
+computer's updater follows the server's release on its own, so nothing else changes: to update, pin or reinstall it, run the
+line again with the same `--name` (or use its directory), and add `--version`, or a new `--code`, as for the first one.
+
 **Moving a runner that was started with a bare `docker run`.** Run the line above on the same machine. It finds the
 `tico-runner` volume, points the compose file at it (`TICO_RUNNER_HOME_VOLUME=tico-runner` in `.env`), removes the old
 container, and starts the compose one: the login, the bots' repositories and the enrollment carry over, and the runner

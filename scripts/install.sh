@@ -5,10 +5,13 @@
 #   curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh
 #   sh install.sh [--version vX.Y.Z] [--dir /opt/tico] [--yes] [--tunnel] [--docker-only] [-- wizard flags]
 #   sh install.sh --runner --url https://tico.example.com --code <code> --label "Build box" [--version vX.Y.Z]
+#   sh install.sh --runner --name mail --url http://server:8765 --code <code> --server-network tico_default
 #
 # --runner sets up a computer that runs bots for a Tico server instead: Docker, that release's runner.compose.yaml (the
 # runner and its updater sidecar, both pinned to the release) in /opt/tico-runner, a .env with the join settings, and
 # `docker compose up -d`. The sidecar is what keeps the runner on the server's release.
+# --name adds another computer on the same host (a message bot needs its own): it installs into /opt/tico-runner-<slug>
+# with its own compose project, container, home volume and updater, and leaves the default runner alone.
 #
 # Everything after `--` goes to `tico setup` (python3 -m setup), so automation can answer its questions with flags
 # and environment variables (secrets only ever by environment). Exit codes: 0 done, 2 usage, 3 this machine does not
@@ -40,6 +43,7 @@ RUNNER=
 RUNNER_URL=
 RUNNER_CODE=
 RUNNER_LABEL=
+RUNNER_NAME=
 SERVER_NETWORK=
 DIR_GIVEN=${TICO_INSTALL_DIR:+1}
 
@@ -61,6 +65,8 @@ Usage: install.sh [options] [-- tico-setup flags]
   --url URL          with --runner: the Tico server, such as https://tico.example.com
   --code CODE        with --runner: the one-time code from Settings > Devices > Add computer (15 minutes, single use)
   --label NAME       with --runner: the computer's name in Tico (default: this host's name)
+  --name NAME        with --runner: add another computer on this host (for a message bot). It gets its own directory
+                     (/opt/tico-runner-<name>), containers, volume and updater; the label defaults to NAME
   --server-network N with --runner on the server's own machine: join its Docker network N (usually tico_default) and
                      use --url http://server:8765, so the runner never goes through Cloudflare Access
   --help, -h         this text
@@ -87,6 +93,8 @@ while [ $# -gt 0 ]; do
     --code=*) RUNNER_CODE=${1#--code=}; shift ;;
     --label) [ $# -ge 2 ] || { usage >&2; die 2 "--label needs a value"; }; RUNNER_LABEL=$2; shift 2 ;;
     --label=*) RUNNER_LABEL=${1#--label=}; shift ;;
+    --name) [ $# -ge 2 ] || { usage >&2; die 2 "--name needs a value"; }; RUNNER_NAME=$2; shift 2 ;;
+    --name=*) RUNNER_NAME=${1#--name=}; shift ;;
     --server-network) [ $# -ge 2 ] || { usage >&2; die 2 "--server-network needs a value"; }; SERVER_NETWORK=$2; shift 2 ;;
     --server-network=*) SERVER_NETWORK=${1#--server-network=}; shift ;;
     --yes|-y) YES=1; shift ;;
@@ -98,7 +106,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$RUNNER" ] && [ -z "$DIR_GIVEN" ] && DIR=/opt/tico-runner
+# The default runner is `tico-runner` in /opt/tico-runner. --name adds `tico-runner-<slug>` in /opt/tico-runner-<slug>.
+RUNNER_SLUG=
+RUNNER_PROJECT=tico-runner
+[ -z "$RUNNER_NAME" ] || [ -n "$RUNNER" ] || die 2 "--name goes with --runner."
+if [ -n "$RUNNER_NAME" ]; then
+  RUNNER_SLUG=$(printf '%s' "$RUNNER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//' | cut -c1-32 | sed 's/-$//')
+  printf '%s' "$RUNNER_SLUG" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' || die 2 "--name needs letters or digits, such as --name mail."
+  RUNNER_PROJECT=tico-runner-$RUNNER_SLUG
+fi
+[ -n "$RUNNER" ] && [ -z "$DIR_GIVEN" ] && DIR=/opt/$RUNNER_PROJECT
 if [ -n "$RUNNER" ]; then
   # These reach a file and a command line, so only plain values are taken.
   [ -z "$TUNNEL$DOCKER_ONLY" ] || die 2 "--runner cannot be combined with --tunnel or --docker-only."
@@ -109,7 +126,7 @@ if [ -n "$RUNNER" ]; then
   if [ -n "$RUNNER_CODE" ] || [ ! -f "$DIR/.env" ]; then
     printf '%s' "$RUNNER_CODE" | grep -Eq '^[A-Za-z0-9_-]+$' || { usage >&2; die 2 "--runner needs --code, the one-time code from Settings > Devices > Add computer."; }
   fi
-  [ -n "$RUNNER_LABEL" ] || [ -f "$DIR/.env" ] || RUNNER_LABEL=$(hostname 2>/dev/null || echo runner)
+  [ -n "$RUNNER_LABEL" ] || [ -f "$DIR/.env" ] || RUNNER_LABEL=${RUNNER_NAME:-$(hostname 2>/dev/null || echo runner)}
   [ -z "$RUNNER_LABEL" ] || printf '%s' "$RUNNER_LABEL" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
 fi
 printf '%s' "$DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$' || die 2 "--dir must be an absolute path made of letters, digits and . _ - /"
@@ -362,7 +379,10 @@ run_wizard() {
 # volume. The compose file can use the same volume, so switching to it keeps the enrolled runner instead of making a second.
 runner_env() {
   volume_line=
-  if as_root docker volume inspect tico-runner >/dev/null 2>&1; then
+  if [ -n "$RUNNER_SLUG" ]; then
+    # Its own home volume, named like the compose default for its project, so it never shares the first runner's.
+    volume_line=TICO_RUNNER_HOME_VOLUME=${RUNNER_PROJECT}_runner-home
+  elif as_root docker volume inspect tico-runner >/dev/null 2>&1; then
     volume_line=TICO_RUNNER_HOME_VOLUME=tico-runner
     say "Found the tico-runner volume of an earlier docker run: the runner keeps its login, its repositories and its enrollment."
   fi
@@ -396,6 +416,25 @@ update_runner_env() {
   rm -f "$env_tmp"
 }
 
+# A named runner is the stock compose file plus this override, which the updater reads next to it (docker/updater.py
+# adds runner.override.yaml to every compose call, and no update replaces it): its own project name (so its containers,
+# volumes and network are its own), its own container name, and an alias for its updater. The alias matters on the
+# server's network, where the server's own updater is also called `updater`. A second run without --server-network
+# keeps the network the first run set.
+write_named_override() {
+  net=$SERVER_NETWORK
+  if [ -z "$net" ] && [ -f "$DIR/runner.override.yaml" ]; then
+    net=$(as_root sed -n 's/^    name: //p' "$DIR/runner.override.yaml" | head -n 1)
+  fi
+  {
+    printf 'name: %s\nservices:\n  runner:\n    container_name: %s\n    environment:\n      TICO_UPDATER_URL: http://%s-updater:8080\n' \
+      "$RUNNER_PROJECT" "$RUNNER_PROJECT" "$RUNNER_PROJECT"
+    [ -z "$net" ] || printf '    networks: [default, server]\n'
+    printf '  updater:\n    networks:\n      default:\n        aliases: [%s-updater]\n' "$RUNNER_PROJECT"
+    [ -z "$net" ] || printf 'networks:\n  server:\n    external: true\n    name: %s\n' "$net"
+  } | as_root tee "$DIR/runner.override.yaml" >/dev/null
+}
+
 run_runner() {
   fetch_bundle
   step "Setting up the runner"
@@ -418,7 +457,7 @@ run_runner() {
     runner_env
   fi
   # The bare container has the name compose wants; the volume it used stays.
-  if as_root docker container inspect tico-runner >/dev/null 2>&1 \
+  if [ -z "$RUNNER_SLUG" ] && as_root docker container inspect tico-runner >/dev/null 2>&1 \
      && [ -z "$(as_root docker container inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' tico-runner 2>/dev/null)" ]; then
     say "Replacing the container from an earlier docker run (its volume is kept)."
     as_root docker rm -f tico-runner >/dev/null
@@ -426,6 +465,10 @@ run_runner() {
   if [ -n "$SERVER_NETWORK" ]; then
     printf '%s' "$SERVER_NETWORK" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' || die 2 "--server-network is a Docker network name."
     as_root docker network inspect "$SERVER_NETWORK" >/dev/null 2>&1 || die 2 "No Docker network $SERVER_NETWORK on this machine (the server's is usually tico_default)."
+  fi
+  if [ -n "$RUNNER_SLUG" ]; then
+    write_named_override
+  elif [ -n "$SERVER_NETWORK" ]; then
     # Not part of the bundle, so an update keeps it; the updater adds it to its compose calls.
     printf 'services:\n  runner:\n    networks: [default, server]\nnetworks:\n  server:\n    external: true\n    name: %s\n' "$SERVER_NETWORK" \
       | as_root tee "$DIR/runner.override.yaml" >/dev/null
@@ -437,6 +480,7 @@ run_runner() {
     || die 6 "docker compose failed in $DIR. Run 'docker compose $files logs' there."
   say ""
   say "The runner is starting; it shows online in Settings > Devices in a minute."
+  [ -z "$RUNNER_SLUG" ] || say "Its files are in $DIR and its container is $RUNNER_PROJECT."
   say "It follows the server's release through its updater; sign the bots in to a model from Settings > Devices."
 }
 

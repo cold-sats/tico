@@ -363,7 +363,7 @@ The key can act as any mailbox in the company, so bots must not be able to read 
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
   Health says so ("Mail key"). Keep such a computer for the inbox bot alone.
 - An inbox bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
-  for the inbox bot). Several inbox bots may share one only if the operator allows it with
+  for the message bot; it can be on the same host, see [Add a second computer](install.md#linux-or-cloud-server-docker)). Several inbox bots may share one only if the operator allows it with
   `POST /api/v2/computers/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway.
 - Bots that are not inbox bots but declare `gmail` access do not get mail on an isolated runner.
 
