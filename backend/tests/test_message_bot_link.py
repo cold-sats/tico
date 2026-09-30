@@ -42,9 +42,10 @@ def test_a_mailbox_on_another_domain_is_kept_and_no_line_falls_back_to_the_reque
     add_from_template(api, "ben-inbox", "Mailbox: ben@acme.example\n")
     add_from_template(api, "cara-inbox", "Nothing about a mailbox here.\n", token="cara-test")
     assert inbox_bot_of(api, "cara") == "cara-inbox" and mailbox_of(api, "cara-inbox") == "cara@acme.example"
-    # A line that names nobody on the roster links nobody: whose it is cannot be guessed.
+    # A line that names nobody on the roster (the Workspace address is not the one a person signs in with) is still the
+    # requester's: they made it.
     add_from_template(api, "stray-inbox", "Mailbox: someone@elsewhere.example\n")
-    assert inbox_bot_of(api, "ana") is None
+    assert inbox_bot_of(api, "ana") == "stray-inbox" and mailbox_of(api, "stray-inbox") == "someone@elsewhere.example"
     # A person with a message bot already keeps it.
     add_from_template(api, "ben-inbox-2", "Mailbox: ben@acme.example\n")
     assert inbox_bot_of(api, "ben") == "ben-inbox"
@@ -99,14 +100,42 @@ def test_backfill_links_the_bot_whose_mailbox_is_a_person_s_email(api):
     assert backfill(api) == []                                                            # nothing left to do
 
 
-def test_backfill_with_one_person_on_the_roster_links_a_mailbox_on_another_domain(api):
-    old_message_bot(api, "inbox-manager", "Mailbox: ana@tico.example\n")
-    assert backfill(api) == []                                                            # three people: whose is it?
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('people',?)", (encode({"people": [
-            {"id": "ana", "email": "ana@acme.example", "primary_for": ["*"]}]}),))
+def test_backfill_links_a_mailbox_on_another_domain_to_the_bot_s_owner(api):
+    old_message_bot(api, "inbox-manager", "Mailbox: ana@tico.example\n")                # three people, operator ana
     assert backfill(api) == ["inbox-manager"]
     assert inbox_bot_of(api, "ana") == "inbox-manager" and mailbox_of(api, "inbox-manager") == "ana@tico.example"
+
+
+def test_backfill_uses_the_creator_before_the_operator_and_the_only_person_when_nothing_else_says(api):
+    old_message_bot(api, "inbox-manager", "Mailbox: chris@workspace.example\n")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET created_by='human:cara' WHERE bot='inbox-manager'")
+    assert backfill(api) == ["inbox-manager"] and inbox_bot_of(api, "cara") == "inbox-manager"
+    old_message_bot(api, "lone", "Mailbox: x@workspace.example\n")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET operator='nobody' WHERE bot='lone'")
+        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('people',?)", (encode({"people": [
+            {"id": "ben", "email": "ben@acme.example", "primary_for": ["*"]}]}),))
+    assert backfill(api) == ["lone"] and inbox_bot_of(api, "ben") == "lone"
+
+
+def test_the_mailbox_is_found_in_the_gmail_tool_the_computer_reports_or_in_the_instructions_words(api):
+    # BotOps wrote the address into bot.yaml only: the server knows it from the computer's report.
+    old_message_bot(api, "reported", "Reads mail for the owner.")
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO runners(id,label,operator,token_hash,created,last_seen,readiness_json) VALUES('r1','Mac','ana','h',?,?,?)",
+                  (H.now(), H.now(), encode({"schema_version": 1, "bots": {"reported": {"tools": [
+                      {"service": "gmail", "identity": "Chris@Workspace.example", "can": ["read", "draft"]}]}}})))
+        c.execute("INSERT INTO assignments(bot,runner_id,generation,updated,updated_by) VALUES('reported','r1',1,?,'keeper')", (H.now(),))
+    assert backfill(api) == ["reported"]
+    assert inbox_bot_of(api, "ana") == "reported"
+    with api.app.state.store.read() as c:
+        assert message_bots.mailbox_of(c, "reported", message_bots._config(c, "reported")) == "chris@workspace.example"
+    words = message_bots.mailbox_in_words
+    assert words("You run the inbox for my mailbox Ben@Acme.example. Be brief.") == "ben@acme.example"
+    assert words("Mailbox: <ben@acme.example>.") == "ben@acme.example" and words("no address here") == ""
+    old_message_bot(api, "spoken", "You are the inbox manager for my mailbox cara@acme.example.")
+    assert backfill(api) == ["spoken"] and inbox_bot_of(api, "cara") == "spoken"
 
 
 def test_backfill_leaves_what_is_a_choice_for_an_owner(api):
