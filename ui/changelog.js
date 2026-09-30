@@ -1,6 +1,6 @@
 window.pageChangelog = async function () {
   const root = document.querySelector('#main');
-  root.innerHTML = '<div class="release-page"><header class="release-header"><h1>Changelog</h1></header><div class="release-filters"><input type="search" aria-label="Search changes" placeholder="Search changes…"><select aria-label="Filter changes"><option value="product">Product updates</option><option value="">All activity</option></select><button class="ghost release-review" hidden>Review drafts</button><button class="primary round-add" type="button" aria-label="Add product update" title="Add product update" hidden data-add-update>+</button></div><div class="release-list" aria-live="polite">Loading changes…</div></div>';
+  root.innerHTML = '<div class="release-page"><header class="release-header"><h1>Changelog</h1></header><div class="release-filters"><input type="search" aria-label="Search changes" autocomplete="off" placeholder="Search changes…"><select aria-label="Filter changes"><option value="product">Product updates</option><option value="">All activity</option></select><button class="ghost release-review" hidden>Review drafts</button><button class="primary round-add" type="button" aria-label="Add product update" title="Add product update" hidden data-add-update>+</button></div><div class="release-list" aria-live="polite">Loading changes…</div></div>';
   let data;
   try {data = await get('/changelog');} catch(e) {root.querySelector('.release-list').textContent=e.message;return;}
   if (!root.querySelector('.release-list')) return;

@@ -28,22 +28,22 @@ window.mountDirectorySync = async function (host, onChange) {
         <option value="entra">Microsoft Entra ID</option><option value="scim">SCIM (Okta, Entra provisioning, JumpCloud)</option></select></label>
       <p class="muted" data-ds-help></p>
       <div data-ds-creds="google" hidden>
-        <label>Service account JSON key <textarea name="service_account_json" rows="3" placeholder="${saved?.configured ? 'Saved. Paste a new key to replace it.' : '{ &quot;type&quot;: &quot;service_account&quot;, ... }'}"></textarea></label>
-        <label>Admin to act as <input name="admin_email" type="email" placeholder="admin@company.com"></label>
+        <label>Service account JSON key <textarea name="service_account_json" rows="3" autocomplete="off" spellcheck="false" placeholder="${saved?.configured ? 'Saved. Paste a new key to replace it.' : '{ &quot;type&quot;: &quot;service_account&quot;, ... }'}"></textarea></label>
+        <label>Admin to act as <input name="admin_email" type="email" autocomplete="email" spellcheck="false" placeholder="admin@company.com"></label>
       </div>
       <div data-ds-creds="entra" hidden>
-        <label>Tenant ID or domain <input name="tenant" autocomplete="off"></label>
-        <label>Application (client) ID <input name="client_id" autocomplete="off"></label>
+        <label>Tenant ID or domain <input name="tenant" type="text" autocomplete="off" spellcheck="false"></label>
+        <label>Application (client) ID <input name="client_id" type="text" autocomplete="off" spellcheck="false"></label>
         <label>Client secret value <input name="client_secret" type="password" autocomplete="new-password" placeholder="${saved?.configured ? 'Saved. Enter a new secret to replace it.' : ''}"></label>
       </div>
       <p class="muted" data-ds-saved></p>
       <div data-ds-filters hidden>
-        <label><span data-ds-groups-label>Only these groups</span> <textarea name="groups" rows="2" placeholder="one per line; empty means everyone">${text(view.filter.groups.join('\n'))}</textarea></label>
-        <label data-ds-ou>Only these organizational units <textarea name="org_units" rows="2" placeholder="/Sales">${text(view.filter.org_units.join('\n'))}</textarea></label>
-        <label>Only these email domains <textarea name="domains" rows="2" placeholder="company.com">${text(view.filter.domains.join('\n'))}</textarea></label>
+        <label><span data-ds-groups-label>Only these groups</span> <textarea name="groups" rows="2" spellcheck="false" placeholder="one per line; empty means everyone">${text(view.filter.groups.join('\n'))}</textarea></label>
+        <label data-ds-ou>Only these organizational units <textarea name="org_units" rows="2" spellcheck="false" placeholder="/Sales">${text(view.filter.org_units.join('\n'))}</textarea></label>
+        <label>Only these email domains <textarea name="domains" rows="2" spellcheck="false" placeholder="company.com">${text(view.filter.domains.join('\n'))}</textarea></label>
         <label>Sync every <select name="interval_minutes"><option value="0">Only when I press Sync now</option><option value="60">hour</option><option value="360">6 hours</option><option value="1440">day</option></select></label>
       </div>
-      <label>Ask me first when a sync would mark more than <input name="mass_leave_limit" type="number" min="0" max="10000" style="width:80px" value="${text(view.mass_leave_limit)}"> people as left</label>
+      <label>Ask me first when a sync would mark more than <input name="mass_leave_limit" type="number" inputmode="numeric" min="0" max="10000" style="width:80px" value="${text(view.mass_leave_limit)}"> people as left</label>
       <p class="muted">Everyone synced can sign in, so keep the filter to the people who should use this app. People you added by hand are never removed by a sync, and the owner is never marked left.</p>
       <div class="row"><button class="primary" type="submit">Save</button>
         <button class="ghost" type="button" data-ds-now>Sync now</button></div>

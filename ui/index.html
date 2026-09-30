@@ -507,6 +507,7 @@ td.tags .pill{margin-right:2px}
 .search-box{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .search-box .nav-icon{color:var(--muted)}
 .search-box input{flex:1;min-width:0;border:0;outline:0;background:none;font:inherit;font-size:16px;color:var(--ink)}
+.search-box input[type=search]{padding:0;background-image:none;border-radius:0}
 .search-results{list-style:none;margin:0;padding:6px;max-height:min(60vh,520px);overflow:auto}
 .search-results li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;min-height:40px}
 .search-results li[aria-selected=true],.search-results li:hover{background:var(--surface2)}
@@ -881,10 +882,10 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .access-list .muted{font-size:12px}
 .bot-editor{width:min(680px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .bot-editor-body{padding:18px}.bot-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.bot-editor-grid label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.bot-editor-grid label{display:grid;align-content:start;gap:5px;font-size:12px;color:var(--muted)}
 .bot-editor-grid label.bot-editor-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text)}
 .bot-editor-check small{flex-basis:100%;color:var(--muted)}
-.bot-editor-grid input,.bot-editor-grid select,.bot-editor-grid textarea{width:100%;font-size:16px}
+.bot-editor-grid input:not([type=checkbox]):not([type=radio]),.bot-editor-grid select,.bot-editor-grid textarea{width:100%;font-size:16px}
 .bot-editor-grid textarea{min-height:88px;resize:vertical}.bot-editor-wide{grid-column:1/-1}
 .bot-editor-owners{display:flex;gap:7px;flex-wrap:wrap;padding:8px 0}
 .bot-editor-owners label{display:flex;align-items:center;gap:5px;color:var(--ink)}
@@ -940,13 +941,42 @@ button.ghost.danger,.linkish.danger{color:var(--fail)}
   .req>summary{grid-template-columns:22px minmax(0,1fr) auto 14px;gap:8px}.req-meta{font-size:11px}
   .req-body{padding-left:4px;padding-right:4px}.issue-actions .github{margin-left:0}
 }
-textarea,input[type=text],input[type=password],select{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px;width:100%}
-/* one search box everywhere: no native chrome, a magnifier on the left, the same height and radius on every page */
-input[type=search]{-webkit-appearance:none;appearance:none;box-sizing:border-box;width:100%;padding:9px 12px 9px 34px;font-size:14px;line-height:1.3;color:var(--ink);border:1px solid var(--line);border-radius:8px;background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237f8a96' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px center}
-input[type=search]::placeholder{color:var(--muted)}
-input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button,input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
-input[type=search]:focus{outline:none;border-radius:8px;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
-textarea:focus,input:focus,select:focus,button:focus-visible,a:focus-visible,summary:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
+/* Form controls. One base rule for every text-like control (any type, or no type at all), wrapped in :where() so it
+   has no specificity of its own: every component rule below (bot editor, compact search fields, pill composers) still wins.
+   color-scheme is set per theme on :root, so date pickers, spinners, dropdowns and scrollbars follow the theme. */
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select){box-sizing:border-box;width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;accent-color:var(--accent)}
+:where(textarea){resize:vertical;line-height:1.45}
+:where(select){cursor:pointer;text-overflow:ellipsis}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):hover{border-color:color-mix(in srgb,var(--muted) 55%,var(--line))}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):focus{border-color:var(--accent);outline:3px solid color-mix(in srgb,var(--accent) 28%,transparent);outline-offset:0}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):disabled{background:var(--surface2);color:var(--muted);cursor:not-allowed;opacity:.7}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea)[readonly]{background:var(--surface2);color:var(--muted)}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):user-invalid{border-color:var(--fail);outline-color:color-mix(in srgb,var(--fail) 28%,transparent)}
+:where(input,textarea)::placeholder{color:var(--muted);opacity:1}
+:where(input,textarea):disabled::placeholder{opacity:.6}
+option,optgroup{background:var(--surface);color:var(--ink)}
+/* the browser's autofill (Chrome, Safari, 1Password) paints its own pale yellow or blue: keep the theme */
+input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,textarea:-webkit-autofill,select:-webkit-autofill{-webkit-text-fill-color:var(--ink);caret-color:var(--ink);box-shadow:0 0 0 1000px var(--surface) inset;transition:background-color 9999s ease-out}
+input:autofill,textarea:autofill,select:autofill{color:var(--ink);box-shadow:0 0 0 1000px var(--surface) inset}
+/* numbers: no stepper arrows (they are tiny and clash with the rounded field); type, or use the arrow keys */
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+/* one search box everywhere: no native chrome, a magnifier on the left, a clear button on the right, the same height and radius on every page */
+input[type=search]{-webkit-appearance:none;appearance:none;padding:9px 12px 9px 34px;line-height:1.3;border-radius:8px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237f8a96' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:11px center}
+input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button{-webkit-appearance:none;display:none}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:block;width:14px;height:14px;margin:0 0 0 6px;cursor:pointer;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E") center/contain no-repeat;opacity:.7}
+input[type=search]::-webkit-search-cancel-button:hover{opacity:1}
+.settings-combo input[type=search]::-webkit-search-cancel-button{display:none}
+/* file inputs: the browser's "Choose file" button is drawn like the app's ghost button */
+input[type=file]{box-sizing:border-box;max-width:100%;padding:5px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+input[type=file]::file-selector-button{margin:0 10px 0 0;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink);font:inherit;font-weight:500;cursor:pointer}
+input[type=file]:hover::file-selector-button{background:var(--surface2)}
+input[type=file]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* checkboxes and radios: one size, the accent colour, centred on their label's first line */
+:where(input[type=checkbox],input[type=radio]){accent-color:var(--accent);width:16px;height:16px;margin:0 4px 0 0;vertical-align:-3px;cursor:pointer;flex:none}
+:where(input[type=checkbox],input[type=radio]):disabled{cursor:not-allowed}
+input[type=checkbox]:focus-visible,input[type=radio]:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus-visible,a:focus-visible,summary:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
 button.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:8px 14px;font-weight:500;cursor:pointer}
 button.ghost{background:transparent;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--ink)}
 button:disabled{opacity:.5;cursor:default}
@@ -1902,7 +1932,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .gs-field{display:grid;gap:3px;margin:0 0 8px;max-width:520px}
 .gs-field[hidden]{display:none}
 .gs-field span{font-size:12.5px;color:var(--muted)}
-.gs-field input,.gs-field textarea{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+.gs-field input:not([type=checkbox]):not([type=radio]),.gs-field textarea{width:100%}
 .gs-link-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:0 var(--s3);max-width:760px;align-items:start}
 .gs-link-row .gs-field{max-width:none}.gs-kind{grid-column:1/-1;margin:-4px 0 8px;font-size:12px;min-height:1.2em}
 .gs-alt{margin:var(--s3) 0 0;font-size:12.5px}
@@ -1985,7 +2015,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .onb-field textarea{min-height:92px;resize:vertical}
 .onb-choices{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:4px}
 .onb-choices label{display:flex;align-items:center;gap:6px;font-size:13.5px}
-.onb-choices input{width:auto;flex:none}
+.onb-choices input{flex:none}
 .onb-actions{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)}
 .onb-actions .spacer{flex:1}
 .onb-summary{margin:0 0 var(--s3)}
@@ -2000,7 +2030,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .cat-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:var(--s3);min-width:0}
 .cat-card.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .cat-pick{display:flex;align-items:center;gap:var(--s2);margin-bottom:6px}
-.cat-pick input[type=checkbox]{width:auto;flex:none}
+.cat-pick input[type=checkbox]{flex:none}
 .cat-name{flex:1;min-width:0;font-weight:600}
 .cat-summary{margin:0 0 6px;font-size:13px}
 .cat-when{margin:0 0 6px;font-size:12.5px;color:var(--muted)}
@@ -5292,7 +5322,7 @@ async function pageNotes() {
     sourcesPoll: 0, items: {}, itemEdit: '', itemAdd: '', itemConfirm: '', itemDup: {},
     confirmDelete: '', editing: false, open: false};
   $('#main').innerHTML = `<div class="notes-head"><div><h1>Meetings</h1></div>
-      <input type="search" id="notes-search" aria-label="Search meetings and people" placeholder="Search meetings and people">
+      <input type="search" id="notes-search" autocomplete="off" aria-label="Search meetings and people" placeholder="Search meetings and people">
       <section class="meet-sources" id="meet-sources" aria-label="Meeting sources"><span class="muted">Checking sources…</span></section>
       <button class="ghost" type="button" id="notes-manual" aria-label="Add meeting notes" title="Write notes for a meeting by hand">Add meeting notes</button>
       <button class="primary" type="button" id="notes-import" aria-label="Import a meeting" title="Import a meeting">Import</button></div>
@@ -5732,13 +5762,13 @@ function meetImportOpen(state) {
       <label>Or paste a transcript <textarea id="import-text" rows="9" placeholder="Paste a transcript"></textarea></label>
       <p class="hint">Plain text (Name: text, optional [mm:ss]), WebVTT, SRT or JSON segments.</p>
       <div class="import-grid">
-        <label>Title <input type="text" id="import-title" maxlength="300"></label>
-        <label>Date and time <input type="datetime-local" id="import-when"></label>
+        <label>Title <input type="text" id="import-title" maxlength="300" autocomplete="off"></label>
+        <label>Date and time <input type="datetime-local" id="import-when" name="when"></label>
         <label>Participants <textarea id="import-people" rows="2" placeholder="Emails or names, separated by commas or new lines"></textarea></label>
         <label>Source <select id="import-source">${Object.entries(IMPORT_SOURCES).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}</select></label>
       </div>
       <label>Notes or summary (optional) <textarea id="import-notes" rows="3"></textarea></label>
-      <label>Link to the recording (optional) <input type="url" id="import-media" placeholder="https://…"></label>
+      <label>Link to the recording (optional) <input type="url" id="import-media" autocomplete="off" spellcheck="false" placeholder="https://…"></label>
       <label class="import-private"><input type="checkbox" id="import-private"> Private: only its participants can open it</label>
       <div class="row"><button class="primary" type="submit" id="import-go">Import</button>
         <button class="ghost" type="button" id="import-cancel">Cancel</button><span class="muted" id="import-msg" role="status"></span></div>
@@ -5792,12 +5822,12 @@ function meetManualOpen(state) {
   dialog.innerHTML = `<form class="import-form" id="manual-form">
       <header><h2>Add meeting notes</h2><button class="ghost" type="button" id="manual-close" aria-label="Close">✕</button></header>
       <div class="import-grid">
-        <label>Title <input type="text" id="manual-title" maxlength="300"></label>
+        <label>Title <input type="text" id="manual-title" maxlength="300" autocomplete="off"></label>
         <label>Date and time <input type="datetime-local" id="manual-when" value="${local}"></label>
       </div>
       <fieldset class="import-people"><legend>Participants</legend>
         <div class="bot-editor-owners">${people.map(p => `<label><input type="checkbox" name="manual-person" value="${esc(p.email || p.name)}">${esc(p.name || p.email)}</label>`).join('')}</div>
-        <label>Others <input type="text" id="manual-others" placeholder="Emails or names, separated by commas"></label>
+        <label>Others <input type="text" id="manual-others" autocomplete="off" spellcheck="false" placeholder="Emails or names, separated by commas"></label>
       </fieldset>
       <label>Notes (markdown) <textarea id="manual-notes" rows="10" placeholder="What was discussed and decided"></textarea></label>
       <label>Send to a bot (optional) <select id="manual-send"><option value="">Don't send</option><option value="auto">Auto — ${esc(assistantName())} routes it</option>${activeEmps().map(e => `<option value="${esc(e.name)}">${esc(e.display_name)}</option>`).join('')}</select></label>
@@ -7708,7 +7738,7 @@ function hubModalHTML(t, it) {
         <div><div class="lbl">Links &amp; files</div><div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}
           ${files.map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join('')}
           ${!links.length && !files.length ? '<span class="muted">none</span>' : ''}
-          <form class="inline" data-modal-link><input type="url" placeholder="paste a link (a PR, a doc)" aria-label="Add a link" size="22"></form></div></div>
+          <form class="inline" data-modal-link><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="paste a link (a PR, a doc)" aria-label="Add a link" size="22"></form></div></div>
       </div>
       <div class="task-file-preview" data-task-file-preview hidden></div>
       ${(t.children || []).length || t.parts?.total ? `<div class="tsection"><div class="lbl">Parts ${t.parts?.total ? `<span class="muted">${t.parts.done} of ${t.parts.total} done</span>` : ''}</div>
@@ -7748,7 +7778,7 @@ function pageTasks(forced, openId = '') {
       <div class="task-strip"></div>
       <div class="task-find">
         <span class="nav-icon" aria-hidden="true">search</span>
-        <input type="search" id="task-q" aria-label="Search tasks" placeholder="Search tasks…" autocomplete="off">
+        <input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search tasks…" autocomplete="off">
         <button type="button" id="task-filter" popovertarget="task-filter-pop" aria-label="Filter tasks" aria-expanded="false">Filter</button>
       </div>
       <button class="primary round-add" type="button" id="task-new" aria-label="New task" title="New task">+</button>
@@ -7891,7 +7921,7 @@ function openTaskCreate(owner = '', opts = {}) {
         </div>
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
         <textarea name="body" aria-label="Details" placeholder="Details, links, and what done looks like. For a person: put the ask in the first line."></textarea>
-        <input type="url" name="link" placeholder="A link to attach (a pull request, a document)" aria-label="Link">
+        <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="A link to attach (a pull request, a document)" aria-label="Link">
         ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
         <p class="muted hint">You are adding this, so you close it. A person needs a verb in the title (Email, Ask, Send…) and the ask in the first line of details.</p>
@@ -8222,11 +8252,11 @@ function routineEditorOpen(r = null, bot = '') {
     <div class="bot-editor-body"><p class="muted">When it is due, the bot gets a task with this text. The text is what the bot is told, in plain words.</p>
       <div class="bot-editor-grid">
         <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => `<option value="${esc(e.name)}" ${e.name === slug ? 'selected' : ''}>${esc(e.display_name || e.name)}</option>`).join('')}</select></label>
-        <label>Title<input name="title" value="${esc(r?.title || '')}" maxlength="300" required></label>
+        <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off"></label>
         <label>Runs<select name="kind"><option value="cron" ${kind === 'cron' ? 'selected' : ''}>On a schedule</option><option value="event" ${kind === 'event' ? 'selected' : ''}>When something happens</option></select></label>
-        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"><small>Five fields: minute hour day-of-month month day-of-week.</small></label>
+        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"><small>Five fields: minute hour day-of-month month day-of-week.</small></label>
         <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${ROUTINE_EVENTS.map(([v, w]) => `<option value="${v}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-        <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
+        <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
         <label class="bot-editor-wide">What the bot is told<textarea name="text" maxlength="100000" placeholder="Go through the inbox and…">${esc(r?.text || '')}</textarea></label>
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button><button class="ghost" type="button" data-routine-close>Cancel</button><span class="muted" data-routine-status></span></div></div></form>`;
@@ -8536,7 +8566,7 @@ async function pageMail() {
             <button class="mail-tab" type="button" role="tab" data-mail-view="agent" aria-controls="mail-agent-view" hidden>Agent instructions</button>
           </div></div>
           <div id="mail-inbox-view" role="tabpanel">
-            <div class="mail-toolbar"><input id="mail-q" type="search" placeholder="Search subject, body, or sender…" aria-label="Search mail"></div>
+            <div class="mail-toolbar"><input id="mail-q" type="search" autocomplete="off" placeholder="Search subject, body, or sender…" aria-label="Search mail"></div>
             <div class="mail-chips" id="mail-chips"></div>
             <p class="mail-fresh" id="mail-fresh" role="status"></p>
             <div class="mail-split" id="mail-split">
@@ -8991,7 +9021,7 @@ async function pageIntegrations() {
   const service = S.route.startsWith(INTEGRATIONS + '/') ? decodeURIComponent(S.route.slice(INTEGRATIONS.length + 1)) : '';
   if (!service) {
     $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Integrations</h1></div></div>
-      <section class="card"><input id="int-filter" class="int-search" type="search" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter integrations">
+      <section class="card"><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter integrations">
       <div id="int-list"><div class="empty">Loading…</div></div></section>
       <dialog class="bot-editor" id="int-cred-dialog" aria-label="Integration credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
@@ -9054,7 +9084,7 @@ async function pageIntegrations() {
       <dt>Declared as</dt><dd><pre class="mono">${esc(page.declared_as.trim())}</pre></dd></dl></section>
     <section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>
     ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2><span class="sub">${page.queries.length} in the catalog · <code>hub queries ${esc(page.service)} &lt;term&gt;</code></span></header>
-      <input id="int-query-filter" class="int-search" type="search" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
+      <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
     <section class="card" id="int-learnings"><header><h2>Learnings</h2><span class="sub">the log under the page · <code>hub learn ${esc(page.service)} "…"</code></span></header>
       <div class="int-learn"><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
       <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a person folds them into the page over time.</span></div></div>
@@ -9251,7 +9281,7 @@ function renderSettingsRecurring() {
   const opt = (v, label, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label)}</option>`;
   const sel = (name, label, options) => `<label>${label}<select class="settings-inline-select" data-recurring-filter="${name}">${options}</select></label>`;
   el.innerHTML = `<div class="settings-bots-filters">
-      <label>Search<input type="search" data-recurring-filter="q" value="${esc(f.q)}" placeholder="Title, bot or schedule" aria-label="Search routines"></label>
+      <label>Search<input type="search" autocomplete="off" data-recurring-filter="q" value="${esc(f.q)}" placeholder="Title, bot or schedule" aria-label="Search routines"></label>
       ${sel('bot', 'Bot', opt('', 'All bots', f.bot) + bots.map(b => opt(b, empName(b), f.bot)).join(''))}
       ${sel('computer', 'Computer', opt('', 'All computers', f.computer) + opt('mine', 'My computer', f.computer) + [...computers].sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => opt(k, v, f.computer)).join(''))}
       ${sel('kind', 'Kind', [['all', 'Any kind'], ['cron', 'Scheduled'], ['event', 'On an event'], ['inbox', 'Inbox']].map(([k, v]) => opt(k, v, f.kind)).join(''))}
@@ -9345,10 +9375,10 @@ async function vaultReveal(id) {
 }
 function vaultEdit(row) {
   const dialog = vaultDialog(row ? 'Edit credential' : 'Add credential',`<form id="vault-form" class="bot-editor-grid">
-    <label>Name<input name="name" required maxlength="150" value="${esc(row?.name || '')}"></label>
-    <label>Username (optional)<input name="username" maxlength="250" value="${esc(row?.username || '')}" autocomplete="off"></label>
+    <label>Name<input name="name" type="text" required maxlength="150" autocomplete="off" value="${esc(row?.name || '')}"></label>
+    <label>Username (optional)<input name="username" type="text" maxlength="250" value="${esc(row?.username || '')}" autocomplete="off" spellcheck="false"></label>
     <label>Type<select name="kind">${['api_key','password','token','file','connection'].map(kind=>`<option value="${kind}" ${row?.kind===kind?'selected':''}>${esc(kind.replace('_',' '))}</option>`).join('')}</select></label>
-    <label>Bot key name (optional)<input name="env" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
+    <label>Bot key name (optional)<input name="env" type="text" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" autocomplete="off" spellcheck="false" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
     <label class="bot-editor-wide">${row?.stored ? 'New password or key (leave blank to keep current)' : 'Password or key'}<textarea name="secret" aria-label="New password or key" autocomplete="off" spellcheck="false"></textarea></label>
     <p class="muted bot-editor-wide">Access is granted separately after saving.</p><p class="err bot-editor-wide" id="vault-error"></p>
     <button class="primary" type="submit">Save credential</button></form>`);
@@ -9811,8 +9841,8 @@ async function renderSettingsTokens() {
     : '<div class="empty">No tokens yet.</div>';
   el.innerHTML = `${table}
     <form class="row settings-token-form" id="settings-token-form">
-      <label>Label <input name="label" type="text" required maxlength="80" placeholder="what runs with it" aria-label="Token label"></label>
-      <label>Expires in <input name="days" type="number" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
+      <label>Label <input name="label" type="text" required maxlength="80" autocomplete="off" placeholder="what runs with it" aria-label="Token label"></label>
+      <label>Expires in <input name="days" type="number" inputmode="numeric" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
       <button class="primary" type="submit">New token</button>
     </form>`;
   el.querySelectorAll('[data-token-revoke]').forEach(button => { button.onclick = () => void settingsTokenRevoke(button.dataset.tokenRevoke, button.dataset.tokenLabel); });
@@ -10305,7 +10335,7 @@ function renderSettingsMachines() {
     <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Machine operator">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
       <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server (Docker)</option></select>
-      <input id="machine-label" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
+      <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <p class="machine-enroll-status" id="machine-enroll-status">Creates a private 15-minute setup, then gives you the command to run on that computer. Registration never assigns bots automatically.</p></div>`;
   const machineDefaultLabel = () => `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
@@ -10410,13 +10440,13 @@ function settingsEditBot(slug = '') {
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close">✕</button></div>
     <div class="bot-editor-body"><p class="muted">This definition is saved directly in the ${esc(appName())} backend. No application deploy is required.</p>
       <div class="bot-editor-grid">
-        <label>Bot slug<input name="slug" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : 'required'}></label>
-        <label>Display name<input name="display_name" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
+        <label>Bot slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : 'required'}></label>
+        <label>Display name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
         <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>"Replies only": no cold calls, but its manager and anyone holding its ticket get through. "Tasks only": work arrives as a task and nothing else — no bot may chat it at all. People are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
-        <label>Repository<input name="repo" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required><small>A bare name, owner/name, or a full https repository URL.</small></label>
+        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required><small>A bare name, owner/name, or a full https repository URL.</small></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot<small>Work expected to end; shows a flag, not the word in its name.</small></label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per person</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
@@ -11019,7 +11049,7 @@ function peopleDialog(title, body) {
 }
 function peopleFormRows(p = {}) {
   const row = (name, label, value, type = 'text') =>
-    `<label class="onb-field"><span class="k">${label}</span><input name="${name}" type="${type}" value="${esc(value || '')}" ${name === 'name' || name === 'email' ? 'required' : ''}></label>`;
+    `<label class="onb-field"><span class="k">${label}</span><input name="${name}" type="${type}"${type === 'email' ? ' inputmode="email" spellcheck="false"' : ''} autocomplete="off" value="${esc(value || '')}" ${name === 'name' || name === 'email' ? 'required' : ''}></label>`;
   return row('name', 'Name', p.name) + row('email', 'Email', p.email, 'email') + row('title', 'Title', p.title) + row('team', 'Team', p.team);
 }
 // What a member may do: create bots (on unless switched off) and add people (by default coworkers in the
@@ -11069,7 +11099,7 @@ async function renderSettingsPeople() {
         <p><strong data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'None'}</strong>
           <span class="muted">${{allowed: ' · from the allowed domains below', owner: ' · taken from the owner\'s email; set allowed domains below to change it', none: ' · the owner uses a public mail address, so no one counts as a coworker until a domain is set below'}[view.company_domain_source]}</span></p>
         <p class="muted">A member may add a coworker whose email is at this domain (unless switched off for them); adding anyone else needs an owner or an admin. A new person is put on the roster and the sign-in list, so they can sign in.</p>
-        <div class="onb-actions"><label class="onb-field" style="max-width:260px"><span class="k">Most active bots one member may have</span><input id="member-bot-limit" type="number" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+        <div class="onb-actions"><label class="onb-field" style="max-width:260px"><span class="k">Most active bots one member may have</span><input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
           <button class="ghost" type="button" id="member-bot-limit-save">Save limit</button><span class="spacer"></span><span class="muted" id="member-bot-limit-status"></span></div>
       </section>
       <section class="card"><header><h2>Who may join</h2><span class="sub">people not on the roster who sign in for the first time${S.me?.role === 'owner' ? '' : ' · the owner sets this'}</span></header>
@@ -11137,7 +11167,7 @@ async function renderSettingsPeople() {
         const d = peopleDialog('Make ' + p.name + ' the owner?', `<form>
           <p>${esc(p.name)} (${esc(p.email)}) becomes the owner right away. Only the owner can change people, who may join, providers and ownership, so you will lose those controls${old ? ` as ${esc(old.name)}` : ''}.</p>
           <label class="onb-field"><span class="k"><input type="checkbox" name="admin"> Keep ${esc(old?.name || 'the current owner')} as a bot administrator</span></label>
-          <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" autocomplete="off"></label>
+          <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" type="text" autocomplete="off" spellcheck="false"></label>
           ${actions('Transfer ownership', true)}</form>`);
         const go = d.querySelector('[type=submit]'); go.disabled = true;
         d.querySelector('[name=typed]').oninput = event => { go.disabled = event.target.value.trim().toLowerCase() !== p.email.toLowerCase(); };

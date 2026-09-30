@@ -77,7 +77,7 @@ async function mountMarket(shell) {
       <form id="market-ask" class="market-ask">
         <label for="market-q">Ask the librarian</label>
         <div class="market-ask-row">
-          <input id="market-q" name="q" placeholder="Who competes with us?" autocomplete="off">
+          <input id="market-q" name="q" type="text" placeholder="Who competes with us?" autocomplete="off">
           <button type="submit">Ask</button>
         </div>
         <div id="market-answer" class="market-answer" hidden></div>

@@ -28,8 +28,8 @@ window.mountGithubConnect = async function (host) {
   host.innerHTML = `<form data-gh-form style="display:grid;gap:10px;max-width:460px">
       <p class="muted">Bots get GitHub access through an app you create in your own organization, so no personal token is shared. GitHub asks you to confirm it.</p>
       <p class="muted">When GitHub asks where to install the app, choose <strong>All repositories</strong>: bots get new repositories automatically. Each bot's token is still limited to its own repository plus any extra repositories you allow on its settings. If this organization also holds sensitive code, create a separate GitHub organization for bot repositories and connect that one.</p>
-      <label>GitHub organization<input name="org" required maxlength="39" pattern="[A-Za-z0-9][A-Za-z0-9-]*" placeholder="your-org"></label>
-      <label>App name<input name="name" maxlength="34" placeholder="Your Company Tico"></label>
+      <label>GitHub organization<input name="org" type="text" required maxlength="39" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9][A-Za-z0-9-]*" placeholder="your-org"></label>
+      <label>App name<input name="name" type="text" maxlength="34" autocomplete="off" placeholder="Your Company Tico"></label>
       <label><input type="checkbox" name="administration"> Allow Tico to create bot repositories</label>
       <button class="primary" type="submit">Connect GitHub</button>
       <p role="status" data-gh-status></p></form>`;

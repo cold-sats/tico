@@ -27,8 +27,8 @@ window.mountSlackConnect = async function (host) {
       <p class="muted">1. At api.slack.com/apps choose <strong>Create New App &gt; From a manifest</strong> and paste the manifest.
       <a href="#" data-slack-manifest>Copy the manifest</a></p>
       <p class="muted">2. <strong>Install App</strong> to your workspace and copy the <strong>Bot User OAuth Token</strong> (xoxb-). Under Basic Information &gt; App-Level Tokens create one with <code>connections:write</code> (xapp-).</p>
-      <label>Bot token<input name="bot_token" type="password" required autocomplete="off" placeholder="xoxb-..."></label>
-      <label>App-level token<input name="app_token" type="password" required autocomplete="off" placeholder="xapp-..."></label>
+      <label>Bot token<input name="bot_token" type="password" required autocomplete="off" spellcheck="false" placeholder="xoxb-..."></label>
+      <label>App-level token<input name="app_token" type="password" required autocomplete="off" spellcheck="false" placeholder="xapp-..."></label>
       <button class="primary" type="submit">Connect Slack</button>
       <p role="status" data-slack-status></p></form>`;
   const status = host.querySelector('[data-slack-status]');
