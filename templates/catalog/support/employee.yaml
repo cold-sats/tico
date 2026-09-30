@@ -1,5 +1,5 @@
 name: support                     # the slug: it matches the repository emp-support and the label owner:support
-display_name: "Support Triage"
+display_name: "Support Agent"
 labels: [owner:support]
 reads: []                        # other bot repositories this one may clone read-only
 
@@ -15,11 +15,11 @@ outbound_send: false
 # `hub routine update <id> --enable` after a person approves the first digest on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 schedules:
-  - id: daily-support-triage
-    title: Daily support triage
+  - id: daily-support-queue
+    title: Daily support queue
     cron: "0 9 * * 1-5"
     timezone: America/Los_Angeles     # set this to the company's own timezone
-    template: playbooks/daily-support-triage.md
+    template: playbooks/daily-support-queue.md
     labels: [priority:p2]
     enabled: false
 

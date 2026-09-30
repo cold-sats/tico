@@ -25,7 +25,7 @@ Questions for the manager, not goals: what should Dev be able to do alone by day
 first ticket look like?
 
 ## Handbook gaps
-- The handbook says nothing about equipment returns. Asked 2 times; added to `unanswered.md`.
+- The handbook says nothing about equipment returns. Asked 2 times; task sent to the Librarian.
 
 ## Draft welcome message (on the task, not sent)
 "Hi Dev, welcome to Acme. Your first day is Monday 5 October at 09:30. Cara will meet you at the front

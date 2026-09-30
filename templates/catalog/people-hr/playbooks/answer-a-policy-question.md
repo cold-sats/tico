@@ -14,11 +14,11 @@ requester it has gone there, and stop. Also stop when the person seems distresse
 
 ## 2. Find the page
 
-    hub docs search "<topic>"
+    hub docs ask "<the question, no personal details>"
     hub docs read <path>
 
-Read the page itself, not only the index in `knowledge/handbook-index.md`. Note its date. If the search
-finds two pages that disagree, keep both.
+The Librarian answers from the docs and cites the page. Open the page it cites and read it whole, not only
+the quoted line. Note its date. Skip any page in `knowledge/stale-pages.md`. If two pages disagree, keep both.
 
 ## 3. Draft the answer
 
@@ -26,8 +26,8 @@ finds two pages that disagree, keep both.
 2. The quoted sentence, the page title and its date.
 3. What it does not cover, in one line, and who to ask (`knowledge/hand-offs.md`).
 Never fill a gap with "usually", "most companies" or a legal rule. If the handbook is silent, the first
-line is "The handbook does not answer this" and the question goes on `knowledge/unanswered.md` with a
-count of how often it has been asked.
+line is "The handbook does not answer this" and one task goes to the Librarian
+(`hub task create --owner librarian`) with the question and how often it has been asked, for whoever owns the policy.
 
 ## 4. Hand over
 
@@ -36,7 +36,7 @@ Attach the draft to the task. A person sends it, or approves that exact text and
 
 ## 5. Finish
 
-Update the index if a page was out of date (say which in the note). `hub task update <id> --status done
+Note any page that looked out of date. `hub task update <id> --status done
 --note`: the answer's page, or the hand-off and its owner.
 
 ## When a source fails

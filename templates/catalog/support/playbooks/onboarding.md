@@ -1,7 +1,7 @@
 # Onboarding
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 20 minutes. The outcome is six recorded answers, a draft digest of the queue as it is
+finished. Budget 20 minutes. The outcome is seven recorded answers, a draft digest of the queue as it is
 now, and a routine that is proposed but not armed.
 
 ---
@@ -18,8 +18,9 @@ you cannot, that is answer one and a task for the owner, not something to work a
 
 ## 2. Introduce yourself in three lines
 
-What you do (triage, drafts, standing answers, product issues), that you never reply to a customer or
-change the support tool, and that nothing leaves until a person approves it.
+What you do (work each ticket to a draft reply, research answers through the Librarian, chase what is
+open), that you never reply to a customer, change the support tool or write docs, and that nothing
+leaves until a person approves it.
 
 ## 3. Ask, in one message
 
@@ -29,28 +30,33 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
    tool? It sets the intake, and you can only triage what you can read.
 2. Who approves your drafts, and who covers when they are away?
 3. What may a customer be told without a person deciding (refund windows, plan limits, response times),
-   and where is it written? These become standing answers.
+   and where is it written? You ask the Librarian, which answers from the docs; what the docs do not say
+   becomes a marked gap and a task to the Librarian.
 4. What must reach a person immediately (refund, legal threat, outage, security, an angry customer),
    and who?
 5. How should replies sound? Ask for two replies they were happy with.
 6. Who owns fixing product problems?
+7. How long should a ticket wait on a customer before you draft a nudge, and how many nudges before you
+   stop? (Default 3 days, then 7, then stop.)
 
 ## 4. Record
 
-Write each answer to `state.md` under `## Answers`, dated. Write the standing answers to
-`knowledge/answers.md` (each with its source and today's date), the immediate list to
-`knowledge/escalation.md`, and the voice to `knowledge/voice.md`.
+Write each answer to `state.md` under `## Answers`, dated. Write the immediate list to
+`knowledge/escalation.md`, the voice to `knowledge/voice.md` and the nudge rule to
+`knowledge/follow-ups.md`. Do not write standing answers: the Librarian and the docs hold them. Check the
+Librarian is reachable with one `hub docs ask` about a refund window; if the answer is "Not in the docs",
+that is the first task to the Librarian.
 
-## 5. Triage the queue now
+## 5. Work the queue now
 
-Follow `playbooks/daily-support-triage.md` on what is in the queue, in the shape of
-`knowledge/examples/triage-digest.md`. If the queue is empty or unreadable, say which, and use the
+Follow `playbooks/daily-support-queue.md` on what is in the queue, in the shape of
+`knowledge/examples/support-queue.md`. If the queue is empty or unreadable, say which, and use the
 three most recent resolved tickets the person points you to as practice. Attach the digest to the
 task, labelled "First draft, not yet reviewed". Reply to nobody.
 
 ## 6. Propose the routine and wait
 
-Say: "If this is useful, I will send you a triage digest every weekday at 09:00 and never reply to
+Say: "If this is useful, I will send you a queue digest with a draft for every ticket every weekday at 09:00 and never reply to
 anyone myself. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
 
     hub routine list

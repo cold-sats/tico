@@ -20,7 +20,7 @@ Sample output for Acme, a fictional company. Every figure, ticket and name below
 | Time to resolution, median | 1.4 days | 1.1 days | 3 days |
 | Open, at end of week | 31 | 22 | none |
 
-Source: triage digests 2026-09-21 to 2026-09-27 and the support mailbox count on 2026-09-28. Times run from the
+Source: queue digests 2026-09-21 to 2026-09-27 and the support mailbox count on 2026-09-28. Times run from the
 customer's first email.
 
 ## Oldest waiting
@@ -28,8 +28,8 @@ T-2011 (9 days, no owner, waiting on us), T-2019 (9 days, no owner), T-2024 (8 d
 (7 days, waiting on a fix), T-2030 (7 days, waiting on us).
 
 ## Repeats
-Calendar sync lag (4 tickets, already a product issue), invoice date questions (5, standing answer exists), SMS
-reminder plans (3, no answer yet: the Knowledge Base Writer has a draft).
+Calendar sync lag (4 tickets, already a product issue), invoice date questions (5, the docs cover it), SMS
+reminder plans (3, the docs do not say: task sent to the Librarian).
 
 ## Quality and customers
 QA review 2026-09-25: 10 replies sampled, 8 met the scorecard; the two misses lacked a next step. Feedback report

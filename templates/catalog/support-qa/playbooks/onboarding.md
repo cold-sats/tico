@@ -11,7 +11,7 @@ a routine that is proposed but not armed.
     hub task show <id>
     hub task list --owner support --status done
 
-Look at what sent replies you can already reach: Support Triage's approved drafts, attachments, a
+Look at what sent replies you can already reach: Support Agent's approved drafts, attachments, a
 support mailbox in your access. Do not ask what these already say. If you cannot read any sent reply,
 that is a gap to name, and a task for the owner if they want a source connected.
 
@@ -29,7 +29,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 3. Which criteria matter most? (Default: accuracy, tone, completeness, policy, a clear next step.)
 4. How many replies a week? (Default: 10 or about 5 percent, whichever is larger.) Any that must always
    be reviewed?
-5. Where are the policies and standing answers that accuracy is judged against?
+5. Where are the policies and docs that accuracy is judged against?
 
 ## 4. Record
 

@@ -23,13 +23,13 @@ never:
   - "Copy a customer's personal details into a file"
 prerequisites:
   - tool: hub
-    why: "Sent replies arrive as tasks: Support Triage's approved drafts, or exports a person attaches. With no replies to read it says so."
+    why: "Sent replies arrive as tasks: Support Agent's approved drafts, or exports a person attaches. With no replies to read it says so."
     required: true
   - tool: mail
     why: "Optional. Read-only access to the support mailbox's sent threads lets it draw the sample itself instead of waiting for tasks."
     required: false
   - tool: docs
-    why: "Optional. The policy and standing answers, linked in Tico, are what accuracy is judged against."
+    why: "Optional. The policy and docs, linked in Tico, are what accuracy is judged against."
     required: false
 onboarding:
   - ask: "Who receives the QA review, and who gives the coaching? Do you want scores by person or only by team?"
@@ -40,12 +40,12 @@ onboarding:
     why: "Sets the scorecard's categories and weights. Fewer, clearer criteria are scored more consistently."
   - ask: "How many replies should I review each week? (Default: 10, or about 5 percent of the week, whichever is larger.) Any that must always be reviewed, such as refunds or escalations?"
     why: "Sets the sample: mostly random, plus the tickets you name on purpose."
-  - ask: "Where are the policies and standing answers that accuracy is judged against?"
+  - ask: "Where are the policies and docs that accuracy is judged against?"
     why: "I check facts against your written sources, and I flag a reply I cannot verify instead of guessing."
 first_routine:
   title: "Weekly reply review"
   cadence: "Fridays at 10:00 company time, after you approve the first review"
-  output: "reports/YYYY-MM-DD-reply-review.md: the sample, a score with the reason and a quote for each reply, patterns across the team, coaching notes as drafts, and what to change in the standing answers"
+  output: "reports/YYYY-MM-DD-reply-review.md: the sample, a score with the reason and a quote for each reply, patterns across the team, coaching notes as drafts, and what the docs should say differently"
   draft_only: true
 approval_required:
   - "Share an individual reply's score or a coaching note with anyone but the owner"

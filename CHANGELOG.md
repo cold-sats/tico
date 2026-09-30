@@ -41,14 +41,14 @@ All notable changes to Tico are recorded here. The format follows
   (new: label and duplicate proposals, drafted repro requests and a weekly digest for companies on GitHub). Each has an
   onboarding conversation on its first message, a first routine that produces a reviewable draft, a sample of excellent
   output, and a list of what always needs a person's Confirm. See [Starter bots](docs/starter-bots.md).
-- **A catalog for a whole company.** Thirty-three new templates take the catalog from 10 to 39, so the **Full org chart** builds a real
+- **A catalog for a whole company.** Thirty-two new templates take the catalog from 10 to 38, so the **Full org chart** builds a real
   company: a typical business-to-business software company that ticks mail, chat, a CRM, GitHub, meetings and docs gets about 35 bots in
   six teams instead of 5 in 4. Leadership: Strategy & Planning, Board & Investor Updates. Sales: Sales Lead, SDR & Lead Research, Sales
   Ops (read only on the CRM), Proposal Writer, Customer Success. Marketing: Marketing Lead, SEO & AI Visibility, Email Marketing (drafts,
-  never sends), Product Marketing. Support: Support Lead, Knowledge Base Writer, Support QA, Feedback Analyst. Operations: Ops Manager,
+  never sends), Product Marketing. Support: Support Lead, Support QA, Feedback Analyst, and the existing Support Triage becomes **Support Agent** (same `support` template, now working each ticket end to end as drafts and researching answers through the Librarian). Operations: Ops Manager,
   Recruiting Coordinator, People & HR Assistant, Legal Review (summaries for a person, not legal advice), Procurement, Bookkeeping Assistant
   and Spend Watcher and AR Follow-up (read exports, never post, pay or send). Engineering: Engineering Lead, PR Reviewer, Release Notes,
-  Incident Scribe, Docs Writer, Product Researcher. Each has an onboarding conversation, a paused first routine, a sample output for the
+  Incident Scribe, Docs Writer (READMEs and API docs in the product repositories only), Product Researcher. The Librarian keeps owning the company's docs: no template writes them, and Support Agent and People & HR report a doc gap to it as a task. Each has an onboarding conversation, a paused first routine, a sample output for the
   fictional company Acme and the list of what needs a person's Confirm, and its method is cited in [Starter bots](docs/starter-bots.md).
   Bots start parked in Needs onboarding and cost nothing until set up.
 - Catalog cards may carry `lead: true`: exactly one template per pack, the team's coordinator (Chief of Staff for Leadership). The four

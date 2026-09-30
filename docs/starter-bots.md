@@ -1,6 +1,6 @@
 # Starter bots
 
-The catalog holds 39 templates, enough to staff a company of ten to a hundred people, in six packs that become the six teams of the
+The catalog holds 38 templates, enough to staff a company of ten to a hundred people, in six packs that become the six teams of the
 full org chart. A company picks about five of them for a starter team and gets a first useful, reviewable result in its first session,
 or builds the whole org chart in one click and sets each bot up when its turn comes: every bot is created parked in "Needs
 onboarding" and costs nothing until someone sets it up. They run on what a company already has, and none of them acts outside the
@@ -11,7 +11,9 @@ company on its own. The catalog format is in [First run](onboarding.md); how to 
 
 Each pack is a team. Its first row is the pack's lead: a small coordinator that drafts the team's weekly summary from what the team's
 bots reported and proposes who should take a stuck or misrouted request. The leads never do their team's work and never assign people.
-The chooser has six teams, so finance sits in Operations, and product research and the docs and release bots sit in Engineering.
+The Librarian, built into every company, owns the docs, the FAQ and the answers built from them, so no template writes or
+keeps docs: Support Agent asks it (`hub docs ask`) and reports a missing or wrong doc to it as a task, People & HR does the same for
+policy questions, and Docs Writer covers only READMEs and API docs that live in the product repositories. The chooser has six teams, so finance sits in Operations, and product research and the docs and release bots sit in Engineering.
 
 ### Leadership (`basics`)
 
@@ -52,8 +54,7 @@ The chooser has six teams, so finance sits in Operations, and product research a
 |---|---|---|---|
 | `support-lead` | Support Lead (lead) | A weekly support summary: volume, response and resolution times against target, the oldest waiting tickets, repeats and the decisions needed, plus routing proposals | Tico only |
 | `feedback-analyst` | Feedback Analyst | A weekly report of customer feedback themes with counts, anonymised quotes, the trend and three suggested actions | Feedback routed as tasks; mail, meetings and chat are optional |
-| `kb-writer` | Knowledge Base Writer | Up to three help article drafts a week from resolved tickets, and a stale and duplicate article list | Resolved tickets routed as tasks |
-| `support` | Support Triage | A triage digest, a draft reply per ticket for a person to approve, standing answers and product issues from repeats | Support mail or tickets routed as tasks |
+| `support` | Support Agent | Works each ticket end to end as drafts: a bucket and a draft reply per ticket with the docs it rests on (asked of the Librarian), follow-ups, product issues from repeats, and doc gaps reported to the Librarian | Support mail or tickets routed as tasks |
 | `support-qa` | Support QA | A weekly scored sample of sent replies with patterns and coaching drafts for a person | Sent replies routed as tasks or a support mailbox |
 
 ### Operations and finance (`operations`)
@@ -65,7 +66,7 @@ The chooser has six teams, so finance sits in Operations, and product research a
 | `bookkeeping` | Bookkeeping Assistant | Proposed categories for uncategorised transactions and a monthly close status: checklist, missing receipts, batched owner questions, items for the accountant. Read-only to the books | An exported transaction file on a task |
 | `legal-review` | Legal Review | A plain-language contract summary, key terms, flags against your preferred positions and a contract calendar; not legal advice | Contracts attached to tasks |
 | `meeting-notes` | Meeting Notes | A summary, decisions and action items per imported meeting, with tasks proposed for their owners | A meeting importer (Fireflies, Zoom, Google Meet, Granola) or manual imports |
-| `people-hr` | People & HR Assistant | An onboarding checklist per new hire, a weekly tracker and policy answers quoted from the handbook | The handbook in the company docs |
+| `people-hr` | People & HR Assistant | An onboarding checklist per new hire, a weekly tracker and policy answers the Librarian cites from the handbook | The handbook in the company docs |
 | `procurement` | Procurement | A weighted vendor comparison per purchase request, with claims and their sources, and draft questions for a person to send; a weekly digest of open requests | A purchase request on a task; public web |
 | `recruiting` | Recruiting Coordinator | Job post drafts, a summary per application against the stated criteria, an interview kit and scheduling drafts | Role briefs and applications handed over as tasks |
 | `spend-watcher` | Spend Watcher | A weekly software and cloud spend report: movers, new vendors, overlaps, anomalies, renewals in 60 days, each with its source line | Card, bank or billing exports on a task |
@@ -75,7 +76,7 @@ The chooser has six teams, so finance sits in Operations, and product research a
 | Template | Name | What it produces | Needs |
 |---|---|---|---|
 | `engineering-lead` | Engineering Lead (lead) | A weekly engineering summary: what shipped, stuck pull requests, incidents, docs and release status, blocked work, and routing proposals | GitHub connected |
-| `docs-writer` | Docs Writer | A weekly docs drift report and draft fixes or new how-to pages for a person to commit | GitHub connected |
+| `docs-writer` | Docs Writer | A weekly drift report on READMEs and API docs in the product repositories, with draft fixes for an engineer to commit; internal docs stay with the Librarian | GitHub connected |
 | `incident-scribe` | Incident Scribe | An incident timeline, a blameless postmortem draft, action items with owners and dates, and a weekly incident review | Tico only; an incident channel or Sentry is optional |
 | `issue-triage` | Issue Triage | Label and duplicate proposals, drafted requests for missing repro steps, a weekly digest | GitHub connected; offer it only then |
 | `pr-reviewer` | PR Reviewer | A weekday review queue with a draft review per pull request (blocking issues first) for a person to post | GitHub connected |
@@ -200,7 +201,7 @@ The quality bar, in five checks a reviewer can apply to any bot in ten minutes:
 5. **Gated.** Nothing leaves the company, changes a record or commits a person without a Confirm, and the
    draft it leaves is ready to approve with one edit.
 
-A worked example. A person asks Support Triage about a ticket. Weak:
+A worked example. A person asks Support Agent about a ticket. Weak:
 
 > I looked at the ticket. The customer seems unhappy about their calendar and probably needs help.
 > I would suggest replying soon and maybe offering a refund.
@@ -258,7 +259,6 @@ The methods are standard practice, not proprietary. Public sources consulted whi
 - Listening: goals first, Boolean queries with exclusions, sorting into sentiment, pain points and competitor moves, and routing findings to named owners, from [Hootsuite on social listening](https://blog.hootsuite.com/social-listening-business/).
 - Reputation: no compensation conditioned on sentiment or rating, no suppressing negative reviews, a public reply is allowed, from the [FTC Consumer Reviews and Testimonials Rule Q&A](https://www.ftc.gov/business-guidance/resources/consumer-reviews-testimonials-rule-questions-answers), and the surface's own flag grounds and incentive ban from [Google Maps user-generated content policy](https://support.google.com/contributionpolicy/answer/7400114).
 - Support lead: a weekly review on named measures (first response time, time to resolution, backlog growth, CSAT, escalations) with two or three owned actions, and backlog aging buckets because a ticket open for two weeks is almost always misrouted or stuck, from [Supportbench on the weekly support ops review](https://www.supportbench.com/weekly-support-ops-review-drive-real-improvements/).
-- Knowledge base writer: the customer's words as the title, the answer first, numbered steps with screenshots and related links, and KCS practice of one cause per article, exact error text, article states and "reuse is review", from [Help Scout on writing knowledge base articles](https://www.helpscout.com/helpu/knowledge-base-article/), [KCS article structure](https://library.serviceinnovation.org/KCS/Knowledge-Centered_Success_Practices_Guide/301-Evolve_Loop/Practice_5_Content_Health/Technique_5.1) and [KCS article states](https://library.serviceinnovation.org/KCS/Knowledge-Centered_Success_Practices_Guide/301-Evolve_Loop/Practice_5_Content_Health/Technique_5.2).
 - Support QA: a short scorecard of accuracy, tone, completeness, policy and next step on a 1 to 3 scale, 4 to 6 categories at most, scored from a 5 to 10 percent random sample with some targeted tickets, from [Zendesk on building a QA scorecard](https://www.zendesk.com/blog/quality-assurance/workforce-optimization/qa-scorecard/) and [Featurebase on customer service quality assurance](https://www.featurebase.app/blog/customer-service-quality-assurance).
 - Feedback analyst: one shared theme list, tagging each item, ranking by frequency and severity weighted by account value, weekly triage of feedback, and closing the loop with customers (a person's job; the bot only lists who to tell), from [CustomerGauge on voice of customer analysis](https://customergauge.com/blog/voice-of-customer-analysis) and [Umbrex on voice of the customer feedback loops](https://umbrex.com/resources/customer-retention-playbook/voice-of-the-customer-feedback-loops/).
 - Engineering lead: a weekly review of what shipped, what is stuck and what is blocked, using delivery measures about the process and never a person (change lead time, deployment frequency, failed deployment recovery time, change fail rate) and review turnaround, from [DORA's software delivery metrics](https://dora.dev/guides/dora-metrics-four-keys/) and [Google's engineering practices on small changes](https://google.github.io/eng-practices/review/developer/small-cls.html).

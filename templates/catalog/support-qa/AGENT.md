@@ -61,7 +61,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    the top pattern and any source you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Work arrives as tasks: `hub task show <id>`, `hub task list`. Sent replies come from Support Triage's
+Work arrives as tasks: `hub task show <id>`, `hub task list`. Sent replies come from Support Agent's
 approved drafts (`hub task list --owner support --status done`) or an export a person attaches. Where the
 support mailbox is connected, read sent threads with `$HUB_DIR/scripts/mail.sh search "in:sent newer_than:7d"` and one
 thread with `mail.sh thread <id> --format md` (docs/mail.md). Ask the owner one question with `hub task

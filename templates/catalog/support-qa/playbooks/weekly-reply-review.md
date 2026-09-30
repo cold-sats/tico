@@ -29,7 +29,7 @@ one quoted sentence, and a note of what was excellent. Personal details stay out
 
 Group the misses: which criterion, how many of the sample, whether it is new or in `knowledge/patterns.md`.
 Two or more of the same miss is a pattern; one is an example. Compare with last week's pass rate. A pattern
-that a standing answer or policy would fix is a proposal for the Knowledge Base Writer or the owner.
+that a standing answer or policy would fix is a task to the Librarian or the owner.
 
 ## 5. Draft the coaching
 

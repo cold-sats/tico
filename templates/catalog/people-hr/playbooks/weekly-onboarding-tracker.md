@@ -40,8 +40,8 @@ done without a dated record or the owner's word on the task. Late items go at th
 
 ## 5. Handbook gaps
 
-Note any question a new hire will need answered that the handbook does not cover, and add it to
-`knowledge/unanswered.md`.
+Note any question a new hire will need answered that the handbook does not cover, and send it to
+the Librarian as one task (`hub task create --owner librarian`).
 
 ## 6. Write the page and hand it over
 

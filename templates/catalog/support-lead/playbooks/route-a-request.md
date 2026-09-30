@@ -15,7 +15,7 @@ Read `knowledge/team.md` for who owns what and who is covering today.
 ## 2. Pick the owner by what the work is
 
 - Answering a customer: the triage bot (`support`) drafts, a person approves.
-- A repeated question with no article: the Knowledge Base Writer.
+- A repeated question the docs do not answer: the Librarian (`librarian`), as a task naming the question and the tickets.
 - A reply that already went out and may be wrong: Support QA.
 - A theme or feature request: the Feedback Analyst, or a person in product.
 - A refund, legal, security or outage: a named person in `knowledge/escalation.md` or `team.md`, now.

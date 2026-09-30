@@ -9,7 +9,7 @@ support tool and nothing has been shared beyond the owner.
 **Headline: 9 of 10 sampled replies met the scorecard (pass rate 90 percent, up from 80 percent); the one repeated miss is a missing next step on refund replies.**
 
 ## How the sample was drawn
-10 of 74 replies sent 2026-09-21 to 2026-09-27: 7 at random, 3 chosen (2 refunds, 1 reopened). Source: Support Triage's
+10 of 74 replies sent 2026-09-21 to 2026-09-27: 7 at random, 3 chosen (2 refunds, 1 reopened). Source: Support Agent's
 approved drafts and the support mailbox's sent folder, read 2026-09-28.
 
 ## Scores (1 needs work, 2 meets, 3 excellent)
@@ -23,8 +23,8 @@ The other seven are on the task. Scored 1 (needs work): only T-2041, next step.
 
 ## Pattern
 **Refund replies do not say who decides or when** (2 of 2 refund replies, also last week). T-2041: "We are looking into
-it" with no owner or date. Proposed for the standing answers: a one-line refund status template. For the Knowledge Base
-Writer to draft, for Cara Mendes to confirm.
+it" with no owner or date. Proposed for the docs: a one-line refund status template, sent to the Librarian as a task for
+Cara Mendes to confirm.
 
 ## Excellent
 T-2038 answered the question in the first sentence and named the exact menu: "Open Settings, then Calendar, and

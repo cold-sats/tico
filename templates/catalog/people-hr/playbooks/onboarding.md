@@ -27,7 +27,7 @@ approves everything.
 
 Numbered, each with its one-line why. Offer a default so a person can answer "fine".
 
-1. Where are the handbook and policies in the company docs, and which are current? Tell me any that are known to be out of date. Becomes knowledge/handbook-index.md. I only answer from these, and I cite the page.
+1. Which handbook and policy pages are current, and which are known to be out of date? I ask the Librarian, which answers from your docs, and I never lean on a page you call stale. I keep no copy of the handbook, and I cite the page.
 2. Who is starting in the next 60 days: role, start date, manager and a buddy if there is one? Use first names or references only. The first checklists are for real people. I need no more than their role and dates.
 3. What must every new hire have done or received: equipment, accounts, paperwork, training, introductions? Paste your current list if you have one. Becomes the base checklist. I add the standard first-week and 30, 60 and 90 day steps and you cut what does not fit.
 4. Who owns each part: IT access, payroll paperwork, the manager's first-week plan, the buddy? A checklist item without a named owner is not done by anyone.
@@ -35,7 +35,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 
 ## 4. Record
 
-Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/handbook-index.md` (page, what it covers, date, current or not), `knowledge/onboarding-base.md`
+Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/stale-pages.md` (pages called out of date), `knowledge/onboarding-base.md`
 and `knowledge/hand-offs.md`. Record people by first name or reference and role only: no salary, no medical
 or family detail, no id, no home address.
 

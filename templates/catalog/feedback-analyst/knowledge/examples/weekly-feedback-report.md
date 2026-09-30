@@ -40,5 +40,5 @@ Read: 61 items from 3 sources (support tickets 42, survey comments 14, customer 
 The feedback Slack channel is not connected, so its messages are not counted.
 
 ## Sources
-- Support Triage digests 2026-09-21 to 2026-09-27, survey export attached 2026-09-28, customer call notes (5)
+- Support Agent digests 2026-09-21 to 2026-09-27, survey export attached 2026-09-28, customer call notes (5)
 ```

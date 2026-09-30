@@ -24,8 +24,8 @@ No docs were changed; drafts are for the docs owner to commit.
 - 9 other pages checked against the 14 user-visible changes: no drift found.
 
 ## Could not read
-- The mobile help site (no access). 6 pages not compared.
+- The mobile docs site source (no access to that repository). 6 pages not compared.
 
 ## Sources
-- gh pr list (merged since 2026-09-16), gh pr diff #398, #405, #412, 2026-09-30; hub docs search "reminders"; knowledge/docs-map.md
+- gh pr list (merged since 2026-09-16), gh pr diff #398, #405, #412, 2026-09-30; knowledge/docs-map.md
 ```

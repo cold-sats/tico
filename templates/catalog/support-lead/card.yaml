@@ -20,7 +20,7 @@ owns:
 never:
   - "Reply to a customer, or change, assign, close or tag anything in the support tool"
   - "Assign work to a person or change anyone's schedule or coverage"
-  - "Do a worker's job: triage, article writing, reply review and feedback analysis stay with their own bots"
+  - "Do a worker's job: working tickets, reply review and feedback analysis stay with their own bots, and the docs stay with the Librarian"
   - "Write a number it did not read in a dated source, or rate a named person in a report"
 prerequisites:
   - tool: hub

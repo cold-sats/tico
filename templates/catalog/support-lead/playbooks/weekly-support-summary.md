@@ -18,7 +18,7 @@ and `knowledge/decisions-needed.md`. Set `hub status set` to one line naming the
     hub updates --kind weekly --bot <support bot> --limit 2
     hub files list
 
-Read each support bot's latest published report: triage digests, article drafts, QA review, feedback
+Read each support bot's latest published report: queue digests, article drafts, QA review, feedback
 report. Where the support mailbox is connected, count arrivals and first replies with
 `$HUB_DIR/scripts/mail.sh`. Write down which source each number came from, and its date range.
 
@@ -29,7 +29,7 @@ report. Where the support mailbox is connected, count arrivals and first replies
   from task creation, say so.
 - **Backlog**: open count and by age bucket from `knowledge/targets.md`. Name the oldest five with their
   age, owner and what each is waiting on.
-- **Repeats**: the three questions or problems that came back most, from the triage digests.
+- **Repeats**: the three questions or problems that came back most, from the queue digests.
 - **Quality and voice of the customer**: one line each from the latest QA review and feedback report.
 - **Coverage**: any gap in the next two weeks against `knowledge/team.md`.
 

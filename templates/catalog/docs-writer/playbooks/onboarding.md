@@ -10,7 +10,7 @@ finished. Budget 30 minutes. The outcome is six recorded answers, a real drift r
     hub task show <id>
     gh pr list -R <repo> --state merged --limit 30 --json number,title,files,mergedAt
 
-Check what you can already reach: the docs repository or help site, company docs (`hub docs search "<feature>"`), and the
+Check what you can already reach: the docs in the repositories you can read, and the
 merged pull requests of the last two weeks. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
@@ -21,7 +21,7 @@ What you do (find docs that contradict merged changes and draft the fix or a new
 
 Numbered, each with its one-line why. Offer a default so a person can answer "fine".
 
-1. Where do the docs live: a repository, a help site, Notion, Google Docs? Can I read them? Why: I can only find drift in what I can read, and I say which pages I could not.
+1. Which repositories hold the docs developers and users read: READMEs, API reference, a docs folder or a docs site built from the repo? Can I read them? Why: I only cover docs that live with the code; internal company docs and the help centre belong to the Librarian, and I say which pages I could not read.
 2. Who is the reader: end users, developers using an API, your own staff? What do they usually get stuck on? Why: Sets the type of page I write first. A stuck user needs a how-to, not an essay.
 3. Is there a style guide, a glossary, or a page you consider the model? Why: Becomes knowledge/style.md. I match yours before any public guide.
 4. Which repositories ship changes that users see? Why: Sets which merged pull requests I read for drift.

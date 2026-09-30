@@ -22,7 +22,7 @@ changed default, a new page or setting, a changed API field. Drop refactors and 
 
 ## 3. Find the pages each one affects
 
-`hub docs search "<term>"`, the docs repository if readable, and `knowledge/docs-map.md`. For each affected
+The docs in the repository if readable, and `knowledge/docs-map.md`. If an internal doc or the help centre is also wrong, that is a task to `librarian`, not a draft. For each affected
 page decide: **wrong** (states something now false), **incomplete** (omits a new step or option), **missing**
 (no page covers it), or **fine**. Quote the sentence that is wrong and the pull request that made it wrong.
 

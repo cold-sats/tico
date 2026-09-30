@@ -26,7 +26,7 @@ schedules:
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
-# Sent replies arrive as tasks (Support Triage's approved drafts, or exports a person attaches) until an
+# Sent replies arrive as tasks (Support Agent's approved drafts, or exports a person attaches) until an
 # owner connects a source. Optional, uncomment what the onboarding says is connected. Read only, always:
 # reviewing a reply never touches the ticket it came from.
 # access:

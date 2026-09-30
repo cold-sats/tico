@@ -12,7 +12,7 @@ a routine that is proposed but not armed.
     hub task list --status done
     hub meetings search "customer" --since <two weeks ago>
 
-Check what feedback you can already reach: Support Triage's digests, imported customer calls, a mailbox
+Check what feedback you can already reach: Support Agent's digests, imported customer calls, a mailbox
 or channel in your access, files attached to the task. Do not ask what these already say. If you cannot
 read any feedback, that is answer one, and a task for the owner if they want a source connected.
 

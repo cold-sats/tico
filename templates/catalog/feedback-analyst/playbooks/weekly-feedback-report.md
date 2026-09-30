@@ -15,7 +15,7 @@ line naming the report.
 
 ## 2. Collect the week
 
-Read the last seven days from every source in your access: tasks and attachments, Support Triage's
+Read the last seven days from every source in your access: tasks and attachments, Support Agent's
 digests and known-issues, imported calls, the mailbox or channel if connected. Write down each source,
 how many items it gave, and any that were blocked. A blocked source is a line in the report.
 

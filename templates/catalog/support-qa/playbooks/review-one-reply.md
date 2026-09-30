@@ -12,7 +12,7 @@ question first and decide what a complete answer would contain before reading th
 
 ## 2. Check accuracy against a written source
 
-Find the standing answer or policy in the linked docs or `knowledge/`. A claim you cannot verify is
+Find the policy with `hub docs ask` or in the linked docs. A claim you cannot verify is
 marked "unverified", never "wrong" and never "right".
 
 ## 3. Score
