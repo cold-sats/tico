@@ -2160,7 +2160,7 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 /* narrow (a phone): the chart folds into a strip above the card */
 @container obhost (max-width:640px){
   /* a column, not a grid: a sticky grid item could not leave its own row */
-  .ob{display:flex;flex-direction:column;gap:12px}
+  .ob{display:flex;flex-direction:column;align-items:stretch;gap:12px}
   .ob-side{position:sticky;top:0;z-index:5}
   .ob-main{scroll-margin-top:64px}
   .ob-strip{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:8px 10px 8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;box-shadow:0 6px 16px -12px rgba(15,23,42,.35)}
