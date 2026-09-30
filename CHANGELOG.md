@@ -8,6 +8,9 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Removed
+- **The Getting started checklist** (its page, its sidebar entry and its Help link; `#/getting-started` now opens Tasks),
+  and the intro cards on Updates, Tasks and Goals. **Finish setup** is the only setup entry in the sidebar, while the first run
+  is unfinished. The Market card, the bot card and the tour stay.
 - **The Docs setup card** ("Where do your current docs live?") and `POST /api/v2/getting-started/docs`. The Docs page's
   own empty state already offers writing a doc, importing and adding a link.
 

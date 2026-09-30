@@ -1,7 +1,7 @@
-// Offline regression for the pieces around the wizard: the Getting started page shows exactly what
-// the server computed and nothing else; the Docs and Market cards file the expected API calls (the market
-// card is one box, the Librarian is asked, and a notice shows until the market has content);
-// cards close and stay closed (the server holds that per person); the tour is replayable from Help,
+// Offline regression for the pieces around the wizard: there is no checklist and no intro cards; the
+// Market card files the expected API call (one box, the Librarian is asked, and a notice shows until the
+// market has content); cards close and stay closed (the server holds that per person); the bot card opens
+// the two ways in; the tour is replayable from Help,
 // traps focus, closes on Escape and works in the phone drawer. Fixtures only - no server.
 // TICO_SCREENSHOT_DIR=<dir> saves the review screenshots.
 const {chromium} = require('playwright');
@@ -85,58 +85,32 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       return json({});
     });
     const errors = [];
+    const ready = page => page.waitForFunction(() => typeof GS !== 'undefined' && !!GS);
     const open = async (hash, viewport) => {
       const page = await context.newPage();
       page.on('pageerror', e => errors.push(hash + ': ' + e.message));
       if (viewport) await page.setViewportSize(viewport);
       await page.goto('http://tico-ui.test/' + hash);
-      await page.locator('#nav-getting-started:not([hidden])').waitFor();
+      await ready(page);
       return page;
     };
 
-    // ---- the checklist: what the server said, with the count in the rail
-    let page = await open('#/getting-started');
-    assert.equal(await page.locator('#gs-count').textContent(), '3/9');
-    assert.equal(await page.locator('#gs-progress').textContent(), '3 of 9 done');
-    const states = () => page.locator('[data-gs-item]').evaluateAll(els => Object.fromEntries(els.map(el => [el.dataset.gsItem, el.dataset.state])));
-    // The market box is on this page too, while the market is empty.
-    assert.equal(await page.locator('#gs-page [data-gs-card=market] [data-gs-market] textarea').count(), 1);
-    assert.deepEqual(await states(), {signed_in: 'done', computer: 'done', model: 'todo', github: 'todo', botops: 'done',
-      first_bot: 'todo', next_bot: 'todo', first_output: 'todo', first_update: 'todo'});
-    // Coaching: the next bot to set up (the top pain's), and the first approved output instead of a count of bots.
-    assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /Set up Support Triage/);
-    assert.match(await page.locator('[data-gs-item=next_bot]').textContent(), /Press Start setup on its page/);
-    assert.equal(await page.locator('[data-gs-item=next_bot] .gs-item-actions a').getAttribute('href'), '#/bot/support');
-    assert.match(await page.locator('[data-gs-item=first_output]').textContent(), /First approved output/);
-    assert.match(await page.locator('[data-gs-item=model]').textContent(), /run `codex login`/);
-    assert.equal(await page.locator('[data-gs-item=computer] .gs-item-actions a').count(), 0);   // a done step asks for nothing
-    assert.equal(await page.locator('[data-gs-item=github] [data-gs-skip]').count(), 1);
-    assert.equal(await page.locator('[data-gs-item=model] [data-gs-skip]').count(), 0);
-    await shot(page, 'checklist');
+    // ---- no checklist and no intro cards: Updates, Tasks and Goals open straight onto the page
+    let page = await open('#/updates');
+    assert.equal(await page.locator('#nav-getting-started').count(), 0);
+    assert.equal(await page.locator('#gs-card').isHidden(), true);
+    await page.close();
+    for (const hash of ['#/tasks', '#/goals']) {
+      page = await open(hash);
+      assert.equal(await page.locator('#gs-card').isHidden(), true);
+      await page.close();
+    }
+    // The old address lands on Tasks.
+    page = await open('#/getting-started');
+    await page.waitForFunction(() => location.hash === '#/tasks');
 
-    // A step fixes itself when the state does: the page has no way to tick it by hand.
-    items = items.map(row => row.id === 'model' ? {...row, done: true, why: ''} : row);
-    await page.reload();
-    await page.locator('#gs-page [data-gs-item]').first().waitFor();
-    assert.equal(await page.locator('#gs-progress').textContent(), '4 of 9 done');
-    assert.equal(await page.locator('[data-gs-item=model]').getAttribute('data-state'), 'done');
-
-    // The link on a step opens the right Settings tab.
-    await page.locator('[data-gs-item=github] a').click();
-    await page.waitForFunction(() => location.hash === '#/settings');
-    await page.waitForFunction(() => document.querySelector('[data-settings-tab=cloud]')?.getAttribute('aria-selected') === 'true'
-      || document.querySelector('[data-settings-tab=cloud].cur, [data-settings-tab=cloud][aria-pressed=true]'));
-    await page.goBack();
-    await page.locator('[data-gs-item=github]').waitFor();
-
-    // Skipping the optional step counts it, and says so.
-    await page.locator('[data-gs-skip=github]').click();
-    await page.waitForFunction(() => document.querySelector('[data-gs-item=github]')?.dataset.state === 'skipped');
-    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {skip: 'github'}});
-    assert.equal(await page.locator('#gs-progress').textContent(), '5 of 9 done');
-
-    // "Create a bot" asks what the bot should do and files it for BotOps.
-    await page.locator('[data-gs-item=first_bot] [data-gs-build]').click();
+    // The bot card's "Build one with BotOps" asks what the bot should do and files it for BotOps.
+    await page.locator('#gs-org-card [data-gs-build]').click();
     await page.locator('dialog.gs-form[open]').waitFor();
     assert.equal(await page.locator('dialog.gs-form h2').textContent(), 'What should your bot do?');
     await page.locator('dialog.gs-form textarea').fill('Answer the support inbox every morning.');
@@ -158,29 +132,12 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.waitForFunction(() => !document.querySelector('dialog.gs-form'));
 
     // The dialog belongs to its page: navigating away closes it.
-    await page.locator('[data-gs-item=first_bot] [data-gs-build]').click();
+    await page.locator('#gs-org-card [data-gs-build]').click();
     await page.locator('dialog.gs-form[open]').waitFor();
     await page.evaluate(() => { location.hash = '#/bot/botops'; });
     await page.waitForFunction(() => !document.querySelector('dialog.gs-form'));
-    await page.evaluate(() => { location.hash = '#/getting-started'; });
+    await page.evaluate(() => { location.hash = '#/updates'; });
 
-    // Hiding the checklist takes it out of the rail; it stays reachable from its address.
-    await page.locator('[data-gs-hide]').click();
-    await page.waitForFunction(() => document.querySelector('#nav-getting-started').hidden === false && document.querySelector('[data-gs-hide]').textContent === 'Show in the sidebar');
-    await page.goto('http://tico-ui.test/#/updates');
-    await page.reload();
-    await page.locator('#nav-getting-started').waitFor({state: 'hidden'});
-    dismissed.checklist = false;
-    await page.close();
-
-    // ---- section cards: an explanation and one first action, closable
-    page = await open('#/updates');
-    assert.match(await page.locator('#gs-card').textContent(), /Each bot posts daily/);
-    await page.close();
-    page = await open('#/tasks');
-    assert.match(await page.locator('#gs-card').textContent(), /Work for a bot or a person/);
-    await page.locator('#gs-card [data-gs-run]').click();
-    await page.locator('#task-modal[open], dialog[open]').first().waitFor();
     await page.close();
 
     // ---- Market: one box, the Librarian is asked, a notice shows until the market has content
@@ -188,7 +145,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.clock.install();
     page.on('pageerror', e => errors.push('market: ' + e.message));
     await page.goto('http://tico-ui.test/#/market');
-    await page.locator('#nav-getting-started').waitFor();
+    await ready(page);
     await page.locator('[data-gs-card=market]').waitFor();
     const card = page.locator('[data-gs-card=market]');
     assert.equal(await card.locator('strong').first().textContent(), 'Research your market');
@@ -263,41 +220,41 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
 
     // ---- Meetings has no intro card: the page itself offers Add notes and the sources
     page = await open('#/meetings');
-    await page.locator('#nav-getting-started').waitFor();
+    await ready(page);
     assert.equal(await page.locator('[data-gs-card=meetings]').count(), 0);
     assert.equal(await page.locator('#gs-card').isHidden(), true);
     await page.close();
 
     // ---- the X is "not now": the card comes back in a new session while the section is empty
-    page = await open('#/updates');
-    await page.locator('[data-gs-card=updates]').waitFor();
+    page = await open('#/market');
+    await page.locator('[data-gs-card=market]').waitFor();
     const before = calls.length;
-    await page.locator('[data-gs-later=updates]').click();
+    await page.locator('[data-gs-later=market]').click();
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
     assert.equal(calls.length, before);                     // nothing is saved for a "not now"
     await page.reload();
-    await page.locator('#nav-getting-started').waitFor();
+    await ready(page);
     assert.equal(await page.locator('#gs-card').isHidden(), true);   // same session: still put away
     await page.close();
-    page = await open('#/updates');                        // a new page has a new session
-    await page.locator('[data-gs-card=updates]').waitFor();
+    page = await open('#/market');                        // a new page has a new session
+    await page.locator('[data-gs-card=market]').waitFor();
 
     // ...and it goes on its own once the section has content.
-    empty.updates = false;
+    empty.market = false;
     await page.reload();
-    await page.locator('#nav-getting-started').waitFor();
+    await ready(page);
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    empty.updates = true;
+    empty.market = true;
     await page.close();
 
     // "Don't show again" is the one the server keeps.
-    page = await open('#/updates');
-    await page.locator('[data-gs-card=updates]').waitFor();
-    await page.locator('[data-gs-dismiss=updates]').click();
+    page = await open('#/market');
+    await page.locator('[data-gs-card=market]').waitFor();
+    await page.locator('[data-gs-dismiss=market]').click();
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {card: 'updates'}});
+    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {card: 'market'}});
     await page.reload();
-    await page.locator('#nav-getting-started').waitFor();
+    await ready(page);
     assert.equal(await page.locator('#gs-card').isHidden(), true);
     await page.close();
 
@@ -348,7 +305,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.keyboard.press('Escape');
     await page.locator('.gs-tour').waitFor({state: 'detached'});
     await page.reload();
-    await page.locator('#nav-getting-started').waitFor();
+    await ready(page);
     await page.waitForTimeout(300);
     assert.equal(await page.locator('.gs-tour').count(), 0);
     await page.close();
@@ -375,6 +332,6 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.close();
 
     assert.deepEqual(errors, []);
-    console.log('PASS: getting started shows live state, files the docs and market asks, and closed cards stay closed; the tour traps focus.');
+    console.log('PASS: no checklist or intro cards; the market card files its ask, closed cards stay closed, the bot card opens both ways in; the tour traps focus.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

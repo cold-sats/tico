@@ -1,7 +1,7 @@
 // The Docs page, against an in-memory stand-in for the docs API (fixtures only, no server): write a doc,
 // edit it (with the version-conflict message), read its history and restore an old version, lock it
 // (only owners and bot administrators), add, open, edit and remove a linked doc, search across both
-// kinds, import a file, and let the Getting started card turn pasted links into linked docs.
+// kinds, and import a file.
 // TICO_SCREENSHOT_DIR=<dir> saves the review screenshots (both themes, and a phone).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -328,6 +328,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await page.close();
 
     assert.deepEqual(errors, []);
-    console.log('PASS: docs are written, edited (with the conflict message), versioned and restored, locked for admins, linked and searched, imported, and set up from the Getting started card.');
+    console.log('PASS: docs are written, edited (with the conflict message), versioned and restored, locked for admins, linked, searched and imported.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

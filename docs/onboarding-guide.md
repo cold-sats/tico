@@ -22,8 +22,7 @@ Start from what your company does, not from what a bot could do.
 4. **Connect tools when a bot asks.** Onboarding does not ask which tools you use and no bot is held back for a missing one. When you press
    **Start setup** on a bot, it tells you what it needs (a mailbox, tickets, a repository, a CRM) and where to connect it.
 
-There is no limit on how many bots to create, but set them up one at a time, in the order they are listed. The Getting started checklist names the
-next one.
+There is no limit on how many bots to create, but set them up one at a time, in the order they are listed.
 
 ## Set one up, together
 

@@ -2089,7 +2089,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
   .fr-owner select{width:100%}
   .bot-onboard .primary{width:100%}
 }
-/* Getting started: the tour, the checklist page and the cards above each section (ui/getting-started.js) */
+/* After the wizard: the tour and the cards above each section (ui/getting-started.js) */
 .help-actions{display:flex;align-items:center;gap:var(--s4);margin-top:var(--s4);flex-wrap:wrap}
 #gs-card{flex:1 1 100%;min-width:0}
 .gs-card{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s3) var(--s4);border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:13.5px}
@@ -2130,17 +2130,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .gs-form form{padding:var(--s4);display:grid;gap:var(--s3)}
 .gs-form header{display:flex;align-items:center;justify-content:space-between}
 .gs-form p[role=status]{margin:0;min-height:1em}
-.gs-page{max-width:720px}
-.gs-page h1{font-size:22px}
-.gs-list{list-style:none;margin:var(--s4) 0;padding:0;display:grid;gap:var(--s2)}
-.gs-item{display:flex;align-items:center;gap:var(--s3);padding:var(--s3);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
-.gs-item.done .gs-tick{color:var(--ok)}
-.gs-item.skipped{opacity:.7}
-.gs-item-main{flex:1;min-width:0}
-.gs-item-main p{margin:0;font-size:12.5px}
-.gs-item-actions{display:flex;gap:var(--s2);flex:none}
 .gs-link{display:inline-block;padding:6px 10px;border:1px solid var(--line);border-radius:6px;color:var(--ink);font-size:13px}
-.gs-page-actions{display:flex;gap:var(--s2);flex-wrap:wrap}
 .gs-tour{position:fixed;inset:0;z-index:2000}
 .gs-tour-hole{position:fixed;border-radius:8px;box-shadow:0 0 0 100vmax rgba(0,0,0,.55);outline:2px solid var(--accent);pointer-events:none}
 .gs-tour-card{position:fixed;width:min(320px,calc(100vw - 24px));padding:var(--s4);border-radius:12px;background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.35)}
@@ -2150,7 +2140,6 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .gs-tour-actions{display:flex;justify-content:flex-end;gap:var(--s2)}
 @media (max-width:760px){
   #gs-card{margin-top:12px}
-  .gs-item{flex-wrap:wrap}.gs-item-actions{width:100%}
   .gs-org-card{font-size:14px}
 }
 .onb{max-width:840px}
@@ -2294,7 +2283,6 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
   <nav class="side-scroll" aria-label="Pages and bots">
     <div id="side-update" class="side-rec finishing" role="status" hidden title="Tico is installing an update. Bots finish what they are doing; new work waits a few minutes, then starts on its own."><span class="dot" aria-hidden="true"></span><span class="side-rec-time">Updating</span><span class="side-rec-title">Tico · new bot work starts after</span></div>
     <a class="nav-link" href="#/welcome" data-nav="welcome" id="nav-welcome" hidden><span class="nav-icon" aria-hidden="true">check_circle</span>Finish setup</a>
-    <a class="nav-link" href="#/getting-started" data-nav="getting-started" id="nav-getting-started" hidden><span class="nav-icon" aria-hidden="true">checklist</span>Getting started<span class="nav-badge" id="gs-count"></span></a>
     <a class="nav-link" href="#/updates" data-nav="updates"><span class="nav-icon" aria-hidden="true">dynamic_feed</span>Updates<span class="nav-badge" data-upd-badge hidden></span></a>
     <a class="nav-link" href="#/tasks" data-nav="tasks"><span class="nav-icon" aria-hidden="true">task_alt</span>Tasks</a>
     <a class="nav-link" href="#/goals" data-nav="goals"><span class="nav-icon" aria-hidden="true">target</span>Goals</a>
@@ -3689,7 +3677,6 @@ function renderTree() {
       (a.dataset.nav === 'tasks' && ([TASKS, BOARD, ISSUES, RECURRING].includes(S.route) || S.route.startsWith('#/task/'))) ||
       (a.dataset.nav === 'settings' && S.route === SETTINGS) ||
       (a.dataset.nav === 'help' && S.route === HELP) ||
-      (a.dataset.nav === 'getting-started' && S.route === '#/getting-started') ||
       (a.dataset.nav === 'credentials' && S.route === CREDENTIALS) ||
       (a.dataset.nav === 'docs' && (S.route === DOCS || S.route.startsWith(DOCS + '/') || S.route.startsWith(DOCS + '?'))) ||
       (a.dataset.nav === 'market' && (S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) ||
@@ -11029,7 +11016,7 @@ function pageHelp() {
       <div class="help-eyebrow">How Tico works</div>
       <h1>The coordination layer for your human and AI team.</h1>
       <p class="help-lede">One place to find agents, talk to them, hand off work and see what happened.</p>
-      <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/getting-started">Getting started</a><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a></div>
+      <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a></div>
     </header>
 
     <section class="help-flow" aria-label="How people, Tico, and bots work together">
@@ -11665,7 +11652,6 @@ function onbDoneHTML(state) {
     <div id="onb-bots">${onbBotRowsHTML(state)}</div>
     <div id="onb-after">${frNextHTML(state)}</div>
     <div class="onb-actions"><button class="primary" type="button" id="onb-tasks">Open Tasks</button>
-      <a class="ghost gs-link" href="#/getting-started" id="onb-getting-started">Getting started</a>
       <span class="spacer"></span><span class="muted" id="onb-status"></span></div>`;
 }
 function onbBotRowsHTML(state) {
@@ -12609,7 +12595,7 @@ function route() {
   else if (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?')) pageGoals();
   else if (S.route === SETTINGS) pageSettings();
   else if (S.route === HELP) pageHelp();
-  else if (S.route === '#/getting-started') pageGettingStarted();
+  else if (S.route === '#/getting-started') { location.replace(TASKS); return; }   // the checklist is gone
   else if (S.route === '#/health') { SETTINGS_TAB = 'health'; location.replace(SETTINGS); return; }   // Health moved into Settings
   else if (S.route === CREDENTIALS) pageCredentials();
   else if (S.route === SQL_PAGE) pageSql();

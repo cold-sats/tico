@@ -1,4 +1,4 @@
-/* After the wizard: the tour, the Getting started page and the cards at the top of each section
+/* After the wizard: the tour and the cards at the top of each section
    (docs/onboarding.md). Every tick on the checklist comes from GET /api/v2/getting-started; the
    only things kept per person are their own choices (tour seen, card closed, checklist hidden). */
 let GS = null;                     // the last answer, or null when the server has no checklist to give
@@ -11,21 +11,12 @@ const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.
 
 const gsCards = {
   market: {owner: true, title: 'Research your market'},
-  tasks: {title: 'Tasks', text: 'Work for a bot or a person.',
-          action: ['Create a task', '#task-new']},
-  updates: {title: 'Updates', text: 'Each bot posts daily.'},
-  goals: {title: 'Goals', text: 'What a bot or person is going for.',
-          action: ['Set a first goal', '[data-goal-new="new"]']},
 };
 
 const gsRoute = () => {
   const r = S.route || '';
   const at = (base) => r === base || r.startsWith(base + '?') || r.startsWith(base + '/');
-  if (at('#/updates')) return 'updates';
-  if (['#/tasks', '#/board', '#/issues', '#/recurring'].includes(r) || r.startsWith('#/task/')) return 'tasks';
-  if (at('#/goals')) return 'goals';
-  if (at('#/market')) return 'market';
-  return '';
+  return at('#/market') ? 'market' : '';
 };
 
 async function gsRefresh() {
@@ -39,11 +30,8 @@ async function gsRefresh() {
 }
 
 function gsDraw() {
-  gsNav();
-  window.hlNav?.();
   gsCard();
   gsOrgCard();
-  if (S.route === '#/getting-started') gsPageDraw();
 }
 
 async function gsState(change) {
@@ -60,16 +48,6 @@ async function gsState(change) {
   gsDraw();
 }
 
-// ---------------------------------------------------------------- the rail
-function gsNav() {
-  const link = $('#nav-getting-started');
-  if (!link) return;
-  const shown = !!GS && !GS.complete && !GS.dismissed;
-  link.hidden = !shown && S.route !== '#/getting-started';
-  const count = $('#gs-count');
-  if (count && GS) count.textContent = `${GS.done}/${GS.total}`;
-}
-
 function gsOrgCard() {
   const host = $('#gs-org-card');
   if (!host) return;
@@ -83,17 +61,6 @@ function gsOrgCard() {
       <button class="ghost" type="button" data-gs-build>Build one with BotOps</button>
     </div>
     <button class="ghost gs-x" type="button" data-gs-dismiss="bots" aria-label="Close this">✕</button>`;
-}
-
-// ---------------------------------------------------------------- cards at the top of a section
-function gsWhenReady(selector) {
-  let tries = 0;
-  const look = () => {
-    const el = document.querySelector('#main ' + selector);
-    if (el) el.click();
-    else if (++tries < 30) setTimeout(look, 100);
-  };
-  look();
 }
 
 function gsCard() {
@@ -116,9 +83,7 @@ function gsCard() {
   let body;
   if (sent) body = `<strong>${esc(spec.title)}</strong><p role="status">${sent.html}</p>`;
   else if (researching) body = gsResearchHtml(researching);
-  else if (section === 'market') body = gsMarketForm();
-  else body = `<strong>${esc(spec.title)}</strong><p>${esc(spec.text)}</p>${spec.action
-    ? `<div class="gs-card-actions"><button class="primary" type="button" data-gs-run="${esc(spec.action[1])}">${esc(spec.action[0])}</button></div>` : ''}`;
+  else body = gsMarketForm();
   host.innerHTML = `<aside class="gs-card" data-gs-card="${section}" aria-label="${esc(spec.title)}">
     <div class="gs-card-body">${body}</div>
     <div class="gs-card-side">${researching ? '' : `<button class="ghost gs-x" type="button" data-gs-later="${section}" aria-label="Not now">✕</button>`}
@@ -152,7 +117,6 @@ gsStyle.textContent = `.gs-market .gs-field{max-width:680px}
 .gs-spin{flex:none;width:14px;height:14px;margin-top:3px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:gsspin .9s linear infinite}
 @keyframes gsspin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.gs-spin{animation:none;border-color:var(--accent)}}
-.gs-page-card{margin:var(--s4) 0}
 @media (max-width:600px){.gs-card[data-gs-card=market]{flex-direction:column}.gs-card[data-gs-card=market] .gs-card-body{align-self:stretch}.gs-card[data-gs-card=market] .gs-card-side{flex-direction:row;align-items:center;align-self:flex-end}}`;
 document.head.appendChild(gsStyle);
 
@@ -291,57 +255,6 @@ function gsBotForm() {
   dialog.querySelector('textarea').focus();
 }
 
-// ---------------------------------------------------------------- the checklist page
-function gsItemHtml(item) {
-  const state = item.done ? 'done' : item.skipped ? 'skipped' : 'todo';
-  const icon = item.done ? 'check_circle' : item.skipped ? 'remove_circle' : 'radio_button_unchecked';
-  const login = item.login && !item.done && !item.skipped
-    ? `<button class="primary" type="button" data-model-login data-runner="${esc(item.login.runner_id)}" data-runtime="${esc(item.login.runtime)}" data-machine="${esc(item.login.machine)}">Sign in</button>` : '';
-  const fix = item.done || item.skipped ? '' : item.action === 'create-bot'
-    ? '<button class="primary" type="button" data-gs-build>Create a bot</button>'
-    : item.href ? `<a class="ghost gs-link" href="${esc(item.href)}"${item.tab ? ` data-gs-tab="${esc(item.tab)}"` : ''}>${['first_bot', 'next_bot', 'first_output'].includes(item.id) ? 'Open' : 'Fix this'}</a>` : '';
-  const skip = item.optional && !item.done && !item.skipped
-    ? `<button class="ghost" type="button" data-gs-skip="${esc(item.id)}">Skip</button>` : '';
-  return `<li class="gs-item ${state}" data-gs-item="${esc(item.id)}" data-state="${state}">
-    <span class="nav-icon gs-tick" aria-hidden="true">${icon}</span>
-    <div class="gs-item-main"><strong>${esc(item.label)}</strong>${item.optional ? ' <span class="muted">optional</span>' : ''}
-      ${item.why ? `<p class="muted">${esc(item.why)}</p>` : ''}</div>
-    <div class="gs-item-actions">${login}${fix}${skip}</div></li>`;
-}
-
-// The market card, on the checklist page too: the form while the market is empty, the notice while it works.
-function gsMarketPanel() {
-  const researching = gsResearchGet();
-  gsResearchWatch(!!researching);
-  const body = researching ? gsResearchHtml(researching)
-    : GS?.owner && GS.empty?.market !== false && !GS.cards_dismissed.includes('market') ? gsMarketForm() : '';
-  return body ? `<aside class="gs-card gs-page-card" data-gs-card="market" aria-label="Research your market"><div class="gs-card-body">${body}</div></aside>` : '';
-}
-
-function gsPageDraw() {
-  const host = $('#gs-page');
-  if (!host) return;
-  const box = host.querySelector('[data-gs-market] textarea');
-  if (box && document.activeElement === box) return;      // a box being typed in is left alone
-  const typed = box?.value || '';
-  if (!GS) { host.innerHTML = '<div class="empty">Nothing to show yet.</div>'; return; }
-  host.innerHTML = `<h1>Getting started</h1>
-    <p class="muted" id="gs-progress">${GS.done} of ${GS.total} done${GS.complete ? '. All set.' : ''}</p>
-    <ul class="gs-list">${GS.items.map(gsItemHtml).join('')}</ul>
-    ${gsMarketPanel()}
-    <div class="gs-page-actions">
-      <button class="ghost" type="button" data-gs-tour>Take the tour</button>
-      <button class="ghost" type="button" data-gs-hide>${GS.dismissed ? 'Show in the sidebar' : 'Hide this'}</button>
-    </div>`;
-  const again = host.querySelector('[data-gs-market] textarea');
-  if (again && typed) again.value = typed;
-}
-
-window.pageGettingStarted = function pageGettingStarted() {
-  $('#main').innerHTML = '<div class="gs-page" id="gs-page"><div class="empty">Loading…</div></div>';
-  void gsRefresh().then(() => { if (!GS) gsPageDraw(); });
-};
-
 // ---------------------------------------------------------------- the tour
 const GS_STEPS = [
   ['[data-nav="updates"]', 'Updates', 'Every bot posts a short update each day, and a fuller one on Fridays.'],
@@ -449,7 +362,7 @@ window.gsTourAfterSetup = async function () {
   const seen = await gsRefresh();
   if (!seen?.tour_seen) gsTourStart();
 };
-window.gsRoute = function () { gsCard(); gsNav(); };
+window.gsRoute = function () { gsCard(); };
 window.gsBoot = function () {
   // Someone who joins later gets the same first look, once, unless the wizard is about to run.
   void gsRefresh().then(seen => {
@@ -465,14 +378,9 @@ document.addEventListener('click', event => {
   if (later) { gsLaterAdd(later.dataset.gsLater); gsDraw(); return; }
   const dismiss = t.closest('[data-gs-dismiss]');
   if (dismiss) { void gsState({card: dismiss.dataset.gsDismiss}); return; }
-  const run = t.closest('[data-gs-run]');
-  if (run) { gsWhenReady(run.dataset.gsRun); return; }
   if (t.closest('[data-gs-build]')) { gsBotForm(); return; }
   if (t.closest('[data-gs-connect]')) { connectAgent(); return; }
   if (t.closest('[data-gs-tour]')) { gsTourStart(); return; }
-  const skip = t.closest('[data-gs-skip]');
-  if (skip) { void gsState({skip: skip.dataset.gsSkip}); return; }
-  if (t.closest('[data-gs-hide]')) { void gsState({checklist: !GS?.dismissed}); return; }
   const link = t.closest('[data-gs-tab]');
   if (link) {
     event.preventDefault();
