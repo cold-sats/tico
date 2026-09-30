@@ -51,7 +51,14 @@ def mail_sync_seconds(config=None):
 
 
 DELEGATION_WORDS = ("unauthorized_client", "client is unauthorized", "domain-wide delegation is not granted")
-DELEGATION_RETRY = 3600         # seconds before a domain the key can't act for is tried again
+# A domain counts as not delegated only after this many consecutive delegation errors, spread over at least
+# DELEGATION_CYCLES sync cycles or DELEGATION_SPAN seconds (Google sometimes answers unauthorized_client once,
+# for a moment, on a delegation that is fine). From then on it is retried after these gaps, growing with each
+# failed retry and held at the last; one success on the domain clears it all.
+DELEGATION_FAILURES = 3
+DELEGATION_CYCLES = 2
+DELEGATION_SPAN = 300
+DELEGATION_BACKOFF = (120, 300, 900, 1800, 3600)
 
 
 def not_delegated(exc):
@@ -106,8 +113,9 @@ class ConnectorPublisher:
         self.mailboxes = {}
         self.last_mail_sync = None
         self.mail_index = 0
-        self.undelegated = {}           # domain -> when to try it again (monotonic seconds)
-        self.said = set()               # domains already named in the log as not delegated
+        self.clock = time.monotonic
+        self.cycle = 0                  # sync cycles so far (a calendar refresh or a mail sync turn)
+        self.domains = {}               # domain -> delegation trouble: see note_delegation
         self.mail_interval = mail_sync_seconds(config)
 
     def ready(self):
@@ -220,13 +228,13 @@ class ConnectorPublisher:
 
     def tick(self):
         self.ready()
+        self.cycle += 1
         self.calendar_action_tick()
         request = self.client.get("connectors/calendar/targets")
         snapshots, failing = [], []
         for person in request["people"]:
             email = person["email"]
             if self.blocked(email):
-                failing.append({"account": email, "reason": "delegation"})
                 continue
             # The account and error class go to this Mac's log only; provider details and local
             # paths never reach the cloud. A failed person retains their prior cloud snapshot
@@ -238,42 +246,56 @@ class ConnectorPublisher:
             try:
                 snapshots.append({"email": email, "events": self.fetch(email, request["hours"])})
                 account.recovered()
-                self.said.discard(domain_of(email))
+                self.delegated(email)
             except Exception as exc:
-                if not_delegated(exc):          # the whole domain: reported once, not every cycle
-                    self.block(email, exc)
-                    failing.append({"account": email, "reason": "delegation"})
+                if not_delegated(exc):          # the whole domain, once it keeps happening
+                    self.note_delegation(email)
                     continue
                 account.failed(exc)
                 failing.append({"account": email, "reason": failure_reason(exc)})
+        failing += self.delegation_failures(person["email"] for person in request["people"])
         if snapshots:
             self.client.post("connectors/calendar/snapshots", {"snapshots": snapshots})
         self.report("calendar", failing)
         return len(snapshots)
 
     def blocked(self, address):
-        """True while this address's domain is known not to be delegated to the key."""
-        domain = domain_of(address)
-        until = self.undelegated.get(domain)
-        if until is None:
-            return False
-        if time.monotonic() >= until:
-            del self.undelegated[domain]        # try it once more; a granted delegation heals itself
-            return False
-        return True
+        """True while this address's domain is waiting out a backoff after repeated delegation errors."""
+        state = self.domains.get(domain_of(address))
+        return bool(state and state["until"] and self.clock() < state["until"])
 
-    def block(self, address, exc):
-        """The key can't act for this address's domain: say so once, then stop calling until the retry time."""
-        domain = domain_of(address)
-        if domain not in self.said:
-            self.said.add(domain)
-            log(f"Tico connectors: the Google key cannot act for the domain {domain} (mailbox {address} refused, "
-                "no domain-wide delegation there); skipping it and checking again in an hour")
-        self.undelegated[domain] = time.monotonic() + DELEGATION_RETRY
+    def note_delegation(self, address):
+        """One more delegation error for this address's domain. A single error (or a burst inside one cycle)
+        changes nothing; the domain is treated as not delegated only at DELEGATION_FAILURES in a row across
+        DELEGATION_CYCLES cycles or DELEGATION_SPAN seconds, and then backs off 2, 5, 15, 30, 60 minutes."""
+        domain, now = domain_of(address), self.clock()
+        state = self.domains.setdefault(domain, {"fails": 0, "cycles": 0, "cycle": None, "first": now,
+                                                 "level": -1, "until": 0, "down": False})
+        state["fails"] += 1
+        if state["cycle"] != self.cycle:
+            state["cycle"] = self.cycle
+            state["cycles"] += 1
+        if not state["down"]:
+            if state["fails"] < DELEGATION_FAILURES or (
+                    state["cycles"] < DELEGATION_CYCLES and now - state["first"] < DELEGATION_SPAN):
+                return
+            state["down"] = True
+            log(f"Tico connectors: the Google key cannot act for the domain {domain} (mailbox {address} refused "
+                f"{state['fails']} times in a row, no domain-wide delegation there); skipping it and checking "
+                f"again in {DELEGATION_BACKOFF[0] // 60} minutes, then less often")
+        state["level"] = min(state["level"] + 1, len(DELEGATION_BACKOFF) - 1)
+        state["until"] = now + DELEGATION_BACKOFF[state["level"]]
+
+    def delegated(self, address):
+        """Any success on this address's domain: the delegation works, so forget every earlier error."""
+        state = self.domains.pop(domain_of(address), None)
+        if state and state["down"]:
+            log(f"Tico connectors: the Google key can act for the domain {domain_of(address)} again")
 
     def delegation_failures(self, addresses):
-        """The health entries for every target whose domain is not delegated."""
-        return [{"account": address, "reason": "delegation"} for address in addresses if self.blocked(address)]
+        """The health entries for every target whose domain has reached the threshold and not yet recovered."""
+        return [{"account": address, "reason": "delegation"} for address in addresses
+                if self.domains.get(domain_of(address), {}).get("down")]
 
     def report(self, service, failing):
         """Tell the hub how this refresh went (Settings shows a failing account; a clean report is
@@ -287,10 +309,11 @@ class ConnectorPublisher:
         if self.last_mail_sync is not None and time.monotonic() - self.last_mail_sync < self.mail_interval:
             return 0
         self.ready()
+        self.cycle += 1
         request = self.client.get("connectors/mail/targets")
         boxes = request.get("mailboxes") or []
         posted = 0
-        failing = self.delegation_failures(box["address"] for box in boxes)
+        failing = []
         live = [box for box in boxes if not self.blocked(box["address"])]
         if live:
             # One mailbox per due tick: first-run backfill is one messages.get per id.
@@ -304,16 +327,15 @@ class ConnectorPublisher:
             try:
                 posted = self._mail_mailbox(address, box, request.get("batch") or MAIL_BATCH)
                 account.recovered()
-                self.said.discard(domain_of(address))
+                self.delegated(address)
             except Exception as exc:
-                if not_delegated(exc):          # the whole domain: reported once, not every cycle
-                    self.block(address, exc)
-                    failing.append({"account": address, "reason": "delegation"})
+                if not_delegated(exc):          # the whole domain, once it keeps happening
+                    self.note_delegation(address)
                 else:
                     account.failed(exc)
                     failing.append({"account": address, "reason": failure_reason(exc)})
         if boxes:
-            self.report("mail", failing)
+            self.report("mail", failing + self.delegation_failures(box["address"] for box in boxes))
         self.last_mail_sync = time.monotonic()
         return posted
 
