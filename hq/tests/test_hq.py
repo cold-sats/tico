@@ -154,3 +154,8 @@ def test_it_will_not_start_without_its_key(monkeypatch):
     monkeypatch.setenv("TICO_HQ_KEY", "too-short")
     with pytest.raises(SystemExit):
         entry.main()
+
+
+def test_the_app_serves_the_org_builders_suggestions(client):
+    # hq/recruit.py is installed on the collector's app: its strict input check answers, not a 404.
+    assert client.post("/v1/recruit", json={"department": "sales", "extra": 1}).status_code == 422

@@ -35,6 +35,10 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       # The public hostname: the tunnel's route (cloudflared) and the certificate (caddy).
       HQ_DOMAIN: ${HQ_DOMAIN:-}
+      # POST /v1/recruit (hq/recruit.py): without a key, suggestions come from the local recommender only.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HQ_RECRUIT_MODEL: ${HQ_RECRUIT_MODEL:-}
+      HQ_RECRUIT_DAILY_CAP: ${HQ_RECRUIT_DAILY_CAP:-}
     volumes:
       - hq-data:/data
       # The cloudflared service's route, written by HQ at every start (hq/tunnel.py). No secret in it.

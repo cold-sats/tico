@@ -1,4 +1,5 @@
-"""The HQ collector: `GET /v1/latest` (a release lookup that also counts the install) and `GET /v1/stats`.
+"""The HQ collector: `GET /v1/latest` (a release lookup that also counts the install), `GET /v1/stats`, and
+`POST /v1/recruit` (the org builder's suggestions, recruit.py).
 
 What it keeps is in db.py and what it is sent is in PRIVACY.md. The address of a request is used for rate limiting in
 memory (limits.py) and nowhere else; nothing here logs a request, and the server is started with its access log off
@@ -11,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from . import recruit
 from .db import Database
 from .limits import Limiter
 from .releases import Latest
@@ -94,4 +96,6 @@ def create_app(db, latest, limiter=None, client_ip_header=""):
         return JSONResponse(db.stats(), headers={"Cache-Control": "public, max-age=300",
                                                  "Access-Control-Allow-Origin": "*"})
 
+    # POST /v1/recruit, the org builder's suggestions (recruit.py): stores nothing, and the limit above applies too.
+    recruit.install(app, address=address)
     return app

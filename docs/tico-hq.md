@@ -1,6 +1,6 @@
 # Tico HQ
 
-Tico HQ (`hq/`) is the small public service the Tico team runs at `https://hq.tico.team`. It is not part of a company's install and
+Tico HQ (`hq/`) is the small public service the Tico team runs at `https://updates.tico.team`. It is not part of a company's install and
 has its own image, database and compose file. An install reaches it only through its own server, and only for what is listed here;
 [PRIVACY.md](../PRIVACY.md) is what an owner reads about it.
 
@@ -34,7 +34,8 @@ has its own image, database and compose file. An install reaches it only through
 - **Spend cap.** At most `HQ_RECRUIT_DAILY_CAP` model calls a UTC day (default 2000), counted in memory. Past it, with no key, or on any
   model failure, HQ ranks locally (`source: "local"`) with the same recommender every install has.
 - **Cache.** A model answer is kept in memory for an hour under a SHA-256 of the question and the catalog version; a repeat costs nothing.
-- **Rate limits.** In memory, as salted hashes: 30 requests an hour per address and 100 a day per install id. Over either is `429`.
+- **Rate limits.** In memory, as salted hashes: 30 requests an hour per address and 100 a day per install id, inside HQ's limit of 60
+  requests an hour per address for every route. Over any is `429`.
 - **Logs.** Nothing logs a request or its body. A failed model call is logged as its exception type only.
 
 ### The catalog HQ reads
@@ -47,5 +48,6 @@ either copy is stale.
 
 ### Running it
 
-`hq/recruit.py` adds the route to HQ's app with `recruit.install(app)`. Environment: `OPENAI_API_KEY` (without it every answer is local),
-`HQ_RECRUIT_DAILY_CAP`, `HQ_RECRUIT_MODEL`. The tests are `hq/tests/test_recruit.py`, with the model mocked.
+`hq/app.py` adds the route with `recruit.install(app, address=address)`, so the client address comes from the same header as the
+collector's. Set `OPENAI_API_KEY` (without it every answer is local), and optionally `HQ_RECRUIT_DAILY_CAP` and `HQ_RECRUIT_MODEL`, in
+`hq/.env`; `hq/compose.yaml` passes them to the container. The tests are `hq/tests/test_recruit.py`, with the model mocked.
