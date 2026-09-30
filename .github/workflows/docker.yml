@@ -99,6 +99,8 @@ jobs:
 
   publish:
     needs: build
+    # Explicit: the smoke job is skipped on a tag, and a skipped ancestor skips every job without its own condition.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

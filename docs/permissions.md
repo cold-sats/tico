@@ -31,7 +31,7 @@ appear in the settings history, where the owner can undo them, like the people a
 
 Who may edit a bot's access: its owners (see [Bot owners](#bot-owners)): the company owner, the admins, the bot's creator
 and co-owners, and the people it reports up to on the org chart (the same people who may change the bot's other settings).
-The Assistant, BotOps and the librarians can have their access edited too.
+The Assistant, BotOps and the Librarian can have their access edited too.
 
 ## Always full access
 
@@ -86,7 +86,7 @@ is the same people who always have full access to it. A bot owner can:
 
 - edit its configuration: instructions, model, routines, name and description, repository;
 - set its See, Read and Write access;
-- pause it, rename it, archive it (never the built-in Assistant and BotOps);
+- pause it, rename it, archive it (never the built-in Assistant, BotOps or Librarian);
 - add or remove co-owners (`POST /api/v2/bots/{bot}/co-owners`, Settings > Bots, **Owned by**);
 - give it a stored credential they hold themselves, and no one else's.
 
