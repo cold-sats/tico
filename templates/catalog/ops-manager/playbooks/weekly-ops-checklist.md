@@ -18,8 +18,9 @@ Then `knowledge/rhythm.md`, `knowledge/duties.md`, `knowledge/vendors.md` and la
     hub updates --kind weekly
     hub calendar upcoming
 
-Skim the reports the Operations bots published since last Monday (`recruiting`, `people-hr`,
-`legal-review`, `procurement`, `bookkeeping`, `spend-watcher`, `ar-followup`, `meeting-notes`).
+Skim the reports the Operations bots published since last Monday (`meeting-notes`, `procurement`,
+`vendor-manager`, `office-manager`, `it-support`, `security-compliance`, `travel`, `inventory`,
+`logistics`, `dispatcher`: whichever `hub org` shows this company has).
 
 ## 2. Sort every duty
 
@@ -44,10 +45,16 @@ the drafts to the task. Never more than three in one page; the rest are listed b
 
 One line per sibling bot: what it produced this week, with the report path, and what is waiting on a
 person. Bots with nothing to report say "quiet" once, not a paragraph. Route work as proposals only:
-"Ask `legal-review` to summarise the vendor renewal due 2026-10-14" is a line on the page, and becomes a task
-only after a person approves it.
+"Ask `vendor-manager` to review the cleaning contract before its renewal on 2026-10-31" is a line on the
+page, and becomes a task only after a person approves it. Work for another department goes to its head
+(`finance-lead`, `general-counsel`, `people-lead`) as a proposal, never to its workers directly.
 
-## 6. Write the page and hand it over
+## 6. Hiring check
+
+If the same kind of work came up three or more times this month with no owner, add one hiring proposal
+at the end of the page, following `## Hiring` in `AGENT.md`. One at most per page.
+
+## 7. Write the page and hand it over
 
 Write `reports/YYYY-MM-DD-ops-weekly.md` in the shape of `knowledge/examples/ops-weekly.md`: a headline,
 what needs a person, the checklist, vendor follow-ups, the team summary, routing proposals, and what you
@@ -58,7 +65,7 @@ could not read. Then:
 Update `knowledge/duties.md` and `knowledge/vendors.md` with what you learned. Only the recipient in
 `knowledge/rhythm.md` gets it, as `hub notice <person> "<one line and the link>"` after approval.
 
-## 7. Finish
+## 8. Finish
 
 Commit, then `hub task update <id> --status done --note`: the headline first, counts (overdue, due,
 blocked), and which sources you could not read. Always finish it: an open scheduled task absorbs the next.

@@ -28,13 +28,20 @@ notice window opened on 2026-09-25 and needs your decision.**
   2 October so we can confirm the studio hours? Thanks, Acme operations."
 
 ## Operations team this week
-- `bookkeeping`: month-end checklist drafted (reports/2026-09-25). Waiting on 3 receipts from Ana Rivera.
-- `legal-review`: 1 contract summarised; a renewal notice deadline of 2026-10-14 is on its calendar.
-- `recruiting`, `people-hr`: quiet.
+- `meeting-notes`: 4 meetings written up, 11 action items tracked, 2 overdue (reports/2026-09-25).
+- `procurement`: laptop refresh comparison ready for your decision (reports/R-17-comparison.md).
+- `it-support`: 6 requests closed; 1 admin access request waits on Ana Rivera since 2026-09-24.
+- `vendor-manager`: quiet.
 
 ## Routing proposals (none created; each needs your yes)
-1. Ask `legal-review` to summarise the cleaning contract before its renewal on 2026-10-31.
-2. Ask `spend-watcher` to check the two new software subscriptions on the September card statement.
+1. Ask `vendor-manager` to review the cleaning contract before its renewal on 2026-10-31.
+2. Ask the Head of Finance (`finance-lead`) to check two new software subscriptions on the September
+   card statement.
+
+## Hiring proposal (needs your yes before BotOps is asked)
+Visitor badges, desk moves and supply orders came up 5 times in September with no owner (tasks
+T-311, T-318, T-322, T-327, T-340). Proposed: an Office Manager (`office-manager`), first routine a
+weekly office requests and supplies page on Mondays, reporting to me.
 
 ## Could not read
 The shared operations mailbox is not connected, so vendor silence is judged from tasks only.

@@ -25,7 +25,7 @@ Off, so nothing has been labelled, archived or sent, and drafts are dry runs.
 - `18f2c9a3b4d5e703` from a customer asking how to export bookings. Draft with the help-centre steps.
 
 ## Routed to others (2)
-- `18f2c9a3b4d5e704` new studio asks about pricing. Task created for the Sales Drafter.
+- `18f2c9a3b4d5e704` new studio asks about pricing. Task created for the Sales Development Representative.
 - `18f2c9a3b4d5e705` a candidate's follow-up. Task created for Ben Okafor.
 
 ## Would file (if you turn filing on): 3

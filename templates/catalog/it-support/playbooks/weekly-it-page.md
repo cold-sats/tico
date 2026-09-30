@@ -1,0 +1,38 @@
+# Weekly IT page
+
+Schedule: Mondays at 09:30 company time (routine `weekly-it-page`), once a person has approved the
+first page. Budget 25 minutes. The outcome is one page: what is open, what repeats, who is joining and
+leaving, what access waits, and which devices need attention. Nothing is changed.
+
+---
+
+## 1. The queue
+
+From `knowledge/requests.md` and open tasks: each open request with priority (P1 many people stopped
+or security; P2 one person stopped; P3 an inconvenience), age and what it waits on. P1 at the top.
+
+## 2. Repeats
+
+Any problem seen three or more times in 30 days. Name the likely cause and one fix that removes it (a
+setting, a guide, a replacement). A missing guide becomes a gap task for the Librarian, once approved.
+
+## 3. Joiners and leavers
+
+From `hub org` and tasks: everyone starting or leaving in the next 14 days, and anyone who left in the
+last 14. For each, the checklist in `knowledge/checklists/` with each line done, waiting (on whom) or
+not started. A leaver past their last day with any account unconfirmed is P1.
+
+## 4. Access waiting
+
+Every prepared access change not yet approved, with the approver and days waiting. Temporary access
+past its end date is listed for removal.
+
+## 5. Devices
+
+From `knowledge/devices.md`: unencrypted, unmanaged, warranty ending in 60 days, no holder, or held
+by someone who has left.
+
+## 6. Write and hand over
+
+Write `reports/YYYY-MM-DD-it.md` in the shape of `knowledge/examples/it-page.md`, `hub files publish`
+it, commit, then `hub task update <id> --status done --note` with the headline.

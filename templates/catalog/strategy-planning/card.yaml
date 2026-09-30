@@ -1,10 +1,14 @@
 template: strategy-planning
 slug: strategy-planning
-name: Strategy & Planning
+name: "Strategy Analyst"
 required: false
 bootstrap: false
+department: leadership
 pack: basics
-summary: "Drafts next quarter's plan and OKRs from the goals, updates and meetings already in the hub, and grades last quarter, for the owner to edit. It never sets or changes a goal."
+icon: strategy
+suggest: niche
+tags: [okrs, planning, quarterly, leadership, b2b]
+summary: "Writes next quarter's plan and OKRs from the goals, updates and meetings already in the hub, and grades last quarter, for the owner to sign off. It never sets or changes a goal."
 when: "A leadership team that wants a written quarterly plan without a month of planning meetings."
 pains:
   - "we have no written plan for next quarter"
