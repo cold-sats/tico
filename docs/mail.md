@@ -373,7 +373,7 @@ the job (and show a sign-in problem in Settings until the key is there).
 | Setting | Default (Mac) | Linux runner |
 | --- | --- | --- |
 | `TICO_PROJECTS_DIR` bot repos, `secrets/` | folder above the checkout | `<home>/workspace` |
-| `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` |
+| `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` for the connectors job; a bot's turn is given `TICO_PROJECTS_DIR`, so its first `mail.sh` builds `<home>/workspace/runtime/mail/venv` (the bot user can write it) |
 | `TICO_MAIL_RUNTIME_DIR` mail.db, audit log | `<projects>/runtime/mail` | same, under `workspace/runtime/mail` |
 | `GOOGLE_SA_KEY` | `<projects>/secrets/google-sa.json` | the runner's state directory (`~/state-<id>/google-sa.json`) |
 | `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot inbox rules do |

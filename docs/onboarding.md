@@ -26,10 +26,10 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 | Screen | What it asks | What it stores |
 |---|---|---|
 | AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use (at least one) | The company's providers, as Settings > Providers saves them |
-| Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
+| Names | Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the org chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the company's reads as `Assistant`) |
 | About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Whether software is the product decides which departments start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your org chart | The departments, then one question per department and the bots to recruit into it, with the chart growing beside it, and the helper switches under the finished chart ([The org builder](#the-org-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug). Nothing is created yet |
-| Set up a computer | Nothing if a runner is already online (the server's own); otherwise download a setup file, then run three commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
+| Set up a computer | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
 | Connect your agent | Optional: **Connect an agent** makes a personal token and the MCP setup to paste into Grok, Dots, Muse or any MCP agent ([Connect an agent](connect-an-agent.md)) | Nothing in onboarding; the token is the owner's own (`POST /api/v2/me/tokens`) |
 | Review and create | A summary of all of it, the team with each bot's reports-to | **Create my team** calls `POST /api/v2/onboarding/complete` |
 | After Create | One screen, below | Nothing in the record |
@@ -59,7 +59,8 @@ chart: there is no fixed team any more.
 2. **One department at a time.** A card with the department's icon, a one-line description and goal, its one question and a single-line
    answer ("What kind of sales do you do today?"). **Recruit bots** (or Enter) shows "Recruiting bots…" for a moment, then the suggested
    bots as checkable cards: icon, name, the card's summary and a "why" line. The department head is checked, so are the `default` cards
-   and anything the suggestion says to add; `common` cards are shown unchecked; the rest of the department's cards are under **More**.
+   and anything the suggestion says to add; `common` cards are shown unchecked; the rest of the department's cards are under **More**, one
+   full-width button (keyboard operable) that stays open or shut through a redraw.
    **Back** and **Skip department** are always there. Each department answered or skipped saves the draft.
 3. **The chart.** The owner at the top (CEO), each department hanging off one line and its bots under it, the head first. Each bot wears
    the blob avatar it will have, with its template's icon. A department not yet reached is dashed; a skipped one says so. A bot animates
@@ -134,8 +135,11 @@ second). It reaches no machine.
 ### Needs onboarding
 
 A parked starter shows **Needs onboarding** on the org chart (a small *Setup* mark), on its page and after Create. **Start setup** sends it
-the message "Let's set you up." as the person, which starts the onboarding conversation its `AGENT.md` describes; any first message from a
-person does the same. The bot introduces itself, asks the template's questions in one message, writes a first draft from the company's own
+the message "Let's set you up." as the person, in the person's own chat with the bot: the conversation the bot page's **Chat** tab shows,
+open or not when the button is pressed. It starts the onboarding conversation its `AGENT.md` describes; any first message from a person
+does the same. While the bot is parked, the runner gives its chat turns one Setup instruction in place of the generic chat rules: follow
+the template's onboarding section and `playbooks/onboarding.md`, ask the questions and stop, and until the person has answered run no
+tool that reaches another system, file no task and edit no file, never `AGENT.md`. The bot introduces itself, asks the template's questions in one message, writes a first draft from the company's own
 data, and proposes its first routine. On the person's yes it arms the routine and calls `hub bot onboarded` (MCP `hub_bot_onboarded`,
 `POST /api/v2/bots/{bot}/onboarded`). That clears the mark, lets its routines run and counts it toward a member's limit. On a no it stays
 parked and answers people only.

@@ -256,7 +256,7 @@ named company must also carry a permanent id, or the process refuses to start.
 | `TICO_ENVIRONMENT_ID` | Permanent opaque id for this company. Required whenever `TICO_COMPANY_NAME` is set | `9f3c1ab27d0e4a51` |
 | `TICO_COMPANY_NAME` | Company name in the interface | `Acme` |
 | `TICO_APP_NAME` | App, window and notification name | `Atlas` |
-| `TICO_ASSISTANT_NAME` | The main assistant's conversational name | `Morgan` |
+| `TICO_ASSISTANT_NAME` | The main assistant's conversational name (default `Assistant`) | `Morgan` |
 | `TICO_ASSISTANT_BOT` | Slug of that assistant in the roster | `coo` |
 | `TICO_OWNER_EMAIL` | Who owns the environment on first boot. Falls back to `owner:` in `hub-access.yaml`; after that the owner is stored and changed in Settings > People ([docs/people.md](docs/people.md)) | `you@example.com` |
 | `TICO_PUBLIC_URL` | Where browsers reach this server | `https://atlas.example.com` |

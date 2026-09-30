@@ -268,6 +268,15 @@ The runner enrolls, starts, and comes back by itself after a reboot or a server 
 bots' repositories live in a Docker volume, so running the line again never enrolls a second runner. If the server no
 longer knows the runner (a wiped database), start it again with a new code.
 
+**Reinstalling a runner** (its volumes were wiped, or the server forgot it): make a new code in Settings > Devices > Add
+computer and run the installer again with it. `--code`, `--url` and `--label` given on that line replace their own keys in the
+existing `/opt/tico-runner/.env` (it says which), and every other setting stays; `--url` and `--code` are only required when there
+is no `.env` yet. Run with none of them, the installer keeps the `.env` as it is and only repairs and updates.
+
+```
+curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner --code <new code>
+```
+
 **Moving a runner that was started with a bare `docker run`.** Run the line above on the same machine. It finds the
 `tico-runner` volume, points the compose file at it (`TICO_RUNNER_HOME_VOLUME=tico-runner` in `.env`), removes the old
 container, and starts the compose one: the login, the bots' repositories and the enrollment carry over, and the runner
@@ -314,6 +323,12 @@ API keys and other secrets go in the runner's shared file. Every bot on that com
 ```
 docker exec -u bot tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUTH_TOKEN=<token>" "GH_TOKEN=<fine-grained token>" >> /home/runner/workspace/secrets/_shared.env'
 ```
+
+**Codex with an API key.** Put `OPENAI_API_KEY` in that file and nothing else is needed: while a Codex bot is assigned to the computer
+and Codex is not signed in, the runner runs `codex login --with-api-key` as the `bot` user, with the key on standard input (it is in
+no command line and no log), and Settings > Devices shows *Signed in with an API key*. A key Codex refuses is tried again after ten
+minutes or when the key changes. The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid, and the login
+files are readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
 
 `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `OPENROUTER_API_KEY` work the same way; `GH_TOKEN` is used by `git` and `gh`
 to push the bots' repositories. Check with **Settings > Bots**, or

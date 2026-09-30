@@ -25,6 +25,39 @@ All notable changes to Tico are recorded here. The format follows
   task per ticket and adds a note when the person writes again; `gh-support` does the same for a repository's issues and Discussions,
   read-only. Replies are drafted, approved by a person, then posted by `software/hq-tickets reply` only for the exact approved text.
   Both do nothing until configured (docs/support.md).
+- **First run: an optional "Your name" on the Names step.** It is saved on the owner's roster entry, so the org chart and the sidebar show
+  a name and not `chris@example.com`. It is prefilled from the roster, or from the display name Cloudflare Access or the AWS load
+  balancer vouches for (`name` claim; `sign_in_name` in `/api/me`); left blank, nothing changes.
+- **First run: the computer step opens on "A Linux or cloud server (Docker)"** when the server itself runs in Docker (`in_docker` in the
+  config), and an online computer folds the step to one line, `<label> online`.
+- **Codex signs in with an API key by itself.** With `OPENAI_API_KEY` in `secrets/_shared.env` (or the runner's environment), a computer
+  with a Codex bot runs `codex login --with-api-key` as the bot user, the key on standard input and never in a command line or a log.
+
+### Changed
+- `install.sh --runner` given `--code`, `--url` or `--label` replaces those keys in an existing `.env` and says so, and keeps every
+  other setting; with none of them it still only repairs and updates. `--url` and `--code` are needed only when there is no `.env`.
+- The sidebar stays fixed at the full height of the window when the page scrolls, and its Helpers group lists the Assistant, BotOps,
+  the Librarian and the Goal Manager, as the Goals page does.
+- The bot page's **Needs onboarding** card is the mark and the **Start setup** button, with no paragraph.
+- **More in <department>** in the org builder is one full-width button, keyboard operable, that stays open through a redraw.
+
+### Fixed
+- **Start setup showed nothing.** Its message went to the person's own chat with the bot, but a Chat tab that had loaded empty kept saying
+  "Nothing yet". Start setup now hands the answer to the open chat, and an empty chat looks itself up again.
+- **A Start-setup turn went off script.** The generic chat rules ("do not end with a plan", "file each ask as a task", the
+  "Human chat response contract") were read as a request for work, so the Support Agent edited its own AGENT.md, ran `mail.sh whoami`
+  (which its onboarding playbook asked for) and filed tasks about the failure. While a starter is `needs_onboarding`, a person's chat
+  turn now gets one Setup instruction instead: follow the template's onboarding, ask the questions and stop, and touch no tool, task or
+  file before the answers. The Support playbook no longer tests mail before the person says where support arrives.
+- **`PUT /api/v2/onboarding` took about 20 seconds at full CPU with 23 bots.** Each selected bot re-parsed all 94 catalog cards; the
+  cards are now parsed once per change of the catalog files, so a save takes milliseconds.
+- **The Assistant was named after the company** ("Tico Team" in Review) because the container defaulted `TICO_ASSISTANT_NAME` to
+  `TICO_COMPANY_NAME`. It defaults to `Assistant`.
+- **The mail tool failed on first use in the runner image** (`mkdir: cannot create directory /opt/runtime`). A turn is given
+  `TICO_PROJECTS_DIR`, and the venv goes under the runner's workspace, which the bot user can write.
+- **The Codex login home** (`~/.codex`) was made by the supervisor at mode 755, so the bot user could not write `auth.json`, and a login
+  made as the bot user (mode 600) could not be read by the supervisor. It is now bot-owned, setgid and group-writable on every start,
+  and the login files are group-readable.
 
 ## [0.2.16] - 2026-09-30
 
