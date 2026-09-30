@@ -76,6 +76,30 @@ approve <code> --bot <slug>` and `hub agent pair decline <code>` do the same.
    that posts one every minute: a launchd job on macOS, a systemd user timer on Linux. It
    prints what it did. `python3 hermes_agent.py status --profile <name>` shows the last reply;
    `uninstall` removes the timer, the env line and the MCP entry.
+
+   **Or pair with a code, with no token to copy.** On the computer, with `hermes_agent.py` from `/api/v2/agents/setup-script`, run
+   `python3 hermes_agent.py pair --profile <name> --url https://<hub>`. It prints a code and the
+   sentence to tell BotOps ("connect my Hermes profile <name>, code K7QM-4F2P"; or Settings → Bots →
+   the bot → Pair), then waits up to ten minutes. When a person or BotOps approves it for a bot, the
+   connector receives the credential itself and does exactly what `install` does. The token is never
+   printed. An expired or declined code changes nothing; run `pair` again.
+
+   **Keeping it healthy.**
+   - `update --profile <name>` downloads the newest connector from the saved address (with the
+     connector's own User-Agent, which Cloudflare requires), replaces the installed copy atomically
+     at mode 600 and runs the install steps again with the saved values.
+   - `doctor --profile <name>` checks, in plain words: the credential file is mode 600, the MCP
+     entry is in `config.yaml`, the `.env` token is present (never shown), the heartbeat timer is
+     loaded, the last heartbeat reply, and `GET /api/v2/me`. It also lists every file and line in
+     `SOUL.md`, `skills/`, cron definitions and `memories/` that still use a tool name renamed in
+     Tico 0.2.21, with the new name. It reports only and edits nothing.
+   - `install`, `pair` and `update` remove an older job for the same profile, such as the
+     launchd label `com.tidy.tico-agent.<name>` (any label ending in `tico-agent.<name>` that runs a
+     `hermes_agent.py`), so there is never a second heartbeat.
+   - A heartbeat the hub refuses because the bot is archived (`409`, `bot_archived`) prints "Bot <slug>
+     is archived in Tico: restore it (ask BotOps) or run uninstall" and is retried once an hour instead
+     of every minute until it succeeds; a revoked credential (`401`) prints "credential revoked: run
+     pair again" and backs off the same way.
 3. **Reload the profile's MCP servers**: `/reload-mcp` in a running chat, or restart its
    gateway. From then on the profile has every `hub_*` tool: `hub_message_list`, `hub_message_send`,
    `hub_task_*`, `hub_approval_*`, `hub_bot_status_set`, `hub_sql`, `hub_message_mark_read`, and the rest, the
