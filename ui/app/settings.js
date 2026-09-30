@@ -126,12 +126,13 @@ async function renderSettingsPrivacy() {
 }
 async function loadSettings() {
   try {
-    const [people, operations, catalog, employees, history] = await Promise.all([
+    const [people, operations, catalog, employees, history, limits] = await Promise.all([
       get('/people'),
       S.me?.cloud ? get('/v2/operations') : Promise.resolve({machines: [], services: []}),
       S.me?.cloud ? get('/v2/models') : Promise.resolve({models: []}),
       get('/employees'),
-      S.me?.cloud && S.me?.role === 'owner' ? get('/v2/settings/history') : Promise.resolve({changes: [], transitions: []})
+      S.me?.cloud && S.me?.role === 'owner' ? get('/v2/settings/history') : Promise.resolve({changes: [], transitions: []}),
+      S.me?.cloud ? get('/v2/usage/limits').catch(() => null) : Promise.resolve(null)
     ]);
     S.emps = namedRoster(employees);
     setPeople(people);
@@ -140,7 +141,7 @@ async function loadSettings() {
       services: operations.services || [], models: catalog.models || [],
       harnesses: catalog.harnesses || [],
       enabledProviders: catalog.enabled_providers || [], defaultModel: catalog.default?.model || '',
-      issues: operations.issues || [], history,
+      issues: operations.issues || [], history, limits,
       schedulerEnabled: operations.scheduler_enabled};
     document.dispatchEvent(new Event('tico:settings-loaded'));
     renderTree();

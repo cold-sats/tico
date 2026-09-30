@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 Text = Annotated[str, Field(min_length=1, max_length=200_000)]
 ID = Annotated[str, Field(min_length=1, max_length=200)]
@@ -526,6 +526,15 @@ class StructuredReadiness(Contract):
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
     mail_key: Literal["exposed"] | None = None      # the mail key is where bots can read it (runner/mail_key.py)
     shared_env: Literal[True] | None = None         # secrets/_shared.env holds keys every bot there receives
+    # The runner's last WARN/ERROR-like log lines, for a support bundle a person chooses to send (backend/diagnostics.py).
+    recent_errors: list[Annotated[str, Field(max_length=300)]] = Field(default_factory=list, max_length=50)
+
+    @model_serializer(mode="wrap")
+    def _without_empty_errors(self, handler):
+        data = handler(self)
+        if not data.get("recent_errors"):
+            data.pop("recent_errors", None)       # a stored report keeps only what the runner sent
+        return data
 
 
 class Heartbeat(Contract):
@@ -940,6 +949,25 @@ class AuthRejected(Contract):
     reason: str = Field(default="", max_length=300)
 
 
+class RunUsage(Contract):
+    """What a run spent, as its runner counted it: uncached input, cached input and output tokens."""
+    input_tokens: int = Field(default=0, ge=0, le=10**12)
+    cached_tokens: int = Field(default=0, ge=0, le=10**12)
+    output_tokens: int = Field(default=0, ge=0, le=10**12)
+    model: str = Field(default="", max_length=120)
+    runtime: str = Field(default="", max_length=60)
+    billing: Literal["api", "subscription"] = "api"   # `subscription`: a ChatGPT or Claude sign-in, not a key
+
+
+class UsageLimit(Contract):
+    daily_usd: float | None = None
+    monthly_usd: float | None = None
+
+
+class UsageDefault(UsageLimit):
+    count_subscription: bool = False
+
+
 class Completion(Contract):
     outcome: Literal["completed", "failed", "interrupted"]
     text: str = Field(default="", max_length=200_000)
@@ -950,6 +978,7 @@ class Completion(Contract):
     retryable: bool = False  # the runtime could not renew its sign-in; the turn never started
     fallback: str | None = Field(default=None, max_length=80)  # harness that actually ran the turn
     auth_rejected: AuthRejected | None = None  # the provider refused this computer's key or sign-in
+    usage: RunUsage | None = None  # the run's token counts and the model that ran it
 
 
 class Retry(Contract):

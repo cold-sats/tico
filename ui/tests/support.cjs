@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {html, uiFile} = require('./support/page.cjs');
 const INSTALL = '6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63';
+const DIAGNOSTICS_TEXT = '{\n  "format": 1,\n  "versions": {\n    "tico": "0.2.17"\n  }\n}';
 const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
 
 (async () => {
@@ -35,6 +36,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
           const rest = p.slice('/api/v2/support/'.length), body = req.postData() ? JSON.parse(req.postData()) : null;
           calls.push(req.method() + ' ' + rest + (body ? ' ' + JSON.stringify(body) : ''));
           if (rest === 'compose') return json({enabled: true, email: 'ana@acme.example', version: '0.2.17', install_id: INSTALL, to: 'updates.tico.team', max: 4000});
+          if (rest === 'diagnostics') return json({id: 'd'.repeat(64), bytes: 2048, text: DIAGNOSTICS_TEXT});
           if (rest === 'tickets' && req.method() === 'GET') return json(view());
           if (rest === 'tickets/refresh') {
             if (hq.reply && hq.tickets[0] && !hq.tickets[0].messages.length)
@@ -73,12 +75,23 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     assert.equal(await dialog.locator('[name=email]').inputValue(), 'ana@acme.example', 'the email is prefilled');
     assert.equal(await dialog.locator('[name=ids]').isChecked(), true, 'the version and install ID are on by default');
     const sends = () => dialog.locator('[data-sent]').innerText();
-    assert.equal(await sends(), `Sends to updates.tico.team: message, email ana@acme.example, version 0.2.17, install ID ${INSTALL}.`);
+    assert.equal(await dialog.locator('[name=diag]').isChecked(), true, 'diagnostics are attached by default');
+    assert.equal(await sends(), `Sends to updates.tico.team: message, email ana@acme.example, version 0.2.17, install ID ${INSTALL}, diagnostics.`);
     await dialog.locator('[name=ids]').uncheck();
     await dialog.locator('[name=email]').fill('');
+    await dialog.locator('[name=diag]').uncheck();
     assert.equal(await sends(), 'Sends to updates.tico.team: message.', 'the line follows the form');
     await dialog.locator('[name=email]').fill('ana@acme.example');
     await dialog.locator('[name=ids]').check();
+    await dialog.locator('[name=diag]').check();
+    assert.ok(!v.calls.some(c => c === 'GET diagnostics'), 'nothing is built until the person looks or sends');
+    // Preview shows exactly the JSON the server built, and Send names that preview.
+    await dialog.locator('[data-preview]').click();
+    await dialog.locator('[data-json]').waitFor({state: 'visible'});
+    assert.equal(await dialog.locator('[data-json]').innerText(), DIAGNOSTICS_TEXT);
+    assert.match(await sends(), /diagnostics \(2 KB\)\.$/);
+    await dialog.locator('[data-preview]').click();
+    assert.equal(await dialog.locator('[data-json]').isHidden(), true, 'Preview toggles');
     await dialog.locator('button[type=submit]').click();
     assert.match(await dialog.locator('[data-error]').innerText(), /Write a message/);
     assert.ok(!v.calls.some(c => c.startsWith('POST tickets ')), 'nothing is sent until there is a message');
@@ -87,7 +100,7 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
     await dialog.waitFor({state: 'detached'});
     const sentCall = v.calls.find(c => c.startsWith('POST tickets {'));
     assert.deepEqual(JSON.parse(sentCall.slice('POST tickets '.length)),
-      {message: 'The board will not load. ' + HOSTILE, email: 'ana@acme.example', include_ids: true});
+      {message: 'The board will not load. ' + HOSTILE, email: 'ana@acme.example', include_ids: true, diagnostics: 'd'.repeat(64)});
     const ticket = page.locator('details.support-ticket');
     await ticket.waitFor();
     assert.match(await ticket.locator('summary').innerText(), /The board will not load\./);

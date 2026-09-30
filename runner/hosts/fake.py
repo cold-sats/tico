@@ -144,7 +144,8 @@ class FakeHost(Host):
         for chunk in (reply[i:i + 20] for i in range(0, len(reply), 20)):
             self.emit("delta", thread_id, turn, text=chunk, delta_kind="text")
         self.emit("message", thread_id, turn, text=reply, final=True)
-        self.emit("tokens", thread_id, turn, input=100, output=len(reply), total=100 + len(reply))
+        self.emit("tokens", thread_id, turn, input=100, output=len(reply), total=100 + len(reply),
+                  usage={"input": 100, "cached": 0, "output": len(reply)})
         self.turn_of.pop(thread_id, None)
         self.emit("status", thread_id, None, state="idle")
         self.emit("turn_completed", thread_id, turn, status="completed")

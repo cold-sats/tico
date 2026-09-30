@@ -110,6 +110,7 @@ class CodexHost(Host):
         self._pending = {}                 # request id -> {"event": Event, "result":, "error":}
         self._active_turn = {}             # thread id -> turn id
         self._done_turns = set()           # turn ids already reported completed or failed
+        self._token_seen = {}              # thread id -> the running totals last reported for it
         self._restarts = 0
         self._server_info = {}
 
@@ -264,7 +265,7 @@ class CodexHost(Host):
         if method == "thread/tokenUsage/updated":
             u = (p.get("tokenUsage") or {}).get("total") or {}
             self.emit("tokens", tid, turn, input=u.get("inputTokens"), output=u.get("outputTokens"),
-                      total=u.get("totalTokens"))
+                      total=u.get("totalTokens"), usage=self._token_increment(tid, p.get("tokenUsage") or {}))
             return
         if method == "account/rateLimits/updated":
             rl = p.get("rateLimits") or {}
@@ -307,6 +308,30 @@ class CodexHost(Host):
         # thread/started, hook/*, mcpServer/*, item/started, turn/plan, warnings: nothing to do
 
     # ------------------------------------------------------------------ threads
+    def _token_increment(self, thread_id, usage):
+        """The tokens one `thread/tokenUsage/updated` adds, as {input, cached, output}.
+
+        Codex reports the thread's running totals (across every turn it has had) and the last model
+        call's own. The first report in this process has no earlier total to subtract, so it counts
+        `last`; later ones count what the total grew by, and a repeat of the same total adds nothing.
+        """
+        def fields(row):
+            row = row if isinstance(row, dict) else {}
+
+            def count(key):
+                try:
+                    return max(0, int(row.get(key) or 0))
+                except (TypeError, ValueError):
+                    return 0
+            return {"input": count("inputTokens"), "cached": count("cachedInputTokens"),
+                    "output": count("outputTokens")}
+        total, last = fields(usage.get("total")), fields(usage.get("last"))
+        before = self._token_seen.get(thread_id)
+        self._token_seen[thread_id] = total
+        if before is None:
+            return last
+        return {key: max(0, total[key] - before[key]) for key in total}
+
     def _thread_params(self, settings):
         cfg = dict(self.base_config)
         if self.env_mode == "config":

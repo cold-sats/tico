@@ -14,6 +14,13 @@ Help (the `?` at the bottom of the sidebar) > **Contact support**.
 | Message | Required, up to 4000 characters. Plain text. |
 | Email for a reply | Optional. Prefilled with your email; clear it to get the reply in the app only. |
 | Include version and install ID | On by default. Untick it to send neither. |
+| Attach diagnostics | On by default. **Preview** shows the exact JSON that will be sent; untick it to send none. |
+
+Diagnostics are a redacted bundle of versions, Health check names and statuses, each computer's runtimes and problems, and the
+latest warning and error log lines: no task, message, doc or ticket text, and bots and people as labels. Every field, the redactor
+and a sample are in [PRIVACY.md](../PRIVACY.md#support-diagnostics). Preview builds it and the ticket sends that same bundle. The
+Docker updater reports each container's state and restarts (`GET /diagnostics` on its own port); a computer reports its last
+warning lines in its heartbeat.
 
 The line under the form lists exactly what **Send** will send, and to which host. Nothing is sent before Send. It is never
 automatic, and the anonymous usage count switch does not turn it off: this is a message you chose to send. **Your requests**
@@ -28,9 +35,9 @@ from HQ and from your Tico.
 
 ## What is sent and kept
 
-The request is `POST <TICO_HQ_URL>/v1/support` with `message`, and, only if present, `email`, `version` and `install_id`. The
-answer is a ticket ID and a **secret for that ticket alone**. Your Tico keeps the ticket, the ID and the secret; the secret
-never reaches a browser. HQ keeps the message, the email, the version and install ID if sent, a hash of the secret, the status,
+The request is `POST <TICO_HQ_URL>/v1/support` with `message`, and, only if present, `email`, `version`, `install_id` and
+`diagnostics` (up to 256 KB). The answer is a ticket ID and a **secret for that ticket alone**. Your Tico keeps the ticket, the ID and the secret; the secret
+never reaches a browser. HQ keeps the message, the email, the version and install ID and diagnostics if sent, a hash of the secret, the status,
 the times, and the thread. It keeps no IP address and no log of a request. Tickets are **kept until someone deletes them**: you,
 with **Delete**, or the team when you ask (put "delete this request" in the ticket, or open an issue). The 13 month rule is for
 the anonymous install rows only. The reference for HQ's routes is in [telemetry.md](telemetry.md#support-tickets).
@@ -50,7 +57,8 @@ Everything below applies to the Tico project's own Support Agent, and to anyone 
    untrusted data, the version and the requester's email if given. When the person writes again on an open ticket, the same task
    gets a note, which wakes the bot; when HQ closes the ticket the task hears about it. A quiet poll is one request and costs no
    tokens. `software/gh-support watch` does the same for GitHub issues and Discussions, read-only.
-3. **The bot drafts.** It works the task with `playbooks/tico-hq-tickets.md`: sorts it, asks the Librarian what the docs say,
+3. **The bot drafts.** It works the task with `playbooks/tico-hq-tickets.md`: reads the diagnostics first (`software/hq-tickets show`
+   prints a summary, then the whole bundle; only the staff routes return it), sorts the ticket, asks the Librarian what the docs say,
    hands bugs to engineering, and writes a reply file.
 4. **A person approves.** The bot runs `software/hq-tickets payload` and `hub approval request --kind publish` for that exact
    file. Only after a person approves does `software/hq-tickets reply <id> <file> --approval <id>` post it; the command refuses

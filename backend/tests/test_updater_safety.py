@@ -135,3 +135,28 @@ def test_the_new_updater_does_not_inherit_the_helpers_pull_and_bundle_settings(m
     assert updater.replace_self() == 0
     up = next(e for a, e in docker.calls if "up" in a)
     assert "TICO_UPDATER_PULL" not in up and "TICO_UPDATER_BUNDLE" not in up
+
+
+def test_diagnostics_report_containers_versions_and_the_last_failures_and_nothing_from_inside(monkeypatch, tmp_path):
+    updater = load(monkeypatch, "", tmp_path)
+    calls = []
+
+    def run(argv, env=None, **kw):
+        calls.append(argv)
+        answers = {"ps": "c1\nc2\n", "version": "27.1.2\n"}
+        if argv[:2] == ["docker", "compose"]:
+            out = answers["ps"] if "ps" in argv else "2.29.1\n"
+        elif argv[:2] == ["docker", "inspect"]:
+            out = {"c1": "server|running|healthy|0\n", "c2": "updater|restarting||4\n"}.get(argv[-1], "ghcr.io/ticoteam/tico-updater:v0.2.18\n")
+        else:
+            out = answers["version"]
+        return type("R", (), {"returncode": 0, "stdout": out, "stderr": ""})()
+    monkeypatch.setattr(updater.subprocess, "run", run)
+    monkeypatch.setenv("HOSTNAME", "abc123")
+    updater.set_status(state="failed", message="Not updated: pull failed.")
+    report = updater.diagnostics()
+    assert report["containers"] == [{"name": "server", "state": "running", "health": "healthy", "restarts": 0},
+                                    {"name": "updater", "state": "restarting", "health": "", "restarts": 4}]
+    assert report["docker"] == "27.1.2" and report["compose"] == "2.29.1" and report["version"] == "v0.2.18"
+    assert len(report["errors"]) == 1 and "Not updated: pull failed." in report["errors"][0]
+    assert not any("logs" in a or "exec" in a for a in calls)             # it never reads what runs inside a container

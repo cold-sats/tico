@@ -122,6 +122,60 @@ MODEL_CATALOG = tuple(attach_harnesses(row) for row in (
 ))
 MODEL_BY_ID = {row["id"]: row for row in MODEL_CATALOG}
 
+# What a model costs at the provider's public list price, in USD per 1M tokens: (input, cached input,
+# output). Usage (backend/usage.py) multiplies a run's token counts by these to estimate spend, so a
+# model missing here shows its tokens and no cost. Standard tier, prompts under the long-context
+# threshold; batch, priority, regional and cache-write premiums are not modelled (a cache write is
+# counted as input). A bot that names a model by another id than these gets no estimate.
+# Sources, read 2026-09-29:
+#   Anthropic  platform.claude.com/docs/en/about-claude/pricing (cache hit = "cache hits and refreshes")
+#   OpenAI     developers.openai.com/api/docs/pricing (standard, short context)
+#   Google     ai.google.dev/gemini-api/docs/pricing (paid standard; $0.75/$3.75 until 2026-12-31, doubling from 2027-01-01)
+#   xAI        docs.x.ai/developers/models (prompts under 200k)
+#   pi models  OpenRouter's public model list, openrouter.ai/api/v1/models (what the pi runtime is billed)
+PRICES_AS_OF = "2026-09-29"
+PRICES = {
+    "claude-fable-5-1": (10.0, 0.25, 50.0),
+    "claude-fable-5": (10.0, 1.0, 50.0),
+    "claude-opus-5-5": (4.0, 0.20, 20.0),
+    "claude-opus-5": (5.0, 0.50, 25.0),
+    "claude-opus-4-8": (5.0, 0.50, 25.0),
+    "claude-sonnet-5-5": (2.0, 0.20, 10.0),
+    "claude-sonnet-5": (2.0, 0.20, 10.0),
+    "claude-haiku-4-5": (1.0, 0.10, 5.0),
+    "gpt-6-astra": (10.0, 1.0, 50.0),
+    "gpt-6-sol": (2.0, 0.20, 10.0),
+    "gpt-6-luna": (0.10, 0.01, 0.50),
+    "gpt-6.1-sol": (2.0, 0.10, 10.0),
+    "gpt-5.6-sol": (4.0, 0.40, 20.0),
+    "gpt-5.6-terra": (2.0, 0.20, 12.0),
+    "gpt-5.6-luna": (0.20, 0.02, 1.20),
+    "gemini-3.8-flash": (0.75, 0.075, 3.75),
+    "grok-4.6": (2.0, 0.50, 6.0),
+    "deepseek-v4.1-flash": (0.30, 0.006, 1.20),
+    "deepseek-v4-pro": (0.955, 0.080, 1.911),
+    "kimi-k3": (3.0, 0.30, 15.0),
+    "kimi-k2.7-code": (0.671, 0.18, 3.35),
+    "llama-4-maverick": (0.1875, 0.1875, 0.6525),
+    "mistral-medium-3.5": (1.5, 1.5, 7.5),
+    "devstral-2512": (0.40, 0.04, 2.0),
+}
+
+
+def price_of(model):
+    """(input, cached input, output) USD per 1M tokens for a model id, or None when it has no list price."""
+    return PRICES.get(str(model or "").strip().lower())
+
+
+def estimate_cost(model, input_tokens, cached_tokens, output_tokens):
+    """The list-price cost in USD of one run's tokens, or None for a model with no price. `input_tokens`
+    are the uncached ones; cached tokens are billed at the cached rate."""
+    price = price_of(model)
+    if not price:
+        return None
+    return (int(input_tokens or 0) * price[0] + int(cached_tokens or 0) * price[1]
+            + int(output_tokens or 0) * price[2]) / 1_000_000
+
 
 class ProviderError(Problem):
     """A choice that cannot be honoured; `detail` says what to do about it."""

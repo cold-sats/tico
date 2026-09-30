@@ -63,6 +63,10 @@
       "description": "Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, evidence and a quality, never edited; a correction supersedes the old one."
     },
     {
+      "name": "Usage",
+      "description": "Estimated model spend per bot (docs/usage.md): tokens counted by each run's computer, priced at list price."
+    },
+    {
       "name": "Health",
       "description": "Whether the installation is working."
     }
@@ -6214,6 +6218,215 @@
         ]
       }
     },
+    "/api/v2/usage": {
+      "get": {
+        "summary": "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day or routine, optionally for one department. The owner and bot administrators see every bot; anyone else sees the bots they run or own. ?bot=<slug> is that bot's daily series and top routines instead",
+        "operationId": "getUsage",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "bot",
+              "title": "Group"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "bot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Usage"
+        ]
+      }
+    },
+    "/api/v2/usage/limits": {
+      "get": {
+        "summary": "The company default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may see usage for",
+        "operationId": "getUsageLimits",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageLimits"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Usage"
+        ]
+      },
+      "put": {
+        "summary": "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs count toward it (owner and bot administrators)",
+        "operationId": "setUsageDefault",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageDefault"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageDefault"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Usage"
+        ]
+      }
+    },
+    "/api/v2/usage/limits/{bot}": {
+      "put": {
+        "summary": "A bot's own daily and monthly limit in estimated USD; empty follows the company default. Owner and administrators, or the person who runs the bot within the company default. A bot over a limit takes no new job until the period turns over or the limit is raised",
+        "operationId": "setBotUsageLimit",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageLimit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotUsageLimit"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Usage"
+        ]
+      }
+    },
     "/auth/login": {
       "get": {
         "summary": "Start browser sign-in (redirects); a frontend passes next and code_challenge",
@@ -7243,6 +7456,22 @@
           "online",
           "reported_at",
           "tools"
+        ],
+        "additionalProperties": true
+      },
+      "BotUsageLimit": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/UsageLimit"
+          }
+        },
+        "required": [
+          "bot",
+          "limit"
         ],
         "additionalProperties": true
       },
@@ -11735,6 +11964,231 @@
           "text"
         ],
         "title": "UpdateReply"
+      },
+      "Usage": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "prices_as_of": {
+            "type": "string",
+            "description": "The date the price table was read"
+          },
+          "group": {
+            "enum": [
+              "bot",
+              "day",
+              "routine"
+            ]
+          },
+          "department": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageFigures"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "By bot: bot, name, department; by day: day; by routine: routine (null for runs that came from none), title, bot, name. Every row has the usage figures and `share`, its part of the total (estimate plus API-equivalent)",
+              "additionalProperties": true
+            }
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bot": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "daily": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "routines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "from",
+          "prices_as_of",
+          "to",
+          "totals"
+        ],
+        "additionalProperties": true
+      },
+      "UsageDefault": {
+        "properties": {
+          "daily_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Usd"
+          },
+          "monthly_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Usd"
+          },
+          "count_subscription": {
+            "type": "boolean",
+            "title": "Count Subscription",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "UsageDefault"
+      },
+      "UsageFigures": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "integer"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "description": "Uncached input tokens"
+          },
+          "cached_tokens": {
+            "type": "integer",
+            "description": "Input tokens read from the provider's cache"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "est_cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "List-price estimate for runs billed by API key; null when every such run used a model with no list price"
+          },
+          "subscription_equiv_usd": {
+            "type": "number",
+            "description": "What runs on a ChatGPT or Claude sign-in would cost through the API: not money spent, never added to est_cost_usd"
+          },
+          "unpriced_runs": {
+            "type": "integer",
+            "description": "Runs with tokens on a model with no list price"
+          }
+        },
+        "required": [
+          "cached_tokens",
+          "est_cost_usd",
+          "input_tokens",
+          "output_tokens",
+          "runs",
+          "subscription_equiv_usd",
+          "unpriced_runs"
+        ],
+        "additionalProperties": true
+      },
+      "UsageLimit": {
+        "properties": {
+          "daily_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Usd"
+          },
+          "monthly_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Usd"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "UsageLimit"
+      },
+      "UsageLimits": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "type": "object",
+            "properties": {
+              "daily_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "monthly_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "count_subscription": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count_subscription",
+              "daily_usd",
+              "monthly_usd"
+            ],
+            "additionalProperties": true
+          },
+          "may_edit_default": {
+            "type": "boolean"
+          },
+          "bots": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/UsageLimit"
+            }
+          }
+        },
+        "required": [
+          "bots",
+          "default",
+          "may_edit_default"
+        ],
+        "additionalProperties": true
       }
     },
     "securitySchemes": {

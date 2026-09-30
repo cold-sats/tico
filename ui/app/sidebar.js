@@ -427,6 +427,7 @@ function renderTree() {
       (a.dataset.nav === 'integrations' && (S.route === INTEGRATIONS || S.route.startsWith(INTEGRATIONS + '/'))) ||
       (a.dataset.nav === 'changelog' && S.route === '#/changelog') ||
       (a.dataset.nav === 'runs' && S.route === '#/runs') ||
+      (a.dataset.nav === 'usage' && S.route === '#/usage') ||
       (a.dataset.nav === 'updates' && (S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) ||
       (a.dataset.nav === 'goals' && (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?'))) ||
       (a.dataset.nav === 'more' && !mobilePrimary);
