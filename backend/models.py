@@ -170,11 +170,7 @@ class GettingStartedDocs(Contract):
 
 
 class GettingStartedMarket(Contract):
-    sells: str = Field(min_length=1, max_length=2000)
-    customers: str = Field(min_length=1, max_length=2000)
-    competitors: str = Field(default="", max_length=2000)
-    channels: str = Field(default="", max_length=2000)
-    add_analyst: bool = False
+    text: str = Field(min_length=1, max_length=8000)
 
 
 # Goals (backend/goals.py). `owner` is a bot slug, a person id

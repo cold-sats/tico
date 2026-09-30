@@ -1,5 +1,6 @@
 // Offline regression for the pieces around the wizard: the Getting started page shows exactly what
-// the server computed and nothing else; the Docs and Market cards file the expected API calls;
+// the server computed and nothing else; the Docs and Market cards file the expected API calls (the market
+// card is one box, the Librarian is asked, and a notice shows until the market has content);
 // cards close and stay closed (the server holds that per person); the tour is replayable from Help,
 // traps focus, closes on Escape and works in the phone drawer. Fixtures only - no server.
 // TICO_SCREENSHOT_DIR=<dir> saves the review screenshots.
@@ -33,6 +34,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     const calls = [];
     let items = checklist(), empty = {docs: true, market: true, tasks: true, updates: true, goals: true, meetings: true};
     let dismissed = {tour: true, checklist: false, cards: [], skipped: []};
+    let librarianOff = false, polls = [];
+    let market = {entities: [], docs: [{id: 'market/overview', title: 'Overview', seeded: true, fetched: '2026-01-01T00:00:00Z'}]};
     const view = () => {
       const rows = items.map(row => ({...row, skipped: row.optional && !row.done && dismissed.skipped.includes(row.id)}));
       const done = rows.filter(row => row.done || row.skipped).length;
@@ -71,9 +74,13 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       if (p === '/api/v2/getting-started/docs') { calls.push({p, body: req.postDataJSON()}); return json({linked: [{id: 'link-1', title: 'github.com/acme/handbook', kind: 'github'}], skipped: []}); }
       if (p === '/api/v2/getting-started/market') {
         const body = req.postDataJSON(); calls.push({p, body});
-        if (!body.add_analyst) return json({error: {code: 'confirm_analyst', detail: 'The Market Analyst is not set up yet.', needs_analyst: true}}, 409);
-        return json({task_id: 't-market', bot: 'botops', needs_analyst: true});
+        if (librarianOff) return json({error: {code: 'librarian', detail: 'The Librarian is not running yet.'}}, 409);
+        return json({task_id: 't-market', bot: 'librarian'});
       }
+      if (p === '/api/v2/market/entities') { polls.push(Date.now()); return json({entities: market.entities}); }
+      if (p === '/api/v2/market/edges') return json({edges: []});
+      if (p === '/api/company-docs') return json({documents: market.docs});
+      if (p.startsWith('/api/company-docs/')) return json({content: '# Overview\n\nNorthwind sells office cleaning. [Source](https://northwind.example/about)'});
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       return json({});
     });
@@ -92,6 +99,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     assert.equal(await page.locator('#gs-count').textContent(), '3/8');
     assert.equal(await page.locator('#gs-progress').textContent(), '3 of 8 done');
     const states = () => page.locator('[data-gs-item]').evaluateAll(els => Object.fromEntries(els.map(el => [el.dataset.gsItem, el.dataset.state])));
+    // The market box is on this page too, while the market is empty.
+    assert.equal(await page.locator('#gs-page [data-gs-card=market] [data-gs-market] textarea').count(), 1);
     assert.deepEqual(await states(), {signed_in: 'done', computer: 'done', model: 'todo', github: 'todo', botops: 'done',
       first_bot: 'todo', bot_task: 'todo', first_update: 'todo'});
     assert.match(await page.locator('[data-gs-item=model]').textContent(), /run `codex login`/);
@@ -192,33 +201,83 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
     await page.close();
 
-    // ---- Market: four questions, saved, research started
-    page = await open('#/market');
+    // ---- Market: one box, the Librarian is asked, a notice shows until the market has content
+    page = await context.newPage();
+    await page.clock.install();
+    page.on('pageerror', e => errors.push('market: ' + e.message));
+    await page.goto('http://tico-ui.test/#/market');
+    await page.locator('#nav-getting-started').waitFor();
     await page.locator('[data-gs-card=market]').waitFor();
-    await page.locator('[data-gs-market] [type=submit]').click();        // the two required answers are required
-    assert.equal(calls.filter(c => c.p.endsWith('/market')).length, 0);
-    await page.locator('[data-gs-market] input[name=sells]').fill('Cleaning for offices');
-    await page.locator('[data-gs-market] input[name=customers]').fill('Property managers');
-    await page.locator('[data-gs-market] input[name=competitors]').fill('CleanCo');
-    await page.locator('[data-gs-market] input[name=channels]').fill('r/propertymanagement');
+    const card = page.locator('[data-gs-card=market]');
+    assert.equal(await card.locator('strong').first().textContent(), 'Research your market');
+    assert.equal(await card.locator('[data-gs-market] label span').textContent(), 'Your website, a description, or links to anything about your market');
+    assert.equal(await card.locator('[data-gs-market] textarea').count(), 1);
+    assert.equal(await card.locator('[data-gs-market] input').count(), 0);          // not four questions
+    assert.equal(await card.locator('[data-gs-market] [type=submit]').textContent(), 'Start research');
+    assert.equal(await card.locator('a[href="#/docs?import=1"]').textContent(), 'Attach files');
+    assert.equal(await card.locator('p').count() - await card.locator('p.err').count(), 0);   // no paragraphs of explanation
+    // The Overview is an empty state pointing at the card, never the seed's text.
+    assert.equal(await page.locator('#market-read').textContent(), 'Nothing here yet. Start the research above.');
+    assert.equal(await page.locator('#market-index .market-empty').count(), 0);
     await shot(page, 'market-card');
-    await page.locator('[data-gs-market] [type=submit]').click();
-    // BotOps adding a bot is asked first; nothing is filed until the person says yes.
-    await page.locator('#gs-card [data-gs-ask=yes]').waitFor();
-    assert.match(await page.locator('#gs-card').textContent(), /Add the Market Analyst\?/);
-    assert.equal(await page.locator('#gs-card [role=status]').count(), 0);
-    await shot(page, 'market-confirm');
-    await page.locator('#gs-card [data-gs-ask=back]').click();
-    assert.equal(await page.locator('[data-gs-market] input[name=sells]').inputValue(), 'Cleaning for offices');   // Back keeps the answers
-    await page.locator('[data-gs-market] [type=submit]').click();
-    await page.locator('#gs-card [data-gs-ask=yes]').click();
-    await page.locator('#gs-card [role=status] a[href="#/task/t-market"]').waitFor();
-    const filed = calls.filter(c => c.p.endsWith('/market'));
-    assert.deepEqual(filed.map(c => c.body.add_analyst), [false, false, true]);
-    assert.deepEqual(filed.at(-1).body, {sells: 'Cleaning for offices', customers: 'Property managers',
-      competitors: 'CleanCo', channels: 'r/propertymanagement', add_analyst: true});
-    assert.match(await page.locator('#gs-card [role=status]').textContent(), /BotOps will add the Market Analyst first/);
+    await card.locator('[data-gs-market] [type=submit]').click();        // an empty box files nothing
+    assert.equal(calls.filter(c => c.p.endsWith('/market')).length, 0);
+    // A Librarian that is not running is said plainly, and the box keeps what was typed.
+    await card.locator('textarea').fill('https://northwind.example\nOffice cleaning for property managers.');
+    librarianOff = true;
+    await card.locator('[type=submit]').click();
+    await page.locator('#gs-card [data-gs-error]:not([hidden])').waitFor();
+    assert.match(await page.locator('#gs-card [data-gs-error]').textContent(), /Librarian is not running/);
+    assert.equal(await card.locator('textarea').inputValue(), 'https://northwind.example\nOffice cleaning for property managers.');
+    librarianOff = false;
+    await card.locator('[type=submit]').click();
+    await page.locator('#gs-card [data-gs-researching]').waitFor();
+    assert.deepEqual(calls.filter(c => c.p.endsWith('/market')).at(-1),
+      {p: '/api/v2/getting-started/market', body: {text: 'https://northwind.example\nOffice cleaning for property managers.'}});
+    assert.equal(calls.filter(c => c.p.endsWith('/market')).length, 2);
+    const notice = page.locator('#gs-card [data-gs-researching]');
+    assert.match(await notice.textContent(), /The Librarian is researching your market\.\s+This usually takes 5–10 minutes\./);
+    assert.equal(await page.locator('#gs-card [data-gs-market]').count(), 0);
+    assert.equal(await page.locator('#gs-card a[href="#/task/t-market"]').count(), 1);
+    assert.equal(await page.locator('#gs-card [data-gs-dismiss]').count(), 0);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('tico.market.researching')).task), 't-market');
+    await shot(page, 'market-researching');
+    // The notice is kept in this browser: a reload still shows it.
+    await page.reload();
+    await page.locator('#gs-card [data-gs-researching]').waitFor();
+    // It polls the market every 30 seconds while it shows: two small GETs, no server change.
+    const beforePolls = polls.length;
+    await page.clock.fastForward(31000);
+    await page.waitForFunction(() => document.querySelector('#gs-card [data-gs-researching]'));
+    await page.waitForTimeout(150);
+    assert.equal(polls.length, beforePolls + 1);
+    // The market gets its first content a minute in: the page redraws, but the notice stays out its two minutes.
+    market = {entities: [
+      {id: 'company/cleanco', name: 'CleanCo', type: 'company', tier: 'core', aliases: [], summary: '', status: 'active'}],
+      docs: [{id: 'market/overview', title: 'Overview', fetched: '2026-09-29T10:00:00Z'}]};
+    empty.market = false;
+    await page.clock.fastForward(30000);
+    await page.locator('#market-index a', {hasText: 'CleanCo'}).waitFor();
+    assert.equal(await page.locator('#gs-card [data-gs-researching]').count(), 1);
+    assert.match(await page.locator('#market-read').textContent(), /Northwind sells office cleaning/);
+    // ...and goes once two minutes have passed and there is content.
+    await page.clock.fastForward(60000);
+    await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
+    assert.equal(await page.evaluate(() => localStorage.getItem('tico.market.researching')), null);
+    assert.equal(await page.locator('#gs-card [data-gs-market]').count(), 0);
+    empty.market = true; market = {entities: [], docs: []};
     await page.close();
+
+    // The notice is only kept for thirty minutes: an old record is dropped and the card is back.
+    for (const [minutes, shows] of [[10, 'notice'], [31, 'card']]) {
+      page = await context.newPage();
+      await page.addInitScript(([ago]) => localStorage.setItem('tico.market.researching', JSON.stringify({at: Date.now() - ago * 60000, task: 't-market', base: '0|'})), [minutes]);
+      page.on('pageerror', e => errors.push('market-old: ' + e.message));
+      await page.goto('http://tico-ui.test/#/market');
+      await page.locator(shows === 'notice' ? '#gs-card [data-gs-researching]' : '#gs-card [data-gs-market]').waitFor();
+      await page.evaluate(() => localStorage.removeItem('tico.market.researching'));
+      await page.close();
+    }
 
     // ---- the X is "not now": the card comes back in a new session while the section is empty
     page = await open('#/meetings');

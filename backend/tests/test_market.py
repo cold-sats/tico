@@ -101,3 +101,45 @@ def test_the_server_enforces_writers_evidence_vocabulary_and_no_delete(api, tmp_
                    token=analyst["token"])["entity"]
     assert created["created_by"] == "bot:market-analyst"
 
+
+
+def test_the_librarian_writes_the_first_map_and_another_bot_still_cannot(api, tmp_path):
+    """The Librarian builds the first map from what the owner gave it (playbooks/market-setup.md): a
+    report, then an apply that writes the company itself with an explicit id and a competitor with its
+    tier and edge, then a page. A bot that is not a curator is still refused."""
+    _seed(api, tmp_path)
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
+                  "VALUES('librarian','Librarian','fake','','','','keeper','active',?)", (H.now(),))
+        c.execute("INSERT INTO bot_config(bot,config_json,team,operator) VALUES('librarian','{}',NULL,'ana')")
+    _, _, librarian = setup_attempt(api, "librarian")
+    token = librarian["token"]
+    insight = post(api, "market/insights", {"kind": "new-entity", "about": "Acme Cleaning",
+                   "claim": "Acme Cleaning sells office cleaning to property managers."}, token=token)["insight"]
+    own = post(api, f"market/insights/{insight['id']}/apply", {
+        "evidence": {"source_url": "https://acme.example", "source_kind": "site",
+                     "quote": "Office cleaning for property managers.", "our_read": "The company's own page."},
+        "entity": {"id": "company/self", "type": "company", "name": "Acme Cleaning",
+                   "summary": "Office cleaning for property managers."}}, token=token)
+    assert own["insight"]["status"] == "applied"
+    assert get(api, "market/entities/company/self")["entity"]["created_by"] == "bot:librarian"
+    rival = post(api, "market/insights", {"kind": "new-entity", "about": "CleanCo", "claim": "CleanCo competes."},
+                 token=token)["insight"]
+    post(api, f"market/insights/{rival['id']}/apply", {
+        "evidence": {"source_url": "https://cleanco.example", "source_kind": "site", "quote": "Office cleaning."},
+        "entity": {"type": "company", "name": "CleanCo", "tier": "core", "summary": "Office cleaning."},
+        "edge": {"src": "company/cleanco", "rel": "competes_with", "dst": "company/self"}}, token=token)
+    shown = get(api, "market/entities/company/cleanco")
+    assert shown["entity"]["tier"] == "core" and shown["edges"]["competes_with"]["out"]
+    def listed():
+        rows = api.get("/api/company-docs?collection=market", headers=headers()).json()["documents"]
+        return {row["id"]: row for row in rows}
+    assert listed()["market/overview"].get("seeded") is True         # the seed's text: hidden while the graph is empty
+    page = post(api, "market/pages/overview", {"body": "# Overview\n\nAcme sells cleaning. [Acme](https://acme.example)"},
+                token=token)
+    assert page["content"].startswith("# Overview")
+    assert "seeded" not in listed()["market/overview"] and listed()["market/channels"]["seeded"] is True
+    shown_page = api.get("/api/company-docs/market/overview", headers=headers()).json()
+    assert "Acme sells cleaning" in shown_page["content"]
+    _, _, listening = setup_attempt(api, "listening")
+    post(api, "market/pages/overview", {"body": "no"}, token=listening["token"], expected=403)

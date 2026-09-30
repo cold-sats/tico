@@ -15,8 +15,8 @@ from .store import H, Problem, encode, readiness_document
 
 PREFERENCE = "onboarding.progress"
 BOTOPS = "botops"
-MARKET_BOT = "market-analyst"
-MARKET_KEY = "market-context"
+LIBRARIAN = "librarian"
+MARKET_TASK = "Set up the market map"
 ONLINE_SECONDS = 120
 # Sections whose card a person can close, and the checklist items a person may skip.
 CARDS = ("docs", "market", "bots", "tasks", "updates", "goals", "meetings")
@@ -163,12 +163,13 @@ AUDIENCE = {"owner": None,
 
 def empty_sections(c):
     """Sections with nothing in them yet: their card stays until they have content or the person
-    chooses "don't show again". The market counts once the company's own answers are saved."""
+    chooses "don't show again". The market is empty until it has an entity or a page someone wrote: the
+    pages a fresh install starts with are the seed's (actor `seed`) and do not count."""
     def none(sql):
         return c.execute(sql).fetchone() is None
     return {"docs": none("SELECT 1 FROM docs WHERE archived=0 LIMIT 1") and none("SELECT 1 FROM linked_docs WHERE archived=0 LIMIT 1"),
             "market": none("SELECT 1 FROM market_entities LIMIT 1")
-            and none(f"SELECT 1 FROM registry_metadata WHERE key='{MARKET_KEY}'"),
+            and none("SELECT 1 FROM market_events WHERE subject_kind='document' AND actor!='seed' LIMIT 1"),
             "tasks": none("SELECT 1 FROM tasks LIMIT 1"), "updates": none("SELECT 1 FROM updates LIMIT 1"),
             "goals": none("SELECT 1 FROM goals LIMIT 1"), "meetings": none("SELECT 1 FROM meetings LIMIT 1")}
 
@@ -297,36 +298,30 @@ def docs_links(c, who, body):
     return {"linked": linked, "skipped": skipped}
 
 
+def _market_title(c, owner, actor):
+    """A title this request can still open: the hub refuses a second live task with the same one."""
+    marks = ",".join("?" * len(H.LIVE_STATUSES))
+    for n in range(1, 20):
+        title = MARKET_TASK if n == 1 else f"{MARKET_TASK} ({n})"
+        if not c.execute(f"SELECT 1 FROM tasks WHERE requester=? AND owner=? AND title=? AND status IN ({marks})",
+                         (actor, owner, title, *H.LIVE_STATUSES)).fetchone():
+            return title
+    return f"{MARKET_TASK} ({n})"
+
+
 def market_context(c, auth, who, body):
+    """What the owner gave us about their market (a website, a description, links) goes to the
+    Librarian as one task. Its playbook (templates/catalog/librarian/playbooks/market-setup.md)
+    researches it and writes the market pages and graph; the page polls for them."""
     _owner(who, "sets up the market")
-    if not _active(c, MARKET_BOT):
-        _botops(c)
-        if not body.add_analyst:
-            # Adding a bot is a bigger step than answering four questions, so it is asked for first.
-            raise Problem("confirm_analyst", "The Market Analyst is not set up yet. BotOps can add it "
-                          "first; confirm to go ahead.", 409, extra={"needs_analyst": True})
-    context = {"sells": body.sells, "customers": body.customers, "competitors": body.competitors,
-               "channels": body.channels, "updated": H.now(), "updated_by": who.actor}
-    c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET "
-              "value_json=excluded.value_json", (MARKET_KEY, encode(context)))
-    lines = ["- what we sell: " + body.sells, "- who to: " + body.customers,
-             "- main competitors: " + (body.competitors or "not answered"),
-             "- where customers talk online: " + (body.channels or "not answered")]
-    if _active(c, MARKET_BOT):
-        target, title = MARKET_BOT, "Start the market research"
-        text = "\n".join(["Start the first pass of our market from what the owner told us.", "", *lines, "",
-                          "Add the competitors and channels as entities, cite what you find, and write the "
-                          "overview page."])
-    else:
-        _botops(c)
-        target, title = BOTOPS, "Set up the Market Analyst"
-        text = "\n".join(["Set up market-analyst from the market template so we can research our market.", "",
-                          "- slug: market-analyst", "- template: market", "- display name: Market Analyst", "",
-                          "What the owner told us about the market. Put it in the bot's task list "
-                          "once it is running:", "", *lines])
-    task = _task(c, auth, who, target, title, text)
-    H.event(c, who.actor, "getting_started.market_requested", target, {"task": task["id"]})
-    return {"task_id": task["id"], "bot": target, "needs_analyst": target == BOTOPS}
+    if not _active(c, LIBRARIAN):
+        raise Problem("librarian", "The Librarian is not running yet. It starts once a computer hosts it.", 409)
+    text = "\n".join([
+        "Build our market map from what the owner gave us. Follow playbooks/market-setup.md.", "",
+        "The owner's words: a website, a description, links, or all three.", "", body.text.strip()])
+    task = _task(c, auth, who, LIBRARIAN, _market_title(c, "bot:" + LIBRARIAN, who.actor), text)
+    H.event(c, who.actor, "getting_started.market_requested", LIBRARIAN, {"task": task["id"]})
+    return {"task_id": task["id"], "bot": LIBRARIAN}
 
 
 def install(app, store, auth, mutate, settings, settings_admin):
