@@ -27,7 +27,7 @@ from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
 from .execution import Execution
 from .onboarding import BOTOPS, Onboarding
-from .recruit import Recruiter
+from .recruit import Recruiter, template_departments as recruit_departments
 from . import rooms
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
@@ -1215,7 +1215,8 @@ def create_app(settings=None):
     def org(request: Request, person: str | None = None, team: str | None = None, can: str | None = None):
         """The mixed people-and-bots org chart. Bots use this (and `hub org` / `hub_org`) to
         find who handles a kind of work and how to reach them. Only the bots the caller may see,
-        each with `access`; `?can=read` or `?can=write` keeps those they hold that level on."""
+        each with `access`, its `reports_to`, its `department` (its team, else its template's department,
+        else its manager's) and its `template`; `?can=read` or `?can=write` keeps those they hold that level on."""
         who = request.state.identity
         auth.domain(who)
         if can not in (None, "", "read", "write"):
@@ -1228,12 +1229,15 @@ def create_app(settings=None):
             live = {row["slug"]: row for row in H.bots(c)}
             bots = []
             by_id = {row["id"]: row for row in view["bots"]}
+            departments = P.bot_departments(configs, roster, recruit_departments(settings), archived)
             for row in view["bots"]:
                 level = access.get(row["id"], auth.FULL)
                 if not level["see"] or (can and not level[can]):
                     continue
                 bot = live.get(row["id"]) or {}
                 shown = {**row, "display_name": bot.get("display_name") or row["display_name"],
+                         "department": departments.get(row["id"], ""),
+                         "template": configs.get(row["id"], {}).get("template") or "",
                          "status": bot.get("state") or "", "access": level,
                          "onboarding_state": configs.get(row["id"], {}).get("onboarding_state") or ""}
                 # A bot the caller may not see is not in the chart, so those under it hang from

@@ -1350,6 +1350,15 @@ def updates_list(api, args):
                    unread=("true" if args.get("unread") else None), before=args.get("before"), limit=args.get("limit"))
 
 
+@tool("hub_update_list", "The same as hub_updates: the bots' updates, newest first (`hub update list`).",
+      {"kind": _s("daily or weekly", enum=["daily", "weekly"]), "bot": _s("One bot's updates"),
+       "unread": {"type": "boolean", "description": "Only what you have not read"},
+       "before": _s("Older than this created time (paging)"),
+       "limit": {"type": "integer", "minimum": 1, "maximum": 100}})
+def update_list(api, args):
+    return updates_list(api, args)
+
+
 @tool("hub_update_show", "One update in full with its thread: your replies and the bot's answers.",
       {"update": _s("Update id")}, required=("update",))
 def update_show(api, args):

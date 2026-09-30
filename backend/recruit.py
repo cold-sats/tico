@@ -66,6 +66,13 @@ def catalog(settings):
     return R.build(departments, O.read_cards(settings))
 
 
+def template_departments(settings):
+    """{template: department name} from the org builder's catalog: where a bot built from a template belongs."""
+    value = catalog(settings)
+    names = {row["id"]: row["name"] for row in value["departments"]}
+    return {card["template"]: names[card["department"]] for card in value["cards"] if card["department"] in names}
+
+
 def _about(answers):
     return {"what": re.sub(r"\s+", " ", str(answers.get("what_we_do") or "")).strip()[:R.BRIEFING_LIMIT],
             "sells_to": str(answers.get("customers") or ""),

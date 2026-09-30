@@ -117,8 +117,13 @@ the server (`backend/hubdb.py`), never here.
     hub turns <bot> [--since 24h]
     hub inbox
     hub board
-    hub org [--person ID] [--team NAME]    people and bots: who they are, Slack, what they own
+    hub org [--person ID] [--team NAME]    people and bots: who they are, Slack, what they own; each bot
+                                           with its reports_to, department and template (the bots you may see)
     hub fleet                              actor-scoped live snapshot (Tico)
+    hub updates [--kind daily|weekly] [--bot X] [--unread] [--limit N]   (also `hub update list`)
+                                           the bots' updates, newest first
+    hub update show <id>                   one update with its thread
+    hub update post "<- bullets>" [--kind daily|weekly]   post your own update when the hub asks
     hub calendar upcoming [--calendar EMAIL]
                                            appointments visible on a company calendar
     hub calendar schedule --title "..." --start ISO --end ISO [--calendar EMAIL]
@@ -858,7 +863,7 @@ def parser():
     s.add_argument("message_id")
     s.set_defaults(fn="ack")
     sub.add_parser("board").set_defaults(fn="board")
-    s = sub.add_parser("org", help="the company org chart: people, Slack, what they own, bots under them")
+    s = sub.add_parser("org", help="the company org chart: people, Slack, what they own, the bots with reports_to and department")
     s.add_argument("--person", help="that person and everyone under them")
     s.add_argument("--team", help="a team name from the registry, like engineering or sales")
     s.set_defaults(fn="org")
@@ -868,6 +873,12 @@ def parser():
     s.add_argument("body", help="one to five lines, each starting with '- '")
     s.add_argument("--kind", choices=("daily", "weekly"))
     s.set_defaults(fn="update post")
+    s = upd.add_parser("list", help="the bots' updates, newest first (the same as `hub updates`)")
+    s.add_argument("--kind", choices=("daily", "weekly"))
+    s.add_argument("--bot")
+    s.add_argument("--unread", action="store_true")
+    s.add_argument("--limit", type=int)
+    s.set_defaults(fn="updates")
     s = upd.add_parser("show")
     s.add_argument("update")
     s.set_defaults(fn="update show")

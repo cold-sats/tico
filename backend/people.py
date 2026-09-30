@@ -417,6 +417,31 @@ def org_view(roster, employees, archived=(), person_id="", team=""):
             "teams": dict((roster or {}).get("teams") or {})}
 
 
+def bot_departments(employees, roster, template_departments=None, archived=()):
+    """{slug: department name} for every bot that has one: its team (named by the org group of the same id when there
+    is one), else the department of its template in the org builder's catalog, else its manager's, up the
+    `reports_to` chain. A bot with none is left out."""
+    employees, roster = employees or {}, roster or {}
+    archived = set(archived or ())
+    groups = {gid: g.get("name") or gid for gid, g in (roster.get("org_groups") or {}).items()}
+    own = {}
+    for slug, entry in employees.items():
+        team = team_of(slug, employees, roster.get("teams"))
+        name = groups.get(team, team) if team else (template_departments or {}).get(_clean((entry or {}).get("template")))
+        if name:
+            own[slug] = name
+    out = {}
+    for slug in employees:
+        at, seen = slug, set()
+        while at and at in employees and at not in seen and at not in archived:
+            if at in own:
+                out[slug] = own[at]
+                break
+            seen.add(at)
+            at = _clean(employees[at].get("reports_to"))
+    return out
+
+
 def reports(pid, roster):
     """Direct reports of this person, in roster order."""
     pid = _clean(pid)
