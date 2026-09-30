@@ -135,8 +135,8 @@ class Settings:
     oidc_client_secret_file: Path | None = None
     oidc_allowed_domains: tuple[str, ...] = ()
     session_secret: str = field(default="", repr=False)
-    session_idle_seconds: int = 12 * 3600
-    session_absolute_seconds: int = 7 * 86400
+    session_idle_seconds: int = 30 * 86400
+    session_absolute_seconds: int = 90 * 86400
     # Origins of browser apps allowed to call the API from another address (TICO_CORS_ORIGINS,
     # backend/cors.py): exact origins only, checked in __post_init__.
     cors_origins: tuple[str, ...] = ()
@@ -300,6 +300,8 @@ class Settings:
                                      if os.environ.get("TICO_OIDC_CLIENT_SECRET_FILE") else None),
             oidc_allowed_domains=_emails(os.environ.get("TICO_OIDC_ALLOWED_DOMAINS", "")),
             session_secret=os.environ.get("TICO_SESSION_SECRET", "").strip(),
+            session_idle_seconds=max(60, int(os.environ.get("TICO_SESSION_IDLE_SECONDS", "") or 30 * 86400)),
+            session_absolute_seconds=max(60, int(os.environ.get("TICO_SESSION_ABSOLUTE_SECONDS", "") or 90 * 86400)),
             cors_origins=os.environ.get("TICO_CORS_ORIGINS", ""),
             scheduler_enabled=not rehearsal and os.environ.get("TICO_SCHEDULER", "1") == "1",
             rehearsal=rehearsal,
