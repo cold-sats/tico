@@ -45,7 +45,7 @@ days with its decide-by date (renewal minus notice). Anything inside 14 days goe
 Write `reports/YYYY-MM-DD-spend-report.md` in the shape of `knowledge/examples/spend-report.md`:
 headline, anomalies, movers, new, overlaps, renewals, could not read, sources. Then:
 
-    hub files publish reports/YYYY-MM-DD-spend-report.md
+    hub file publish reports/YYYY-MM-DD-spend-report.md
 
 Sharing it beyond the requester is `hub approval request --kind send` with the exact text and recipient.
 

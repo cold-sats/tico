@@ -10,8 +10,8 @@ assigned, published or sent.
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
-    hub calendar upcoming
+    hub team show
+    hub calendar list
 
 Then `knowledge/headcount-plan.md`, `knowledge/people-calendar.md`, `knowledge/routing.md` and last
 week's summary. If last week named an action, check whether it happened and say so.
@@ -34,7 +34,7 @@ due in 7 days and not done is bold and goes into "Needs a human".
 
 ## 5. What the people bots produced
 
-For each people bot in `hub org`: its newest report and anything waiting on a human more than 5 days.
+For each people bot in `hub team show`: its newest report and anything waiting on a human more than 5 days.
 One line each. A bot you could not read is named.
 
 ## 6. Routing and hiring proposals
@@ -46,7 +46,7 @@ same unowned work appeared three or more times this month, add one hiring propos
 ## 7. Write and hand over
 
 Write `reports/YYYY-MM-DD-people-summary.md` in the shape of `knowledge/examples/people-summary.md`, then
-`hub files publish reports/YYYY-MM-DD-people-summary.md --scope task --task <id>`. Commit, and
+`hub file publish reports/YYYY-MM-DD-people-summary.md --scope task --task <id>`. Commit, and
 `hub task update <id> --status done --note`: the headline, the path, what you could not read.
 
 ## When a source fails

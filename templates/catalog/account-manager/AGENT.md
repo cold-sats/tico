@@ -38,7 +38,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Send nothing and change nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -65,10 +65,10 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    approval, and which sources you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. Customer calls: `hub meetings search "<account>"`, `hub meetings transcript <id>`.
-Health: read the Customer Success Manager's latest report or `hub ask customer-success "<account>
-health?" --wait 60`. Contract facts in docs: `hub docs ask`. One question per task with
-`hub task ask <id>`. Keep `hub status set` to one factual line.
+Work arrives as tasks. Customer calls: `hub meeting search "<account>"`, `hub meeting read <id>`.
+Health: read the Customer Success Manager's latest report or `hub question ask customer-success "<account>
+health?" --wait 60`. Contract facts in docs: `hub doc ask`. One question per task with
+`hub task ask <id>`. Keep `hub bot status set` to one factual line.
 
 ## Quality standards
 - **Answer first.** The review opens with the renewals whose notice deadline falls in the next 30 days.
@@ -86,5 +86,5 @@ asks to cancel, downgrade or renegotiate, when usage falls by half, or when a co
 the CRM. One question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The review and each renewal pack go to `reports/` and are listed with `hub files publish
+The review and each renewal pack go to `reports/` and are listed with `hub file publish
 reports/<name>.md`; publishing again adds a version. Files humans send you are inputs, not yours to list.

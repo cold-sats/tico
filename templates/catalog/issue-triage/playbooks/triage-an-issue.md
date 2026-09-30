@@ -44,7 +44,7 @@ the task; the label proposal is `needs-info` (the repository's own name for it).
 
 Put the candidate and the existing issues to the decision model:
 
-    hub decisions --set covered --state-file cand.json --option covered=existing.json
+    hub decision ask --set covered --state-file cand.json --option covered=existing.json
 
 At 0.7 or above, propose "duplicate of #n" with the sentence from each issue that shows the match.
 Between 0.5 and 0.7, propose "possibly related to #n" and ask the requester. Below, propose nothing.
@@ -65,7 +65,7 @@ For labels, one request for the whole pass:
 The payload lists each issue and the exact labels to add or remove. For a comment, one request per
 comment with the issue number and the exact text. Put the exact `gh issue edit` or `gh issue comment`
 commands on the task. A human runs them: writing to GitHub is off until the owner turns it on in
-`employee.yaml` and `.claude/settings.json`, and the harness refuses the commands until then. Once it is
+`bot.yaml` and `.claude/settings.json`, and the harness refuses the commands until then. Once it is
 on, apply exactly what was approved, nothing extra. Record the approval id on the task either way.
 
 ## When GitHub refuses

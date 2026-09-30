@@ -141,7 +141,7 @@ def test_a_manager_registers_a_tool_and_botops_gets_the_exact_entry(api):
     body = api.get("/api/v2/tasks/" + task["id"], headers=headers()).json()["task"]["body"]
     assert made["yaml"] in body and "- service: posthog" in body and "env: POSTHOG_KEY" in body
     assert "can: [read]" in body and "project: '340585'" in body
-    assert "employee.yaml" in body and "never commit it" in body
+    assert "bot.yaml" in body and "never commit it" in body
     # It is visible, pending, until the computer reports the entry.
     page = tools_of(api)
     assert [t["status"] for t in page["tools"] if t["id"].startswith("pending-")] == ["pending"]
@@ -220,12 +220,12 @@ def test_removing_a_tool_is_a_botops_task_and_a_pending_request_can_be_withdrawn
 
 def test_the_tools_are_mcp_tools_too(api):
     botops(api)
-    err, listed = mcp_call(api, "hub_tools_list", {"bot": "ops"})
+    err, listed = mcp_call(api, "hub_tool_list", {"bot": "ops"})
     assert not err and listed["tools"][0]["id"] == "model"
-    err, added = mcp_call(api, "hub_tools_add", {"bot": "ops", "service": "posthog", "can": "read",
+    err, added = mcp_call(api, "hub_tool_add", {"bot": "ops", "service": "posthog", "can": "read",
                                                   "scope": ["project=340585", "channels=#a,#b"], "env": "POSTHOG_KEY"})
     assert not err and added["tool"]["scope"] == {"project": "340585", "channels": ["#a", "#b"]}
-    err, refused = mcp_call(api, "hub_tools_add", {"bot": "ops", "service": "stripe", "can": ["read"], "env": "sk_live_abcdefghijklmnop"})
+    err, refused = mcp_call(api, "hub_tool_add", {"bot": "ops", "service": "stripe", "can": ["read"], "env": "sk_live_abcdefghijklmnop"})
     assert err and refused["error"] == "secret"
-    err, gone = mcp_call(api, "hub_tools_remove", {"bot": "ops", "id": added["tool"]["id"]})
+    err, gone = mcp_call(api, "hub_tool_remove", {"bot": "ops", "id": added["tool"]["id"]})
     assert not err and gone["cancelled"] is True

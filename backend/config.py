@@ -30,7 +30,7 @@ LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
 def _typesafe_key():
-    """The optional TypeSafe (Jev) decisions key behind `POST /api/v2/judge` and the Slack gateway."""
+    """The optional TypeSafe (Jev) decisions key behind `POST /api/v2/decisions` and the Slack gateway."""
     value = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if value:
         return value

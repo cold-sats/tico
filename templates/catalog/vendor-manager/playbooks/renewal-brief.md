@@ -8,8 +8,8 @@ and, where useful, the message to the vendor ready for approval.
 
 ## 1. Read the contract, not the register
 
-    hub docs search "<vendor>"
-    hub docs read <id>
+    hub doc search "<vendor>"
+    hub doc read <id>
 
 Confirm end date, notice period, how notice must be given (email, letter, portal), price and any
 uplift clause, minimum term, and what happens to the team's data on exit. If the terms need a

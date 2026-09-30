@@ -67,7 +67,7 @@ For a repository whose merge still needs human review, request that exact action
   that checkout before the next one. Use a separate worktree for a PR branch, or return the runner
   checkout to an up-to-date `main` before ending the turn. Do not clone another bot's repository
   into your own. Ask its owner to improve it with a Hub task (`policies/handoffs.md`).
-- Creating a bot repository (BotOps, or the owner): `hub github create-bot-repo <slug>` from a
+- Creating a bot repository (BotOps, or the owner): `hub bot repo-create <slug>` from a
   template, or `--empty` for a bot whose repository already exists on a computer
   (`docs/github-app.md`). It needs the app's administration permission, and the name is always
   `emp-<slug>` in the connected organization, private.
@@ -78,7 +78,7 @@ For a repository whose merge still needs human review, request that exact action
   base64 -d`.
 - A review PR for a repository that still needs human review: branch from the default branch,
   commit, `gh pr create --draft`, put the PR URL on the Hub task, and stop for review.
-- A bot built locally with no repository on GitHub yet: `hub github create-bot-repo <slug>
+- A bot built locally with no repository on GitHub yet: `hub bot repo-create <slug>
   --empty`, then set the bot's repository to `<org>/emp-<slug>` (`docs/github-app.md`). Do not push
   it yourself: the bot's next turn publishes its history with its own token.
 
@@ -96,5 +96,5 @@ For a repository whose merge still needs human review, request that exact action
 
 ## Learnings
 
-What bots and people learn about this integration is added with `hub learn github "…"` and
+What bots and people learn about this integration is added with `hub tool learn github "…"` and
 shown under this page; a person folds it into the page over time. The page is the rule.

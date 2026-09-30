@@ -3,7 +3,7 @@ slug: security-engineer
 name: "Security Engineer"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 icon: security
 suggest: common

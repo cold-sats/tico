@@ -42,7 +42,7 @@ against no guide, is a flag on the page.
 
 Write `reports/YYYY-MM-DD-hiring-pipeline.md` in the shape of `knowledge/examples/hiring-pipeline.md`.
 
-    hub files publish reports/YYYY-MM-DD-hiring-pipeline.md
+    hub file publish reports/YYYY-MM-DD-hiring-pipeline.md
 
 Then `hub task update <id> --status done --note`: the headline, counts, and what you could not read.
 

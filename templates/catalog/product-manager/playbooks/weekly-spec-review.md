@@ -28,5 +28,5 @@ Manager, rollback or flag plan. Mark each line done, due or missing, with its ow
 ## 4. Write and hand over
 
 Write `reports/YYYY-MM-DD-spec-review.md` in the shape of `knowledge/examples/spec-review.md`, then
-`hub files publish reports/YYYY-MM-DD-spec-review.md`. Commit, and `hub task update <id> --status done
+`hub file publish reports/YYYY-MM-DD-spec-review.md`. Commit, and `hub task update <id> --status done
 --note`: the headline, the blocking questions and their owners, and what you could not read.

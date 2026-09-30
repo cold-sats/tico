@@ -44,7 +44,7 @@ time to restore. Show each with its source and the period. A measure you cannot 
 `reports/YYYY-MM-DD-engineering-summary.md` in the shape of `knowledge/examples/engineering-summary.md`:
 headline, what needs the manager, what shipped, stuck pull requests (number, age, owner from `areas.md`,
 link), incidents, docs and release status, blocked work, proposed routing, and what you could not read.
-Then `hub files publish reports/YYYY-MM-DD-engineering-summary.md`.
+Then `hub file publish reports/YYYY-MM-DD-engineering-summary.md`.
 
 ## 6. Propose routing, do not act
 

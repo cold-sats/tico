@@ -21,7 +21,7 @@ with its kind, urgency (a date or "none"), risk in one line and proposed owner. 
 
 ## 3. Read the legal team
 
-For each legal bot in `hub org`: `hub updates --bot <slug>` and its newest `reports/` file. Take:
+For each legal bot in `hub team show`: `hub update list --bot <slug>` and its newest `reports/` file. Take:
 - from `legal-review`: contracts waiting for a human and notice deadlines inside 30 days;
 - from `compliance`: filings and renewals inside 30 days, and anything overdue;
 - from `privacy`: open data subject requests and their response dates;
@@ -43,7 +43,7 @@ proposal as `AGENT.md` "Hiring" describes; it is asked on the task, never acted 
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-legal-summary.md` in the shape of `knowledge/examples/legal-summary.md`, ending with
-the not-legal-advice line, then `hub files publish reports/YYYY-MM-DD-legal-summary.md`. Commit, and `hub task
+the not-legal-advice line, then `hub file publish reports/YYYY-MM-DD-legal-summary.md`. Commit, and `hub task
 update <id> --status done --note`: the headline, the path, the sources you could not read.
 
 ## When a source fails

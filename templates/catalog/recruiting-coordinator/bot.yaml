@@ -1,0 +1,36 @@
+name: recruiting-coordinator                     # the slug: it matches the repository bot-recruiting-coordinator and the label owner:recruiting-coordinator
+display_name: "Recruiting Coordinator"
+labels: [owner:recruiting-coordinator]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 40
+
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
+# the bot puts the finished message on the task and asks for an approval.
+outbound_send: false
+
+# The first routine is declared off (`enabled: false`) and switched on when a human starts the bot's setup
+# (Start setup, go-live). `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
+routines:
+  - id: daily-interview-logistics
+    title: Daily interview logistics
+    cron: "0 8 * * 1-5"
+    timezone: America/Los_Angeles     # set this to the team's own timezone
+    template: playbooks/daily-interview-logistics.md
+    labels: [priority:p2]
+    enabled: false
+
+# What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
+# arrives in, never the value; declaring access here does not create it. Changing access is an
+# owner decision, so the bot files a task for the owner rather than editing this file.
+tools: []
+# Optional, uncomment when connected. The calendar is already readable by every bot, and invitations go only to
+# humans on the roster. A recruiting mailbox keeps candidate messages in their own threads.
+# tools:
+#   - service: gmail
+#     identity: "jobs@example.com"
+#     can: [read, draft]          # never send: outbound_send stays false; each message goes on an approval
+#     env: GOOGLE_SA_KEY
+#     note: "reads candidate replies about times and leaves each message as a draft; never sends or files"

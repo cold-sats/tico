@@ -10,8 +10,8 @@ Nothing reaches a new hire without an approval.
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
-    hub calendar upcoming
+    hub team show
+    hub calendar list
 
 Then `knowledge/onboarding-base.md`, `knowledge/hand-offs.md`, last week's tracker and the open tasks
 labelled for onboarding (`hub task list --status open --status doing --status waiting`).
@@ -47,7 +47,7 @@ the Librarian as one task (`hub task create --owner librarian`).
 
 Write `reports/YYYY-MM-DD-onboarding-tracker.md` in the shape of `knowledge/examples/onboarding-tracker.md`.
 
-    hub files publish reports/YYYY-MM-DD-onboarding-tracker.md
+    hub file publish reports/YYYY-MM-DD-onboarding-tracker.md
 
 Write the welcome message for anyone starting this week and request `hub approval request --kind send
 --task <id>` with the exact text and recipient; it goes only on a yes. Chase each late item's owner with one

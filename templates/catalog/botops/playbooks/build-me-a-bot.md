@@ -14,7 +14,7 @@ not waiting on it. The human reads one message at the end.
 
 ## The flow
 
-1. **Register it.** `hub bot register <slug> --name "<Display>" --description "<one line>"`. They become
+1. **Register it.** `hub bot create --record-only <slug> --name "<Display>" --description "<one line>"`. They become
    an owner. If they may not add bots, or are at their limit, say exactly that and stop.
 2. **Build it.** Follow `playbooks/set-up-a-bot.md` from step 2: repository from the closest template,
    real instructions, `hub bot check <slug>` clean, committed.
@@ -39,8 +39,8 @@ not waiting on it. The human reads one message at the end.
 
 ## Humans, and what always needs their click
 
-    hub people list
-    hub people add <email> --name "<Name>" [--title T] [--reports-to <person id>]
+    hub human list
+    hub human add <email> --name "<Name>" [--title T] [--reports-to <person id>]
 
 A member may add a coworker in the team's email domain; an owner or an admin anyone. A coworker in
 the domain is added at once. Anyone outside it needs their own click: the command answers
@@ -54,12 +54,12 @@ off) happen at once, and each can be undone from Settings > Bots history.
 ## Other things a human asks, done the same way
 
 - "Use a cheaper model on X": `hub bot model <bot> <model>` (`hub bot model <bot>` lists them).
-- "Make X read-only on GitHub": in its repository set the github entry in `access:` to
+- "Make X read-only on GitHub": in its repository set the github entry in `tools:` to
   `can: [read]`, add "never push, merge or comment" under `## Never without approval` in its
   `AGENT.md`, run `hub bot check <slug>` and commit. Say plainly that this is its rules and declared
   access, not a narrower credential, unless they gave it a separate read-only token.
-- "Turn off the Monday routine": `hub routine off <key> --bot <bot>`.
-- "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub fleet-check`, then fix or explain.
+- "Turn off the Monday routine": `hub routine update <key> --disable --bot <bot>`.
+- "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub health check`, then fix or explain.
 - Anything else in the app: `hub api <METHOD> <path> ['{json}']`, as them, with their rights.
 
 ## When it goes sideways

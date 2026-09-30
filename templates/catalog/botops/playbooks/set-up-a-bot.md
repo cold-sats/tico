@@ -21,16 +21,16 @@ A task titled `Build a bot: <name>` carries a slug and a plain-language job
 instead of a template. Pick the closest template in the templates, and write `AGENT.md` for that job.
 
 If any of those is missing, ask once with `hub task ask <id>` and stop until it is answered. Do not
-invent a slug: it is the repository name, the value of `name:` in `employee.yaml`, and the label on
+invent a slug: it is the repository name, the value of `name:` in `bot.yaml`, and the label on
 every task the bot ever gets, so renaming it later is real work.
 
 ## 2. Create the repository
 
     hub bot create <slug> --template <template> --name "<Display>"
 
-That materialises `$HUB_WORKSPACE/emp-<slug>` from the template, fills the team's names
+That materialises `$HUB_WORKSPACE/bot-<slug>` from the template, fills the team's names
 into the placeholders, writes `knowledge/company.md` from the setup answers, and seeds the
-template's `schedules:` into Tico as the bot's first routines (the result lists their ids). When a
+template's `routines:` into Tico as the bot's first routines (the result lists their ids). When a
 human asked for the bot in chat, it also registers the bot with the server as them and makes
 them an owner (`playbooks/build-me-a-bot.md`); for a task with no human behind it, the owner registered
 it already.
@@ -52,18 +52,18 @@ answers instead. Three things have to be true and specific in it:
 - what never happens without a human, named concretely rather than as a general caution.
 
 Cut every line that is not true for this team. A vague line left in is worse than a missing one,
-because the bot will act on it. Do the same pass over `employee.yaml`: the display name, the labels,
+because the bot will act on it. Do the same pass over `bot.yaml`: the display name, the labels,
 and a schedule only if the owner asked for one.
 
 If the instructions include a `Mailbox: <email>` line (message bots), replace every `{{mailbox}}` in
-`employee.yaml` with that address. That is the mailbox this bot is assigned; do not invent one.
+`bot.yaml` with that address. That is the mailbox this bot is assigned; do not invent one.
 
 The instructions a new bot starts with already say how it publishes what it makes (the "Publishing
 your work" section that comes with every template): reports and exports in `reports/` or
-`artifacts/` are listed on its page after a run, `hub files publish <path>` lists one at once,
-`hub files add-link <url>` lists a Google Doc, Sheet or Notion page it creates, and `hub files import
+`artifacts/` are listed on its page after a run, `hub file publish <path>` lists one at once,
+`hub file link <url>` lists a Google Doc, Sheet or Notion page it creates, and `hub file import
 s3://bucket/key` copies an S3 object. Keep that section when you rewrite the role. A bot whose work
-should not be listed sets `files: {publish: []}` in `employee.yaml`; one that writes deliverables
+should not be listed sets `files: {publish: []}` in `bot.yaml`; one that writes deliverables
 elsewhere names the folders, `files: {publish: [reports/, deliverables/]}`.
 
 ## 4. Check it
@@ -86,12 +86,12 @@ Commit the new repository with a one line message that says what it is, for exam
 Skip this when the team has not connected GitHub; the bot stays on its computer. Otherwise the
 repository you just committed exists only locally, so create an empty private one:
 
-    hub github create-bot-repo <slug> --empty
+    hub bot repo-create <slug> --empty
 
 Do not push it yourself. Your run's token is for your own repository only, so a push of another
-bot's history fails. Instead the bot's repository link (Settings, Bots) has to be `<org>/emp-<slug>`
-(a bare `emp-<slug>` also resolves to the connected organization). Its owner sets it there, or you set it
-for the human who asked in chat with `hub bot set <slug>` (it takes their rights); say so in the task note. On the bot's next turn Tico sets `origin` to that
+bot's history fails. Instead the bot's repository link (Settings, Bots) has to be `<org>/bot-<slug>`
+(a bare `bot-<slug>` also resolves to the connected organization). Its owner sets it there, or you set it
+for the human who asked in chat with `hub bot update <slug>` (it takes their rights); say so in the task note. On the bot's next turn Tico sets `origin` to that
 repository and publishes the history with the bot's own token, and never forces: if the repository
 already holds different history it stops and Health says so. You do not push other bots'
 repositories. If the command says the app was not given permission to create repositories, do not

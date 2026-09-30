@@ -8,8 +8,8 @@ audit, and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub org
-    hub files list
+    hub team show
+    hub file list
     hub task list --status open --status done
 
 Look for a configuration export someone attached, and for tasks from the Support Agent about tickets in
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

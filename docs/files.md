@@ -30,12 +30,12 @@ its conversation, or bot-wide) and a canonical identity:
    and `/api/v2/files/{id}/versions/{n}` for an older one, in the same safe viewer or download as
    any attachment. No storage address (`s3://`, a presigned URL) is ever shown.
 2. **Cloud documents.** A Google Doc, Sheet or Slides, a Notion page, a Figma file or any https
-   document. `hub files add-link <url> --title "..."` registers the address (http, `javascript:`,
+   document. `hub file link <url> --title "..."` registers the address (http, `javascript:`,
    credentials in the URL and private-network hosts are refused). Open goes to the provider, which
    decides who may read it; the row says "Link opens in Google (requires access)". Tico never
    fetches, proxies or copies the document and never holds a provider token. Each time the bot says
-   it edited the document (`hub files touch <id|url>`, or add-link again) the row moves to the top.
-3. **S3 objects.** `hub files import s3://bucket/key [--title ...] [--task ...]` runs on the bot's
+   it edited the document (`hub file touch <id|url>`, or add-link again) the row moves to the top.
+3. **S3 objects.** `hub file import s3://bucket/key [--title ...] [--task ...]` runs on the bot's
    computer. It copies the object with the credentials that computer already has (the bot's credentials
    or its AWS environment; boto3, or the aws CLI when boto3 is missing), refuses a type or size
    outside the limits, and uploads the bytes to Tico's store. The object's ETag (and version id) is
@@ -44,14 +44,14 @@ its conversation, or bot-wide) and a canonical identity:
 
 ## Publishing
 
-**Explicitly**, from a run (the same tools exist over MCP as `hub_files_*`):
+**Explicitly**, from a run (the same tools exist over MCP as `hub_file_*`):
 
 ```
-hub files publish reports/2026-09-29-pipeline.md [--title T] [--task ID] [--scope task|bot]
-hub files add-link https://docs.google.com/document/d/... --title "Q4 plan"
-hub files touch <file id or link>
-hub files import s3://bucket/key
-hub files list
+hub file publish reports/2026-09-29-pipeline.md [--title T] [--task ID] [--scope task|bot]
+hub file link https://docs.google.com/document/d/... --title "Q4 plan"
+hub file touch <file id or link>
+hub file import s3://bucket/key
+hub file list
 ```
 
 A bot can write only its own files: the authenticated bot decides, never a parameter.

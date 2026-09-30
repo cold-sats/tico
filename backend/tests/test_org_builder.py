@@ -96,7 +96,7 @@ def test_the_shipped_catalog_has_a_head_for_every_department_and_hq_has_a_curren
     what scripts/build_catalog_json.py builds today, with the same version the server computes."""
     settings = SimpleNamespace(catalog_dir=ROOT / "templates" / "catalog")
     built = recruit.catalog(settings)
-    departments = yaml.safe_load((ROOT / "templates" / "departments.yaml").read_text())["departments"]
+    departments = yaml.safe_load((ROOT / "templates" / "groups.yaml").read_text())["departments"]
     assert [row["id"] for row in built["departments"]] == [row["id"] for row in departments] == list(R.DEPARTMENT_IDS)
     for dept in built["departments"]:
         assert R.head_of(built, dept["id"]) == dept["head"], dept["id"]
@@ -127,6 +127,7 @@ def hq(monkeypatch):
 
 def org(environment):
     api = environment(cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, "")] + [(row, "") for row in CARDS[:-1]])
+    # The older file name is still read (backend/recruit.py).
     (Path(api.app.state.store.settings.catalog_dir).parent / "departments.yaml").write_text(yaml.safe_dump(DEPARTMENTS))
     api.put("/api/v2/onboarding", headers=signed_in(), json={"answers": {
         "what_we_do": "We sell scheduling software to clinics", "customers": "businesses", "software_product": "yes"}})

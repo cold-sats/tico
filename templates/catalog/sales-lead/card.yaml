@@ -3,7 +3,7 @@ slug: sales-lead
 name: Sales Manager
 required: false
 bootstrap: false
-department: sales
+group: sales
 pack: sales
 lead: true
 icon: leaderboard

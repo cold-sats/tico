@@ -3,8 +3,8 @@
 One page per outside system, written for a bot about to touch it and for a person deciding
 whether it may. Each page says what the system is, what data it holds, the exact commands a bot
 runs, the rules (read/write gates, approvals, what never to do), useful recipes and the gotchas
-people have already hit. The server serves them (`GET /api/v2/integrations`, the
-**Integrations** page) and every bot reads them with `hub integration <service>`.
+people have already hit. The server serves them (`GET /api/v2/tools`, the
+**Integrations** page) and every bot reads them with `hub tool show <service>`.
 
 This folder ships only the outside services Tico has built-in support for: GitHub, Slack, Mail
 (Gmail and Google Calendar), the Aside browser, Close (the call importer), and the databases
@@ -34,7 +34,7 @@ declared_as: |              # the `access:` entry a bot carries in employee.yaml
     env: POSTHOG_API_KEY
 writes: never               # never | approval | allowed
 owner: owner              # who decides changes to this integration
-aliases: [ph]               # optional: other names `hub integration <name>` resolves
+aliases: [ph]               # optional: other names `hub tool show <name>` resolves
 ---
 ```
 
@@ -60,12 +60,12 @@ reads a company database read-only; [docs/databases.md](../docs/databases.md) se
 `queries/<service>.yaml` is the catalog of useful queries for a `kind: sql` integration: a list
 of `{id, title, description, category, tags, database, sql, params}`. None ship; a company adds
 its own next to its pages. A MongoDB entry has `mongo:` (op, collection, filter or pipeline, with
-`{"$param": name}` for values) in place of `sql:`; see `templates/company-config/integrations/queries/atlas.yaml`. `hub queries <service> [term]` searches them; `hub queries <service> --id
+`{"$param": name}` for values) in place of `sql:`; see `templates/company-config/integrations/queries/atlas.yaml`. `hub tool query-search <service> [term]` searches them; `hub tool query-search <service> --id
 <id>` prints one.
 
 ## Learnings
 
 Learnings are the log; the page is the rules (`policies/writing.md`, "Rules and the log"). A bot
-or a person who learns something reusable about an integration adds it with `hub learn <service>
+or a person who learns something reusable about an integration adds it with `hub tool learn <service>
 "<text>"` (or the box on the Integrations page); it is stored in the hub database, shown under
 the page, and folded into the page by a person over time. The page wins when they disagree.

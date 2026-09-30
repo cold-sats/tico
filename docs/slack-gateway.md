@@ -85,7 +85,7 @@ the cap on bot-to-bot traffic, the unsolicited cap, the lint, the escape rule (a
 names a `secrets/` path is refused and recorded as such).
 
 A follow-up in a thread is linked to the bot's last line (`in_reply_to`); when that line is an
-unanswered `ask`, the follow-up is written as its `answer`, which is what `hub ask --wait`
+unanswered `ask`, the follow-up is written as its `answer`, which is what `hub question ask --wait`
 polls for, so the ask closes.
 
 The bot's run gets the text, and in the message's `refs.slack` the channel or DM name, the

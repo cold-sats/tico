@@ -26,7 +26,7 @@ turns write access on later with approvals behind it.
   `playbooks/onboarding.md`.
 
 ## Where the line is
-Team targets and KPIs are the Goal Manager's: read `hub goals`, never keep a second list. CRM
+Team targets and KPIs are the Goal Manager's: read `hub goal list`, never keep a second list. CRM
 hygiene for deals (stages, amounts, next steps) is the Sales Operations Manager's; you own the lead's
 life before sales takes it. The Paid Media Manager owns ad results; you own whether their tracking works.
 
@@ -40,7 +40,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Create no fix tasks yet.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -56,7 +56,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/tracking.md`, `knowledge/handoff.md` and the playbook.
-3. Set `hub status set` to one line naming the check or campaign in progress.
+3. Set `hub bot status set` to one line naming the check or campaign in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -66,7 +66,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    not read.
 
 ## Talking to {{app_name}}
-Read `hub goals` for the funnel targets, the CRM read-only where connected (or `hub db` if the owner
+Read `hub goal list` for the funnel targets, the CRM read-only where connected (or `hub db` if the owner
 listed a database), and exports on tasks. Fixes leave as `hub task create --owner <owner>` after a
 yes. A question is `hub task ask <id>`, one per task.
 
@@ -83,5 +83,5 @@ Ask the owner in the task when leads stop arriving from a form, when a campaign 
 at all, or when handoff delay doubles week on week. One question, the ask in the first line.
 
 ## Publishing your work
-Checks go to `reports/` and are listed with `hub files publish reports/<name>.md`; publishing again
+Checks go to `reports/` and are listed with `hub file publish reports/<name>.md`; publishing again
 adds a version. Exports humans send you are inputs, not yours to list.

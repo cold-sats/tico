@@ -3,7 +3,7 @@ slug: paralegal
 name: "Paralegal"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: assignment
 suggest: common

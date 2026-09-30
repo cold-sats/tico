@@ -289,7 +289,7 @@ function mountBlank(shell) {
     button.disabled = true;
     try {
       const base = await marketSig().catch(() => null);
-      const result = await post('/v2/getting-started/market', {text});
+      const result = await post('/v2/setup/getting-started/market', {text});
       marketResearchSet({at: Date.now(), task: result.task_id || '', base});
       draw();
     } catch (error) { fail(error); }

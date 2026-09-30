@@ -9,7 +9,7 @@ legal advice. Nothing is sent, signed or filed.
 
 ## 1. Meetings
 
-    hub calendar upcoming
+    hub calendar list
 
 For each board or shareholder meeting in the next 90 days: the date, the notice the bylaws require
 (`knowledge/board.md`) and the date notice must go by, the pack due date (default 14 days before), and the pack's
@@ -23,7 +23,7 @@ days waiting and who each waits on. Check the tasks for signed copies that arriv
 ## 3. Entities
 
 For each entity in `knowledge/entities.md`: annual filings and accounts due inside 90 days (and whether
-`compliance` has them), officer or director changes since last month (`hub org` for people who left), and any
+`compliance` has them), officer or director changes since last month (`hub team show` for people who left), and any
 fact older than twelve months to re-confirm.
 
 ## 4. Cap table
@@ -34,5 +34,5 @@ last month without an approval in the minute book goes on the list for the next 
 ## 5. Write and hand over
 
 `reports/YYYY-MM-DD-entity-board-calendar.md` in the shape of `knowledge/examples/entity-board-calendar.md`,
-ending with the not-legal-advice line. `hub files publish` it, commit, and `hub task update <id> --status done
+ending with the not-legal-advice line. `hub file publish` it, commit, and `hub task update <id> --status done
 --note` with the nearest deadline first.

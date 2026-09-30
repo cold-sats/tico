@@ -17,7 +17,7 @@ once with `hub task ask <id>`.
 
 Read it once as the audience, then line by line against `knowledge/brand.md`. Mark each change as
 **rule** (quote the rule) or **suggestion** (your judgement, clearly labelled). Check product and plan
-names, prices and claims against `hub docs search`. Do not rewrite whole paragraphs; show the smallest
+names, prices and claims against `hub doc search`. Do not rewrite whole paragraphs; show the smallest
 change that fixes each line.
 
 ## 3. Review a name

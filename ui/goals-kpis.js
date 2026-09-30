@@ -157,7 +157,7 @@ function proposalHtml(p, extra = '') {
 function bindProposals(root, after) {
   for (const li of root.querySelectorAll('[data-proposal]')) for (const b of li.querySelectorAll('[data-decide]')) b.onclick = async () => {
     b.disabled = true;
-    try { await post(`/v2/goal-proposals/${encodeURIComponent(li.dataset.proposal)}/decide`, {decision: b.dataset.decide}); await after(); }
+    try { await post(`/v2/proposals/${encodeURIComponent(li.dataset.proposal)}/decide`, {decision: b.dataset.decide}); await after(); }
     catch (e) { toast(e.message || 'Could not decide', true); b.disabled = false; }
   };
 }
@@ -638,7 +638,7 @@ function goalPanelRender(state) {
       const text = input.value.trim();
       if (input.readOnly || !person) return;
       if (text === String(person.goals || '').trim()) { done(); return; }
-      try { const row = await post(`/v2/people/${encodeURIComponent(person.id)}`, {goals: text}); person.goals = row.goals; done(); goalsRender(state); }
+      try { const row = await post(`/v2/humans/${encodeURIComponent(person.id)}`, {goals: text}); person.goals = row.goals; done(); goalsRender(state); }
       catch (e) { toast(e.message || 'Could not save the goal', true); }
     };
     input.focus();

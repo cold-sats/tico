@@ -3,7 +3,7 @@ slug: engineering-lead
 name: "Head of Engineering"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 lead: true
 icon: developer_board

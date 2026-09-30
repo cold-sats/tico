@@ -37,7 +37,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first weekly report now from the exports, labelled "First draft, not yet reviewed".
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -79,4 +79,4 @@ weeks running, a high-value shipment is lost, or a claim deadline will pass with
 first, under 120 words.
 
 ## Publishing your work
-The weekly report goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The weekly report goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

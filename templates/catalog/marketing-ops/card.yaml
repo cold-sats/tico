@@ -3,7 +3,7 @@ slug: marketing-ops
 name: Marketing Operations Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: filter_alt
 suggest: niche

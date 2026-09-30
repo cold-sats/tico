@@ -112,16 +112,16 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/updates/[^/]+/reply"),
     ("POST", r"/api/v2/bots"), ("POST", r"/api/v2/bots/[^/]+/(archive|definition|owners|co-owners|updates|goals)"),
     ("POST", r"/api/v2/bots/[^/]+/(assignment|placement)"), ("POST", r"/api/v2/credentials/[^/]+/grants"),
-    ("POST", r"/api/v2/people/[^/]+"), ("POST", r"/api/v2/access/people(/[^/]+)?"),
+    ("POST", r"/api/v2/(?:people|humans)/[^/]+"), ("POST", r"/api/v2/access/(?:people|humans)(/[^/]+)?"),
     ("PUT", r"/api/v2/providers"), ("PATCH", r"/api/v2/files/[^/]+"),
 )]
 # What only BotOps may propose, for a person who asked it in chat (backend/botops_act.py lists the routes it
 # answers with a card): the same click, on more routes.
 _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
     ("PUT", r"/api/v2/access/(limits|allow)"), ("PUT", r"/api/v2/usage/limits(/[^/]+)?"),
-    ("POST", r"/api/v2/runners/[^/]+/(member-bots|revoke|restart)"),
+    ("POST", r"/api/v2/(?:runners|computers)/[^/]+/(member-bots|revoke|restart)"),
     ("POST", r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke"), ("POST", r"/api/v2/system/update"),
-    ("POST", r"/api/v2/goal-proposals/[^/]+/decide"), ("POST", r"/api/v2/support/tickets"),
+    ("POST", r"/api/v2/(?:goal-proposals|proposals)/[^/]+/decide"), ("POST", r"/api/v2/support/tickets"),
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
     ("POST", r"/api/v2/(slack|github/app)/disconnect"),
 )]
@@ -209,22 +209,22 @@ def describe(c, method, path, body):
          + fields(body)),
         (r"/api/v2/bots/([^/]+)/(assignment|placement)", lambda g: f"Place bot {bot(g[0])} on {computer(body)}"),
         (r"/api/v2/credentials/([^/]+)/grants", lambda g: "Give " + who(body.get("subject")) + " a stored credential"),
-        (r"/api/v2/people/([^/]+)", lambda g: f"Edit person {who(g[0])}: " + fields(body)),
-        (r"/api/v2/access/people", lambda g: f"Add {body.get('name') or body.get('email', '')} ({body.get('email', '')}) "
+        (r"/api/v2/(?:people|humans)/([^/]+)", lambda g: f"Edit person {who(g[0])}: " + fields(body)),
+        (r"/api/v2/access/(?:people|humans)", lambda g: f"Add {body.get('name') or body.get('email', '')} ({body.get('email', '')}) "
          "to the roster, and let them sign in" + "".join(f"; {k} {body[k]}" for k in ("team", "reports_to", "title") if body.get(k))),
-        (r"/api/v2/access/people/([^/]+)", lambda g: "Change " + who("human:" + g[0]) + ": "
+        (r"/api/v2/access/(?:people|humans)/([^/]+)", lambda g: "Change " + who("human:" + g[0]) + ": "
          + ", ".join(f"{k} to {v}" for k, v in body.items())),
         (r"/api/v2/providers", lambda g: "Change the company's AI providers"),
         (r"/api/v2/access/(limits|allow)", lambda g: "Change who may sign in or what members may do: " + fields(body)),
         (r"/api/v2/usage/limits(?:/([^/]+))?", lambda g: ("Change the spending limit of " + bot(g[0]) if g[0] else "Change the company's spending limit")
          + ": " + ", ".join(f"{k} {'none' if v is None else '$' + format(v, 'g')}" for k, v in body.items() if k.endswith("_usd"))),
-        (r"/api/v2/runners/([^/]+)/(member-bots|revoke|restart)", lambda g: {
+        (r"/api/v2/(?:runners|computers)/([^/]+)/(member-bots|revoke|restart)", lambda g: {
             "member-bots": "Let a computer take members' bots" if body.get("accepts") else "Stop a computer taking members' bots",
             "revoke": "Remove a computer", "restart": "Restart a computer's runner"}[g[1]]
          + " (" + ((c.execute("SELECT label FROM runners WHERE id=?", (g[0],)).fetchone() or {"label": g[0]})["label"]) + ")"),
         (r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke", lambda g: "Take a stored credential away from a bot"),
         (r"/api/v2/system/update", lambda g: "Update this Tico to the newest version"),
-        (r"/api/v2/goal-proposals/[^/]+/decide", lambda g: str(body.get("decision") or "Decide").title() + " a goal proposal"),
+        (r"/api/v2/(?:goal-proposals|proposals)/[^/]+/decide", lambda g: str(body.get("decision") or "Decide").title() + " a goal proposal"),
         (r"/api/v2/support/tickets", lambda g: "Send this to the Tico team: " + str(body.get("message") or "")[:300]),
         (r"/api/v2/directory(/sync|/preview)?", lambda g: "Change the people directory sync"),
         (r"/api/v2/(slack|github/app)/disconnect", lambda g: "Disconnect " + g[0].split("/")[0].title()),
@@ -650,10 +650,10 @@ INTENT_CHOICES = {"waiting": "They ask what is waiting on them, what needs their
 async def decide(api, text):
     """A `choice` decision question when the company has a decisions provider; else (None, 0)."""
     try:
-        info = await api.get("judge")
+        info = await api.get("decisions")
         if not info or not info.get("configured") or ACTION_WORDS.search(text.casefold()) or len(text) > 200:
             return None
-        response = await api.call("POST", "judge", body={
+        response = await api.call("POST", "decisions", body={
             "state": {"message": text}, "label": "assistant-intent@1",
             "questions": {"intent": {"type": "choice", "criteria": INTENT_CHOICES,
                                      "instructions": "What does this message to a company assistant ask for?"}}})

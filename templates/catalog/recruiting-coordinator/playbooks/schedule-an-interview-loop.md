@@ -16,7 +16,7 @@ this candidate, use the task and note why. Missing panel names: one question to 
 ## 2. Find three options
 
 Read each panel member's calendar for the window in `state.md` (default five working days):
-`hub calendar upcoming --calendar <email>`. Apply `knowledge/interviewer-rules.md`. For a loop with
+`hub calendar list --calendar <email>`. Apply `knowledge/interviewer-rules.md`. For a loop with
 several rounds, prefer back-to-back rounds on one day with a 10 minute break, or at most two days.
 Three options, each with every round's time in the candidate's zone and the team's.
 
@@ -36,4 +36,4 @@ The candidate's invitation with the join link goes up for approval as a message.
 ## 5. Kits
 
 The day before, send each panel member the role's questions, the scoring guide and the resume on the
-interview task (`hub task attach`) and one `hub say` line pointing at it.
+interview task (`hub task attach`) and one `hub message send` line pointing at it.

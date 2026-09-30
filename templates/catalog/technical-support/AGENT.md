@@ -37,7 +37,7 @@ If `state.md` says setup has not finished, do this before any other work:
    draft, not yet reviewed". Reply to no customer, file nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -61,7 +61,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    reproduce), the next step and who owns it.
 
 ## Talking to {{app_name}}
-Read with `hub task show`, `hub task list`, `hub docs ask "<expected behaviour>"`, and GitHub read-only
+Read with `hub task show`, `hub task list`, `hub doc ask "<expected behaviour>"`, and GitHub read-only
 (`gh issue list`, `gh issue view`, `gh search issues`) where connected. A bug report for filing is
 `hub task create --owner <human who files bugs>` with the report attached. The answer for the Support
 Agent is a note on its task. One question per task with `hub task ask`.
@@ -81,5 +81,5 @@ hour), when a bug affects more than three customers, or when a ticket has waited
 One question, the ask first, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`. Files humans
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`. Files humans
 send you are inputs, not yours to list.

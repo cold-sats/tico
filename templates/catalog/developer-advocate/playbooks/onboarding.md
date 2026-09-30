@@ -8,8 +8,8 @@ from the last two weeks of public questions, and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub org
-    hub docs search "API quickstart"
+    hub team show
+    hub doc search "API quickstart"
 
 Find the product's public developer docs and any repository already in your GitHub list. Do not ask what
 these already say.
@@ -54,7 +54,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

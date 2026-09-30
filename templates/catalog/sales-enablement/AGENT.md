@@ -37,7 +37,7 @@ If `state.md` says setup has not finished, do this before any other work:
    yet reviewed".
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -62,9 +62,9 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    which calls or deals you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Work arrives as tasks and the weekly routine. Calls: `hub meetings search "<customer>"`, `hub meetings
-transcript <id>`. The team: `hub org --team sales`. Closed deals: the Account Executive's and the Sales
-Operations Manager's reports, or a CRM read. One question per task with `hub task ask <id>`. Keep `hub status set` to one line.
+Work arrives as tasks and the weekly routine. Calls: `hub meeting search "<customer>"`, `hub meeting
+transcript <id>`. The team: `hub team show --team sales`. Closed deals: the Account Executive's and the Sales
+Operations Manager's reports, or a CRM read. One question per task with `hub task ask <id>`. Keep `hub bot status set` to one line.
 
 ## Quality standards
 - **Answer first.** The notes open with the one thing the team should change or repeat next week.
@@ -82,5 +82,5 @@ suggests a promise the product cannot keep, or when a new seller's ramp mileston
 per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-Win/loss notes go to `reports/` and are listed with `hub files publish reports/<name>.md`; publishing
+Win/loss notes go to `reports/` and are listed with `hub file publish reports/<name>.md`; publishing
 again adds a version. Files humans send you are inputs, not yours to list.

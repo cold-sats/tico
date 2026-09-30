@@ -3,7 +3,7 @@ slug: billing
 name: "Billing Specialist"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: receipt
 suggest: common

@@ -18,12 +18,13 @@ from types import SimpleNamespace
 
 import yaml
 
+from clients.manifest import group_of, manifest_path, routines_of
 from . import goals as G
 from . import models as M
 from . import providers
 from . import census, releases, replication, runner_versions, ui_bundle
 from .config import ASSISTANT_NAME
-from . import rooms, routines
+from . import rooms, routines, statuses
 from . import access as Access
 from .store import H, Problem, encode, readiness_document
 
@@ -38,7 +39,7 @@ INSTRUCTIONS_FILE = "AGENT.md"
 # its AGENT.md is written against the company that is about to adopt it. The wizard no longer
 # asks for assistant_name; an empty one falls back to TICO_ASSISTANT_NAME (display_names).
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
-NEEDS_ONBOARDING = "needs_onboarding"
+NEEDS_SETUP = statuses.NEEDS_SETUP
 ONBOARDED = "onboarded"
 EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": "", "owner_name": "", "team_domain": ""}
 # `pains`, `pains_text` and `tools` are no longer asked. An older record keeps them and a client may still send them;
@@ -114,12 +115,12 @@ def _card(document, instructions):
     return {"template": template, "slug": str(document.get("slug") or template).strip(),
             "name": str(document.get("name") or template), "required": bool(document.get("required")),
             "bootstrap": bool(document.get("bootstrap")),
-            # The template that heads its department in the org builder (templates/departments.yaml `head`).
+            # The template that heads its department in the org builder (templates/groups.yaml `head`).
             "lead": bool(document.get("lead")),
             # Where the org builder shows it (backend/recruit_rank.py): its department (else its `pack`'s),
             # its Material Symbols icon, the words it matches, and whether it is pre-checked (`default`),
             # shown (`common`) or under More (`niche`).
-            "department": str(document.get("department") or ""), "icon": str(document.get("icon") or ""),
+            "department": str(group_of(document) or ""), "icon": str(document.get("icon") or ""),
             "tags": _strings(document.get("tags")), "suggest": str(document.get("suggest") or ""),
             "team_templates": _strings(document.get("team_templates")),
             # A helper serves a person (the Inbox Manager), sits outside the org chart and is offered on its own.
@@ -300,7 +301,7 @@ def setup_body(slug, choice, answers):
     """What BotOps needs to build one bot without asking: the names, the reviewed
     instructions verbatim, and what the company said about itself."""
     return "\n".join([
-        "Create emp-" + slug + " from the " + choice["template"] + " template and bring "
+        "Create bot-" + slug + " from the " + choice["template"] + " template and bring "
         + choice["display_name"] + " up.",
         "",
         "- slug: " + slug,
@@ -490,7 +491,7 @@ class Onboarding:
             declared["setup_rank"] = rank
         self._write_config(c, slug, declared)
         c.execute("UPDATE bot_config SET onboarding_state=? WHERE bot=? AND COALESCE(onboarding_state,'')<>?",
-                  (NEEDS_ONBOARDING, slug, ONBOARDED))
+                  (NEEDS_SETUP, slug, ONBOARDED))
         self._seed_routines(c, who, slug, template)
         H.event(c, who.actor, "bot.needs_onboarding", slug, {"template": template})
 
@@ -503,7 +504,7 @@ class Onboarding:
         if not (who.role == "bot" and H.actor_id(who.actor) == slug):
             self.admin._manager(c, who, slug)
         row = c.execute("SELECT onboarding_state,created_by FROM bot_config WHERE bot=?", (slug,)).fetchone()
-        if row["onboarding_state"] != NEEDS_ONBOARDING:
+        if not statuses.is_parked(row["onboarding_state"]):
             return {"bot": slug, "onboarding_state": row["onboarding_state"] or "", "changed": False}
         if self.auth.member_bot(c, slug):
             limit = Access.load_access(c, self.settings)["member_bot_limit"]
@@ -529,7 +530,7 @@ class Onboarding:
         self._write_config(c, slug, declared)
         if card.get("starter") and not card.get("bootstrap"):
             self._make_starter(c, who, slug, template)
-            return {"template": template, "setup_task_id": None, "onboarding_state": NEEDS_ONBOARDING}
+            return {"template": template, "setup_task_id": None, "onboarding_state": NEEDS_SETUP}
         declared["template_version"] = releases.version()
         self._write_config(c, slug, declared)
         return {"template": template,
@@ -645,7 +646,7 @@ class Onboarding:
             # The restore keeps the bot's own model and settings; only the name and description are renewed.
             self.admin.create_bot(c, who, M.BotDefinitionCreate(
                 slug=slug, display_name=choice["display_name"], description=str(card.get("summary") or ""),
-                status="planned", repo="emp-" + slug, thread_mode="personal", model=row.get("model") or "restore",
+                status="planned", repo=self._recorded_repo(c, slug), thread_mode="personal", model=row.get("model") or "restore",
                 effort=row.get("effort") or "high", owners=[H.actor_id(who.actor)]))
         elif not row:
             self._define(c, who, slug, choice, card)
@@ -666,19 +667,25 @@ class Onboarding:
         H.event(c, who.actor, event, slug, {"restored": restored, "placed": placed})
         return {"bot": slug, "state": H.bot(c, slug)["state"], "restored": restored, "placed": placed}
 
+    @staticmethod
+    def _recorded_repo(c, slug):
+        """A restored bot keeps the repository its record names (`emp-<slug>` for one made before `bot-<slug>`)."""
+        row = c.execute("SELECT repo FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        return (row["repo"] if row and row["repo"] else "") or "bot-" + slug
+
     def _template_routines(self, c, template):
-        """The template's `schedules:` as validated routines, or [] when it declares none."""
+        """The template's `routines:` (older: `schedules:`) as validated routines, or [] when it declares none."""
         from clients.routines import validate_schedules
         folder = Path(self.settings.catalog_dir) / template
         try:
-            declared = (yaml.safe_load((folder / "employee.yaml").read_text()) or {}).get("schedules")
+            declared = routines_of(yaml.safe_load(manifest_path(folder).read_text()) or {})
             names = display_names(self.settings, load(c))
             return validate_schedules(declared, lambda rel: fill((folder / rel).read_text(), names))
         except (OSError, ValueError, TypeError, yaml.YAMLError):
             return []
 
     def _seed_routines(self, c, who, slug, template):
-        """The template's `schedules:` become the bot's first routines, once. A routine a person
+        """The template's `routines:` (older: `schedules:`) become the bot's first routines, once. A routine a person
         changed or deleted is never put back: only a key the bot has never had is created. (A bot
         BotOps builds gets these from `hub bot create`; a built-in one is made here.)"""
         made = []
@@ -851,7 +858,7 @@ class Onboarding:
                 if row.get("provider") and not row.get("deprecated"))
             self.admin.create_bot(c, who, M.BotDefinitionCreate(
                 slug=slug, display_name=choice["display_name"], description=summary,
-                status="planned", repo="emp-" + slug, thread_mode="personal",
+                status="planned", repo="bot-" + slug, thread_mode="personal",
                 reports_to=reports_to or None,
                 model=model, effort=effort, owners=[H.actor_id(who.actor)]))
             if not picked:

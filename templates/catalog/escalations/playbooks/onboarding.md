@@ -8,9 +8,9 @@ a first daily digest, and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status waiting
-    hub updates --kind weekly --limit 4
+    hub update list --kind weekly --limit 4
 
 Look for tasks that are escalations in all but name: a customer who has written three times, a ticket
 older than a week from a large account, a bug waiting on engineering. Do not ask what these show.
@@ -55,7 +55,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

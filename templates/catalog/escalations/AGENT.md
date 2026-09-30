@@ -36,7 +36,7 @@ If `state.md` says setup has not finished, do this before any other work:
    not yet reviewed". Send nothing to a customer.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -59,10 +59,10 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: open by severity, updates due, the path.
 
 ## Talking to {{app_name}}
-Read with `hub task show`, `hub task list`, `hub meetings search "<customer>"`, and the linked issue with
+Read with `hub task show`, `hub task list`, `hub meeting search "<customer>"`, and the linked issue with
 read-only `gh issue view` where GitHub is connected. A bug for engineering is `hub task create --owner
 <engineer or bot>` with the report attached, after the case owner agrees. Tell a case owner their update
-is due with `hub say <person> "<case, due time, link>"`. One question per task with `hub task ask`.
+is due with `hub message send <person> "<case, due time, link>"`. One question per task with `hub task ask`.
 
 ## Quality standards
 - **Answer first.** The digest opens with the count by severity and the updates due today.
@@ -81,5 +81,5 @@ a customer threatens to leave or mentions legal action, or engineering has not a
 within a day. The ask in the first line, under 120 words.
 
 ## Publishing your work
-The digest goes to `reports/` and is listed with `hub files publish reports/<name>.md`. Files humans
+The digest goes to `reports/` and is listed with `hub file publish reports/<name>.md`. Files humans
 send you are inputs, not yours to list.

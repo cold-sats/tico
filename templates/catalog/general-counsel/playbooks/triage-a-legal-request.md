@@ -11,8 +11,8 @@ or a prepared question for a lawyer. Nothing is sent, signed or decided.
     hub task show <id>
 
 Read every attachment. Find: what is being asked, by whom, by when, who the other party is, and what is at
-stake (money, a deadline, a person, data, a regulator). `hub docs ask "<the question>"` to see whether an
-approved answer or a policy already covers it, and `hub meetings search "<party>"` for context.
+stake (money, a deadline, a person, data, a regulator). `hub doc ask "<the question>"` to see whether an
+approved answer or a policy already covers it, and `hub meeting search "<party>"` for context.
 
 ## 2. Sort it
 

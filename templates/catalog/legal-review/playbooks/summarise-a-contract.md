@@ -50,7 +50,7 @@ then what you could not read, then the closing line in bold: **This is a summary
 advice. Have counsel review anything that matters before you sign or rely on it.** Save it as
 `reports/summaries/<counterparty>-<kind>.md` in the shape of `knowledge/examples/contract-summary.md`.
 
-    hub files publish reports/summaries/<counterparty>-<kind>.md
+    hub file publish reports/summaries/<counterparty>-<kind>.md
 
 ## 6. Finish
 

@@ -91,6 +91,7 @@ class Tico:
 def load_fixture(tico):
     """Write every fixture doc with `hub docs write`, the command the Librarian's own tooling uses."""
     env = {**os.environ, "HUB_API_URL": tico.url, "HUB_TOKEN": tico.token}
+    env.pop("HUB_BOT", None)
     env.pop("HUB_EMPLOYEE", None)
     for file in fixture_files():
         rel = file.relative_to(HERE / "fixture").as_posix()

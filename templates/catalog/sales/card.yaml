@@ -3,7 +3,7 @@ slug: sales
 name: Account Executive
 required: false
 bootstrap: false
-department: sales
+group: sales
 pack: sales
 icon: handshake
 suggest: default

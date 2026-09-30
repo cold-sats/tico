@@ -8,7 +8,7 @@ yes, no or unknown on "are we affected", the tier, and the fix. Nothing is chang
 
 ## 1. Read the advisory
 
-`hub docs fetch <advisory url>`. Note the affected versions, the fixed version, the vulnerable function or
+`hub doc fetch <advisory url>`. Note the affected versions, the fixed version, the vulnerable function or
 configuration, and the date. Check CISA's KEV catalogue and the EPSS score for the CVE; record both with the
 date read.
 

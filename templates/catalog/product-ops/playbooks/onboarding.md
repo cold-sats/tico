@@ -8,8 +8,8 @@ finished. Budget 25 minutes. The outcome is five recorded answers and a first re
 ## 1. Read before you ask
 
     hub task list --status open --status doing --status done
-    hub meetings search "feature request"
-    hub org
+    hub meeting search "feature request"
+    hub team show
 
 Read the Customer Insights Analyst's latest report if the team has one, and check whether the CRM and
 GitHub are readable. Do not ask what these already say.
@@ -49,7 +49,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

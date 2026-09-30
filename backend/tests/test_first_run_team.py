@@ -61,14 +61,14 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_its
     assert draft(api, selected=selected).status_code == 200
     record = api.post("/api/v2/onboarding/complete", json={}, headers=who).json()
     rows = {row["slug"]: row for row in record["bots"]}
-    assert rows["support"]["onboarding_state"] == rows["chief-of-staff"]["onboarding_state"] == "needs_onboarding"
+    assert rows["support"]["onboarding_state"] == rows["chief-of-staff"]["onboarding_state"] == "needs_setup"
     assert rows["botops"]["onboarding_state"] == rows["coo"]["onboarding_state"] == ""          # built in: they work at once
     assert rows["support"]["setup_task_id"] is None and rows["support"]["reports_to"] == "chief-of-staff"
     assert rows["chief-of-staff"]["reports_to"] == "human:morgan"                              # the owner, by default
 
     # Exposed with the template and its version; placed on the computer and active, its routine seeded off.
     listed = {b["slug"]: b for b in api.get("/api/v2/bots", headers=who).json()}
-    assert listed["support"]["onboarding_state"] == "needs_onboarding" and listed["coo"]["onboarding_state"] == ""
+    assert listed["support"]["onboarding_state"] == "needs_setup" and listed["coo"]["onboarding_state"] == ""
     detail = api.get("/api/v2/bots/support", headers=who).json()
     assert (detail["template"], detail["template_version"], detail["state"]) == ("support", releases.version(), "active")
     assert api.get("/api/v2/tasks", params={"owner": "botops"}, headers=who).json()["tasks"] == []   # no BotOps task
@@ -87,7 +87,7 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_its
                          "WHERE s.bot='support'").fetchone()[0] == 1
     attempt = claim(api, computer, "support")
     assert attempt and attempt["bot"] == "support"
-    assert attempt["onboarding"] == "needs_onboarding"           # the runner's prompt follows the template's flow
+    assert attempt["onboarding"] == "needs_setup"           # the runner's prompt follows the template's flow
 
     # Start setup is a message in the person's own chat with the bot: the conversation the bot page's Chat tab lists.
     chats = api.get("/api/v2/conversations", params={"chat_with": "support"}, headers=who).json()["conversations"]
@@ -104,7 +104,7 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_its
     assert said.status_code == 200 and said.json() == {"bot": "support", "onboarding_state": "onboarded", "changed": True}
     assert call(attempt["token"]).json()["changed"] is False
     assert api.get("/api/v2/bots/support", headers=who).json()["onboarding_state"] == "onboarded"
-    assert api.get("/api/v2/bots/chief-of-staff", headers=who).json()["onboarding_state"] == "needs_onboarding"
+    assert api.get("/api/v2/bots/chief-of-staff", headers=who).json()["onboarding_state"] == "needs_setup"
 
     # Parked bots do not count toward a member's limit until they are onboarded.
     real_starters(api, "issue-triage")

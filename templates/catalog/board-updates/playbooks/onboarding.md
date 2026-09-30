@@ -7,9 +7,9 @@ finished. Budget 20 minutes. The outcome is five recorded answers, a real draft 
 
 ## 1. Read before you ask
 
-    hub goals --all
-    hub updates --kind weekly --limit 6
-    hub meetings search --since <first of last month>
+    hub goal list --all
+    hub update list --kind weekly --limit 6
+    hub meeting search --since <first of last month>
 
 Do not ask what these already say. If last month's update is in Docs or the mailbox, read it and copy its metrics and order.
 
@@ -48,7 +48,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -3,7 +3,7 @@ slug: sourcer
 name: Sourcer
 required: false
 bootstrap: false
-department: hr
+group: hr
 pack: basics
 icon: manage_search
 suggest: common

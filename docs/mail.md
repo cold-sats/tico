@@ -189,7 +189,7 @@ Every bot can read and schedule appointments through the Tico MCP, without a Gma
 manifest:
 
 ```text
-hub_calendar_upcoming(calendar="ana@acme.example")
+hub_calendar_list(calendar="ana@acme.example")
 hub_calendar_schedule(title="Murphy hold", start="2026-09-22T09:00:00-07:00",
                       end="2026-09-22T09:30:00-07:00", attendees=["person@example.com"])
 hub_calendar_status(id="<action id>")
@@ -198,7 +198,7 @@ hub_calendar_status(id="<action id>")
 The schedule call queues one idempotent action for the private Mac calendar tool. Only a status of
 `succeeded` means the Google event and invitations exist. `pending` and `running` are unfinished;
 `unknown` must be inspected before retrying. This standing calendar grant does not enable Gmail
-reading, drafting or sending. The equivalent shell commands are `hub calendar upcoming`,
+reading, drafting or sending. The equivalent shell commands are `hub calendar list`,
 `hub calendar schedule` and `hub calendar status`.
 
 The mail-local calendar commands use the same team-wide grant. Every bot can read or create an
@@ -364,7 +364,7 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
   Health says so ("Mail key"). Keep such a computer for the message bot alone.
 - A message bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
   for the message bot). Several message bots may share one only if the owner allows it with
-  `POST /api/v2/runners/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway. Where one owner runs every
+  `POST /api/v2/computers/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway. Where one owner runs every
   computer and bot, the refusal offers this and BotOps turns it on as the human who asked; anywhere else an owner or an admin does it
   (a message bot still never shares a computer with another kind of bot).
 - Bots that are not message bots but declare `gmail` access do not get mail on an isolated runner.

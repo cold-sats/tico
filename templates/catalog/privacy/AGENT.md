@@ -40,7 +40,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first desk report now. Label it "First draft, not yet reviewed". Send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -64,8 +64,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the nearest deadline first, then the path.
 
 ## Talking to {{app_name}}
-Requests and DPAs arrive as tasks. The privacy notice and existing DPAs: `hub docs search "privacy"`,
-`hub docs ask "<question>"`. A step for a system owner is `hub task create --owner <human>` after approval.
+Requests and DPAs arrive as tasks. The privacy notice and existing DPAs: `hub doc search "privacy"`,
+`hub doc ask "<question>"`. A step for a system owner is `hub task create --owner <human>` after approval.
 A question for the requester is `hub task ask <id>`, one per task.
 
 ## Quality standards
@@ -83,5 +83,5 @@ device, data sent to the wrong person, unexpected access), a request inside 7 da
 open, or a regulator's letter. Gather what happened, when, which data and whose, and stop there.
 
 ## Publishing your work
-The desk report and DPA reviews go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+The desk report and DPA reviews go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files humans send you are inputs, not yours to list.

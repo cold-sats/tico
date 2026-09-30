@@ -7,12 +7,12 @@ finished. Budget 30 minutes. The outcome is six recorded answers, the intake, es
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
-    hub docs search "policy"
-    hub docs search "agreement"
+    hub doc search "policy"
+    hub doc search "agreement"
 
-Find which legal bots exist (`hub org`), which open tasks are legal in kind (contracts, NDAs, notices, privacy,
+Find which legal bots exist (`hub team show`), which open tasks are legal in kind (contracts, NDAs, notices, privacy,
 employment questions), and which policies the docs already hold. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
@@ -58,7 +58,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

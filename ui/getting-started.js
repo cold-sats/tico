@@ -1,5 +1,5 @@
 /* After the wizard: the tour, and one line under the org list while there are no bots of your own
-   (docs/onboarding.md). Whether that line shows comes from GET /api/v2/getting-started; the only thing
+   (docs/onboarding.md). Whether that line shows comes from GET /api/v2/setup/getting-started; the only thing
    kept per person is whether they saw the tour. The Market page's empty state (ui/market-page.js) is
    where the market is asked for. */
 let GS = null;                     // the last answer, or null when the server has none to give
@@ -8,7 +8,7 @@ let GS_LOAD = 0;
 async function gsRefresh() {
   if (!S.me?.cloud) return null;
   const seq = ++GS_LOAD;
-  const data = await v2Get('/v2/getting-started');
+  const data = await v2Get('/v2/setup/getting-started');
   if (seq !== GS_LOAD) return GS;
   GS = data && Array.isArray(data.items) ? data : null;
   gsOrgHint();
@@ -17,7 +17,7 @@ async function gsRefresh() {
 
 async function gsState(change) {
   try {
-    const next = await post('/v2/getting-started/state', change);
+    const next = await post('/v2/setup/getting-started/state', change);
     if (GS && next) GS = {...GS, tour_seen: next.tour};
   } catch { /* a choice that did not save is asked again next time */ }
 }

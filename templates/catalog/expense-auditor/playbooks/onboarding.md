@@ -8,7 +8,7 @@ finished. Budget 25 minutes. The outcome is five recorded answers, a first audit
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs ask "What is our expense and travel policy?"
+    hub doc ask "What is our expense and travel policy?"
 
 Check the attachments for an expense or card export and receipts. If the Librarian finds the written
 policy, read it and skip asking for the limits; ask only what it does not say.
@@ -51,7 +51,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

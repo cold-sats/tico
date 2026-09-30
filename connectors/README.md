@@ -30,8 +30,8 @@ not a shortcut.
   The CLI installs with `curl -fsSL https://releases.aside.com/install.sh | bash`.
 
 Each connector has a page in `integrations/` (what it is, how a bot uses it, the rules,
-recipes, gotchas, and the learnings bots add): `hub integration slack`, `hub integration mail`,
-`hub integration aside`, or the **Integrations** page. Other outside systems the company uses
+recipes, gotchas, and the learnings bots add): `hub tool show slack`, `hub tool show mail`,
+`hub tool show aside`, or the **Integrations** page. Other outside systems the company uses
 get pages in its own config (`integrations/README.md`).
 
 Which channels exist is `registry/slack-channels.yaml`; a bot may post to any of them unless the entry says `post: false`.

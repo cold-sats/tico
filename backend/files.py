@@ -560,7 +560,7 @@ def install_files(app, store, auth, blobs, mutate):
 
     @app.post("/api/v2/files/imports", openapi_extra=upload_doc)
     async def imported(request: Request):
-        """Bytes the bot's computer copied from an S3 object (`hub files import`), with its `source`
+        """Bytes the bot's computer copied from an S3 object (`hub file import`), with its `source`
         (s3://bucket/key) and `etag`. A changed etag is a new version."""
         fields, data = files.read_input(request.headers.get("content-type", ""), await request.body(), request.query_params)
         if not fields.get("source"):

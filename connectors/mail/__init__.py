@@ -64,6 +64,47 @@ def report(e, kind):
             print(f"  {e.hint}", file=sys.stderr)
 
 
+# ---------------------------------------------------------------- a bot's files, new names and old
+# The connectors run on their own, so this repeats clients/manifest.py: bot.yaml (older employee.yaml), the manifest's
+# `tools:` (older `access:`), the folder bot-<slug> (older emp-<slug>) and HUB_BOT (older HUB_EMPLOYEE).
+
+def repo_dir(projects, slug):
+    """The bot's folder under the projects directory: bot-<slug> if it exists, else emp-<slug> if that does, else bot-<slug>."""
+    for prefix in ("bot-", "emp-"):
+        if (Path(projects) / (prefix + slug)).exists():
+            return Path(projects) / (prefix + slug)
+    return Path(projects) / ("bot-" + slug)
+
+
+def bot_folders(projects):
+    """[(slug, folder)] for every bot-* / emp-* folder, by slug, bot-<slug> ahead of emp-<slug>."""
+    found = {}
+    for prefix in ("emp-", "bot-"):
+        for d in Path(projects).glob(prefix + "*"):
+            found[d.name[len(prefix):]] = d
+    return sorted(found.items())
+
+
+def manifest_file(folder):
+    """bot.yaml if it is there, else employee.yaml if that is, else bot.yaml."""
+    for name in ("bot.yaml", "employee.yaml"):
+        if (Path(folder) / name).is_file():
+            return Path(folder) / name
+    return Path(folder) / "bot.yaml"
+
+
+def declared_tools(manifest):
+    """The manifest's `tools:` list, else the older `access:`."""
+    m = manifest or {}
+    return (m["tools"] if "tools" in m else m.get("access")) or []
+
+
+def hub_bot(env=None):
+    """The bot this run is, from HUB_BOT or the older HUB_EMPLOYEE (the runner sets both)."""
+    env = os.environ if env is None else env
+    return (env.get("HUB_BOT") or env.get("HUB_EMPLOYEE") or "").strip()
+
+
 # ---------------------------------------------------------------- yaml
 
 def load_yaml(path, what):

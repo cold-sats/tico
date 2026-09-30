@@ -9,7 +9,7 @@ it. You never create the KPI record yourself.
    exclusions. If the definition cannot be computed as written, do not bend it: propose a clearer one
    (`hub proposal create --kind kpi_definition --kpi <id> --payload-file f.json --reason "..."`) and stop.
 4. Write `sources.md`, then the computation. Read-only queries only: `hub sql` for Tico's own data, or a tool the
-   owner declared in `access:`. No declared tool for the source: file one task for the owner naming the source
+   owner declared in `tools:`. No declared tool for the source: file one task for the owner naming the source
    you need, and leave the KPI reported as missing.
 5. Write `known-values.md`: at least two periods where you can say the exact answer from a source you trust or
    from the owner. Run it. Only then post the first reading.

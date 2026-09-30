@@ -42,5 +42,5 @@ the requester once for any missing value. Never guess a legal entity name.
 ## 5. Write the desk report
 
 `reports/YYYY-MM-DD-nda-desk.md`: counts by status first, then each NDA in one line (party, status, the one
-thing that matters, who acts), packets waiting, index rows added. `hub files publish` it, commit, and
+thing that matters, who acts), packets waiting, index rows added. `hub file publish` it, commit, and
 `hub task update <id> --status done --note` with the counts first.

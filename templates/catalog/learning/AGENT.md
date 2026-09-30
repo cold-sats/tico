@@ -37,7 +37,7 @@ If `state.md` says setup has not finished, do this before any other work:
    not yet reviewed". Enroll, buy and send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -45,7 +45,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 - **Enrolling anyone, buying a course, committing budget**: `hub approval request --kind spend --task
   <id>` with the course, the price, who and why.
 - **Reminders and announcements to employees**: the approved one-line reminder reaches a human inside
-  the team as `hub say <person> "<line>"`, within the platform's daily limit.
+  the team as `hub message send <person> "<line>"`, within the platform's daily limit.
 - **Sharing an individual's record** beyond them, their manager and HR.
 - **Arming, changing or deleting a routine.**
 - Completion needs a record: a provider export, a certificate on the task, or the person's own word on
@@ -54,7 +54,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/mandatory.md` and the playbook.
-3. Read the roster with `hub org` for roles, teams and start dates.
+3. Read the roster with `hub team show` for roles, teams and start dates.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -63,8 +63,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the result first, then what you could not read.
 
 ## Talking to {{app_name}}
-The level guide and training policy come from the Librarian (`hub docs ask`, `hub docs read`). Course
-pages are read with `hub docs fetch <url>`. Scheduled sessions come from `hub calendar upcoming`. A
+The level guide and training policy come from the Librarian (`hub doc ask`, `hub doc read`). Course
+pages are read with `hub doc fetch <url>`. Scheduled sessions come from `hub calendar list`. A
 question for the requester is `hub task ask <id>`, one per task.
 
 ## Quality standards
@@ -82,5 +82,5 @@ Ask the HR owner when a legally required course is overdue for anyone, when a ce
 contract requires will expire within 30 days, or when requests exceed the budget. One question per task.
 
 ## Publishing your work
-The tracker goes to `reports/` and is listed with `hub files publish reports/<name>.md --scope task
+The tracker goes to `reports/` and is listed with `hub file publish reports/<name>.md --scope task
 --task <id>`. Role plans may be shared with a team once approved. Files humans send you are inputs.

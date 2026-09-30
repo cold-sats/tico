@@ -84,6 +84,22 @@ class InProcessApi:
                          key=key, query={k: v for k, v in (query or {}).items() if v is not None}, delegate=delegate)
 
 
+def caller_kind(auth, who):
+    """What kind of caller this is, for the tools it is offered (`hubtools.KINDS`): a human as owner, admin or member,
+    a bot, BotOps, an external agent run by a bot (a Hermes profile), or the Assistant working in a human's private room.
+    The checks are the server's own: `auth.bot_admin`, `Identity.agent`, `Identity.via`."""
+    from . import hubdb as H
+    if who.via == "assistant":
+        return "assistant"
+    if who.role == "owner":
+        return "owner"
+    if who.role == "human":
+        return "admin" if auth.bot_admin(who) else "member"
+    if who.role == "bot":
+        return "agent" if who.agent else "botops" if who.actor == H.bot_actor(H.FLEET_MAINTAINER) else "bot"
+    return None
+
+
 def hubtools_key():
     import uuid
     return str(uuid.uuid4())
@@ -108,7 +124,9 @@ def install_mcp(app, settings):
                                  "error": {"code": -32600, "message": "Send one JSON-RPC message"}},
                                 status_code=400)
         api = InProcessApi(app, asyncio.get_running_loop(), request.headers.get("authorization", ""), base_url)
-        protocol = hubtools.Protocol(api, api_error=ApiProblem)
+        who = getattr(request.state, "identity", None)
+        kind = caller_kind(app.state.auth, who) if who else None
+        protocol = hubtools.Protocol(api, api_error=ApiProblem, kind=kind)
         started = time.monotonic()
         reply = await asyncio.to_thread(protocol.handle, message)
         if reply is None:

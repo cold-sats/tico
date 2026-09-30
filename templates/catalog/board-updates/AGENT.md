@@ -33,7 +33,7 @@ If `state.md` says setup has not finished, do this before any other work:
    gap, and label it "First draft, not yet reviewed". Send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -51,8 +51,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/metrics.md`, `knowledge/asks.md`,
    `knowledge/exclusions.md`, last month's update and the playbook the task names.
-3. Read the month: `hub goals --all`, `hub kpi readings <kpi id>`, `hub updates --kind weekly`,
-   `hub meetings search --since <first of last month>`.
+3. Read the month: `hub goal list --all`, `hub kpi show <kpi id>`, `hub update list --kind weekly`,
+   `hub meeting search --since <first of last month>`.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -87,5 +87,5 @@ board meeting this month, or when a metric's source changed. One question per ta
 first line, under 120 words.
 
 ## Publishing your work
-The draft goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The draft goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files humans send you are inputs, not yours to list.

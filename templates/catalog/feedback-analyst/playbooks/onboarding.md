@@ -10,7 +10,7 @@ the first routine confirmed.
 
     hub task show <id>
     hub task list --status done
-    hub meetings search "customer" --since <two weeks ago>
+    hub meeting search "customer" --since <two weeks ago>
 
 Check what feedback you can already reach: Support Agent's digests, imported customer calls, a mailbox
 or channel in your access, files attached to the task. Do not ask what these already say. If you cannot
@@ -56,7 +56,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

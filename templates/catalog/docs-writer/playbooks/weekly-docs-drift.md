@@ -42,7 +42,7 @@ text, the new text and the pull request as the reason.
 
 `reports/YYYY-MM-DD-docs-drift.md` in the shape of `knowledge/examples/docs-drift-report.md`: headline,
 top drifts with page, wrong text, cause and draft path, the rest, pages you could not read. Then
-`hub files publish reports/YYYY-MM-DD-docs-drift.md`.
+`hub file publish reports/YYYY-MM-DD-docs-drift.md`.
 
 ## 7. Finish
 

@@ -8,6 +8,8 @@ import sqlite3
 
 import yaml
 
+from clients.manifest import manifest_path, repo_dir
+
 from .auth import Auth
 from .archive import import_text_archives
 from .backup import inspect, snapshot, upload_bundle
@@ -38,11 +40,11 @@ def resolved_registry(projects, registry_dir):
     source = yaml.safe_load((registry_dir / "employees.yaml").read_text())
     entries = {}
     fields = {"name", "display_name", "description", "repo", "reports_to", "team", "runtime", "model",
-              "reasoning_effort", "effort", "status", "max_run_minutes", "schedules", "access",
+              "reasoning_effort", "effort", "status", "max_run_minutes", "schedules", "access", "routines", "tools",
               "reads", "slack_channel", "role", "title", "order"}
     for entry in source["employees"]:
         slug = entry["name"]
-        path = projects / ("emp-" + slug) / "employee.yaml"
+        path = manifest_path(repo_dir(projects, slug))
         manifest = yaml.safe_load(path.read_text()) if path.exists() else {}
         merged = {**source.get("defaults", {}), **entry, **(manifest or {})}
         entries[slug] = {k: v for k, v in merged.items() if k in fields}
@@ -159,7 +161,9 @@ def main(argv=None):
                    help="Explicitly make old undelivered bot messages claimable after import")
     p = sub.add_parser("enrollment")
     p.add_argument("database", type=Path)
-    p.add_argument("--operator", required=True)
+    owner = p.add_mutually_exclusive_group(required=True)
+    owner.add_argument("--owner", dest="operator", help="the human who owns the computer")
+    owner.add_argument("--operator", dest="operator", help=argparse.SUPPRESS)      # the old spelling, hidden for one release
     p.add_argument("--out", type=Path, required=True, help="New private file for the enrollment code")
     p = sub.add_parser("backup")
     p.add_argument("database", type=Path)

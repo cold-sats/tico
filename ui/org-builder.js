@@ -1,6 +1,6 @@
 /* First run, the org chart (docs/onboarding.md): pick departments, answer one short question per department, recruit
    bots into it, and watch the chart grow beside the conversation. The server has the departments and cards
-   (GET /api/v2/onboarding/departments) and the suggestions (POST /api/v2/onboarding/recruit, from Tico HQ or its local
+   (GET /api/v2/setup/groups) and the suggestions (POST /api/v2/setup/recruit, from Tico HQ or its local
    recommender); this page shows them and keeps what is checked in the wizard's catalog state (`state.catalog.picked`),
    from which ui/first-run.js builds `selected`. Nothing exists until "Create my team". Helpers (the built-ins and any
    `kind: helper` card, the Inbox Manager) are not on the chart: the built-ins are always created, and a helper card is
@@ -65,7 +65,7 @@ function obFresh(state, key) {
 function obEnsure(state) {
   const org = state.org;
   if (org.loaded || org.loading) return;
-  org.loading = get('/v2/onboarding/departments').then(data => {
+  org.loading = get('/v2/setup/groups').then(data => {
     org.departments = data.departments || []; org.cards = data.cards || []; org.version = data.version || '';
     org.hq = {available: false, off_by: '', ...(data.hq || {})};
     if (org.share === null) org.share = !!org.hq.available;
@@ -351,7 +351,7 @@ async function obRecruit(state) {
   obRender(state);
   const started = Date.now();
   let result;
-  try { result = await post('/v2/onboarding/recruit', {department: id, briefing, share}); }
+  try { result = await post('/v2/setup/recruit', {department: id, briefing, share}); }
   catch { result = null; }
   await new Promise(resolve => setTimeout(resolve, Math.max(0, OB_MIN_RECRUIT_MS - (Date.now() - started))));
   if (ONB !== state || obCurrent(org) !== id || org.step !== 'recruiting' || org.phase !== 'dept') return;

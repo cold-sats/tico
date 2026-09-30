@@ -9,11 +9,11 @@ from the real deals, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub calendar upcoming
-    hub meetings search "<a deal the task names>"
+    hub calendar list
+    hub meeting search "<a deal the task names>"
 
 Check what you can already reach: a CRM entry in your access, the seller's mailbox, imported calls, the
-team docs (`hub docs search "proposal"`, `hub docs search "security"`). Do not ask what these already
+team docs (`hub doc search "proposal"`, `hub doc search "security"`). Do not ask what these already
 say. If you cannot read the deals, that is answer two, and a task for the owner if they want the CRM
 connected. Never work around it.
 
@@ -57,7 +57,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

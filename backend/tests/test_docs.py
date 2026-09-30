@@ -158,9 +158,9 @@ def test_a_bots_docs_tools_read_write_and_survive_a_concurrent_edit(api):
     ready(api, machine, ["ops"])
     call(api, "POST", "chat/ops", {"text": "go"}, BEN)
     token = claim(api, machine, "ops")["token"]
-    err, made = tool(api, "hub_docs_write", {"path": "ops/runbook", "body": "# On-call runbook\n\nPage Ben."}, token=token)
+    err, made = tool(api, "hub_doc_write", {"path": "ops/runbook", "body": "# On-call runbook\n\nPage Ben."}, token=token)
     assert not err and made["doc"]["path"] == "ops/runbook.md" and made["doc"]["title"] == "On-call runbook"
-    err, read = tool(api, "hub_docs_read", {"ref": "ops/runbook"}, token=token)
+    err, read = tool(api, "hub_doc_read", {"ref": "ops/runbook"}, token=token)
     assert not err and read["doc"]["body"].endswith("Page Ben.")
     # Someone edits between the bot's read and its write: the tool re-reads and retries once.
     real = api.app.state.docs.edit
@@ -172,15 +172,15 @@ def test_a_bots_docs_tools_read_write_and_survive_a_concurrent_edit(api):
             edit(api, call(api, "GET", "docs/" + doc_id)["doc"], who=CARA, body="Cara changed it first")
         return real(request, doc_id, body)
     api.app.state.docs.edit = racing
-    err, again = tool(api, "hub_docs_write", {"path": "ops/runbook.md", "body": "Bot rewrite", "note": "cleanup"}, token=token)
+    err, again = tool(api, "hub_doc_write", {"path": "ops/runbook.md", "body": "Bot rewrite", "note": "cleanup"}, token=token)
     api.app.state.docs.edit = real
     assert not err and again["doc"]["version"] == 3 and again["doc"]["body"] == "Bot rewrite"
-    err, history = tool(api, "hub_docs_history", {"ref": made["doc"]["id"]}, token=token)
+    err, history = tool(api, "hub_doc_history", {"ref": made["doc"]["id"]}, token=token)
     assert [(v["actor"], v["note"]) for v in history["versions"]] == [("bot:ops", "cleanup"), ("human:cara", ""), ("bot:ops", "Created")]
-    err, listing = tool(api, "hub_docs_list", {"prefix": "ops/"}, token=token)
+    err, listing = tool(api, "hub_doc_list", {"prefix": "ops/"}, token=token)
     assert [d["path"] for d in listing["docs"]] == ["ops/runbook.md"]
-    err, missing = tool(api, "hub_docs_read", {"ref": "nope"}, token=token)
+    err, missing = tool(api, "hub_doc_read", {"ref": "nope"}, token=token)
     assert missing["refused"] == "docs"
     edit(api, call(api, "GET", "docs/" + made["doc"]["id"])["doc"], who=ANA, locked=True)
-    err, refused = tool(api, "hub_docs_write", {"path": "ops/runbook.md", "body": "no"}, token=token)
+    err, refused = tool(api, "hub_doc_write", {"path": "ops/runbook.md", "body": "no"}, token=token)
     assert err and refused["error"] == "locked"

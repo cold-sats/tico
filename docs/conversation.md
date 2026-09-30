@@ -19,7 +19,7 @@ the page that opened it:
 
 The local runner keys provider sessions by `(bot, conversation, runtime)`. A personal Tico room is
 therefore private at both the cloud-history and model-session layers, while every member of the CPO
-room deliberately shares one provider context. Tico runs can call `hub fleet` for a live
+room deliberately shares one provider context. Tico runs can call `hub health check` for a live
 snapshot filtered to the human who initiated that private run. Personal messages, preferences,
 and attachments must not be copied into Tico's shared repository files.
 

@@ -5,8 +5,8 @@ them and so a fresh session starts from what was learned, not from nothing. It i
 hundredth question cheaper than the first. You are the only one who writes it; anyone may read it. It is
 a cache: when it disagrees with a doc, the doc wins and the map is fixed.
 
-Write each with `hub docs write <path> --title "<title>" --body-file <file> --note "<what changed>"`.
-That creates or updates; a version conflict is re-read and retried once. Read one with `hub docs read`.
+Write each with `hub doc write <path> --title "<title>" --body-file <file> --note "<what changed>"`.
+That creates or updates; a version conflict is re-read and retried once. Read one with `hub doc read`.
 
 ## `_librarian/index.md`: the table of contents and a summary of every doc
 
@@ -17,7 +17,7 @@ One line per internal doc, grouped by folder, in path order:
     - `sales/objections.md` (v2, 2026-08-30): The five objections and the approved reply to each.
 
 - The summary says **what the doc answers**, not what it is called, in one sentence, from its text.
-- Include the version and the updated date from `hub docs list`, so a refresh can tell which docs
+- Include the version and the updated date from `hub doc list`, so a refresh can tell which docs
   changed since it last read them: a line whose version matches the list needs no reread.
 - Skip `_librarian/` itself and `FAQ.md`.
 - Add a `## Linked docs` section listing each linked doc: title, address, and its one-line description.

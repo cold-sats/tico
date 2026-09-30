@@ -1,4 +1,4 @@
-"""`hub fleet check`: what is wrong with the bots this person may see, most urgent first (docs/permissions.md scopes it).
+"""`hub health check`: what is wrong with the bots this person may see, most urgent first (docs/permissions.md scopes it).
 
 Read from the records the server already holds, per bot: not on a computer, its computer offline, failing runs, a
 credential it declares but does not have, setup that never finished, paused (and paused over a limit), quarantined.
@@ -7,6 +7,7 @@ report the rest.
 """
 from . import bot_tools, usage_limits
 from .getting_started import _online_runners
+from .statuses import is_parked
 from .store import H
 
 HIGH, MEDIUM, LOW = "high", "medium", "low"
@@ -55,8 +56,8 @@ def check(c, who, auth, settings):
             if not where and not external:
                 add(bot, "not_placed", HIGH, f"{name} is on, but no computer runs it.", f"hub bot place {slug}")
             elif where and where[0] not in online:
-                add(bot, "computer_offline", HIGH, f"{name} cannot run: its computer, {where[1]}, is offline.", "hub computers")
-            if bot["onboarding_state"] == "needs_onboarding" and (bot["created"] or "") < H.shift(H.now(), hours=-24):
+                add(bot, "computer_offline", HIGH, f"{name} cannot run: its computer, {where[1]}, is offline.", "hub computer list")
+            if is_parked(bot["onboarding_state"]) and (bot["created"] or "") < H.shift(H.now(), hours=-24):
                 add(bot, "needs_setup", MEDIUM, f"{name} is waiting for its first setup with its owner.", f"hub bot go-live {slug}")
         if state == "active":
             try:
@@ -69,7 +70,7 @@ def check(c, who, auth, settings):
         if failed.get(slug):
             n = failed[slug]
             add(bot, "failing_runs", HIGH if n >= 3 else MEDIUM, f"{name} had {n} failed run{'s' if n != 1 else ''} today.",
-                f"hub turns {slug} --since 24h")
+                f"hub run list {slug} --since 24h")
         if state in ("active", "paused"):
             try:
                 tools = bot_tools.listing(c, settings, slug)["tools"]

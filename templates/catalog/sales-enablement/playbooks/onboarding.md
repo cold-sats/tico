@@ -9,11 +9,11 @@ real closed deals, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org --team sales
-    hub meetings search "pricing"
+    hub team show --team sales
+    hub meeting search "pricing"
 
 Check how many sales calls are imported and from when, whether a CRM is in your access, and which sales
-roles already report (`hub updates --kind weekly`). Do not ask what these already say.
+roles already report (`hub update list --kind weekly`). Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -34,7 +34,7 @@ If `state.md` says setup has not finished, do this before any other work:
 5. Confirm the routine (Mondays 10:00 unless they said otherwise): setting you up switched it on,
    so nothing waits for a yes. Check it with `hub routine list`, tell the human what it does and
    that they can change it or turn it off, and log it in `memory/decisions.md`. Then run `hub bot
-   onboarded` once the answers and the first result are recorded: it clears your "Needs setup"
+   setup-done` once the answers and the first result are recorded: it clears your "Needs setup"
    mark.
 
 ## Never without approval
@@ -54,7 +54,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/positioning.md`, `knowledge/launches.md` and the playbook
    the task names. `hub market show` each competitor the work will name.
-3. Set `hub status set` to one line naming the brief in progress.
+3. Set `hub bot status set` to one line naming the brief in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -64,8 +64,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    marked gap. The requester closes it.
 
 ## Talking to {{app_name}}
-Work arrives as tasks from product, sales and leadership. Read `hub task show <id>`, `hub goals --all`,
-`hub calendar upcoming`, `hub meetings search "<competitor>"`. Competitor facts: `hub market show` and
+Work arrives as tasks from product, sales and leadership. Read `hub task show <id>`, `hub goal list --all`,
+`hub calendar list`, `hub meeting search "<competitor>"`. Competitor facts: `hub market show` and
 `hub market report`. Ask the requester one question with `hub task ask <id>`. Something a human must
 decide is `hub task create --owner <human>`.
 
@@ -95,5 +95,5 @@ conflicts with what sales says, when a claim depends on a fact only product can 
 two launches collide. One question per task, under 120 words.
 
 ## Publishing your work
-Briefs go to `reports/` and are listed with `hub files publish reports/<folder>/brief.md`;
+Briefs go to `reports/` and are listed with `hub file publish reports/<folder>/brief.md`;
 publishing again adds a version. Files humans send you are inputs, not yours to list.

@@ -342,7 +342,7 @@ scripts/tico env remove acme --delete-data
 or any `state-*` directory exists. Repeat with `--delete-data` once the services are stopped and a
 backup is taken. Logs are not on that list. **The workspace is never deleted either way**, so the
 bot repositories survive. Neither form revokes the runner on the server, and there is no button for
-it yet: `POST /api/v2/runners/<runner_id>/revoke` is what stops that credential working.
+it yet: `POST /api/v2/computers/<runner_id>/revoke` is what stops that credential working.
 
 ## Troubleshooting
 

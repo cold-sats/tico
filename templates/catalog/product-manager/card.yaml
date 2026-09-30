@@ -3,7 +3,7 @@ slug: product-manager
 name: "Product Manager"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 icon: view_timeline
 suggest: default

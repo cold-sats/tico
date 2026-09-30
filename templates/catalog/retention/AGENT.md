@@ -40,7 +40,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Reply to no customer.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -82,5 +82,5 @@ reason causes three losses in a week, or when the policy has no offer for a comm
 the ask first, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`. Files humans
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`. Files humans
 send you are inputs, not yours to list.

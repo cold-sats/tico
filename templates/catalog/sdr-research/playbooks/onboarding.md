@@ -8,7 +8,7 @@ finished. Budget 25 minutes. The outcome is five recorded answers, a real pack f
 ## 1. Read before you ask
 
     hub task show <id>
-    hub meetings search "<a lead>"    # only if a lead is named
+    hub meeting search "<a lead>"    # only if a lead is named
 
 Check what you can already reach: a CRM entry in your access, the sender's mailbox, imported calls.
 Do not ask what these already say. If you cannot read the leads, that is answer three, and a task for the
@@ -51,7 +51,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

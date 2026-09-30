@@ -11,7 +11,7 @@ and a time on every item.
     hub task show <id>
 
 Then `knowledge/rhythm.md` for the meeting's attendees and length, this week's brief (or run
-`playbooks/weekly-company-brief.md` first if there is none), `hub calendar upcoming` for what is
+`playbooks/weekly-company-brief.md` first if there is none), `hub calendar list` for what is
 booked, and last Monday's agenda in `reports/` to see what was left open.
 
 ## 2. Pick at most five items

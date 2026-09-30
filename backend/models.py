@@ -875,7 +875,7 @@ class OwnerTransfer(Contract):
     confirm: Literal[True]
 
 
-# The org builder's departments (templates/departments.yaml, backend/recruit_rank.py DEPARTMENT_IDS).
+# The org builder's departments (templates/groups.yaml, backend/recruit_rank.py DEPARTMENT_IDS).
 Department = Literal["sales", "marketing", "support", "finance", "operations", "legal", "hr", "product", "engineering"]
 
 

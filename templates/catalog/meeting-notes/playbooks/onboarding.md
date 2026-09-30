@@ -8,8 +8,8 @@ and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub meetings search --limit 10
-    hub org
+    hub meeting search --limit 10
+    hub team show
 
 See which meetings exist, which tool they came from, and who attends. Do not ask what this already
 says. If there are no meetings, say so and tell the human how to get one in: turn on a meeting
@@ -57,7 +57,7 @@ different schedule or to leave it off, adjust `knowledge/coverage.md` and the ro
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

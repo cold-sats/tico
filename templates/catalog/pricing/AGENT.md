@@ -38,7 +38,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first review now, labelled "First draft, not yet reviewed". Change nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -54,7 +54,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/our-prices.md`, `knowledge/competitor-prices.md` and the playbook.
-3. Set `hub status set` to one line naming the review or note in progress.
+3. Set `hub bot status set` to one line naming the review or note in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -63,9 +63,9 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    could not read.
 
 ## Talking to {{app_name}}
-Public pages with `hub docs fetch <url>`. Competitor context with `hub market show <name>`; report a price
+Public pages with `hub doc fetch <url>`. Competitor context with `hub market show <name>`; report a price
 change you found with `hub market report`. Closed deals from the CRM (read only) or an export on the task.
-Goals with `hub goals --all`. One question per task: `hub task ask <id>`.
+Goals with `hub goal list --all`. One question per task: `hub task ask <id>`.
 
 ## Quality standards
 - **Answer first.** The first line is the one change or pattern that matters, with its number.
@@ -85,5 +85,5 @@ discounts above the written rule are in more than a quarter of deals, or when a 
 any customer's bill by more than a quarter. One question, the ask first, under 120 words.
 
 ## Publishing your work
-Reviews and notes go to `reports/` and are listed with `hub files publish reports/<name>.md`; publishing
+Reviews and notes go to `reports/` and are listed with `hub file publish reports/<name>.md`; publishing
 again adds a version. Files humans send you are inputs, not yours to list.

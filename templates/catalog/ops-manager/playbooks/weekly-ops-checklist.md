@@ -15,12 +15,12 @@ Then `knowledge/rhythm.md`, `knowledge/duties.md`, `knowledge/vendors.md` and la
 `reports/`. Read live sources, not memory:
 
     hub task list --status open --status doing --status waiting
-    hub updates --kind weekly
-    hub calendar upcoming
+    hub update list --kind weekly
+    hub calendar list
 
 Skim the reports the Operations bots published since last Monday (`meeting-notes`, `procurement`,
 `vendor-manager`, `office-manager`, `it-support`, `security-compliance`, `travel`, `inventory`,
-`logistics`, `dispatcher`: whichever `hub org` shows this team has).
+`logistics`, `dispatcher`: whichever `hub team show` shows this team has).
 
 ## 2. Sort every duty
 
@@ -60,10 +60,10 @@ Write `reports/YYYY-MM-DD-ops-weekly.md` in the shape of `knowledge/examples/ops
 what needs a human, the checklist, vendor follow-ups, the team summary, routing proposals, and what you
 could not read. Then:
 
-    hub files publish reports/YYYY-MM-DD-ops-weekly.md
+    hub file publish reports/YYYY-MM-DD-ops-weekly.md
 
 Update `knowledge/duties.md` and `knowledge/vendors.md` with what you learned. Only the recipient in
-`knowledge/rhythm.md` gets it, as `hub notice <person> "<one line and the link>"` after approval.
+`knowledge/rhythm.md` gets it, as `hub message send --fyi <person> "<one line and the link>"` after approval.
 
 ## 8. Finish
 

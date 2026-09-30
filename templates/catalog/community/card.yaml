@@ -3,7 +3,7 @@ slug: community
 name: Community Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: diversity_3
 suggest: niche

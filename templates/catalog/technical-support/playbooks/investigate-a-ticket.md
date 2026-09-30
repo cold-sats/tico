@@ -19,7 +19,7 @@ note rather than guessing.
 
 ## 3. Check expected behaviour
 
-`hub docs ask` for what the product should do. If the docs are silent or disagree, that is a doc gap
+`hub doc ask` for what the product should do. If the docs are silent or disagree, that is a doc gap
 for the Librarian whatever else you find.
 
 ## 4. Reproduce

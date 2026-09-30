@@ -8,9 +8,9 @@ finished. Budget 30 minutes. The outcome is five recorded answers, an IP registe
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "trademark"
-    hub docs search "domain"
-    hub docs search "contractor agreement"
+    hub doc search "trademark"
+    hub doc search "domain"
+    hub doc search "contractor agreement"
 
 Certificates, registrar receipts and contractor agreements often sit in the docs. Read them first, then
 look the team's name up in the public trademark database so question one becomes "is this list complete?".
@@ -56,7 +56,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

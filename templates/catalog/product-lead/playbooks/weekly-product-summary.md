@@ -10,7 +10,7 @@ changed in any tool.
 ## 1. Read where things stand
 
     hub task show <id>
-    hub goals --all
+    hub goal list --all
 
 Then `knowledge/roadmap.md`, `knowledge/decision-log.md`, `knowledge/team.md` and last week's summary.
 If last week proposed a decision, check whether it was made; carry it forward or log it.
@@ -23,7 +23,7 @@ more than a week behind) or slipped (target passed). One line each, with the evi
 
 ## 3. Read what the team produced
 
-For each product bot in `knowledge/team.md`: `hub updates --bot <slug>` and its newest file in
+For each product bot in `knowledge/team.md`: `hub update list --bot <slug>` and its newest file in
 `reports/`. Pull out only what changes a decision: a theme that rose, a finding with three or more
 sources, a usage number that moved, a request with many accounts behind it, a price change by a
 competitor. List tasks waiting more than five days on a human.
@@ -42,6 +42,6 @@ happens if nobody decides this week. Add routing proposals (one line each) and, 
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-product-summary.md` in the shape of `knowledge/examples/product-summary.md`,
-then `hub files publish reports/YYYY-MM-DD-product-summary.md`. Commit, and `hub task update <id>
+then `hub file publish reports/YYYY-MM-DD-product-summary.md`. Commit, and `hub task update <id>
 --status done --note`: the headline, the path, the decisions waiting, and any source you could not read.
 Always finish the task.

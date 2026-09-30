@@ -3,7 +3,7 @@ slug: procurement
 name: "Procurement Manager"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: shopping_cart
 suggest: common

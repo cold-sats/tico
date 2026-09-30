@@ -31,6 +31,6 @@ bills could move to the next run without a fee.
 ## 5. Write and request
 
 Write `reports/YYYY-MM-DD-payment-run.md` in the shape of `knowledge/examples/payment-run.md` and
-`hub files publish` it. Ask the requester on the task to approve. On their yes, request exactly the
+`hub file publish` it. Ask the requester on the task to approve. On their yes, request exactly the
 approved lines: `hub approval request --kind spend --payload-file run.json --task <id>`. Commit, and
 `hub task update <id> --status done --note` with the total, the held count and the path.

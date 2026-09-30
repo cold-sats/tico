@@ -9,11 +9,11 @@ task from the real accounts, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
-    hub meetings search "renewal"
+    hub team show
+    hub meeting search "renewal"
 
 Check what you can already reach: a CRM entry in your access, contracts attached to tasks or in the team
-docs (`hub docs search "order form"`), whether a Customer Success Manager exists (`hub org`). Do not ask what
+docs (`hub doc search "order form"`), whether a Customer Success Manager exists (`hub team show`). Do not ask what
 these already say.
 
 ## 2. Introduce yourself in three lines
@@ -54,7 +54,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

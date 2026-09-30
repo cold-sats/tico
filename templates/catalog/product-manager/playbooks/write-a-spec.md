@@ -10,13 +10,13 @@ question assigned. Nothing is filed in GitHub.
 
     hub task show <id>
 
-Check `hub goals` and the Head of Product's decision log for the decision. If nobody decided it, say so on
+Check `hub goal list` and the Head of Product's decision log for the decision. If nobody decided it, say so on
 the task and ask who did; a spec is not a way to decide by stealth.
 
 ## 2. Gather the evidence
 
 Read the latest `feedback-analyst` report for the theme and its count, the `product-researcher`
-snapshots and opportunity map, `product-analyst`'s numbers for the area, and `hub meetings search
+snapshots and opportunity map, `product-analyst`'s numbers for the area, and `hub meeting search
 "<feature>"` for what customers and the team said. Quote sparingly, with source and date.
 
 ## 3. Write the core page
@@ -38,6 +38,6 @@ there a dependency on another team? Fix those before handing over.
 
 ## 5. Hand over
 
-Publish with `hub files publish specs/<slug>.md --task <id>`. List the issues you would file (title and
+Publish with `hub file publish specs/<slug>.md --task <id>`. List the issues you would file (title and
 body) on the task for a human, and the questions for the owners. `hub task update <id> --status done
 --note`: the problem in one line, the path, open questions and who owes them.

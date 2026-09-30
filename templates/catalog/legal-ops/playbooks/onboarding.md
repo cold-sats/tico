@@ -8,8 +8,8 @@ finished. Budget 30 minutes. The outcome is five recorded answers, the firms, bi
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "engagement letter"
-    hub docs search "invoice"
+    hub doc search "engagement letter"
+    hub doc search "invoice"
     hub task list --status open --status waiting
 
 Engagement letters and past invoices may already be in the docs, and open tasks may name live matters.
@@ -57,7 +57,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

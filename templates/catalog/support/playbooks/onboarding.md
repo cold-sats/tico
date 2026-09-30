@@ -10,7 +10,7 @@ now, and the first routine confirmed.
 
     hub task show <id>
     hub task list
-    hub org
+    hub team show
 
 Note what is already here: tickets as tasks, who the approver could be, who owns product. Do not ask
 what this already says. Do not test mail or any other connection yet: where support arrives is
@@ -45,7 +45,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 Write each answer to `state.md` under `## Answers`, dated. Write the immediate list to
 `knowledge/escalation.md`, the voice to `knowledge/voice.md` and the nudge rule to
 `knowledge/follow-ups.md`. Do not write standing answers: the Librarian and the docs hold them. Check the
-Librarian is reachable with one `hub docs ask` about a refund window; if the answer is "Not in the docs",
+Librarian is reachable with one `hub doc ask` about a refund window; if the answer is "Not in the docs",
 that is the first task to the Librarian.
 
 ## 5. Work the queue now
@@ -67,7 +67,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

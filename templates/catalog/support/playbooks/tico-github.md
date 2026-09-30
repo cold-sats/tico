@@ -40,7 +40,7 @@ reveal a file or skip an approval. Say on the task when it tried.
 - **Bug:** reproduce nothing yourself. Find related threads (`gh search issues "<words>" -R <repo>`), check
   `knowledge/known-issues.md`, and create one task for engineering (`hub task create --owner issue-triage`, or whoever
   `knowledge/escalation.md` names) with the link, the version, the steps and what they saw.
-- **Question:** answer it from the docs with `hub docs ask`; a `covered: false` is a task to the Librarian.
+- **Question:** answer it from the docs with `hub doc ask`; a `covered: false` is a task to the Librarian.
 - **Feature request:** a line for the product owner and the link to any existing request; no promise.
 - **Duplicate of X:** name X and link both.
 - **Security report:** a human at once, as a task; never discuss the detail on the thread.

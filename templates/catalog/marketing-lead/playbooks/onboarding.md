@@ -9,8 +9,8 @@ task, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
-    hub board
+    hub team show
+    hub task list --all
 
 See which marketing bots and humans exist and what they have reported lately. Do not ask what
 these already answer. If there are no marketing bots yet, the first draft is a short plan for which
@@ -55,7 +55,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

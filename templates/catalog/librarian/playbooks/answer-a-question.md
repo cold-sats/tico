@@ -1,7 +1,7 @@
 # Answer a question
 
-Every question, from a human in Ask AI or from a bot or the Assistant through `hub docs ask`. The same
-steps and the same answer. Budget: most answers in a few minutes; at most about 25 `hub docs fetch` calls.
+Every question, from a human in Ask AI or from a bot or the Assistant through `hub doc ask`. The same
+steps and the same answer. Budget: most answers in a few minutes; at most about 25 `hub doc fetch` calls.
 
 The outcome is a short answer a human can act on, each claim tied to the doc it came from, or a plain
 "Not in the docs." that says what is closest and who might know. Nothing else counts as good.
@@ -20,13 +20,13 @@ terms" may be "net 30" in the docs, "the CRM" a product's name.
 
 ## 2. Search the internal docs first
 
-    hub docs search "<keywords>"
+    hub doc search "<keywords>"
 
 Try two or three different phrasings, including the team's own term from the glossary and any synonym
 (refund / return / chargeback; pricing / plans / rates). A hit's excerpt is not the doc: **read the top
 hits in full**, up to five:
 
-    hub docs read <id|path>
+    hub doc read <id|path>
 
 Read the whole doc, not the excerpt, and note its `updated` date and version. A question about a process
 is usually answered by one doc and constrained by another (a policy and its exceptions): read the doc the
@@ -38,23 +38,23 @@ If two or three internal docs answer it fully, go to step 5. You are usually don
 
 If the search found nothing or only part of the answer, or the question is about where something is:
 
-    hub docs read _librarian/where-things-live.md
-    hub docs read _librarian/index.md
+    hub doc read _librarian/where-things-live.md
+    hub doc read _librarian/index.md
 
 `where-things-live.md` says which doc or which linked source holds which topic, and how each linked
 source is laid out. `index.md` has a line summarising every doc. Pick the docs the map points to and read
-them. If the map is missing (a new team), skip it and work from `hub docs list` and `hub docs links`.
+them. If the map is missing (a new team), skip it and work from `hub doc list` and `hub doc link-list`.
 If the map turns out to be wrong or stale, note it for step 7.
 
 ## 4. Follow the linked docs
 
 When the internal docs do not answer it, the answer may be at a linked source:
 
-    hub docs links
+    hub doc link-list
 
 Choose the linked docs whose description or map entry matches the topic, then read them with:
 
-    hub docs fetch <url>
+    hub doc fetch <url>
 
 Work like a person who has never seen the site:
 - **Prefer the sitemap.** For a website, fetch `/sitemap.xml` of the linked address once, pick the pages
@@ -80,7 +80,7 @@ Shape, always:
    preamble, no restating the question, no account of your search, no "I found".
 3. **A citation after every claim**, in exactly this form, with the doc's own title:
    - an internal doc: `[Internal doc · Refund policy](doc:<id>)`, where `<id>` is the doc's id from
-     `hub docs read` or search;
+     `hub doc read` or search;
    - a linked doc: `[Linked · help.example.com](https://help.example.com/refunds)`, the page address
      you actually read, and the host or the linked doc's title as its label.
    - a manual page (a search result labelled "Tico manual"): `[Tico manual · Backups](https://...)`, the `url`

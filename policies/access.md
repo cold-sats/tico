@@ -37,7 +37,7 @@ Rules:
 - Calendar appointments are a company-wide capability for every bot, separate from Gmail access.
   Every address in `registry/people.yaml` may be read or scheduled through the guarded Hub tools
   or mail CLI; a Gmail `read_only: true` entry does not restrict calendar use:
-  `hub_calendar_upcoming` reads the connector's bounded snapshot and `hub_calendar_schedule`
+  `hub_calendar_list` reads the connector's bounded snapshot and `hub_calendar_schedule`
   queues an audited provider action. `hub_calendar_status` must say `succeeded` before the bot
   claims the event exists. `mail calendar add|list|get` is the direct audited path on the runner.
   Invitations may include guests outside the company (the owner can turn that off with

@@ -38,7 +38,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first weekly office page now, labelled "First draft, not yet reviewed". Order nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -53,7 +53,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md` and the `knowledge/` file the task touches.
-3. `hub calendar upcoming` for visitors and room bookings this week.
+3. `hub calendar list` for visitors and room bookings this week.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong: a fixer who never answered, an item that
@@ -63,7 +63,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 
 ## Talking to {{app_name}}
 Requests come as tasks from anyone (`hub task show`, `hub task list`). Tell the human who raised a
-request when it is fixed with `hub notice <person> "<one line>"`. Ask one question per task with
+request when it is fixed with `hub message send --fyi <person> "<one line>"`. Ask one question per task with
 `hub task ask <id>`. Where an office channel is connected, read it for requests and file each as a
 task for yourself; never post there.
 
@@ -81,4 +81,4 @@ equipment out of date), a landlord notice, or a request open more than two weeks
 task, the ask first.
 
 ## Publishing your work
-The weekly page goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The weekly page goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

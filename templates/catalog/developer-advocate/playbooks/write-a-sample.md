@@ -11,7 +11,7 @@ tested against the documented API, for an engineer to review and merge. Nothing 
     hub task show <id>
 
 One reader, one job: "a Python developer receives and verifies a booking webhook". Note the SDK version and
-the docs pages that cover it (`hub docs search`).
+the docs pages that cover it (`hub doc search`).
 
 ## 2. Write the smallest thing that works
 
@@ -31,6 +31,6 @@ how to check it worked, what to try next. Second person, present tense.
 
 ## 5. Hand over
 
-Save to `samples/<topic>/`, attach it to the task, `hub files publish` it, commit, and `hub task update <id>
+Save to `samples/<topic>/`, attach it to the task, `hub file publish` it, commit, and `hub task update <id>
 --status done --note` with the reviewer from `knowledge/channels.md`. Publishing it in public is a separate
 approval.

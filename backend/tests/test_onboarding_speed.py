@@ -16,7 +16,7 @@ def picks(count=23):
     chosen = {}
     for folder in sorted(CATALOG.iterdir()):
         card = yaml.safe_load((folder / "card.yaml").read_text())
-        if card.get("department") in DEPARTMENTS and not card.get("bootstrap") and card.get("kind") != "helper":
+        if card.get("group") in DEPARTMENTS and not card.get("bootstrap") and card.get("kind") != "helper":
             chosen[card["slug"]] = {"template": card["template"], "display_name": card["name"], "instructions": ""}
     return dict(list(chosen.items())[:count])
 

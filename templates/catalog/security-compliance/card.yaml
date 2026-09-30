@@ -3,7 +3,7 @@ slug: security-compliance
 name: "Security and Compliance Analyst"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: verified_user
 suggest: niche

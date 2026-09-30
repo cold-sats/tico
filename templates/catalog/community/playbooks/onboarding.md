@@ -9,9 +9,9 @@ the real community, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
+    hub team show
 
-Check whether chat access to a community workspace is in your `employee.yaml`, and whether the
+Check whether chat access to a community workspace is in your `bot.yaml`, and whether the
 team's public site links to a forum. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
@@ -52,7 +52,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

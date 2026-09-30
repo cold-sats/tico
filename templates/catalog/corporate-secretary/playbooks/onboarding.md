@@ -8,10 +8,10 @@ finished. Budget 30 minutes. The outcome is five recorded answers, the entity re
 ## 1. Read before you ask
 
     hub task show <id>
-    hub calendar upcoming
-    hub docs search "minutes"
-    hub docs search "consent"
-    hub docs search "bylaws"
+    hub calendar list
+    hub doc search "minutes"
+    hub doc search "consent"
+    hub doc search "bylaws"
 
 Past minutes, consents, bylaws and formation documents often sit in the docs. Read them before you ask,
 so questions one to three become "is this complete?".
@@ -57,7 +57,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

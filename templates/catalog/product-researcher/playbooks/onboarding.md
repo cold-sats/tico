@@ -8,8 +8,8 @@ finished. Budget 30 minutes. The outcome is six recorded answers, a snapshot of 
 ## 1. Read before you ask
 
     hub task show <id>
-    hub meetings search --since YYYY-MM-DD
-    hub docs search "interview"
+    hub meeting search --since YYYY-MM-DD
+    hub doc search "interview"
 
 Check what you can already reach: imported calls, research notes in the team docs, and the market graph (`hub market show`).
 Do not ask what these already say. If there is nothing to read, that is answer two, and the first result is a plan for what to collect.
@@ -49,7 +49,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

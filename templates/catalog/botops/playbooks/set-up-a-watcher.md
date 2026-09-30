@@ -36,7 +36,7 @@ Test it without Tico: run it with the environment set, twice. The second run mus
 
 ## 3. Declare it
 
-In `employee.yaml`:
+In `bot.yaml`:
 
     watchers:
       - name: <name>

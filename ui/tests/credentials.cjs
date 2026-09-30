@@ -24,7 +24,7 @@ async function open(browser, me, vault) {
     if (p === '/api/me') return json(me);
     if (p === '/api/employees') return json([]);
     if (p === '/api/issues') return json([]);
-    if (p === '/api/v2/integrations') return json({integrations: [{service: 'jira', title: 'Jira', kind: 'api', summary: 'Tickets', access: 'read', credentials: ['JIRA_BASIC_AUTH'], writes: 'never'}]});
+    if (p === '/api/v2/tools') return json({integrations: [{service: 'jira', title: 'Jira', kind: 'api', summary: 'Tickets', access: 'read', credentials: ['JIRA_BASIC_AUTH'], writes: 'never'}]});
     if (p === '/api/v2/credentials' && req.method() === 'GET') { seen.reads++; return json(seen.vault); }
     if (p === '/api/v2/credentials' && req.method() === 'POST') {
       const body = JSON.parse(req.postData());

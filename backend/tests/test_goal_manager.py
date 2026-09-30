@@ -99,7 +99,7 @@ def test_the_template_is_short_and_every_playbook_it_names_exists():
     assert len((TEMPLATE / "AGENT.md").read_text().splitlines()) <= 150
     card = yaml.safe_load((TEMPLATE / "card.yaml").read_text())
     assert (card["required"], card["bootstrap"], card["slug"]) == (True, True, "goal-manager")
-    schedules = yaml.safe_load((TEMPLATE / "employee.yaml").read_text())["schedules"]
+    schedules = yaml.safe_load((TEMPLATE / "bot.yaml").read_text())["routines"]
     assert [s["id"] for s in schedules] == ["kpi-pass", "goals-review"] and not any(s["enabled"] for s in schedules)
     for entry in schedules:
         assert (TEMPLATE / entry["template"]).is_file()

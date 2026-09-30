@@ -15,7 +15,7 @@ month's review.
 
 ## 2. Re-read competitors' public pricing
 
-`hub docs fetch <url>` for each watched competitor. Record plans, prices, limits and what is included,
+`hub doc fetch <url>` for each watched competitor. Record plans, prices, limits and what is included,
 with the date. Compare with the last entry: a change is logged with both dates. A page you could not
 read is "not read", and says why. Report a real change with `hub market report`.
 
@@ -38,5 +38,5 @@ answer it: a query, an experiment, or a willingness-to-pay study.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-pricing-review.md` in the shape of `knowledge/examples/pricing-review.md`,
-`hub files publish` it, update `knowledge/discounts.md`, commit, and `hub task update <id> --status done
+`hub file publish` it, update `knowledge/discounts.md`, commit, and `hub task update <id> --status done
 --note`: the headline and what could not be read.

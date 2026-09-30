@@ -3,7 +3,7 @@ slug: devops-engineer
 name: "DevOps Engineer"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 icon: deployed_code
 suggest: niche

@@ -14,8 +14,8 @@ in the tool that made it. Media files can be attached too.
 | Door | For | How |
 |---|---|---|
 | **Add notes** on the Meetings page | a human with notes to write, a transcript file or a paste | title, date and time (default now), participants from the roster plus emails or names, markdown notes, and an optional bot to send them to. **Upload a file** (or drop one on the dialog) or **Paste** adds a transcript: a `.txt`, `.vtt`, `.srt` or `.json` file, with its source (`upload` by default) and an optional recording link. Files through this same API: notes alone as source `manual`, a transcript as the source you chose |
-| `hub meetings import <file>` | a human or script on a computer | `hub meetings import call.vtt --title "Pricing call" --date 2026-09-28T16:00 --participant dana@example.com --source zoom --external-id 123` |
-| `hub_meetings_import` (MCP) | a human's external agent | the same fields; the agent reads the file and sends the text |
+| `hub meeting import <file>` | a human or script on a computer | `hub meeting import call.vtt --title "Pricing call" --date 2026-09-28T16:00 --participant dana@example.com --source zoom --external-id 123` |
+| `hub_meeting_import` (MCP) | a human's external agent | the same fields; the agent reads the file and sends the text |
 | `POST /api/v2/meetings/import` | anything else | one JSON body, below |
 | Close | Close calls and Notetaker meetings | the `close-calls` worker on a Mac or a Linux runner; see [Close](#close) |
 | Fireflies, Zoom, Google Meet, Granola | the team's meeting tools | the `importers` job on an enrolled computer, turned on in **Tools > Meeting importers**; see [Meeting importers](#meeting-importers) |
@@ -110,7 +110,7 @@ format is a `422` that names the problem.
 - **A computer** that runs an importer (a registered runner whose owner is in
   `TICO_PROCESSING_OPERATORS`, else the owner's) files meetings for a roster human it names in
   `owner_email`. It cannot file for someone who is not on the roster.
-- **A bot** cannot import. Bots read: `hub_meetings_search` and `hub_meetings_transcript` give them
+- **A bot** cannot import. Bots read: `hub_meeting_search` and `hub_meeting_read` give them
   team meetings that are not private, never personal notes or private meetings.
 - **Reading**: a team meeting is readable by everyone signed in. A private one is readable by its
   owner, its participants (matched by email, ignoring case) and the team owner.
@@ -134,8 +134,8 @@ format is a `422` that names the problem.
   task carrying the notes and transcript. A private meeting fires nothing. The older name
   `recording.ready` is still emitted for routines written before the rename; new routines use
   `meeting.ready`. Close imports do not fire the event.
-- **Search.** `hub meetings search "pricing" --person Dana --since 2026-09-01` and
-  `hub meetings transcript <id>` (the old `/api/v2/recordings/*` paths still answer for installed
+- **Search.** `hub meeting search "pricing" --person Dana --since 2026-09-01` and
+  `hub meeting read <id>` (the old `/api/v2/recordings/*` paths still answer for installed
   clients).
 
 ## Close
@@ -357,7 +357,7 @@ attendee, calendar-event and transcript shapes, and the `413` behaviour.
 
 ### Otter and others
 
-Otter has no importer here. Use `hub meetings import`, the API, or write one as below.
+Otter has no importer here. Use `hub meeting import`, the API, or write one as below.
 
 ## Writing an importer
 
@@ -437,8 +437,8 @@ stays is everything that was ever imported or recorded. An upgrading install kee
   finished with what it has, once, at startup. Stored audio stays in file storage and remains
   attached to its meeting.
 - Routes moved from `/api/recordings/...` to `/api/meetings/...` and the page from `#/recordings`
-  to `#/meetings` (old links redirect). `hub recordings ...` became `hub meetings ...` and the
-  `hub_recordings_*` tools `hub_meetings_*`; `hub_recordings_submit` and `POST /api/v2/recordings`
+  to `#/meetings` (old links redirect). `hub recordings ...` became `hub meeting ...` and the
+  `hub_recordings_*` tools `hub_meeting_*`; `hub_recordings_submit` and `POST /api/v2/recordings`
   are replaced by the import API. `/api/v2/recordings/search` and `/transcript` still answer.
 - `recording.ready` is still emitted beside `meeting.ready`.
 - A Mac set up earlier has a processing job (`team.tico.tico-processing`); `scripts/tico install`,

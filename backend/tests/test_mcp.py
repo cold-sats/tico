@@ -29,8 +29,10 @@ def test_initialize_lists_every_tool_and_ignores_notifications(api):
     r = api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=headers())
     assert r.status_code == 202 and r.content == b""
     tools = rpc(api, "tools/list")["result"]["tools"]
-    # A tool that reaches out to the internet (hub_docs_fetch) runs on the bot's computer, never here.
-    assert {t["name"] for t in tools} == {n for n, t in hubtools.BY_NAME.items() if not t["local"]}
+    # A tool that reaches out to the internet (hub_doc_fetch) runs on the bot's computer, never here; the owner is offered
+    # what a human may use (backend/tests/test_mcp_callers.py: the other callers).
+    assert {t["name"] for t in tools} == {t["name"] for t in hubtools.listing(kind="owner")}
+    assert "hub_doc_fetch" not in {t["name"] for t in tools} and len(tools) > 100
     assert all(t["inputSchema"]["type"] == "object" for t in tools)
     assert api.get("/api/v2/mcp", headers=headers()).status_code == 405
     assert api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "resources/list"},
@@ -47,15 +49,16 @@ def test_every_cli_command_has_a_tool_of_the_same_name():
 
     A command that only works on the Mac (it writes the workspace) is listed in
     `hubtools.SHELL_ONLY`, so adding one is a decision, not an omission."""
+    def leaves(parser, prefix):
+        groups = [a for a in parser._actions if getattr(a, "choices", None) and not isinstance(a.choices, (list, tuple))]
+        if not groups:
+            return {prefix}
+        return {leaf for word, sub in groups[0].choices.items() for leaf in leaves(sub, prefix + "_" + word.replace("-", "_"))}
     names = set()
     for action in hubcli.parser()._subparsers._group_actions:
         for word, sub in action.choices.items():
-            groups = [a for a in sub._actions if getattr(a, "choices", None) and not isinstance(a.choices, (list, tuple))]
-            if groups:
-                names.update(f"hub_{word}_{leaf}" for leaf in groups[0].choices)
-            else:
-                names.add(f"hub_{word}")
-    assert names - hubtools.SHELL_ONLY == set(hubtools.BY_NAME)
+            names |= leaves(sub, "hub_" + word.replace("-", "_"))
+    assert names - hubtools.SHELL_ONLY == set(hubtools.BY_NAME), names ^ set(hubtools.BY_NAME)
     assert hubtools.SHELL_ONLY <= names
 
 
@@ -65,7 +68,7 @@ def test_tools_write_through_the_same_rules_as_http(api):
     err, me = call(api, "hub_whoami", token=token)
     assert not err and me["actor"] == "bot:ops"
 
-    err, out = call(api, "hub_say", {"to": "ops", "text": "Talking to myself"}, token=token)
+    err, out = call(api, "hub_message_send", {"to": "ops", "text": "Talking to myself"}, token=token)
     assert err and out["error"] == "self"
 
     err, out = call(api, "hub_task_create", {"owner": "ana", "title": "The thing", "body": "x"}, token=token)
@@ -88,7 +91,7 @@ def test_tools_write_through_the_same_rules_as_http(api):
     assert not err and shown["task"]["title"] == "Review the runtime"
 
     # A bot reads its conversation back itself: the hub rebuilds nothing into a session.
-    err, page = call(api, "hub_history", {"conversation": msg["conversation_id"]}, token=token)
+    err, page = call(api, "hub_conversation_show", {"conversation": msg["conversation_id"]}, token=token)
     assert not err and page["conversation"]["id"] == msg["conversation_id"]
     assert [m["body"] for m in page["messages"]][0] == msg["body"]
 
@@ -115,6 +118,6 @@ def test_tools_write_through_the_same_rules_as_http(api):
 
 def test_tools_refuse_a_runner_credential_like_http_does(api):
     r = runner(api)
-    err, out = call(api, "hub_inbox", token=r["token"])
+    err, out = call(api, "hub_message_list", token=r["token"])
     assert err and out["error"] == "identity"
 

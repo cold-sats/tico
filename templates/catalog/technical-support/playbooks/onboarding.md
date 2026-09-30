@@ -8,9 +8,9 @@ finished. Budget 25 minutes. The outcome is five recorded answers, one real inve
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status waiting
-    hub docs search "API"
+    hub doc search "API"
 
 Find open tickets that look technical (error messages, integrations, data that looks wrong) and check
 whether GitHub is in your access. Do not ask what these already show.
@@ -55,7 +55,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

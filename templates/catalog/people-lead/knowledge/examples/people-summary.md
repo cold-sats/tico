@@ -48,6 +48,6 @@ dates appear. Nothing has been assigned, published or sent. First draft, not yet
 The payroll cut-off dates are not in the people calendar yet; asked Finance on T-440.
 
 ## Sources
-- `hub org`, `hub calendar upcoming`, `hub task list`, read 2026-09-28
+- `hub team show`, `hub calendar list`, `hub task list`, read 2026-09-28
 - `recruiting` report 2026-09-25; `people-hr` tracker 2026-09-28
 ```

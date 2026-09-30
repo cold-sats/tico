@@ -35,4 +35,4 @@ a product problem behind several losses. Evidence and who decides.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-retention.md` in the shape of `knowledge/examples/retention-report.md` and
-`hub files publish` it. Put each prepared reply on the task as its own item. Commit, and finish the task.
+`hub file publish` it. Put each prepared reply on the task as its own item. Commit, and finish the task.

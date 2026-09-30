@@ -56,7 +56,7 @@ different schedule or to leave it off, adjust `playbooks/inbox-preferences.md` a
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -3,7 +3,7 @@ slug: bookkeeping
 name: "Bookkeeper"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: menu_book
 suggest: default

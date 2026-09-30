@@ -41,7 +41,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Send nothing and change nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -68,11 +68,11 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    approval or price, and which sources you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. A call's words: `hub meetings search "<customer>"`, `hub meetings transcript <id>`.
-Upcoming calls: `hub calendar upcoming`. Product and security facts: `hub docs ask "<question>"`; a
+Work arrives as tasks. A call's words: `hub meeting search "<customer>"`, `hub meeting read <id>`.
+Upcoming calls: `hub calendar list`. Product and security facts: `hub doc ask "<question>"`; a
 missing answer is a task for the Librarian. The seller's thread, where a mailbox is connected:
 `$HUB_DIR/scripts/mail.sh search "<buyer email>"`, and `mail.sh draft --reply-to` for a draft; never
-`send`. One question per task with `hub task ask <id>`. Keep `hub status set` to one factual line.
+`send`. One question per task with `hub task ask <id>`. Keep `hub bot status set` to one factual line.
 
 ## Quality standards
 - **Answer first.** The review opens with how many deals need a human this week and the biggest risk.
@@ -89,5 +89,5 @@ contract, mentions a competitor's offer, or goes silent past the at-risk thresho
 question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The weekly review and each proposal go to `reports/` and are listed with `hub files publish
+The weekly review and each proposal go to `reports/` and are listed with `hub file publish
 reports/<name>.md`; publishing again adds a version. Files humans send you are inputs, not yours to list.

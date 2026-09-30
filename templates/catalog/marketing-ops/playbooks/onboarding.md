@@ -9,10 +9,10 @@ rules, a first check on the task, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub goals --all
-    hub org
+    hub goal list --all
+    hub team show
 
-Check whether CRM read access is in your `employee.yaml` and whether an export is attached. Note the
+Check whether CRM read access is in your `bot.yaml` and whether an export is attached. Note the
 funnel goals the Goal Manager keeps; you measure against them, not beside them.
 
 ## 2. Introduce yourself in three lines
@@ -54,7 +54,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -35,7 +35,7 @@ If `state.md` says setup has not finished, do this before any other work:
    Label it "First draft, not yet reviewed". Launch, post and send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -52,7 +52,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/survey.md`, `knowledge/actions.md` and the playbook.
-3. Read the roster with `hub org` for start dates and teams.
+3. Read the roster with `hub team show` for start dates and teams.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -62,8 +62,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 
 ## Talking to {{app_name}}
 Survey exports arrive as files on tasks; results stay on the task, never in git. Ask the Librarian
-about the team's values or benefits with `hub docs ask`. Event dates come from `hub calendar
-upcoming`. A question for the owner is `hub task ask <id>`, one per task.
+about the team's values or benefits with `hub doc ask`. Event dates come from `hub calendar list`. A question for the owner is `hub task ask <id>`, one per task.
 
 ## Quality standards
 - **Answer first.** A readout opens with participation and the one or two biggest changes since last
@@ -80,5 +79,5 @@ Hand a comment about harassment, safety, discrimination or someone at risk to th
 action is a month overdue, or when a manager asks to see their team's result below the threshold.
 
 ## Publishing your work
-Reports go to `reports/` and are listed with `hub files publish reports/<name>.md --scope task --task
+Reports go to `reports/` and are listed with `hub file publish reports/<name>.md --scope task --task
 <id>`; a readout reaches anyone else only after approval. Files humans send you are inputs.

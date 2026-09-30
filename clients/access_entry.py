@@ -1,4 +1,4 @@
-"""One `access:` entry of an employee.yaml, as a schema (docs/creating-bots.md, "Access and credentials").
+"""One `tools:` entry (older: `access:`) of a bot.yaml, as a schema (docs/creating-bots.md, "Access and credentials").
 
 Two callers share it. The runner (`runner/declared_access.py`) reads a bot's entries and reports the
 fields listed here. The server (`backend/bot_tools.py`) checks an entry a person registers for a bot
@@ -95,7 +95,7 @@ def scope_of(entry):
 
 
 def clean(entry):
-    """A registered entry, validated and normalised, in employee.yaml's key order. Raises EntryError."""
+    """A registered entry, validated and normalised, in bot.yaml's key order. Raises EntryError."""
     if not isinstance(entry, dict):
         raise EntryError("An access entry is an object with a service, an identity and what it can do")
     service = str(entry.get("service") or "").strip().lower()
@@ -149,6 +149,6 @@ def clean(entry):
 
 
 def to_yaml(entry):
-    """The entry as a list item ready to paste under `access:` in employee.yaml."""
+    """The entry as a list item ready to paste under `tools:` in bot.yaml."""
     text = yaml.safe_dump([entry], sort_keys=False, default_flow_style=None, allow_unicode=True, width=200)
     return text.rstrip("\n")

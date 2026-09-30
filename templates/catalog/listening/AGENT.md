@@ -39,7 +39,7 @@ If `state.md` says setup has not finished, do this before any other work:
 5. Confirm the routine (weekdays 08:00 unless they said otherwise): setting you up switched it on,
    so nothing waits for a yes. Check it with `hub routine list`, tell the human what it does and
    that they can change it or turn it off, and log it in `memory/decisions.md`. Then run `hub bot
-   onboarded` once the answers and the first result are recorded: it clears your "Needs setup"
+   setup-done` once the answers and the first result are recorded: it clears your "Needs setup"
    mark.
 
 ## What counts as a real move
@@ -67,7 +67,7 @@ See the shared approvals policy. In addition:
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `knowledge/watchlist.md` before the first query, then `hub market show` for each organization
    the brief will name. Then `memory/learnings.md` and `playbooks/weekday-sweep.md`.
-3. Set `hub status set` to one line naming the sweep in progress.
+3. Set `hub bot status set` to one line naming the sweep in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run: a tightened query in the
@@ -98,12 +98,12 @@ text, the account and the time, and a human's Confirm.
 - **Fix the queries as you go.** A query that keeps returning the same irrelevant results is a
   watchlist edit in this run, noted in the digest.
 
-## Publishing your work (`hub files`)
+## Publishing your work (`hub file`)
 Humans find what you made under Files on your page. A report, draft or export goes in `reports/` or
 `artifacts/` in this repo: it is listed after a completed run (documents, images, csv, json, md,
-html, pdf, office files; up to 25 MB; never credentials), or at once with `hub files publish
+html, pdf, office files; up to 25 MB; never credentials), or at once with `hub file publish
 reports/<name>.md`; publishing it again adds a version. A Google Doc, Sheet, Slides, Notion page or
-Figma file you created or edited is listed with `hub files add-link <url> --title "..."`, and again
-with `hub files touch <url>` after each edit (Tico keeps the address, never the document). An S3
-object is copied on this computer with `hub files import s3://bucket/key`. Files humans send you are
+Figma file you created or edited is listed with `hub file link <url> --title "..."`, and again
+with `hub file touch <url>` after each edit (Tico keeps the address, never the document). An S3
+object is copied on this computer with `hub file import s3://bucket/key`. Files humans send you are
 inputs, not yours to list.

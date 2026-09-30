@@ -56,8 +56,8 @@ What is different:
    prints what it did. `python3 hermes_agent.py status --profile <name>` shows the last reply;
    `uninstall` removes the timer, the env line and the MCP entry.
 3. **Reload the profile's MCP servers**: `/reload-mcp` in a running chat, or restart its
-   gateway. From then on the profile has every `hub_*` tool: `hub_inbox`, `hub_say`,
-   `hub_task_*`, `hub_approval_*`, `hub_status_set`, `hub_sql`, `hub_ack`, and the rest, the
+   gateway. From then on the profile has every `hub_*` tool: `hub_message_list`, `hub_message_send`,
+   `hub_task_*`, `hub_approval_*`, `hub_bot_status_set`, `hub_sql`, `hub_message_mark_read`, and the rest, the
    same tool table (`clients/hubtools.py`) every bot has. With a Tico checkout on the computer the
    `hub` CLI works with the same token in `HUB_API_URL` and `HUB_TOKEN`.
 
@@ -83,11 +83,11 @@ profile, version, platform, model, provider, and when it last reported in.
 Nothing pushes to Hermes. The profile's own cron, a human talking to it on its gateway, or
 its own habit decides when it looks. When it does:
 
-1. `hub_inbox` lists the messages and notices waiting and the open tasks it owns.
+1. `hub_message_list` lists the messages and notices waiting and the open tasks it owns.
 2. It reads the conversation (`hub_task_show` for a task; the message carries
-   `conversation_id`) and answers with `hub_say` in that conversation, or moves the task with
+   `conversation_id`) and answers with `hub_message_send` in that conversation, or moves the task with
    `hub_task_update`, or asks with `hub_task_ask`, or requests an approval.
-3. `hub_ack` marks a message read so it stops showing as unread. A runner does this for other
+3. `hub_message_mark_read` marks a message read so it stops showing as unread. A runner does this for other
    bots; a Hermes bot is its own delivery.
 
 The heartbeat reply carries `waiting: {messages, tasks}`, so a Hermes cron job can run

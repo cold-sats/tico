@@ -137,7 +137,7 @@ async function renderSettingsPeople() {
           await allow(view.allowed, [...view.allowed_domains, domain]);
           PEOPLE_ADDED = domain; await again(`Anyone at ${domain} can sign in`);
         } else {
-          await post('/v2/access/people', {email, name});
+          await post('/v2/access/humans', {email, name});
           PEOPLE_ADDED = 'them'; await again(`Added ${name || email}`);
           $('#people-add [name=email]')?.focus();
         }
@@ -159,7 +159,7 @@ async function renderSettingsPeople() {
     el.querySelectorAll('[data-rule]').forEach(box => box.onchange = () => change(() => put('/v2/access/rules', {[box.dataset.rule]: box.checked}), 'Saved'));
     $('#member-bot-limit').onchange = event => change(() => put('/v2/access/limits', {member_bot_limit: Number(event.target.value)}), 'Bot limit saved');
     el.querySelectorAll('.people-row').forEach(row => {
-      const p = person(row.dataset.person), path = `/v2/access/people/${encodeURIComponent(p.id)}`;
+      const p = person(row.dataset.person), path = `/v2/access/humans/${encodeURIComponent(p.id)}`;
       const role = row.querySelector('[data-person-role]');
       if (role) role.onchange = () => change(() => post(path, {role: role.value}), `${p.name} is now ${role.value === 'admin' ? 'an admin' : 'a member'}`);
       const signIn = row.querySelector('[data-person-signin]');
@@ -178,7 +178,7 @@ async function renderSettingsPeople() {
         else if (act === 'create_bots') void change(() => post(path, {create_bots: !p.create_bots}), `${p.name} ${p.create_bots ? 'can no longer' : 'can'} add bots`);
         else if (act === 'add_people') void change(() => post(path, {add_people: !p.add_people}), `${p.name} ${p.add_people ? 'can no longer' : 'can'} add humans`);
         else if (act === 'left') confirmDialog(`Mark ${p.name} as left?`, 'Ends their sign-in and API tokens. Their history stays.', 'Mark as left',
-          async () => { await post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}); await again(`${p.name} marked as left`); });
+          async () => { await post(`/v2/humans/${encodeURIComponent(p.id)}`, {left: true}); await again(`${p.name} marked as left`); });
         else if (act === 'owner') peopleOwnerDialog(p, view);
       });
     });

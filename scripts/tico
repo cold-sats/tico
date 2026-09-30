@@ -378,8 +378,9 @@ case "${1:-help}" in
     # employee repository.
     printf '%s' "$template" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$' \
       || { echo "a template name is lowercase letters, digits and single hyphens" >&2; exit 1; }
-    workspace="$(env_field workspace)"; repo="$workspace/emp-$slug"
+    workspace="$(env_field workspace)"; repo="$workspace/bot-$slug"
     [ ! -e "$repo" ] || { echo "$repo already exists" >&2; exit 1; }
+    [ ! -e "$workspace/emp-$slug" ] || { echo "$workspace/emp-$slug already exists" >&2; exit 1; }
     mkdir -p "$workspace"
     if [ -d "$HUB/templates/catalog/$template" ]; then
       # The same materialization BotOps runs in a turn, with this environment's names and no
@@ -395,7 +396,7 @@ PY
       )
     elif [ -d "$HUB/templates/$template" ]; then
       cp -R "$HUB/templates/$template" "$repo"
-      "$PYTHON" - "$repo/employee.yaml" "$slug" "${name:-$slug}" <<'PY'
+      "$PYTHON" - "$repo/bot.yaml" "$slug" "${name:-$slug}" <<'PY'
 import re, sys
 path, slug, name = sys.argv[1:4]
 text = open(path).read()

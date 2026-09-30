@@ -10,8 +10,8 @@ files written, a first weekly office page, and the first routine confirmed.
 
     hub task show <id>
     hub task list --status open
-    hub calendar upcoming
-    hub docs search "office"
+    hub calendar list
+    hub doc search "office"
 
 Open tasks that mention the office, a printer, a key or supplies are your first requests; add them to
 `knowledge/requests.md` with their original dates.
@@ -54,7 +54,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

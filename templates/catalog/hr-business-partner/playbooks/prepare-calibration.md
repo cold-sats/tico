@@ -8,7 +8,7 @@ You flag inconsistencies; the managers and the HR owner decide.
 
 ## 1. Read the definitions first
 
-`knowledge/rating-scale.md` and the level expectations (`hub docs ask "What do our level expectations
+`knowledge/rating-scale.md` and the level expectations (`hub doc ask "What do our level expectations
 say for <level>?"`). If the scale has no written meaning per point, say so on the task: calibration
 without definitions is an argument.
 

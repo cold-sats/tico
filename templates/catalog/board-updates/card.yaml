@@ -3,7 +3,7 @@ slug: board-updates
 name: "Investor Relations Manager"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: co_present
 suggest: niche

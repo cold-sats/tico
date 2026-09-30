@@ -3,7 +3,7 @@ slug: onboarding-specialist
 name: "Customer Onboarding Specialist"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: waving_hand
 suggest: common

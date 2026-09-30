@@ -71,21 +71,21 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       if (p === '/api/me') return json({id: 'ana', name: 'Ana', email: 'ana@acme.example', role, cloud: true});
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
-      if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}]});
+      if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}]});
       if (p === '/api/v2/updates/unread') return json({unread: 0});
       if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
       if (p === '/api/v2/tasks') return json({tasks: []});
       if (p === '/api/v2/docs') return json({docs: [], next_cursor: null});
       if (p === '/api/v2/linked-docs') return json({linked: []});
-      if (p === '/api/v2/getting-started' && req.method() === 'GET') return json(view());
-      if (p === '/api/v2/getting-started/state') {
+      if (p === '/api/v2/setup/getting-started' && req.method() === 'GET') return json(view());
+      if (p === '/api/v2/setup/getting-started/state') {
         const body = req.postDataJSON(); calls.push({p, body});
         if (body.tour !== undefined) dismissed.tour = body.tour;
         if (body.checklist !== undefined) dismissed.checklist = body.checklist;
         if (body.skip) dismissed.skipped = [...new Set([...dismissed.skipped, body.skip])];
         return json({tour: dismissed.tour, checklist: dismissed.checklist, skipped: dismissed.skipped});
       }
-      if (p === '/api/v2/getting-started/market') {
+      if (p === '/api/v2/setup/getting-started/market') {
         const body = req.postDataJSON(); calls.push({p, body});
         if (librarianOff) return json({error: {code: 'librarian', detail: 'The Librarian is not running yet.'}}, 409);
         return json({task_id: 't-market', bot: 'librarian'});
@@ -153,7 +153,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     const notice = page.locator('#market-shell [data-market-researching]');
     await notice.waitFor();
     assert.deepEqual(calls.filter(c => c.p.endsWith('/market')).at(-1),
-      {p: '/api/v2/getting-started/market', body: {text: 'https://northwind.example\nOffice cleaning for property managers.'}});
+      {p: '/api/v2/setup/getting-started/market', body: {text: 'https://northwind.example\nOffice cleaning for property managers.'}});
     assert.equal(calls.filter(c => c.p.endsWith('/market')).length, 2);
     assert.match(await notice.textContent(), /The Librarian is researching your market\.\s+This usually takes 5–10 minutes\./);
     assert.equal(await page.locator('[data-market-research]').count(), 0);

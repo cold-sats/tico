@@ -8,7 +8,7 @@ Triggered by a task naming an interview, call or feedback batch, and used for ea
 
 ## 1. Read the source
 
-    hub meetings transcript <id>
+    hub meeting read <id>
 
 Or the notes attached to the task. Read the whole thing before writing. If it is a private meeting, stop: bots
 read team meetings only. Note who spoke, when, and how the conversation came about.

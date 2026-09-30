@@ -14,8 +14,8 @@ points to it in one line. If mail is connected, read the thread with `$HUB_DIR/s
 
 ## 2. Find the facts
 
-Answer only from the record: `hub goals --all`, `hub kpi readings <kpi id>`, `hub updates`,
-`hub meetings search`, the finance inputs. A fact you cannot source is a marked gap, never a guess. Check
+Answer only from the record: `hub goal list --all`, `hub kpi show <kpi id>`, `hub update list`,
+`hub meeting search`, the finance inputs. A fact you cannot source is a marked gap, never a guess. Check
 `knowledge/exclusions.md` before naming anyone.
 
 ## 3. Draft

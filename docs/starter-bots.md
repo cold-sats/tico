@@ -43,7 +43,7 @@ Roles are real job titles on the team chart; built-in bots (Assistant, BotOps, L
 function names and live outside it.
 
 The built-ins are not in any group and no template duplicates them: the Librarian owns the docs, the FAQ and the answers
-built from them (Support Agent asks it with `hub docs ask` and reports a missing or wrong doc to it as a task; HR Generalist and
+built from them (Support Agent asks it with `hub doc ask` and reports a missing or wrong doc to it as a task; HR Generalist and
 Benefits Administrator do the same for policy and plan questions; Technical Writer covers only READMEs and API docs in the
 product repositories); BotOps creates and maintains bots; the Assistant is each human's own; and the Goal Manager keeps the
 KPIs, so no template owns a KPI (Product Analyst and FP&A Analyst answer questions and explain numbers, they do not keep them).
@@ -222,7 +222,7 @@ confirms anything that would send, post, pay, change a record or delete.
 4. **An approval before anything external.** The card's `approval_required` list is what the bot never
    does alone. The platform's own gates still apply (`outbound_send: false`, the approvals policy).
 5. **Parked until then.** Finish setup creates every starter `needs_onboarding`: it answers a human's message and nothing else
-   (no routine, task notice, Slack route or bot request wakes it) until its setup playbook ends with `hub bot onboarded`,
+   (no routine, task notice, Slack route or bot request wakes it) until its setup playbook ends with `hub bot setup-done`,
    which it calls once its answers and first result are recorded. **Set up** on its page, or any first message, begins the
    conversation. Parked starters do not count toward a member's bot limit. See [Finish setup](onboarding.md#needs-setup).
 
@@ -238,7 +238,7 @@ A starter's own prompt is not the gate. What the platform does, checked for ever
 | Post to Slack | A post needs the `post` verb in the bot's Slack access, and the channel must not say `post: false` in `registry/slack-channels.yaml`; reading grants no posting right. Externally shared channels are always refused. The starters declare Slack read only, commented out until the owner connects it | [Slack gateway](slack-gateway.md) |
 | Comment on or label a GitHub issue, or review a pull request | **Added in this release.** The team's GitHub App token carries Issues: write, so nothing but a prompt stood between the QA Engineer (`issue-triage`) and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a human runs them. Senior Software Engineer, Release Manager, Technical Writer, Security Engineer, DevOps Engineer and Head of Engineering read GitHub the same way: `read` access, only `gh pr list`, `view`, `diff` and `checks` allowed, and `gh pr review`, `comment`, `merge`, `close`, `edit` and `create` denied, so a review is a draft on the task that a human posts. Turning writing on is the owner's edit of `employee.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
 | Invite someone to a calendar event | Any address may be invited. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to limit bots to humans on the team roster (`403 external_attendee` otherwise); an invitation to anyone else is then a human's act | `backend/connectors.py`, `backend/tests/test_security_review.py` |
-| Message a human inside the team | Bot-to-human messages are linted and capped at ten unsolicited a day | `hub say` |
+| Message a human inside the team | Bot-to-human messages are linted and capped at ten unsolicited a day | `hub message send` |
 | Change a record in a CRM, the support tool, the books or a repository | The starters declare no such access. Sales Operations Manager reads the CRM and only lists the fixes; the finance roles read exports and never post, pay or send (Accounts Payable Specialist proposes the payment run as a `spend` approval). A CRM stage change is on `approval_required`, and a tool the team adds is the owner's decision | the card |
 | Act on a public review surface | Reputation Manager declares `read` on its review surfaces and on Slack, and keeps `act` and `post` as a commented block the owner uncomments after a human has approved the first batch; until then a human carries out each approved batch | `templates/catalog/reputation`, `clients/tests/test_catalog.py` |
 

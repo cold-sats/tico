@@ -9,7 +9,7 @@ unless they pasted it themselves.
     hub credential request <VARIABLE> --for-bot <bot> --label "<your Jira credential>" \
         --format "<the exact shape>" --help-url <https page where they make one>
 
-- `VARIABLE` is the name the bot's `employee.yaml` `access:` entry declares in `env:`.
+- `VARIABLE` is the name the bot's `bot.yaml` `tools:` entry declares in `env:`.
 - `--label` finishes the sentence "<Bot> needs ...": "your Jira credential", "a GitHub token".
 - `--format` is the placeholder: `you@example.com:API token` for basic auth, `ghp_...` for a token.
 - `--help-url`, when you know it:

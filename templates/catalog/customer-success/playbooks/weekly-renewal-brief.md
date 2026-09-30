@@ -22,7 +22,7 @@ next 120 days: account, date, notice deadline, owner, value. Sort by date. Mark 
 ## 3. Read the signals for each account in the window
 
 Usage trend where readable (last 30 days against the prior 90), open and recent tickets, the last call
-(`hub meetings search "<account>"`), payment status if given, and whether the champion changed. Name every
+(`hub meeting search "<account>"`), payment status if given, and whether the champion changed. Name every
 signal you could not read.
 
 ## 4. Give each account a status
@@ -38,5 +38,5 @@ with `[price: Account Manager]` or `[date: account owner]` gaps wherever it woul
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-renewal-brief.md` in the shape of `knowledge/examples/renewal-brief.md`, then
-`hub files publish reports/YYYY-MM-DD-renewal-brief.md`. Commit and `hub task update <id> --status
+`hub file publish reports/YYYY-MM-DD-renewal-brief.md`. Commit and `hub task update <id> --status
 done --note`: the headline, the path, what you could not read. Always finish the task.

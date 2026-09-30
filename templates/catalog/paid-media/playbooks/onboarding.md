@@ -9,9 +9,9 @@ real export, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub goals --all
+    hub goal list --all
 
-Check whether an export is attached and whether any ads access is in your `employee.yaml`. Note any
+Check whether an export is attached and whether any ads access is in your `bot.yaml`. Note any
 marketing goal that names leads, trials or sales: it tells you which conversion matters. Do not ask
 what these already say.
 
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

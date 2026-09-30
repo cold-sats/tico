@@ -9,7 +9,7 @@ step in the next two weeks, prepared. Nothing goes to a prospect.
 ## 1. Find the deals
 
     hub task list --owner me --status open --status doing --status waiting
-    hub calendar upcoming
+    hub calendar list
 
 Add deals the Account Executive's latest review lists with a demo, a POC, a security review or a
 questionnaire. Read last week's prep: what was promised, done or slipped.
@@ -38,6 +38,5 @@ List sections due with counts: answered from approved sources, waiting on a name
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-technical-prep.md` in the shape of `knowledge/examples/technical-prep.md`, `hub
-files publish` it, commit, and `hub task update <id> --status done --note`: deals prepared, POCs at risk,
+Write `reports/YYYY-MM-DD-technical-prep.md` in the shape of `knowledge/examples/technical-prep.md`, `hub file publish` it, commit, and `hub task update <id> --status done --note`: deals prepared, POCs at risk,
 answers waiting on owners. Always finish the task.

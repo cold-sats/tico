@@ -37,5 +37,5 @@ common failure cause. For each: the file and job, the change, the expected effec
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-ci-health.md` in the shape of `knowledge/examples/ci-health.md`, `hub files
+Write `reports/YYYY-MM-DD-ci-health.md` in the shape of `knowledge/examples/ci-health.md`, `hub file
 publish` it, commit, then `hub task update <id> --status done --note`: the headline and the path.

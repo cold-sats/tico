@@ -8,9 +8,9 @@ and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub org --team support
+    hub team show --team support
     hub task list --status open
-    hub updates --kind weekly --limit 10
+    hub update list --kind weekly --limit 10
 
 Note which support bots exist, who owns them and what they last reported. Check whether a support
 mailbox is in your access. Do not ask what these already say. If you cannot read the support queue, that
@@ -57,7 +57,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -22,7 +22,7 @@ aliases: [acme-mongo]
 
 Acme's product database on MongoDB Atlas (M10, replica set): database `app`, read through a
 database user that only holds the built-in `read` role. The generic rules are in
-`hub integration mongodb`.
+`hub tool show mongodb`.
 
 ## What data it has
 
@@ -39,7 +39,7 @@ database user that only holds the built-in `read` role. The generic rules are in
 hub db atlas collections
 hub db atlas count accounts '{"plan": "team"}'
 hub db atlas --query signups-since --param since=2026-09-01
-hub queries atlas signups
+hub tool query-search atlas signups
 ```
 
 ## Rules
@@ -59,5 +59,5 @@ hub queries atlas signups
 
 ## Learnings
 
-What bots and humans learn about this tool is added with `hub learn atlas "..."` and
+What bots and humans learn about this tool is added with `hub tool learn atlas "..."` and
 shown under this page; a human folds it into the page over time. The page is the rule.

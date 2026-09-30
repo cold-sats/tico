@@ -359,7 +359,7 @@ async function settingsCatalogPicker() {
   dialog.querySelectorAll('[data-catalog-close]').forEach(button => button.onclick = () => dialog.close());
   dialog.showModal();
   let cards;
-  try { cards = catalogCards(await get('/v2/catalog')); }
+  try { cards = catalogCards(await get('/v2/templates')); }
   catch (error) {
     const body = $('#catalog-picker-body'); if (body) body.innerHTML = `<div class="err">${esc(error.message)}</div>`;
     return;

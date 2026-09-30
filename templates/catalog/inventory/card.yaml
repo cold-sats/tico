@@ -3,7 +3,7 @@ slug: inventory
 name: "Inventory Planner"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: inventory_2
 suggest: niche

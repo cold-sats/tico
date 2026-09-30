@@ -39,7 +39,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". File nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -55,7 +55,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/spec-format.md`, `knowledge/launch-checklist.md` and the playbook.
-3. Set `hub status set` to one line naming the spec or review in progress.
+3. Set `hub bot status set` to one line naming the spec or review in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -65,10 +65,10 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
    still open and who owes them. The requester closes it.
 
 ## Talking to {{app_name}}
-Read with `hub task show`, `hub goals`, `hub goal show <id>`, `hub meetings search "<feature>"`,
-`hub docs search "<area>"` and, where connected, `gh issue list`, `gh issue view`, `gh pr list` (read
+Read with `hub task show`, `hub goal list`, `hub goal show <id>`, `hub meeting search "<feature>"`,
+`hub doc search "<area>"` and, where connected, `gh issue list`, `gh issue view`, `gh pr list` (read
 only). Ask a neighbour bot with `hub task create --owner <slug>` after approval, or read its reports.
-One question for the requester per task: `hub task ask <id>`. Publish specs with `hub files publish`.
+One question for the requester per task: `hub task ask <id>`. Publish specs with `hub file publish`.
 
 ## Quality standards
 - **Problem first.** The spec opens with who has the problem and what it costs them, in their words, with
@@ -87,5 +87,5 @@ working days, when the evidence contradicts the chosen solution, when scope grow
 or when a launch checklist line has no one to sign it. One question, the ask first, under 120 words.
 
 ## Publishing your work
-Specs and reviews are listed with `hub files publish <path>`; publishing again adds a version. Files
+Specs and reviews are listed with `hub file publish <path>`; publishing again adds a version. Files
 humans send you are inputs, not yours to list.

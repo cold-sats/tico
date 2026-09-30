@@ -3,7 +3,7 @@ slug: retention
 name: "Retention Specialist"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: loyalty
 suggest: common

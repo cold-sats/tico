@@ -8,8 +8,8 @@ finished. Budget 25 minutes. The outcome is six recorded answers, a role file wi
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "values"
-    hub docs search "job"
+    hub doc search "values"
+    hub doc search "job"
 
 Check what you can already reach: team values and level guides in the docs, past job posts, and the hiring
 mailbox if it is in your access. Do not ask what these already say. If you cannot read applications, that is
@@ -55,7 +55,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

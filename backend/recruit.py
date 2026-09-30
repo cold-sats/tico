@@ -27,7 +27,7 @@ from .store import Problem
 log = logging.getLogger("tico.recruit")
 
 HQ_TIMEOUT = 6.0
-BUNDLED_DEPARTMENTS = Path(__file__).resolve().parents[1] / "templates" / "departments.yaml"
+BUNDLED_DEPARTMENTS = Path(__file__).resolve().parents[1] / "templates" / "groups.yaml"
 # Tests swap in an httpx.MockTransport; a real install always uses the network.
 TRANSPORT = None
 
@@ -52,9 +52,12 @@ def _install_id(c):
 
 
 def departments_file(settings):
-    """templates/departments.yaml beside the catalog in use, else the one this release ships."""
-    beside = Path(settings.catalog_dir).parent / "departments.yaml"
-    return beside if beside.is_file() else BUNDLED_DEPARTMENTS
+    """templates/groups.yaml (older: departments.yaml) beside the catalog in use, else the one this release ships."""
+    for name in ("groups.yaml", "departments.yaml"):
+        beside = Path(settings.catalog_dir).parent / name
+        if beside.is_file():
+            return beside
+    return BUNDLED_DEPARTMENTS
 
 
 def catalog(settings):

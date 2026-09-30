@@ -12,6 +12,7 @@ from . import providers
 from . import rooms
 from .auth import Identity
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
+from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
 
 
@@ -49,10 +50,10 @@ class SettingsAdmin:
     @staticmethod
     def counted_bots(c, actor, excluding=""):
         """The bots that count toward a member's limit: theirs that are not archived. A starter bot
-        that is still `needs_onboarding` is parked, so it does not count until it is onboarded."""
+        that is still `needs_setup` is parked, so it does not count until it is onboarded."""
         return c.execute("SELECT count(*) FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                          "WHERE bc.created_by=? AND b.state<>'archived' AND bc.bot<>? "
-                         "AND COALESCE(bc.onboarding_state,'')<>'needs_onboarding'", (actor, excluding)).fetchone()[0]
+                         "AND COALESCE(bc.onboarding_state,'') NOT IN " + PARKED_SQL, (actor, excluding)).fetchone()[0]
 
     def _manager(self, c, who, bot):
         """The one "may manage this bot" check (`Auth.bot_manager`): the owner, an Admin, one of the bot's
@@ -192,7 +193,7 @@ class SettingsAdmin:
         if body.runner_id:
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (body.runner_id,)).fetchone()
             if not runner:
-                raise Problem("not_found", "Machine is not registered", 404)
+                raise Problem("not_found", "Computer is not registered", 404)
         parent = (self._config(c, body.reports_to)
                   if body.reports_to and not str(body.reports_to).startswith("human:") else None)
         note = None
@@ -219,7 +220,7 @@ class SettingsAdmin:
             body = body.model_copy(update={"status": "planned"})
         if body.slug == self.settings.assistant_bot and body.thread_mode != "personal":
             raise Problem("thread_mode", self.settings.assistant_name + " must use personal rooms", 422)
-        repo = body.repo or ("emp-" + body.slug)
+        repo = body.repo or ("bot-" + body.slug)
         config = {"name": body.slug, "display_name": body.display_name,
                   "description": body.description, "reports_to": body.reports_to,
                   "status": body.status, "repo": repo, "host": "keeper", "tasks": "hub",
@@ -447,7 +448,7 @@ class SettingsAdmin:
         runner = c.execute("SELECT id,label,operator,revoked_at,last_seen,readiness_json FROM runners WHERE id=?",
                            (body.runner_id,)).fetchone()
         if not runner or runner["revoked_at"]:
-            raise Problem("not_found", "Machine is not registered", 404)
+            raise Problem("not_found", "Computer is not registered", 404)
         if who.role != "owner" and runner["operator"] != H.actor_id(who.actor):
             raise Problem("forbidden", "Bot administrators may use only their own registered computers", 403)
         if not runner["last_seen"] or runner["last_seen"] <= H.shift(H.now(), seconds=-60):
@@ -499,7 +500,7 @@ class SettingsAdmin:
 
         # The change applies at once. The bot's session is the bot's runtime's business: the
         # hub asks for no checkpoint turn and rebuilds nothing; a bot that wants what was said
-        # before reads it with `hub history`.
+        # before reads it with `hub conversation show`.
         c.execute("UPDATE bot_transitions SET state='prepared',updated=? WHERE id=?", (H.now(), transition_id))
         self._apply(c, who, c.execute("SELECT * FROM bot_transitions WHERE id=?", (transition_id,)).fetchone())
         return self.get(c, who, transition_id)

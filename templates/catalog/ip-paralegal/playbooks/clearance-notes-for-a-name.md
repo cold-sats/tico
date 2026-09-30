@@ -33,5 +33,5 @@ Record every database, term, class and the date.
 
 Write `reports/clearance/<name>.md`: three lines first (the name, the use, how many close marks and uses), then the
 tables, then "what was searched", then questions for counsel, then **Summary for a human, not legal advice; a
-full clearance search is counsel's.** `hub files publish` it and put it on the task. Record the name in
+full clearance search is counsel's.** `hub file publish` it and put it on the task. Record the name in
 `knowledge/watch-terms.md` if it is adopted.

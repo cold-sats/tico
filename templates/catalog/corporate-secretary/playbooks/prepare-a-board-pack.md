@@ -16,12 +16,12 @@ counsel can settle. You never send either and never sign.
   cap table log shows are missing (grants, issuances) and anything investors must consent to under `knowledge/board.md`.
 - **Papers**: ask each author on the task for their paper by 7 days before; list what is missing.
 - **Notice**: the date the notice must go under the bylaws, and a draft notice for the chair.
-Save `reports/packs/YYYY-MM-DD-<entity>-board.md`, mark it **Draft for counsel**, `hub files publish` it and ask
+Save `reports/packs/YYYY-MM-DD-<entity>-board.md`, mark it **Draft for counsel**, `hub file publish` it and ask
 once whether it may go to the chair for sending. Sending is a human's, or `hub approval request --kind send`.
 
 ## 2. The minutes
 
-After the meeting, from the imported recording (`hub meetings search "board"`, `hub meetings transcript <id>`) or
+After the meeting, from the imported recording (`hub meeting search "board"`, `hub meeting read <id>`) or
 the chair's notes on the task:
 - date, time, place or call, who attended and in what capacity, quorum under the bylaws;
 - conflicts of interest declared, and who did not vote;

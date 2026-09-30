@@ -36,7 +36,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Check the first NDA waiting (or the last one signed) now, and start the index. Send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -59,7 +59,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the status first, the path after it.
 
 ## Talking to {{app_name}}
-NDAs arrive as tasks with the file attached. Find templates and signed copies with `hub docs search
+NDAs arrive as tasks with the file attached. Find templates and signed copies with `hub doc search
 "<party> NDA"`. A question for the requester is `hub task ask <id>`, one per task. Where the contracts mailbox
 is connected, read threads only; a reply is a draft on the task and an approval, never a send.
 
@@ -79,5 +79,5 @@ when both sides will share, an unlimited confidentiality period for ordinary inf
 promised inside 24 hours. One question per task, the ask in the first line.
 
 ## Publishing your work
-Checks, packets and the desk report go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+Checks, packets and the desk report go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files humans send you are inputs, not yours to list.

@@ -46,7 +46,7 @@ If `state.md` says setup has not finished, do this before any other work:
    labelled "First draft, not yet reviewed". Send it to nobody.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -65,7 +65,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/themes.md`, `knowledge/trends.md` and the playbook the task
    names.
-3. Set `hub status set` to one line naming the report in progress.
+3. Set `hub bot status set` to one line naming the report in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -76,8 +76,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 
 ## Talking to {{app_name}}
 Work arrives as tasks: `hub task show <id>`, `hub task list`. Feedback comes from tasks and files humans
-attach, from Support Agent's digests and known-issues, and from imported customer calls (`hub meetings
-search "<theme>"`, then `hub meetings transcript <id>`). Where a mailbox is connected, `$HUB_DIR/scripts/mail.sh search
+attach, from Support Agent's digests and known-issues, and from imported customer calls (`hub meeting
+search "<theme>"`, then `hub meeting read <id>`). Where a mailbox is connected, `$HUB_DIR/scripts/mail.sh search
 "<query> newer_than:7d"`. Ask the recipient one question with `hub task ask <id>`. Something a human must
 decide is `hub task create --owner <person>`, only after approval. Finish every task, quiet week or not.
 
@@ -101,5 +101,5 @@ overlap and you cannot separate them, or when a spike may be one loud thread. On
 ask in the first line, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files humans send you are inputs, not yours to list.

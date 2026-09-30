@@ -66,7 +66,7 @@ def fixture(root, template="assistant", card=CARD, agent=AGENT):
     (directory / "playbooks").mkdir(parents=True)
     (directory / "card.yaml").write_text(card)
     (directory / "AGENT.md").write_text(agent)
-    (directory / "employee.yaml").write_text(MANIFEST)
+    (directory / "employee.yaml").write_text(MANIFEST)      # an older template: the manifest under its old name still materializes
     (directory / "state.md").write_text("# State\n\nNothing yet.\n")
     (directory / ".gitignore").write_text(".env\n")
     (directory / "playbooks" / "README.md").write_text("Playbooks for {{bot_name}}.\n")
@@ -164,7 +164,7 @@ class Refresh(unittest.TestCase):
 
 
 PACKS = ("basics", "sales", "marketing", "support", "operations", "engineering")
-# templates/departments.yaml: the departments onboarding offers, in order, and the extras it does not offer.
+# templates/groups.yaml: the departments onboarding offers, in order, and the extras it does not offer.
 DEPARTMENTS = ("sales", "marketing", "support", "finance", "operations", "legal", "hr", "product", "engineering")
 # `pack` is the older six-team grouping the chooser still reads; it follows the department.
 PACK_OF = {"sales": "sales", "marketing": "marketing", "support": "support", "operations": "operations", "finance": "basics",
@@ -209,11 +209,11 @@ class StarterBots(unittest.TestCase):
                 self.check(name)
 
     def test_every_department_has_its_head_and_no_pain_phrase_is_offered_twice(self):
-        """templates/departments.yaml names each department's head; that card is the department's only `lead: true`, and
+        """templates/groups.yaml names each department's head; that card is the department's only `lead: true`, and
         its `team_templates` are the rest of the department."""
         cards = [read_catalog(self.directory)[name] for name in starters(self.directory)]
         cards = [card for card in cards if not is_helper(card)]
-        document = yaml.safe_load((catalog.ROOT / "templates/departments.yaml").read_text())
+        document = yaml.safe_load((catalog.ROOT / "templates/groups.yaml").read_text())
         departments, extras = document["departments"], document.get("extras") or []
         self.assertEqual([row["id"] for row in departments], list(DEPARTMENTS))
         for row in departments:
@@ -222,13 +222,13 @@ class StarterBots(unittest.TestCase):
             self.assertIs(row.get("software_only", False), row["id"] in ("product", "engineering"), row["id"])
         for row in departments + extras:
             self.assertIn(row["icon"], ICONS, f"department {row['id']}: icon")
-            members = {card["template"]: card for card in cards if card["department"] == row["id"]}
+            members = {card["template"]: card for card in cards if card["group"] == row["id"]}
             leads = [name for name, card in members.items() if card.get("lead") is True]
             self.assertEqual(leads, [row["head"]], f"department {row['id']} needs exactly one `lead: true` card, its head")
             self.assertEqual(sorted(members[row["head"]]["team_templates"]), sorted(set(members) - {row["head"]}),
                              f"{row['head']}: team_templates are the rest of department {row['id']}")
         known = {row["id"] for row in departments + extras}
-        self.assertFalse({card["department"] for card in cards} - known, "a card names a department not in departments.yaml")
+        self.assertFalse({card["group"] for card in cards} - known, "a card names a group not in groups.yaml")
         self.assertEqual([card["template"] for card in cards if "always" in card["recommend_when"]], ["chief-of-staff"])
         phrases = [phrase.lower() for card in cards for phrase in card["pains"]]
         self.assertEqual(len(phrases), len(set(phrases)), "a pain phrase belongs to one template")
@@ -243,13 +243,13 @@ class StarterBots(unittest.TestCase):
         self.assertTrue(card, where)
         self.assertIn(card.get("kind", "role"), ("role", "helper"), f"{where}: kind")
         if is_helper(card):
-            for field in ("department", "pack", "lead", "team_templates", "suggest"):
+            for field in ("group", "pack", "lead", "team_templates", "suggest"):
                 self.assertNotIn(field, card, f"{where}: a helper is in no department")
         else:
             self.assertIn(card.get("pack"), PACKS, where)
-            # What the org builder groups, pictures and pre-checks by (templates/departments.yaml).
-            self.assertIn(card.get("department"), PACK_OF, f"{where}: department")
-            self.assertEqual(card["pack"], PACK_OF[card["department"]], f"{where}: pack follows the department")
+            # What the org builder groups, pictures and pre-checks by (templates/groups.yaml).
+            self.assertIn(card.get("group"), PACK_OF, f"{where}: group")
+            self.assertEqual(card["pack"], PACK_OF[card["group"]], f"{where}: pack follows the department")
             self.assertIn(card.get("suggest"), SUGGEST, f"{where}: suggest")
         self.assertIn(card.get("icon"), ICONS, f"{where}: icon {card.get('icon')!r} is not in ui/vendor/fonts/icons.txt")
         self.assertTrue(card.get("tags") and all(isinstance(t, str) and t == t.lower() and len(t) <= 24 for t in card["tags"]),
@@ -284,14 +284,14 @@ class StarterBots(unittest.TestCase):
         playbooks = [p for p in (folder / "playbooks").glob("*.md") if p.name != "README.md"]
         self.assertGreaterEqual(len(playbooks), 3, where)
         self.assertTrue((folder / "playbooks/onboarding.md").is_file(), where)
-        manifest = yaml.safe_load((folder / "employee.yaml").read_text())
+        manifest = yaml.safe_load((folder / "bot.yaml").read_text())
         self.assertEqual(manifest["name"], card["slug"], where)
         self.assertIs(manifest["outbound_send"], False, where)
-        routines = validate_schedules(manifest["schedules"], lambda rel: (folder / rel).read_text())
+        routines = validate_schedules(manifest["routines"], lambda rel: (folder / rel).read_text())
         self.assertTrue(routines and routines[0]["title"] == first["title"], f"{where}: the first routine is the card's")
         for routine in routines:
             self.assertIs(routine["enabled"], False, f"{where}: a routine is declared off and setup switches it on")
-        for access in manifest["access"]:
+        for access in manifest["tools"]:
             # Nothing a starter can do reaches outside the company on its own: no send, and no write to a
             # service (a person applies what it proposes, until the owner turns writing on).
             self.assertFalse({"send", "write", "modify", "delete"} & set(access.get("can", [])), where)
@@ -299,7 +299,7 @@ class StarterBots(unittest.TestCase):
         for entry in allowed:
             self.assertNotRegex(entry, r"^Bash\(gh (issue|pr|api) (\*|comment|edit|create|close|review|merge)", f"{where}: {entry}")
         # The last step of onboarding tells the hub a person approved the first routine.
-        self.assertIn("hub bot onboarded", (folder / "playbooks/onboarding.md").read_text(), where)
+        self.assertIn("hub bot setup-done", (folder / "playbooks/onboarding.md").read_text(), where)
 
 
 if __name__ == "__main__":

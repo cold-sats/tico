@@ -27,5 +27,5 @@ opens 2026-10-19.**
 - Team offsite 2026-11-06: venue quote $2,400 of the $3,000 budget, spend approval on T-455.
 
 ## Sources
-- `hub org`, `knowledge/actions.md`, `hub calendar upcoming`, read 2026-10-01
+- `hub team show`, `knowledge/actions.md`, `hub calendar list`, read 2026-10-01
 ```

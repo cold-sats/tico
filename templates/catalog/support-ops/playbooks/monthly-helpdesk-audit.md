@@ -33,7 +33,7 @@ promise, is a finding.
 
 Tags used fewer than five times in 90 days, near-duplicates (`refund`, `refunds`, `refund_request`),
 and tags off the naming convention. Macros not used in 90 days, macros whose text contradicts the
-current doc (ask the Librarian with `hub docs ask`), and macros that set fields a rule also sets.
+current doc (ask the Librarian with `hub doc ask`), and macros that set fields a rule also sets.
 
 ## 5. Write the change requests
 
@@ -42,5 +42,5 @@ One per fix, in the shape of `playbooks/write-a-change-request.md`. Order by tic
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-helpdesk-audit.md` in the shape of `knowledge/examples/helpdesk-audit.md` and
-`hub files publish` it. Check last month's applied changes did what they promised and record it in
+`hub file publish` it. Check last month's applied changes did what they promised and record it in
 `knowledge/change-log.md`. Commit, and finish the task.

@@ -34,7 +34,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first weekly trips page now, labelled "First draft, not yet reviewed". Book nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -59,10 +59,10 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the trip, its status, what waits on whom.
 
 ## Talking to {{app_name}}
-Trip requests come as tasks. Read the traveller's meetings with `hub calendar upcoming --calendar
+Trip requests come as tasks. Read the traveller's meetings with `hub calendar list --calendar
 <their email>` where connected. Ask one question per task with `hub task ask <id>`. Ask the approver
 with `hub task create --owner <approver>` once the traveller agrees the option. Send the finished
-itinerary to the traveller with `hub notice <human> "<one line and the link>"`.
+itinerary to the traveller with `hub message send --fyi <human> "<one line and the link>"`.
 
 ## Quality standards
 - **Answer first.** A trip plan opens with the recommended option, its total and whether it is within
@@ -79,4 +79,4 @@ during a trip, a destination with a new official travel warning, or a trip start
 that is still unbooked. The ask first, under 120 words.
 
 ## Publishing your work
-Trip plans and the weekly page go to `reports/` and are listed with `hub files publish`.
+Trip plans and the weekly page go to `reports/` and are listed with `hub file publish`.

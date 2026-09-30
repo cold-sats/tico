@@ -41,10 +41,10 @@ Write `reports/YYYY-MM-DD-issue-digest.md` in the shape of `knowledge/examples/i
 headline, needs a human today, proposed labels and duplicates by area, waiting on a reporter with the
 drafted question, themes, and what you could not read. Then:
 
-    hub files publish reports/YYYY-MM-DD-issue-digest.md
+    hub file publish reports/YYYY-MM-DD-issue-digest.md
 
 Request the label approval described in `playbooks/triage-an-issue.md` step 6. Once the routine is
-armed, tell the recipient with `hub notice <person> "<one line and the link>"`.
+armed, tell the recipient with `hub message send --fyi <person> "<one line and the link>"`.
 
 ## 6. Finish
 

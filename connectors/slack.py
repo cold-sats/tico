@@ -13,19 +13,19 @@ One Slack app serves the whole company. The token is `SLACK_BOT_TOKEN` in the ru
 (the runner loads it from <projects>/secrets/_shared.env). Install: see connectors/README.md.
 
 Posting is gated in code, not in prompts:
-  - the employee's emp-<slug>/employee.yaml must declare access: service slack with `post` in `can`
+  - the employee's bot.yaml (older: emp-<slug>/employee.yaml) must declare tools: service slack with `post` in `can`
   - the channel must be listed in registry/slack-channels.yaml and must not say `post: false`
   - externally shared (Slack Connect) channels are refused: posting there is an outbound send
   - text over 4000 characters is refused
   - every accepted post is appended to <projects>/runtime/slack-audit.jsonl
 
 Channel reads are scoped when an employee's Slack access entry declares `channels:`. `history`
-uses `--as <slug>`, or `HUB_EMPLOYEE` inside a hosted run, and refuses any channel outside that
+uses `--as <slug>`, or `HUB_BOT` (older: `HUB_EMPLOYEE`) inside a hosted run, and refuses any channel outside that
 list before calling Slack. Manifests without `channels:` retain their existing broad read access;
 new narrowly-scoped monitors should always declare it.
 
 DM reads can likewise be disabled with `dms: false`. `inbox` uses `--as <slug>` or
-`HUB_EMPLOYEE` and refuses before calling Slack when that flag is present.
+`HUB_BOT` and refuses before calling Slack when that flag is present.
 
 DMs are gated the same way, plus one more rule: a bot may only DM a company human.
   - the employee needs the same `post` verb on its slack access entry
@@ -385,15 +385,46 @@ def load_yaml(path, what):
         raise Failure(f"{what} at {p} is not valid YAML: {e}")
 
 
+def bot_folder(slug):
+    """The bot's folder: bot-<slug> if it exists, else emp-<slug> if that does, else bot-<slug> (this repeats clients/manifest.py)."""
+    for prefix in ("bot-", "emp-"):
+        if (PROJECTS / (prefix + slug)).exists():
+            return PROJECTS / (prefix + slug)
+    return PROJECTS / ("bot-" + slug)
+
+
+def manifest_of(slug):
+    """(path, `<folder>/<file>` label) of the bot's manifest: bot.yaml, else the older employee.yaml."""
+    folder = bot_folder(slug)
+    for name in ("bot.yaml", "employee.yaml"):
+        if (folder / name).is_file():
+            return folder / name, f"{folder.name}/{name}"
+    return folder / "bot.yaml", f"{folder.name}/bot.yaml"
+
+
+def load_manifest(slug):
+    path, label = manifest_of(slug)
+    return load_yaml(path, label)
+
+
+def declared_tools(manifest):
+    """The manifest's `tools:` list, else the older `access:`."""
+    return (manifest["tools"] if "tools" in manifest else manifest.get("access")) or []
+
+
+def bot_from_env():
+    return (os.environ.get("HUB_BOT") or os.environ.get("HUB_EMPLOYEE") or "").strip()
+
+
 def slack_access(manifest, slug):
-    """The employee's `access:` entry for slack, or a refusal explaining what to add."""
-    for entry in (manifest.get("access") or []):
+    """The employee's `tools:` (older: `access:`) entry for slack, or a refusal explaining what to add."""
+    for entry in declared_tools(manifest):
         if isinstance(entry, dict) and str(entry.get("service", "")).lower() == "slack":
             return entry
     raise Refused(f"{slug} does not declare Slack access.",
-                  "Add an `access:` entry with service: slack to emp-%s/employee.yaml. "
-                  "Changing access: is the owner's call - open an Issue with owner:<owner handle> and "
-                  "type:decision (hub policies/access.md)." % slug)
+                  "Add a `tools:` entry with service: slack to %s. "
+                  "Changing tools: is the owner's call - open an Issue with owner:<owner handle> and "
+                  "type:decision (hub policies/access.md)." % manifest_of(slug)[1])
 
 
 def check_can_post(manifest, slug):
@@ -401,7 +432,7 @@ def check_can_post(manifest, slug):
     can = [str(c).lower() for c in (entry.get("can") or [])]
     if "post" not in can:
         raise Refused(f"{slug} may {', '.join(can) or 'do nothing'} on Slack, not post.",
-                      "Add `post` to the slack entry's `can:` in employee.yaml - which is the owner's "
+                      "Add `post` to the slack entry's `can:` in bot.yaml - which is the owner's "
                       "call: open an Issue with owner:<owner handle> and type:decision.")
     return entry
 
@@ -416,7 +447,7 @@ def check_history_scope(manifest, slug, refs, channels=None):
     can = [str(c).lower() for c in (entry.get("can") or [])]
     if "read" not in can:
         raise Refused(f"{slug} may {', '.join(can) or 'do nothing'} on Slack, not read history.",
-                      "Add `read` to the Slack entry's `can:` in employee.yaml; that is the owner's call.")
+                      "Add `read` to the Slack entry's `can:` in bot.yaml; that is the owner's call.")
     declared = entry.get("channels")
     if declared is None:
         return entry
@@ -433,7 +464,7 @@ def check_history_scope(manifest, slug, refs, channels=None):
         if not (keys & allowed):
             names = ", ".join("#" + norm_ref(r) for r in (declared or [])) or "none"
             raise Refused(f"{slug} may not read {ref!r}.",
-                          f"Its employee.yaml Slack channels are: {names}.")
+                          f"Its bot.yaml Slack channels are: {names}.")
     return entry
 
 
@@ -443,10 +474,10 @@ def check_inbox_scope(manifest, slug):
     can = [str(c).lower() for c in (entry.get("can") or [])]
     if "read" not in can:
         raise Refused(f"{slug} may {', '.join(can) or 'do nothing'} on Slack, not read DMs.",
-                      "Add `read` to the Slack entry's `can:` in employee.yaml; that is the owner's call.")
+                      "Add `read` to the Slack entry's `can:` in bot.yaml; that is the owner's call.")
     if entry.get("dms") is False:
         raise Refused(f"{slug} may not read Slack DMs.",
-                      "Its employee.yaml limits Slack monitoring to declared channels.")
+                      "Its bot.yaml limits Slack monitoring to declared channels.")
     return entry
 
 
@@ -825,10 +856,9 @@ def shape(m, channel_id, users, team_url, tz, thread_ts=None):
 
 def cmd_history(args):
     refs = [r for chunk in args.channel for r in str(chunk).split(",") if r.strip()]
-    slug = (args.as_slug or os.environ.get("HUB_EMPLOYEE") or "").strip()
+    slug = (args.as_slug or bot_from_env()).strip()
     if slug:
-        manifest = load_yaml(PROJECTS / f"emp-{slug}" / "employee.yaml",
-                             f"emp-{slug}/employee.yaml")
+        manifest = load_manifest(slug)
         check_history_scope(manifest, slug, refs)
     tz = zone(args.tz)
     start, end = time_range(args.since, args.until, args.tz)
@@ -850,8 +880,7 @@ def cmd_history(args):
 
 def cmd_post(args):
     slug = args.as_slug.strip()
-    manifest_path = PROJECTS / f"emp-{slug}" / "employee.yaml"
-    manifest = load_yaml(manifest_path, f"emp-{slug}/employee.yaml")
+    manifest = load_manifest(slug)
     check_can_post(manifest, slug)
     entry = find_registry_channel(load_channels(), args.channel)
     cid = check_channel_postable(entry, args.channel)
@@ -877,7 +906,7 @@ def split_refs(values):
 def cmd_dm(args):
     """DM a company human. Every gate below runs before the first network call."""
     slug = args.as_slug.strip()
-    manifest = load_yaml(PROJECTS / f"emp-{slug}" / "employee.yaml", f"emp-{slug}/employee.yaml")
+    manifest = load_manifest(slug)
     check_can_post(manifest, slug)                              # (a) the employee may write
     text = check_text(sys.stdin.read() if args.text == "-" else args.text)   # (d) length
     allowed = load_hub_access()                                 # (b) the company list
@@ -934,10 +963,9 @@ def conversation_people(conv, directory, me):
 
 
 def cmd_inbox(args):
-    slug = (args.as_slug or os.environ.get("HUB_EMPLOYEE") or "").strip()
+    slug = (args.as_slug or bot_from_env()).strip()
     if slug:
-        manifest = load_yaml(PROJECTS / f"emp-{slug}" / "employee.yaml",
-                             f"emp-{slug}/employee.yaml")
+        manifest = load_manifest(slug)
         check_inbox_scope(manifest, slug)
     tz = zone(args.tz)
     start, _ = time_range(args.since, None, args.tz)
@@ -1024,7 +1052,7 @@ def build_parser():
 
     h = common(sub.add_parser("history", help="read a channel over a time range"))
     h.add_argument("--as", dest="as_slug", default=None,
-                   help="employee slug; defaults to HUB_EMPLOYEE in a hosted run")
+                   help="employee slug; defaults to HUB_BOT in a hosted run")
     h.add_argument("--channel", action="append", required=True,
                    help="id or #name; repeat or comma-separate for several")
     h.add_argument("--since", default="24h", help="ISO time, 24h/7d/90m, today, or yesterday")
@@ -1055,7 +1083,7 @@ def build_parser():
 
     i = common(sub.add_parser("inbox", help="read DMs people sent the bot"))
     i.add_argument("--as", dest="as_slug", default=None,
-                   help="employee slug; defaults to HUB_EMPLOYEE in a hosted run")
+                   help="employee slug; defaults to HUB_BOT in a hosted run")
     i.add_argument("--since", default="24h",
                    help="floor for a conversation with no watermark yet (24h, 7d, ISO)")
     i.add_argument("--tz", default=DEFAULT_TZ, help=f"IANA timezone (default {DEFAULT_TZ})")

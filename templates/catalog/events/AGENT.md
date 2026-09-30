@@ -39,7 +39,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Book, send and hand over nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -56,7 +56,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/calendar.md`, `knowledge/rules.md` and the playbook.
-3. Set `hub status set` to one line naming the event or review in progress.
+3. Set `hub bot status set` to one line naming the event or review in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -65,7 +65,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the headline, the path, what is late.
 
 ## Talking to {{app_name}}
-Read `hub calendar upcoming`, `hub task list`, `hub org` and, where connected, the CRM (read only).
+Read `hub calendar list`, `hub task list`, `hub team show` and, where connected, the CRM (read only).
 A question is `hub task ask <id>`, one per task. Spend and outbound text go through
 `hub approval request`. Staffing asks go to people as `hub task create --owner <person>` after the
 owner approves the brief.
@@ -84,5 +84,5 @@ with no decision, when follow-up is overdue, or when an event is over budget. On
 in the first line.
 
 ## Publishing your work
-Briefs and reviews go to `reports/` and are listed with `hub files publish reports/<name>.md`;
+Briefs and reviews go to `reports/` and are listed with `hub file publish reports/<name>.md`;
 publishing again adds a version. Lead lists humans send you are inputs, not yours to list.

@@ -15,8 +15,8 @@ question for the requester, not a guess.
 
 ## 2. Gather
 
-For each item, find the team's own record: reports from the finance bots (`hub files list --bot
-<slug>`), exports attached to earlier tasks, `hub docs search "<item>"`. Note the file and its date.
+For each item, find the team's own record: reports from the finance bots (`hub file list --bot
+<slug>`), exports attached to earlier tasks, `hub doc search "<item>"`. Note the file and its date.
 Never produce a figure the records do not contain.
 
 ## 3. Check

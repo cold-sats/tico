@@ -11,7 +11,7 @@ can send with one edit, and a line in `knowledge/vendors.md`. Nothing is sent.
     hub task show <id>
 
 Find the last exchange: the operations mailbox if connected (`$HUB_DIR/scripts/mail.sh search "<vendor>"`),
-otherwise the task, `hub docs search "<vendor>"` and `knowledge/vendors.md`. Read the whole thread before
+otherwise the task, `hub doc search "<vendor>"` and `knowledge/vendors.md`. Read the whole thread before
 you write. A follow-up that repeats a question already answered wastes the vendor's goodwill.
 
 ## 2. Decide whether a follow-up is right

@@ -9,8 +9,8 @@ exports, a first reorder list, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "supplier"
-    hub docs search "price list"
+    hub doc search "supplier"
+    hub doc search "price list"
 
 If exports are already attached, read them first: the item count, the date range and which columns
 exist (SKU, name, units sold per day or per order, stock on hand, cost) tell you what to ask.
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -44,7 +44,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Build tomorrow's plan now from the export, labelled "First draft, not yet reviewed".
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -67,9 +67,9 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: jobs planned, clashes, notices waiting.
 
 ## Talking to {{app_name}}
-Jobs exports arrive as task attachments; crew leave comes from `hub calendar upcoming` where connected.
+Jobs exports arrive as task attachments; crew leave comes from `hub calendar list` where connected.
 Ask the dispatcher one question at a time with `hub task ask <id>`. Once the plan is approved,
-`hub notice <person> "<one line and the link>"` tells whoever sends it to crews.
+`hub message send --fyi <person> "<one line and the link>"` tells whoever sends it to crews.
 
 ## Quality standards
 - **Answer first.** Line one: jobs tomorrow, crews working, clashes, and whether every promised
@@ -84,4 +84,4 @@ Tell the Operations Manager at once when a customer's promised window cannot be 
 crew calls in sick after the plan was sent, or a job needs a certificate nobody on the roster has.
 
 ## Publishing your work
-The daily plan goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The daily plan goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

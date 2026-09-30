@@ -3,7 +3,7 @@ slug: support-ops
 name: "Support Operations Specialist"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: alt_route
 suggest: niche

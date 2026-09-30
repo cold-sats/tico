@@ -56,7 +56,7 @@ const total = rows => rows.reduce((t, r) => ({runs: t.runs + r.runs, est_cost_us
         return json({from: q.from, to: q.to, prices_as_of: '2026-09-29', group: 'bot', department: q.department || null, totals: total(rows), rows, departments: ['Ops', 'Revenue']});
       }
       if (p === '/api/employees' || p === '/api/issues') return json([]);
-      if (p === '/api/people') return json({people: [], teams: {}});
+      if (p === '/api/humans') return json({people: [], teams: {}});
       if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/v2/needs-you') return json({items: []});

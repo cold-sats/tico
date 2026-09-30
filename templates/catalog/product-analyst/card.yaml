@@ -3,7 +3,7 @@ slug: product-analyst
 name: "Product Analyst"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 icon: monitoring
 suggest: common

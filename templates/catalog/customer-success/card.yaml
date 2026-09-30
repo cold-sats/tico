@@ -3,7 +3,7 @@ slug: customer-success
 name: "Customer Success Manager"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: sentiment_satisfied
 suggest: common

@@ -25,5 +25,5 @@ judgement of a human; a pattern (hotels in one city always over the limit) becom
 
 ## 4. Write and hand over
 
-Write `reports/YYYY-MM-DD-trips.md`, `hub files publish` it, commit, and `hub task update <id> --status
+Write `reports/YYYY-MM-DD-trips.md`, `hub file publish` it, commit, and `hub task update <id> --status
 done --note` with the headline: trips in 30 days, unbooked inside the window, awaiting approval.

@@ -3,7 +3,7 @@ slug: product-lead
 name: "Head of Product"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 lead: true
 icon: lightbulb

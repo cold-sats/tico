@@ -25,7 +25,7 @@ one page, every sentence serving a win theme.
 ## 3. An RFP or questionnaire
 
 Sort the questions (product, commercial, security, legal, compliance, references). For each, search
-`knowledge/library/` and `hub docs ask`. A match under twelve months old is **reused**; one needing change is
+`knowledge/library/` and `hub doc ask`. A match under twelve months old is **reused**; one needing change is
 **adapted**; no match is **new**, and a new security, legal or compliance answer is not drafted: it is
 `[owner: <name>]`. Technical depth goes to `sales-engineer` as a sub-task if the team has one.
 
@@ -36,7 +36,7 @@ gap list at the top: the gap, the human, the day it is needed by.
 
 ## 5. Hand over
 
-Write `reports/YYYY-MM-DD-<deal>-proposal.md` (or `-rfp.md`), `hub files publish` it and attach it. Once the
+Write `reports/YYYY-MM-DD-<deal>-proposal.md` (or `-rfp.md`), `hub file publish` it and attach it. Once the
 owner fills the gaps and approves, request `hub approval request --kind send` with the final file and
 recipient. Add each newly approved answer to `knowledge/library/` with its owner and date.
 `hub task update <id> --status done --note`: counts reused, adapted, new; open gaps and owners.

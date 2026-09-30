@@ -108,13 +108,13 @@ def test_send_to_hands_the_meeting_to_a_bot_the_person_may_use_and_a_routine_hea
 def test_the_mcp_tool_and_the_cli_file_a_meeting_the_same_way(api, tmp_path):
     from backend.tests.test_mcp import call
     from clients import hubtools
-    err, made = call(api, "hub_meetings_import", {"title": "From a tool", "transcript": TEXT, "source": "zoom", "external_id": "m-1"})
+    err, made = call(api, "hub_meeting_import", {"title": "From a tool", "transcript": TEXT, "source": "zoom", "external_id": "m-1"})
     assert not err and made["turns"] == 2 and made["link"].startswith("#/meetings?meeting=")
-    err, again = call(api, "hub_meetings_import", {"title": "From a tool", "transcript": TEXT, "source": "zoom", "external_id": "m-1"})
+    err, again = call(api, "hub_meeting_import", {"title": "From a tool", "transcript": TEXT, "source": "zoom", "external_id": "m-1"})
     assert again["id"] == made["id"] and again["changed"] is False
-    err, found = call(api, "hub_meetings_search", {"q": "annual plan"})
+    err, found = call(api, "hub_meeting_search", {"q": "annual plan"})
     assert [r["id"] for r in found["results"]] == [made["id"]]
-    # `hub meetings import <file>` reads the file itself: the name is the title, --date takes this
+    # `hub meeting import <file>` reads the file itself: the name is the title, --date takes this
     # Mac's zone, and a format is only sent when it was chosen.
     sent = []
     class Api:

@@ -9,7 +9,7 @@ for a human, not legal advice, and it is not in force until the owner adopts it.
 ## 1. Scope it
 
     hub task show <id>
-    hub docs search "<policy topic>"
+    hub doc search "<policy topic>"
 
 Write down: who it applies to, what it covers and does not, which laws or customer contracts require it (from
 `knowledge/obligations.md`; "not checked" where you have not), and who will own it after adoption. Read the
@@ -28,7 +28,7 @@ Under `## Open questions`: the decisions, and whether counsel should review befo
 
 ## 4. Hand over
 
-Save `reports/policies/<name>-draft.md`, `hub files publish` it, and put it on the task with the one line:
+Save `reports/policies/<name>-draft.md`, `hub file publish` it, and put it on the task with the one line:
 "Draft for a human, not legal advice. Adopt it here, and I will hand it to the Librarian to publish." Add it to
 `knowledge/policies.md` as "draft". Only after the owner adopts it on the task: `hub task create --owner librarian
 --title "Publish the <name> policy" --body "<path, adopted by, date>"`.

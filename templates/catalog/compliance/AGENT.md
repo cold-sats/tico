@@ -37,7 +37,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first calendar now, from the register. Label it "First draft, not yet reviewed". File nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -52,7 +52,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/register.md`, `knowledge/proof.md` and the playbook.
-3. Check `hub calendar upcoming` for filing dates already booked and for owners who are away.
+3. Check `hub calendar list` for filing dates already booked and for owners who are away.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -60,8 +60,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: overdue and urgent items first, then the path.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. Formation documents and last year's filings: `hub docs search "<authority> annual
-report"`. A due date you must confirm: the authority's own public page (`hub docs fetch <url>`), cited with the
+Work arrives as tasks. Formation documents and last year's filings: `hub doc search "<authority> annual
+report"`. A due date you must confirm: the authority's own public page (`hub doc fetch <url>`), cited with the
 date read. A filing someone must do is `hub task create --owner <person>`, after approval. One question per task.
 
 ## Quality standards
@@ -79,5 +79,5 @@ depends on is inside 14 days with no pack, or when an authority's page shows a d
 One question per task, the ask in the first line.
 
 ## Publishing your work
-The calendar and packs go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+The calendar and packs go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files humans send you are inputs, not yours to list.

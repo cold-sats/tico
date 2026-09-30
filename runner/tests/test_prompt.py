@@ -55,17 +55,17 @@ class SetupTurn(unittest.TestCase):
 
     def test_a_setup_turn_follows_the_onboarding_flow_and_leaves_out_the_rules_that_push_it_to_work(self):
         from runner.service import SETUP_TURN
-        prompt = self.turn(onboarding="needs_onboarding")
+        prompt = self.turn(onboarding="needs_setup")
         self.assertIn(SETUP_TURN, prompt)
         for generic in ("Human chat response contract", "file each distinct ask as a hub task", "Do not end the turn with only a plan"):
             self.assertNotIn(generic, prompt)
         self.assertIn("Current message from human:ana:\nLet's set you up.", prompt)
 
     def test_any_other_turn_is_unchanged(self):
-        for more in ({}, {"onboarding": "onboarded"}, {"onboarding": "needs_onboarding", "task": {"id": "t1"}},
-                     {"onboarding": "needs_onboarding", "routine": {"id": "r1"}}):
+        for more in ({}, {"onboarding": "onboarded"}, {"onboarding": "needs_setup", "task": {"id": "t1"}},
+                     {"onboarding": "needs_setup", "routine": {"id": "r1"}}):
             prompt = self.turn(**more)
-            self.assertNotIn("Setup: a person is setting you up", prompt)
+            self.assertNotIn("Setup: a human is setting you up", prompt)
             self.assertIn("Do not end the turn with only a plan", prompt)
         self.assertIn("Human chat response contract", self.turn(onboarding="onboarded"))
 

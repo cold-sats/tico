@@ -9,8 +9,8 @@ task, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "partner agreement"
-    hub meetings search "partner"
+    hub doc search "partner agreement"
+    hub meeting search "partner"
 
 Check which agreements are in the team docs, whether a CRM is in your access, and which partners
 appear in recent calls. Do not ask what these already say.
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

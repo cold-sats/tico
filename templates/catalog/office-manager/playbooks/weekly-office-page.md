@@ -10,7 +10,7 @@ ready for approval. Nothing is ordered or booked.
 
 Read `knowledge/requests.md` and new tasks since last Monday. For each open request: age in days,
 fixer, promised date, and whether the promise has passed. A request past its promise gets a chase
-prepared for the fixer (internal: `hub notice`; external: a message for approval). Anything unsafe goes
+prepared for the fixer (internal: `hub message send --fyi`; external: a message for approval). Anything unsafe goes
 first, whatever its age.
 
 ## 2. Supplies
@@ -22,7 +22,7 @@ one order each, with the price last seen and its date.
 
 ## 3. Visitors and events
 
-`hub calendar upcoming` for the next 7 days. For each visitor or office event: host, time, room,
+`hub calendar list` for the next 7 days. For each visitor or office event: host, time, room,
 whether the host checklist in `knowledge/visitors.md` is done (reception told, room booked, Wi-Fi
 guest details ready, catering if any). Missing items are named with the host.
 
@@ -34,5 +34,5 @@ lease dates inside 60 days.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-office.md` in the shape of `knowledge/examples/office-page.md` and
-`hub files publish` it. Put each order on the task with `hub approval request --kind spend`. Commit,
+`hub file publish` it. Put each order on the task with `hub approval request --kind spend`. Commit,
 then `hub task update <id> --status done --note` with the headline.

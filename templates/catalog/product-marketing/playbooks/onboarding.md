@@ -10,7 +10,7 @@ the first routine confirmed.
 
     hub task show <id>
     hub market show
-    hub goals --all
+    hub goal list --all
 
 Read the team's public product page and what the market graph says about competitors. Do not
 ask what these already say. If there is no market page, that is part of answer two.
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

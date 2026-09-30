@@ -8,8 +8,8 @@ and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub goals --all
-    hub org
+    hub goal list --all
+    hub team show
     hub task list --status open --status doing --status waiting
 
 Do not ask what these already say. If there are no goals at all, say so, and in step 4 propose three
@@ -61,7 +61,7 @@ different schedule or to leave it off, adjust `knowledge/rhythm.md` and the rout
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

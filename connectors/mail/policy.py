@@ -550,13 +550,19 @@ def approval_issue(number, recipients=(), thread_id="", repo=HUB_REPO):
 # ---------------------------------------------------------------- outbound_send
 
 def outbound_send(slug, manifest=None):
-    """`outbound_send:` from emp-<slug>/employee.yaml. The owner is the human; always true."""
+    """`outbound_send:` from <bot-slug>/bot.yaml. The owner is the human; always true."""
     if str(slug).strip().lower() == OWNER:
         return True
     if manifest is None:
         from . import access                            # noqa: PLC0415 - avoids a cycle
         manifest = access.load(slug)
     return bool((manifest or {}).get("outbound_send", False))
+
+
+def _where(slug):
+    """`bot-<slug>/bot.yaml` (or an older bot's `emp-<slug>/employee.yaml`), as a message names the manifest."""
+    from . import access                                # noqa: PLC0415 - avoids a cycle
+    return access.where(slug)
 
 
 # ---------------------------------------------------------------- the draft gate
@@ -651,10 +657,10 @@ def check_send(pol, slug, mailbox, to, cc=(), attachments=0, thread_id="",
 
     if not outbound_send(slug, manifest):
         if full:
-            ok("outbound_send", f"false in emp-{slug}/employee.yaml, lifted for this message "
+            ok("outbound_send", f"false in {_where(slug)}, lifted for this message "
                                 f"by {appr['detail']}")
         else:
-            return no("outbound_send", f"outbound_send is false in emp-{slug}/employee.yaml"
+            return no("outbound_send", f"outbound_send is false in {_where(slug)}"
                       + ("; --approval-issue lifts it for a matching GitHub Issue, a Tico "
                          "send approval, or the owner's message telling this employee to send"
                          + (f". {appr['detail']}" if appr and appr.get("detail") else "")

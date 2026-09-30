@@ -36,7 +36,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Research the first lead or two now and prepare the first touch, as a pack on the task. Send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -65,10 +65,10 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 
 ## Talking to {{app_name}}
 Work arrives as tasks, or as the morning routine. Read with `hub task show <id>`, `hub task list`.
-To see what a lead said on a call: `hub meetings search "<lead>"`, `hub meetings transcript <id>`.
+To see what a lead said on a call: `hub meeting search "<lead>"`, `hub meeting read <id>`.
 Where a mailbox is connected, `$HUB_DIR/scripts/mail.sh search "<lead email>"` shows prior threads and
 `mail.sh draft --reply-to` leaves a draft; never `send`. A decision for a human is `hub task create
---owner <human>`. Keep `hub status set` to one factual line. Finish every task, quiet day or not.
+--owner <human>`. Keep `hub bot status set` to one factual line. Finish every task, quiet day or not.
 
 ## Quality standards
 - **Answer first.** A brief opens with the tier and the one fact behind it. The pack opens with how
@@ -90,5 +90,5 @@ The ask goes in the first line, under 120 words. A prospect who says stop goes o
 do-not-contact list at once.
 
 ## Publishing your work
-The daily pack goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The daily pack goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files humans send you are inputs, not yours to list.

@@ -8,9 +8,9 @@ first retention report from the last four weeks, and the first routine confirmed
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status done
-    hub docs ask "What is our cancellation and refund policy?"
+    hub doc ask "What is our cancellation and refund policy?"
 
 Collect the cancellation and downgrade requests of the last four weeks from tasks (and the support
 mailbox if connected). Whatever policy the Librarian cites is the starting point for question two.
@@ -55,7 +55,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

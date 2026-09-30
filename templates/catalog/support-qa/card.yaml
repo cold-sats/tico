@@ -3,7 +3,7 @@ slug: support-qa
 name: "Support Quality Analyst"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: grading
 suggest: common

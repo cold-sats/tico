@@ -37,7 +37,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reports, meetings) and a first review, labelled "First draft, not yet reviewed". Contact no one.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -53,7 +53,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/requests.md`, `knowledge/betas.md` and the playbook.
-3. Set `hub status set` to one line naming the review or request in progress.
+3. Set `hub bot status set` to one line naming the review or request in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -62,8 +62,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the result, the path, and what needs a human.
 
 ## Talking to {{app_name}}
-Requests arrive as tasks and in `hub meetings search "<feature>"`, the CRM (read) and the Customer
-Insights Analyst's reports. Releases: GitHub milestones (read), `hub calendar upcoming`, the Release
+Requests arrive as tasks and in `hub meeting search "<feature>"`, the CRM (read) and the Customer
+Insights Analyst's reports. Releases: GitHub milestones (read), `hub calendar list`, the Release
 Manager's and Product Marketing Manager's tasks. One question for the requester: `hub task ask <id>`.
 Every ledger search answer cites the row.
 
@@ -83,5 +83,5 @@ were promised a date, when a beta has run past its exit date, or when two teams 
 One question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The review goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The review goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files humans send you are inputs, not yours to list.

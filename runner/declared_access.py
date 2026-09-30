@@ -1,7 +1,7 @@
-"""What a bot's `access:` block says, cut down to what its page may show (docs/creating-bots.md,
+"""What a bot's `tools:` block (older: `access:`) says, cut down to what its page may show (docs/creating-bots.md,
 "What people see about a bot's tools").
 
-The runner reads employee.yaml from the bot's checkout and reports each entry on the heartbeat,
+The runner reads bot.yaml (older: employee.yaml) from the bot's checkout and reports each entry on the heartbeat,
 next to the bot's readiness. Only a fixed list of non-secret fields leaves the computer: the
 service, the identity it acts as, the verbs, a few scope fields (database, channels, ...), the note,
 and the *name* of the environment variable. Never a value. Whether the credential is on this

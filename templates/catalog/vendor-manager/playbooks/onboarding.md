@@ -9,9 +9,9 @@ an owner proposed for every vendor, a first weekly page from it, and the first r
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "contract"
-    hub docs search "order form"
-    hub org
+    hub doc search "contract"
+    hub doc search "order form"
+    hub team show
 
 Note which contracts you can already read and who the likely owners are. Do not ask what these answer.
 
@@ -52,7 +52,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -8,8 +8,8 @@ finished. Budget 20 minutes. The outcome is five recorded answers, the survey pl
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
-    hub calendar upcoming
+    hub team show
+    hub calendar list
 
 Check the roster's start dates and whether the task carries a survey export. Do not ask what these already say.
 
@@ -48,7 +48,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

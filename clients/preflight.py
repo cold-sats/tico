@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Preflight: is an employee ready to be flipped from `planned` to `active`?
 
-Read-only. Checks the registry entry, the repo, employee.yaml, AGENT.md, the schedules (the
-seed `hub bot create` turns into the bot's first routines in the hub), the secrets the `access:`
-block declares, and the runtime binary. One line per check, prefixed PASS / WARN / FAIL, then a
+Read-only. Checks the registry entry, the repo, bot.yaml (older: employee.yaml), AGENT.md, the routines (the
+seed `hub bot create` turns into the bot's first routines in the hub), the secrets the `tools:`
+block (older: `access:`) declares, and the runtime binary. One line per check, prefixed PASS / WARN / FAIL, then a
 summary. Exit 1 if anything FAILed.
 
 Usage:
@@ -23,6 +23,7 @@ import yaml
 if __package__ in (None, ""):                          # run as a script: python clients/preflight.py
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from clients import registry as REG  # noqa: E402
+from clients.manifest import manifest_path, repo_dir, routines_of, tools_of  # noqa: E402
 from clients.routines import MAX_CONTENT, validate_schedules  # noqa: E402
 from runner.op import OP_REF, resolve_op_refs  # noqa: E402
 
@@ -84,21 +85,21 @@ def check_repo(r, d):
 
 
 def check_manifest(r, slug, d):
-    """employee.yaml parses and identifies this employee. Returns the parsed manifest or None."""
-    p = d / "employee.yaml"
+    """bot.yaml (older: employee.yaml) parses and identifies this employee. Returns the parsed manifest or None."""
+    p = manifest_path(d)
     if not p.exists():
-        r.fail("employee.yaml: missing")
+        r.fail(f"{p.name}: missing")
         return None
     try:
         m = yaml.safe_load(p.read_text()) or {}
     except yaml.YAMLError as e:
-        r.fail(f"employee.yaml: does not parse: {str(e).splitlines()[0][:120]}")
+        r.fail(f"{p.name}: does not parse: {str(e).splitlines()[0][:120]}")
         return None
-    r.ok("employee.yaml: parses")
+    r.ok(f"{p.name}: parses")
     if m.get("name") == slug:
-        r.ok(f"employee.yaml: name is {slug}")
+        r.ok(f"{p.name}: name is {slug}")
     else:
-        r.fail(f"employee.yaml: name is {m.get('name')!r}, expected {slug!r}")
+        r.fail(f"{p.name}: name is {m.get('name')!r}, expected {slug!r}")
     return m
 
 
@@ -131,11 +132,11 @@ def check_instructions(r, d):
 
 
 def check_schedules(r, d, m):
-    """The manifest's `schedules:`, validated as `hub bot create` validates them before seeding
+    """The manifest's `routines:` (older: `schedules:`), validated as `hub bot create` validates them before seeding
     the hub. Once a bot exists, its routines are the hub's rows, not this file (docs/routines.md)."""
-    scheds = m.get("schedules") or []
+    scheds = routines_of(m) or []
     if not scheds:
-        r.ok("schedules: none declared")
+        r.ok("routines: none declared")
         return
 
     def read_file(relative):
@@ -151,7 +152,7 @@ def check_schedules(r, d, m):
     try:
         rows = validate_schedules(scheds, read_file)
     except (ValueError, OSError, UnicodeError) as exc:
-        r.fail(f"schedules: `hub bot create` would refuse to seed these routines: {exc}")
+        r.fail(f"routines: `hub bot create` would refuse to seed these routines: {exc}")
         return
     for row in rows:
         where = row["title"]
@@ -188,19 +189,20 @@ def check_access(r, slug, m):
     own, shared = SECRETS / f"{slug}.env", SECRETS / "_shared.env"
     if own.exists():
         check_mode(r, own)
-    if not (m.get("access") or []):
-        r.ok("access: no connectors declared")
+    declared = tools_of(m) or []
+    if not declared:
+        r.ok("tools: no connectors declared")
         return
-    services = [a.get("service", "?") for a in m["access"] if isinstance(a, dict)]
-    r.ok(f"access: {len(services)} connector(s): {', '.join(services)}")
+    services = [a.get("service", "?") for a in declared if isinstance(a, dict)]
+    r.ok(f"tools: {len(services)} connector(s): {', '.join(services)}")
     # An inbox bot's identity arrives as {{mailbox}} and is filled from the `Mailbox:` line in the
     # reviewed instructions. Left in, it refuses at the first run instead of here.
-    for access in m["access"]:
+    for access in declared:
         if isinstance(access, dict) and "{{" in str(access.get("identity") or ""):
-            r.fail(f"access: {access.get('service', '?')} identity is still the template placeholder "
+            r.fail(f"tools: {access.get('service', '?')} identity is still the template placeholder "
                    f"{access['identity']!r}; fill it from the Mailbox: line in the instructions")
     if not keys:
-        r.ok("access: no secrets required")
+        r.ok("tools: no secrets required")
         return
     if shared.exists():
         check_mode(r, shared)
@@ -209,7 +211,7 @@ def check_access(r, slug, m):
         if p.exists():
             env.update({k: (v, p.name) for k, v in read_env_file(p).items()})
     checked_profiles = set()
-    for access in m.get("access") or []:
+    for access in declared:
         if not isinstance(access, dict) or not access.get("credential_profile") or not access.get("env"):
             continue
         profile = str(access["credential_profile"])
@@ -230,7 +232,7 @@ def check_access(r, slug, m):
     token = (env.get("OP_SERVICE_ACCOUNT_TOKEN", ("", None))[0] or "").strip()
     # `vault: hub` on an access entry: the value is granted in Settings -> Credentials and arrives
     # only during a run (docs/credential-vault.md), so there is nothing on disk to check here.
-    hub_keys = {str(a["env"]) for a in m["access"]
+    hub_keys = {str(a["env"]) for a in declared
                 if isinstance(a, dict) and a.get("env") and a.get("vault") == "hub"}
     for k in keys:
         v, where = env.get(k, ("", None))
@@ -256,9 +258,9 @@ _mail_tests = None                           # the unit suite runs once per pref
 
 
 def gmail_identities(m):
-    """Every gmail identity this employee declares, from its access: block."""
+    """Every gmail identity this employee declares, from its tools: block (older: access:)."""
     out = []
-    for a in (m.get("access") or []):
+    for a in (tools_of(m) or []):
         if isinstance(a, dict) and str(a.get("service", "")).lower() == "gmail":
             addr = str(a.get("identity") or "").strip()
             if addr and addr not in out:
@@ -398,7 +400,7 @@ def preflight(slug, defaults, entries):
         print(f"-- {slug}: NOT READY (1 fail)")
         return r
     r.ok(f"registry: entry found, status={entry.get('status')} reports_to={entry.get('reports_to')}")
-    d = REG.ROOT / f"emp-{slug}"
+    d = repo_dir(REG.ROOT, slug)
     if check_repo(r, d):
         m = check_manifest(r, slug, d)
         check_instructions(r, d)

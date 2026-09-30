@@ -189,7 +189,7 @@ function renderSettingsMachines() {
     if (!box) return;
     box.disabled = true;
     try {
-      await post(`/v2/runners/${encodeURIComponent(box.dataset.memberBots)}/member-bots`, {accepts: box.checked});
+      await post(`/v2/computers/${encodeURIComponent(box.dataset.memberBots)}/member-bots`, {accepts: box.checked});
       toast(box.checked ? 'Humans\' bots may now go on this computer' : 'Humans\' bots no longer go on this computer');
       await loadSettings();
     } catch (error) { toast(error.message, true); box.checked = !box.checked; box.disabled = false; }
@@ -199,7 +199,7 @@ function renderSettingsMachines() {
     if (!button || button.disabled) return;
     button.disabled = true;
     try {
-      await post(`/v2/runners/${encodeURIComponent(button.dataset.runner)}/harness-actions`, {harness: button.dataset.harness, action: button.dataset.harnessAction});
+      await post(`/v2/computers/${encodeURIComponent(button.dataset.runner)}/harness-actions`, {harness: button.dataset.harness, action: button.dataset.harnessAction});
       toast(button.dataset.harnessAction === 'update' ? 'Update requested; the computer applies it when no run is using it' : 'Saved');
       await loadSettings();
     } catch (error) { toast(error.message, true); button.disabled = false; }

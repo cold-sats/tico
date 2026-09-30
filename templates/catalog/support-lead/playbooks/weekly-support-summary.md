@@ -9,14 +9,14 @@ support owner, drafted, sent to nobody else.
 ## 1. Fix the window and read the targets
 
 The window is the last seven full days, and the week before it for comparison. Read `knowledge/targets.md`
-and `knowledge/decisions-needed.md`. Set `hub status set` to one line naming the summary.
+and `knowledge/decisions-needed.md`. Set `hub bot status set` to one line naming the summary.
 
 ## 2. Gather, from the record
 
     hub task list --owner <support bot> --status open
     hub task list --owner <support bot> --status waiting
-    hub updates --kind weekly --bot <support bot> --limit 2
-    hub files list
+    hub update list --kind weekly --bot <support bot> --limit 2
+    hub file list
 
 Read each support bot's latest published report: queue digests, QA review, escalations, onboarding board, retention and returns reports, feedback
 report. Where the support mailbox is connected, count arrivals and first replies with
@@ -48,7 +48,7 @@ Write `reports/YYYY-MM-DD-support-summary.md` in the shape of `knowledge/example
 headline, decisions needed, the numbers against target, the oldest waiting, repeats, coverage, routing
 proposals, what you could not read, sources. Then:
 
-    hub files publish reports/YYYY-MM-DD-support-summary.md
+    hub file publish reports/YYYY-MM-DD-support-summary.md
 
 ## 6. Finish
 

@@ -39,7 +39,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -56,7 +56,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/eligibility.md`, `knowledge/change-log.md` and the playbook.
-3. Read who joined, leaves or changed: `hub org` and the open people tasks.
+3. Read who joined, leaves or changed: `hub team show` and the open people tasks.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -65,8 +65,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the result first, then what you could not read.
 
 ## Talking to {{app_name}}
-Plan documents come through the Librarian: `hub docs ask "<question>"`, then `hub docs read <path>` for
-the page it cites. The roster is `hub org`. A change a human must submit is
+Plan documents come through the Librarian: `hub doc ask "<question>"`, then `hub doc read <path>` for
+the page it cites. The roster is `hub team show`. A change a human must submit is
 `hub task create --owner <person>` with what the provider needs, after approval. A question for the
 requester is `hub task ask <id>`, one per task.
 
@@ -86,6 +86,6 @@ contradicts what employees were told, or when a joiner's eligibility date is unc
 coverage question to the broker contact the same day. One question per task, the ask in the first line.
 
 ## Publishing your work
-The weekly page goes to `reports/` and is listed with `hub files publish reports/<name>.md --scope task
+The weekly page goes to `reports/` and is listed with `hub file publish reports/<name>.md --scope task
 --task <id>`. Plan comparisons meant for everyone are published only after approval. Files humans send
 you are inputs, not yours to list.

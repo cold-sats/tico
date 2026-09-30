@@ -21,7 +21,7 @@ step. Compare with last week's summary to find what entered, moved, closed and s
 
 ## 3. Read what the team produced
 
-`hub updates --kind weekly` and `hub task list` for each sales bot in `knowledge/team.md`, plus the
+`hub update list --kind weekly` and `hub task list` for each sales bot in `knowledge/team.md`, plus the
 newest file in its `reports/`. Count drafts made, leads researched, proposals started, renewals
 flagged. List tasks waiting more than 5 days on a human or on a missing input.
 
@@ -29,7 +29,7 @@ flagged. List tasks waiting more than 5 days on a human or on a missing input.
 
 From `sales-ops`' latest report: commit, best case and pipeline for the period, and the deals it flagged
 (commit without evidence, closing this period but still pipeline). Put the gap to the period's target, if
-`hub goals` shows one, in one line. Pick the deals to inspect on the forecast call: at most five.
+`hub goal list` shows one, in one line. Pick the deals to inspect on the forecast call: at most five.
 
 ## 4. Choose the priority deals
 
@@ -51,7 +51,7 @@ note it under Hiring and follow `playbooks/propose-a-hire.md`.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-sales-summary.md` in the shape of `knowledge/examples/sales-summary.md`, then
-`hub files publish reports/YYYY-MM-DD-sales-summary.md`. Commit, and `hub task update <id> --status done
+`hub file publish reports/YYYY-MM-DD-sales-summary.md`. Commit, and `hub task update <id> --status done
 --note`: the headline, the path, which sources you could not read. Always finish the task.
 
 ## When a source fails

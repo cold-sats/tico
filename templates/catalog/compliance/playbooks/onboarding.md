@@ -8,10 +8,10 @@ finished. Budget 30 minutes. The outcome is five recorded answers, an obligation
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "annual report"
-    hub docs search "licence"
-    hub docs search "insurance"
-    hub calendar upcoming
+    hub doc search "annual report"
+    hub doc search "licence"
+    hub doc search "insurance"
+    hub calendar list
 
 Formation documents, licences and past filings often already sit in the docs; read them before you ask.
 If they name the registered states or the licences, question one or two becomes "is this complete?".
@@ -57,7 +57,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

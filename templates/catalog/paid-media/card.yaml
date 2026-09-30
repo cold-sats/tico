@@ -3,7 +3,7 @@ slug: paid-media
 name: Paid Media Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: ads_click
 suggest: common

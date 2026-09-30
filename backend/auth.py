@@ -114,7 +114,7 @@ def _own_ask_to_a_person(who, row):
 
     A turn is granted the conversations its attempt was handed, which for a scheduled routine is
     that routine's task and nothing else. So a routine had no way to ask a person anything --
-    `hub ask ben` came back "outside the current execution context" -- and the bots that run
+    `hub question ask ben` came back "outside the current execution context" -- and the bots that run
     entirely on routines fell back to `hub task create --owner ben`. That put questions on a
     person's task list in a shape nobody wanted, and made them clear the human-item lint first:
     a bot could spend several attempts getting one title past it, to file something

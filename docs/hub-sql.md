@@ -105,7 +105,7 @@ Timestamps are ISO-8601 UTC text (`2026-09-15T21:40:12.931675Z`); compare them w
 | `meeting_comments` | `id, meeting_id, author, text, at_ms, created` | the thread beside a meeting: anyone who can open it can add to it ([Meetings](meetings.md)). Visible exactly where its meeting is |
 | `import_refs` | `source, external_id, meeting_id, runner_id, created` | which outside record a meeting was imported from — one row per Close call imported before the transcript-only worker ([Meetings](meetings.md), Close). Visible exactly where its meeting is |
 | `documents` | `id, visibility, collection, payload_json, updated` | the team docs mirror |
-| `learnings` | `id, integration, actor, text, created, deleted_at` | what bots and humans learned about a tool (`integrations/`, `hub learn`) |
+| `learnings` | `id, integration, actor, text, created, deleted_at` | what bots and humans learned about a tool (`integrations/`, `hub tool learn`) |
 
 `sqlite_master` lists the rest (`SELECT name, sql FROM sqlite_master WHERE type='table'`).
 

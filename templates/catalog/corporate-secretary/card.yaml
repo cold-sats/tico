@@ -3,7 +3,7 @@ slug: corporate-secretary
 name: "Corporate Secretary"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: history_edu
 suggest: niche

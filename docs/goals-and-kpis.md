@@ -89,7 +89,7 @@ Manager runs its status pass, and once an hour, because data goes stale as time 
 
 A colour a human sets (`hub goal status`, or the colour control on the Goals page) is theirs. It carries their name and
 their one-sentence note ("set by Ana"), and it **stays until a human hands it back**: **Let Goal Manager set it**
-(`hub goal auto`, `POST /api/v2/goals/{id}/status/auto`) ends the override and the colour is worked out at once.
+(`hub goal status <id> auto`, `POST /api/v2/goals/{id}/status/auto`) ends the override and the colour is worked out at once.
 
 While a goal is overridden the Goal Manager may *suggest* a different colour. The suggestion is shown on the goal and never
 applied. Done and dropped are always set by a human.
@@ -187,15 +187,15 @@ waiting for your confirmation. The page is two requests, the tree and Needs you.
 ## `hub` and the API
 
 ```
-hub goals [--owner X] [--all]              hub kpi list [--goal ID] [--owner X] [--unlinked] [--bot SLUG]
+hub goal list [--owner X] [--all]              hub kpi list [--goal ID] [--owner X] [--unlinked] [--bot SLUG]
 hub goal show <id>                         hub kpi show <id>
-hub goal create / update                   hub kpi add "<name>" [--goal ID] [--definition ..] [--unit ..]
+hub goal create / update                   hub kpi create "<name>" [--goal ID] [--definition ..] [--unit ..]
 hub goal status <id> <colour> "<why>"          [--direction ..] [--cadence ..] [--owner ..] [target flags]
-hub goal auto <id>                         hub kpi update <id> [fields]
+hub goal status <id> auto                         hub kpi update <id> [fields]
 hub goal refresh                           hub kpi link <goal> <kpi> [target flags]  |  hub kpi unlink <goal> <kpi>
 hub goal checkin <id> "<words>"            hub kpi log <kpi> <value> ["<note>"] [--period-end D] [--evidence ..]
-hub goal checkins <id>                         [--quality ..] [--supersedes READING]
-hub goal needs-you                         hub kpi readings <kpi> [--effective]
+hub goal checkin-list <id>                         [--quality ..] [--supersedes READING]
+hub goal needs-you                         hub kpi show <kpi> [--effective]
 hub proposal create | list | decide
 ```
 
@@ -218,7 +218,7 @@ The stable v2 routes are in [openapi/v2.json](openapi/v2.json):
 | `GET/POST /api/v2/kpis`, `GET/POST /api/v2/kpis/{id}` | list, create, read (with its links, readings, definition history and check-ins) and edit |
 | `GET/POST /api/v2/kpis/{id}/readings` | the readings (`?effective=true` leaves out corrected ones); post one |
 | `GET /api/v2/bots/{bot}/kpis` | a bot's automatic KPIs |
-| `GET/POST /api/v2/goal-proposals`, `POST .../{id}/decide` | list, propose, confirm or reject |
+| `GET/POST /api/v2/proposals`, `POST .../{id}/decide` | list, propose, confirm or reject |
 
 A goal's KPI on any of these answers has `latest`, `freshness`, `spark`, and, under a goal, `link`, `target_label`, `status`
 (`green`, `yellow`, `red`, `gray` or `none`) and `reason`.

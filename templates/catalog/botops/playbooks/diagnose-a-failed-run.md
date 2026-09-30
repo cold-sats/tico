@@ -10,7 +10,7 @@ either the smallest fix or a clear statement of what a human has to do.
 
     hub task show <id>
     hub task list --owner <slug>
-    hub status list
+    hub bot status list
 
 Read the failed run's own task and its conversation before anything else. Most reports of "it did
 not run" are one of four things, and they look nothing alike once you have the record:
@@ -29,7 +29,7 @@ Never write that a run happened if it is not in the record. Absence of a record 
     hub bot check <slug>
 
 This tells you whether the repository is in a state Tico will accept: instructions present
-and not the untouched template, a non-empty `## Owns`, `state.md` present, `employee.yaml` parsing
+and not the untouched template, a non-empty `## Owns`, `state.md` present, `bot.yaml` parsing
 with the right name, schedules Tico would accept, declared credentials resolving, and the
 runtime available. Read every failure line literally. A failing check explains most "it did not
 run" reports on its own.
@@ -78,5 +78,5 @@ computer". Put that on the task and finish it.
 
 ## Evidence for the task
 Publish the write-up a human should read instead of pasting it into the note:
-`hub files publish reports/<date>-<bot>-diagnosis.md`, and put the file's title in the task note. A
-Google Doc you made for it goes on the page with `hub files add-link <url> --title "..."`.
+`hub file publish reports/<date>-<bot>-diagnosis.md`, and put the file's title in the task note. A
+Google Doc you made for it goes on the page with `hub file link <url> --title "..."`.

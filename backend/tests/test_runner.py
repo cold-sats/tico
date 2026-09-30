@@ -62,7 +62,7 @@ def test_full_http_runner_roundtrip_and_one_provider_session_per_bot(api, live, 
     assert "do not substitute the standing backlog" in prompt
     assert "Never call work blocked until you verify" in prompt
     assert "never repeat an item that current state shows is done" in prompt
-    assert "run `hub fleet`" in prompt
+    assert "run `hub health check`" in prompt
     # The assistant's private-room lines and house style are its own, not every bot's.
     assert "privately assisting" not in prompt and "House chat style" not in prompt
     ben = Client(live, "ben-test")

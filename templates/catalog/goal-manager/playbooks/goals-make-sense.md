@@ -1,6 +1,6 @@
 # Goals make sense
 
-Run this weekly before the review, and when asked. Read `hub goals --all` and `hub proposal list`.
+Run this weekly before the review, and when asked. Read `hub goal list --all` and `hub proposal list`.
 
 For each live goal:
 - **Vague**: no way to tell whether it happened ("improve the customer experience"). Propose clearer words

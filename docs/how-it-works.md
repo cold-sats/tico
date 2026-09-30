@@ -26,7 +26,7 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
   supports (`parent_id`, optional) and a colour with a one-line note. The colour is set automatically
   from the goal's KPIs (or its owner's check-ins and tasks) by the built-in **Goal Manager**; a human
   may override it, and it stays theirs until they hand it back. `done` or `dropped` when it ends. A task
-  may name the goal it serves. Bots read theirs with `hub goals`; nothing is pushed into a run.
+  may name the goal it serves. Bots read theirs with `hub goal list`; nothing is pushed into a run.
 - **KPI** — a measure that stands on its own: a name, definition, unit, direction, cadence and one owner.
   A goal links to zero or more KPIs and the target lives on the link (an improvement by a deadline, or a
   range to stay inside). Readings are facts with a period, evidence and a quality; they are never edited,
@@ -100,12 +100,12 @@ over HTTP can also `POST /api/v2/mcp` with a bearer token. Either way every call
 the same routes and `backend/hubdb.py` rules; there is no privileged path.
 
 Calendar appointments are three shared Tico tools available to every bot:
-`hub_calendar_upcoming`, `hub_calendar_schedule`, and `hub_calendar_status`. Reads come from the
+`hub_calendar_list`, `hub_calendar_schedule`, and `hub_calendar_status`. Reads come from the
 bounded calendar snapshot. A schedule call writes an idempotent Tico action; the private calendar tool
 claims it once, creates the Google event and invitations locally, and reports the result. Bots must
 see `succeeded` before saying the appointment exists. This path grants no generic Gmail authority.
 
-One of those tools is a second model, the decision model. `hub_decisions` (`hub decisions`) sends a JSON state and typed
+One of those tools is a second model, the decision model. `hub_decision_ask` (`hub decision ask`) sends a JSON state and typed
 questions to the decision model, and gets a calibrated answer per question back:
 a choice with a confidence, a score on ordered levels, or the probability a statement is true (yes/no, choice and score: the question format of OpenRouter's Decisions API).
 It writes no prose, so a bot uses it to decide (sort a listing, dedupe, route, gate a draft) and
@@ -204,7 +204,7 @@ routines resume it in the same local `emp-<slug>` checkout, and only that Mac kn
 it is. Tico never ends a thread, never asks the bot for a checkpoint before a model or computer
 change, and never rebuilds history into a prompt: when the conversation fills the model's window
 the runtime compacts it, and a run carries only what the room said since the bot last answered.
-A bot that wants what was said before reads it with `hub history <conversation id>` (the prompt
+A bot that wants what was said before reads it with `hub conversation show <conversation id>` (the prompt
 names the conversation). The runner fast-forwards the checkout from origin before the run, and
 pulls or clones any `reads:` sibling repos beside it.
 
@@ -217,7 +217,7 @@ another column, or between lanes; everyone else sees the board and comments.
 
 **A bot finishes.** It commits its repository, marks the task `done` with a note, and the reply is
 saved in the conversation. The task shows under **Tasks → Done** with the bot's note; a bot that
-requested it gets a *Finished: <title>* message (`/api/v2/inbox`) and closes the task (a
+requested it gets a *Finished: <title>* message (`/api/v2/messages?unread=1`) and closes the task (a
 bot-requested task closes itself after three days). Every run is listed under **Runs** and on
 the bot's **More** tab.
 
@@ -262,8 +262,8 @@ made or revoked is an `events` row (`token.create`, `token.revoke`).
 | `runner/` | the local runner: enrolment, readiness, leases, runs, connectors, Close call import |
 | `clients/` | what bots and the runner call: the `hub` CLI, the HTTP client, attachment download, routine validation, preflight, the docs read and write commands |
 | `connectors/` | shared Slack, mail/calendar and browser adapters bots use instead of vendor APIs |
-| `integrations/` | one page per outside system (what it is, how a bot uses it, rules, recipes) and the query lists; served as **Tools** and `hub integration <service>`, with the learnings bots add |
-| `questions/` | the question sets the decision model answers (`hub_decisions`, `hub decisions`, `mail inbox --decisions`, the meeting brain): one versioned JSON file per decision, with its thresholds |
+| `integrations/` | one page per outside system (what it is, how a bot uses it, rules, recipes) and the query lists; served as **Tools** and `hub tool show <service>`, with the learnings bots add |
+| `questions/` | the question sets the decision model answers (`hub_decision_ask`, `hub decision ask`, `mail inbox --decisions`, the meeting brain): one versioned JSON file per decision, with its thresholds |
 | `ui/` | the web interface (`index.html`, `app/` scripts, `styles/`, feature scripts, browser tests; see `ui/README.md`) |
 | `app/` | the native macOS shell around hub.acme.example |
 | `infra/` | the EC2 stack, release packaging, deploy and restore scripts |

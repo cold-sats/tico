@@ -56,7 +56,7 @@ something different, adjust the graph and the routines to match (`hub routine up
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routines run; until then nothing you have runs on its own. Run it once the answers and the first

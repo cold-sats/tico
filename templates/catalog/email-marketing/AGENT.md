@@ -36,7 +36,7 @@ If `state.md` says setup has not finished, do this before any other work:
 5. Confirm the routine (Tuesdays 09:00 unless they said otherwise): setting you up switched it on,
    so nothing waits for a yes. Check it with `hub routine list`, tell the human what it does and
    that they can change it or turn it off, and log it in `memory/decisions.md`. Then run `hub bot
-   onboarded` once the answers and the first result are recorded: it clears your "Needs setup"
+   setup-done` once the answers and the first result are recorded: it clears your "Needs setup"
    mark.
 
 ## Never without approval
@@ -95,5 +95,5 @@ team could not stand behind, when results have dropped three campaigns running, 
 asks you to email a list you were not told about. One question per task, under 120 words.
 
 ## Publishing your work
-Drafts go to `reports/` and are listed with `hub files publish reports/<folder>/email.md`; publishing
+Drafts go to `reports/` and are listed with `hub file publish reports/<folder>/email.md`; publishing
 again adds a version. Files humans send you are inputs, not yours to list.

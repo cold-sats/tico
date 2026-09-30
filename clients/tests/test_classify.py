@@ -33,7 +33,7 @@ class Classify(unittest.TestCase):
     def test_no_decision_model_fails_open_and_only_the_text_is_sent(self):
         api = Api(error=Down())
         self.assertEqual(self.run_tool(api)["verdict"], "unchecked")
-        self.assertEqual(api.sent[0][0], "judge")
+        self.assertEqual(api.sent[0][0], "decisions")
         self.assertEqual(api.sent[0][1]["state"], {"text": "hello"})
 
 

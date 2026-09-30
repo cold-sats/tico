@@ -9,9 +9,9 @@ and a cadence on every control, a first monthly page, and the first routine conf
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "security policy"
-    hub docs search "SOC 2"
-    hub org
+    hub doc search "security policy"
+    hub doc search "SOC 2"
+    hub team show
 
 Find the last audit report or readiness assessment, the policies and any evidence folder. What they
 already say is not asked again.
@@ -57,7 +57,7 @@ leave it off, adjust `knowledge/` and the routine to match (`hub routine update 
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

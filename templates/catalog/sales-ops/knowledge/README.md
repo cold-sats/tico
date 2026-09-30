@@ -4,7 +4,7 @@ This bot's own documentation of its domain. Not a report and not a log: the stan
 "what do we actually know about this?". Facts, how things work, who is who, what has been tried
 and what came of it. Every bot repository has this directory. It is the first thing a fresh
 session of this bot should read, and it is readable by any other bot that lists this repository
-under `reads:` in its own `employee.yaml`.
+under `reads:` in its own `bot.yaml`.
 
 It is built up run by run. Each run adds what it learned and corrects what turned out to be wrong,
 so the directory gets more useful the longer the bot runs. Nothing in here is private: assume a

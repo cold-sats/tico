@@ -3,7 +3,7 @@ slug: recruiting
 name: Recruiter
 required: false
 bootstrap: false
-department: hr
+group: hr
 pack: basics
 icon: person_add
 suggest: default

@@ -3,7 +3,7 @@ slug: privacy
 name: "Privacy Manager"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: shield_person
 suggest: common

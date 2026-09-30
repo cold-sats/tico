@@ -21,7 +21,7 @@ given.
 
 ## 3. Prepare the answers
 
-For each open question: find the answer in the docs (`hub docs search`, `hub docs ask`) and the code; write the
+For each open question: find the answer in the docs (`hub doc search`, `hub doc ask`) and the code; write the
 reply (the fix, one line of why, the doc link); run any code against the stated SDK version where you can,
 and say which version. Check it against `knowledge/do-not-say.md`. A question you cannot answer goes to the
 named engineer as a proposed task. Each ready reply becomes one `hub approval request --kind publish`.
@@ -40,5 +40,4 @@ language, how long it would take. Write it with `playbooks/write-a-sample.md` af
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-developer-pulse.md` in the shape of `knowledge/examples/developer-pulse.md`, `hub
-files publish` it, commit, then `hub task update <id> --status done --note`.
+Write `reports/YYYY-MM-DD-developer-pulse.md` in the shape of `knowledge/examples/developer-pulse.md`, `hub file publish` it, commit, then `hub task update <id> --status done --note`.

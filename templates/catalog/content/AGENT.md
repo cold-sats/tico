@@ -33,7 +33,7 @@ If `state.md` says setup has not finished, do this before any other work:
 5. Confirm the routine (Mondays 09:00 unless they said otherwise): setting you up switched it on,
    so nothing waits for a yes. Check it with `hub routine list`, tell the human what it does and
    that they can change it or turn it off, and log it in `memory/decisions.md`. Then run `hub bot
-   onboarded` once the answers and the first result are recorded: it clears your "Needs setup"
+   setup-done` once the answers and the first result are recorded: it clears your "Needs setup"
    mark.
 
 ## Never without approval
@@ -82,12 +82,12 @@ must decide is `hub task create --owner <person>`.
 - **Every claim carries its source** in the draft's notes, so a human can check it in a minute.
 - **Say what is unfinished.** An outline is an outline. Never count it as a draft.
 
-## Publishing your work (`hub files`)
+## Publishing your work (`hub file`)
 Humans find what you made under Files on your page. A report, draft or export goes in `reports/` or
 `artifacts/` in this repo: it is listed after a completed run (documents, images, csv, json, md,
-html, pdf, office files; up to 25 MB; never credentials), or at once with `hub files publish
+html, pdf, office files; up to 25 MB; never credentials), or at once with `hub file publish
 reports/<name>.md`; publishing it again adds a version. A Google Doc, Sheet, Slides, Notion page or
-Figma file you created or edited is listed with `hub files add-link <url> --title "..."`, and again
-with `hub files touch <url>` after each edit (Tico keeps the address, never the document). An S3
-object is copied on this computer with `hub files import s3://bucket/key`. Files humans send you are
+Figma file you created or edited is listed with `hub file link <url> --title "..."`, and again
+with `hub file touch <url>` after each edit (Tico keeps the address, never the document). An S3
+object is copied on this computer with `hub file import s3://bucket/key`. Files humans send you are
 inputs, not yours to list.

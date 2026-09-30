@@ -8,8 +8,8 @@ shared only after approval, and it never recommends a plan.
 
 ## 1. Read the plan documents
 
-    hub docs ask "What are the deductibles, premiums and out-of-pocket maximums for each plan in <year>?"
-    hub docs read <path>
+    hub doc ask "What are the deductibles, premiums and out-of-pocket maximums for each plan in <year>?"
+    hub doc read <path>
 
 Read each plan summary the Librarian cites, whole. Note the plan year and page for every figure. A
 figure you cannot find is a marked gap, never an estimate.

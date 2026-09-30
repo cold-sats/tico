@@ -11,7 +11,7 @@ reviews are due, and what is missing from the register. Nothing is sent, renewed
     hub task show <id>
     hub task list --status open --status waiting
 
-Read new tasks tagged with a vendor name, new contracts in `hub docs search "contract"` since last week,
+Read new tasks tagged with a vendor name, new contracts in `hub doc search "contract"` since last week,
 and, if a mailbox is connected, renewal notices and first invoices from unknown senders. A vendor paid
 but not in the register is added with "found via invoice <date>" and no owner.
 
@@ -35,7 +35,7 @@ file (ask `security-compliance` if it exists). One line each.
 
 `reports/YYYY-MM-DD-vendors.md` in the shape of `knowledge/examples/vendor-page.md`: headline, urgent,
 open renewals with a one-line call each (the full brief via `playbooks/renewal-brief.md` for any over
-the always-show amount), reviews due, gaps, register changes. Then `hub files publish` it.
+the always-show amount), reviews due, gaps, register changes. Then `hub file publish` it.
 
 ## 6. Finish
 

@@ -42,7 +42,7 @@ due this week (touch two on day 5, touch three on day 12) go up the same way.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-sourcing-slate.md` in the shape of `knowledge/examples/sourcing-slate.md`, then
-`hub files publish reports/YYYY-MM-DD-sourcing-slate.md --scope task --task <id>`. Commit, and
+`hub file publish reports/YYYY-MM-DD-sourcing-slate.md --scope task --task <id>`. Commit, and
 `hub task update <id> --status done --note`: profiles found, replies, yeses handed over, what you could not reach.
 
 ## When a source fails

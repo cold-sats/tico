@@ -4,13 +4,13 @@ A check-in is the goal owner's own words about what is going on. Readings are fa
 interpretation. Keep them apart: never put an explanation in a reading's note, never make up an answer.
 
 When to ask: a goal turned yellow or red in the status pass, or a KPI on a goal is stale or missing for a second
-pass. Not when a check-in for that goal exists from the last 7 days (`hub goal checkins <id>`), and at most one
+pass. Not when a check-in for that goal exists from the last 7 days (`hub goal checkin-list <id>`), and at most one
 question per goal per week.
 
 1. `hub goal show <id>`: owner, KPIs, the reason line, recent check-ins.
 2. Ask the owner, a human or a bot, one question with the facts in it:
    "Activation is 52% against the 58% we need on pace this week (from 55% last week). What is going on?" Ask a
-   human with `hub task create --owner <person>` when it needs their answer; ask a bot with `hub ask <bot>`.
+   human with `hub task create --owner <person>` when it needs their answer; ask a bot with `hub question ask <bot>`.
    Do not suggest an answer and do not argue with the one you get.
 3. When the answer arrives, record it in their words:
    `hub goal checkin <goal-id> "<their words>" --signal on_track|at_risk|off_track --from <owner> [--kpi <id>]`.

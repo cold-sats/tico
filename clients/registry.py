@@ -1,10 +1,10 @@
 """The employee registry as the local tools read it: `registry/employees.yaml` merged with each
-repo's `employee.yaml`, and the small rules that hang off an entry.
+repo's `bot.yaml` (older: `employee.yaml`), and the small rules that hang off an entry.
 
   load_registry()                 -> (defaults, [entry, ...])    the raw file
   load_people()                   -> dict                        the raw registry/people.yaml
-  merge_employee(entry, defaults) -> dict                        defaults < entry < employee.yaml
-  declared_env_keys(emp)          -> [KEY, ...]                  what the `access:` block needs
+  merge_employee(entry, defaults) -> dict                        defaults < entry < bot.yaml
+  declared_env_keys(emp)          -> [KEY, ...]                  what the `tools:` block (older: `access:`) needs
   grok_model(emp), grok_effort(emp)                              what `runtime: grok` means
 
 The cloud keeps its own copy of every entry (`backend/settings_admin.py`); this module is for
@@ -15,6 +15,8 @@ import re
 from pathlib import Path
 
 import yaml
+
+from clients.manifest import manifest_path, repo_dir, tools_of
 
 HUB_DIR = Path(__file__).resolve().parents[1]
 # An environment keeps its own registry; TICO_REGISTRY_DIR names it (backend/config.py does the same).
@@ -42,19 +44,19 @@ def load_people(path=None):
 
 
 def merge_employee(entry, defaults, root=None):
-    """One employee as the tools see it: defaults < registry entry < the repo's employee.yaml."""
-    d = (root or ROOT) / f"emp-{entry['name']}"
+    """One employee as the tools see it: defaults < registry entry < the repo's bot.yaml (older: employee.yaml)."""
+    d = repo_dir(root or ROOT, entry["name"])
     m = {}
-    mp = d / "employee.yaml"
+    mp = manifest_path(d)
     if mp.exists():
         m = yaml.safe_load(mp.read_text()) or {}
     return {**defaults, **entry, **m, "dir": d}
 
 
 def declared_env_keys(emp):
-    """Secret names the employee's `access:` block says it needs, in order, deduped."""
+    """Secret names the employee's `tools:` block (older: `access:`) says it needs, in order, deduped."""
     keys = []
-    for a in emp.get("access") or []:
+    for a in tools_of(emp) or []:
         k = a.get("env") if isinstance(a, dict) else None
         if k and k not in keys:
             keys.append(str(k))

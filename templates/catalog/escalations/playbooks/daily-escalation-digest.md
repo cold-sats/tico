@@ -14,7 +14,7 @@ Read `knowledge/register.md`. Add new escalations from `hub task list` (anything
 ## 2. Read each open case
 
 For each case: the ticket thread (mail read or the task), the engineering issue (read only), calls
-(`hub meetings search "<customer>"`) and the case owner's notes. Append new facts to the case timeline
+(`hub meeting search "<customer>"`) and the case owner's notes. Append new facts to the case timeline
 with time and source.
 
 ## 3. Work out what is due
@@ -33,6 +33,6 @@ Name the recipient and the case owner who approves it.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-escalations.md` in the shape of `knowledge/examples/escalation-digest.md` and
-`hub files publish` it. Put each update on the task as its own item for approval. Tell an owner whose
-update is overdue with `hub say`. For closed cases, add the lesson to `knowledge/lessons.md`. Commit,
+`hub file publish` it. Put each update on the task as its own item for approval. Tell an owner whose
+update is overdue with `hub message send`. For closed cases, add the lesson to `knowledge/lessons.md`. Commit,
 and finish the task with the counts and the path.

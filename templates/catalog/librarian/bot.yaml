@@ -1,0 +1,31 @@
+name: librarian                  # the slug: it matches the repository bot-librarian and the label owner:librarian
+display_name: "Librarian"
+labels: [owner:librarian]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 45
+
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. The Librarian
+# sends nothing: it answers the human or bot that asked, and reads public links.
+outbound_send: false
+
+# The routines this bot starts with. The server seeds them once, when the Librarian is built in; from
+# then on Tico's rows are the routines and `hub routine set` changes them (docs/routines.md).
+routines:
+  - id: refresh-the-map
+    title: Refresh the map of the docs
+    cron: "30 3 * * *"
+    timezone: America/Los_Angeles     # set this to the team's own timezone
+    template: playbooks/refresh-the-map.md
+    labels: [priority:p3]
+
+# What this bot may touch. It reads the docs through `hub doc` and public links through `hub doc fetch`,
+# and needs no credential of its own. A GitHub token, if the team gives it one, lets it read private
+# repositories that are linked as docs; it is only ever sent to api.github.com. Web search is for the first
+# market map only (playbooks/market-setup.md): public facts in, public pages read, nothing written outside.
+tools:
+  - service: web-search
+    can: [use]
+    note: "finding competitors, channels and rules for the market setup; queries hold public facts only, never text from a doc"

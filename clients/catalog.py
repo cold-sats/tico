@@ -3,7 +3,7 @@
 A card (`templates/catalog/<template>/card.yaml`) says what a bot is for, what it owns, what it
 never does, and whether the runner may set it up itself (`bootstrap: true`, which is the
 assistant and BotOps, because BotOps cannot create itself). Everything else in the folder is the
-repository a new bot starts from — AGENT.md, employee.yaml, playbooks, knowledge, memory — with
+repository a new bot starts from — AGENT.md, bot.yaml, playbooks, knowledge, memory — with
 `{{company_name}}`, `{{app_name}}`, `{{assistant_name}}` and `{{bot_name}}` standing in for what
 this installation calls itself and this bot.
 
@@ -25,10 +25,12 @@ from pathlib import Path
 
 import yaml
 
+from clients.manifest import OLD_REPO_PREFIX, REPO_PREFIX, manifest_path, repo_dir
+
 ROOT = Path(__file__).resolve().parents[1]
 CARD = "card.yaml"
 # What a built-in bot (a `bootstrap: true` card) takes from the product on every update: its instructions and playbooks.
-# What the bot and its people write (knowledge, memory, state, reports, employee.yaml, playbooks of their own) stays theirs.
+# What the bot and its people write (knowledge, memory, state, reports, bot.yaml, playbooks of their own) stays theirs.
 STAMP = ".tico-template.json"
 PRODUCT_OWNED = ("AGENT.md", "playbooks", "skills")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -113,7 +115,7 @@ def apply_mailbox(target, instructions):
 
 
 def identify(text, slug, display_name):
-    """employee.yaml as this bot's own: the name is the slug the hub knows it by."""
+    """bot.yaml as this bot's own: the name is the slug the hub knows it by."""
     if re.search(r"^name:", text, re.M):
         text = re.sub(r"^name:.*$", "name: " + slug, text, count=1, flags=re.M)
     else:
@@ -157,7 +159,7 @@ def company_page(names, answers, today=None):
 
 def materialize(template, slug, workspace, names, answers, display_name=None, instructions=None,
                 directory=None):
-    """Copy one catalog template into `<workspace>/emp-<slug>` and commit it. Returns the path.
+    """Copy one catalog template into `<workspace>/bot-<slug>` and commit it. Returns the path.
 
     The names fill the placeholders, the onboarding answers become `knowledge/company.md`, and
     `instructions` — what the person wrote for this bot during onboarding — replaces AGENT.md
@@ -166,7 +168,10 @@ def materialize(template, slug, workspace, names, answers, display_name=None, in
     if not SLUG_RE.fullmatch(slug or ""):
         raise ValueError("A bot slug is lowercase letters, digits, and single hyphens")
     source = template_dir(template, directory)
-    target = Path(workspace).expanduser() / ("emp-" + slug)
+    target = Path(workspace).expanduser() / (REPO_PREFIX + slug)
+    # A bot made before `bot-<slug>` keeps its `emp-<slug>` folder, and is never overwritten by a second one.
+    if target.exists() or (Path(workspace).expanduser() / (OLD_REPO_PREFIX + slug)).exists():
+        target = repo_dir(workspace, slug)
     if target.exists():
         raise ValueError(f"{target} already exists; a bot repository is never overwritten")
     names, answers = dict(names or {}), dict(answers or {})
@@ -188,7 +193,7 @@ def materialize(template, slug, workspace, names, answers, display_name=None, in
         filled = fill(text, values)
         if filled != text:
             path.write_text(filled)
-    manifest = target / "employee.yaml"
+    manifest = manifest_path(target)
     if manifest.is_file():
         manifest.write_text(identify(manifest.read_text(), slug, values["bot_name"]))
     (target / "knowledge").mkdir(exist_ok=True)

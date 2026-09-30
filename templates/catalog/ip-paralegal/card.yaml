@@ -3,7 +3,7 @@ slug: ip-paralegal
 name: "IP Paralegal"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: copyright
 suggest: niche

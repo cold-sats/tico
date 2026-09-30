@@ -20,7 +20,7 @@ These sit alongside `handoffs.md` and `approvals.md`.
   `hub task update <id> --status done --note`. Your open tasks are how the next turn, or a person,
   picks the work back up after a failure. A one-line question you answer at once needs no task.
   There is no daily open-tasks run per bot: BotOps sweeps every bot's stuck
-  work once a day (`hub task stuck`) and starts or unblocks it.
+  work once a day (`hub task list --stuck`) and starts or unblocks it.
 - **Design and video come from their bots**. Any bot may ask for visual work
   (graphics, ad and social images, landing-page visuals, icons, brand assets) by filing a task
   for `designer` (Design), and for video (scripts, edits, cuts, captions, clips) by filing one for

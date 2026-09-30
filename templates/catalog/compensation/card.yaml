@@ -3,7 +3,7 @@ slug: compensation
 name: Compensation Analyst
 required: false
 bootstrap: false
-department: hr
+group: hr
 pack: basics
 icon: paid
 suggest: niche

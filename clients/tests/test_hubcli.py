@@ -17,11 +17,10 @@ from threading import Thread
 from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
-SUBCOMMANDS = ["whoami", "say", "ask", "answer", "notice", "note", "notes", "unnote", "files", "docs", "assistant", "task", "goals", "goal", "kpi", "proposal", "market", "listen", "intake", "history", "tools", "routine", "approval", "status", "turns",
-               "inbox", "ack", "board", "org", "fleet", "fleet-check", "update", "updates", "grokbot", "recent", "calendar", "sql", "db", "github", "integrations", "integration", "queries", "learn",
-               "classify", "decisions", "judge", "catalog", "bot", "people", "person", "api", "computers", "credential", "message", "support"]
-SUBCOMMANDS[SUBCOMMANDS.index("approval") + 1:SUBCOMMANDS.index("approval") + 1] = ["live", "batch"]
-SUBCOMMANDS[1:1] = ["context", "meetings"]
+SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "assistant", "task", "goal", "kpi",
+               "proposal", "market", "listening", "tool", "routine", "approval", "brief", "mcp", "needs-you", "run", "team", "health",
+               "update", "grokbot", "calendar", "sql", "db", "classify", "decision", "template", "bot", "human", "api", "computer",
+               "credential", "support"]
 
 
 def run_hub(*args, env=None):
@@ -38,6 +37,55 @@ class Parser(unittest.TestCase):
     def test_every_subcommand_is_still_there(self):
         text = hubcli.parser().format_help()
         self.assertIn("{" + ",".join(SUBCOMMANDS) + "}", text)
+
+    def test_the_last_releases_spellings_are_hidden_aliases_that_run_the_new_command(self):
+        """Every old spelling maps onto a command the real parser accepts, says which one on the way, and is not in help."""
+        help_text = hubcli.parser().format_help()
+        samples = {("say",): ["say", "ana", "hi"], ("notice",): ["notice", "ana", "hi"], ("inbox",): ["inbox"],
+                   ("ack",): ["ack", "m1"], ("history",): ["history", "c1"], ("ask",): ["ask", "ana", "why"],
+                   ("answer",): ["answer", "m1", "yes"], ("notes",): ["notes"], ("unnote",): ["unnote", "n1"],
+                   ("board",): ["board"], ("task", "stuck"): ["task", "stuck", "--hours", "5"], ("goals",): ["goals", "--all"],
+                   ("goal", "auto"): ["goal", "auto", "G1"], ("goal", "checkins"): ["goal", "checkins", "G1"],
+                   ("kpi", "add"): ["kpi", "add", "Activation"], ("kpi", "readings"): ["kpi", "readings", "K1"],
+                   ("context", "search"): ["context", "search", "x", "--source", "market"], ("context", "show"): ["context", "show", "d1"],
+                   ("docs", "links"): ["docs", "links"], ("docs",): ["docs", "list"], ("files", "add-link"): ["files", "add-link", "https://x.example"],
+                   ("files",): ["files", "list"], ("meetings", "transcript"): ["meetings", "transcript", "m1"], ("meetings",): ["meetings", "search"],
+                   ("listen", "judge"): ["listen", "judge"], ("listen",): ["listen", "stats"], ("intake",): ["intake", "list"],
+                   ("tools",): ["tools", "list"], ("integrations",): ["integrations"], ("integration",): ["integration", "wh"],
+                   ("queries",): ["queries", "wh", "jobs"], ("learn",): ["learn", "wh", "text"],
+                   ("routine", "on"): ["routine", "on", "audit"], ("routine", "off"): ["routine", "off", "audit", "--bot", "cpo"],
+                   ("status",): ["status", "list"], ("recent",): ["recent"], ("turns",): ["turns", "ops"], ("org",): ["org"],
+                   ("fleet",): ["fleet"], ("fleet-check",): ["fleet-check"], ("computers",): ["computers"], ("catalog",): ["catalog"],
+                   ("bot", "register"): ["bot", "register", "seo"], ("bot", "set"): ["bot", "set", "seo", "--status", "active"],
+                   ("bot", "onboarded"): ["bot", "onboarded"], ("github", "create-bot-repo"): ["github", "create-bot-repo", "seo"],
+                   ("people",): ["people", "list"], ("person",): ["person", "list"], ("update", "post"): ["update", "post", "- x"],
+                   ("update", "read"): ["update", "read", "--all"], ("updates",): ["updates", "--unread"],
+                   ("batch",): ["batch", "start"], ("live", "brief"): ["live", "brief"], ("live", "stats"): ["live", "stats"],
+                   ("calendar", "upcoming"): ["calendar", "upcoming"], ("decisions",): ["decisions", "--list"], ("judge",): ["judge", "--list"]}
+        self.assertEqual({old for old, *_ in hubcli.RENAMED}, set(samples))
+        for old, argv in samples.items():
+            with self.subTest(old=" ".join(old)):
+                new_argv, notice = hubcli.rename_argv(argv)
+                self.assertIn("is now", notice)
+                args = hubcli.parser().parse_args(new_argv)      # what it turns into is a real command
+                self.assertTrue(args.fn)
+        self.assertEqual(hubcli.rename_argv(["notice", "ana", "hi"])[0], ["message", "send", "ana", "hi", "--fyi"])
+        self.assertEqual(hubcli.rename_argv(["goal", "auto", "G1"])[0], ["goal", "status", "G1", "auto"])
+        self.assertEqual(hubcli.rename_argv(["routine", "off", "audit", "--bot", "cpo"])[0],
+                         ["routine", "update", "audit", "--bot", "cpo", "--disable"])
+        self.assertEqual(hubcli.rename_argv(["note", "ana", "hi"])[0], ["note", "create", "ana", "hi"])
+        self.assertEqual(hubcli.rename_argv(["note", "list"]), (["note", "list"], None))
+        self.assertEqual(hubcli.rename_argv(["message", "send", "ana", "hi"]), (["message", "send", "ana", "hi"], None))
+        for old in ("hub say", "hub notice", "hub board", "hub fleet-check", "hub people", "hub integrations", "hub org"):
+            self.assertNotIn(old + " ", help_text)
+
+    def test_an_old_command_still_runs_and_says_on_stderr_what_it_is_now(self):
+        done = subprocess.run([sys.executable, str(HUB), "fleet-check"], capture_output=True, text=True, timeout=60,
+                              env={**{k: v for k, v in os.environ.items() if not k.startswith("HUB_")},
+                                   "HUB_API_URL": "http://127.0.0.1:9", "HUB_TOKEN": "x"})
+        self.assertIn('"hub fleet-check" is now "hub health check"', done.stderr)
+        self.assertEqual(done.stderr.count("\n"), 1)
+        self.assertNotIn("is now", done.stdout)
 
 class Remote(unittest.TestCase):
     def test_human_override_is_refused_remotely_with_exit_two(self):
@@ -99,7 +147,9 @@ class Stub(BaseHTTPRequestHandler):
             return self.reply(200, {"kpis": [], "query": self.path.partition("?")[2]})
         if self.path == "/api/v2/goals/G1/checkins":
             return self.reply(200, {"goal_id": "G1", "checkins": []})
-        if self.path == "/api/v2/integrations":
+        if self.path == "/api/v2/kpis/K1":
+            return self.reply(200, {"kpi": {"id": "K1"}, "goals": []})
+        if self.path == "/api/v2/tools":
             return self.reply(200, {"integrations": [
                 {"service": "warehouse", "title": "Warehouse", "kind": "sql", "summary": "The company warehouse.",
                  "access": "hub sql in a turn", "credentials": ["none"], "declared_as": "nothing to declare\n",
@@ -108,9 +158,9 @@ class Stub(BaseHTTPRequestHandler):
                  "access": "connectors/slack.py", "credentials": ["SLACK_BOT_TOKEN — shared"],
                  "declared_as": "env: SLACK_BOT_TOKEN\n",
                  "writes": "allowed", "owner": "ana", "aliases": [], "query_count": 0, "learning_count": 0}]})
-        if self.path in ("/api/v2/integrations/warehouse", "/api/v2/integrations/wh"):
+        if self.path in ("/api/v2/tools/warehouse", "/api/v2/tools/wh"):
             return self.reply(200, PAGE)
-        if self.path.startswith("/api/v2/integrations/"):
+        if self.path.startswith("/api/v2/tools/"):
             return self.reply(404, {"error": {"code": "not_found", "detail": "No integration named " + self.path.rsplit("/", 1)[1]}})
         self.reply(404, {"error": {"code": "not_found", "detail": "no"}})
 
@@ -134,9 +184,9 @@ class Stub(BaseHTTPRequestHandler):
         if self.path == "/api/v2/goals/G1/checkins":
             return self.reply(200, {"checkin": {"id": "C1", **body}})
         if self.path in ("/api/v2/goals/G1/kpis", "/api/v2/goals/G1/kpis/K1/unlink", "/api/v2/kpis", "/api/v2/kpis/K1",
-                         "/api/v2/goal-proposals", "/api/v2/goal-proposals/P1/decide", "/api/v2/kpis/K1/readings"):
+                         "/api/v2/proposals", "/api/v2/proposals/P1/decide", "/api/v2/kpis/K1/readings"):
             # Echo what was sent, under the key the real route answers with.
-            key = {"/api/v2/goal-proposals": "proposal", "/api/v2/goal-proposals/P1/decide": "proposal",
+            key = {"/api/v2/proposals": "proposal", "/api/v2/proposals/P1/decide": "proposal",
                    "/api/v2/kpis/K1/readings": "reading", "/api/v2/goals/G1/kpis/K1/unlink": "goal"}.get(self.path, "kpi")
             return self.reply(200, {key: {"id": "X1", "path": self.path, **body}})
         if self.path == "/api/v2/bots/coo/routines":
@@ -146,12 +196,12 @@ class Stub(BaseHTTPRequestHandler):
         if self.path == "/api/v2/tasks/T1/files":
             return self.reply(200, {"file": {"id": "F1", "name": body["name"], "url": "/api/v2/files/F1"},
                                     "link": "https://tico.test/api/v2/files/F1"})
-        if self.path == "/api/v2/integrations/warehouse/learnings":
+        if self.path == "/api/v2/tools/warehouse/learnings":
             if not body.get("text"):
                 return self.reply(422, {"error": {"code": "validation", "detail": "text: too short"}})
             return self.reply(200, {"id": "L2", "integration": "warehouse", "actor": "bot:coo", "text": body["text"],
                                     "created": "2026-09-15T11:00:00Z"})
-        if self.path == "/api/v2/judge":
+        if self.path == "/api/v2/decisions":
             options = list(body["questions"]["covered"]["criteria"]) if "covered" in body["questions"] else []
             answers = {qid: ({"type": "choice", "choice": options[0], "confidence": 0.77,
                               "probabilities": {o: 0.1 for o in options}} if q["type"] == "choice"
@@ -174,7 +224,7 @@ class AgainstAStub(unittest.TestCase):
         cls.thread = Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.env = {"HUB_API_URL": f"http://127.0.0.1:{cls.server.server_port}",
-                   "HUB_TOKEN": "turn-token", "HUB_EMPLOYEE": "coo"}
+                   "HUB_TOKEN": "turn-token", "HUB_BOT": "coo"}
 
     @classmethod
     def tearDownClass(cls):
@@ -203,7 +253,7 @@ class AgainstAStub(unittest.TestCase):
             code, out = run_hub(*args, env=self.env)
             self.assertEqual(code, 0, out)
             return out, [b for m, p, _, b in Stub.seen if m == "POST"][-1]
-        _, body = sent("kpi", "add", "Activation", "--goal", "G1", "--unit", "%", "--cadence", "daily", "--baseline", "40",
+        _, body = sent("kpi", "create", "Activation", "--goal", "G1", "--unit", "%", "--cadence", "daily", "--baseline", "40",
                        "--target", "65", "--deadline", "2026-12-31")
         self.assertEqual((body["name"], body["goal_id"], body["kind"], body["target"], body["deadline"], body["cadence"]),
                          ("Activation", "G1", "improve", 65, "2026-12-31", "daily"))
@@ -217,7 +267,7 @@ class AgainstAStub(unittest.TestCase):
         self.assertEqual(out["path"], "/api/v2/goals/G1/kpis/K1/unlink")
         out, body = sent("goal", "checkin", "G1", "Waiting on legal", "--signal", "at_risk", "--from", "ben")
         self.assertEqual((body["body"], body["signal"], body["from_actor"]), ("Waiting on legal", "at_risk", "ben"))
-        out, body = sent("goal", "auto", "G1")
+        out, body = sent("goal", "status", "G1", "auto")
         self.assertEqual(out["status_source"], "auto")
         out, body = sent("proposal", "create", "--kind", "kpi_target", "--goal", "G1", "--kpi", "K1",
                          "--payload", '{"kind": "maintain", "min": 30}', "--reason", "too hard")
@@ -228,11 +278,13 @@ class AgainstAStub(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("unlinked=1", out["query"])
         self.assertIn("auto_for=ops", out["query"])
-        code, out = run_hub("kpi", "readings", "K1", "--effective", env=self.env)
-        self.assertEqual(out["query"], "effective=1")
+        code, out = run_hub("kpi", "show", "K1", "--effective", env=self.env)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(out["readings"], [{"value": 17.0}])
+        self.assertIn("/api/v2/kpis/K1/readings?effective=1", [p for m, p, _, b in Stub.seen])
 
     def test_a_refusal_from_the_api_exits_two(self):
-        code, out = run_hub("say", "nobody", "hello", env=self.env)
+        code, out = run_hub("message", "send", "nobody", "hello", env=self.env)
         self.assertEqual(code, 2)
         self.assertEqual(out["error"], "refused")
         self.assertIn("roster", out["detail"])
@@ -260,7 +312,7 @@ ONBOARDING = {"names": NAMES,
 
 
 class BotSetup(unittest.TestCase):
-    """`hub catalog` and `hub bot create|check`: the three commands BotOps needs in a turn.
+    """`hub template list` and `hub bot create|check`: the three commands BotOps needs in a turn.
 
     The parsing is the real parser and the work is the real `clients/catalog.py`; only the API is
     a fake, so what these assert is which endpoints a command reads and what it writes to disk.
@@ -280,9 +332,9 @@ class BotSetup(unittest.TestCase):
             self.seen.append(path)
             if path == "config":
                 return dict(NAMES)
-            if path == "onboarding":
+            if path == "setup":
                 return json.loads(json.dumps(self.record))
-            if path == "catalog" and self.cards is not None:
+            if path == "templates" and self.cards is not None:
                 return {"cards": self.cards}
             from clients.tico import APIError
             raise APIError("not_found", "No such endpoint: " + path, 404, False)
@@ -296,7 +348,7 @@ class BotSetup(unittest.TestCase):
         (catalog / "specialist").mkdir(parents=True)
         (catalog / "specialist" / "card.yaml").write_text(CARD)
         (catalog / "specialist" / "AGENT.md").write_text(AGENT)
-        (catalog / "specialist" / "employee.yaml").write_text('name: CHANGE-ME\ndisplay_name: "Change Me"\nschedules: []\n')
+        (catalog / "specialist" / "bot.yaml").write_text('name: CHANGE-ME\ndisplay_name: "Change Me"\nroutines: []\n')
         (catalog / "specialist" / "state.md").write_text("# State\n")
         for key, value in {"HUB_WORKSPACE": str(self.workspace), "TICO_CATALOG_DIR": str(catalog)}.items():
             os.environ[key] = value
@@ -323,8 +375,10 @@ class BotSetup(unittest.TestCase):
         self.assertEqual((args.fn, args.slug, args.read, args.write, args.see), ("bot access", "seo", "team:legal,ben", "everyone", None))
         args = hubcli.parser().parse_args(["bot", "owners", "seo", "--add", "ben", "cara"])
         self.assertEqual((args.fn, args.add, args.remove), ("bot owners", ["ben", "cara"], []))
-        args = hubcli.parser().parse_args(["people", "add", "sean@acme.example", "--name", "Sean"])
-        self.assertEqual((args.fn, args.email, args.name), ("people add", "sean@acme.example", "Sean"))
+        args = hubcli.parser().parse_args(["human", "add", "sean@acme.example", "--name", "Sean"])
+        self.assertEqual((args.fn, args.email, args.name), ("human add", "sean@acme.example", "Sean"))
+        args = hubcli.parser().parse_args(["bot", "create", "seo", "--record-only", "--reports-to", "human:cara"])
+        self.assertEqual((args.fn, args.record_only, args.template, args.reports_to), ("bot create", True, None, "human:cara"))
         from clients import hubtools
         self.assertEqual(hubtools.audience("everyone"), {"everyone": True})
         self.assertEqual(hubtools.audience("ben,team:legal,bot:analyst,human:dee"),

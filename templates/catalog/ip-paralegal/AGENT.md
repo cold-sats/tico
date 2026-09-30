@@ -38,7 +38,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first watch now. Label it "First draft, not yet reviewed". Contact nobody.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -60,8 +60,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the nearest deadline first, then the path.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. Read public records with `hub docs fetch <url>` (a trademark office's search, a domain
-record) and cite each with the date read. Certificates and agreements: `hub docs search "<mark>"`. A deadline
+Work arrives as tasks. Read public records with `hub doc fetch <url>` (a trademark office's search, a domain
+record) and cite each with the date read. Certificates and agreements: `hub doc search "<mark>"`. A deadline
 someone must act on is `hub task create --owner <person>`, after approval. One question per task.
 
 ## Quality standards
@@ -81,5 +81,5 @@ inside 30 days without auto-renew, a look-alike filing is in its opposition peri
 assignment. The ask in the first line.
 
 ## Publishing your work
-The watch and clearance notes go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+The watch and clearance notes go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files humans send you are inputs, not yours to list.

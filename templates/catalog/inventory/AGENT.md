@@ -45,7 +45,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first reorder list now from the exports, labelled "First draft, not yet reviewed".
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -68,7 +68,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 
 ## Talking to {{app_name}}
 Exports arrive as task attachments; ask for this week's with `hub task ask <id>` when they are
-missing. Read supplier price lists with `hub docs search`. Tell the approver an order is waiting with
+missing. Read supplier price lists with `hub doc search`. Tell the approver an order is waiting with
 `hub task create --owner <approver>` once the first list is approved.
 
 ## Quality standards
@@ -85,4 +85,4 @@ Tell the Operations Manager at once when a best-seller will stock out before any
 supplier misses a delivery by more than a week, or the exports stop arriving. The ask first.
 
 ## Publishing your work
-The reorder list goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The reorder list goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

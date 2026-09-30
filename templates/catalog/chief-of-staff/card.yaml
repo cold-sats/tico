@@ -3,7 +3,7 @@ slug: chief-of-staff
 name: Chief of Staff
 required: false
 bootstrap: false
-department: leadership
+group: leadership
 pack: basics
 lead: true
 icon: star

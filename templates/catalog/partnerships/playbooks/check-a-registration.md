@@ -21,7 +21,7 @@ gets a request for the missing fields, ready for approval; its clock starts when
 
 ## 3. Check conflicts
 
-Search the pipeline (CRM read), `knowledge/registrations.md` and `hub meetings search "<prospect>"`: an
+Search the pipeline (CRM read), `knowledge/registrations.md` and `hub meeting search "<prospect>"`: an
 open deal with our own seller, another partner's registration, an existing customer. Note each with its
 date.
 

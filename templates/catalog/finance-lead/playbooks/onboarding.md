@@ -8,9 +8,9 @@ real balances and reports, and the first routine confirmed.
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task show <id>
-    hub updates --kind weekly --limit 6
+    hub update list --kind weekly --limit 6
 
 See which finance bots exist, which exports are attached (bank, card, accounting, aging reports) and
 what the finance bots last published. Do not ask for what these already show. If nothing about cash is
@@ -64,7 +64,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

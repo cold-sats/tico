@@ -3,7 +3,7 @@ slug: release-notes
 name: "Release Manager"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 icon: new_releases
 suggest: common

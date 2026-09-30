@@ -41,7 +41,7 @@ content bot, not a task you create.
 
 `reports/YYYY-MM-DD-visibility.md` in the shape of `knowledge/examples/visibility-report.md`. Then:
 
-    hub files publish reports/YYYY-MM-DD-visibility.md
+    hub file publish reports/YYYY-MM-DD-visibility.md
 
 Commit, then `hub task update <id> --status done --note`: the headline, the path, what you could not
 read. Always finish it: an open routine task absorbs the next.

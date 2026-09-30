@@ -3,7 +3,7 @@ slug: pr
 name: PR Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: newspaper
 suggest: niche

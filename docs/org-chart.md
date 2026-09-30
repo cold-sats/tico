@@ -6,10 +6,10 @@ The source is `registry/people.yaml` for the humans and
 `registry/employees.yaml` for the bots. This page explains them; it
 does not duplicate them. Tico renders the same mixed tree in the **Team** sidebar, so the page
 in the app and this document always agree. Edit the YAML, not a list in prose. Bots read the
-same chart through `hub org` / the `hub_org` MCP tool (`GET /api/v2/org`): the humans, and every bot the caller may see (see
+same chart through `hub team show` / the `hub_team_show` MCP tool (`GET /api/v2/org`): the humans, and every bot the caller may see (see
 [permissions.md](permissions.md)) with its `reports_to`, its `department` and its `template`. A bot's `department`
 is its group; a bot with none takes the group of its template in the team builder, then of the bot it reports to, so a
-group head's reports carry the head's group. `hub people list` is the humans alone.
+group head's reports carry the head's group. `hub human list` is the humans alone.
 
 ## The humans
 

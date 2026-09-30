@@ -14,11 +14,11 @@ Otherwise write the check-in (step 6). If the task names one, do that.
 
 ## 2. Read the record
 
-    hub goals --all
+    hub goal list --all
     hub goal show <id>
-    hub kpi readings <kpi id>
-    hub updates --kind weekly --limit 12
-    hub meetings search --since <quarter start>
+    hub kpi show <kpi id>
+    hub update list --kind weekly --limit 12
+    hub meeting search --since <quarter start>
 
 Then `knowledge/strategy.md`, `knowledge/scorecard.md` and last quarter's report. A source you cannot
 read is named in the closing line.
@@ -50,5 +50,5 @@ behind the confidence. Then three lines: what is off track, what needs a decisio
 ## 7. Write and hand over
 
 Write `reports/YYYY-MM-DD-quarterly-plan.md` in the shape of `knowledge/examples/quarterly-plan.md`,
-then `hub files publish reports/YYYY-MM-DD-quarterly-plan.md`. Commit, then `hub task update <id>
+then `hub file publish reports/YYYY-MM-DD-quarterly-plan.md`. Commit, then `hub task update <id>
 --status done --note`: the headline, the path, what you could not read. Always finish the task.

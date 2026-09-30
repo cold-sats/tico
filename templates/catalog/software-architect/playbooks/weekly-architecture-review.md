@@ -22,7 +22,7 @@ New or changed documents in the design folders and linked docs since last week. 
 
 Merged pull requests since last week that meet `knowledge/decision-rules.md`: a new service or package
 manifest, a new data store or migration pattern, a new external API client, a public API change. Also
-decisions in imported meetings (`hub meetings search`). For each with no ADR, write the proposed ADR in
+decisions in imported meetings (`hub meeting search`). For each with no ADR, write the proposed ADR in
 `adr/NNNN-<title>.md` (context, decision, status "proposed", consequences) from what the pull request and
 the meeting say, marking what you had to infer.
 
@@ -38,4 +38,4 @@ estimate because of a module). Rank by cost today times risk, divided by fix siz
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-architecture-review.md` in the shape of `knowledge/examples/architecture-review.md`,
-`hub files publish` it, commit, then `hub task update <id> --status done --note`.
+`hub file publish` it, commit, then `hub task update <id> --status done --note`.

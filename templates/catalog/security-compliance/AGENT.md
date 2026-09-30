@@ -39,7 +39,7 @@ If `state.md` says setup has not finished, do this before any other work:
 4. Produce the first monthly page now, labelled "First draft, not yet reviewed". Change nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -66,7 +66,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 
 ## Talking to {{app_name}}
 Evidence requests go to control owners as tasks (`hub task create --owner <human>`) once approved.
-Read policies and evidence folders with `hub docs search` and `hub docs read`; read repository
+Read policies and evidence folders with `hub doc search` and `hub doc read`; read repository
 settings with read-only `gh` where GitHub is connected. One question per task with `hub task ask`.
 
 ## Quality standards
@@ -84,4 +84,4 @@ review finds an active account of someone who left, or an auditor's or customer'
 inside two weeks with gaps. One question per task, the ask first.
 
 ## Publishing your work
-The monthly page goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The monthly page goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

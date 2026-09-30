@@ -34,5 +34,5 @@ and the plan comparison is ready for approval.**
   Sofia on T-421. Not answered here.
 
 ## Sources
-- Plan guides 2026 and 2027 (docs), `hub org`, tasks T-418 to T-440, read 2026-09-29
+- Plan guides 2026 and 2027 (docs), `hub team show`, tasks T-418 to T-440, read 2026-09-29
 ```

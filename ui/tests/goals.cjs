@@ -12,7 +12,7 @@ const LONG = 'Publish one deeply researched comparison page every week for each 
 const bot = (name, display_name, org_parent, over) => ({name, display_name, org_parent, host: 'keeper', status: 'active', can_chat: true, ...over});
 const bots = [
   bot('cmo', 'AI CMO', 'p:ana'), bot('seo', 'SEO', 'b:cmo'), bot('sales', 'Sales', 'p:ana'),
-  bot('support', 'Support', 'p:ana', {status: 'paused', onboarding_state: 'needs_onboarding'}),
+  bot('support', 'Support', 'p:ana', {status: 'paused', onboarding_state: 'needs_setup'}),
   bot('old', 'Old bot', 'p:ana', {status: 'archived'}),
   bot('coo', 'Assistant', ''), bot('librarian', 'Librarian', ''), bot('botops', 'BotOps', ''), bot('goal-manager', 'Goal Manager', ''), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox', helper: true}),
 ];
@@ -59,7 +59,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (post) posted.push({path: p, body});
       if (p === '/api/employees') return json(bots);
       if (p === '/api/me') return json({id: 'ana', name: 'Ana Silva', email: 'ana@example.test', role: 'owner', mover: true, cloud: true});
-      if (p === '/api/people') return json({people});
+      if (p === '/api/humans') return json({people});
       if (p === '/api/issues') return json([]);
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
@@ -77,7 +77,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (link && post) { goals.find(g => g.id === link[1]).kpis.push(kpi('k-link', body.name, {freshness: 'missing', latest: null, status: 'gray'})); return json({kpi: {}}); }
       if (/^\/api\/v2\/goals\/[^/]+\/checkins$/.test(p)) return json({checkins: [goals[1].checkin, {id: 'c0', body: 'Started the email series.', source_actor: 'bot:cmo', ts: new Date(day - 7 * 86400000).toISOString()}]});
       if (/\/status\/auto$/.test(p) && post) return json({goal: {}});
-      if (/^\/api\/v2\/goal-proposals\/[^/]+\/decide$/.test(p) && post) { needs.splice(1); return json({proposal: {}}); }
+      if (/^\/api\/v2\/proposals\/[^/]+\/decide$/.test(p) && post) { needs.splice(1); return json({proposal: {}}); }
       const edit = p.match(/^\/api\/v2\/goals\/([^/]+)$/);
       if (edit && post) { Object.assign(goals.find(g => g.id === edit[1]), body); return json({goal: {}}); }
       return json({});
@@ -124,7 +124,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     assert.match(await page.locator('#goal-needs').innerText(), /Needs you\s*2[\s\S]*Activation on Double organic signups/i);
     await page.locator('#goal-needs [data-decide=confirm]').click();
     await until(() => page.locator('#goal-needs .kpi-prop').count().then(n => n === 0), 'proposal gone');
-    assert.deepEqual(last(), {path: '/api/v2/goal-proposals/p1/decide', body: {decision: 'confirm'}});
+    assert.deepEqual(last(), {path: '/api/v2/proposals/p1/decide', body: {decision: 'confirm'}});
 
     // A bot with no goal: tapping it opens its panel on a new goal, the owner fixed.
     const panel = page.locator('#goal-panel[open]');

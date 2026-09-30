@@ -3,7 +3,7 @@ slug: payroll
 name: "Payroll Specialist"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: payments
 suggest: common

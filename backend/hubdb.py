@@ -54,7 +54,7 @@ Nothing is edited or deleted (rule 9): tasks and status carry their own history 
 8. **`sync_registry` never lowers a state.** A bot the registry calls `active` that hubdb has
    `quarantined` stays quarantined; only a human clears it. Tokens, thread ids and
    `last_turn_at` are never overwritten by a sync.
-9. **Extra read helpers.** `answers_to(conn, ids)` (what `hub ask --wait` polls),
+9. **Extra read helpers.** `answers_to(conn, ids)` (what `hub question ask --wait` polls),
    `bot(conn, slug)`, `human(conn, id)`, `task(conn, id)`, `task_history(conn, id)`,
    `approval(conn, id)`, `message(conn, id)`, `conversation(conn, id)`, `refusals_for(...)`,
    `undelivered(conn, to_actor=None)` and `auto_close_done(conn, now)` (rule 5's three-day
@@ -71,6 +71,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from pathlib import Path
+
+from clients.manifest import repo_dir
 
 HUB_DIR = Path(__file__).resolve().parent.parent
 ROOT = HUB_DIR.parent                       # employees are siblings of the hub
@@ -968,7 +970,7 @@ def _clip(text, limit=180):
 
 # ----------------------------------------------------------------------------- severity (rule 8)
 SECRETS_PATH = re.compile(r"(^|[\s\"'(/])secrets/", re.I)
-OTHER_REPO = re.compile(r"\bemp-[a-z0-9-]+/", re.I)
+OTHER_REPO = re.compile(r"\b(?:emp|bot)-[a-z0-9-]+/", re.I)      # a bot's repository: bot-<slug>, or emp-<slug> for an older bot
 SENSITIVE_WORDS = re.compile(
     r"\b(spend|spending|invoice|payment|pay|card|refund|budget|wire|charge|"
     r"send|email|mailbox|inbox|access|credential|credentials|token|password|api[_ -]?key)\b", re.I)
@@ -987,7 +989,7 @@ def classify(text, kind=None, to_actor=None, where="item", actor=None):
     """
     body = str(text or "")
     if SECRETS_PATH.search(body) or any(
-            match.group(0).lower() != f"emp-{actor_id(actor)}/"
+            match.group(0).lower() not in (f"emp-{actor_id(actor)}/", f"bot-{actor_id(actor)}/")
             for match in OTHER_REPO.finditer(body)):
         return "escape"
     if kind in ("send", "spend"):
@@ -1233,7 +1235,7 @@ def sync_registry(conn, employees, people):
                "runtime": str(e.get("runtime") or ""),
                "model": str(e.get("model") or ""),
                "effort": str(e.get("reasoning_effort") or e.get("effort") or ""),
-               "cwd": str(e.get("dir") or e.get("cwd") or (ROOT / f"emp-{slug}")),
+               "cwd": str(e.get("dir") or e.get("cwd") or repo_dir(ROOT, slug)),
                "host": str(e.get("host") or "dispatcher"),
                "state": state, "created": ts}
         have = bot(conn, slug)
@@ -2651,7 +2653,7 @@ def _recount(conn, actor):
 
 # ----------------------------------------------------------------------------- schedules, turns, limits
 def schedule_sync(conn, actor, entries):
-    """The hosted bots' crons, from their `employee.yaml`. Replaces the rows for the bots named."""
+    """The hosted bots' crons, from their `bot.yaml`. Replaces the rows for the bots named."""
     _writer(conn, actor)
     entries = [e for e in (entries or []) if (e or {}).get("bot")]
     touched = sorted({str(e["bot"]) for e in entries})
@@ -2855,7 +2857,7 @@ def messages(conn, conversation_id, since=None, limit=200):
 
 
 def answers_to(conn, message_ids):
-    """`{ask id: answer row}` for the asks that have been answered. What `hub ask --wait` polls.
+    """`{ask id: answer row}` for the asks that have been answered. What `hub question ask --wait` polls.
 
     An answer is either a reply addressed to the ask, or -- when the person simply wrote back --
     the message that closed it (`answered_by`). Both are the person answering, and a bot waiting

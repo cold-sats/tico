@@ -383,7 +383,7 @@ variable or a mode-0600 temporary file that is removed afterwards.
 Declaring access does not provision anything. The owner puts the value on the computer, or grants
 the vault credential to the bot; preflight then reports whether every declared credential actually
 resolves. Two things need no entry: Tico itself (`hub` and the `hub_*` MCP tools come with
-every run) and the decision model behind `hub_decisions` (`skills/decisions/SKILL.md`), whose credential
+every run) and the decision model behind `hub_decision_ask` (`skills/decisions/SKILL.md`), whose credential
 Tico holds. A bot that needs a service it has not declared stops and says so on the task; it never
 borrows another bot's credential.
 
@@ -422,7 +422,7 @@ team's own frontend.
 **Registering a tool.** Someone who manages a bot (the owner, a bot administrator who owns it,
 or a human above it on the team chart) can add or remove a tool without opening its repository:
 `POST /api/v2/bots/{bot}/tools`, `DELETE /api/v2/bots/{bot}/tools/{id}`, or the MCP tools
-`hub_tools_add`, `hub_tools_list` and `hub_tools_remove` (`hub tools add <bot> posthog --can read
+`hub_tool_add`, `hub_tool_list` and `hub_tool_remove` (`hub tool add <bot> posthog --can read
 --identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`). Tico holds no
 bot repository, so it cannot write `employee.yaml` itself. It checks the entry against the same
 fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
@@ -469,7 +469,7 @@ Effort is where the budget goes. A useful split:
 Three habits save real money. Rules before models: if a deterministic filter handles most of the
 input, run the filter first and let the model see the remainder. The decision model before the bot's own model:
 when what is left is a decision (which bucket, is it covered, open this or not, which branch), one
-`hub decisions` call answers it in two hundred milliseconds for a fraction of a cent, and the bot's
+`hub decision ask` call answers it in two hundred milliseconds for a fraction of a cent, and the bot's
 model reads only the rows the answers say to (`skills/decisions/SKILL.md`). And audit effort, because
 it ratchets up and never down: take the busiest routine, read what its last ten runs actually
 decided, and drop a level if nothing needed the extra thinking.

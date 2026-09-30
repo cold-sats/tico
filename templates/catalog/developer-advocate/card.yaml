@@ -3,7 +3,7 @@ slug: developer-advocate
 name: "Developer Advocate"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 icon: podium
 suggest: niche

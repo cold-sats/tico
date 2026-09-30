@@ -137,7 +137,7 @@ def install(app, store, auth, mutate, settings):
     # ------------------------------------------------------------------ goals
     @app.get("/api/v2/goals")
     def goals_list(request: Request, owner: str | None = None, all: bool = False, status: str | None = None):
-        """`hub goals`: mine, the chain above and my reports' by default; `all` is every goal."""
+        """`hub goal list`: mine, the chain above and my reports' by default; `all` is every goal."""
         who = request.state.identity
         auth.domain(who)
         with store.transaction() as c:

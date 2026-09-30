@@ -47,7 +47,7 @@ hub db atlas count orders '{"status": "paid"}'
 hub db atlas distinct orders status
 hub db atlas aggregate orders '[{"$match": {"status": "paid"}}, {"$group": {"_id": "$region", "n": {"$sum": 1}}}]'
 hub db atlas --query signups-since --param since=2026-09-01      # a named query from the company's catalog
-hub queries atlas signups                     # search the named queries first
+hub tool query-search atlas signups                     # search the named queries first
 ```
 
 Filters, projections, sorts and pipelines are Extended JSON (relaxed): plain JSON, plus
@@ -79,7 +79,7 @@ type it, and an error never shows it.
   collection with no personal data.
 - Count before you fetch: `count orders '{"placed_at": {"$gte": {"$date": "2026-09-01T00:00:00Z"}}}'`.
 - Group instead of list: `aggregate` with `$match` then `$group`.
-- Search the catalog before writing a filter: `hub queries <name> <term>`, then `hub queries <name> --id <id>`.
+- Search the catalog before writing a filter: `hub tool query-search <name> <term>`, then `hub tool query-search <name> --id <id>`.
 
 ## Gotchas
 
@@ -94,5 +94,5 @@ type it, and an error never shows it.
 
 ## Learnings
 
-What bots and people learn about this integration is added with `hub learn mongodb "..."` and
+What bots and people learn about this integration is added with `hub tool learn mongodb "..."` and
 shown under this page; a person folds it into the page over time. The page is the rule.

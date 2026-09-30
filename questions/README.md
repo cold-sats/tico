@@ -4,7 +4,7 @@ One file per decision the company makes with the decision model (optionally Type
 (`skills/decisions/SKILL.md`). The decision model takes a JSON state and typed
 questions (`noul` for yes/no, `choice`, `score`, the same format as OpenRouter's Decisions API) and
 answers each with a calibrated probability; it writes no prose. The primitive is
-one call (`hub_decisions`, `hub decisions`, `clients/judge.py`) and it never changes. What changes,
+one call (`hub_decision_ask`, `hub decision ask`, `clients/judge.py`) and it never changes. What changes,
 and what makes a decision reusable across bots, is the question set: a named, versioned file
 here that every caller loads and sends inline. The hub server knows nothing about these files;
 the `label` on each call (`id@version`) is what groups them in the audit.
@@ -61,7 +61,7 @@ version bump when it changes what a bot does with the answer.
 | `covered` | is a candidate one of these existing things | any bot deduplicating anything |
 | `slack-route` | a DM or @Tico: does it ask, is it a reply, does it name a bot; the gateway adds one noul per active bot | the Slack gateway, every accepted message |
 | `listening-card` | a fetched public card's likely owner opportunity, competitor move and impact | Listening's competitor sweep and Reddit/X mention checks |
-| `listening-item` | one saved post: an independent probability per category (market, content, lead, creator, partner), so a post can go to several inboxes, and `vendor_pitch`, which keeps a vendor's promotion out of leads | `hub listen decide`, which stores the scores and routes by the destinations in the company's `registry/listening.yaml` |
+| `listening-item` | one saved post: an independent probability per category (market, content, lead, creator, partner), so a post can go to several inboxes, and `vendor_pitch`, which keeps a vendor's promotion out of leads | `hub listening decide`, which stores the scores and routes by the destinations in the company's `registry/listening.yaml` |
 | `reply-intent` | an ambiguous inbound SMS or email reply's explicit intent | Response Rate's read-only scorecards |
 
 Adding a set is a pull request here: the file, a line in this table, and the change in the

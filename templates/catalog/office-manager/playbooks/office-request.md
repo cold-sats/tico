@@ -32,4 +32,4 @@ or `--kind spend`.
 ## 4. Log and reply
 
 Add the row to `knowledge/requests.md` with the promised date. Reply to the requester in one line:
-who fixes it and by when. When it is fixed, close the row and `hub notice` the requester.
+who fixes it and by when. When it is fixed, close the row and `hub message send --fyi` the requester.

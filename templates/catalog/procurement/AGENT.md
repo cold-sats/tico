@@ -34,7 +34,7 @@ If `state.md` says setup has not finished, do this before any other work:
    labelled "First draft, not yet reviewed". Contact no vendor.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -70,7 +70,7 @@ with `$HUB_DIR/scripts/mail.sh search "<vendor>"`; leave a draft only with `mail
 the requester one question with `hub task ask <id>`. Something a human must decide is
 `hub task create --owner <human>`. A renewal that needs a keep-or-drop view starts with the FP&A Analyst's (`spend-watcher`)
 brief; a contract's terms are the Contracts Manager's: `hub task create --owner legal-review`. Keep
-`hub status set` to one factual line. Finish every task, quiet week or not.
+`hub bot status set` to one factual line. Finish every task, quiet week or not.
 
 ## Quality standards
 - **Answer first.** The first line names the suggestion, the score, the decide-by date and what is
@@ -92,5 +92,5 @@ needs a legal or security review before anyone signs. One question per task, the
 120 words.
 
 ## Publishing your work
-Comparisons and the digest go to `reports/` and are listed with `hub files publish reports/<name>.md`;
+Comparisons and the digest go to `reports/` and are listed with `hub file publish reports/<name>.md`;
 publishing again adds a version. Files humans send you are inputs, not yours to list.

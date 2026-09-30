@@ -62,7 +62,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         {id: 'weekly-review', title: 'Review customer signals', employee: 'cmo', cron: '0 9 * * 1', active: true, enabled: true, next: now},
         {id: 'release-review', title: 'Review release readiness', employee: 'cpo', cron: '0 9 * * 1', active: true, enabled: true, next: now},
         {id: 'build-review', title: 'Review build health', employee: 'cto', cron: '0 9 * * 1', active: true, enabled: true, next: now}]});
-      if (p === '/api/people') return json({people});
+      if (p === '/api/humans') return json({people});
       if (p === '/api/v2/tasks/labels') return json({labels: ['newsletter', 'copy', 'bug', 'finance']});
       if (p.startsWith('/api/v2/files/')) {
         const id = p.split('/').at(-1);

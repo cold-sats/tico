@@ -9,9 +9,9 @@ for each choice, and a note of what counsel should check. Nothing is published.
 ## 1. Read what exists
 
     hub task show <id>
-    hub docs ask "What do our current policies say about <topic>?"
+    hub doc ask "What do our current policies say about <topic>?"
 
-Open every page the Librarian cites (`hub docs read <path>`) and read it whole. Note contradictions
+Open every page the Librarian cites (`hub doc read <path>`) and read it whole. Note contradictions
 between pages and how people actually work today (ask the requester if unclear, one question).
 
 ## 2. Settle the decisions first

@@ -76,7 +76,7 @@ print(sqlite3.connect("file:/data/hub.sqlite?mode=ro", uri=True).execute(
 }
 reconnected() { [[ "$(last_seen)" > "$before" ]]; }
 online() {
-  api http://127.0.0.1:8765/api/v2/getting-started | python3 -c '
+  api http://127.0.0.1:8765/api/v2/setup/getting-started | python3 -c '
 import json, sys
 items = json.load(sys.stdin)["items"]
 sys.exit(0 if any(i["id"] == "computer" and i["done"] for i in items) else 1)'

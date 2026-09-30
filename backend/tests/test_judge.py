@@ -55,7 +55,7 @@ def test_a_person_or_a_bot_judges_and_the_audit_keeps_the_answers_not_the_state(
     assert "secret" not in json.dumps(detail)
 
     r, msg, attempt = setup_attempt(api)
-    err, out = call(api, "hub_judge", {"state": state, "questions": QUESTIONS}, token=attempt["token"])
+    err, out = call(api, "hub_decision_ask", {"state": state, "questions": QUESTIONS}, token=attempt["token"])
     assert not err and out["answers"]["is_ask"]["noul"] == 0.9
     assert events(api, "bot:ops")[0][0] == ""
 

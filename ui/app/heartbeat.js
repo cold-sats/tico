@@ -55,7 +55,7 @@ function bindRunnerRestart(root) {
       button.disabled = true; button.textContent = 'Restarting…';
       const line = button.closest('.settings-issue')?.querySelector('p');
       try {
-        const r = await post(`/v2/runners/${encodeURIComponent(button.dataset.runnerRestart)}/restart`, {});
+        const r = await post(`/v2/computers/${encodeURIComponent(button.dataset.runnerRestart)}/restart`, {});
         if (line) line.textContent = r.running
           ? `Restarting after ${r.running} run${r.running === 1 ? ' finishes' : 's finish'}.`
           : 'Restarting now. Nothing is running, so nothing will be interrupted.';

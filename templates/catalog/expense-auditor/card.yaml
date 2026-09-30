@@ -3,7 +3,7 @@ slug: expense-auditor
 name: "Expense Auditor"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: credit_card
 suggest: niche

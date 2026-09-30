@@ -156,7 +156,7 @@ def test_go_live_places_activates_and_starts_setup_as_the_requester(api, botops)
     cara = turn(api, botops, person="cara-test", text="Make it live")
     register(api, cara, "jira-manager")
     with api.app.state.store.transaction() as c:
-        c.execute("UPDATE bot_config SET onboarding_state='needs_onboarding' WHERE bot='jira-manager'")
+        c.execute("UPDATE bot_config SET onboarding_state='needs_setup' WHERE bot='jira-manager'")
     gone = act(api, cara, "POST", "bots/jira-manager/go-live", {})
     assert gone.status_code == 200, gone.text
     done = gone.json()

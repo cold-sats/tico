@@ -30,5 +30,5 @@ annex against `knowledge/subprocessors.md`: a vendor missing from either side is
 ## 4. Hand over
 
 Write `reports/dpas/<party>.md`: three lines first (what it is, how many differences, the one that matters most),
-then the table, then questions for counsel, then **Summary for a human, not legal advice.** `hub files publish`
+then the table, then questions for counsel, then **Summary for a human, not legal advice.** `hub file publish`
 it and put it on the task. The reply to the customer is a human's.

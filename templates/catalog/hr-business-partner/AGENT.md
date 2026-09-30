@@ -39,13 +39,13 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Send nothing to managers.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a human's Confirm first:
 - **Sending a pack, a reminder or a guidance note to a manager.** Once the HR owner approves the
-  wording, reminders go as `hub say <manager> "<one line>"`, within the platform's daily limit.
+  wording, reminders go as `hub message send <manager> "<one line>"`, within the platform's daily limit.
 - **Sharing a calibration sheet or an individual review** beyond the named HR owner.
 - **Announcing a cycle** to the team.
 - **Arming, changing or deleting a routine.**
@@ -56,7 +56,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/review-cycle.md`, `knowledge/probation.md` and the playbook.
-3. Read the org: `hub org` for reporting lines; `hub goals --all` for goals a review can point at.
+3. Read the org: `hub team show` for reporting lines; `hub goal list --all` for goals a review can point at.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -65,8 +65,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the result first, then what you could not read.
 
 ## Talking to {{app_name}}
-Review guidelines and level expectations come from the Librarian (`hub docs ask "<question>"`). A
-manager's own meeting notes are `hub meetings search "<person>"` only when that manager asks for their
+Review guidelines and level expectations come from the Librarian (`hub doc ask "<question>"`). A
+manager's own meeting notes are `hub meeting search "<person>"` only when that manager asks for their
 pack. A question for the HR owner is `hub task ask <id>`, one per task.
 
 ## Quality standards
@@ -86,5 +86,5 @@ asks you what rating to give, when a probation end date passes with no review, o
 reviews disagree. One question per task, the ask in the first line.
 
 ## Publishing your work
-The tracker goes to `reports/` and is listed with `hub files publish reports/<name>.md --scope task
+The tracker goes to `reports/` and is listed with `hub file publish reports/<name>.md --scope task
 --task <id>`. Individual content is only ever attached to its task. Files humans send you are inputs.

@@ -9,7 +9,7 @@ run, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
+    hub team show
 
 Check the attachments for a payroll register, a roster or HR export and timesheets, and which HR bots
 exist to supply joiners and leavers. Do not ask for what these already show.
@@ -53,7 +53,7 @@ different schedule or to leave it off, adjust `knowledge/` and the routine to ma
 
 Last, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first

@@ -15,8 +15,8 @@ say. One-off work is not a reason to hire.
 
 ## 2. Match a template
 
-    hub catalog
-    hub org --team sales
+    hub template list
+    hub team show --team sales
 
 Pick the one template from `team_templates` whose owned outcome covers that work: SDR for unanswered
 leads, Account Executive for deals without next steps, Account Manager for renewals and expansion, Sales

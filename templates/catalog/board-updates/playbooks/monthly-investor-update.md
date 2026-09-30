@@ -16,15 +16,15 @@ and last month's update in `reports/`. Note the month covered (the calendar mont
 ## 2. Collect the numbers
 
 1. For each metric in `knowledge/metrics.md`, read the current value from its source and the value
-   a month ago: `hub kpi readings <kpi id>`, or the source the file names.
-2. Compare each with plan or target where one exists (`hub goals --all`).
+   a month ago: `hub kpi show <kpi id>`, or the source the file names.
+2. Compare each with plan or target where one exists (`hub goal list --all`).
 3. Cash, burn and runway: use `knowledge/finance-inputs.md` for this month. If missing, ask once with
    `hub task ask <id>` ("Cash, burn and runway for <month>, please") and write "not supplied" meanwhile.
 4. A value that moved by more than 20% gets a one-line reason from a dated source, or "reason not found".
 
 ## 3. Collect the month's story
 
-Read `hub updates --kind weekly` and `hub meetings search --since <first of month>`. List the wins
+Read `hub update list --kind weekly` and `hub meeting search --since <first of month>`. List the wins
 (shipped, signed, hired, learned) and the misses (slipped, lost, broke, missed target). Remove
 anything on `knowledge/exclusions.md`. Pick three to five highlights and one to three lowlights,
 biggest first. Each lowlight has what happened, why, and what is being done.
@@ -42,6 +42,6 @@ Mark the draft incomplete at the top if any figure is missing.
 
 ## 6. Hand over
 
-Write `reports/YYYY-MM-DD-investor-update.md`, `hub files publish` it, commit, and `hub task update
+Write `reports/YYYY-MM-DD-investor-update.md`, `hub file publish` it, commit, and `hub task update
 <id> --status done --note`: the headline, the path, the missing figures, any lowlight that may
 deserve a call before the update. Always finish the task. The owner sends it.

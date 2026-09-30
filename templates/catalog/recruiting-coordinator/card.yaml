@@ -3,7 +3,7 @@ slug: recruiting-coordinator
 name: Recruiting Coordinator
 required: false
 bootstrap: false
-department: hr
+group: hr
 pack: basics
 icon: event_upcoming
 suggest: common

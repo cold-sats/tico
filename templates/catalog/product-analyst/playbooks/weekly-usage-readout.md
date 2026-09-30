@@ -40,5 +40,5 @@ drop to zero is usually a broken event. Put the checks you did on the line.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-usage-readout.md` in the shape of `knowledge/examples/usage-readout.md`, with the
-queries saved as `queries/YYYY-MM-DD-usage-readout.sql`. `hub files publish reports/YYYY-MM-DD-usage-readout.md`,
+queries saved as `queries/YYYY-MM-DD-usage-readout.sql`. `hub file publish reports/YYYY-MM-DD-usage-readout.md`,
 commit, and `hub task update <id> --status done --note`: the headline and the biggest caveat.

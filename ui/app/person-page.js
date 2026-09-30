@@ -104,11 +104,11 @@ function pagePerson(id, tab) {
   const goalsCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Goals');
   const notesCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Notes');
   if (goalsCard) bindFieldEditor(goalsCard, async text => {
-    const row = await post(`/v2/people/${encodeURIComponent(p.id)}`, {goals: text});
+    const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {goals: text});
     p.goals = row.goals; pagePerson(p.id, 'profile');
   });
   if (notesCard) bindFieldEditor(notesCard, async text => {
-    const row = await post(`/v2/people/${encodeURIComponent(p.id)}`, {notes: text});
+    const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {notes: text});
     p.notes = row.notes; pagePerson(p.id, 'profile');
   });
   // The top of a human's page is their name and goal; the title and
@@ -130,7 +130,7 @@ function pagePerson(id, tab) {
       form.querySelectorAll('button').forEach(b => b.disabled = true);
       form.querySelector('[data-status]').textContent = 'Saving…';
       try {
-        const row = await post(`/v2/people/${encodeURIComponent(p.id)}`, {title: form.title.value, about: form.about.value});
+        const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {title: form.title.value, about: form.about.value});
         p.title = row.title; p.about = row.about;
         pagePerson(p.id, tab);
       } catch (e) {
@@ -216,7 +216,7 @@ function personTaskModal(p) {
 async function personSlackLoad(p) {
   const el = $('#person-slack'); if (!el) return;
   try {
-    const d = await get(`/v2/people/${encodeURIComponent(p.id)}/slack`);
+    const d = await get(`/v2/humans/${encodeURIComponent(p.id)}/slack`);
     const threads = d.threads || [];
     if (!threads.length) {
       el.innerHTML = '<div class="empty">No Tico Slack DMs yet. When a bot messages them in Slack (through Tico), the thread lands here, including their replies.</div>';

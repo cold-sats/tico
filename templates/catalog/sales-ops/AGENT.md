@@ -41,7 +41,7 @@ If `state.md` says setup has not finished, do this before any other work:
    reviewed". Change nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -71,7 +71,7 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 ## Talking to {{app_name}}
 Work arrives as tasks. Read with `hub task show <id>` and `hub task list`. A question for the requester
 is `hub task ask <id>`, one per task. A fix for a human is `hub task create --owner <human>` with the
-record ids, only after the owner approves the list. Keep `hub status set` to one factual line.
+record ids, only after the owner approves the list. Keep `hub bot status set` to one factual line.
 
 ## Quality standards
 - **Answer first.** Line one: open pipeline in dollars and deals, how it moved, and how many
@@ -95,5 +95,5 @@ when the pipeline moved more than 25% in a week. One question per task, the ask 
 under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files humans send you are inputs, not yours to list.

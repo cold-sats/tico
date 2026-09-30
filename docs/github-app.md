@@ -58,8 +58,8 @@ refused. Remove a repository from the list to take it back out; tokens already i
 
 With administration allowed, the owner can create `<org>/emp-<slug>` privately from a template:
 
-    hub github create-bot-repo botops            # from ticoteam/botops
-    hub github create-bot-repo sales --template <org>/bot-template
+    hub bot repo-create botops            # from ticoteam/botops
+    hub bot repo-create sales --template <org>/bot-template
 
 The BotOps bot (`bot:botops`) may make the same call, because the owner allowed repository creation
 when connecting the app. It is limited to the name `emp-<slug>` for a bot that exists (planned or
@@ -76,7 +76,7 @@ a template copy. `--empty` (API `{"slug": ..., "empty": true}`, no template) cre
 `<org>/emp-<slug>` with nothing in it (`POST /orgs/<org>/repos`, `auto_init` false). Then, from the
 bot's checkout:
 
-    hub github create-bot-repo <slug> --empty
+    hub bot repo-create <slug> --empty
 
 Then set the bot's repository (Settings, Bots) to `<org>/emp-<slug>`; a bare `emp-<slug>` there also
 works and means the connected organization. Nobody pushes by hand: a run's token

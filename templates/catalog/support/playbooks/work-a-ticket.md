@@ -30,7 +30,7 @@ legal matter, or a human's safety goes to a human immediately, before you finish
 
 ## 3. Research the answer
 
-    hub docs ask "<what the customer is asking, in plain words, no personal details>"
+    hub doc ask "<what the customer is asking, in plain words, no personal details>"
 
 Use the answer and its citations. `covered: false`, or an answer that contradicts what the ticket
 shows, is a doc gap: one task to the Librarian (`hub task create --owner librarian --parent <id>`) with

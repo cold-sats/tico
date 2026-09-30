@@ -55,7 +55,7 @@ const bots = [['seo', 'AI SEO'], ['finance', 'Finance'], ['cmo', 'AI CMO'], ['ga
       if (p === '/api/me') return json({id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', mover: true, cloud: true});
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
-      if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}]});
+      if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}]});
       if (p === '/api/v2/updates/unread') return json({unread: updates.filter(u => !u.read).length});
       if (p === '/api/v2/updates' && req.method() === 'GET') {
         await new Promise(r => setTimeout(r, 120));        // a real round trip, so the cache paint shows first

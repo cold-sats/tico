@@ -152,18 +152,18 @@ The commands (with MCP tools of the same names):
 
 | Command | Does |
 | --- | --- |
-| `hub bot register <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a run |
+| `hub bot create --record-only <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a run |
 | `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,team:legal,bot:analyst`) |
 | `hub bot owners <slug> [--add P ...] [--remove P ...]` | the bot's owners |
-| `hub bot set <slug> ...` | name, description, reports-to, status, repository |
-| `hub bot onboarded [slug]` | a starter bot's own call, once its setup is done: it stops being `needs_onboarding` (its manager may call it for it) |
-| `hub people add <email> [--name] [--title] [--reports-to]`, `hub people list` | the roster |
+| `hub bot update <slug> ...` | name, description, reports-to, status, repository |
+| `hub bot setup-done [slug]` | a starter bot's own call, once its setup is done: it stops being `needs_onboarding` (its manager may call it for it) |
+| `hub human add <email> [--name] [--title] [--reports-to]`, `hub human list` | the roster |
 
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
 | `hub bot go-live <bot>` | places it if it has no computer, turns it on, and for a starter bot starts its setup chat as the requester |
 | `hub bot model <bot> [<model>] [--effort E]`, `hub bot pause\|resume <bot>` | the model (none: list the choices), stop and restart |
 | `hub routine on\|off <key> --bot <bot>` | a routine on or off |
-| `hub computers`, `hub fleet-check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
+| `hub computer list`, `hub health check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
 | `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
 | `hub support file "<message>"` | tells the Tico team about a gap or a fault: a Confirm card shows the exact message, and nothing is sent until they confirm |
 | `hub api <METHOD> <path> ['{json}']` | any other v2 route, as the requester |

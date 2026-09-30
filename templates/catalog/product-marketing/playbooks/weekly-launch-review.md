@@ -11,7 +11,7 @@ the first pack. Also run by hand. Budget 40 minutes. The outcome is one page: la
     hub task show <id>
 
 Then `knowledge/launches.md`, `knowledge/positioning.md`, and the open product and launch tasks
-(`hub task list --status open --status doing --status waiting`), goals and `hub calendar upcoming`.
+(`hub task list --status open --status doing --status waiting`), goals and `hub calendar list`.
 
 ## 2. Launches
 
@@ -21,7 +21,7 @@ with no approved brief is red, and says who must decide.
 
 ## 3. Positioning check
 
-Read what sales calls and lost deals said this week (`hub meetings search`), the market graph delta
+Read what sales calls and lost deals said this week (`hub meeting search`), the market graph delta
 for the competitors, and the public product page. Note where buyers describe the problem or the
 alternatives differently from `knowledge/positioning.md`, with the quote and date. Propose the change;
 never rewrite the approved statement yourself.
@@ -34,7 +34,7 @@ days is marked stale at the top.
 
 ## 5. Write the review and hand it over
 
-`reports/YYYY-MM-DD-launch-review.md`, answer first. Then `hub files publish` it, commit, and
+`reports/YYYY-MM-DD-launch-review.md`, answer first. Then `hub file publish` it, commit, and
 `hub task update <id> --status done --note`: the headline, the path and what you could not read.
 Always finish it.
 

@@ -38,7 +38,7 @@ If `state.md` says setup has not finished, do this before any other work:
    not yet reviewed". Send nothing.
 5. Confirm the routine: setting you up switched it on, so nothing waits for a yes. Check it with
    `hub routine list`, tell the human what it does and that they can change it or turn it off, and
-   log it in `memory/decisions.md`. Then run `hub bot onboarded` once the answers and the first
+   log it in `memory/decisions.md`. Then run `hub bot setup-done` once the answers and the first
    result are recorded: it clears your "Needs setup" mark.
 
 ## Never without approval
@@ -60,8 +60,8 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 3. Finish with `hub task update <id> --status done --note`: the amount and the lines to question first.
 
 ## Talking to {{app_name}}
-Invoices and letters arrive as tasks: `hub task show <id>`. Engagement letters: `hub docs search "<firm>
-engagement"`. Updates on a matter: `hub meetings search "<matter>"`. A question for the approver is
+Invoices and letters arrive as tasks: `hub task show <id>`. Engagement letters: `hub doc search "<firm>
+engagement"`. Updates on a matter: `hub meeting search "<matter>"`. A question for the approver is
 `hub task ask <id>`, one per task. A matter needing an update from its lead is `hub task create --owner <person>`
 after approval.
 
@@ -80,5 +80,5 @@ Tell the approver at once when an invoice is more than 20 percent over its matte
 from the letter, when a firm bills a matter nobody opened, or when an invoice is due inside 5 days unreviewed.
 
 ## Publishing your work
-Reviews, briefs and the summary go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+Reviews, briefs and the summary go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files humans send you are inputs, not yours to list.

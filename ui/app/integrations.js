@@ -3,7 +3,7 @@
 'use strict';
 
 // ----------------------------------------------------------------- integrations
-// One page per outside system (integrations/*.md, served by GET /api/v2/integrations): what it
+// One page per outside system (integrations/*.md, served by GET /api/v2/tools): what it
 // is, how a bot uses it, the rules, the query list, and the learnings bots and humans add.
 // Everyone signed in reads; anyone adds a learning; the owner deletes one.
 const INTEGRATION_KIND = {api: 'API', sql: 'SQL', browser: 'Browser', mail: 'Email', cli: 'CLI'};
@@ -110,7 +110,7 @@ async function pageIntegrations() {
       const q = ($('#int-filter')?.value || '').toLowerCase().trim();
       const shown = INT_ROWS.filter(r => !q || [r.service, r.title, r.kind, r.summary, r.access, ...(r.credentials || []), ...(r.aliases || [])].join(' ').toLowerCase().includes(q));
       list.innerHTML = shown.length ? `<table class="int-list"><thead><tr><th>Tool</th><th>Description</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
-        `<tr><td><a href="${INTEGRATIONS}/${esc(r.service)}" title="hub integration ${esc(r.service)}">${esc(r.title)}</a>
+        `<tr><td><a href="${INTEGRATIONS}/${esc(r.service)}" title="hub tool show ${esc(r.service)}">${esc(r.title)}</a>
           <div class="muted">${esc(INTEGRATION_KIND[r.kind] || r.kind)} · ${esc(r.writes)}</div></td>
           <td>${esc(r.summary)}</td>
           <td class="int-creds">${credSummary(r.credentials)}</td>
@@ -118,7 +118,7 @@ async function pageIntegrations() {
         : `<div class="empty">${INT_ROWS.length ? 'No tool matches.' : 'No tools.'}</div>`;
     };
     let rows;
-    try { rows = (await get('/v2/integrations')).integrations; }
+    try { rows = (await get('/v2/tools')).integrations; }
     catch (e) {
       const list = $('#int-list');
       if (load === INT_LOAD && list) list.innerHTML = `<div class="empty">Could not load the tools: ${esc(e.message)}</div>`;
@@ -144,7 +144,7 @@ async function pageIntegrations() {
       <dialog class="bot-editor" id="int-cred-dialog" aria-label="Tool credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
   let page;
-  try { page = await get('/v2/integrations/' + encodeURIComponent(service)); }
+  try { page = await get('/v2/tools/' + encodeURIComponent(service)); }
   catch (e) {
     const detail = $('#int-detail');
     if (load === INT_LOAD && detail) detail.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -204,7 +204,7 @@ async function pageIntegrations() {
     if (del) {
       const row = del.closest('[data-learning]');
       if (!confirm('Delete this learning?')) return;
-      try { await post(`/v2/integrations/${encodeURIComponent(page.service)}/learnings/${encodeURIComponent(row.dataset.learning)}/delete`); row.remove(); toast('Deleted'); }
+      try { await post(`/v2/tools/${encodeURIComponent(page.service)}/learnings/${encodeURIComponent(row.dataset.learning)}/delete`); row.remove(); toast('Deleted'); }
       catch (e) { toast(e.message, true); }
       if (!$('#int-learning-list').children.length) $('#int-learning-list').innerHTML = '<div class="empty">Nothing learned yet.</div>';
       return;
@@ -214,7 +214,7 @@ async function pageIntegrations() {
       if (!text) { box.focus(); return; }
       const btn = $('#int-learn-add'); btn.disabled = true;
       try {
-        const n = await post(`/v2/integrations/${encodeURIComponent(page.service)}/learnings`, {text});
+        const n = await post(`/v2/tools/${encodeURIComponent(page.service)}/learnings`, {text});
         const list = $('#int-learning-list'); if (list.querySelector('.empty')) list.innerHTML = '';
         list.insertAdjacentHTML('afterbegin', learningHtml(n)); box.value = ''; toast('Learning added');
       } catch (e) { toast(e.message, true); }

@@ -21,7 +21,7 @@ it, and whether another member already answered (then your reply confirms or cor
 
 ## 3. Find the answer
 
-    hub docs ask "<the member's question, in their words>"
+    hub doc ask "<the member's question, in their words>"
 
 Use the answer and its citations. If the Librarian says it is not covered, do not guess: report the
 gap to it (`hub task create --owner librarian`) and tell the owner the thread needs a human.
