@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Rebuild the Material Symbols Outlined subset the UI ships.
 
-Scans ui/index.html and ui/*.js for icon names, writes them to ui/vendor/fonts/icons.txt and
-downloads a woff2 that holds just those glyphs from Google Fonts. Run it after adding an icon:
+Scans ui/index.html and ui/*.js for icon names, and the `icon:` of every department
+(templates/departments.yaml) and bot template (templates/catalog/*/card.yaml), which the org builder
+draws. It writes them to ui/vendor/fonts/icons.txt and downloads a woff2 that holds just those glyphs
+from Google Fonts. Run it after adding an icon, a department or a template:
 
     python3 scripts/build-icon-font.py          # rescan and download
     python3 scripts/build-icon-font.py --check  # rescan only; exit 1 if icons.txt is stale
@@ -26,7 +28,11 @@ USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.3
 
 NAME = r"[a-z][a-z0-9_]*"
 # Classes whose text content is an icon name (each is styled with the icon font in ui/index.html).
-ICON_CLASSES = ("nav-icon", "mobile-nav-icon", "int-key", "agent-mark", "person-mail-link", "material-symbols-outlined")
+ICON_CLASSES = ("nav-icon", "mobile-nav-icon", "int-key", "agent-mark", "person-mail-link", "material-symbols-outlined",
+                "ob-ms")
+TEMPLATES = ROOT / "templates"
+# A department's or a card's Material Symbols name, as the YAML writes it: `icon: support_agent`.
+TEMPLATE_ICON = re.compile(r"^\s*(?:-\s+)?icon:\s*[\"']?(%s)[\"']?\s*(?:#.*)?$" % NAME, re.M)
 PATTERNS = [
     # 1. An element with an icon class whose only content is the name: <span class="nav-icon">check_circle</span>
     re.compile(r'class="[^"]*\b(?:%s)\b[^"]*"[^>]*>\s*(%s)\s*<' % ("|".join(ICON_CLASSES), NAME)),
@@ -59,6 +65,9 @@ def used_icons():
                     found.update(re.findall(rx % NAME, m.group(1)))
             else:
                 found.update(pat.findall(text))
+    for path in [TEMPLATES / "departments.yaml", *sorted(TEMPLATES.glob("catalog/*/card.yaml"))]:
+        if path.is_file():
+            found.update(TEMPLATE_ICON.findall(path.read_text(encoding="utf-8")))
     return sorted(found)
 
 
