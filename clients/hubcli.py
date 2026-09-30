@@ -166,7 +166,7 @@ the server (`backend/hubdb.py`), never here.
                                            add or remove the people who own a bot, as the requester (BotOps)
     hub bot onboarded [slug]               a starter bot marks itself onboarded once its setup is done
     hub people add <email> [--name N] [--title T] [--reports-to P]
-                                           add a person to the roster and sign-in list (a Confirm card first)
+                                           add a person to the roster and sign-in list (a Confirm card first, unless they are in the company's domain)
                                            (`hub person add` is the same)
     hub people list                        the people on the roster
     hub api GET|POST|PUT|PATCH|DELETE <path> ['{json}']

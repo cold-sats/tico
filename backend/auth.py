@@ -13,6 +13,7 @@ from . import bot_access as A
 from . import identity_proxy
 from . import people as P
 from . import rooms
+from . import team_rules
 from .store import H, Problem, digest
 
 # Loopback sign-in for an environment with no identity proxy in front of it.
@@ -147,7 +148,7 @@ class Auth:
         """Adopt the stored owner and access list. One indexed read per request keeps a transfer
         or a list change effective at once, with no restart."""
         rows = tuple(sorted(tuple(r) for r in c.execute(
-            "SELECT key,value_json FROM registry_metadata WHERE key IN ('owner','access')")))
+            "SELECT key,value_json FROM registry_metadata WHERE key IN ('owner','access','rules')")))
         if rows == self._access_seen:
             return
         from . import access
@@ -160,13 +161,14 @@ class Auth:
         self.allowed_emails, self.allowed_domains = set(lists["allowed"]), set(lists["allowed_domains"])
         # Everything that still reads the settings sees the owner in force.
         previous, self.settings.owner_email = self.settings.owner_email, self.owner_email
-        # The credential vault stays with the owner (and TICO_CREDENTIAL_ADMINS, when the server names its own
-        # list): being an Admin of the company's bots does not make anyone a credential administrator.
+        # Unless the server names its own list (TICO_CREDENTIAL_ADMINS), the credential administrators are the owner
+        # and the Admins; the owner's rule "Admins store credentials" off leaves the vault to the owner alone.
         if getattr(self.settings, "credential_admins_follow_owner", False):
             expected = self._credential_followed if self._credential_followed is not None else (
                 (previous,) if previous else ())
             if tuple(self.settings.credential_admins) == expected:
-                self._credential_followed = tuple(e for e in (self.owner_email,) if e)
+                admins = sorted(lists["admins"]) if team_rules.load(c)["admin_credentials"] else []
+                self._credential_followed = tuple(dict.fromkeys(e for e in (self.owner_email, *admins) if e))
                 self.settings.credential_admins = self._credential_followed
 
     def admits(self, email):

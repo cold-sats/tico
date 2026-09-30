@@ -1,8 +1,8 @@
-/* ui/app/sql.js — SQL page (owner only)
+/* ui/app/sql.js — SQL page (owner and admins)
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// ----------------------------------------------------------------- SQL (owner only)
+// ----------------------------------------------------------------- SQL (owner and admins)
 // Read-only queries over the hub database: POST /api/v2/sql, one SELECT at a time. What a
 // query may see is decided in the database layer (backend/sql.py: per-request views and
 // SQLite's authorizer), never here; this page only sends the text and draws the rows.
@@ -15,7 +15,7 @@ const SQL_EXAMPLES = [
   ['Tables', "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"],
 ];
 function pageSql() {
-  if (S.me && S.me.role !== 'owner') { location.hash = TASKS; return; }
+  if (S.me && !S.me.can_see_sql) { location.hash = TASKS; return; }
   let last = ''; try { last = localStorage.getItem('hub.sql.last') || ''; } catch {}
   $('#main').innerHTML = `<div class="meeting-head"><div><h1>Query the database</h1></div></div>
     <section class="card">

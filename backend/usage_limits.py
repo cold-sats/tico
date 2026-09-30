@@ -60,6 +60,28 @@ def effective(c, bot, default=None):
     return out, source
 
 
+def only_lowers(c, bot, body):
+    """Whether saving `body` as the limits of `bot` (empty: the company default) leaves no cap higher than it is now.
+    No cap is the highest there is, and a body that is not amounts counts as raising."""
+    body = body if isinstance(body, dict) else {}
+    if bot:
+        now, _ = effective(c, bot)
+        default = company(c)
+        new = {key: body.get(key) if body.get(key) is not None else default[key] for key in now}
+    else:
+        now = company(c)
+        new = {key: body.get(key) for key in ("daily_usd", "monthly_usd")}
+        if now["count_subscription"] and not body.get("count_subscription"):
+            return False               # counting less spend is a higher limit
+    for key in ("daily_usd", "monthly_usd"):
+        value = _amount(new[key]) if new[key] is not None else None
+        if new[key] is not None and value is None:
+            return False
+        if now[key] is not None and (value is None or value > now[key]):
+            return False
+    return True
+
+
 def bounds(at=None):
     """The current period's key and its [from, to) timestamps: {daily: (key, from, to), monthly: ...}."""
     at = at or datetime.now(timezone.utc)

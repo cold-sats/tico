@@ -851,6 +851,15 @@ class AccessLimits(Contract):
     on_behalf_of: ID | None = None
 
 
+class AccessRules(Contract):
+    """Team rules the owner tightens (backend/team_rules.py); only what is sent changes."""
+    assistant_direct: bool | None = None
+    botops_direct: bool | None = None
+    admin_credentials: bool | None = None
+    admin_sql: bool | None = None
+    member_tokens: bool | None = None
+
+
 class AccessAllowUpdate(Contract):
     """Who may join by signing in. `expected_revision` is the revision the editor read."""
     allowed: list[str] = Field(max_length=500)

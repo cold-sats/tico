@@ -46,10 +46,10 @@ Bots' repositories must live in the connected organization. A bare repository na
 
 ## Extra repositories for one bot
 
-A bot sometimes needs a second repository, such as shared documentation or a design system. The owner
-adds it in Settings, Bots, the bot's settings, Extra GitHub repositories (one per line, in the connected
-organization). From then on that bot's token covers its own repository and those, with the same four
-permissions. Other bots are unaffected, only the owner can change the list, and each change is an audit
+A bot sometimes needs a second repository, such as shared documentation or a design system. Whoever manages the
+bot (the owner, an admin, its owners, the people it reports up to) adds it in Settings, Bots, the bot's settings, Extra GitHub
+repositories (one per line, in the connected organization), or asks BotOps to. From then on that bot's token covers its own
+repository and those, with the same four permissions. Other bots are unaffected, and each change is an audit
 event (`github.bot_repos_changed`, with the list before and after). The API is
 `GET` and `PUT /api/v2/bots/{bot}/github-repos`. A repository outside the connected organization is
 refused. Remove a repository from the list to take it back out; tokens already issued expire within the hour.

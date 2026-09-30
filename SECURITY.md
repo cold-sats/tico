@@ -132,8 +132,9 @@ share a computer (see above).
 
 Company roles are Owner, Admin and Member ([docs/permissions.md](docs/permissions.md)). Members may create bots (up to a limit),
 own them and add coworkers in the company's email domain; admins manage every bot except the built-in ones (the Assistant, BotOps,
-the Librarian and the Goal Manager are the owner's alone), people and computers; only owners make admins. Admins are not credential administrators:
-the shared credential vault belongs to the owner and `TICO_CREDENTIAL_ADMINS`. Because bots on one computer are not isolated from
+the Librarian and the Goal Manager are the owner's alone), people and computers; only owners make admins. Admins are credential administrators by default, so a team gets going without the owner:
+the shared credential vault belongs to the owner and the Admins, or to the owner and `TICO_CREDENTIAL_ADMINS` when the server names them, and
+the owner can turn "Admins store credentials" off. Because bots on one computer are not isolated from
 each other (above), a bot a member created goes only on its member's own computer or one an admin has opened to members' bots (never
 another member's), setup never places one elsewhere, Health warns when such a bot shares a computer with `secrets/_shared.env`
 keys, and an admin's placement of one on any other computer through BotOps needs their own click. SQL shows a member the

@@ -202,8 +202,8 @@ class Settings:
         identity_proxy.check(self)
         self.runner_url = (self.runner_url or self.public_url).rstrip("/")
         self.owner_email = (self.owner_email or self._roster_owner()).strip().lower()
-        # Unless the server names its credential administrators, they are whoever owns the
-        # environment now (backend/auth.py sync_access follows a transfer).
+        # Unless the server names its credential administrators, they are whoever owns the environment now and its
+        # Admins (backend/auth.py sync_access follows a transfer and the Admins list).
         self.credential_admins_follow_owner = not _emails(",".join(self.credential_admins))
         self.credential_admins = _emails(",".join(self.credential_admins)) or tuple(
             filter(None, [self.owner_email]))

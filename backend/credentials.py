@@ -18,7 +18,8 @@ CONTEXT = {'application': 'tico-credentials'}
 
 
 def administrator(c, who, admins):
-    """`admins` is the environment's TICO_CREDENTIAL_ADMINS list, which defaults to its owner."""
+    """`admins` is the credential administrators: TICO_CREDENTIAL_ADMINS, which defaults to the owner and the Admins
+    (`Auth.sync_access`, unless the owner's rule says the owner alone)."""
     if who.role not in ('owner', 'human'):
         return False
     row = c.execute('SELECT email FROM humans WHERE id=?', (H.actor_id(who.actor),)).fetchone()

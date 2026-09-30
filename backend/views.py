@@ -12,7 +12,7 @@ from . import access as Access
 from . import bot_access as A
 from . import models as M
 from . import providers, runner_versions
-from . import rooms, turns
+from . import rooms, team_rules, turns
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
 from pathlib import Path
 
@@ -771,6 +771,8 @@ def install_views(app, store, auth, mutate, task_view):
                     "bot_admin": auth.bot_admin(who), "owner_id": auth.owner_id(c),
                     "config": config_view(c, store.settings, who),
                     "credential_admin": administrator(c, who, admins),
+                    # The SQL page: the owner's, and the Admins' unless the owner's rule says otherwise.
+                    "can_see_sql": who.role == "owner" or (auth.bot_admin(who) and team_rules.load(c)["admin_sql"]),
                     "proxy_session": who.via_proxy,
                     "sign_in_name": auth.sign_in_name(request.headers) if who.via_proxy else "",
                     "credential_access": bool(can_open(c, who, admins)),

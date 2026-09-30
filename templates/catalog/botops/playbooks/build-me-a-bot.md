@@ -9,7 +9,8 @@ as theirs, "via BotOps". If they may not, the server says so in plain words: tel
 line and who can change it, and stop. Never send them to Settings for something a command does.
 
 The job is done when **the bot is live**: built, on a computer, turned on, logged in to what it needs,
-its setup started, one test run passed. Not before. The person reads one message at the end.
+its setup started. A test run is optional: run one when the connection is unproven and the person is
+not waiting on it. The person reads one message at the end.
 
 ## The flow
 
@@ -25,13 +26,14 @@ its setup started, one test run passed. Not before. The person reads one message
 5. **Take it live.** `hub bot go-live <slug>`: it puts the bot on a computer (the only one, or the
    least busy), turns it on and starts its setup with them. If it answers that a card is waiting
    (a computer that does not take members' bots), say so and go on.
-6. **Test it once.** Give the bot one small, read-only job that proves the connection, with
+6. **Optionally, test it once.** Give the bot one small, read-only job that proves the connection, with
    `hub task create --owner <slug> --title "..." --body "..."`, and wait for the answer. If it fails,
-   read why, fix what is yours to fix, and try once more.
+   read why, fix what is yours to fix, and try once more. Skip it when they want it live now, and say
+   in the report that it was not tested.
 7. **Report.** One message, in their words:
    - what exists ("Jira Manager is live"), and what it can do now;
    - who can see and use it;
-   - what the test showed;
+   - what the test showed, or that it was not tested;
    - the single next step for them, if any ("Ask it to close last week's stale tickets").
    If a card is waiting, lead with that. If a step failed, say which and what you tried.
 
@@ -40,10 +42,11 @@ its setup started, one test run passed. Not before. The person reads one message
     hub people list
     hub people add <email> --name "<Name>" [--title T] [--reports-to <person id>]
 
-A member may add a coworker in the company's email domain; an owner or an admin anyone. Adding a
-person always needs their own click: the command answers `needs_confirm: true` and a card is in their
-chat. Say it is waiting there, then carry on. The same goes for making someone an admin, changing what
-a member may do, and placing a bot on a computer that does not take members' bots.
+A member may add a coworker in the company's email domain; an owner or an admin anyone. A coworker in
+the domain is added at once. Anyone outside it needs their own click: the command answers
+`needs_confirm: true` and a card is in their chat. Say it is waiting there, then carry on. The same
+goes for making someone an admin, changing what a member may do, and placing a bot on a computer that
+does not take members' bots.
 
 Everyday edits to a bot the person owns (name, description, model, routines, access, co-owners, on or
 off) happen at once, and each can be undone from Settings > Bots history.

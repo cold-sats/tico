@@ -8,7 +8,8 @@ permission checks are the only gate: a member is refused what only an owner may 
 This module is only the list of routes and the two guards around it:
 
 * a route is `do` (it runs at once, as the person, recorded "via BotOps" and undoable where the app is),
-  `confirm` (it comes back as a Confirm card in their chat and runs only on their click) or not delegable;
+  `confirm` (it comes back as a Confirm card in their chat and runs only on their click) or not delegable. The owner's
+  rule "BotOps changes providers and limits without asking" (backend/team_rules.py), off, turns two `do` groups into cards;
 * a secret never travels in a request body here. A key, password or token goes in through a credential card
   (backend/credential_cards.py), which the model never sees the value of.
 
@@ -26,8 +27,9 @@ def _routes(*rows):
     return [(method, re.compile(API + path)) for method, path in rows]
 
 
-# Runs at once, as the person. Some of these keep their own "always a click" rule inside the route (adding a
-# person, a role, a credential grant, a computer that does not take members' bots): the route answers with the card.
+# Runs at once, as the person. Some of these keep their own "always a click" rule inside the route (adding someone
+# outside the team's domain, a role, a credential grant, a computer that does not take members' bots): the route
+# answers with the card.
 DO = _routes(
     ("POST", r"bots"), ("POST", r"bots/register"),
     ("POST", rf"bots/{_S}/(definition|assignment|placement|place|go-live|model|fallback|transitions|control|owners|co-owners|"
@@ -51,26 +53,38 @@ DO = _routes(
     ("POST", r"health/bot-access/dismiss"),
     # People and access. The route asks for the click on what needs it.
     ("POST", r"access/people"), ("POST", rf"access/people/{_S}"),
-    ("POST", rf"credentials/{_S}/grants"),
+    ("POST", rf"credentials/{_S}/grants"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
+    # Computers: a restart, a model sign-in (its code is pasted in the app, never here), inbox sharing where one owner runs
+    # everything (the route says where). Limits are spending: lowering one is always direct; raising one, and the providers,
+    # are direct unless the owner's rule says otherwise (TIGHTENED).
+    ("POST", rf"runners/{_S}/(restart|inbox-sharing|logins)"), ("POST", rf"runners/{_S}/logins/{_S}/cancel"),
+    ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
+    # A message or chat to a bot stays in the team; a message to a person is a card (`classify`).
+    ("POST", rf"chat/{_S}"),
     ("POST", r"system/update/check"),
 )
+
+# Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is
+# still direct: app.py checks it against what is set.
+TIGHTENED = _routes(("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"))
+LIMITS = re.compile(API + rf"usage/limits(/{_S})?")
 
 # Comes back as a Confirm card; it runs only on the person's own click, as them.
 CONFIRM = _routes(
     ("POST", rf"bots/{_S}/archive"),
     ("POST", rf"people/{_S}"),
-    ("PUT", r"providers"), ("PUT", r"access/limits"), ("PUT", r"access/allow"),
-    ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),                 # spending: always their click
-    ("POST", rf"runners/{_S}/(member-bots|revoke|restart)"),
-    ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
+    ("PUT", r"access/limits"), ("PUT", r"access/allow"),
+    ("POST", rf"runners/{_S}/(member-bots|revoke)"),
     ("POST", r"system/update"),
     ("POST", rf"goal-proposals/{_S}/decide"),
     ("POST", r"support/tickets"),
-    ("POST", rf"chat/{_S}"), ("POST", r"messages"),
     ("PATCH", rf"files/{_S}"),
     ("PUT", r"directory"), ("POST", r"directory/sync"), ("POST", r"directory/preview"),
     ("POST", r"slack/disconnect"), ("POST", r"github/app/disconnect"),
 )
+
+# The messages route is a card unless it names a bot (`classify`).
+MESSAGES = re.compile(API + r"messages")
 
 # Confirm-card routes only an owner or an admin may ask for: a member is told so at once, not handed a card that fails.
 ADMIN_ONLY = _routes(
@@ -80,7 +94,7 @@ ADMIN_ONLY = _routes(
 )
 
 # Read as the person, except what hands back a secret or is a computer's own channel.
-NO_READ = re.compile(API + r"(credential-runtime|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*|runners/[^/]+/logins.*"
+NO_READ = re.compile(API + r"(credential-runtime|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*"
                      r"|runner-logins.*|runners/desired|runners/assignments|runners/eligible|directory/scim-token)")
 
 # Named like a secret: refused whatever route it is on.
@@ -102,8 +116,9 @@ def normalize(path):
     return normalize_path(path)
 
 
-def classify(method, path):
-    """`do`, `confirm` or None (not delegable) for this request."""
+def classify(method, path, body=None, rules=None, to_bot=None):
+    """`do`, `confirm` or None (not delegable) for this request. `rules` are the team's (backend/team_rules.py);
+    `to_bot(name)` says a message's recipient is a bot."""
     path = normalize(path)
     method = str(method or "").upper()
     if not path:
@@ -111,6 +126,10 @@ def classify(method, path):
     if method == "GET":
         return None if NO_READ.fullmatch(path) else "do"
     if any(m == method and p.fullmatch(path) for m, p in CONFIRM):
+        return "confirm"
+    if method == "POST" and MESSAGES.fullmatch(path):
+        return "do" if to_bot and isinstance(body, dict) and to_bot(body.get("to")) else "confirm"
+    if rules and not rules.get("botops_direct", True) and any(m == method and p.fullmatch(path) for m, p in TIGHTENED):
         return "confirm"
     if any(m == method and p.fullmatch(path) for m, p in DO):
         return "do"

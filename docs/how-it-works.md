@@ -55,7 +55,7 @@ in so that each channel's readers see it within the hour (`docs/slack-gateway.md
 Pages: **Tasks** (where the app opens), **Meetings** (imported transcripts, source sync status, Import, and each meeting's
 action items), **Docs**,
 **Integrations**, **Changelog**, the **Org** tree, and under your email **Runs**, **Settings**, **Credentials**
-and, for the owner, **SQL**. Tasks has List, Board, Recurring and Done. A bot's page has **Chat**,
+and, for the owner and admins, **SQL**. Tasks has List, Board, Recurring and Done. A bot's page has **Chat**,
 **Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian and the Goal Manager are built in to every company and cannot be archived or deleted (`409 system_bot`); the assistant
 and the Librarian work in the background and are not listed for people. Each person has one private **Assistant** chat, the first tab on their own page
 and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that person, and
@@ -233,8 +233,8 @@ status and reporting line are changed in **Settings → Bots**, not in the file.
 ## Calling the API from a script
 
 A person is normally the browser sign-in (Cloudflare Access). A **personal API token** is the
-same person from a script, a cron job or another machine, with no browser: the owner or a bot
-administrator (`registry/hub-access.yaml`) opens **Settings, Devices, API tokens**, gives the
+same person from a script, a cron job or another machine, with no browser: any person (the owner may
+limit it to admins, Settings > People) opens **Settings, Devices, API tokens**, gives the
 token a label and a life (90 days unless changed, a year at most), and copies it once; it is
 not shown again and only its hash is kept. Then:
 
@@ -246,8 +246,8 @@ curl -H "Authorization: Bearer $HUB_TOKEN" https://hub.acme.example/api/v2/bots
 ```
 
 No `HUB_EMPLOYEE`: the token is you, not a bot. It is you for every purpose, with the rights you
-have in the browser (a bot administrator adds bots for their own operator account, the owner does
-what the owner does), and it leaves the same audit trail. The one thing a token cannot do is make
+have in the browser (a member sees what a member sees, an admin adds bots for their own operator
+account, the owner does what the owner does), and it leaves the same audit trail. The one thing a token cannot do is make
 or revoke tokens; that takes a signed-in browser, so a leaked token cannot extend its own life.
 Revoke one on the same page, and it stops at once; the owner may revoke anyone's. Every token
 made or revoked is an `events` row (`token.create`, `token.revoke`).

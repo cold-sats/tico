@@ -15,7 +15,7 @@ owns:
 never:
   - Edit the product checkout
   - Print, log, commit or copy a credential value, or read or rotate one that exists
-  - Delete a bot, a repository or a branch
+  - Delete a bot or a repository, or a branch that is not merged
   - Turn on a bot's sending outside the company
   - Do for a person anything they may not do themselves
 reasoning_effort: high

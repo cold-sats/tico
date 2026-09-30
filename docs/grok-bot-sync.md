@@ -28,7 +28,7 @@ only receives (`backend/grokbot.py`).
   lately. Nothing is dispatched to these bots; a message written to one in Tico waits in its
   inbox (relaying it back into Grok is not built yet).
 
-Only the owner and bot administrators may sync, the same people who may mint personal tokens.
+Only the owner and bot administrators may sync.
 
 ## Connect it (once per person)
 
