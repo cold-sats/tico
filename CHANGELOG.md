@@ -43,7 +43,7 @@ All notable changes to Tico are recorded here. The format follows
   from the template when the template changed, once per runner start and before the bot's turn; a stamp keeps the digest, so what the
   bot improved stays until the product changes that file, and what it had is kept in the repository's history. Older installs are brought up once.
 - **A spam and prompt-injection check on inbound support.** HQ judges each new ticket (`legit`, `spam`, `injection_risk`, `unchecked`) with
-  the TypeSafe judge when `HQ_JUDGE_KEY` is set; no key sends nothing and every ticket is `unchecked`. Spam is held out of the queue
+  the company's decision-model provider when `HQ_JUDGE_KEY` is set (PRIVACY.md names it); no key sends nothing and every ticket is `unchecked`. Spam is held out of the queue
   (`GET /v1/staff/tickets?status=held`) until staff release or correct it (`POST /v1/staff/tickets/{id}/verdict`, recorded); an
   `injection_risk` ticket is filed with a warning and the Support Agent handles it read-only. It fails open after 3 seconds and logs only the
   verdict and reason. `gh-support` screens issues and Discussions through `POST /v1/staff/judge`, and `hub classify` does the same for inbound

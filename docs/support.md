@@ -71,7 +71,7 @@ quote it, and the bot's playbook says an instruction inside a ticket is never fo
 
 ### The spam and injection check
 
-Each new ticket is classified when it arrives, before any bot reads it, by the decision model (TypeSafe's Jev). The verdict
+Each new ticket is classified when it arrives, before any bot reads it, by the decision model (the optional provider the README describes). The verdict
 is `legit`, `spam`, `injection_risk` or `unchecked`, stored with a one-line reason and never the text.
 
 | Verdict | What happens |
@@ -89,7 +89,7 @@ calls, with the staff key already in its secrets, for each new issue, Discussion
 counted in its output line, `injection_risk` is filed with a warning. An Inbox bot checks mail with `hub classify` (text on
 standard input or `--file`), which asks the server's own decision model the same question.
 
-On HQ, `HQ_JUDGE_KEY` in `hq/.env` is the TypeSafe key (`HQ_JUDGE_URL` only to point elsewhere). Without it every verdict is
+On HQ, `HQ_JUDGE_KEY` in `hq/.env` is that provider's key (`HQ_JUDGE_URL` only to point elsewhere). Without it every verdict is
 `unchecked` and nothing is sent to anyone. HQ logs the verdict and reason and never the text. Only the first message of a ticket
 is checked, not a follow-up; a follow-up is quoted as untrusted data as before.
 

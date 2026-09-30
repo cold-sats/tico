@@ -4,8 +4,8 @@ A ticket (or a GitHub issue, or an email) is text from anyone on the internet. B
 classified: `legit`, `spam`, `injection_risk` (it tries to instruct whatever reads it) or `unchecked` (no key, the judge
 was down or slow, or it was not sure). Only the verdict and a short reason are kept and logged, never the text.
 
-    HQ_JUDGE_KEY   the TypeSafe (Jev) key; unset: nothing is sent anywhere and every verdict is `unchecked`
-    HQ_JUDGE_URL   the decisions endpoint, https://api.typesafe.ai/v1/systemone by default
+    HQ_JUDGE_KEY   the decision-model provider's key; unset: nothing is sent anywhere and every verdict is `unchecked`
+    HQ_JUDGE_URL   the decisions endpoint; the provider PRIVACY.md names by default
 
 It fails open: a judge that is down, slow (3 seconds) or answers something unexpected gives `unchecked`, and the ticket
 is filed as usual. The same question is the one `hub judge classify` asks on a Tico server (backend/judge.py), so a
