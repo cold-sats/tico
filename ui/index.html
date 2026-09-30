@@ -793,9 +793,46 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .bot-logo-more{font-size:11px;color:var(--muted);margin-left:5px}
 .settings-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .settings-toolbar p{margin:0;color:var(--muted);font-size:13px}
-.settings-bots-table{min-width:1010px;table-layout:fixed}
-.settings-bots-table th:nth-child(1){width:34px}.settings-bots-table th:nth-child(2){width:16%}.settings-bots-table th:nth-child(3){width:14%}.settings-bots-table th:nth-child(4){width:20%}.settings-bots-table th:nth-child(5){width:20%}.settings-bots-table th:nth-child(6){width:9%}.settings-bots-table th:nth-child(7){width:12%}.settings-bots-table th:nth-child(8){width:9%}
-.settings-bots-table .settings-pick{padding-right:0;vertical-align:top}.settings-pick input{margin:4px 0 0;cursor:pointer}.settings-pick input:disabled{cursor:not-allowed}
+.settings-bots-table{table-layout:fixed;min-width:0}
+.settings-bots-table th:nth-child(1){width:30px}.settings-bots-table th:nth-child(2){width:23%}.settings-bots-table th:nth-child(3){width:11%}.settings-bots-table th:nth-child(4){width:19%}.settings-bots-table th:nth-child(5){width:14%}.settings-bots-table th:nth-child(6){width:9%}.settings-bots-table th:nth-child(8){width:64px}
+.settings-bots-table td{vertical-align:middle;min-width:0;padding-right:var(--s2)}
+.settings-bots-table .settings-pick{padding-right:0}.settings-pick input{margin:0;cursor:pointer}.settings-pick input:disabled{cursor:not-allowed}
+.sb-bot{display:flex;align-items:center;gap:8px;min-width:0}
+.sb-bot>.av,.sb-bot>.avatar,.sb-bot>svg,.sb-bot>img{flex:none}
+.sb-text{min-width:0}
+.sb-line{display:flex;align-items:center;gap:6px;min-width:0}
+.sb-problem{color:var(--fail)}
+.sb-line .sb-name{min-width:6ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:600}
+.sb-line .pill{flex:none}
+.sb-text small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-access{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-stack{display:inline-flex;align-items:center}
+.sb-stack .av{border:2px solid var(--surface);box-sizing:content-box;margin-left:-6px}
+.sb-stack .av:first-child{margin-left:0}
+.sb-stack .more{font-size:11px;color:var(--muted);margin-left:4px}
+.settings-bots-table .settings-row-actions{text-align:right;white-space:nowrap}
+.sb-rows{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.sb-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:8px;font-size:13px}
+.sb-row>span:first-child{color:var(--muted);font-size:12px}
+.sb-row .settings-combo,.sb-row select{max-width:100%}
+.sb-row .settings-inline-select{width:100%;max-width:none;font-size:13px}
+.bot-editor-grid .sb-row .settings-combo input[type=search]{font-size:13px;padding:7px 9px}
+.sb-row .settings-owner-list{gap:4px}
+.sb-row .settings-agent-cell{grid-column:2/-1}
+@media (max-width:760px){
+  .settings-bots-table,.settings-bots-table tbody{display:block;width:100%}
+  .settings-bots-table thead{display:none}
+  .settings-bots-table tr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+  .settings-bots-table td{display:block;padding:0;border:0;min-width:0}
+  .settings-bots-table td.settings-pick{grid-column:1;grid-row:1}
+  .settings-bots-table td.sb-cell-name{grid-column:2;grid-row:1}
+  .settings-bots-table td.settings-row-actions{grid-column:3;grid-row:1}
+  .settings-bots-table td.sb-cell-access{grid-column:2/-1;grid-row:2}
+  .settings-bots-table td.sb-cell-model{grid-column:2/-1;grid-row:3}
+  .settings-bots-table td.sb-cell-fallback,.settings-bots-table td.sb-cell-owners,.settings-bots-table td.sb-cell-computer{display:none}
+  .settings-bots-table .sb-cell-access::before{content:"Access · ";color:var(--muted)}
+  .sb-row{grid-template-columns:minmax(0,1fr) auto}.sb-row>span:first-child{grid-column:1/-1}
+}
 .settings-bots-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .settings-bots-filters label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);min-width:0}
 .settings-bots-filters .settings-inline-select{min-width:0;max-width:min(240px,100%)}
@@ -821,7 +858,7 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-bot-name small .linkish:hover{color:var(--accent);text-decoration:underline}
 .settings-owner-list{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
 .settings-owner-list .pchip{margin:0}
-.settings-bots-table .settings-inline-select{width:100%;min-width:0;max-width:none;padding:7px 22px 7px 7px;font-size:12px}
+.settings-bots-table .settings-inline-select{width:100%;min-width:0;max-width:none;padding:6px 22px 6px 7px;font-size:12px}
 .settings-inline-select{min-width:135px;max-width:220px;padding:7px 28px 7px 8px;font-size:12px}
 .settings-row-actions{white-space:nowrap;text-align:right}
 .settings-row-actions button{padding:6px 8px}
@@ -865,9 +902,6 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-services-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px 14px;margin-top:12px;font-size:12px}
 .owner-picker{width:min(520px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .owner-picker-body{padding:18px}
-.settings-access{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:170px}
-.settings-access-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.settings-works-for{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .access-editor{width:min(660px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .access-body{padding:18px;display:flex;flex-direction:column;gap:12px;max-height:82vh;overflow:auto}
 .access-body p{margin:0}
@@ -2964,7 +2998,12 @@ document.addEventListener('click', ev => {
 });
 setInterval(() => { if (!document.hidden && !nvBusy && S.me) get('/v2/config').then(c => applyConfig(c)).catch(() => {}); }, 30000);  // with the app's poll: a release the server just learned of shows within a poll, not an hour
 // The main assistant is shown under the environment's assistant name, never its slug.
-const namedRoster = rows => rows.map(e => e.name === assistantBot() ? {...e, display_name: assistantName()} : e);
+// The built-in assistant reads as what it is. An assistant named after the company (the old default) is just "Assistant".
+const assistantShownName = () => {
+  const name = String(assistantName() || '').trim(), company = String(S.config.company_name || '').trim().toLowerCase();
+  return !name || name.toLowerCase() === company ? 'Assistant' : name;
+};
+const namedRoster = rows => rows.map(e => e.name === assistantBot() ? {...e, display_name: assistantShownName()} : e);
 // Small compatibility hook for separately loaded UI modules. It exposes only deployment mode,
 // never identity or credentials.
 window.ticoIsCloud = () => !!S.me?.cloud;
@@ -9460,7 +9499,7 @@ async function loadSettings() {
       get('/employees'),
       S.me?.cloud && S.me?.role === 'owner' ? get('/v2/settings/history') : Promise.resolve({changes: [], transitions: []})
     ]);
-    S.emps = employees;
+    S.emps = namedRoster(employees);
     setPeople(people);
     SETTINGS_DATA = {people: (people.people || []).filter(p => !p.hidden), machines: operations.machines || [],
       agents: operations.agents || [],
@@ -9469,6 +9508,7 @@ async function loadSettings() {
       enabledProviders: catalog.enabled_providers || [], defaultModel: catalog.default?.model || '',
       issues: operations.issues || [], history,
       schedulerEnabled: operations.scheduler_enabled};
+    document.dispatchEvent(new Event('tico:settings-loaded'));
     renderTree();
     if (S.route !== SETTINGS) return;
     renderSettingsIssues(); renderSettingsBots(); renderSettingsMachines(); renderSettingsServices(); renderSettingsHistory(); renderSettingsRecurring();
@@ -9538,11 +9578,6 @@ async function executionReview(bot) {
     });
   } catch(error) { host.textContent=error.message; }
 }
-function settingsOwnerList(e) {
-  return `<div class="settings-owner-list">${(e.users || []).map(person =>
-    `<span class="pchip" title="${esc(person.email || '')}">${personCircle(person.name || person.id, 16)}<span>${esc(firstName(person.name) || person.id)}</span></span>`).join('') || '<span class="muted">Nobody</span>'}
-    ${settingsCanManageBot(e) || e.can_manage ? `<button class="ghost" type="button" data-edit-owners="${esc(e.name)}" aria-label="Edit who ${esc(e.display_name)} works for">Edit</button>` : ''}</div>`;
-}
 // ----- Access: who may see, read and write to a bot (backend/bot_access.py, docs/permissions.md).
 // Each level is everyone, or people, teams and bots. Open is all three Everyone; the owner, the bot
 // itself and the people it reports up to always have all three.
@@ -9572,15 +9607,13 @@ function accessSummary(policy) {
   if (ACCESS_LEVELS.every(([key]) => policy[key]?.everyone)) return 'Open';
   return ACCESS_LEVELS.map(([key, label]) => `${label}: ${accessLevelText(policy[key])}`).join(' · ');
 }
+// One word for the table row; the editor shows the full sentence (accessSummary).
+const ACCESS_WORD = {open: 'Open', requests: 'Requests only', private: 'Private', custom: 'Custom'};
 function settingsAccessCell(e) {
   const mine = e.my_access || {see: true, read: true, write: true};
-  const yours = ACCESS_LEVELS.filter(([key]) => mine[key]).map(([, label]) => label).join(' · ');
-  const summary = e.access_policy ? accessSummary(e.access_policy) : `You: ${yours || 'See'}`;
-  return `<div class="settings-access"><div class="settings-access-line"><span data-access-summary>${esc(summary)}</span>${e.can_manage
-    ? `<button class="ghost" type="button" data-edit-access="${esc(e.name)}" aria-label="Edit access for ${esc(e.display_name)}">Edit</button>` : ''}</div>
-    <div class="settings-works-for"><span>Works for</span>${settingsOwnerList(e)}</div>
-    <div class="settings-works-for" data-bot-owners><span>Owned by</span>${(e.bot_owners || []).map(o => `<span class="pchip">${personCircle(o.name || o.id, 16)}<span>${esc(firstName(o.name) || o.id)}</span></span>`).join('') || '<span class="muted">Its operator</span>'}${
-      e.can_manage ? `<button class="ghost" type="button" data-edit-bot-owners="${esc(e.name)}" aria-label="Edit who owns ${esc(e.display_name)}">Edit</button>` : ''}</div></div>`;
+  const word = e.access_policy ? ACCESS_WORD[accessPresetOf(e.access_policy)] || 'Custom'
+    : `You: ${ACCESS_LEVELS.filter(([key]) => mine[key]).map(([, label]) => label).join(' · ') || 'See'}`;
+  return `<span class="sb-access" data-access-summary title="${esc(e.access_policy ? accessSummary(e.access_policy) : word)}">${esc(word)}</span>`;
 }
 // Who owns a bot: its creator and co-owners (and its operator). Whoever it reports up to and the admins own it too,
 // without being listed. Any owner adds or removes people here; the server checks it (docs/permissions.md).
@@ -9717,15 +9750,14 @@ function settingsChoiceCombo(e, kind) {
   const effort = fallback ? (selected?.reasoning_effort || selected?.effort)
     : (e.reasoning_effort || e.effort);
   const current = (fallback && !model) ? '' : settingsChoiceValue(harness, model, effort);
-  const label = current ? settingsChoiceLabel(harness, model, effort) : (fallback ? 'None (fail)' : settingsDefaultLabel(e));
+  const label = current ? settingsChoiceLabel(harness, model, effort) : (fallback ? 'None' : settingsDefaultLabel(e));
   const aria = fallback ? `Fallback for ${e.display_name}` : `Model and effort for ${e.display_name}`;
   return `<div class="settings-combo" data-bot-choice="${esc(e.name)}" data-kind="${kind}" data-current="${esc(current)}"
     title="${esc(label)}">
     <input type="search" autocomplete="off" spellcheck="false" value="${esc(label)}"
-      aria-label="${esc(aria)}" placeholder="${fallback ? 'None (fail) · search harness or model' : 'Search harness or model'}"
+      aria-label="${esc(aria)}" placeholder="${fallback ? 'None' : 'Search harness or model'}"
       ${settingsCanManageBot(e) ? '' : 'disabled'}>
     <div class="settings-combo-list" role="listbox"></div>
-    <span class="settings-cell-note mono">${esc(label)}</span>
   </div>`;
 }
 function settingsWireCombos(root, onPick = settingsPickChoice) {
@@ -9736,7 +9768,7 @@ function settingsWireCombos(root, onPick = settingsPickChoice) {
     const none = box.dataset.kind === 'fallback';
     const render = query => {
       const choices = settingsFilterChoices(query);
-      const rows = (none ? [{value:'', label:'None (fail)'}] : []).concat(choices);
+      const rows = (none ? [{value:'', label:'None'}] : []).concat(choices);
       list.innerHTML = rows.length
         ? rows.map(choice => `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === box.dataset.current ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('')
         : '<div class="settings-combo-empty">No matching harness or model</div>';
@@ -9763,7 +9795,7 @@ async function settingsPickChoice(box, value) {
         expected_revision: e.revision});
       await loadSettings();
       toast(choice ? `${e.display_name} fallback is ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}`
-        : `${e.display_name} fallback is none (fail)`);
+        : `${e.display_name} fallback is none`);
     } catch (error) {
       if (input) input.value = input.defaultValue;
       toast(error.message, true);
@@ -9791,13 +9823,6 @@ function settingsAgentCell(e) {
   return `<div class="settings-agent-cell"><strong>${esc(name)}</strong>${a.profile ? ` · <span class="muted">${esc(a.profile)}</span>` : ''}
     <span class="settings-cell-note">${esc(seen)}</span>
     ${manage ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${a.credential ? 'Rotate credential' : 'Create credential'}</button>${a.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</div>`;
-}
-function settingsAgentStatus(e) {
-  const a = e.agent;
-  const pill = !a.credential ? '<span class="pill waiting">no credential</span>'
-    : e.online ? `<span class="pill ok">${a.synced ? 'synced' : 'reporting in'}</span>` : `<span class="pill fail">${a.synced ? 'not synced lately' : 'not reporting'}</span>`;
-  const note = a.model ? `${a.model}${a.provider ? ` · ${a.provider}` : ''}${a.version ? ` · ${a.version}` : ''}` : (e.status || 'unknown');
-  return `${pill}<span class="settings-cell-note">${esc(note)}</span>`;
 }
 async function settingsAgentCredential(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
@@ -9961,22 +9986,18 @@ function settingsMachineSelect(e) {
     (S.me?.role === 'owner' || machine.operator === S.me?.id));
   const unassigned = `Not assigned · ${settingsPersonName(e.operator)}`;
   const currentLabel = e.machine ? `${e.machine.label} · ${settingsPersonName(e.machine.operator)}` : unassigned;
+  const seen = e.machine?.last_seen ? `last seen ${ago(e.machine.last_seen)}` : e.machine ? 'waiting for its first heartbeat' : 'register a computer first';
   return `<select class="settings-inline-select" data-bot-machine="${esc(e.name)}" data-current="${esc(current)}"
-    aria-label="Machine for ${esc(e.display_name)}" title="${esc(currentLabel)}" ${settingsCanManageBot(e) && machines.length ? '' : 'disabled'}>
+    aria-label="Machine for ${esc(e.display_name)}" title="${esc(`${currentLabel} · ${seen}`)}" ${settingsCanManageBot(e) && machines.length ? '' : 'disabled'}>
       ${current ? '' : `<option value="" selected disabled>${esc(unassigned)}</option>`}
       ${machines.map(machine => `<option value="${esc(machine.id)}" ${machine.id === current ? 'selected' : ''}>${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('')}
-    </select>${e.machine?.last_seen ? `<span class="settings-cell-note">last seen ${esc(ago(e.machine.last_seen))}</span>`
-      : e.machine ? '<span class="settings-cell-note">registered · waiting for heartbeat</span>'
-      : '<span class="settings-cell-note">register a machine first</span>'}`;
+    </select>`;
 }
-function settingsBotStatus(e) {
-  if (e.agent) return settingsAgentStatus(e);
-  const location = !e.machine ? '<span class="pill waiting">not assigned</span>'
-    : e.online && e.ready ? '<span class="pill ok">online</span>'
-    : e.online ? '<span class="pill waiting">setup needed</span>' : '<span class="pill fail">offline</span>';
-  const problem = e.online && !e.ready ? (e.readiness?.problems || [])[0] : '';
-  const warning = !problem && e.online ? (e.readiness?.warnings || [])[0] : '';
-  return `${location}<span class="settings-cell-note">${esc(problem || warning || e.status || 'unknown')}</span>`;
+// A problem worth a badge on the bot's row; a bot that is fine shows nothing.
+function settingsBotProblem(e) {
+  if (e.status !== 'active') return '';
+  if (e.agent) return !e.agent.credential ? 'no credential' : e.online ? '' : 'not reporting';
+  return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? 'setup needed' : 'offline';
 }
 // Settings → Bots filters and bulk model change ("filter by computer, filter
 // by model, select in bulk, and change model in bulk"). Filters are remembered per browser; the
@@ -10106,7 +10127,7 @@ async function settingsBulkApplyOne(slug, choice) {
       const code = error.body?.error?.code;
       if (code === 'unchanged') return {state: 'skipped', note: 'Already on this model'};
       if (code === 'version_conflict' && attempt === 0) {
-        try { S.emps = await get('/employees'); } catch {}
+        try { S.emps = namedRoster(await get('/employees')); } catch {}
         continue;
       }
       return {state: 'failed', note: error.message || 'The change failed'};
@@ -10129,23 +10150,32 @@ function renderSettingsBots() {
   const pick = e => settingsBotSelectable(e)
     ? `<input type="checkbox" data-bot-pick="${esc(e.name)}" aria-label="Select ${esc(e.display_name)}" ${SETTINGS_BOTS_VIEW.selected.has(e.name) ? 'checked' : ''}>`
     : `<input type="checkbox" disabled aria-label="${esc(e.display_name)} cannot be changed here" title="${e.agent ? 'An external agent uses its own model' : 'You do not operate this bot'}">`;
-  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Run by</th><th>Computer</th><th>Health</th></tr></thead><tbody>
-    ${rows.map(e => `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td><td><div class="settings-bot-name">${avatar(e.name, 27, stateOf(e.name))}<div><a href="#/bot/${esc(e.name)}">${shownName(e)}</a>${isBuiltInBot(e.name) ? ' <span class="pill" data-built-in>Built in</span>' : ''}<small>${esc(e.team ? teamLabel(e.team) : 'No team')} · ${esc(e.status || 'planned')}</small>${botRepoHTML(e) ? `<small>${botRepoHTML(e)}</small>` : ''}${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit bot ${esc(e.display_name)}">Edit bot</button>` : ''}</div></div></td>
-      <td>${settingsAccessCell(e)}</td><td>${e.agent ? `${esc(agentKind(e.agent))}<span class="settings-cell-note">${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}</span>` : settingsChoiceCombo(e, 'model')}</td><td>${e.agent ? '<span class="muted">—</span>' : settingsChoiceCombo(e, 'fallback')}</td><td>${esc(settingsPersonName(e.operator))}<span class="settings-cell-note">${e.agent ? 'agent operator' : 'computer operator'}</span></td><td>${settingsMachineSelect(e)}</td><td>${settingsBotStatus(e)}</td></tr>`).join('')}
+  const stack = e => {
+    const owners = (e.bot_owners || []).length ? e.bot_owners : (e.users || []);
+    const names = owners.map(o => o.name || o.id);
+    return `<span class="sb-stack" title="${esc(names.join(', ') || 'No owner')}">${owners.slice(0, 3).map(o => personCircle(o.name || o.id, 22)).join('')}${owners.length > 3 ? `<span class="more">+${owners.length - 3}</span>` : ''}${owners.length ? '' : '<span class="muted">None</span>'}</span>`;
+  };
+  const row = e => {
+    const problem = settingsBotProblem(e);
+    const badges = `${isBuiltInBot(e.name) ? '<span class="pill" data-built-in>Built in</span>' : ''}${e.status && e.status !== 'active' ? `<span class="pill ${e.status === 'paused' ? 'waiting' : ''}">${esc(e.status)}</span>` : ''}`;
+    const model = e.agent ? `<span class="muted" title="${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}">${esc(agentKind(e.agent))}</span>` : settingsChoiceCombo(e, 'model');
+    return `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td>
+      <td class="sb-cell-name"><div class="sb-bot">${avatar(e.name, 27, stateOf(e.name))}<div class="sb-text"><div class="sb-line"><a class="sb-name" href="#/bot/${esc(e.name)}">${shownName(e)}</a>${badges}</div>${e.team || problem ? `<small>${e.team ? esc(teamLabel(e.team)) : ''}${e.team && problem ? ' · ' : ''}${problem ? `<span class="sb-problem">${esc(problem)}</span>` : ''}</small>` : ''}</div></div></td>
+      <td class="sb-cell-access">${settingsAccessCell(e)}</td><td class="sb-cell-model">${model}</td>
+      <td class="sb-cell-fallback">${e.agent ? '<span class="muted">-</span>' : settingsChoiceCombo(e, 'fallback')}</td>
+      <td class="sb-cell-owners">${stack(e)}</td><td class="sb-cell-computer">${settingsMachineSelect(e)}</td>
+      <td class="settings-row-actions">${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit ${esc(e.display_name)}">Edit</button>` : ''}</td></tr>`;
+  };
+  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Owners</th><th>Computer</th><th aria-label="Actions"></th></tr></thead><tbody>
+    ${rows.map(row).join('')}
     </tbody></table></div>` : '<div class="empty">No bots match these filters.</div>'}`;
   settingsBotsSyncSelection(el, rows);
   el.onclick = event => {
     if (event.target.closest('[data-bulk-model]')) { settingsBulkModelDialog(); return; }
     if (event.target.closest('[data-bulk-clear]')) { SETTINGS_BOTS_VIEW.selected.clear(); renderSettingsBots(); return; }
-    const owners = event.target.closest('[data-edit-owners]');
     const bot = event.target.closest('[data-edit-bot]');
     const credential = event.target.closest('[data-agent-credential]');
     const revoke = event.target.closest('[data-agent-revoke]');
-    const access = event.target.closest('[data-edit-access]');
-    const botOwners = event.target.closest('[data-edit-bot-owners]');
-    if (botOwners) void settingsEditBotOwners(botOwners.dataset.editBotOwners);
-    if (owners) settingsEditOwners(owners.dataset.editOwners);
-    if (access) void settingsEditAccess(access.dataset.editAccess);
     if (bot) settingsEditBot(bot.dataset.editBot);
     if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
     if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);
@@ -10414,6 +10444,20 @@ function renderSettingsHistory() {
     } catch (error) {undo.disabled = false; toast(error.message, true);}
   };
 }
+// What the bot editor shows for an existing bot beyond its definition: who may use it, who it works for and who
+// owns it (each opens its own dialog), and its model, fallback and computer (each applies as soon as it is picked).
+function settingsBotEditorRows(e) {
+  const chips = list => (list || []).map(o => `<span class="pchip">${personCircle(o.name || o.id, 16)}<span>${esc(firstName(o.name) || o.id)}</span></span>`).join('');
+  const manage = settingsCanManageBot(e);
+  const change = (attr, what) => manage ? `<button class="ghost" type="button" ${attr}="${esc(e.name)}" aria-label="Change ${what} for ${esc(e.display_name)}">Change</button>` : '<span></span>';
+  return `<div class="sb-row"><span>Access</span><span data-access-summary>${esc(accessSummary(e.access_policy))}</span>${change('data-edit-access', 'access')}</div>
+    <div class="sb-row"><span>Works for</span><div class="settings-owner-list">${chips(e.users) || '<span class="muted">Nobody</span>'}</div>${change('data-edit-owners', 'who it works for')}</div>
+    <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its operator</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
+    ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>`
+      : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
+    <div class="sb-row"><span>Fallback</span>${settingsChoiceCombo(e, 'fallback')}<span></span></div>
+    <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>`}`;
+}
 function settingsEditBot(slug = '') {
   const editing = !!slug, e = editing ? S.emps.find(row => row.name === slug) : null;
   const dialog = $('#bot-editor');
@@ -10450,6 +10494,7 @@ function settingsEditBot(slug = '') {
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot<small>Work expected to end; shows a flag, not the word in its name.</small></label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per person</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
+        ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
           <div class="settings-combo" data-add-choice data-current="${esc(currentModel)}">
             <input type="search" name="model_search" autocomplete="off" spellcheck="false"
@@ -10465,6 +10510,31 @@ function settingsEditBot(slug = '') {
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select><button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-bot-status]');
   dialog.querySelectorAll('[data-bot-close]').forEach(button => button.onclick = () => dialog.close());
+  // The rows for who owns it, its model and its computer: they save on their own, so keep them fresh, and
+  // once one has changed the bot use the newer revision for Save.
+  let rev = e?.revision, touched = false;
+  const rows = dialog.querySelector('[data-bot-people]');
+  if (rows) {
+    const paint = () => { rows.innerHTML = settingsBotEditorRows(S.emps.find(row => row.name === slug) || e); settingsWireCombos(rows); };
+    const refresh = () => { if (!dialog.open) return; if (touched) rev = (S.emps.find(row => row.name === slug) || e).revision; paint(); };
+    paint();
+    document.addEventListener('tico:settings-loaded', refresh);
+    dialog.addEventListener('close', () => document.removeEventListener('tico:settings-loaded', refresh), {once: true});
+    rows.addEventListener('click', event => {
+      touched = true;
+      const access = event.target.closest('[data-edit-access]'), owners = event.target.closest('[data-edit-owners]'), botOwners = event.target.closest('[data-edit-bot-owners]');
+      if (access) void settingsEditAccess(access.dataset.editAccess);
+      if (owners) settingsEditOwners(owners.dataset.editOwners);
+      if (botOwners) void settingsEditBotOwners(botOwners.dataset.editBotOwners);
+      const credential = event.target.closest('[data-agent-credential]'), revoke = event.target.closest('[data-agent-revoke]');
+      if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
+      if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);
+    });
+    rows.addEventListener('change', event => {
+      const machine = event.target.closest('[data-bot-machine]');
+      if (machine) { touched = true; void settingsMoveBot(machine); }
+    });
+  }
   let extraLoaded = null;   // the saved list as text once the server has answered, else null
   const extraBox = dialog.querySelector('[data-extra-repos]');
   const extraLines = value => value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
@@ -10549,7 +10619,7 @@ function settingsEditBot(slug = '') {
           reports_to: form.elements.reports_to.value || null, status: form.elements.status.value,
           bot_contact: form.elements.bot_contact.value,
           repo: form.elements.repo.value, thread_mode: form.elements.thread_mode.value,
-          temp: form.elements.temp.checked, expected_revision: e.revision});
+          temp: form.elements.temp.checked, expected_revision: rev});
         if (extraLoaded !== null && extraLines(form.elements.extra_repos.value).join('\n') !== extraLines(extraLoaded).join('\n'))
           await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {

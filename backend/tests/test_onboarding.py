@@ -183,6 +183,21 @@ def test_a_company_that_already_runs_bots_is_never_sent_back_to_the_wizard(envir
     assert api.get("/api/v2/onboarding", headers=signed_in()).json()["needed"] is False
 
 
+def test_an_assistant_named_after_the_company_becomes_assistant_once(environment):
+    from types import SimpleNamespace
+    from backend.onboarding import Onboarding
+    api = environment()
+    store = api.app.state.store
+    fix = lambda c: Onboarding.name_default_assistant(SimpleNamespace(settings=store.settings), c)
+    with store.transaction() as c:
+        c.execute("UPDATE bots SET display_name='Acme' WHERE slug='coo'")
+        assert fix(c) is True
+        assert H.bot(c, "coo")["display_name"] == "Assistant"
+        assert fix(c) is False                       # idempotent
+        c.execute("UPDATE bots SET display_name='Ace' WHERE slug='coo'")
+        assert fix(c) is False                       # a name someone chose stays
+
+
 # ----------------------------------------------------------------------------- provider choice
 def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(environment):
     api = environment(seed={}, enabled_providers=())

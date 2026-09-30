@@ -82,10 +82,15 @@ async function access(browser) {
   assert.doesNotMatch(await page.locator('#set-bots thead').innerText(), /can use/i);
   const summary = slug => page.locator(`tr[data-settings-bot=${slug}] [data-access-summary]`).innerText();
   assert.equal(await summary('ops'), 'Open');
-  assert.equal(await summary('legal'), 'See: Everyone · Read: Legal · Write: Everyone');
+  assert.equal(await summary('legal'), 'Requests only');
   assert.equal(await summary('intake'), 'You: See · Write', 'someone who may only use a bot sees what they can do');
   assert.equal(await page.locator('tr[data-settings-bot=intake] [data-edit-access]').count(), 0, 'only managers edit access');
-  assert.match(await page.locator('tr[data-settings-bot=legal] .settings-works-for').first().innerText(), /Works for/);
+  // One Edit button per row opens the bot editor, which holds access, who it works for and who owns it.
+  const editor = page.locator('#bot-editor');
+  const openEditor = async slug => { await page.locator(`tr[data-settings-bot=${slug}] [data-edit-bot]`).click(); await editor.locator(`[data-edit-access=${slug}]`).waitFor(); };
+  await openEditor('legal');
+  assert.equal(await editor.locator('[data-access-summary]').innerText(), 'See: Everyone · Read: Legal · Write: Everyone');
+  assert.match(await editor.locator('.sb-row').nth(1).innerText(), /Works for/);
 
   const dialog = page.locator('#access-editor');
   const preset = () => dialog.locator('[name=preset]:checked').getAttribute('value');
@@ -105,7 +110,8 @@ async function access(browser) {
   await page.waitForFunction(() => !document.querySelector('#access-editor[open]'));
   const chosen = {everyone: false, people: ['ben'], teams: ['legal'], bots: []};
   assert.deepEqual(puts.shift(), ['legal', {see: chosen, read: chosen, write: chosen, revision: 4}]);
-  await page.waitForFunction(() => /Legal, Ben · Read: Legal, Ben · Write: Legal, Ben/.test(document.querySelector('tr[data-settings-bot=legal] [data-access-summary]')?.textContent || ''));
+  await page.waitForFunction(() => /Legal, Ben · Read: Legal, Ben · Write: Legal, Ben/.test(document.querySelector('#bot-editor [data-access-summary]')?.textContent || ''));
+  assert.equal(await summary('legal'), 'Private');
 
   // Reopened, it is Private; Open puts everyone back.
   await page.locator('[data-edit-access=legal]').click();
@@ -117,6 +123,7 @@ async function access(browser) {
   await page.waitForFunction(() => !document.querySelector('#access-editor[open]'));
   assert.deepEqual(puts.shift(), ['legal', {see: EVERYONE, read: EVERYONE, write: EVERYONE, revision: 5}]);
   await page.waitForFunction(() => document.querySelector('tr[data-settings-bot=legal] [data-access-summary]')?.textContent === 'Open');
+  await page.waitForFunction(() => document.querySelector('#bot-editor [data-access-summary]')?.textContent === 'Open');
 
   // Visible, requests only: See and Write stay Everyone, Read is what is picked.
   await page.locator('[data-edit-access=legal]').click();
@@ -129,6 +136,8 @@ async function access(browser) {
     write: EVERYONE, revision: 6}]);
 
   // Custom: each level on its own, Everyone or chosen.
+  await editor.locator('[data-bot-close]').first().click();
+  await openEditor('ops');
   await page.locator('[data-edit-access=ops]').click();
   await dialog.locator('form').waitFor();
   await dialog.locator('[name=preset][value=custom]').check();
@@ -250,9 +259,10 @@ async function roles(browser) {
   await page.goto('https://tico-ui.test/#/settings');
   await page.locator('[data-settings-tab="bots"]').click();
   await page.locator('tr[data-settings-bot=jira-manager]').waitFor();
-  const owned = page.locator('tr[data-settings-bot=jira-manager] [data-bot-owners]');
-  assert.match(await owned.innerText(), /Owned by[\s\S]*Cara/);
-  await page.locator('[data-edit-bot-owners=jira-manager]').click();
+  await page.locator('tr[data-settings-bot=jira-manager] [data-edit-bot]').click();
+  const owned = page.locator('#bot-editor [data-bot-owners]');
+  assert.match(await owned.innerText(), /Cara/);
+  await page.locator('#bot-editor [data-edit-bot-owners=jira-manager]').click();
   const dialog = page.locator('#bot-owners-editor');
   await dialog.locator('form').waitFor();
   assert.equal(await dialog.locator('input[value=cara]').isChecked(), true);
@@ -261,6 +271,7 @@ async function roles(browser) {
   await dialog.locator('[type=submit]').click();
   await page.waitForFunction(() => !document.querySelector('#bot-owners-editor[open]'));
   assert.deepEqual(posts.shift(), ['co-owners', {add: ['ben'], remove: []}]);
+  await page.locator('#bot-editor [data-bot-close]').first().click();
 
   // ---- Settings > Devices: an admin says which computers take members' bots
   await page.locator('[data-settings-tab="devices"]').click();
