@@ -3,7 +3,8 @@
 Every bot on a computer runs as the same operating-system user, and an inbox bot reads mail with a
 Google Workspace key that acts as any mailbox in the company. Any other bot on that computer could
 be talked into reading that key, so the server does not put an inbox bot beside another bot. Several
-inbox bots may share a computer only when the operator says so: they hold the same key anyway.
+inbox bots may share a computer only when the operator says so: they hold the same key anyway. Where one owner
+runs every computer and bot, BotOps offers that and turns it on as the person who asked (`single_owner`).
 """
 import json
 
@@ -22,6 +23,14 @@ def allow_shared(c, runner_id, allowed):
     ids.add(runner_id) if allowed else ids.discard(runner_id)
     c.execute("INSERT INTO registry_metadata VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
               (KEY, json.dumps(sorted(ids))))
+
+
+def single_owner(c):
+    """One person runs everything: every computer and every bot that is not archived has the same operator."""
+    operators = {r[0] for r in c.execute(
+        "SELECT operator FROM runners WHERE revoked_at IS NULL UNION "
+        "SELECT bc.operator FROM bot_config bc JOIN bots b ON b.slug=bc.bot WHERE b.state<>'archived'") if r[0]}
+    return len(operators) <= 1
 
 
 def _bots_by_runner(c):
@@ -54,9 +63,13 @@ def check(c, bot, runner_id, people):
     inbox = [b for b in here if P.inbox_person(b, people)]
     if mine and (len(here) > len(inbox) or (inbox and runner_id not in shared(c))):
         clash = [b for b in here if b not in inbox] or inbox
+        offer = ""
+        if len(here) == len(inbox) and single_owner(c):
+            offer = (f" Or, since one owner runs everything here, let inbox bots share it: "
+                     f"`hub api POST runners/{runner_id}/inbox-sharing '{{\"allowed\": true}}'`.")
         raise Problem("inbox_isolation", f"{bot} reads a mailbox with a key that can open every mailbox in the company, "
                       f"so it cannot share a computer with {', '.join(clash)}. Add a computer for {bot} "
-                      f"(Settings > Devices) and place it there.", 409)
+                      f"(Settings > Devices) and place it there." + offer, 409)
     if not mine and inbox:
         raise Problem("inbox_isolation", f"{', '.join(inbox)} reads a mailbox with a key that can open every mailbox in "
                       f"the company, so this computer is kept for it alone. Add a computer for {bot} "

@@ -124,10 +124,10 @@ class Execution:
                     raise Problem("enrollment", "Enrollment code was already used", 409)
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
-            # No computer takes other people's bots until an admin says so (Settings > Devices): a member's own
-            # computer hosts their bots because they are its operator, and is not open to other members.
+            # A new computer takes members' bots, so a team gets going without asking; an admin closes it per
+            # computer (Settings > Devices). Computers that existed before this default keep what they had.
             c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
-                      "VALUES(?,?,?,?,?,?,0)",
+                      "VALUES(?,?,?,?,?,?,1)",
                       (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
             c.execute("UPDATE enrollments SET consumed_at=?,runner_id=? WHERE code_hash=?",
                       (H.now(), rid, digest(body.code)))

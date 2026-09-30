@@ -51,3 +51,20 @@ def test_health_warns_while_bots_can_read_the_mail_key(environment):
                   ('{"schema_version": 1, "runtimes": {}, "bots": {}, "mail_key": "exposed"}', runner))
     _, checks = health_of(api)
     assert checks["mail_key"]["status"] == "warn" and "every bot" in checks["mail_key"]["summary"]
+
+
+def test_where_one_owner_runs_everything_the_refusal_offers_inbox_sharing(environment):
+    from backend import inbox_isolation
+    api = environment()
+    runner = setup(api)
+    assert place(api, "mail", runner).status_code == 200
+    refused = place(api, "mail2", runner)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "inbox_isolation"
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET operator='morgan'")
+        c.execute("UPDATE runners SET operator='morgan'")
+        assert inbox_isolation.single_owner(c)
+    assert "inbox-sharing" in place(api, "mail2", runner).json()["error"]["detail"]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET operator='riley' WHERE bot='helper'")
+    assert "inbox-sharing" not in place(api, "mail2", runner).json()["error"]["detail"]

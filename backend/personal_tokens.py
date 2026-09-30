@@ -5,11 +5,13 @@ a script has no credential that is them. A personal token is that credential. It
 a hash, shown once, expires, and is the person for every purpose but one: a token cannot make
 or revoke tokens, so a leaked token cannot extend its own life (`Identity.via_token`).
 
-Only the owner and bot administrators (`registry/hub-access.yaml`) may create one.
+Any person may create one, and it sees what they see. The owner's rule "Members make personal tokens" (backend/team_rules.py),
+off, leaves it to the owner and the Admins.
 """
 
 import secrets
 
+from . import team_rules
 from .store import H, Problem, digest
 
 PREFIX = "tico_pt_"
@@ -35,8 +37,8 @@ def listing(c, who):
 def create(c, auth, who, body):
     """Mint a token for the caller and return its plaintext, the one time it is shown."""
     _person(who)
-    if not auth.bot_admin(who):
-        raise Problem("forbidden", "Personal tokens are for the owner and bot administrators", 403)
+    if not (auth.bot_admin(who) or team_rules.load(c)["member_tokens"]):
+        raise Problem("forbidden", "Personal tokens are for the owner and admins", 403)
     token = PREFIX + secrets.token_urlsafe(30)          # 30 bytes: 40 url-safe characters
     now = H.now()
     expires_at = H.shift(now, days=body.expires_in_days)

@@ -4,7 +4,7 @@ person's own click."""
 
 import pytest
 
-from backend.tests.test_api import api, as_member, assign, claim, get, headers, post, ready, runner  # noqa: F401
+from backend.tests.test_api import api, as_member, assign, claim, get, headers, post, put, ready, runner  # noqa: F401
 from backend.store import H
 
 
@@ -174,25 +174,53 @@ def test_an_assistant_message_never_lends_the_persons_authority_to_botops(api):
     assert "written by the Assistant" not in other.text
 
 
-def test_direct_writes_only_ever_touch_the_person_themself(api):
+def test_direct_writes_stay_inside_the_team(api):
     with api.app.state.store.transaction() as c:
         theirs = H.task_create(c, "human:ana", "Review the plan", "Please review.", "human:ben")
         anas = H.task_create(c, "human:ben", "Ana's own item", "For Ana to decide.", "human:ana")
+        botwork = H.task_create(c, "human:ben", "Plan the launch", "For ops.", "bot:ops")
     r, attempt = assistant_turn(api, "ben-test")
     token = attempt["token"]
-    # Nothing that reaches someone else, or a bot, runs directly.
-    post(api, "tasks", {"owner": "ops", "title": "Draft the launch post", "body": "For Oct 1."}, token=token, expected=403)
+    # Nothing that reaches another person, or spends, or changes a task that is not theirs alone, runs directly.
     post(api, "tasks", {"owner": "human:cara", "title": "Review the plan", "body": "Please."}, token=token, expected=403)
-    post(api, "messages", {"to": "ops", "text": "Hello"}, token=token, expected=403)
-    post(api, "chat/ops", {"text": "Hello"}, token=token, expected=403)
+    post(api, "messages", {"to": "human:cara", "text": "Hello"}, token=token, expected=403)
+    post(api, "messages", {"to": "cara", "text": "Hello"}, token=token, expected=403)                # a bare name may be a person
     post(api, f"tasks/{theirs['id']}/run-now", {}, token=token, expected=403)
     post(api, f"tasks/{theirs['id']}", {"version": theirs["version"], "owner": "ops"}, token=token, expected=403)
     post(api, f"tasks/{anas['id']}", {"version": anas["version"], "note": "x"}, token=token, expected=403)   # not ben's
-    # Their own work, comments and reading updates are theirs to do.
+    post(api, f"tasks/{theirs['id']}/comments", {"text": "Started"}, token=token, expected=403)   # Ana is on it: it tells her
+    post(api, "notes", {"to": "ops", "text": "Remember the launch"}, token=token, expected=403)      # no unmarked notes
+    post(api, "tasks", {"owner": "ben", "title": "Draft my week", "body": "Monday."}, token=token, expected=403)  # a bare name
+    # A task for a bot, a comment on it and a message to a bot stay in the team: they run directly, as ben.
+    made = post(api, "tasks", {"owner": "ops", "title": "Draft the launch post", "body": "For Oct 1."}, token=token)
+    assert made["owner"] == "bot:ops" and made["requester"] == "human:ben"
+    post(api, f"tasks/{botwork['id']}/comments", {"text": "Please hurry"}, token=token)
+    post(api, "messages", {"to": "ops", "text": "Hello"}, token=token)
+    post(api, "chat/ops", {"text": "Hello again"}, token=token)
+    # And what only touches them, as before.
     post(api, "tasks", {"owner": "human:ben", "title": "Draft my week", "body": "Monday first."}, token=token)
     post(api, f"tasks/{theirs['id']}", {"version": theirs["version"], "note": "On it"}, token=token)
-    post(api, f"tasks/{theirs['id']}/comments", {"text": "Started"}, token=token)
     post(api, "updates/read", {"all": True}, token=token)
+    with api.app.state.store.read() as c:
+        # What it wrote is marked, so BotOps ignores it.
+        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='bot:ops' AND refs_json LIKE '%\"via\": \"assistant\"%'"
+                         ).fetchone()[0] >= 2
+
+
+def test_the_owner_can_make_the_assistant_ask_first_again(api):
+    with api.app.state.store.transaction() as c:
+        botwork = H.task_create(c, "human:ben", "Plan the launch", "For ops.", "bot:ops")
+        alone = H.task_create(c, "human:ben", "Think about my week", "Just me.", "human:ben")
+    r, attempt = assistant_turn(api, "ben-test")
+    token = attempt["token"]
+    assert api.put("/api/v2/access/rules", json={"assistant_direct": False}, headers=headers("ben-test")).status_code == 403
+    assert put(api, "access/rules", {"assistant_direct": False}, "ana-test")["assistant_direct"] is False
+    post(api, "tasks", {"owner": "ops", "title": "Draft the launch post", "body": "For Oct 1."}, token=token, expected=403)
+    post(api, "messages", {"to": "ops", "text": "Hello"}, token=token, expected=403)
+    post(api, "chat/ops", {"text": "Hello"}, token=token, expected=403)
+    post(api, f"tasks/{botwork['id']}/comments", {"text": "Please hurry"}, token=token, expected=403)   # would wake ops
+    post(api, f"tasks/{alone['id']}/comments", {"text": "Monday first"}, token=token)                # wakes nobody
+    post(api, "tasks", {"owner": "human:ben", "title": "Draft my week", "body": "Monday."}, token=token)
 
 
 def test_a_token_from_a_finished_turn_no_longer_acts_as_the_person(api):
@@ -202,17 +230,3 @@ def test_a_token_from_a_finished_turn_no_longer_acts_as_the_person(api):
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE attempts SET state='completed' WHERE id=?", (attempt["id"],))
     assert api.get("/api/v2/me", headers=headers(token)).status_code == 409      # not the person, not the bot
-
-
-def test_a_direct_write_never_speaks_to_a_bot(api):
-    with api.app.state.store.transaction() as c:
-        botwork = H.task_create(c, "human:ben", "Plan the launch", "For ops.", "bot:ops")
-        alone = H.task_create(c, "human:ben", "Think about my week", "Just me.", "human:ben")
-    r, attempt = assistant_turn(api, "ben-test")
-    token = attempt["token"]
-    post(api, "notes", {"to": "ops", "text": "Remember the launch"}, token=token, expected=403)      # no unmarked notes
-    post(api, f"tasks/{botwork['id']}/comments", {"text": "Please hurry"}, token=token, expected=403)  # would wake ops
-    post(api, f"tasks/{alone['id']}/comments", {"text": "Monday first"}, token=token)                # wakes nobody
-    # A bare name is not an actor id: it could be a bot's slug.
-    post(api, "tasks", {"owner": "ben", "title": "Draft my week", "body": "Monday."}, token=token, expected=403)
-

@@ -48,7 +48,7 @@ STABLE = [
     ("/auth/token/revoke", "post", "Session", "revokeSession", "Sign the bearer session out", "Revoked"),
     ("/api/v2/me/tokens", "get", "Session", "listMyTokens", "The caller's personal API tokens (never the secret)", None),
     ("/api/v2/me/tokens", "post", "Session", "createMyToken",
-     "Mint a personal API token for server-to-server use (owner and bot administrators; cookie sessions only)", None),
+     "Mint a personal API token for server-to-server use (any person unless the owner limits it to admins; cookie sessions only)", None),
     ("/api/v2/me/tokens/{token_id}/revoke", "post", "Session", "revokeMyToken", "Revoke a personal API token", None),
     ("/api/v2/openapi.json", "get", "Session", "getOpenApi", "This document", None),
     ("/api/v2/config", "get", "Company", "getConfig", "Company and app names, version, setup state", "Config"),

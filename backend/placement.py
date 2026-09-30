@@ -2,7 +2,7 @@
 
 A bot that becomes active (added, built by BotOps, activated, resumed) with no computer is placed here, so it never
 sits active and silent: on the company's only computer, or the least busy one that takes it. A member's bot goes
-on that member's own computer or one an admin opened to members' bots, the same rule a person placing it meets
+on that member's own computer or one that takes members' bots, the same rule a person placing it meets
 (`Execution.assign`). With no computer that takes it the bot stays as it is and Health says so; the sweep
 in the scheduler tries again as computers arrive.
 """

@@ -345,6 +345,15 @@ def install_github_app(app, settings, store):
             raise Problem("forbidden", "Only the owner connects GitHub", 403)
         return who
 
+    def manager(request, bot):
+        """The owner, or whoever manages this bot (`Auth.bot_manager`): the extra repositories are the bot's settings."""
+        who = request.state.identity
+        if who.role != "owner":
+            with store.read() as c:
+                if not app.state.auth.bot_manager(c, who, bot):
+                    raise Problem("forbidden", "Only the owner, or someone who manages this bot, sets its repositories", 403)
+        return who
+
     @app.get("/api/v2/github/app")
     def status(request: Request):
         owner(request)
@@ -460,7 +469,7 @@ def install_github_app(app, settings, store):
 
     @app.get("/api/v2/bots/{bot}/github-repos")
     def extra_get(request: Request, bot: str):
-        owner(request)
+        manager(request, bot)
         with store.read() as c:
             row, own = bot_repos(c, bot)
             return {"connected": bool(row), "org": row["org"] if row else "", "repository": own or "",
@@ -468,7 +477,7 @@ def install_github_app(app, settings, store):
 
     @app.put("/api/v2/bots/{bot}/github-repos")
     def extra_put(request: Request, bot: str, body: ExtraRepos):
-        who = owner(request)
+        who = manager(request, bot)
         with store.transaction() as c:
             row, own = bot_repos(c, bot)
             if not row:

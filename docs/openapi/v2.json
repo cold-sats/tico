@@ -4742,7 +4742,7 @@
         ]
       },
       "post": {
-        "summary": "Mint a personal API token for server-to-server use (owner and bot administrators; cookie sessions only)",
+        "summary": "Mint a personal API token for server-to-server use (any person unless the owner limits it to admins; cookie sessions only)",
         "operationId": "createMyToken",
         "requestBody": {
           "content": {

@@ -18,6 +18,12 @@ def call(api, method, path, token, body=None):
     return getattr(api, method)("/api/v2/" + path, **kwargs)
 
 
+def close_computer(api, machine):
+    """An admin closes a computer to members' bots (a new one takes them by default)."""
+    assert call(api, "post", f"runners/{machine['runner_id']}/member-bots", "ben-test", {"accepts": False}).status_code == 200
+    return machine
+
+
 @pytest.fixture
 def botops(api):
     with api.app.state.store.transaction() as c:
@@ -91,29 +97,35 @@ def test_a_member_cannot_change_a_bot_that_is_not_hers_even_through_botops(api, 
         assert c.execute("SELECT via FROM settings_changes WHERE bot='jira-manager' AND field='access'").fetchone()[0] == "botops"
 
 
-def test_adding_a_coworker_is_a_confirm_card_and_then_it_happens(api, botops):
+def test_botops_adds_a_coworker_at_once_and_anyone_outside_the_domain_is_a_confirm_card(api, botops):
     attempt = turn(api, botops, text="Add sean@acme.example please")
-    asked = call(api, "post", "access/people", attempt["token"],
+    added = call(api, "post", "access/people", attempt["token"],
                  {"email": "sean@acme.example", "name": "Sean", "on_behalf_of": "turn"})
-    assert asked.status_code == 200, asked.text
-    card = asked.json()
-    assert card["needs_confirm"] and card["action"]["status"] == "pending" and card["action"]["owner"] == "human:cara"
+    assert added.status_code == 200 and added.json()["person"] == "sean", added.text
     with api.app.state.store.read() as c:
-        assert H.human(c, "sean") is None                        # nothing yet
-        message = c.execute("SELECT from_actor,to_actor,refs_json FROM messages WHERE id=?", (card["message_id"],)).fetchone()
-        assert (message["from_actor"], message["to_actor"]) == ("bot:botops", "human:cara") and card["action"]["id"] in message["refs_json"]
-    # Nobody else's click confirms it, and BotOps cannot.
-    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "ben-test").status_code == 404
-    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", attempt["token"]).status_code == 403
-    done = call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "cara-test")
-    assert done.status_code == 200 and done.json()["action"]["status"] == "done", done.text
-    with api.app.state.store.read() as c:
-        assert H.human(c, "sean")["email"] == "sean@acme.example"
         from backend import access as Access
         assert "sean@acme.example" in Access.load_access(c, api.app.state.store.settings)["allowed"]
         row = c.execute("SELECT actor,detail_json FROM events WHERE action='person.added' AND target='sean'").fetchone()
         assert row["actor"] == "human:cara" and '"via": "botops"' in row["detail_json"]
-    assert {p["id"] for p in get(api, "org", "cara-test")["people"]} >= {"sean"}
+        assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
+    finish(api, botops, attempt)
+    # Someone outside the team's domain is the requester's own click, and nobody else's confirms it or BotOps.
+    ana = turn(api, botops, person="ana-test", text="Add eve@partner.example please")
+    asked = call(api, "post", "access/people", ana["token"], {"email": "eve@partner.example", "name": "Eve", "on_behalf_of": "turn"})
+    assert asked.status_code == 200, asked.text
+    card = asked.json()
+    assert card["needs_confirm"] and card["action"]["status"] == "pending" and card["action"]["owner"] == "human:ana"
+    with api.app.state.store.read() as c:
+        assert H.human(c, "eve") is None                          # nothing yet
+        message = c.execute("SELECT from_actor,to_actor,refs_json FROM messages WHERE id=?", (card["message_id"],)).fetchone()
+        assert (message["from_actor"], message["to_actor"]) == ("bot:botops", "human:ana") and card["action"]["id"] in message["refs_json"]
+    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "ben-test").status_code == 404
+    assert call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", ana["token"]).status_code == 403
+    done = call(api, "post", f"assistant/actions/{card['action']['id']}/confirm", "ana-test")
+    assert done.status_code == 200 and done.json()["action"]["status"] == "done", done.text
+    with api.app.state.store.read() as c:
+        assert H.human(c, "eve")["email"] == "eve@partner.example"
+    assert {p["id"] for p in get(api, "org", "cara-test")["people"]} >= {"sean", "eve"}
 
 
 def test_a_member_may_not_add_someone_outside_the_company_domain(api, botops):
@@ -174,7 +186,7 @@ def test_botops_never_acts_for_a_bot_or_the_assistant_or_words_in_a_task(api, bo
 def test_a_members_bot_goes_only_on_a_computer_that_accepts_members_bots(api, botops):
     attempt = turn(api, botops)
     register(api, attempt, "jira-manager")
-    closed = runner(api)                                    # enrolled by the owner: closed to members' bots
+    closed = close_computer(api, runner(api))               # an admin closes it to members' bots
     body = {"runner_id": closed["runner_id"], "expected_generation": 0}
     refused = call(api, "post", "bots/jira-manager/assignment", "cara-test", body)
     assert refused.status_code == 409 and refused.json()["error"]["code"] == "computer_closed"
@@ -188,16 +200,15 @@ def test_a_members_bot_goes_only_on_a_computer_that_accepts_members_bots(api, bo
     assert call(api, "post", f"runners/{closed['runner_id']}/member-bots", "cara-test", {"accepts": True}).status_code == 403
     assert call(api, "post", f"runners/{closed['runner_id']}/member-bots", "ben-test", {"accepts": True}).status_code == 200
     assert call(api, "post", "bots/jira-manager/assignment", "cara-test", body).status_code == 200
-    # No computer is open to members' bots until an admin says so, including one a member enrols: it hosts its
-    # operator's own bots and nobody else's.
+    # A new computer takes members' bots, including one a member enrols, until an admin closes it.
     code = post(api, "enrollments", {"operator": "cara"}, token="cara-test")["code"]
     enroll = api.post("/api/v2/runners/enroll", json={"code": code, "label": "Cara Mac", "platform": "test"},
                       headers={"Idempotency-Key": "k-cara-mac"})
     assert enroll.status_code == 200
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT accepts_member_bots FROM runners WHERE label='Cara Mac'").fetchone()[0] == 0
+        assert c.execute("SELECT accepts_member_bots FROM runners WHERE label='Cara Mac'").fetchone()[0] == 1
     # An admin's placement of a member's bot on a closed computer, asked of BotOps, is a Confirm card.
-    other = runner(api, label="Closed Mac")
+    other = close_computer(api, runner(api, label="Closed Mac"))
     finish(api, botops, attempt)
     ben_turn = turn(api, botops, person="ben-test", text="Move jira-manager to the closed Mac")
     proposed = call(api, "post", "bots/jira-manager/assignment", ben_turn["token"],

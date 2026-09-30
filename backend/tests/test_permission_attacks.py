@@ -13,7 +13,7 @@ import pytest
 from backend.auth import Identity
 from backend.store import H, encode
 from backend.tests.test_api import claim, get, headers, post, restrict  # noqa: F401
-from backend.tests.test_member_bots import api, botops, call, finish, register, runner, turn  # noqa: F401  (fixtures)
+from backend.tests.test_member_bots import api, botops, call, close_computer, finish, register, runner, turn  # noqa: F401  (fixtures)
 
 
 def add_dee(api):
@@ -114,13 +114,12 @@ def test_botops_changes_routines_and_quarantines_only_as_a_person_who_manages_th
 def test_a_members_bot_runs_on_their_own_or_an_admin_opened_computer_and_stays_theirs(api, botops):
     add_dee(api)
     code = post(api, "enrollments", {"operator": "cara"}, token="cara-test")["code"]
-    caras = post(api, "runners/enroll", {"code": code, "label": "Cara Mac", "platform": "test"})
+    caras = close_computer(api, post(api, "runners/enroll", {"code": code, "label": "Cara Mac", "platform": "test"}))
     assert call(api, "post", "bots/register", "dee-test", {"slug": "dees"}).status_code == 200
     place = {"runner_id": caras["runner_id"], "expected_generation": 0}
     assert call(api, "post", "bots/dees/assignment", "dee-test", place).status_code == 409      # not open to other members
     assert call(api, "post", "bots/dees/placement", "dee-test", {**place, "expected_revision": 1}).status_code == 403
-    opened = runner(api, label="Open Mac")
-    assert call(api, "post", f"runners/{opened['runner_id']}/member-bots", "ben-test", {"accepts": True}).status_code == 200
+    opened = runner(api, label="Open Mac")                                              # a new computer takes them
     with api.app.state.store.read() as c:
         revision = c.execute("SELECT revision FROM bot_config WHERE bot='dees'").fetchone()[0]
     moved = call(api, "post", "bots/dees/placement", "dee-test",
@@ -128,12 +127,16 @@ def test_a_members_bot_runs_on_their_own_or_an_admin_opened_computer_and_stays_t
     assert moved.status_code == 200 and moved.json()["operator"] == "dee"                   # not the computer's operator
 
 
-def test_setup_does_not_place_a_members_bot_on_the_owners_computer(api, botops):
+def test_setup_places_a_members_bot_only_on_a_computer_that_takes_it(api, botops):
     made = register(api, turn(api, botops), "memberbot", template="starter")
     assert made.status_code == 200
-    machine = runner(api, label="Owner Mac")                              # the owner's, and closed to members' bots
+    machine = runner(api, label="Owner Mac")                              # a new computer takes members' bots
     onboarding = api.app.state.execution.runner_enrolled.__self__
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT runner_id FROM assignments WHERE bot='memberbot'").fetchone()[0] == machine["runner_id"]
+    close_computer(api, machine)                                          # closed by an admin, and the bot moved off
     with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM assignments WHERE bot='memberbot'")
         assert onboarding.assign_pending(c, machine["runner_id"]) == []
         c.execute("UPDATE runners SET accepts_member_bots=1 WHERE id=?", (machine["runner_id"],))
         assert onboarding.assign_pending(c, machine["runner_id"]) == ["memberbot"]
@@ -180,11 +183,15 @@ def test_a_member_cannot_take_a_company_bot_name_and_an_admin_cannot_edit_a_buil
     assert call(api, "post", "bots/ops/goals", "ben-test", {"goals": "An ordinary bot is an Admin's"}).status_code == 200
 
 
-def test_an_admin_is_not_a_credential_administrator(api):
-    get(api, "config")
-    assert api.app.state.store.settings.credential_admins == ("ana@acme.example",)
-    body = {"name": "Vendor", "kind": "password", "username": "u", "secret": "synthetic-secret-value-1"}
-    assert call(api, "post", "credentials", "ben-test", body).status_code == 403
+def test_an_admin_is_a_credential_administrator_until_the_owner_says_otherwise(api):
+    def is_admin(token):
+        return api.get("/api/me", headers=headers(token)).json()["credential_admin"]
+    assert [is_admin(t) for t in ("ana-test", "ben-test", "cara-test")] == [True, True, False]    # a member never is
+    assert call(api, "put", "access/rules", "ben-test", {"admin_credentials": False}).status_code == 403   # the owner's rule
+    assert call(api, "put", "access/rules", "ana-test", {"admin_credentials": False}).status_code == 200
+    assert [is_admin(t) for t in ("ana-test", "ben-test")] == [True, False]
+    assert call(api, "put", "access/rules", "ana-test", {"admin_credentials": True}).status_code == 200
+    assert is_admin("ben-test")
 
 
 # ------------------------------------------------------------------ Confirm cards say what runs
@@ -202,9 +209,7 @@ def test_a_confirm_card_lists_every_field_and_names_what_it_changes(api, botops)
 
 def test_a_placement_card_says_whether_the_computer_takes_members_bots(api, botops):
     from backend.assistant import describe
-    closed, open_ = runner(api, label="Closed Mac"), runner(api, label="Open Mac")
-    with api.app.state.store.transaction() as c:
-        c.execute("UPDATE runners SET accepts_member_bots=1 WHERE id=?", (open_["runner_id"],))
+    closed, open_ = close_computer(api, runner(api, label="Closed Mac")), runner(api, label="Open Mac")
     with api.app.state.store.read() as c:
         said = {name: describe(c, "POST", "/api/v2/bots/ops/assignment", {"runner_id": m["runner_id"]})[0]
                 for name, m in (("closed", closed), ("open", open_))}

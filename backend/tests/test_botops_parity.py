@@ -9,7 +9,7 @@ import json
 import pytest
 
 from backend.tests.test_api import api, assign, claim, get, headers, post, put, ready, runner  # noqa: F401  (fixture)
-from backend.tests.test_member_bots import botops, call, finish, register, turn  # noqa: F401  (fixtures)
+from backend.tests.test_member_bots import botops, call, close_computer, finish, register, turn  # noqa: F401  (fixtures)
 
 
 def act(api, attempt, method, path, body=None, ref="turn"):
@@ -131,7 +131,7 @@ def test_activating_or_resuming_places_a_bot_and_the_scheduler_places_the_rest(a
 
 
 def test_a_members_bot_waits_for_a_computer_that_takes_it_and_then_goes_there(api):
-    closed = runner(api, label="Closed Mac")
+    closed = close_computer(api, runner(api, label="Closed Mac"))
     ready(api, closed, [])
     made = post(api, "bots", {"slug": "mine", "display_name": "Mine", "description": "x", "status": "active", "model": "gpt-6-astra",
                               "effort": "high", "harness": None, "runner_id": None}, "cara-test")

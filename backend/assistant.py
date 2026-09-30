@@ -55,9 +55,10 @@ def ensure_schema(c):
 
 
 # ------------------------------------------------------------------ what the assistant may write directly
-# What an assistant turn may write on its own is what only touches the person themself: their own tasks
-# (create, or update but not settle), comments on tasks they can see, marking updates read, quiet notes.
-# Everything else (a task for anyone else, a message to any bot, run-now, ...) is a proposal.
+# What an assistant turn may write on its own is what stays inside the team: its person's own tasks (create, or update
+# but not settle), tasks for bots, comments on tasks no other person is on, messages to bots, marking updates read,
+# quiet notes. A task or message for another person, run-now, spend, access, archive and the rest are proposals. The
+# owner's rule "Assistant acts without asking" off (backend/team_rules.py) narrows it to what only touches the person.
 _SETTLES = ("done", "closed", "declined")
 
 
@@ -66,33 +67,39 @@ def _mine(actor, value):
     return str(value or "").strip() == actor
 
 
-def write_allowed(method, path, settings=None, body=b"", actor="", owns=None):
-    """`owns(task_id)` says the task is the person's alone: they own it, no bot is on it (owner, requester,
-    origin) and none is delegated, so a comment or update wakes nobody."""
+def write_allowed(method, path, settings=None, body=b"", actor="", owns=None, direct=True, to_bot=None):
+    """`owns(task_id, shared)` says the task is the person's alone: they own it, no bot is on it (owner, requester,
+    origin) and none is delegated, so a comment or update wakes nobody; `shared` also lets bots be on it, but no other
+    person. `to_bot(name)` says a recipient is a bot. `direct` is the team's rule: without it, only the person's own."""
     if method in ("GET", "HEAD", "OPTIONS"):
         return True
     if method != "POST":
         return False
     if path in ("/api/v2/updates/read", "/api/notes", "/api/v2/assistant/actions"):
         return True
-    commenting = re.fullmatch(r"/api/v2/tasks/([^/]+)/comments", path)
-    if commenting:
-        return bool(owns and owns(commenting.group(1)))
-    creating = path in ("/api/v2/tasks", "/api/v2/tasks/dry-run")
-    updating = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
-    if not (creating or updating):
-        return False
     try:
         fields = json.loads(body or b"{}")
     except ValueError:
         return False
-    if not isinstance(fields, dict) or fields.get("close") or fields.get("status") in _SETTLES:
+    if not isinstance(fields, dict):
+        return False
+    if direct and to_bot:
+        chatting = re.fullmatch(r"/api/v2/chat/([^/]+)", path)
+        if (chatting and (settings is None or chatting.group(1) != settings.assistant_bot)) or (
+                path == "/api/v2/messages" and to_bot(fields.get("to"))):
+            return True
+    commenting = re.fullmatch(r"/api/v2/tasks/([^/]+)/comments", path)
+    if commenting:
+        return bool(owns and owns(commenting.group(1), direct))
+    creating = path in ("/api/v2/tasks", "/api/v2/tasks/dry-run")
+    updating = re.fullmatch(r"/api/v2/tasks/([^/]+)", path)
+    if not (creating or updating) or fields.get("close") or fields.get("status") in _SETTLES:
         return False
     if creating:
-        return _mine(actor, fields.get("owner"))
+        return _mine(actor, fields.get("owner")) or bool(direct and to_bot and to_bot(fields.get("owner")))
     if "owner" in fields and not _mine(actor, fields["owner"]):
         return False
-    return bool(owns and owns(updating.group(1)))
+    return bool(owns and owns(updating.group(1), False))
 
 
 # What may be proposed at all (method, normalized path). Anything else, and above all tokens, sign-in,

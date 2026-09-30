@@ -19,6 +19,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from clients.agent_skill import WHO_NEEDS_ME
 
 from . import agents, batch, grokbot, inbox_isolation, harness_actions, model_login, oidc, personal_tokens, views
+from . import team_rules, usage_limits
 from . import placement as placing
 from . import turns as turn_work
 from . import goals as G
@@ -218,16 +219,30 @@ def create_app(settings=None):
     from .assistant import describe as describe_action
     from . import botops_act
 
-    def assistant_owns(task_id, actor):
-        """The task is the person's alone: theirs, no bot on it and none delegated."""
+    def assistant_owns(task_id, actor, shared=False):
+        """The task is the person's alone: theirs, no bot on it and none delegated. With `shared`, bots may be on it
+        (a comment on it still goes to no other person)."""
         with store.read() as c:
             row = H.task(c, task_id)
-            if not row or row["owner"] != actor:
+            if not row:
                 return False
-            if any(str(a).startswith("bot:") for a in (row["owner"], row["requester"], H.task_origin(c, row))):
+            people = (row["owner"], row["requester"], H.task_origin(c, row))
+            if shared:
+                return all(a == actor or not str(a).startswith("human:") for a in people)
+            if row["owner"] != actor:
+                return False
+            if any(str(a).startswith("bot:") for a in people):
                 return False
             return not c.execute("SELECT 1 FROM task_delegations WHERE task_id=? AND expires>?",
                                  (task_id, H.now())).fetchone()
+
+    def assistant_to_bot(name):
+        with store.read() as c:
+            return str(H.resolve_actor(c, name) or "").startswith("bot:")
+
+    def assistant_direct():
+        with store.read() as c:
+            return team_rules.load(c)["assistant_direct"]
 
     @app.middleware("http")
     async def request_guard(request, call_next):
@@ -299,7 +314,8 @@ def create_app(settings=None):
                         and not request.state.identity.confirmed
                         and not assistant_writes(request.method, request.url.path, settings, request._body,
                                                  request.state.identity.actor,
-                                                 lambda tid: assistant_owns(tid, request.state.identity.actor))):
+                                                 lambda tid, shared: assistant_owns(tid, request.state.identity.actor, shared),
+                                                 assistant_direct(), assistant_to_bot)):
                     raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
                                   "own. Propose it with `hub assistant propose` (or POST /api/v2/assistant/actions); "
                                   "the person confirms it in " + settings.app_name, 403)
@@ -862,13 +878,13 @@ def create_app(settings=None):
         admin_only(who, "sees who can sign in")
         with store.read() as c:
             return {**Access.view(c, settings, views.roster(c), settings.proxy_kind, auth.owner_id(c)),
-                    "you": auth.company_role(who)}
+                    "rules": team_rules.load(c), "you": auth.company_role(who)}
 
     @app.post("/api/v2/access/people")
     def access_person_add(request: Request, body: M.AccessPersonAdd):
         """Add a person to the roster and the sign-in allow list. An owner or admin may add anyone; a member only
-        a coworker in the company's email domain (and only if `add_people` is on for them). BotOps asking for a
-        person answers with a Confirm card first: adding someone always needs the requester's own click."""
+        a coworker in the company's email domain (and only if `add_people` is on for them). BotOps adds a coworker in the
+        company's domain at once; anyone outside it answers with a Confirm card first: it needs the requester's own click."""
         caller = request.state.identity
         auth.domain(caller)
 
@@ -878,9 +894,9 @@ def create_app(settings=None):
                 raise Problem("forbidden", "Only people add people", 403)
             email = Access._valid_email(body.email)
             roster = views.roster(c)
-            Access.check_may_add(c, settings, P.person(H.actor_id(who.actor), roster), auth.company_role(who), email,
-                                 Access.company_domains(c, settings, auth.owner_email))
-            if risky(who):
+            domains_ = Access.company_domains(c, settings, auth.owner_email)
+            Access.check_may_add(c, settings, P.person(H.actor_id(who.actor), roster), auth.company_role(who), email, domains_)
+            if risky(who) and Access.domain_of(email) not in domains_:
                 return propose_card(c, who, "POST", "/api/v2/access/people",
                                     {"name": body.name, "email": email, "title": body.title, "team": body.team,
                                      "reports_to": body.reports_to},
@@ -953,6 +969,16 @@ def create_app(settings=None):
         result = mutate(request, body, work)
         with store.read() as c:
             auth.sync_access(c)
+        return result
+
+    @app.put("/api/v2/access/rules")
+    def access_rules(request: Request, body: M.AccessRules):
+        """Turn the team's fast defaults off, or back on (backend/team_rules.py). The owner."""
+        who = request.state.identity
+        owner_only(who, "changes the team's rules")
+        result = mutate(request, body, lambda c: team_rules.save(c, who.actor, body.model_dump()))
+        with store.read() as c:
+            auth.sync_access(c)          # who is a credential administrator follows the rule
         return result
 
     @app.put("/api/v2/access/allow")
@@ -2184,10 +2210,17 @@ def create_app(settings=None):
         who = request.state.identity
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
-        kind = botops_act.classify(request.method, request.url.path)
+        body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
+        with store.read() as c:
+            rules = team_rules.load(c) if request.method != "GET" else None
+            kind = botops_act.classify(request.method, request.url.path, body, rules,
+                                       lambda name: str(H.resolve_actor(c, name) or "").startswith("bot:"))
+            limits = botops_act.LIMITS.fullmatch(botops_act.normalize(request.url.path) or "")
+            if kind == "confirm" and request.method == "PUT" and limits and usage_limits.only_lowers(
+                    c, (limits.group(1) or "")[1:], body):
+                kind = "do"            # a spending limit that goes down never needs a click
         if kind is None:
             raise Problem("not_delegable", botops_act.DETAIL_ROUTE, 403)
-        body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
         if botops_act.secret_in(body):
             raise Problem("secret_in_request", botops_act.DETAIL_SECRET, 422)
         if kind == "confirm":
@@ -2422,6 +2455,9 @@ def create_app(settings=None):
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (rid,)).fetchone()
             if not runner or not (auth.bot_admin(who) or who.role == "human" and who.actor == "human:" + runner["operator"]):
                 raise Problem("forbidden", "You cannot change this computer", 403)
+            if body.allowed and who.via == "botops" and not inbox_isolation.single_owner(c):
+                raise Problem("forbidden", "BotOps turns inbox sharing on only where one owner runs every computer and bot",
+                              403)
             inbox_isolation.allow_shared(c, rid, body.allowed)
             H.event(c, who.actor, "runner.inbox_sharing", rid, {"allowed": body.allowed})
             return {"allowed": body.allowed}
