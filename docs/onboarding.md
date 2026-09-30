@@ -120,6 +120,8 @@ second). It reaches no computer.
   follows the team default, so it runs once a provider is added in Settings > AI providers. With no computer enrolled the bots stay
   `planned`; when the owner's computer enrolls, the bots are placed on it and activated. Until then the after-Create screen says
   "Waiting for a computer" or "Add an AI provider".
+- Each bot goes in the **group** its template belongs to (Marketing, Product, Engineering ...); the group is made if the team has none yet,
+  and one it already has by that name is reused ([the team chart](org-chart.md#groups)). Built-in bots stay outside groups.
 - The template and the reviewed instructions are stored in the bot's server-side config, with the **template version** (the release whose
   templates it came from: `template_version`).
 - A **starter** template (a card with a `first_routine` and an `onboarding` conversation) is created whole and parked:
