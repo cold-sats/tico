@@ -31,6 +31,7 @@ class FakeGitHub:
         self.calls, self.installations = [], [{"id": 77, "account": {"login": "Acme"}}]
         self.ttl = 3600
         self.generate_status = 201
+        self.refuse = None                       # (status, message) for every token request
         self.missing, self.selection, self.forbidden = set(), "all", False   # repositories GitHub answers 404 for
 
     def __call__(self, request):
@@ -47,6 +48,8 @@ class FakeGitHub:
         if path.startswith("/repos/") and path.count("/") == 3:
             return httpx.Response(404 if path.split("/")[3] in self.missing else 200, json={})
         if path.endswith("/access_tokens"):
+            if self.refuse:
+                return httpx.Response(self.refuse[0], json={"message": self.refuse[1]})
             if body and any(name in self.missing for name in body.get("repositories", [])):
                 return httpx.Response(403 if self.forbidden else 422, json={"message": "Validation Failed"})
             exp = datetime.now(timezone.utc) + timedelta(seconds=self.ttl)
@@ -290,3 +293,61 @@ def test_botops_is_refused_outside_its_lane(api, gh):
         assert r.status_code == 403 and "Only the owner" in r.text, who
     assert not gh.of("/generate") and not gh.of("/repos")
 
+
+
+def token_health(api):
+    with api.app_state.store.read() as c:
+        row = c.execute("SELECT last_error FROM service_health WHERE service='github:token'").fetchone()
+        return bool(row and row["last_error"])
+
+
+def service_issues(api):
+    return [i for i in api.get("/api/v2/operations", headers=auth()).json()["issues"] if i["kind"] == "service"]
+
+
+def test_a_bot_whose_repository_is_not_on_github_is_not_a_token_problem(api, gh):
+    connect(api)
+    runner_token(api, "cpo")
+    gh.missing.add("emp-cpo")
+    r = turn_token(api)
+    assert r.status_code == 409 and "does not exist yet" in r.text
+    assert "can't create repositories (Administration is off)" in r.text       # connected without Administration
+    assert not token_health(api) and not service_issues(api)
+
+
+def test_repository_creation_is_only_suggested_when_the_app_can_do_it(api, gh):
+    connect(api, administration="true")
+    runner_token(api, "cpo")
+    gh.missing.add("emp-cpo")
+    assert "hub bot repo-create cpo" in turn_token(api).text
+
+
+def test_the_app_itself_failing_is_named_with_what_to_do_and_clears_on_recovery(api, gh):
+    connect(api)
+    runner_token(api, "cpo")
+    gh.refuse = (422, "The permissions requested are not granted to this installation.")
+    r = turn_token(api)
+    assert r.status_code == 409 and "Accept its updated permissions" in r.text
+    assert token_health(api)
+    issue = [i for i in service_issues(api) if i["title"] == "GitHub needs attention"]
+    assert issue and "permissions" in issue[0]["detail"] and issue[0]["action"]
+    gh.refuse = (500, "Server Error")
+    assert "HTTP 500: Server Error" in turn_token(api).text
+    gh.refuse = None
+    assert turn_token(api).status_code == 200
+    assert not token_health(api) and not service_issues(api)
+
+
+def test_a_row_written_before_app_only_recording_is_not_shown_and_disconnecting_clears_it(api, gh):
+    connect(api)
+    with api.app_state.store.transaction() as c:
+        c.execute("INSERT INTO service_health VALUES('github:token',NULL,?,?)",
+                  (H.now(), json.dumps({"message": "The repository Acme/emp-cpo does not exist yet on GitHub."})))
+    assert not service_issues(api)
+    with api.app_state.store.transaction() as c:
+        c.execute("UPDATE github_app SET installation_id=77")
+    checks = {c["id"]: c["status"] for c in api.get("/api/v2/health", headers=auth()).json()["checks"]}
+    assert checks["github"] == "ok"
+    assert api.post("/api/v2/github/app/disconnect", headers=auth()).status_code == 200
+    with api.app_state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM service_health WHERE service='github:token'").fetchone()

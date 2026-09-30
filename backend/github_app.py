@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import hubdb as H
 from .auth import validate_identity
-from .health import note_github_token
+from .health import GITHUB_HEALTH, note_github_token
 from .store import Problem
 
 log = logging.getLogger("tico.github_app")
@@ -45,6 +45,10 @@ DEFAULT_TEMPLATE = "ticoteam/botops"
 BOTOPS = "botops"
 EXTRA_KEY = "github-extra-repos"   # registry_metadata: {bot: ["owner/name", ...]}
 MAX_EXTRA_REPOS = 20
+# A refusal about one bot's repository (not on GitHub yet, or not shared with the app), or a rehearsal that never calls GitHub. The bot's own readiness
+# and Health already name it; it says nothing about whether the App works, so it never marks the token unhealthy.
+BOT_SCOPED = ("github_repo_missing", "github_repo_not_accessible", "rehearsal")
+RECONNECT = "Reconnect GitHub in Settings."
 
 # Replaced in tests with an httpx.MockTransport so nothing reaches the network.
 TRANSPORT = None
@@ -141,6 +145,7 @@ class GitHubApp:
     def forget(self, c):
         c.execute("DELETE FROM github_app")
         c.execute("DELETE FROM github_app_states")
+        c.execute("DELETE FROM service_health WHERE service=?", (GITHUB_HEALTH,))   # nothing left to be unhealthy
         self.cache.clear()
 
     # -- GitHub calls -----------------------------------------------------------------------
@@ -205,10 +210,18 @@ class GitHubApp:
             body["repositories"] = [r.split("/", 1)[1] for r in repos]
         r = self._call("POST", f"/app/installations/{installation}/access_tokens", json=body,
                        headers={"Authorization": "Bearer " + token})
+        said = _said(r)
+        if r.status_code in (403, 422) and "permission" in said.lower():
+            raise Problem("github_app_permissions",
+                          "The GitHub App has not been granted the permissions bots need (contents, pull requests, issues). "
+                          "Accept its updated permissions on the installation page in GitHub, or " + RECONNECT[0].lower() + RECONNECT[1:], 409)
         if r.status_code in (403, 404, 422) and repos:
             raise self._unreachable(installation, repos, r.status_code)
+        if r.status_code == 401:
+            raise Problem("github_app_key", "GitHub rejected the App's key (" + (said or "HTTP 401") + "). " + RECONNECT, 502)
         if r.status_code >= 300:
-            raise Problem("github_token", "GitHub would not issue an installation token", 502)
+            raise Problem("github_token", f"GitHub would not issue an installation token (HTTP {r.status_code}"
+                          + (": " + said if said else "") + ")", 502)
         data = r.json()
         entry = {"token": data["token"], "expires_at": data["expires_at"], "exp": _iso(data["expires_at"])}
         with self.lock:
@@ -238,8 +251,13 @@ class GitHubApp:
         if not absent:
             return problem
         slugs = ", ".join(re.sub(r"^(?:emp|bot)-", "", repo.split("/", 1)[1]) for repo in absent)   # a bot's repository may be either
-        create = (f"Create it with BotOps: `hub bot repo-create {slugs.split(', ')[0]}` "
-                  "(add `--empty` for a bot built locally, whose history its runner then pushes)")
+        if (self.row() or {"administration": 1})["administration"]:
+            create = (f"Create it with BotOps: `hub bot repo-create {slugs.split(', ')[0]}` "
+                      "(add `--empty` for a bot built locally, whose history its runner then pushes)")
+        else:
+            create = ("The GitHub App can't create repositories (Administration is off): create it yourself in GitHub "
+                      "(empty, for a bot built locally, whose history its runner then pushes), or reconnect GitHub with "
+                      "Administration turned on")
         if selection == "all":
             return Problem("github_repo_missing", f"The repository {', '.join(absent)} does not exist yet on GitHub. {create}.", 409)
         return Problem("github_repo_not_accessible",
@@ -302,6 +320,14 @@ class ExtraRepos(BaseModel):
 class TokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     bot: str = Field(min_length=1, max_length=100)
+
+
+def _said(response):
+    """GitHub's own words for a refusal, when it gave any."""
+    try:
+        return str(response.json().get("message") or "")[:200]
+    except (ValueError, AttributeError):
+        return ""
 
 
 def manifest(settings, name, administration):
@@ -452,7 +478,8 @@ def install_github_app(app, settings, store):
         try:
             value, expires = service.mint(repos, TURN_PERMISSIONS)
         except Problem as problem:
-            note_github_token(store, problem.detail)
+            if problem.code not in BOT_SCOPED:
+                note_github_token(store, problem.detail, "Open Settings > Tools and check the GitHub connection.")
             raise
         note_github_token(store)
         with store.transaction() as c:
