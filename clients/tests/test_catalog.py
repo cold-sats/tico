@@ -113,6 +113,56 @@ class Materialize(unittest.TestCase):
         self.assertIn("A turn happened here.", (path / "state.md").read_text())
 
 
+class Refresh(unittest.TestCase):
+    """A built-in bot follows the release: the product's instructions and playbooks are brought up when the template
+    changed, and whatever the bot improved and wrote itself stays."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.catalog = Path(self.tmp.name) / "catalog"
+        self.template = fixture(self.catalog)
+        (self.template / "playbooks" / "fleet.md").write_text("Check the fleet for {{company_name}}.\n")
+        self.path = catalog.materialize("assistant", "coo", Path(self.tmp.name) / "ws", NAMES, ANSWERS, directory=self.catalog)
+
+    def refresh(self):
+        return catalog.refresh("assistant", self.path, NAMES, directory=self.catalog)
+
+    def test_an_unchanged_template_leaves_what_the_bot_improved(self):
+        (self.path / "playbooks" / "fleet.md").write_text("Improved by the bot.\n")
+        self.assertEqual(self.refresh(), [])
+        self.assertEqual((self.path / "playbooks" / "fleet.md").read_text(), "Improved by the bot.\n")
+
+    def test_a_changed_template_file_wins_and_the_rest_stays_the_bots(self):
+        (self.path / "playbooks" / "fleet.md").write_text("Improved by the bot.\n")
+        (self.path / "playbooks" / "mine.md").write_text("A playbook the bot wrote.\n")
+        (self.path / "state.md").write_text("# State\n\nMid-task.\n")
+        (self.template / "playbooks" / "fleet.md").write_text("Check the fleet, then fix it, for {{company_name}}.\n")
+        self.assertEqual(self.refresh(), ["playbooks/fleet.md"])
+        self.assertEqual((self.path / "playbooks" / "fleet.md").read_text(), "Check the fleet, then fix it, for Acme Ltd.\n")
+        self.assertEqual((self.path / "playbooks" / "mine.md").read_text(), "A playbook the bot wrote.\n")
+        self.assertIn("Mid-task.", (self.path / "state.md").read_text())
+        self.assertIn("Refresh 1 product file", git(self.path, "log", "-1", "--format=%s"))
+        self.assertEqual(git(self.path, "show", "HEAD~1:playbooks/fleet.md"), "Improved by the bot.")     # kept in the history
+        self.assertEqual(self.refresh(), [])                        # once
+
+    def test_a_repository_from_before_the_stamp_is_brought_up_once(self):
+        (self.path / catalog.STAMP).unlink()
+        (self.path / "AGENT.md").write_text("# Drifted long ago\n")
+        changed = self.refresh()
+        self.assertIn("AGENT.md", changed)
+        self.assertIn("Acme Ltd", (self.path / "AGENT.md").read_text())
+        (self.path / "AGENT.md").write_text("# The bot's own improvement\n")
+        self.assertEqual(self.refresh(), [])
+
+    def test_a_starter_bot_is_never_refreshed(self):
+        starter = Path(self.tmp.name) / "catalog" / "starter"
+        fixture(self.catalog, "starter", card=CARD.replace("bootstrap: true", "bootstrap: false").replace("assistant", "starter"))
+        path = catalog.materialize("starter", "st", Path(self.tmp.name) / "ws", NAMES, ANSWERS, directory=self.catalog)
+        (starter / "AGENT.md").write_text("# New\n")
+        self.assertEqual(catalog.refresh("starter", path, NAMES, directory=self.catalog), [])
+
+
 PACKS = ("basics", "sales", "marketing", "support", "operations", "engineering")
 # templates/departments.yaml: the departments onboarding offers, in order, and the extras it does not offer.
 DEPARTMENTS = ("sales", "marketing", "support", "finance", "operations", "legal", "hr", "product", "engineering")

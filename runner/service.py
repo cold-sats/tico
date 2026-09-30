@@ -417,6 +417,7 @@ class Runner:
         self.stop = threading.Event()
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=self.capacity)
         self.active = {}
+        self.product_refreshed = set()       # the built-in bots whose product files were checked since this runner started
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
@@ -465,6 +466,25 @@ class Runner:
 
     def local_path(self, bot):
         return Path(self.config.get("repos", {}).get(bot) or Path(self.config["projects_dir"]) / ("emp-" + bot))
+
+    def refresh_product_files(self, bot, config, path):
+        """A built-in bot's instructions and playbooks follow the release: once per start of this runner, before the bot's
+        turn (so nothing is being edited), the ones the template changed are brought up (clients/catalog.py refresh).
+        A failure is a log line, never a failed turn."""
+        if bot in self.product_refreshed:
+            return
+        self.product_refreshed.add(bot)
+        try:
+            from clients import catalog
+            template = self.bootstrap_template(bot, config, {row["template"]: row for row in catalog.cards()})
+            if not template:
+                return
+            changed = catalog.refresh(template, path, self.names(), display_name=(config or {}).get("display_name"))
+            if changed:
+                isolation.chown(path, recursive=True)
+                log(f"Tico runner: {bot} took {len(changed)} updated file{'s' if len(changed) != 1 else ''} from the {template} template")
+        except Exception as exc:
+            log(f"Tico runner: could not refresh {bot} from its template ({type(exc).__name__})")
 
     def refresh_workspace(self, bot, path, env=None):
         """Same checkout and same provider thread for chat and routines. Pull first so a
@@ -1432,6 +1452,7 @@ class Runner:
                 conv = BOT_THREAD
                 execution_path = self.local_path(bot)
                 self.refresh_workspace(bot, execution_path, env)
+                self.refresh_product_files(bot, config, execution_path)
                 started_at = redact_mod.head(execution_path) if redactor else ""
                 # A bot keeps one thread and stays on it; this machine alone remembers which.
                 # When the conversation fills the model's window the runtime compacts it, which

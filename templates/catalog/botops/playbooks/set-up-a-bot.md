@@ -1,10 +1,12 @@
 # Set up a bot
 
-Triggered by a task that asks for a new bot. One bot per task, no schedule. Budget 30 minutes.
+Triggered by a task that asks for a new bot, or by `playbooks/build-me-a-bot.md`. One bot per task,
+no schedule. Budget 30 minutes.
 
-The outcome is a repository in {{company_name}}'s workspace that passes its readiness check, holds
-instructions the owner recognises as what they asked for, and a task note that tells them the one
-thing to read before they activate it. You never activate it yourself.
+The outcome is a repository in {{company_name}}'s workspace that passes its readiness check and holds
+instructions the owner recognises as what they asked for. When a person asked you in chat, you then
+take it live (`hub bot go-live <slug>`); for a task nobody chatted, the note tells the owner the one
+thing to read before they turn it on, and they do.
 
 ---
 
@@ -29,7 +31,7 @@ every task the bot ever gets, so renaming it later is real work.
 That materialises `$HUB_WORKSPACE/emp-<slug>` from the catalog template, fills the company's names
 into the placeholders, writes `knowledge/company.md` from the onboarding answers, and seeds the
 template's `schedules:` into the hub as the bot's first routines (the result lists their ids). When a
-person asked for the bot in chat, it also registers the bot with the server (planned) as them and makes
+person asked for the bot in chat, it also registers the bot with the server as them and makes
 them an owner (`playbooks/build-me-a-bot.md`); for a task with no person behind it, the owner registered
 it already.
 Read what it produced before you change anything: the template is a starting point, not the
@@ -70,11 +72,9 @@ elsewhere names the folders, `files: {publish: [reports/, deliverables/]}`.
 
 Fix everything it reports as a failure: a missing `state.md`, an `AGENT.md` still identical to the
 template, an empty `## Owns`, a `name:` that is not the slug, a schedule that would be refused. A
-warning can stand if you say in the note what it is and why it is acceptable now. A credential that
-does not resolve is not yours to create: name the variable on the task and say who supplies it. When
-a person asks how to connect a tool, point them to Settings > Integrations (or Credentials for a key):
-the value is entered in that field, never in chat, a task or a file. A secret pasted in chat is
-treated as leaked: say so and ask them to rotate it.
+warning can stand if you say in the note what it is and why it is acceptable now. A credential the bot
+needs and does not have is yours to ask for: open the card (`playbooks/connect-a-tool.md`), never
+send the person to a settings page, never ask them to paste it in words.
 
 ## 5. Commit
 
@@ -107,10 +107,11 @@ The note says, in this order:
 1. the repository path;
 2. what you changed from the template, in a sentence or two;
 3. the readiness result, with anything still warning;
-4. the one thing the owner should read before activating, usually the `## Never without approval`
+4. the one thing the owner should read before it goes live, usually the `## Never without approval`
    section or a gap the answers did not fill.
 
-The requester closes the task. The bot stays `planned` until the owner activates it.
+The requester closes the task. Unless a person asked you in chat to take it live, the bot stays as it is
+(still being set up) until its owner turns it on.
 
 ## When it goes sideways
 

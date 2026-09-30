@@ -14,6 +14,8 @@ with `hub bot create` (clients/hubcli.py), and an operator can do it by hand wit
 where the cards are read from, so a test or a second checkout can hold its own.
 """
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -25,6 +27,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CARD = "card.yaml"
+# What a built-in bot (a `bootstrap: true` card) takes from the product on every update: its instructions and playbooks.
+# What the bot and its people write (knowledge, memory, state, reports, employee.yaml, playbooks of their own) stays theirs.
+STAMP = ".tico-template.json"
+PRODUCT_OWNED = ("AGENT.md", "playbooks", "skills")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # What a template's text is filled with before the first commit.
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
@@ -190,8 +196,71 @@ def materialize(template, slug, workspace, names, answers, display_name=None, in
     if instructions:
         (target / "AGENT.md").write_text(str(instructions).rstrip("\n") + "\n")
     apply_mailbox(target, instructions)
+    if (card(template, directory) or {}).get("bootstrap"):
+        _stamp(target, template, {rel: _digest(text) for rel, text in _product_files(source, template, values, directory)})
     commit(target, f"Set up {slug} from the {template} template")
     return target
+
+
+# ----------------------------------------------------------------------------- built-in bots follow the release
+def _digest(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _product_files(source, template, values, directory=None):
+    """(relative path, filled text) of every product-owned file the template ships."""
+    owned = (card(template, directory) or {}).get("product_owned") or PRODUCT_OWNED
+    for name in owned:
+        base = source / name
+        for path in ([base] if base.is_file() else sorted(base.rglob("*")) if base.is_dir() else []):
+            if not path.is_file() or path.stat().st_size > MAX_FILL:
+                continue
+            try:
+                yield str(path.relative_to(source)), fill(path.read_text(), values)
+            except (UnicodeError, OSError):
+                continue
+
+
+def _stamp(target, template, files):
+    (Path(target) / STAMP).write_text(json.dumps({"template": template, "files": files}, indent=1, sort_keys=True) + "\n")
+
+
+def refresh(template, target, names, display_name=None, directory=None):
+    """Bring a built-in bot's product-owned files up to this release's template. Returns the paths it changed.
+
+    A file is rewritten only when the template's text for it is not the one written here last time (the stamp keeps its
+    digest), so an update always wins and a repository whose template did not change keeps whatever the bot improved since.
+    A repository from before the stamp counts as never refreshed: every product-owned file is brought up once. What was
+    there stays in the repository's history. The bot's own files, and the playbooks it wrote itself, are never touched.
+    """
+    target = Path(target)
+    if not (card(template, directory) or {}).get("bootstrap") or not (target / "AGENT.md").is_file():
+        return []
+    names = dict(names or {})
+    values = {key: str(names.get(key) or "") for key in PLACEHOLDERS[:-1]}
+    values["bot_name"] = fill(str(display_name or (card(template, directory) or {}).get("name") or target.name), values)
+    try:
+        recorded = (json.loads((target / STAMP).read_text()) or {}).get("files") or {}
+    except (OSError, ValueError):
+        recorded = {}
+    files, changed = dict(recorded), []
+    for rel, text in _product_files(template_dir(template, directory), template, values, directory):
+        digest = _digest(text)
+        if recorded.get(rel) == digest:
+            continue
+        dest = target / rel
+        if not dest.is_file() or dest.read_text() != text:
+            if dest.is_file():
+                # What the bot had, saved in the history before the release's text replaces it.
+                commit_paths(target, [rel], f"Keep the bot's version of {rel} before the refresh")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text)
+            changed.append(rel)
+        files[rel] = digest
+    if files != recorded:
+        _stamp(target, template, files)
+        commit_paths(target, [*changed, STAMP], f"Refresh {len(changed)} product file{'s' if len(changed) != 1 else ''} from the {template} template")
+    return changed
 
 
 # ----------------------------------------------------------------------------- git
@@ -211,6 +280,16 @@ def commit(path, message):
     # truthful author for its first commit, and a configured identity still wins.
     identity = ("-c", "user.name=" + path.name, "-c", "user.email=" + path.name + "@localhost")
     for argv in (("init", "-q", "-b", "main"), ("add", "-A"), (*identity, "commit", "-q", "-m", message)):
+        result = git(path, *argv)
+        if result is None or result.returncode != 0:
+            return False
+    return True
+
+
+def commit_paths(path, paths, message):
+    """Commit only these paths, on top of whatever the repository holds. Best effort, like `commit`."""
+    identity = ("-c", "user.name=" + path.name, "-c", "user.email=" + path.name + "@localhost")
+    for argv in (("add", "--", *paths), (*identity, "commit", "-q", "-m", message, "--", *paths)):
         result = git(path, *argv)
         if result is None or result.returncode != 0:
             return False
