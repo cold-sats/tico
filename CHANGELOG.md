@@ -7,18 +7,79 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
-### Added
+One large release: new words across the product, cleaner API names, faster defaults, nested groups and a batch of fixes.
+Existing installs update in-app as usual; read **Breaking changes** first if you call the API, MCP tools or `hub` commands
+from your own scripts or agents.
 
+### Breaking changes
+- **MCP tools are renamed outright** (no aliases) to `hub_<thing>_<action>`, and each caller now sees only the tools it may use.
+  The main renames: `hub_say`/`hub_notice` → `hub_message_send` (`fyi`); `hub_inbox` → `hub_message_list`; `hub_ack` →
+  `hub_message_mark_read`; `hub_history` → `hub_conversation_show`; `hub_ask`/`hub_answer` → `hub_question_ask`/`_answer`;
+  `hub_board`/`hub_task_stuck` → `hub_task_list` (`all`, `stuck`); `hub_goals` → `hub_goal_list`; `hub_goal_auto` →
+  `hub_goal_status` (`auto`); `hub_kpi_add` → `hub_kpi_create`; `hub_docs_*` → `hub_doc_*`; `hub_context_search`/`_show` →
+  `hub_doc_search`/`hub_doc_read`; `hub_files_*` → `hub_file_*`; `hub_meetings_transcript` → `hub_meeting_read`;
+  `hub_bot_register`/`hub_bot_set` → `hub_bot_create`/`hub_bot_update`; `hub_bot_onboarded` → `hub_bot_setup_done`;
+  `hub_status_*` → `hub_bot_status_*`; `hub_turns` → `hub_run_list`; `hub_fleet`/`hub_fleet-check` → `hub_health_check`;
+  `hub_computers` → `hub_computer_list`; `hub_catalog` → `hub_template_list`; `hub_routine_on`/`_off` → `hub_routine_update`
+  (`enabled`); `hub_people_*` → `hub_human_*`; `hub_org` → `hub_team_show`; `hub_updates` → `hub_update_list`;
+  `hub_integrations`/`hub_integration`/`hub_queries`/`hub_learn`/`hub_tools_*` → `hub_tool_*`; `hub_batch_*` →
+  `hub_needs_you_*`; `hub_listen_*`/`hub_intake_*` → `hub_listening_*`; `hub_decisions` → `hub_decision_ask`. The deprecated
+  `hub_judge`, `hub_listen_judge` and `hub_person_*` aliases are gone.
+- **`hub` commands** use the same names (`hub message send`, `hub health check`, `hub bot setup-done`, `hub human add`, …). The old
+  spellings still work, hidden, for one release and print "renamed to …".
+- **REST routes** (`/api/v2`): computers under `/computers` (`/runners/*` is only the runner software's own), `/people` →
+  `/humans`, fleet check → `/health/issues`, integrations and connectors → `/tools`, `/judge` → `/decisions`, onboarding and
+  getting started → `/setup`, `/goal-proposals` → `/proposals`, `/catalog` → `/templates`. Old paths answer for one release and
+  are marked deprecated in the OpenAPI.
+- **Bot files and settings.** `employee.yaml` → `bot.yaml`; `schedules:` → `routines:`; `access:` → `tools:`; `HUB_EMPLOYEE` →
+  `HUB_BOT`; `departments.yaml` and `department:` → `groups.yaml` and `group:`. Both old and new are read for one release; bot
+  templates use the new ones. The status `needs_onboarding` is now `needs_setup` (stored rows are migrated). New bot repositories
+  are named `bot-<slug>`; existing `emp-*` repositories keep working.
+
+### Changed
+- **One set of words.** Team is everyone, humans and bots; a group is part of the team; teammates are humans or bots. The
+  sidebar says Team (the team chart), Built-in (Assistant, BotOps, Librarian, Goal Manager), Message bots; the pages are Humans,
+  Tools (formerly Integrations), Computers (formerly Devices) and Routines (formerly Recurring). A bot's status is Needs setup,
+  with a Set up button; Finish setup is installing Tico. Needs you means you; anything else says whose it is ("Needs Thomaz").
+  Outside agents you connect are external agents. The glossary (docs/glossary.md) is rewritten, and page titles match the sidebar.
+- **Faster defaults.** Tico favours getting going; each of these can be tightened again:
+  - Tico runs on your own computer with no domain or sign-in setup (`install.sh --local`); a public address still requires sign-in.
+  - Create my team works before an AI provider or computer exists; bots are placed when a computer joins.
+  - Set up and go-live turn on a starter bot's first routine, with no separate approval.
+  - On teams whose owner uses Gmail, members can add coworkers at the team's own domain.
+  - BotOps restarts computers, revokes credential grants, changes limits and providers, starts model sign-ins, messages bots, adds
+    coworkers in the team's domain and turns on computer sharing for message bots without a Confirm card; the test run before
+    going live is optional and it may delete merged branches. The Assistant acts directly on tasks, comments and messages to bots.
+    Five owner switches under Settings > Humans bring the cards back.
+  - New computers take members' bots; admins store credentials and see SQL; members make personal tokens.
+  - Sign-in lasts 30 days idle and 90 days in all (`TICO_SESSION_IDLE_SECONDS`, `TICO_SESSION_ABSOLUTE_SECONDS`).
+  - Tasks may contain outside links. Bots may start 10 conversations a day with a human (`TICO_UNSOLICITED_PER_DAY`). A bot
+    reaching for another bot's files is quarantined on the 3rd try in a day (`TICO_ESCAPE_QUARANTINE_AT`).
+  - Slack posting is on for registered internal channels unless a channel says `post: false`; calendar invites may include
+    outside guests (`TICO_BLOCK_EXTERNAL_INVITES=1` restores the old rule). Undo and archive no longer ask to confirm.
+  - A task filed from an email sent to a message bot may carry the message's text (other recipients and quoted history stay out).
+  - Unchanged on purpose: nothing is sent outside the team unless sending is on; credentials are never shown, logged or pushed;
+    outside humans, sign-in rules, updating Tico and deleting bots or repositories still need a Confirm card.
+
+### Added
 - `install.sh --runner --name <name>` adds another computer on the same host (a message bot needs its own): its own
   directory, compose project, container, home volume and updater. The updater's helper container is named per project so two
   updaters on one host do not remove each other's.
+- A computer whose model is not signed in takes the team's model key from Credentials (granted to "Every computer") and signs in
+  by itself; a team that uses a subscription login sees "<computer>: sign in to <model>" in Health.
 
 ### Fixed
 - **Mail and calendar sync target the message bots' mailboxes.** The `connectors` job used every human's roster sign-in address, so a
-  company that signs in on one domain and runs Google Workspace on another (owner `chris@tidy.com`, Workspace `tico.team`) failed on
-  every mailbox the key could not act for. It now syncs each message bot's declared mailbox (the `gmail` identity in `bot.yaml`, from
-  the `Mailbox:` line), and a human's own email only when the bot declares none. A message bot's short-lived mail token is issued for
-  that declared mailbox. A domain the key cannot impersonate is skipped and shown once in Health, naming the mailbox and the domain.
+  team that signs in on one domain and runs Google Workspace on another failed on every mailbox the key could not act for. It now
+  syncs each message bot's declared mailbox (the `gmail` identity in `bot.yaml`, from the `Mailbox:` line), and a human's own email
+  only when the bot declares none. A domain the key cannot impersonate is skipped and shown once in Health.
+- **Slack gateway.** Sign-in settings now reach it, fixing a crash loop on Cloudflare Access and built-in sign-in installs. Routing
+  works with any number of bots (the decision questions go in batches), and a message that cannot be routed ends failed and the
+  human is told in the thread instead of looping.
+- Settings and Tools forms keep what you type while the page refreshes (GitHub, Slack, meeting importers, Add computer, API tokens,
+  Humans, Routines).
+- A message typed into a bot's chat while it is still loading is sent, not lost.
+- The runner's repo-escape check matches only real bot repositories, so ordinary text such as `bot-xyz/` is not refused.
 
 ## [0.2.20] - 2026-09-30
 
