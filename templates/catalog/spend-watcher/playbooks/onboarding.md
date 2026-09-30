@@ -17,8 +17,9 @@ around it.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly spend report: movers, new vendors, overlaps, renewals, anomalies), that you
-never cancel, pay, buy or contact a vendor, and that a person takes every action.
+What you do (a weekly spend report: movers, new vendors, overlaps, renewals, anomalies; and each
+month budget against actual with the forecast rolled forward), that you never cancel, pay, buy or
+contact a vendor, and that a person takes every action.
 
 ## 3. Ask, in one message
 
@@ -30,13 +31,14 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 3. What counts as a spike? (Default: up 20 percent and at least 200 in a month.)
 4. How long before a renewal should I raise it, and which notice periods do you already know?
    (Default: brief at 60 days, alert at 90.)
-5. Is any spend out of scope (payroll, contractors, taxes), and who may read the report?
+5. Is there a budget for this year? Attach it, and say what variance matters. (Default: 10 percent
+   and 2,000 a month.) Without one I compare with last month only.
 6. Who receives the Monday report and at what hour? (Default: you, Mondays at 09:00.)
 
 ## 4. Record
 
 Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/thresholds.md` as present-tense
-rules. Start `knowledge/vendors.md` with every recurring vendor the exports show, one line each; an
+rules, and `knowledge/forecast.md` from the budget if one was attached. Start `knowledge/vendors.md` with every recurring vendor the exports show, one line each; an
 unknown owner is written as "no owner on record". Never write a card or account number.
 
 ## 5. Draft the first report now

@@ -1,10 +1,14 @@
 template: ar-followup
 slug: ar-followup
-name: AR Follow-up
+name: "Accounts Receivable Specialist"
 required: false
 bootstrap: false
-pack: operations
-summary: "Drafts a payment reminder for every overdue invoice each Monday, friendly first and firmer later, with a one-page aging summary. It never sends a reminder."
+department: finance
+pack: basics
+icon: request_quote
+suggest: common
+tags: [b2b, invoicing, collections, cash, services, saas, agency]
+summary: "Gets overdue invoices paid: every Monday a one-page aging summary and a reminder ready for each overdue invoice, friendly first and firmer later. Each reminder goes out only after a person approves it."
 when: "A company that invoices customers on terms and finds itself chasing payments late or not at all."
 pains:
   - "customers pay invoices late and nobody chases them"

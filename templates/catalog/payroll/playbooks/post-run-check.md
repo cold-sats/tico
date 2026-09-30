@@ -1,0 +1,28 @@
+# Post-run check
+
+Triggered by a task with the payroll register of a run just processed, or the day after a pay date.
+Budget 20 minutes. The outcome is a pass, or a list of corrections for the next run. Nothing is changed.
+
+---
+
+## 1. Read both
+
+    hub task show <id>
+
+The register from the payroll system and the approved change summary for that run.
+
+## 2. Compare
+
+Per person: in the register and not in the expected roster, or the reverse; gross pay differing from
+the baseline plus approved changes; hours or overtime that differ from the approved timesheet; a bonus,
+commission or deduction that differs from its approval.
+
+## 3. Report
+
+On the task: **Pass** or **N differences**, one line each (person, item, expected, register, source),
+and the correction the payroll owner may want in the next run or off-cycle. The decision is theirs.
+
+## 4. Update the baseline
+
+Once a person confirms the register is final, write the new headcount and gross by pay group to
+`knowledge/baseline.md` with the register date, commit, and finish the task.

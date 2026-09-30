@@ -21,7 +21,7 @@ seats, notice period, auto-renewal clause) and the last two reports' mentions of
   gave them. No usage data means "not measured", with what would measure it.
 - **Owner and need**: who uses it and what breaks if it is gone; ask the owner through the task,
   never by messaging them.
-- **Alternatives**: overlaps in `knowledge/vendors.md`. A real comparison is Procurement's:
+- **Alternatives**: overlaps in `knowledge/vendors.md`. A real comparison is the Procurement Manager's:
   `hub task create --owner procurement`.
 - **The clock**: renewal date, notice period and the decide-by date, in the first line.
 
