@@ -322,8 +322,8 @@ class OldLabels(Base):
         return path
 
     def test_install_removes_the_old_launchd_job_for_this_profile_only(self):
-        old = self.old_plist("com.tidy.tico-agent.scout")
-        other_profile = self.old_plist("com.tidy.tico-agent.other", profile="other")
+        old = self.old_plist("com.acme.tico-agent.scout")
+        other_profile = self.old_plist("com.acme.tico-agent.other", profile="other")
         not_ours = self.old_plist("com.example.tico-agent.scout", program="backup.py")
         out = self.install()
         self.assertFalse(old.exists())
@@ -331,15 +331,15 @@ class OldLabels(Base):
         self.assertTrue(not_ours.exists())
         self.assertTrue((self.home / "Library/LaunchAgents/team.tico-agent.scout.plist").exists())
         self.assertIn(["launchctl", "bootout", "gui/%d" % os.getuid(), str(old)], self.fake.calls)
-        self.assertIn("removed the older launchd job com.tidy.tico-agent.scout", out)
+        self.assertIn("removed the older launchd job com.acme.tico-agent.scout", out)
 
     def test_pair_and_update_clean_up_too(self):
-        old = self.old_plist("com.tidy.tico-agent.scout")
+        old = self.old_plist("com.acme.tico-agent.scout")
         self.hub.pair_states = [{"state": "approved", "bot": "scout", "token": TOKEN}]
         code, out, err = self.run_cli("pair", "--profile", "scout", "--url", self.hub.url)
         self.assertEqual(code, 0, err)
         self.assertFalse(old.exists())
-        again = self.old_plist("com.tidy.tico-agent.scout")
+        again = self.old_plist("com.acme.tico-agent.scout")
         self.assertEqual(self.run_cli("reinstall", "--profile", "scout")[0], 0)
         self.assertFalse(again.exists())
 
@@ -347,16 +347,16 @@ class OldLabels(Base):
         self.platform("linux")
         units = self.home / ".config" / "systemd" / "user"
         units.mkdir(parents=True)
-        (units / "com.tidy.tico-agent.scout.service").write_text("[Service]\nExecStart=/usr/bin/python3 /x/hermes_agent.py heartbeat --profile scout\n")
-        (units / "com.tidy.tico-agent.scout.timer").write_text("[Timer]\nOnBootSec=30\n")
+        (units / "com.acme.tico-agent.scout.service").write_text("[Service]\nExecStart=/usr/bin/python3 /x/hermes_agent.py heartbeat --profile scout\n")
+        (units / "com.acme.tico-agent.scout.timer").write_text("[Timer]\nOnBootSec=30\n")
         (units / "tico-agent-other.service").write_text("[Service]\nExecStart=/usr/bin/python3 /x/hermes_agent.py heartbeat --profile other\n")
         (units / "tico-agent-other.timer").write_text("[Timer]\n")
         self.install()
-        self.assertFalse((units / "com.tidy.tico-agent.scout.service").exists())
-        self.assertFalse((units / "com.tidy.tico-agent.scout.timer").exists())
+        self.assertFalse((units / "com.acme.tico-agent.scout.service").exists())
+        self.assertFalse((units / "com.acme.tico-agent.scout.timer").exists())
         self.assertTrue((units / "tico-agent-other.timer").exists())
         self.assertTrue((units / "tico-agent-scout.timer").exists())
-        self.assertIn(["systemctl", "--user", "disable", "--now", "com.tidy.tico-agent.scout.timer"], self.fake.calls)
+        self.assertIn(["systemctl", "--user", "disable", "--now", "com.acme.tico-agent.scout.timer"], self.fake.calls)
         self.assertNotIn(["systemctl", "--user", "disable", "--now", "tico-agent-other.timer"], self.fake.calls)
 
 

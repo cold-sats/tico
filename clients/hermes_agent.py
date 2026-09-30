@@ -335,7 +335,7 @@ def remove_timer(profile):
 
 
 def _suffixed(name, profile):
-    """True for `team.tico-agent.scout`, `com.tidy.tico-agent.scout`, `tico-agent-scout`: any name
+    """True for `team.tico-agent.scout`, `com.acme.tico-agent.scout`, `tico-agent-scout`: any name
     that ends in `tico-agent.<profile>` or `tico-agent-<profile>` on a word boundary."""
     for sep in (".", "-"):
         tail = LABEL + sep + profile
@@ -345,7 +345,7 @@ def _suffixed(name, profile):
 
 
 def remove_old_timers(profile):
-    """Earlier versions labelled the launchd job `com.tidy.tico-agent.<profile>` (an environment's name
+    """Earlier versions labelled the launchd job `com.acme.tico-agent.<profile>` (an environment's name
     on a public connector); a reinstall under the current label would leave two heartbeats. Remove any
     other job or unit for this profile that runs a hermes_agent.py. Returns what was removed."""
     removed = []
