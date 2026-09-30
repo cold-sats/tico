@@ -1,6 +1,6 @@
-/* Goals page: a goal's KPI lines, the KPI panel, "+ KPI", Needs you, and the bot page's automatic KPI row.
-   Everything shown is what the server computed (GET /api/v2/goals/tree, /kpis/{id}, /goals/needs-you,
-   /bots/{bot}/kpis): a colour is never derived here, and a KPI with no fresh data says so instead of a number.
+/* Goals page: a goal's KPI lines, the KPI panel, "+ KPI" and Needs you.
+   Everything shown is what the server computed (GET /api/v2/goals/tree, /kpis/{id}, /goals/needs-you):
+   a colour is never derived here, and a KPI with no fresh data says so instead of a number.
    The page itself (the goal cards and their editor) is pageGoals in index.html. */
 
 const KPI_LABEL = {green: 'On track', yellow: 'At risk', red: 'Off track', gray: 'No fresh data', none: 'No target'};
@@ -63,7 +63,7 @@ function kpiLinesHtml(kpis, opts) {
 }
 function bindKpiLines(root) {
   for (const li of root.querySelectorAll('[data-kpi]')) {
-    if (li.tagName !== 'LI' && !li.matches('.bot-kpi')) continue;
+    if (li.tagName !== 'LI') continue;
     li.onclick = () => kpiOpen(li.dataset.kpi);
     li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); kpiOpen(li.dataset.kpi); } };
   }
@@ -390,23 +390,4 @@ function goalNeedsHtml(items) {
     return `<li class="need-row" data-kpi="${esc(it.kpi_id)}" tabindex="0" role="button">${gdot(red ? 'red' : 'gray')}<span class="need-text"><b>${esc(it.kpi_name)}</b>${red ? ` on ${esc(it.goal_title)}` : ''}<span class="muted">: ${esc(it.reason)}</span></span></li>`;
   }).join('');
   return `<section class="card goal-needs" id="goal-needs" aria-label="Needs you"><header><h2>Needs you</h2></header><ul class="goal-rows">${rows}</ul></section>`;
-}
-
-// ---------------------------------------------------------------- a bot's automatic KPIs
-let BOT_KPI_LOAD = 0;
-async function botKpisLoad(slug) {
-  const host = $('#bot-kpis');
-  if (!host) return;
-  const load = ++BOT_KPI_LOAD;
-  const r = await v2Get(`/v2/bots/${encodeURIComponent(slug)}/kpis`);
-  if (load !== BOT_KPI_LOAD || !$('#bot-kpis') || !r?.kpis?.length) return;
-  host.innerHTML = r.kpis.map(k => {
-    const fresh = kpiFresh(k);
-    const short = String(k.name).replace(/\s*\((\d+d)\)$/, ' $1');
-    return `<button class="bot-kpi" type="button" data-kpi="${esc(k.id)}" title="${esc(k.reason || k.definition || '')}">
-      <span class="bot-kpi-name">${esc(short)}</span>
-      <span class="bot-kpi-val tnum${fresh ? '' : ' kpi-off'}">${fresh ? esc(kpiNum(k.latest.value, k.unit)) : 'no data'}</span>${kpiSpark(k.spark, fresh ? 'gray' : 'gray', 56, 16)}</button>`;
-  }).join('');
-  host.hidden = false;
-  bindKpiLines(host);
 }

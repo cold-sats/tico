@@ -152,8 +152,9 @@ and the value is worked out when it is read. Each has an id, `auto:<bot>:<metric
 | `cost_7d` | what its runs cost in 7 days, when the runs recorded a cost |
 
 A metric with nothing to measure has no reading and is gray: no message to the bot means no response time, not zero. Their
-history is the same measure at the end of each of the last fourteen days. They are shown as a small row on the bot's page
-(Read on the bot is needed) and cannot be edited or logged to.
+history is the same measure at the end of each of the last fourteen days. The bot's page does not show them: link one to a
+goal from the Goals page (**+ KPI**), and it shows there like any KPI. Reading them needs Read on the bot, and they cannot be
+edited or logged to.
 
 ## The Goals page
 

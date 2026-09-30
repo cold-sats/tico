@@ -1362,6 +1362,7 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 #pane-tasks .trow[data-task-version] summary .tags .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .bot-done{margin:0 0 var(--s4);padding:0 var(--s4)}
 .bot-done>summary{cursor:pointer;color:var(--muted);font-size:12.5px;padding:4px 0}
+.bot-done>summary:focus:not(:focus-visible){outline:none}
 .bot-done[open]{padding-bottom:var(--s2)}
 @media (min-width:1100px){.bot-top .bot-switch{display:none}}
 @media (max-width:1099px){
@@ -1755,11 +1756,6 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 .kpi-r.old>*{text-decoration:line-through;opacity:.55}.kpi-r.old .linkish{display:none}
 .kpi-rv{min-width:64px;font-weight:600}.kpi-note{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kpi-by{margin-left:auto}
 .kpi-log,.kpi-edit-host{margin-top:12px}
-.bot-kpis{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}.bot-kpis[hidden]{display:none}
-.bot-kpi{display:grid;grid-template-columns:1fr auto;grid-template-areas:"n n" "v s";align-items:end;gap:3px 8px;flex:1 1 128px;min-width:0;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;text-align:left;cursor:pointer;font:inherit;color:var(--ink)}
-.bot-kpi:hover{background:var(--surface2)}
-.bot-kpi-name{grid-area:n;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bot-kpi-val{grid-area:v;font-size:16px;font-weight:600}.bot-kpi-val.kpi-off{font-size:13px;font-weight:400}.bot-kpi .kspark{grid-area:s}
 @media (max-width:760px){
   .kpi-lines,.kpi-tools,.kpi-add-host,.goal-note{margin-left:19px}
   .kpi-line{flex-wrap:wrap;gap:2px 10px;min-height:44px;padding:8px 6px}
@@ -1773,7 +1769,6 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
   .kpi-panel{margin:auto 0 0;width:100%;max-width:100%;max-height:90vh;border-radius:14px 14px 0 0}
   .kpi-panel .tmodal-body{max-height:calc(90vh - 56px)}
   .kpi-r{padding:9px 0}.kpi-by{margin-left:0}
-  .bot-kpi{flex:1 1 calc(50% - 8px);max-width:none}
 }
 /* tasks card */
 .tasks>header{align-items:center}
@@ -7144,7 +7139,6 @@ async function pageBot(slug, tab) {
   </div>
 
   <div id="pane-tasks" hidden>
-    ${limited ? '' : '<section class="bot-kpis" id="bot-kpis" aria-label="KPIs" hidden></section>'}
     ${limited ? '' : '<section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>'}
     <section class="card tasks"><header><h2>Active</h2></header>
       <div id="t-open" class="tpane">Loading…</div>
@@ -7237,7 +7231,7 @@ async function pageBot(slug, tab) {
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
     $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
-  if (!limited) { void botGoalLoad(slug); void botKpisLoad(slug); }
+  if (!limited) void botGoalLoad(slug);
   if (isKeeper(slug) && !limited) void botTickerLoad(slug);
   $('#btabs').onclick = ev => {
     const b = ev.target.closest('[data-bt]'); if (!b) return;
@@ -7286,6 +7280,8 @@ async function pageBot(slug, tab) {
   // task tabs (inside the Tasks pane)
   // Active, then Assigned to others, Done folded away, and Recurring last;
   const showTab = t => { if (t === 'done') $('#pane-tasks .bot-done').open = true; };
+  // A click opens Done without focusing it, so its ring shows only for the keyboard.
+  $('#pane-tasks .bot-done>summary')?.addEventListener('mousedown', ev => ev.preventDefault());
   $('#pane-tasks').addEventListener('click', ev => { if (ev.target.dataset.tab) { ev.preventDefault(); showTab(ev.target.dataset.tab); } });
 
   if (!limited) bindRoutineExpand($('#pane-more'));
