@@ -19,7 +19,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (research new leads, score them, draft a first touch), that you never send or change the CRM, and that a person approves every message.
+What you do (qualify inbound, research and score new leads, run the sequence, book first meetings), that every message goes out on a person's approval, and that you never change the CRM without a Confirm.
 
 ## 3. Ask, in one message
 
@@ -38,11 +38,11 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/icp.
 
 ## 5. Produce the first result now
 
-Take the first one or two leads and follow `playbooks/research-a-lead.md`, then draft as in step 5 of `playbooks/weekday-lead-research.md`. Write the pack in the shape of `knowledge/examples/lead-briefs.md` and attach it to the task, labelled "First draft, not yet reviewed". Nothing is sent.
+Take the first one or two leads and follow `playbooks/research-a-lead.md`, then prepare the touches as in step 4 of `playbooks/weekday-prospecting.md`. Write the pack in the shape of `knowledge/examples/prospecting-run.md` and attach it to the task, labelled "First draft, not yet reviewed". Nothing is sent.
 
 ## 6. Propose the routine and wait
 
-Say: "If this is useful, I will send you a pack of scored leads and first-touch drafts every weekday at 07:30, and a person sends anything. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
+Say: "If this is useful, I will run prospecting every weekday at 07:30: inbound qualified, leads scored, touches ready for your approval. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
 
     hub routine list
     hub routine update <id> --enable

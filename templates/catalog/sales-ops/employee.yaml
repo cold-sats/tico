@@ -1,5 +1,5 @@
 name: sales-ops                     # the slug: it matches the repository emp-sales-ops and the label owner:sales-ops
-display_name: "Sales Ops"
+display_name: "Sales Operations Manager"
 labels: [owner:sales-ops]
 reads: []                        # other bot repositories this one may clone read-only
 

@@ -17,6 +17,16 @@ only read; nothing was changed. First draft, not yet reviewed.
 | Verbal | 4 | $18k | -1 deal (won) |
 Won this week: 1 ($6k). Lost: 1 ($4k, reason "price").
 
+## Forecast for Q4 (categories as sellers set them)
+Commit $38k (4 deals), best case $29k (5), pipeline $117k (22). Flags: Pine & Stone ($12k) is commit with
+no signer named (rule 2 in `knowledge/forecast-rules.md`); Oak Row ($9k) closes 2026-10-09 but is still
+"pipeline". Categories are the sellers' and the Sales Manager's to change.
+
+## Unassigned leads (3)
+- Cedar Barre (web form 2026-09-27, West region): rule "West to Priya" gives Priya.
+- Willow Yoga (event list): existing customer's sister studio; account owner Dana.
+- Fern Kids Dance (referral, 2 regions): matches two territory rules. Rule gap: proposal on the task.
+
 ## Exceptions (11 deals, 7 older than 30 days)
 | Deal | Owner | Problem | Proposed fix | First seen |
 |---|---|---|---|---|

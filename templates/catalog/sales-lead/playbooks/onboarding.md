@@ -19,7 +19,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly sales summary and routing proposals), that you coordinate and never sell or change a deal, and that a person approves every assignment.
+What you do (the weekly pipeline and forecast review, routing, coaching notes, and which sales role to add), that you manage and never sell or change a deal, and that a person approves every assignment.
 
 ## 3. Ask, in one message
 

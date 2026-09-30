@@ -25,6 +25,12 @@ step. Compare with last week's summary to find what entered, moved, closed and s
 newest file in its `reports/`. Count drafts made, leads researched, proposals started, renewals
 flagged. List tasks waiting more than 5 days on a person or on a missing input.
 
+## 3b. Read the forecast
+
+From `sales-ops`' latest report: commit, best case and pipeline for the period, and the deals it flagged
+(commit without evidence, closing this period but still pipeline). Put the gap to the period's target, if
+`hub goals` shows one, in one line. Pick the deals to inspect on the forecast call: at most five.
+
 ## 4. Choose the priority deals
 
 Three to five, in this order: closest to close and needing a step; stalled past the threshold (default
@@ -35,6 +41,12 @@ Three to five, in this order: closest to close and needing a step; stalled past 
 For each new lead, account or request with no owner: pick the owner from `knowledge/routing.md` and
 propose it in one line with the reason. Do not create tasks. A proposal a person approves on the task
 becomes `hub task create --owner <slug>` (see `playbooks/route-a-request.md`).
+
+## 5b. Note coaching and hiring
+
+For each stalled priority deal, one coaching line for its owner: the question the deal cannot answer yet
+(who signs, what the buyer must see, the date). If the same kind of work went unowned again this week,
+note it under Hiring and follow `playbooks/propose-a-hire.md`.
 
 ## 6. Write and hand over
 
