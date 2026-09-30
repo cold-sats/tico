@@ -35,12 +35,12 @@
       .support-modal .tmodal-body{display:grid;gap:12px}
       .support-modal label{display:grid;gap:4px;font-size:12.5px;color:var(--muted)}
       .support-modal textarea,.support-modal input[type=email]{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
-      .support-modal textarea{min-height:140px;resize:vertical}
+      .support-modal textarea{min-height:96px;resize:vertical}
       .support-modal .support-check{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:13px}
       .support-diag{display:flex;align-items:center;gap:10px;font-size:13px}
       .support-diag label{display:flex;align-items:center;gap:8px;color:var(--ink)}
       .support-diag button{border:0;background:none;color:var(--accent);padding:0;cursor:pointer;font:inherit;text-decoration:underline}
-      .support-json{margin:0;max-height:240px;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font:11.5px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+      .support-json{margin:0;max-height:160px;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font:11.5px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
       .support-sent{margin:0;font-size:12px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
       .support-row{display:flex;gap:8px;align-items:center;justify-content:flex-end}
       .support-mine{max-width:960px;margin:20px auto 0}
