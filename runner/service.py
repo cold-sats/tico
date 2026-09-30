@@ -221,10 +221,12 @@ def self_update(root=None, running=None, run=subprocess.run):
 
 def supervised():
     """Only a supervisor that starts the runner again may let it exit to restart: launchd sets
-    XPC_SERVICE_NAME to the job's label, and TICO_SUPERVISED=1 covers any other supervisor (the
-    Docker runner, systemd, runit)."""
+    XPC_SERVICE_NAME to the job's label, the systemd user unit `scripts/tico install` writes on Linux sets
+    TICO_SYSTEMD_UNIT (and Restart=always), and TICO_SUPERVISED=1 covers any other supervisor (the Docker
+    runner, runit)."""
     env = os.environ
     return bool(env.get("XPC_SERVICE_NAME", "").startswith("team.tico")
+                or env.get("TICO_SYSTEMD_UNIT", "").startswith("tico-")
                 or env.get("TICO_SUPERVISED") == "1")
 
 
@@ -2025,7 +2027,7 @@ class Runner:
                 self.restart_forced = True
                 log("Tico runner: restart requested; restarting when no turn is running")
             else:
-                log("Tico runner: restart requested, but nothing would start this runner again; restart it by hand")
+                log("Tico runner: restart requested, but nothing would start this runner again; run `scripts/tico install` once, or restart it by hand")
         (self.state.directory / "heartbeat").touch()  # scripts/tico status reads its mtime
         # What this process sees, not an interactive shell with its own exports: scripts/tico status shows it.
         (self.state.directory / "runtimes.json").write_text(json.dumps(runtimes))

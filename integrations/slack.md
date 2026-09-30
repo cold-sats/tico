@@ -26,8 +26,8 @@ a direct API call skips all three and is a policy violation. Install and scopes:
 
 ## What data it has
 
-The channels the app has been invited to, listed in
-`registry/slack-channels.yaml`: for example a
+The channels the app has been invited to, listed under Settings > Tools > Slack channels
+(`hub slack channel list`): for example a
 marketing work log, sales, product release notes, support operations, a mention feed, an agents
 channel, and the engineering alert channels an engineering bot watches (cloud, CI, error
 tracking, deploys). DMs and
@@ -59,9 +59,10 @@ Inside a hosted turn `HUB_BOT` stands in for `--as`. Exit codes: `0` ok, `1` fai
 ## Rules
 
 - Reading needs `service: slack` with `read` in `tools:`; a `channels:` list on that entry
-  limits `history` to those channels before any call reaches Slack; `dms: false` refuses `inbox`.
-- Posting needs `post` in `can`, and the channel must be in `registry/slack-channels.yaml`
-  with `post: true`. Externally shared (Slack Connect) channels are refused: posting there is an
+  limits `history` to those channels (plus any channel whose list entry names the bot as a reader) before any call
+  reaches Slack; `dms: false` refuses `inbox`.
+- Posting needs `post` in `can`, and the channel must be on the Slack channel list
+  (Settings > Tools > Slack channels) with posting on, as it is unless an owner or admin turned it off. Externally shared (Slack Connect) channels are refused: posting there is an
   outbound send. Text over 4,000 characters is refused.
 - A DM goes only to a person in `registry/hub-access.yaml`; bots and deactivated accounts are
   refused. Several recipients make one group DM.

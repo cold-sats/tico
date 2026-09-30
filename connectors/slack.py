@@ -14,15 +14,19 @@ One Slack app serves the whole company. The token is `SLACK_BOT_TOKEN` in the ru
 
 Posting is gated in code, not in prompts:
   - the employee's bot.yaml (older: emp-<slug>/employee.yaml) must declare tools: service slack with `post` in `can`
-  - the channel must be listed in registry/slack-channels.yaml and must not say `post: false`
+  - the channel must be on the company's Slack channel list (Settings > Tools > Slack, `hub slack channel list`)
+    and that entry must allow bots to post (it does unless an owner or admin turned it off)
   - externally shared (Slack Connect) channels are refused: posting there is an outbound send
   - text over 4000 characters is refused
   - every accepted post is appended to <projects>/runtime/slack-audit.jsonl
 
-Channel reads are scoped when an employee's Slack access entry declares `channels:`. `history`
-uses `--as <slug>`, or `HUB_BOT` (older: `HUB_EMPLOYEE`) inside a hosted run, and refuses any channel outside that
-list before calling Slack. Manifests without `channels:` retain their existing broad read access;
-new narrowly-scoped monitors should always declare it.
+Channel reads are scoped when an employee's Slack access entry declares `channels:`; a channel whose list entry
+names the bot as a reader is in that scope too. `history` uses `--as <slug>`, or `HUB_BOT` (older: `HUB_EMPLOYEE`)
+inside a hosted run, and refuses any channel outside the scope before calling Slack. Manifests without
+`channels:` retain their existing broad read access; new narrowly-scoped monitors should always declare it.
+
+The channel list lives in Tico's database. In a hosted run (`HUB_API_URL` and `HUB_TOKEN`) this script reads it from
+the hub; the old registry/slack-channels.yaml is read too, until an owner or admin imports it in Settings.
 
 DM reads can likewise be disabled with `dms: false`. `inbox` uses `--as <slug>` or
 `HUB_BOT` and refuses before calling Slack when that flag is present.
@@ -93,8 +97,8 @@ ERROR_HINTS = {
     "not_authed": "No token was sent. Set SLACK_BOT_TOKEN in " + SECRETS_HINT + ".",
     "account_inactive": "The Slack app's bot user is deactivated. Reinstall the app.",
     "token_revoked": "The token was revoked. Reinstall the app and update " + SECRETS_HINT + ".",
-    "channel_not_found": "No such channel for this token. Check the id in "
-                         "registry/slack-channels.yaml. A private channel is invisible until "
+    "channel_not_found": "No such channel for this token. Check the channel in "
+                         "Settings > Tools > Slack. A private channel is invisible until "
                          "someone runs /invite @hub in it.",
     "not_in_channel": "The bot is not a member of that channel. Public: run "
                       "`connectors/slack.py join --channel <id>`. Private: ask the owner to run "
@@ -448,7 +452,8 @@ def check_history_scope(manifest, slug, refs, channels=None):
     """Refuse a history read outside an employee's declared channel scope.
 
     `channels:` is opt-in for backwards compatibility with existing employees. Once present, even
-    as an empty list, it is an allow-list. Both registered channel names and ids are accepted.
+    as an empty list, it is an allow-list. Both channel names and ids are accepted. A channel whose
+    entry on the company's list names this bot as a reader is in the scope as well.
     """
     entry = slack_access(manifest, slug)
     can = [str(c).lower() for c in (entry.get("can") or [])]
@@ -461,17 +466,23 @@ def check_history_scope(manifest, slug, refs, channels=None):
     registry = channels if channels is not None else load_channels()
     allowed = set()
     for ref in declared or []:
-        channel = find_registry_channel(registry, ref)
-        allowed.add(norm_ref(channel.get("name")))
-        if channel.get("id"):
-            allowed.add(norm_ref(channel.get("id")))
+        allowed.add(norm_ref(ref))
+        try:
+            channel = find_registry_channel(registry, ref)
+        except Refused:
+            continue                                    # declared but not listed: only the words it was declared in
+        allowed.update({norm_ref(channel.get("name")), norm_ref(channel.get("id"))} - {""})
+    for channel in registry:
+        if slug in [str(r).strip().lower() for r in (channel.get("readers") or [])]:
+            allowed.update({norm_ref(channel.get("name")), norm_ref(channel.get("id"))} - {""})
     for ref in refs:
         channel = find_registry_channel(registry, ref)
-        keys = {norm_ref(channel.get("name")), norm_ref(channel.get("id"))}
+        keys = {norm_ref(channel.get("name")), norm_ref(channel.get("id"))} - {""}
         if not (keys & allowed):
-            names = ", ".join("#" + norm_ref(r) for r in (declared or [])) or "none"
+            names = ", ".join(sorted("#" + r for r in allowed if not re.fullmatch(r"[cgd][a-z0-9]{6,}", r))) or "none"
             raise Refused(f"{slug} may not read {ref!r}.",
-                          f"Its bot.yaml Slack channels are: {names}.")
+                          f"Its Slack channels are: {names}. An owner or admin can add it as a reader "
+                          f"(Settings > Tools > Slack, or ask BotOps).")
     return entry
 
 
@@ -488,10 +499,62 @@ def check_inbox_scope(manifest, slug):
     return entry
 
 
-def load_channels(path=CHANNELS_FILE):
-    data = load_yaml(path, "registry/slack-channels.yaml")
+def _default_hub_get(path):
+    """One GET to the hub as this run, or None when the run has no hub credential or the hub cannot be reached.
+    Tests replace `HUB_GET`."""
+    url, token = os.environ.get("HUB_API_URL"), os.environ.get("HUB_TOKEN")
+    if not url or not token:
+        return None
+    try:
+        if str(HUB) not in sys.path:
+            sys.path.insert(0, str(HUB))
+        from clients.tico import Client
+        return Client(url, token, timeout=15, retries=1).get(path)
+    except Exception:
+        return None
+
+
+HUB_GET = _default_hub_get
+CHANNELS_HINT = ("The list is in Tico: Settings > Tools > Slack, or `hub slack channel list`. A bot run reads it from "
+                 "the hub with HUB_API_URL and HUB_TOKEN.")
+
+
+def file_channels(path=CHANNELS_FILE):
+    """The old registry/slack-channels.yaml as a list of entries; [] when this machine has none."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    data = load_yaml(p, "registry/slack-channels.yaml")
     chans = data.get("channels") if isinstance(data, dict) else data
-    return [c for c in (chans or []) if isinstance(c, dict)]
+    out = []
+    for c in chans or []:
+        if isinstance(c, dict):
+            readers = c.get("readers") or []
+            out.append({**c, "readers": [readers] if isinstance(readers, str) else list(readers)})
+    return out
+
+
+def load_channels(path=CHANNELS_FILE):
+    """The company's Slack channel list: the hub's (Settings > Tools > Slack), else the old registry file.
+
+    The file counts only until an owner or admin imports it, and never when the hub could not be asked and there
+    is no file: then there is no list and the refusal says where it lives."""
+    if "hub_channels" not in _CACHE:
+        _CACHE["hub_channels"] = HUB_GET("slack/channels")
+    listed = _CACHE["hub_channels"]
+    if isinstance(listed, dict) and isinstance(listed.get("channels"), list):
+        rows = [c for c in listed["channels"] if isinstance(c, dict)]
+        if (listed.get("registry_file") or {}).get("imported"):
+            return rows
+        for extra in file_channels(path):
+            if not any(norm_ref(extra.get("name")) == norm_ref(r.get("name")) and extra.get("name")
+                       or extra.get("id") and extra.get("id") == r.get("id") for r in rows):
+                rows.append(extra)
+        return rows
+    rows = file_channels(path)
+    if rows or Path(path).exists():
+        return rows
+    raise Refused("there is no Slack channel list this run can read.", CHANNELS_HINT)
 
 
 def norm_ref(ref):
@@ -503,18 +566,19 @@ def find_registry_channel(channels, ref):
     for c in channels:
         if r and (r == norm_ref(c.get("name")) or r == str(c.get("id") or "").lower()):
             return c
-    raise Refused(f"channel {ref!r} is not in registry/slack-channels.yaml.",
-                  "Bots may only post to channels listed there. Adding one is the owner's call: open "
-                  "an Issue with owner:<owner handle> and type:decision naming the channel and why.")
+    raise Refused(f"channel {ref!r} is not on the company's Slack channel list.",
+                  "Bots use only the channels listed in Settings > Tools > Slack. Adding one is an owner's or "
+                  "admin's call: ask BotOps, or an owner or admin runs "
+                  "`hub slack channel add <channel> --reader <bot>`.")
 
 
 def check_channel_postable(entry, ref):
     if entry.get("post") is False:
-        raise Refused(f"registry/slack-channels.yaml has post: false for #{entry.get('name', ref)}.",
-                      "Read-only for bots. Ask the owner to flip it if the work needs it.")
+        raise Refused(f"the Slack channel list says bots may not post in #{entry.get('name', ref)}.",
+                      "Read-only for bots. An owner or admin can turn posting on in Settings > Tools > Slack.")
     if not str(entry.get("id") or "").strip():
-        raise Refused(f"registry/slack-channels.yaml has no id for #{entry.get('name', ref)}.",
-                      "Run `connectors/slack.py channels`, then ask the owner to fill the id in.")
+        raise Refused(f"the Slack channel list has no id for #{entry.get('name', ref)} and this token cannot see it.",
+                      "Run `connectors/slack.py channels`; a private channel needs /invite @Tico first.")
     return str(entry["id"]).strip()
 
 
@@ -890,6 +954,9 @@ def cmd_post(args):
     manifest = load_manifest(slug)
     check_can_post(manifest, slug)
     entry = find_registry_channel(load_channels(), args.channel)
+    if entry.get("post") is not False and not str(entry.get("id") or "").strip():
+        cid, _name = resolve_channel(args.channel)      # listed by name: Slack gives the id
+        entry = {**entry, "id": cid}
     cid = check_channel_postable(entry, args.channel)
     text = check_text(sys.stdin.read() if args.text == "-" else args.text)
     check_not_external(call("conversations.info", {"channel": cid}), args.channel)

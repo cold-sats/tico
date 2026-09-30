@@ -486,6 +486,25 @@ After a healthy update it also restarts the side jobs installed beside it (`conn
 each side job exits and restarts when it sees the checkout move to another revision (checked about once a minute), so no job
 keeps old code in memory. `scripts/tico restart` does the same by hand.
 
+### A Linux checkout (systemd)
+
+A Linux computer can also run the native runner from a Tico checkout, the way a Mac does. `scripts/tico` drives it with
+systemd **user** units instead of launchd; no root is needed:
+
+```
+scripts/tico -e <env> enroll --code-file <file> --label "Build box"     # or scripts/setup-runner.sh
+scripts/tico -e <env> install            # tico-bot, tico-connectors, tico-close-calls, tico-importers: Restart=always
+scripts/tico -e <env> status
+```
+
+`install` writes `~/.config/systemd/user/tico-<job>.service` (`tico-<env>-<job>.service` with `-e`), enables and starts
+each, and tells you to run `loginctl enable-linger $USER` when linger is off (otherwise the runner stops at logout and
+does not start at boot). It needs a user session: over a bare ssh login that has none, set
+`XDG_RUNTIME_DIR=/run/user/$(id -u)` first. `restart`, `logs`, `doctor`, `uninstall` and `update` behave as on a Mac.
+Run `install` once: it is also what lets the runner update itself when the server does
+([updates.md](updates.md#linux-from-a-checkout-run-scriptstico-install-once)); until then Settings > Computers and Health say
+"run `scripts/tico install` once".
+
 ## Slack
 
 Add `slack` to `COMPOSE_PROFILES` to run the Slack service, then paste the app's tokens in Settings. Steps and troubleshooting: [slack.md](slack.md).

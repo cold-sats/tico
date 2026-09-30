@@ -3183,6 +3183,8 @@ def create_app(settings=None):
     # Slack tokens for the gateway container/process: sealed here, opened only there (docs/slack.md).
     from .slack_app import install_slack_app
     install_slack_app(app, settings, store)
+    from .slack_channels import install as install_slack_channels
+    install_slack_channels(app, settings, store, auth)
     from .directory import install_directory
     install_directory(app, settings, store, mutate)
     from .scim import install_scim

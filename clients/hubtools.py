@@ -1454,6 +1454,47 @@ def health_check(api, args):
     return _as_person(api).get("health/issues")     # the Assistant: the live snapshot; anyone else: what is wrong
 
 
+@tool("hub_slack_channel_list", "The Slack channels bots may read and post in: each one's name and id, which bots read it, "
+      "whether bots may post there, and its note. Also whether an old registry/slack-channels.yaml is still waiting to be imported.", {})
+def slack_channel_list(api, args):
+    return api.get("slack/channels")
+
+
+_CHANNEL = _s("The channel: #success_team, success_team or its id (C0123456789)")
+
+
+@tool("hub_slack_channel_add", "Let a bot read a Slack channel: add the channel to the company's list with the bots that read it, "
+      "or add readers to (or change) one already there, as the person who asked you (an owner or an admin; anyone else is "
+      "refused, with who to ask). A reader gets what is new in the channel about once an hour. Posting in the channel "
+      "is on unless you set post false. A channel shared outside the workspace is refused by Tico whatever this says. "
+      "Safe to repeat. Say what you did in one line.",
+      {"channel": _CHANNEL,
+       "readers": {"type": "array", "items": {"type": "string"}, "description": "Bots' slugs that read it, added to the ones it has"},
+       "post": {"type": "boolean", "description": "May bots post there? On for a new channel; leave out to keep it as is"},
+       "note": _s("What the channel is for"),
+       "digest_hours": {"type": "number", "description": "Readers get it at most once in this many hours (a noisy channel)"},
+       "name": _s("Its name, when you give the id")},
+      required=("channel",), writes=True)
+def slack_channel_add(api, args):
+    body = {k: args[k] for k in ("channel", "readers", "post", "note", "digest_hours", "name") if args.get(k) is not None}
+    return _as_person(api).post("slack/channels", body, key=_key(args))
+
+
+@tool("hub_slack_channel_remove", "Take a Slack channel off the company's list, or with `reader` only that bot off its readers, as "
+      "the person who asked you (an owner or an admin). Safe to repeat.",
+      {"channel": _CHANNEL, "reader": _s("Only this bot stops reading it; leave out to remove the channel")},
+      required=("channel",), writes=True)
+def slack_channel_remove(api, args):
+    body = {k: args[k] for k in ("channel", "reader") if args.get(k)}
+    return _as_person(api).post("slack/channels/remove", body, key=_key(args))
+
+
+@tool("hub_slack_channel_import", "Store the channels an old registry/slack-channels.yaml lists in the company's list, once, as the "
+      "person who asked you (an owner or an admin). The file is ignored afterwards.", {}, writes=True)
+def slack_channel_import(api, args):
+    return _as_person(api).post("slack/channels/import", {}, key=_key(args))
+
+
 @tool("hub_credential_request", "Open a card in the conversation for the person to type a secret into: what it is for, the format, "
       "where to get one. The value goes straight to Credentials and is granted to the bot; you never see it. You are woken when "
       "it is saved: then test the connection and report, or open the card again if it fails. Use this whenever a bot needs a "

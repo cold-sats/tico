@@ -1121,6 +1121,32 @@ def mcp_url(directory):
     return "(no url)" if seen else ""
 
 
+# Environment variables in a Hermes profile's .env that connect its gateway to a chat service.
+GATEWAY_CHANNELS = (("SLACK_BOT_TOKEN", "Slack"), ("TELEGRAM_BOT_TOKEN", "Telegram"), ("DISCORD_BOT_TOKEN", "Discord"),
+                    ("WHATSAPP_ENABLED", "WhatsApp"), ("MATTERMOST_TOKEN", "Mattermost"), ("SIGNAL_HTTP_URL", "Signal"))
+
+
+def gateway_channels(directory):
+    """The chat services the profile's gateway is set up for, read from its .env ([] when none)."""
+    return [name for key, name in GATEWAY_CHANNELS if env_value(directory, key)]
+
+
+def doctor_gateway(say, profile, directory, config):
+    """Hermes fires cron jobs, tico-sync included, only while the profile's gateway runs; and a gateway on a chat
+    service answers people there without Tico's message limits and checks."""
+    command = "hermes" + ("" if profile in ("", "default") else f" -p {profile}")
+    running = gateway_running(directory)
+    if running:
+        say("ok", "the profile's gateway is running")
+    elif config.get("sync") != "off":
+        say("warn", "the profile's gateway is not running, and Hermes runs its cron jobs, the tico-sync job included, only "
+                    f"while it is: run `{command} gateway install` ({command} gateway status shows it)")
+    channels = gateway_channels(directory)
+    if channels:
+        say("warn", f"the gateway is set up for {', '.join(channels)}; chats there bypass Tico's rules "
+                    "(message limits and checks). Remove those tokens from the profile's .env for a bot that should speak only through Tico")
+
+
 def doctor_sync(say, harness, profile, directory, config):
     """The sync job: is the skill there, is the job scheduled, when did it last run."""
     wanted = config.get("sync")
@@ -1150,9 +1176,6 @@ def doctor_sync(say, harness, profile, directory, config):
             f"sync job {JOB_NAME} ({job['schedule'] or wanted}) is " + ("scheduled" if job["enabled"] else "paused") + f"; {ran}")
         if job["status"] and job["status"].lower() in ("error", "failed", "fail"):
             say("warn", f"the last sync run ended in {job['status']}; see the job's output in {harness_name(harness)}")
-    if harness == "hermes" and not gateway_running(directory):
-        say("warn", "the profile's gateway is not running, and Hermes runs its cron jobs only while it is "
-                    "(`hermes gateway install`, then `hermes -p " + profile + " cron status`)")
     if harness == "openclaw" and openclaw_gateway(directory) == "gateway not running":
         say("warn", "the OpenClaw Gateway is not running, and its cron jobs run inside it")
     age = time.time() - float(config.get("updated_at") or time.time())
@@ -1239,6 +1262,8 @@ def cmd_doctor(args):
             say("problem", "GET /api/v2/me failed: " + message)
 
     doctor_sync(say, harness, args.profile, directory, config)
+    if harness == "hermes":
+        doctor_gateway(say, args.profile, directory, config)
 
     old = scan_old_tool_names(directory)
     if old:

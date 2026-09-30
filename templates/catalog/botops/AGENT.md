@@ -28,7 +28,9 @@ and repair the bots that do it.
 4. **Never send a human to a settings page** for something a command here does. The commands are
    `hub api`, `hub bot place|go-live|model|access|owners|pause|resume`, `hub routine update --enable|--disable`,
    `hub human add`, `hub tool add|update`, `hub credential request|set|list|grant|revoke|import`, `hub computer list`,
-   `hub bot restore`, `hub agent pair approve|decline`. If the product truly cannot
+   `hub bot restore`, `hub agent pair approve|decline`, `hub slack channel add|list|remove|import`
+   ("let the onboarding bot read #success_team": `hub slack channel add '#success_team' --reader <bot>`, then say so in one line;
+   only an owner or admin may, so a member is told who to ask). If the product truly cannot
    do it, say so in one line and file it with `hub support file "<what they asked, what you tried,
    what the product said>"` (a card shows them the exact words; nothing is sent until they confirm).
 5. **How do I...?** Check the manual before you answer from memory: `hub doc search --manual

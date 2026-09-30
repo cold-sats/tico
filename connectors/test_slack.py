@@ -201,5 +201,76 @@ class Workspace(unittest.TestCase):
                 browser.PROJECTS, slack.PROJECTS = saved
 
 
+class ChannelList(FakeSlack):
+    """The channel list is the hub's (Settings > Tools > Slack); the old registry file counts only until it is imported."""
+
+    rows = [{"id": "C0000000010", "name": "success_team", "post": True, "readers": ["reader"], "note": ""},
+            {"id": "", "name": "agents", "post": True, "readers": [], "note": ""},
+            {"id": "C0000000011", "name": "release_notes", "post": False, "readers": [], "note": ""}]
+
+    def setUp(self):
+        super().setUp()
+        self.real_get, self.asked = slack.HUB_GET, []
+        self.file = Path(self.tmp.name) / "slack-channels.yaml"
+        self.answer = {"channels": self.rows, "registry_file": {"present": False, "channels": 0, "imported": True}}
+        slack.HUB_GET = lambda path: (self.asked.append(path), self.answer)[1]
+
+    def tearDown(self):
+        slack.HUB_GET = self.real_get
+        super().tearDown()
+
+    def test_a_run_reads_the_list_from_the_hub_and_the_file_only_until_it_is_imported(self):
+        self.file.write_text("channels:\n  - {id: C0000000012, name: old_one, readers: reader}\n")
+        self.assertEqual([c["name"] for c in slack.load_channels(self.file)], ["success_team", "agents", "release_notes"])
+        self.assertEqual(self.asked, ["slack/channels"])
+        slack._CACHE.clear()
+        self.answer["registry_file"]["imported"] = False
+        self.assertEqual([c["name"] for c in slack.load_channels(self.file)],
+                         ["success_team", "agents", "release_notes", "old_one"])
+
+    def test_without_the_hub_the_file_is_used_and_with_neither_the_refusal_says_where_the_list_is(self):
+        self.answer = None
+        with self.assertRaises(slack.Refused) as refused:
+            slack.load_channels(self.file)
+        self.assertIn("Settings > Tools > Slack", refused.exception.hint)
+        slack._CACHE.clear()
+        self.file.write_text("channels:\n  - {id: C0000000012, name: old_one}\n")
+        self.assertEqual([c["name"] for c in slack.load_channels(self.file)], ["old_one"])
+
+    def test_a_reader_on_the_list_may_read_a_channel_outside_its_declared_scope(self):
+        manifest = {"tools": [{"service": "slack", "can": ["read"], "channels": ["agents"]}]}
+        rows = slack.load_channels(self.file)
+        slack.check_history_scope(manifest, "reader", ["#agents", "C0000000010"], rows)
+        with self.assertRaises(slack.Refused):                       # listed, but its reader is someone else
+            slack.check_history_scope(manifest, "other-bot", ["#success_team"], rows)
+        with self.assertRaises(slack.Refused):                       # not on the list at all
+            slack.check_history_scope(manifest, "reader", ["#general"], rows)
+        # A declared channel the list does not have no longer refuses every read.
+        stale = {"tools": [{"service": "slack", "can": ["read"], "channels": ["gone", "agents"]}]}
+        slack.check_history_scope(stale, "reader", ["#agents"], rows)
+
+    def test_a_post_follows_the_list_and_externally_shared_channels_stay_refused(self):
+        listing = (200, {}, {"ok": True, "channels": [{"id": "C0000000020", "name": "agents"}]})
+        rc, out, calls = self.run_cli(["post", "--as", self.slug, "--channel", "#agents", "--text", "hi", "--json"],
+                                      [listing, (200, {}, {"ok": True, "channel": {"id": "C0000000020", "name": "agents"}}),
+                                       OK_POST, OK_AUTH])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(calls[-2]["data"]["channel"], "C0000000020")      # listed by name: Slack gave the id
+        self.assertEqual(len(self.audited), 1)
+        self.audited.clear()
+        slack._CACHE.clear()
+        rc, out, calls = self.run_cli(["post", "--as", self.slug, "--channel", "#release_notes", "--text", "hi", "--json"])
+        self.assertEqual((rc, calls), (2, []))                        # the list says bots may not post there
+        self.assertIn("Settings > Tools > Slack", json.loads(out)["hint"])
+        rc, out, calls = self.run_cli(["post", "--as", self.slug, "--channel", "#general", "--text", "hi", "--json"])
+        self.assertEqual((rc, calls), (2, []))                        # not on the list
+        slack._CACHE.clear()
+        rc, out, calls = self.run_cli(["post", "--as", self.slug, "--channel", "C0000000010", "--text", "hi", "--json"],
+                                      [(200, {}, {"ok": True, "channel": {"name": "success_team", "is_ext_shared": True}})])
+        self.assertEqual(rc, 2)
+        self.assertEqual(len(calls), 1)                               # conversations.info, then it stopped
+        self.assertEqual(self.audited, [])
+
+
 if __name__ == "__main__":
     unittest.main()

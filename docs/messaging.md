@@ -14,7 +14,7 @@ and occurrence are part of the normal history. Event routines need their event's
 cannot run this way.
 
 Coverage is read from the live bot config and roster for Gmail, and from
-`registry/slack-channels.yaml` for Slack readers. A bot may cover many sources. Source assignments
+the Slack channel list (Settings > Tools > Slack) for Slack readers. A bot may cover many sources. Source assignments
 still follow the tool and registry configuration that grants actual access; this view does
 not create a Gmail permission or change a Slack channel reader.
 

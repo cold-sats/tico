@@ -60,6 +60,8 @@ DO = _routes(
     ("POST", r"access/(people|humans)"), ("POST", rf"access/(people|humans)/{_S}"),
     # Groups: an owner or an admin changes them (the route says so), and a delete moves what is in the group up.
     ("POST", r"groups"), ("PATCH", rf"groups/{_S}"), ("DELETE", rf"groups/{_S}"),
+    # Which Slack channels bots read and post in: an owner or an admin's call, which the route checks.
+    ("POST", r"slack/channels"), ("POST", r"slack/channels/(remove|import)"),
     ("POST", rf"credentials/{_S}/grants"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
     # Computers: a restart, a model sign-in (its code is pasted in the app, never here), inbox sharing where one owner runs
     # everything (the route says where). Limits are spending: lowering one is always direct; raising one, and the providers,

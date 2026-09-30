@@ -98,12 +98,14 @@ async function pageIntegrations() {
       ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
       ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
       ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.bot_admin ? '<section class="card" id="settings-slack-channels"><header><h2>Slack channels</h2></header><div id="set-slack-channels"><div class="empty">Loading…</div></div></section>' : ''}
       <section class="card" id="int-vault" hidden></section>
       <dialog class="bot-editor" id="int-cred-dialog" aria-label="Tool credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
     window.mountGithubConnect?.($('#set-github'));   // ui/github-connect.js
     window.mountMeetingImporters?.($('#set-meeting-importers'));   // ui/meeting-importers.js
     window.mountSlackConnect?.($('#set-slack'));     // ui/slack-connect.js
+    window.mountSlackChannels?.($('#set-slack-channels'));   // ui/slack-channels.js
     const draw = () => {
       const list = $('#int-list');
       if (!list) return;

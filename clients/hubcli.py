@@ -219,6 +219,12 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub credential import <VAR> --from-bot <bot> [--name N] [--wait S]
                                            move one variable from that bot's own secrets file into Credentials, granted to
                                            that bot: its computer sends the value itself, it is never shown
+    hub slack channel list                 the Slack channels bots may read and post in, who reads each
+    hub slack channel add <channel> [--reader BOT ...] [--post|--no-post] [--note "..."] [--digest-hours N]
+                                           list a channel (#name or id) or add readers to one already listed; an owner
+                                           or an admin (BotOps: as the requester). Posting is on unless --no-post
+    hub slack channel remove <channel> [--reader BOT]   take the channel off the list, or only that reader off it
+    hub slack channel import               store the channels of the old registry/slack-channels.yaml, once
     hub support file "<message>"           tell the Tico team about a gap or fault (a Confirm card first)
     hub grokbot sync --file f.json         sync your Grok Bots into Tico
 
@@ -1179,6 +1185,23 @@ def parser():
     s.add_argument("--kind", choices=["api_key", "token", "password", "connection"])
     s.add_argument("--wait", type=int, help="seconds to wait for the computer to answer (30; at most 60)")
     s.set_defaults(fn="credential import")
+    slack = sub.add_parser("slack", help="the Slack channels bots may read and post in").add_subparsers(dest="sub")
+    chan = slack.add_parser("channel", help="list, add or remove a channel").add_subparsers(dest="subsub")
+    chan.add_parser("list", help="the listed channels, their readers, and whether bots may post").set_defaults(fn="slack channel list")
+    s = chan.add_parser("add", help="list a channel, or add readers to one already listed (an owner or an admin)")
+    s.add_argument("channel", help="#name or id (C0123456789)")
+    s.add_argument("--reader", dest="readers", action="append", metavar="BOT", help="a bot that reads it; repeat for several")
+    s.add_argument("--post", dest="post", action="store_true", default=None, help="bots may post there (the default for a new channel)")
+    s.add_argument("--no-post", dest="post", action="store_false", help="bots may only read it")
+    s.add_argument("--note", help="what the channel is for")
+    s.add_argument("--digest-hours", dest="digest_hours", type=float, help="readers get it at most once in this many hours")
+    s.add_argument("--name", help="its name, when you give the id")
+    s.set_defaults(fn="slack channel add")
+    s = chan.add_parser("remove", help="take a channel off the list, or one reader off it")
+    s.add_argument("channel")
+    s.add_argument("--reader", help="only this bot stops reading it")
+    s.set_defaults(fn="slack channel remove")
+    chan.add_parser("import", help="store the channels of the old registry/slack-channels.yaml").set_defaults(fn="slack channel import")
     support = sub.add_parser("support", help="tell the Tico team about a gap or a fault").add_subparsers(dest="sub")
     s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
     s.add_argument("message")
