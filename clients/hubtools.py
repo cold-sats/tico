@@ -1022,13 +1022,15 @@ def task_close(api, args):
                                             "close": True}, key=_key(args))
 
 
-@tool("hub_conversation_show", "What was said in a conversation, oldest first, 200 a page: the way a bot reads "
-      "back past what its own session holds. The turn prompt names the conversation.",
-      {"conversation": _s("Conversation id"), "before": _s("The page before this message id"),
-       "since": _s("Only messages after this message id")}, required=("conversation",))
+@tool("hub_conversation_show", "What was said in a conversation: the newest 200 messages, oldest first. The "
+      "way a bot reads back past what its own session holds; the run's prompt names the conversation. "
+      "`has_more` means there is an older page: pass its `next_before` as `before`.",
+      {"conversation": _s("Conversation id"), "before": _s("The page before this message id: a page's next_before"),
+       "since": _s("Only messages sent after this time (ISO 8601)")}, required=("conversation",))
 def history(api, args):
     page = api.get(f"conversations/{args['conversation']}/messages", before=args.get("before"), since=args.get("since"))
-    return {"conversation": page.get("conversation"), "messages": page.get("messages", [])}
+    return {"conversation": page.get("conversation"), "messages": page.get("messages", []),
+            "has_more": bool(page.get("has_more")), "next_before": page.get("next_before")}
 
 
 # ----------------------------------------------------------------------------- routines

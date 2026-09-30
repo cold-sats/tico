@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Every run tells a bot where its whole conversation is.** The prompt's `Conversation:` line now says, on every run and
+  not only a new session's first, that Tico keeps the whole conversation even after a compaction, a model change or a new
+  session, and that `hub conversation show <id>` reads the newest 200 messages with `--before <next_before>` for each older
+  page.
+
+### Fixed
+- `hub conversation show` and MCP `hub_conversation_show` pass on the API's `has_more` and `next_before`, so a bot can tell
+  there is an older page and read it. The `--since` help says it is a time, which is what the API compares.
+
 ## [0.2.25] - 2026-09-30
 
 ### Added

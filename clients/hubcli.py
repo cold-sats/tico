@@ -12,9 +12,10 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub message list                       what waits for you
     hub message mark-read <message-id>     an external agent's own delivery
     hub message redact <message-id> [--label L]   take a secret (read from stdin) out of a message
-    hub conversation show <conversation-id> [--before MSG] [--since MSG]
-                                           what was said in a conversation, oldest first, 200 a page;
-                                           the run's prompt names the conversation
+    hub conversation show <conversation-id> [--before MSG] [--since TIME]
+                                           what was said in a conversation: the newest 200, oldest
+                                           first; has_more says there is an older page, --before
+                                           its next_before reads it. The run's prompt names it
     hub question ask <bot> [<bot>...] "<question>" --wait 60
     hub question answer <message-id> "<text>" [--unknown "needs X"]
     hub note create <bot> "<text>" [--text-file f]  a quiet note: wakes nobody; the bot's next run reads it
@@ -407,8 +408,8 @@ def parser():
 
     s = sub.add_parser("conversation", help="what was said in a conversation").add_subparsers(dest="sub").add_parser("show")
     s.add_argument("conversation")
-    s.add_argument("--before", help="the page before this message id")
-    s.add_argument("--since", help="only messages after this message id")
+    s.add_argument("--before", help="the page before this message id: a page's next_before")
+    s.add_argument("--since", help="only messages sent after this time (ISO 8601)")
     s.set_defaults(fn="conversation show")
 
     question = sub.add_parser("question", help="ask other bots a question and wait; answer one asked of you").add_subparsers(dest="sub")
