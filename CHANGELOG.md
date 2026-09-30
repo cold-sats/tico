@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-09-30
+
 One large release: new words across the product, cleaner API names, faster defaults, nested groups and a batch of fixes.
 Existing installs update in-app as usual; read **Breaking changes** first if you call the API, MCP tools or `hub` commands
 from your own scripts or agents.
@@ -62,6 +64,10 @@ from your own scripts or agents.
     outside humans, sign-in rules, updating Tico and deleting bots or repositories still need a Confirm card.
 
 ### Added
+- **Nested groups.** A group is part of the team and may hold groups; its members are humans and bots. The team chart shows
+  groups as nested sections that owners and admins add, rename, drag teammates into and nest. `GET/POST /api/v2/groups`,
+  `PATCH/DELETE /api/v2/groups/{id}`, `hub group list|update`, `hub_group_list`, `hub_group_update`. Existing teams, org groups and
+  departments become groups on first start, and the team builder puts each bot in its template's group.
 - `install.sh --runner --name <name>` adds another computer on the same host (a message bot needs its own): its own
   directory, compose project, container, home volume and updater. The updater's helper container is named per project so two
   updaters on one host do not remove each other's.
@@ -79,6 +85,10 @@ from your own scripts or agents.
 - Settings and Tools forms keep what you type while the page refreshes (GitHub, Slack, meeting importers, Add computer, API tokens,
   Humans, Routines).
 - A message typed into a bot's chat while it is still loading is sent, not lost.
+- A bot placed on or moved to a computer gets its repository cloned there. When it cannot be, the bot's readiness says why (not on
+  GitHub, token refused) and `hub health check` lists it; a move that would strand an unpublished repository is refused, and the
+  old computer no longer shows a moved bot as ready.
+- A new Docker computer lets its message bot build the mail tools on first use (`workspace/runtime/mail` is the bot's).
 - The runner's repo-escape check matches only real bot repositories, so ordinary text such as `bot-xyz/` is not refused.
 
 ## [0.2.20] - 2026-09-30
