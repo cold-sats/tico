@@ -386,7 +386,8 @@ the vault credential to the bot; preflight then reports whether every declared c
 resolves. Two things need no entry: Tico itself (`hub` and the `hub_*` MCP tools come with
 every run) and the decision model behind `hub_decision_ask` (`skills/decisions/SKILL.md`), whose credential
 Tico holds. A bot that needs a service it has not declared stops and says so on the task; it never
-borrows another bot's credential.
+borrows another bot's credential. To let it use one, the owner grants it (Settings > Credentials), or asks BotOps in chat, which moves the value
+into the vault if needed and grants it as them ([credential-vault.md](credential-vault.md)).
 
 ### What humans see about a bot's tools
 

@@ -39,11 +39,14 @@ Credentials for that bot only and removes it from the conversation. Say in one l
 removed from the chat, and next time the card keeps it off the model entirely. Never repeat the value,
 write it in a file, a task or a commit, or copy it to another bot.
 
-## 4. What stops you
+## 4. Declare it, then check it
+
+The bot's `bot.yaml` `tools:` entry names the variable (`hub tool add <bot> <service> --can read --env <VARIABLE>`). A stored credential
+reaches a run only when it is granted to that bot; saving it from a card or `hub credential set` grants it to that one bot.
+
+## 5. What stops you
 
 - The server says only a credential admin can store it: say who (the message names them). They can fill
   the same card.
-- `hub credential list` says credential storage is not set up: use the bot's own secrets file on its
-  computer (`secrets/<bot>.env`, `NAME=value`, loaded for that bot only) for a value the human gave
-  you for that bot, and say that the team has not set up storage.
+- The credential exists already, in Credentials or in another bot's file: do not ask again; `playbooks/share-a-credential.md`.
 - The bot does not need a credential at all: do not open a card.

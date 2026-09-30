@@ -120,6 +120,9 @@ is the same humans who always have full access to it. A bot owner can:
 
 A member cannot change a bot that is not theirs, through Settings, the API or BotOps.
 
+A bot only ever uses its own credentials and the ones explicitly granted to it: never another bot's, even on the same computer. Only a
+credential administrator (above) grants one to a bot, or has BotOps do it in chat as them ([credential-vault.md](credential-vault.md)).
+
 ## Computers for members' bots
 
 Every bot on a computer shares that computer's trust: the same OS user, workspace, model credentials and `secrets/_shared.env`. A bot
@@ -172,6 +175,8 @@ The commands (with MCP tools of the same names):
 | `hub routine on\|off <key> --bot <bot>` | a routine on or off |
 | `hub computer list`, `hub health check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
 | `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
+| `hub credential grant <name> --to <bot>`, `hub credential revoke <name> --from <bot>` | give a bot a stored credential, or take it away; at once for a credential administrator, a plain refusal (with who to ask) for anyone else |
+| `hub credential import <VAR> --from-bot <bot>` | move one variable from that bot's own secrets file into Credentials, granted to that bot; the computer sends the value itself and nobody sees it |
 | `hub support file "<message>"` | tells the Tico team about a gap or a fault: a Confirm card shows the exact message, and nothing is sent until they confirm |
 | `hub api <METHOD> <path> ['{json}']` | any other v2 route, as the requester |
 
@@ -194,7 +199,7 @@ BotOps, the owner and the admins cannot confirm for them.
 - adding a human from outside the team's domain (owners and admins only); a coworker in the domain is added at once;
 - making someone an Admin, granting `add_people`, changing roles, or changing a human's email (it decides who is an Admin) or group
   (it is an access audience);
-- giving a bot a stored credential (a tool registration that uses a shared credential or another bot's);
+- giving a person, or every computer, a stored credential (a grant to a bot runs at once for a credential administrator, and is refused for anyone else);
 - placing a member's bot on a computer that is neither its owner's nor open to members' bots (admins only);
 - deleting (archiving) a bot, removing a computer, and changing whether a computer takes members' bots;
 - who may sign in, and what members may do (the bot limit);
