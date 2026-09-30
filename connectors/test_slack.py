@@ -160,5 +160,24 @@ class DmGates(FakeSlack):
         self.assertIn("hub-access.yaml", body["hint"])
         self.assertEqual(self.audited, [])
 
+class Workspace(unittest.TestCase):
+    """A bot's bot.yaml is found under TICO_PROJECTS_DIR when the runner sets it, else beside the checkout."""
+
+    def projects(self, value):
+        import subprocess
+        env = {k: v for k, v in os.environ.items() if k != "TICO_PROJECTS_DIR"}
+        if value:
+            env["TICO_PROJECTS_DIR"] = value
+        code = "import browser, slack; print(browser.PROJECTS); print(slack.PROJECTS)"
+        out = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent, env=env,
+                             capture_output=True, text=True, check=True)
+        return out.stdout.split()
+
+    def test_the_workspace_follows_tico_projects_dir_and_defaults_to_the_folder_around_the_checkout(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            self.assertEqual(self.projects(workspace), [workspace] * 2)
+        self.assertEqual(self.projects(None), [str(Path(__file__).resolve().parents[2])] * 2)
+
+
 if __name__ == "__main__":
     unittest.main()

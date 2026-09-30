@@ -54,7 +54,9 @@ except ImportError:                                     # pragma: no cover
     yaml = None
 
 HUB = Path(__file__).resolve().parent.parent            # .../tico
-PROJECTS = HUB.parent                                   # .../tico-work
+# The workspace with the bot repositories. A source checkout sits beside them; an installed release or
+# a Linux runner does not, and the runner names the workspace in TICO_PROJECTS_DIR, as mail/ reads it.
+PROJECTS = Path(os.environ.get("TICO_PROJECTS_DIR") or HUB.parent).expanduser()   # .../tico-work
 REGISTRY = Path(os.environ.get("TICO_REGISTRY_DIR") or HUB / "registry")
 CHANNELS_FILE = REGISTRY / "slack-channels.yaml"
 HUB_ACCESS_FILE = REGISTRY / "hub-access.yaml"
