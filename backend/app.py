@@ -30,7 +30,7 @@ from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
 from .execution import Execution, bot_repository
 from .onboarding import BOTOPS, Onboarding
-from .recruit import Recruiter, template_departments as recruit_departments
+from .recruit import Recruiter
 from . import rooms
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
@@ -1262,8 +1262,8 @@ def create_app(settings=None):
     def org(request: Request, person: str | None = None, team: str | None = None, can: str | None = None):
         """The mixed people-and-bots org chart. Bots use this (and `hub team show` / `hub_team_show`) to
         find who handles a kind of work and how to reach them. Only the bots the caller may see,
-        each with `access`, its `reports_to`, its `department` (its team, else its template's department,
-        else its manager's) and its `template`; `?can=read` or `?can=write` keeps those they hold that level on."""
+        each with `access`, its `reports_to`, its `team` (its group's id), its `department` (its group's name)
+        and its `template`; the groups come with their `parent`; `?can=read` or `?can=write` keeps those they hold that level on."""
         who = request.state.identity
         auth.domain(who)
         if can not in (None, "", "read", "write"):
@@ -1276,7 +1276,7 @@ def create_app(settings=None):
             live = {row["slug"]: row for row in H.bots(c)}
             bots = []
             by_id = {row["id"]: row for row in view["bots"]}
-            departments = P.bot_departments(configs, roster, recruit_departments(settings), archived)
+            departments = P.bot_departments(configs, roster, archived)
             for row in view["bots"]:
                 level = access.get(row["id"], auth.FULL)
                 if not level["see"] or (can and not level[can]):
@@ -3118,6 +3118,8 @@ def create_app(settings=None):
     install_usage(app, store, auth, mutate, settings)
     from .bot_tools import install as install_bot_tools
     install_bot_tools(app, store, auth, mutate, settings_admin)
+    from .groups import install as install_groups
+    install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support
     install_support(app, store, settings, census)
     from .watchers import install as install_watchers

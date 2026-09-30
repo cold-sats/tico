@@ -19,3 +19,44 @@ def test_health_check_reads_the_one_health_route():
     api = _Api()
     assert hubtools.BY_NAME["hub_health_check"]["fn"](api, {}) == {"issues": []}
     assert "health/issues" in api.calls
+
+
+class _Groups:
+    """The group tools: a person's own token writes to the routes itself; a bot (BotOps) is the requester."""
+    def __init__(self, actor="human:ana"):
+        self.actor, self.calls = actor, []
+
+    def get(self, path, **query):
+        self.calls.append(("GET", path, None))
+        return {"actor": self.actor} if path == "me" else [{"id": "seo"}]
+
+    def post(self, path, body=None, key=None):
+        self.calls.append(("POST", path, body))
+        return {"id": "seo"}
+
+    def patch(self, path, body=None, key=None):
+        self.calls.append(("PATCH", path, body))
+        return {"id": "seo"}
+
+    def call(self, method, path, body=None, key=None, query=None, delegate=False):
+        self.calls.append((method, path, body, delegate))
+        return {"id": "seo"}
+
+
+def test_group_tools_list_create_and_update_and_botops_acts_as_the_requester():
+    fn = hubtools.BY_NAME
+    api = _Groups()
+    assert fn["hub_group_list"]["fn"](api, {}) == [{"id": "seo"}]
+    fn["hub_group_update"]["fn"](api, {"name": "SEO", "parent": "marketing", "add_bots": ["seo"]})
+    fn["hub_group_update"]["fn"](api, {"group": "seo", "parent": "", "remove_humans": ["cara"]})
+    assert [call for call in api.calls if call[1] != "me"][1:] == [
+        ("POST", "groups", {"name": "SEO", "add": {"people": [], "bots": ["seo"]}, "parent": "marketing"}),
+        ("PATCH", "groups/seo", {"add": {"people": [], "bots": []}, "remove": {"people": ["cara"], "bots": []}, "parent": ""})]
+    botops = _Groups("bot:botops")
+    fn["hub_group_update"]["fn"](botops, {"group": "seo", "name": "Search"})
+    assert botops.calls[-1][:2] == ("PATCH", "groups/seo") and botops.calls[-1][3] is True
+    try:
+        fn["hub_group_update"]["fn"](api, {})
+    except ValueError as exc:
+        assert "Name the new group" in str(exc)
+    assert "hub_group_update" in hubtools.AUDIENCE and "assistant" not in hubtools.offered_to(fn["hub_group_update"])

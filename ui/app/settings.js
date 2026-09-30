@@ -6,7 +6,7 @@
 // People stay deliberately compact. Bot ownership, model, and physical placement are separate
 // controls because changing who can use a bot must never silently move its runtime (or vice versa).
 // Teams come from the team's data; a name reads as its words (`customer-success` is Customer Success).
-const teamLabel = t => String(t || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+const teamLabel = t => (S.orgGroups || []).find(g => g.id === t)?.name || String(t || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 let SETTINGS_DATA = {people: [], machines: [], services: [], models: [], issues: [], history: {changes: [], transitions: []}};
 const SETTINGS_TAB_KEY = 'tico.settings.tab';
 // Remembered per browser tab so a reload lands where the owner was, not back on Computers.

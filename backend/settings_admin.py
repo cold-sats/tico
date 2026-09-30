@@ -108,7 +108,7 @@ class SettingsAdmin:
         entries = self._entries(c)
         if proposed is not None:
             entries[bot] = proposed
-        return P.team_of(bot, entries, self._roster(c).get("teams", {}))
+        return P.team_of(bot, entries, self._roster(c))
 
     @staticmethod
     def _people(c, ids):
@@ -375,9 +375,9 @@ class SettingsAdmin:
             (encode(declared), values["description"], values.get("reports_to"), values["repo"],
              values["thread_mode"], H.now(), who.actor, bot))
         entries = self._entries(c)
-        teams = self._roster(c).get("teams", {})
+        roster = self._roster(c)
         for slug in entries:
-            c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, teams), slug))
+            c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, roster), slug))
         if values["status"] == "active" and before.get("status") != "active":
             placement.auto_place(c, self.execution, bot, who.actor)     # never active and silent
         after = self.definition(c, bot)
@@ -710,7 +710,7 @@ class SettingsAdmin:
         raise Problem("not_reversible", "This settings change cannot be undone", 409)
 
     def team_names(self, c):
-        """{team id: name}: the teams and org-chart departments a person can be on."""
+        """{group id: name}: the groups a person or bot can be in, and so the ones an access list can name."""
         roster = self._roster(c)
         names = {tid: tid.replace("-", " ").title() for tid in roster.get("teams") or {}}
         for gid, group in (roster.get("org_groups") or {}).items():
@@ -854,9 +854,9 @@ def archive_bot(c, actor, bot, successor=""):
     H._recount(c, heir)
 
     entries = {row["bot"]: SettingsAdmin._entry(row) for row in c.execute("SELECT * FROM bot_config")}
-    teams = P.load(roster or {"people": H.humans(c)}).get("teams", {})
+    loaded = P.load(roster or {"people": H.humans(c)})
     for slug in entries:
-        c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, teams), slug))
+        c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, loaded), slug))
     H.event(c, actor, "bot.archived", bot, {"successor": successor or None, "heir": heir})
     return {"bot": bot, "status": "archived", "successor": successor or None}
 

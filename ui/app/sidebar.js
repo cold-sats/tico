@@ -26,29 +26,55 @@ renderNavSections();
 // #/bot/<slug> opens, and the Librarian stays one click away from the Docs nav row (renderLibrarians).
 const isHiddenBot = slug => slug === assistantBot() || slug === 'librarian';
 const shownEmps = () => (S.emps || []).filter(e => !isHiddenBot(e.name));
+// Groups first: a human or a bot hangs in the group its `team` names (backend/groups.py); groups nest by `parent`. Inside
+// a group a teammate hangs under whoever it reports to when that one is in the same group, else at the top of the group.
+// Outside groups it hangs under whoever it reports to, when that one is outside groups too. `reports_to` itself is not
+// touched by any of this.
+const orgGroupIds = () => new Set((S.orgGroups || []).map(g => g.id));
+const orgCanGroups = () => S.me?.role === 'owner' || !!S.me?.bot_admin;
+// Who a human or bot reports to, as a key (`p:<id>` or `b:<slug>`); '' when nobody is on the chart above it.
+function orgBossKey(n) {
+  const parent = (n.kind === 'person' ? n.person?.org_parent : n.org_parent) || '';
+  if (!parent.startsWith('g:')) return parent;
+  const boss = (S.orgGroups || []).find(g => g.id === parent.slice(2))?.reports_to;    // a group from before groups hung under a person
+  return boss ? 'p:' + boss : '';
+}
+function orgHang(key, boss, groupOf) {
+  const group = groupOf[key] || '';
+  if (group) return boss && groupOf[boss] === group ? boss : 'g:' + group;
+  return boss && !groupOf[boss] ? boss : '';
+}
+function orgGroupOf(people, bots) {
+  const groups = orgGroupIds(), out = {};
+  for (const p of people) if (groups.has(p.team)) out['p:' + p.id] = p.team;
+  for (const e of bots) if (groups.has(e.team) && !isHelperBot(e)) out['b:' + e.name] = e.team;
+  return out;
+}
 function orgTreeByParent() {
-  const byParent = {};
+  const byParent = {}, groups = orgGroupIds();
   const inboxBots = new Set((S.people || []).map(p => p.inbox_bot).filter(Boolean));
-  for (const g of (S.orgGroups || [])) {
-    (byParent[g.org_parent || ''] ||= []).push({kind: 'group', id: g.id, name: g.name, order: g.order || 0});
-  }
-  for (const p of (S.people || []).filter(p => !p.hidden)) {
-    (byParent[p.org_parent || ''] ||= []).push({kind: 'person', id: p.id, person: p});
-  }
+  const people = (S.people || []).filter(p => !p.hidden);
   // "Only bots I can read or write": a bot the caller may merely see leaves the chart, and the
   // bots under it hang from the next thing that is left.
   // The built-in helpers are listed here too (the Helpers group), the same bots the Goals page lists as helpers; a
   // bot that reports to one hangs where the helper would have (orgTreeWithHelpers).
   const kept = (S.emps || []).filter(orgMineKeep);
   const empIds = new Set(kept.filter(e => !inboxBots.has(e.name)).map(e => e.name));
-  for (const e of kept) {
-    if (inboxBots.has(e.name)) continue;
-    let parent = e.org_parent || '';
-    if (parent.startsWith('b:') && !empIds.has(parent.slice(2))) {
+  const bots = kept.filter(e => !inboxBots.has(e.name));
+  const groupOf = orgGroupOf(people, bots);
+  for (const g of (S.orgGroups || [])) {
+    (byParent[g.parent && groups.has(g.parent) ? 'g:' + g.parent : ''] ||= []).push({kind: 'group', id: g.id, name: g.name, order: g.order || 0});
+  }
+  for (const p of people) {
+    (byParent[orgHang('p:' + p.id, orgBossKey({kind: 'person', person: p}), groupOf)] ||= []).push({kind: 'person', id: p.id, person: p});
+  }
+  for (const e of bots) {
+    let boss = orgBossKey({kind: 'bot', ...e});
+    if (boss.startsWith('b:') && !empIds.has(boss.slice(2))) {
       const owner = e.operator || e.users?.[0]?.id;
-      parent = owner ? 'p:' + owner : '';
+      boss = owner ? 'p:' + owner : '';
     }
-    (byParent[parent] ||= []).push({kind: 'bot', ...e});
+    (byParent[orgHang('b:' + e.name, boss, groupOf)] ||= []).push({kind: 'bot', ...e});
   }
   return byParent;
 }
@@ -178,49 +204,96 @@ function orgMine() {
   const mine = new Set();
   if (S.me?.role === 'owner') return null;                       // everything
   const me = mePerson()?.id || S.me?.id; if (!me) return mine;
-  const byParent = orgTreeByParent();
-  const walk = key => { for (const c of byParent[key] || []) { const k = c.kind === 'person' ? 'p:' + c.id : c.kind === 'bot' ? 'b:' + c.name : 'g:' + c.id; mine.add(k); walk(k); } };
+  const under = {};                                              // who reports to each one, whatever group they are in
+  const add = (key, n) => { const boss = orgBossKey(n); if (boss) (under[boss] ||= []).push(key); };
+  for (const p of S.people || []) add('p:' + p.id, {kind: 'person', person: p});
+  for (const e of S.emps || []) add('b:' + e.name, {kind: 'bot', ...e});
+  const walk = key => { for (const k of under[key] || []) if (!mine.has(k)) { mine.add(k); walk(k); } };
   mine.add('p:' + me); walk('p:' + me);
   return mine;
 }
 function orgMayMove(key) { const mine = orgMine(); return mine === null || mine.has(key); }
-function orgDragWire(tree, byParent) {
-  if (!tree) return;
+// Owners and admins also drag a human or a bot into a group (onto its row, or onto "No group" to take it out), and a
+// group into another group to nest it (backend/groups.py holds the rule).
+const orgMayDrag = key => key.startsWith('g:') ? orgCanGroups() : orgMayMove(key) || orgCanGroups();
+async function orgDrop(from, to) {
+  const isGroup = to.startsWith('g:');
+  if (from.startsWith('g:')) {
+    if (!isGroup) return;
+    await patch(`/v2/groups/${encodeURIComponent(from.slice(2))}`, {parent: to.slice(2)});
+  } else if (isGroup) {
+    const kind = from.startsWith('p:') ? 'people' : 'bots', id = from.slice(2), group = to.slice(2);
+    const at = kind === 'people' ? (S.people || []).find(p => p.id === id)?.team : (S.emps || []).find(e => e.name === id)?.team;
+    if (group) await patch(`/v2/groups/${encodeURIComponent(group)}`, {add: {[kind]: [id]}});
+    else if (at) await patch(`/v2/groups/${encodeURIComponent(at)}`, {remove: {[kind]: [id]}});
+    else return;
+  } else if (from.startsWith('p:')) {
+    if (!to.startsWith('p:')) return;
+    await post(`/v2/humans/${encodeURIComponent(from.slice(2))}`, {reports_to: to.slice(2)});
+  } else {
+    const slug = from.slice(2), e = S.emps.find(x => x.name === slug);
+    if (!e) return;
+    const reports_to = to.startsWith('p:') ? 'human:' + to.slice(2) : to.slice(2);
+    await post(`/v2/bots/${encodeURIComponent(slug)}/definition`, {reports_to, expected_revision: e.revision});
+  }
+  await refresh(true);
+  renderTree();
+}
+function orgDragWire(tree) {
+  if (!tree || tree.dataset.orgDrag) return;              // the tree is redrawn often; its listeners are added once
+  tree.dataset.orgDrag = '1';
   let dragging = null;
+  const clear = () => tree.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target'));
   tree.addEventListener('dragstart', ev => {
     const node = ev.target.closest('[data-org][draggable="true"]'); if (!node) return;
     dragging = node.dataset.org; ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', dragging);
-    node.classList.add('dragging');
+    node.classList.add('dragging'); tree.classList.add('org-dragging');
   });
-  tree.addEventListener('dragend', ev => { ev.target.closest?.('[data-org]')?.classList.remove('dragging'); tree.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target')); dragging = null; });
+  tree.addEventListener('dragend', ev => { ev.target.closest?.('[data-org]')?.classList.remove('dragging'); tree.classList.remove('org-dragging'); clear(); dragging = null; });
   tree.addEventListener('dragover', ev => {
     const target = ev.target.closest('[data-org]'); if (!target || !dragging || target.dataset.org === dragging) return;
-    if (dragging.startsWith('p:') && !target.dataset.org.startsWith('p:')) return;   // a person reports to a person
-    if (target.hasAttribute('data-helper')) return;                                     // helpers are not on the chart
+    const to = target.dataset.org;
+    if (target.hasAttribute('data-helper') || to === 'g:' + HELPERS_GROUP) return;       // helpers are not on the chart
+    if (to.startsWith('g:') ? !orgCanGroups() : dragging.startsWith('g:') || !orgMayMove(dragging)) return;
+    if (dragging.startsWith('p:') && !to.startsWith('p:') && !to.startsWith('g:')) return;   // a person reports to a person
     ev.preventDefault(); ev.dataTransfer.dropEffect = 'move';
-    tree.querySelectorAll('.drop-target').forEach(n => n.classList.remove('drop-target')); target.classList.add('drop-target');
+    clear(); target.classList.add('drop-target');
   });
   tree.addEventListener('dragleave', ev => { ev.target.closest?.('[data-org]')?.classList.remove('drop-target'); });
   tree.addEventListener('drop', async ev => {
     const target = ev.target.closest('[data-org]'); if (!target || !dragging || target.hasAttribute('data-helper')) return;
     ev.preventDefault();
     const from = dragging, to = target.dataset.org; dragging = null;
-    target.classList.remove('drop-target');
+    clear(); tree.classList.remove('org-dragging');
     if (from === to) return;
-    try {
-      if (from.startsWith('p:')) {
-        if (!to.startsWith('p:')) return;
-        await post(`/v2/humans/${encodeURIComponent(from.slice(2))}`, {reports_to: to.slice(2)});
-      } else {
-        const slug = from.slice(2), e = S.emps.find(x => x.name === slug);
-        if (!e) return;
-        const reports_to = to.startsWith('p:') ? 'human:' + to.slice(2) : to.slice(2);
-        await post(`/v2/bots/${encodeURIComponent(slug)}/definition`, {reports_to, expected_revision: e.revision});
-      }
-      await refresh(true);
-      renderTree();
-    } catch (e) { toast(e.message, true); }
+    try { await orgDrop(from, to); } catch (e) { toast(e.message, true); }
   });
+}
+// Adding and renaming a group happen in the tree: a one-line field where the group goes or is. Enter saves, Escape or
+// leaving the field cancels.
+let ORG_EDIT = null;                       // {add: parent group id or ''} or {rename: group id}
+function orgGroupEdit(edit) { ORG_EDIT = edit; if (edit.add) { collapsed.delete('g:' + edit.add); saveCollapsed(); } renderTree(); }
+async function orgGroupSave(input) {
+  const edit = ORG_EDIT, name = input.value.trim(); ORG_EDIT = null;
+  if (!edit || !name) return renderTree();
+  try {
+    if (edit.rename) await patch(`/v2/groups/${encodeURIComponent(edit.rename)}`, {name});
+    else await post('/v2/groups', {name, ...(edit.add ? {parent: edit.add} : {})});
+    await refresh(true);
+  } catch (e) { toast(e.message, true); }
+  renderTree();
+}
+function orgGroupFieldHTML(value = '') {
+  return `<input class="org-name" type="text" maxlength="60" value="${esc(value)}" aria-label="Group name" autocomplete="off" spellcheck="false">`;
+}
+function orgGroupFieldWire() {
+  const input = $('#tree .org-name'); if (!input) return;
+  input.focus(); input.select();
+  input.onkeydown = ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.onblur = null; void orgGroupSave(input); }
+    else if (ev.key === 'Escape') { input.onblur = null; ORG_EDIT = null; renderTree(); }
+  };
+  input.onblur = () => { ORG_EDIT = null; renderTree(); };
 }
 // The org list has no hover card on bots. What a bot's row says is its badge:
 // a subtle ring spins around it while the bot works, and it looks like a quiet alert when the bot
@@ -299,6 +372,7 @@ $('#org-mine').onclick = () => {
   orgMineSave();
   renderTree();
 };
+$('#org-add-group').onclick = () => orgGroupEdit({add: ''});
 $('#org-history').onclick = () => {
   try { localStorage.setItem(ORG_HISTORY_ON_KEY, orgHistoryOn() ? '0' : '1'); } catch {}
   if (orgHistoryOn() && navCollapsed.delete('organisation')) {
@@ -347,11 +421,8 @@ function renderTree() {
   const rec = (parent, depth) => (byParent[parent] || []).slice()
     .sort((a, b) => {
       if (!!a.helpers !== !!b.helpers) return a.helpers ? 1 : -1;        // the Helpers group comes last
-      if ((a.kind === 'group') !== (b.kind === 'group')) {
-        // At the team root, department labels lead. Under a person, their bots and
-        // people come first and the next department (Engineering under Product) follows.
-        return a.kind === 'group' ? (parent ? 1 : -1) : (parent ? -1 : 1);
-      }
+      // A group's own humans and bots come first, then the groups nested in it.
+      if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
       if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
       if ((a.kind === 'person') !== (b.kind === 'person')) return a.kind === 'person' ? -1 : 1;
       if (isTemp(a) !== isTemp(b)) return isTemp(a) - isTemp(b);
@@ -363,19 +434,22 @@ function renderTree() {
   // flat: the history list, one row per bot and person, no children and nothing to drag
   const row = (node, depth, flat = false) => {
     if (node.kind === 'group') {
-      const key = 'g:' + node.id, kids = byParent[key], isCol = kids && collapsed.has(key);
-      if (!kids) return '';
-      return `<li class="dept org-group"><div class="noderow">
+      const key = 'g:' + node.id, manage = !node.helpers && orgCanGroups() && !flat, adding = manage && ORG_EDIT?.add === node.id;
+      const kids = byParent[key], isCol = kids && collapsed.has(key) && !adding;
+      if (!kids && !manage) return '';
+      const renaming = manage && ORG_EDIT?.rename === node.id;
+      return `<li class="dept org-group"><div class="noderow" data-org="${esc(key)}"${manage && !renaming ? ' draggable="true"' : ''}${node.helpers ? ' data-helper' : ''}>
         <button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(node.name)}">›</button>
-        <span class="dept-label" data-toggle="${esc(key)}" role="button" tabindex="0">${esc(node.name)}</span>
-        ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}</div>
-        <ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul></li>`;
+        ${renaming ? orgGroupFieldHTML(node.name) : `<span class="dept-label" data-toggle="${esc(key)}" role="button" tabindex="0">${esc(node.name)}</span>`}
+        ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
+        ${manage && !renaming ? `<span class="org-group-tools"><button type="button" class="org-tool" data-group-add="${esc(node.id)}" title="Add group" aria-label="Add a group in ${esc(node.name)}"><span class="org-plus" aria-hidden="true">+</span></button><button type="button" class="org-tool" data-group-rename="${esc(node.id)}" title="Rename" aria-label="Rename ${esc(node.name)}"><span class="nav-icon" aria-hidden="true">edit</span></button></span>` : ''}</div>
+        <ul ${isCol ? 'hidden' : ''}>${adding ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : ''}${rec(key, depth + 1)}</ul></li>`;
     }
     if (node.kind === 'person') {
       const p = node.person, key = 'p:' + p.id, kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
       return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
         ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(p.name || p.id)}">›</button>` : ''}
-        <a class="node person ${curPerson === p.id ? 'cur' : ''}" href="#/person/${encodeURIComponent(p.id)}" title="${esc(personTitle(p))}"${curPerson === p.id ? ' aria-current="page"' : ''} data-org="p:${esc(p.id)}"${!flat && orgMayMove(key) ? ' draggable="true"' : ''}>
+        <a class="node person ${curPerson === p.id ? 'cur' : ''}" href="#/person/${encodeURIComponent(p.id)}" title="${esc(personTitle(p))}"${curPerson === p.id ? ' aria-current="page"' : ''} data-org="p:${esc(p.id)}"${!flat && orgMayDrag(key) ? ' draggable="true"' : ''}>
           ${personAvatar(p, depth ? 16 : 20)}<span class="nm">${esc(firstName(p.name) || p.id)}</span>
           ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}</a>
         ${mailPersonVisible(p) ? `<a class="person-mail-link${S.route.startsWith(MESSAGING) && messagingParams().bot === p.inbox_bot ? ' cur' : ''}" href="${MESSAGING}?bot=${encodeURIComponent(p.inbox_bot)}&source=${encodeURIComponent('email:' + p.email)}" title="${esc(p.name || p.id)} has a message bot" aria-label="Open ${esc(p.name || p.id)}'s message bot">forum</a>` : ''}</div>
@@ -385,7 +459,7 @@ function renderTree() {
     const helper = isHelperBot(e);                 // not on the chart: nothing is dragged onto or out of it
     return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
       ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(e.display_name)}">›</button>` : ''}
-      <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${helper ? ' data-helper' : ''}${!flat && !helper && orgMayMove(key) ? ' draggable="true"' : ''}>
+      <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${helper ? ' data-helper' : ''}${!flat && !helper && orgMayDrag(key) ? ' draggable="true"' : ''}>
         ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${runtimeTag(e)}${frTreeMark(e)}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${treeBadge(n, st)}</a></div>
@@ -405,9 +479,16 @@ function renderTree() {
   $('#org-history').setAttribute('aria-pressed', String(historyOn));
   $('#org-mine').setAttribute('aria-pressed', String(orgMineOn()));
   $('#tree').classList.toggle('history', historyOn);
-  $('#tree').innerHTML = historyOn ? history() : rec('', 0);
-  orgDragWire($('#tree'), byParent);
+  const manage = orgCanGroups() && !historyOn;
+  $('#org-add-group').hidden = !manage;
+  $('#tree').innerHTML = historyOn ? history()
+    : (manage && ORG_EDIT?.add === '' ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : '') + rec('', 0)
+      + (manage ? '<li class="org-no-group" data-org="g:">No group</li>' : '');
+  orgDragWire($('#tree'));
+  orgGroupFieldWire();
   $('#tree').onclick = ev => {
+    const add = ev.target.closest('[data-group-add]'), rename = ev.target.closest('[data-group-rename]');
+    if (add || rename) { ev.preventDefault(); orgGroupEdit(add ? {add: add.dataset.groupAdd} : {rename: rename.dataset.groupRename}); return; }
     const b = ev.target.closest('[data-toggle]'); if (!b) return;
     ev.preventDefault(); const k = b.dataset.toggle; collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k);
     saveCollapsed();

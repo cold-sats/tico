@@ -201,6 +201,9 @@ def _save_roster(c, roster):
               "value_json=excluded.value_json", (json.dumps(roster, sort_keys=True),))
 
 
+save_roster = _save_roster
+
+
 def _sync_human(c, row):
     teams = sorted({t for t in [row.get("team"), *(row.get("primary_for") or [])] if t})
     values = {"id": row["id"], "name": row["name"], "email": row["email"],

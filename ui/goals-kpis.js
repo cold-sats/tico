@@ -409,26 +409,26 @@ function goalTreeShape() {
   const placed = bots.filter(e => !helper(e));
   const helpers = bots.filter(helper).sort((a, b) => helperRank(a) - helperRank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
   const keys = new Set([...(S.orgGroups || []).map(g => 'g:' + g.id), ...people.map(p => 'p:' + p.id), ...placed.map(e => 'b:' + e.name)]);
-  const byParent = {};
+  const byParent = {}, groupOf = orgGroupOf(people, placed);
   const put = (parent, node) => (byParent[keys.has(parent) ? parent : ''] ||= []).push(node);
-  for (const g of (S.orgGroups || [])) put(g.org_parent || '', {kind: 'group', id: g.id, name: g.name, order: g.order || 0});
-  for (const p of people) put(p.org_parent || '', {kind: 'person', id: p.id, person: p});
+  for (const g of (S.orgGroups || [])) put(g.parent ? 'g:' + g.parent : '', {kind: 'group', id: g.id, name: g.name, order: g.order || 0});
+  for (const p of people) put(orgHang('p:' + p.id, orgBossKey({kind: 'person', person: p}), groupOf), {kind: 'person', id: p.id, person: p});
   for (const e of placed) {
     // A bot under a helper (or under a bot that is gone) hangs from the next one up, else its owner.
-    let parent = e.org_parent || '';
+    let parent = orgBossKey({kind: 'bot', ...e});
     for (let hops = 0; parent.startsWith('b:') && !keys.has(parent) && hops < 5; hops++)
-      parent = S.emps.find(x => x.name === parent.slice(2))?.org_parent || '';
+      parent = orgBossKey({kind: 'bot', ...(S.emps.find(x => x.name === parent.slice(2)) || {})});
     if (parent.startsWith('b:') && !keys.has(parent)) parent = e.operator || e.users?.[0]?.id ? 'p:' + (e.operator || e.users[0].id) : '';
-    put(parent, {kind: 'bot', ...e});
+    put(orgHang('b:' + e.name, parent, groupOf), {kind: 'bot', ...e});
   }
   return {byParent, helpers};
 }
-// The org chart's order: departments lead at the root and follow under a person; people before bots; a bot's
+// The org chart's order: a group's humans and bots first, then the groups in it; people before bots; a bot's
 // `order`, then names.
 function goalTreeOrder(parent) {
   const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : n.kind === 'group' ? n.name : (n.display_name || n.name || '').replace(TEMP_RE, '');
   return (a, b) => {
-    if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? (parent ? 1 : -1) : (parent ? -1 : 1);
+    if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? 1 : -1;
     if (a.kind === 'group') return (a.order || 0) - (b.order || 0);
     if ((a.kind === 'person') !== (b.kind === 'person')) return a.kind === 'person' ? -1 : 1;
     if (a.kind === 'bot' && isTempBot(a) !== isTempBot(b)) return isTempBot(a) - isTempBot(b);

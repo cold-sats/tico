@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """Who the humans are, and which of them a bot works for.
 
-`registry/people.yaml` is the roster: the teams, the people, and who is the primary user of each
-bot. `registry/employees.yaml` says who reports to whom. Put the two together and every bot has a
-team (walk `reports_to` until it reaches a team's root) and a person (whoever claims that team or
-that bot in `primary_for`, else `default_user`).
+`registry/people.yaml` is the roster: the groups, the people, and who is the primary user of each
+bot. `registry/employees.yaml` says who reports to whom. A group (`org_groups`: id, name, an optional
+parent group) holds humans (their `team`) and bots (their `team` in the bot's config). A bot with no
+group of its own takes the one its `reports_to` chain reaches: a group's `root` bot, which only
+rosters written before groups (a `teams` block) have. Every bot has a person too (whoever claims its
+group or the bot in `primary_for`, else `default_user`).
 
 Pure: a parsed document in, decisions out. No files, no network, no clock. `backend/store.py`
 reads the YAML and hands the document here; `backend/tests/test_people.py` covers the rules.
 
   load(doc)                              -> roster           normalised, always usable
   is_developer(pid, roster)              -> bool             named in the `developers` list
-  team_of(slug, employees, teams)        -> team | None      by the reports_to chain
+  team_of(slug, employees, roster)       -> group | None     the bot's group id
   primary_users(slug, roster, employees) -> [person, ...]    never empty
   bots_of(person, roster, employees)     -> [slug, ...]      what that person is primary for
   may_chat(email, slug, roster, employees) -> bool           only an assigned person may chat
-  by_team(roster)                        -> {team: [id]}
+  by_team(roster)                        -> {group: [id]}
+  group_chain(gid, roster)               -> [gid, parent, ...]
 
 A missing or empty file still gives a working roster: the environment owner, and nothing else.
 """
@@ -90,11 +93,11 @@ def load(doc, owner=None):
         if person and person["id"] not in seen:
             seen.add(person["id"])
             people.append(person)
-    teams = {}
+    roots = {}
     for name, body in (doc.get("teams") or {}).items():
         root = _clean((body or {}).get("root")) if isinstance(body, dict) else _clean(body)
         if _clean(name) and root:
-            teams[_clean(name)] = {"root": root}
+            roots[_clean(name)] = root
     owner_id = _clean(owner.get("id")) or _clean(owner.get("email")).split("@")[0]
     default = _clean(doc.get("default_user")) or owner_id or (people[0]["id"] if people else "")
     if default and not any(p["id"] == default for p in people):
@@ -108,9 +111,46 @@ def load(doc, owner=None):
             continue
         gseen.add(gid)
         groups[gid] = {"id": gid, "name": _clean(body.get("name")) or gid.replace("-", " ").title(),
-                       "reports_to": _clean(body.get("reports_to"))}
-    return {"default_user": default, "teams": teams, "people": people,
-            "developers": _list(doc.get("developers")), "org_groups": groups}
+                       "reports_to": _clean(body.get("reports_to")), "parent": _clean(body.get("parent")),
+                       "root": _clean(body.get("root"))}
+    for gid, root in roots.items():             # a roster written before groups: each team is a group
+        group = groups.setdefault(gid, {"id": gid, "name": gid.replace("-", " ").title(), "reports_to": "",
+                                        "parent": "", "root": ""})
+        group["root"] = group["root"] or root
+    for gid, group in groups.items():           # a parent that is not a group, or that leads back here, is no parent
+        at, seen = group["parent"], {gid}
+        while at in groups and at not in seen:
+            seen.add(at)
+            at = groups[at]["parent"]
+        if at in seen or group["parent"] not in groups:
+            group["parent"] = ""
+    return {"default_user": default, "people": people, "developers": _list(doc.get("developers")),
+            "org_groups": groups, "teams": {gid: {"root": g["root"]} for gid, g in groups.items() if g["root"]},
+            "groups_migrated": bool(doc.get("groups_migrated"))}
+
+
+def group_chain(gid, roster):
+    """[gid, its parent, its parent's parent, ...]: the groups a member of `gid` is in. Empty for no such group."""
+    groups = (roster or {}).get("org_groups") or {}
+    out, at = [], _clean(gid)
+    while at in groups and at not in out:
+        out.append(at)
+        at = groups[at].get("parent") or ""
+    return out
+
+
+def group_and_below(gid, roster):
+    """`gid` and every group nested under it, at any depth."""
+    groups = (roster or {}).get("org_groups") or {}
+    found = {_clean(gid)} if _clean(gid) in groups else set()
+    changed = True
+    while changed:
+        changed = False
+        for other, group in groups.items():
+            if other not in found and group.get("parent") in found:
+                found.add(other)
+                changed = True
+    return found
 
 
 def is_developer(pid, roster):
@@ -136,21 +176,22 @@ def default_person(roster):
     return person(roster.get("default_user"), roster) or dict(DEFAULT_PERSON)
 
 
-def team_of(slug, employees, teams):
-    """The team a bot belongs to: use an explicit team or walk `reports_to` to a team root.
+def team_of(slug, employees, roster):
+    """The group a bot is in: the one its config names (`team`, "" for none), else the one its manager is in, up the
+    `reports_to` chain, else the group whose `root` bot it reports up to (a roster from before groups).
 
-    `employees` is {slug: entry} as the registry gives it; a root bot is on its own team. An
-    explicit team keeps a bot in its department when it reports directly to a person.
+    `employees` is {slug: entry} as the registry gives it; a root bot is in its own group.
     """
-    roots = {v["root"]: name for name, v in (teams or {}).items()}
+    groups = (roster or {}).get("org_groups") or {}
+    roots = {g["root"]: gid for gid, g in groups.items() if g.get("root")}
     at, seen = _clean(slug), set()
     while at:
-        if not at or at in seen or at.startswith("human:"):
-            return None                    # no explicit team and no team root in this chain
+        if at in seen or at.startswith("human:"):
+            return None                    # no group of its own and none up this chain
         entry = (employees or {}).get(at) or {}
-        explicit = _clean(entry.get("team"))
-        if explicit in (teams or {}) and _clean(entry.get("reports_to")).startswith("human:"):
-            return explicit
+        named = entry.get("team")
+        if named is not None and (_clean(named) in groups or not _clean(named)):
+            return _clean(named) or None   # "" says: in no group, whatever its manager is in
         if at in roots:
             return roots[at]
         seen.add(at)
@@ -159,7 +200,7 @@ def team_of(slug, employees, teams):
 
 
 def primary_users(slug, roster, employees):
-    """Everyone who is primary for this bot: by its slug, by its team, else the default user."""
+    """Everyone who is primary for this bot: by its slug, by its group (or one that group is in), else the default user."""
     roster = roster or load({})
     slug = _clean(slug)
     entry = (employees or {}).get(slug) or {}
@@ -171,8 +212,7 @@ def primary_users(slug, roster, employees):
         explicit = [p for p in roster["people"] if p["id"] in wanted_ids]
         if explicit:
             return explicit
-    team = team_of(slug, employees, roster.get("teams"))
-    wanted = {x for x in (slug, team) if x}
+    wanted = {slug, *group_chain(team_of(slug, employees, roster), roster)} - {""}
     hits = [p for p in roster["people"] if "*" in p["primary_for"] or wanted & set(p["primary_for"])]
     # A bot placed under a person on the org chart is that person's to talk to.
     boss = reports_to_person(slug, employees)
@@ -236,9 +276,9 @@ def may_chat(email, slug, roster, employees):
 
 
 def by_team(roster):
-    """{team: [person id, ...]} for every team named in the roster, plus the ones people name."""
+    """{group: [person id, ...]} for every group in the roster, plus the ones people name."""
     roster = roster or load({})
-    out = {name: [] for name in roster.get("teams") or {}}
+    out = {name: [] for name in roster.get("org_groups") or {}}
     for p in roster["people"]:
         if p["team"]:
             out.setdefault(p["team"], []).append(p["id"])
@@ -261,17 +301,18 @@ def visible_people(roster):
 
 
 def team_lead(team, roster):
-    """The person in charge of a bot team: first visible person who claims that team by name.
+    """The person in charge of a bot group: first visible person who claims that group by name, else the group it is in.
 
-    A company-wide `*` claim is not a team lead. None if nobody claims the team that way.
+    A company-wide `*` claim is not a group lead. None if nobody claims the group that way.
     """
     team = _clean(team)
     if not team:
         return None
-    for p in visible_people(roster):
-        claimed = set(p.get("primary_for") or [])
-        if team in claimed and "*" not in claimed:
-            return p
+    for gid in group_chain(team, roster) or [team]:
+        for p in visible_people(roster):
+            claimed = set(p.get("primary_for") or [])
+            if gid in claimed and "*" not in claimed:
+                return p
     return None
 
 
@@ -314,12 +355,12 @@ def org_parent(kind, ident, roster, employees, archived=()):
     if reports.startswith("human:"):
         boss = person(reports[6:], roster)
         if boss and not boss.get("hidden"):
-            group = org_group_under(team_of(slug, employees, (roster or {}).get("teams")), boss["id"], roster)
+            group = org_group_under(team_of(slug, employees, roster), boss["id"], roster)
             return ("g:" + group) if group else "p:" + boss["id"]
         reports = ""
     if reports and reports not in archived and reports in (employees or {}):
         return "b:" + reports
-    team = team_of(slug, employees, (roster or {}).get("teams"))
+    team = team_of(slug, employees, roster)
     lead = team_lead(team, roster)
     hang = lead or next((p for p in visible_people(roster) if not _clean(p.get("reports_to"))), None)
     if not hang:
@@ -353,14 +394,17 @@ def profile(person_row):
 
 def org_view(roster, employees, archived=(), person_id="", team=""):
     """The mixed org chart for bots and the hub: visible people (with contact and goals),
-    live bots, and optional department groups, each with an `org_parent` key
-    (`p:<id>` / `b:<slug>` / `g:<group>` / '')."""
+    live bots, and the groups, each with an `org_parent` key
+    (`p:<id>` / `b:<slug>` / `g:<group>` / ''). A person or bot carries its group as `team`; a group carries
+    its `parent` group. `team` keeps one group and the groups under it."""
     archived = set(archived or ())
     employees = employees or {}
     wanted, team = _clean(person_id), _clean(team)
+    inside = group_and_below(team, roster) if team else set()
     people_rows = []
     for p in visible_people(roster):
-        if team and p.get("team") != team and team not in (p.get("primary_for") or []) and "*" not in (p.get("primary_for") or []):
+        if team and p.get("team") not in inside and not (inside & set(p.get("primary_for") or [])) \
+                and "*" not in (p.get("primary_for") or []):
             continue
         row = profile(p)
         row["org_parent"] = org_parent("person", p["id"], roster, employees, archived)
@@ -369,8 +413,8 @@ def org_view(roster, employees, archived=(), person_id="", team=""):
     for slug, entry in employees.items():
         if slug in archived:
             continue
-        bot_team = team_of(slug, employees, (roster or {}).get("teams"))
-        if team and bot_team != team:
+        bot_team = team_of(slug, employees, roster)
+        if team and bot_team not in inside:
             continue
         bot_rows.append({
             "id": slug,
@@ -384,12 +428,12 @@ def org_view(roster, employees, archived=(), person_id="", team=""):
         })
     group_rows = []
     for i, (gid, g) in enumerate(((roster or {}).get("org_groups") or {}).items()):
-        if team and gid != team:
+        if team and gid not in inside:
             continue
         boss = person(g.get("reports_to"), roster)
-        parent = ("p:" + boss["id"]) if boss and not boss.get("hidden") else ""
+        parent = ("g:" + g["parent"]) if g.get("parent") else ("p:" + boss["id"]) if boss and not boss.get("hidden") else ""
         group_rows.append({"id": gid, "name": g.get("name") or gid, "reports_to": g.get("reports_to") or "",
-                           "org_parent": parent, "order": i})
+                           "parent": g.get("parent") or "", "org_parent": parent, "order": i})
     if wanted:
         keep = {"p:" + wanted}
         changed = True
@@ -412,33 +456,23 @@ def org_view(roster, employees, archived=(), person_id="", team=""):
                     changed = True
         people_rows = [r for r in people_rows if "p:" + r["id"] in keep]
         bot_rows = [r for r in bot_rows if "b:" + r["id"] in keep]
-        group_rows = [r for r in group_rows if "g:" + r["id"] in keep]
+        # The groups the people and bots kept are in, and the groups those are in, stay so the chart still reads.
+        shown = {gid for r in people_rows + bot_rows for gid in group_chain(r["team"], roster)} | {
+            r["id"] for r in group_rows if "g:" + r["id"] in keep}
+        group_rows = [r for r in group_rows if r["id"] in shown]
     return {"people": people_rows, "bots": bot_rows, "org_groups": group_rows,
             "teams": dict((roster or {}).get("teams") or {})}
 
 
-def bot_departments(employees, roster, template_departments=None, archived=()):
-    """{slug: department name} for every bot that has one: its team (named by the org group of the same id when there
-    is one), else the department of its template in the org builder's catalog, else its manager's, up the
-    `reports_to` chain. A bot with none is left out."""
+def bot_departments(employees, roster, archived=()):
+    """{slug: group name} for every live bot that is in a group. A bot in none is left out."""
     employees, roster = employees or {}, roster or {}
-    archived = set(archived or ())
-    groups = {gid: g.get("name") or gid for gid, g in (roster.get("org_groups") or {}).items()}
-    own = {}
-    for slug, entry in employees.items():
-        team = team_of(slug, employees, roster.get("teams"))
-        name = groups.get(team, team) if team else (template_departments or {}).get(_clean((entry or {}).get("template")))
-        if name:
-            own[slug] = name
+    groups = roster.get("org_groups") or {}
     out = {}
     for slug in employees:
-        at, seen = slug, set()
-        while at and at in employees and at not in seen and at not in archived:
-            if at in own:
-                out[slug] = own[at]
-                break
-            seen.add(at)
-            at = _clean(employees[at].get("reports_to"))
+        team = team_of(slug, employees, roster) if slug not in set(archived or ()) else None
+        if team in groups:
+            out[slug] = groups[team].get("name") or team
     return out
 
 

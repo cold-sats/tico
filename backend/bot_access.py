@@ -4,8 +4,8 @@
     read   its activity: tasks, updates, files, status and run log, routines, its shared rooms
     write  send it messages, ask it, give it tasks or notes, comment on its tasks
 
-Each level names an audience: everyone, or lists of people (roster ids), teams (a team name or an
-org-chart department) and bots (slugs). `bot_config.access_json` holds the three; NULL means Open
+Each level names an audience: everyone, or lists of people (roster ids), groups (stored under `teams`, the
+name they had first) and bots (slugs). `bot_config.access_json` holds the three; NULL means Open
 (everyone for all three), which is what every new bot starts with. Whoever may read or write can
 see, whatever the See list says. The rules that decide a caller live in `Auth.bot_access`
 (backend/auth.py); this module is the pure part: the stored shape and who an audience names.
@@ -89,10 +89,12 @@ def parse(body, roster_ids, teams, bots):
 
 
 def names(level, person="", team="", bot=""):
-    """Whether one level's audience names this person, team or bot."""
+    """Whether one level's audience names this person, group or bot. `team` is the person's group, or every group
+    they are in (their own and the ones it is nested in): naming a group names everyone in it and in the groups under it."""
     if level["everyone"]:
         return True
-    return bool((person and person in level["people"]) or (team and team in level["teams"])
+    groups = [team] if isinstance(team, str) else list(team or ())
+    return bool((person and person in level["people"]) or any(g and g in level["teams"] for g in groups)
                 or (bot and bot in level["bots"]))
 
 

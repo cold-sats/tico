@@ -935,6 +935,10 @@ class Store:
                 # is empty (backend/market.py). Idempotent, no migration number.
                 from . import market as Market
                 Market.mark_seeded_pages(c)
+                # Teams, org groups and derived departments become groups, once (backend/groups.py). Idempotent,
+                # so no migration number to collide with another branch's.
+                from . import groups as Groups
+                Groups.migrate(c, self.settings)
                 c.commit()
             except Exception:
                 c.rollback()
@@ -1000,7 +1004,7 @@ class Store:
             for slug, state in previous_states.items():
                 c.execute("UPDATE bots SET state=? WHERE slug=?", (state, slug))
             for slug, entry in entries.items():
-                team = P.team_of(slug, entries, people["teams"])
+                team = P.team_of(slug, entries, people)
                 operator = seed_operator(slug, team, people, owner)
                 mode = str(entry.get("thread_mode") or
                            ("personal" if slug == "coo" else "shared" if slug == "cpo" else "personal"))
@@ -1011,6 +1015,8 @@ class Store:
                      entry.get("reports_to"), str(entry.get("repo") or ("emp-" + slug)), mode,
                      H.now(), H.KEEPER))
             self.seed_goals(c)
+            from . import groups as Groups
+            Groups.migrate(c, self.settings)
 
     def mutate(self, identity, operation, key, body, fn):
         if not key or len(key) > 200:

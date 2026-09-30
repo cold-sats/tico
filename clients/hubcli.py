@@ -178,7 +178,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot update <slug> [--reports-to R] [--display-name N] [--description D] [--status S]
                                            apply a person's bot-settings request as them (BotOps)
     hub bot access <slug> [--see V] [--read V] [--write V]
-                                           show or set who sees, reads, writes (V: everyone, or ben,team:legal,bot:x)
+                                           show or set who sees, reads, writes (V: everyone, or ben,group:legal,bot:x)
     hub bot owners <slug> [--add P ...] [--remove P ...]
                                            add or remove the humans who own a bot, as the requester (BotOps)
     hub bot setup-done [slug]              a starter bot marks its setup done once its setup is done
@@ -194,6 +194,12 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub human add <email> [--name N] [--title T] [--reports-to P]
                                            add a human to the roster and sign-in list (a Confirm card first, unless they are in the team's domain)
     hub human list                         the humans on the roster
+    hub group list                         the groups (they nest), with their humans and bots
+    hub group update [<group>] [--name N] [--parent G|''] [--add-human H ...] [--add-bot B ...]
+                     [--remove-human H ...] [--remove-bot B ...]
+                                           an owner or admin, or BotOps as the person who asked: with no <group>,
+                                           create one from --name; else rename, move or fill it. A teammate is in
+                                           one group at a time
     hub api GET|POST|PUT|PATCH|DELETE <path> ['{json}']
                                            BotOps: any v2 route, as the person who asked; a Confirm card for what
                                            always needs their click. Never a secret in the body
@@ -900,7 +906,7 @@ def parser():
     s = sub.add_parser("team", help="the team chart: humans and bots").add_subparsers(dest="sub").add_parser(
         "show", help="the team chart: humans, Slack, what they own, the bots with reports_to and group")
     s.add_argument("--person", help="that human and everyone under them")
-    s.add_argument("--team", help="a team name from the registry, like engineering or sales")
+    s.add_argument("--team", help="a group id, like engineering or sales: that group and the groups in it")
     s.set_defaults(fn="team show")
     s = sub.add_parser("health", help="what is wrong, and where").add_subparsers(dest="sub").add_parser(
         "check", help="what is wrong with the bots, most urgent first, each with its fix")
@@ -1033,7 +1039,7 @@ def parser():
     s = bot.add_parser("access", help="show or set who may see, read and write to a bot")
     s.add_argument("slug")
     for level in ("see", "read", "write"):
-        s.add_argument("--" + level, help="everyone, or a comma list: human ids, team:<name>, bot:<slug>")
+        s.add_argument("--" + level, help="everyone, or a comma list: human ids, group:<id>, bot:<slug>")
     s.set_defaults(fn="bot access")
     s = bot.add_parser("owners", help="add or remove the humans who own a bot")
     s.add_argument("slug")
@@ -1092,6 +1098,18 @@ def parser():
     s.add_argument("--reports-to")
     s.set_defaults(fn="human add")
     humans.add_parser("list", help="the humans on the roster").set_defaults(fn="human list")
+    groups = sub.add_parser("group", help="the groups: sub-teams that nest, holding humans and bots").add_subparsers(dest="sub")
+    groups.add_parser("list", help="the groups with their humans and bots").set_defaults(fn="group list")
+
+    s = groups.add_parser("update", help="create (no group given), rename, move or fill a group (an owner or an admin)")
+    s.add_argument("group", nargs="?", help="the group's id; leave out to create one from --name")
+    s.add_argument("--name")
+    s.add_argument("--parent", help="the group it is in; an empty one is the top")
+    s.add_argument("--add-human", dest="add_humans", action="append", metavar="HUMAN", help="put a human in it")
+    s.add_argument("--add-bot", dest="add_bots", action="append", metavar="BOT", help="put a bot in it")
+    s.add_argument("--remove-human", dest="remove_humans", action="append", metavar="HUMAN")
+    s.add_argument("--remove-bot", dest="remove_bots", action="append", metavar="BOT")
+    s.set_defaults(fn="group update")
     s = sub.add_parser("api", help="BotOps: any v2 route, as the person who asked")
     s.add_argument("method", type=str.upper, choices=["GET", "POST", "PUT", "PATCH", "DELETE"])
     s.add_argument("path", help="/api/v2/... or the part after it")

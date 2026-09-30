@@ -1160,14 +1160,14 @@ def _for_person(api):
 
 
 def audience(value):
-    """`everyone`, or `ben,team:legal,bot:analyst` (a person id, `team:<name>`, `bot:<slug>`), as an access level."""
+    """`everyone`, or `ben,group:legal,bot:analyst` (a person id, `group:<id>`, `bot:<slug>`), as an access level."""
     text = str(value or "").strip()
     if text.lower() == "everyone":
         return {"everyone": True}
     level = {"people": [], "teams": [], "bots": []}
     for part in filter(None, (p.strip() for p in text.split(","))):
         kind, _, name = part.partition(":")
-        if kind == "team" and name:
+        if kind in ("group", "team") and name:
             level["teams"].append(name)
         elif kind == "bot" and name:
             level["bots"].append(name)
@@ -1191,9 +1191,9 @@ def bot_register(api, args):
 
 
 @tool("hub_bot_access", "Show, or set, who may see, read and write to a bot, as the person who asked you (they must "
-      "own the bot). Each of see, read and write is `everyone`, or a comma list of person ids, `team:<name>` and "
+      "own the bot). Each of see, read and write is `everyone`, or a comma list of person ids, `group:<id>` and "
       "`bot:<slug>`. Anyone who may read or write can also see it. Levels you leave out stay as they are.",
-      {"slug": _s("The bot"), "see": _s("everyone, or ben,team:legal,bot:analyst"),
+      {"slug": _s("The bot"), "see": _s("everyone, or ben,group:legal,bot:analyst"),
        "read": _s("Who may read its work: tasks, updates, files, status, routines"),
        "write": _s("Who may send it messages and tasks")},
       required=("slug",), writes=True)
@@ -1244,10 +1244,40 @@ def people_add(api, args):
     return api.post("access/humans", body, key=_key(args))
 
 
-@tool("hub_human_list", "The people on the roster: id, name, email, title, team and who they report to.", {})
+@tool("hub_human_list", "The people on the roster: id, name, email, title, group (`team`) and who they report to.", {})
 def people_list(api, args):
     return [{k: p.get(k) for k in ("id", "name", "email", "title", "team", "reports_to")}
             for p in api.get("org")["people"]]
+
+
+@tool("hub_group_list", "The groups: sub-teams of the team, each with its id, name, parent group (groups nest), the "
+      "humans in it (ids) and the bots in it (slugs) you may see. A teammate, human or bot, is in one group at a time.", {})
+def group_list(api, args):
+    return api.get("groups")
+
+
+@tool("hub_group_update", "Create, rename, move or fill a group, as the person who asked you (an owner or an admin). "
+      "Leave `group` out to create one from `name`. `parent` nests it under another group (an empty one moves it to the "
+      "top). Adding a teammate to a group takes it out of the one it was in; built-in bots stay outside groups. Answers "
+      "with the group.",
+      {"group": _s("The group's id; leave out to create a new one"), "name": _s("Its name"),
+       "parent": _s("The id of the group it is in; empty for the top"),
+       "add_humans": {"type": "array", "items": {"type": "string"}, "description": "Human ids to put in the group"},
+       "add_bots": {"type": "array", "items": {"type": "string"}, "description": "Bot slugs to put in the group"},
+       "remove_humans": {"type": "array", "items": {"type": "string"}, "description": "Human ids to take out of it"},
+       "remove_bots": {"type": "array", "items": {"type": "string"}, "description": "Bot slugs to take out of it"}},
+      writes=True)
+def group_update(api, args):
+    who = _as_person(api)
+    add = {"people": list(args.get("add_humans") or []), "bots": list(args.get("add_bots") or [])}
+    remove = {"people": list(args.get("remove_humans") or []), "bots": list(args.get("remove_bots") or [])}
+    if not args.get("group"):
+        if not args.get("name"):
+            raise ValueError("Name the new group, or say which group to change: hub group update <group> ...")
+        body = {"name": args["name"], "add": add, **({"parent": args["parent"]} if args.get("parent") else {})}
+        return who.post("groups", body, key=_key(args))
+    body = {"add": add, "remove": remove, **{k: args[k] for k in ("name", "parent") if args.get(k) is not None}}
+    return who.patch(f"groups/{args['group']}", body, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- BotOps: what the app can do, as the requester
@@ -1474,7 +1504,7 @@ def status_set(api, args):
       "phone), what they own, their goals, and which bots hang under them. Use this to find who "
       "handles a kind of work before you file a task or ping someone.",
       {"person": _s("Optional person id: that person and everyone under them"),
-       "team": _s("Optional team name: a team name from the registry, like engineering or sales")})
+       "team": _s("Optional group id: that group and the groups in it, like engineering or sales")})
 def org(api, args):
     return api.get("org", person=args.get("person") or None, team=args.get("team") or None)
 
@@ -1970,7 +2000,7 @@ AUDIENCE = {
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
-                                    "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add")},
+                                    "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),

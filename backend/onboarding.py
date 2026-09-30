@@ -26,6 +26,7 @@ from . import census, releases, replication, runner_versions, ui_bundle
 from .config import ASSISTANT_NAME
 from . import rooms, routines, statuses
 from . import access as Access
+from . import groups as Groups
 from .store import H, Problem, encode, readiness_document
 
 KEY = "onboarding"
@@ -472,6 +473,9 @@ class Onboarding:
             if row["reports_to"] != parent:
                 self.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(
                     reports_to=parent, expected_revision=row["revision"]))
+        # The team builder builds the chart by group: each bot goes in the group of its template, made if the team
+        # has none yet (backend/groups.py).
+        Groups.place(c, self.settings, list(plan))
         # Completing twice keeps the moment the company actually finished.
         record.update(selected=plan, completed=record["completed"] or H.now())
         self._wire(c, record, who.actor)

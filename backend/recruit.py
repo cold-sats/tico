@@ -69,11 +69,12 @@ def catalog(settings):
     return R.build(departments, O.read_cards(settings))
 
 
-def template_departments(settings):
-    """{template: department name} from the org builder's catalog: where a bot built from a template belongs."""
+def template_groups(settings):
+    """{template: {id, name}} from the org builder's catalog: the group a bot built from a template goes in."""
     value = catalog(settings)
     names = {row["id"]: row["name"] for row in value["departments"]}
-    return {card["template"]: names[card["department"]] for card in value["cards"] if card["department"] in names}
+    return {card["template"]: {"id": card["department"], "name": names[card["department"]]}
+            for card in value["cards"] if card["department"] in names}
 
 
 def _about(answers):

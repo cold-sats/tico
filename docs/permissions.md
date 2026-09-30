@@ -9,7 +9,7 @@ team, readable by one group and open to requests from everyone.
 | **Read** | Its activity: its tasks, updates, files, status and run log, routines, the shared rooms and chats it is in, and the activity sections of its page. |
 | **Write** | Sending it messages, chatting with it, asking it; creating or reassigning tasks to it; leaving it notes; comments that wake it. Its approvals work as they always did. |
 
-An audience is **Everyone**, or a list of **humans**, **groups** and **bots**. Anyone who may read or write a bot can also see it, whatever its See list says.
+An audience is **Everyone**, or a list of **humans**, **groups** and **bots**. Naming a group names everyone in it and in the groups nested in it. Anyone who may read or write a bot can also see it, whatever its See list says.
 
 New bots, and every bot after an upgrade, start **Open**: Everyone for all three.
 
@@ -91,6 +91,12 @@ The product favours getting going fast, and the owner tightens it later. Setting
 
 Only the owner changes them, and BotOps cannot: the route is not delegable.
 
+**Groups.** A group is a sub-team of humans and bots, and groups nest ([the team chart](org-chart.md)). Owners and admins add, rename, move
+and remove groups and put humans and bots in them; members read them. A group is an access audience, so moving a human or a bot into a
+group, or a group under another, can change who reads a bot. BotOps does this as the person who asked it (`POST`, `PATCH` and `DELETE`
+on `/api/v2/groups` through `hub api`, or `hub group update`), with that person's own rights: an owner or an admin, at once; a member is
+refused. Built-in bots stay outside groups.
+
 **The built-in bots** (the Assistant, BotOps, the Librarian and the Goal Manager) act for the whole team, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
 `librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
@@ -153,11 +159,12 @@ The commands (with MCP tools of the same names):
 | Command | Does |
 | --- | --- |
 | `hub bot create --record-only <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a run |
-| `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,team:legal,bot:analyst`) |
+| `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,group:legal,bot:analyst`) |
 | `hub bot owners <slug> [--add P ...] [--remove P ...]` | the bot's owners |
 | `hub bot update <slug> ...` | name, description, reports-to, status, repository |
 | `hub bot setup-done [slug]` | a starter bot's own call, once its setup is done: it stops being `needs_onboarding` (its manager may call it for it) |
 | `hub human add <email> [--name] [--title] [--reports-to]`, `hub human list` | the roster |
+| `hub group list`, `hub group update [<group>] [--name] [--parent] [--add-human] [--add-bot] [--remove-human] [--remove-bot]` | the groups; create (no group given), rename, move or fill one, owners and admins only |
 
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
 | `hub bot go-live <bot>` | places it if it has no computer, turns it on, and for a starter bot starts its setup chat as the requester |
@@ -284,7 +291,7 @@ PUT /api/v2/bots/legal/access
 ```
 
 `revision` is the one the GET returned; a stale one answers `409 version_conflict`. Each level takes
-`everyone: true` or lists of `people` (roster ids), `teams` and `bots` (slugs); unknown ones answer `404`.
+`everyone: true` or lists of `people` (roster ids), `teams` (group ids: the field kept the name it had first) and `bots` (slugs); unknown ones answer `404`.
 An unchanged save answers `409 unchanged`.
 
 ## Moving off `hub-access.yaml`

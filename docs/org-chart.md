@@ -1,27 +1,68 @@
 # Team chart: humans, groups, and the bots they use
 
-Who is in which group, which bots each group holds, and who each bot is mainly for. A group is part of the team, and a group can hold groups.
+The team is everyone: humans and bots. A **group** is a sub-team, and groups can hold groups. A group holds teammates, human or
+bot. This page is who is in which group, which bots each group holds, and who each bot is mainly for.
 
-The source is `registry/people.yaml` for the humans and
-`registry/employees.yaml` for the bots. This page explains them; it
-does not duplicate them. Tico renders the same mixed tree in the **Team** sidebar, so the page
-in the app and this document always agree. Edit the YAML, not a list in prose. Bots read the
-same chart through `hub team show` / the `hub_team_show` MCP tool (`GET /api/v2/org`): the humans, and every bot the caller may see (see
-[permissions.md](permissions.md)) with its `reports_to`, its `department` and its `template`. A bot's `department`
-is its group; a bot with none takes the group of its template in the team builder, then of the bot it reports to, so a
-group head's reports carry the head's group. `hub human list` is the humans alone.
+The chart in the app is the **Team** sidebar: each group is a section that opens and closes, holding its humans and bots,
+with the groups inside it below them. A human or bot with no group sits at the top. The built-in bots (the Assistant, BotOps, the
+Librarian and the Goal Manager) stay outside every group, in their own **Built-in** section.
+Bots read the same chart through `hub team show` / the `hub_team_show` MCP tool (`GET /api/v2/org`): the humans, and every bot the caller
+may see (see [permissions.md](permissions.md)) with its `reports_to`, its `team` (its group's id), its `department` (its group's name)
+and its `template`. `hub team show --team <group>` is that group and the groups in it. `hub human list` is the humans alone.
+
+Groups and reporting are two things. `reports_to` says who a human or bot works for; a group says who is on which sub-team. Changing
+one never changes the other.
+
+## Groups
+
+A group is an id, a name, an optional parent group, and its teammates. A teammate is in one group at a time: putting a human or bot in a
+group takes it out of the one it was in. Groups are stored with the roster (`org_groups` in `registry/people.yaml` seeds them; from then on
+the app and the API change them):
+
+```yaml
+org_groups:
+  marketing: {name: Marketing}
+  seo: {name: SEO, parent: marketing}
+people:
+  - {id: cara, name: Cara Mendes, team: seo}     # a human's group is `team`
+```
+
+A bot's group is `team` in its entry in `registry/employees.yaml`, and after that in the app. A bot with no group of its own is in its
+manager's; giving it an empty `team` takes it out of every group.
+
+Owners and admins change groups; everyone else reads them.
+
+- **In the app**, the **+** beside **Team** adds a group, and the **+** on a group adds one inside it. The pencil renames a group in place.
+  Drag a human or a bot onto a group to put it there, onto **No group** (it appears while you drag) to take it out, and drag a group onto
+  another to nest it. Members see the groups but have none of these handles.
+- **In the API**: `GET /api/v2/groups` lists them with their humans and the bots you may see; `POST /api/v2/groups` adds one
+  (`{"name", "parent", "add": {"people": [], "bots": []}}`); `PATCH /api/v2/groups/{id}` renames it, moves it (`"parent": ""` is the top) and
+  adds or removes teammates (`"add"`, `"remove"`); `DELETE /api/v2/groups/{id}` removes it, and the groups and teammates in it move up to
+  its parent. A group cannot go under itself or a group inside it, and a built-in bot cannot join one.
+- **With the tools**: `hub group list` and `hub group update [<group>] [--name] [--parent] [--add-human] [--add-bot] [--remove-human]
+  [--remove-bot]` (`hub_group_list`, `hub_group_update`); with no group given, `update` creates one from `--name`. BotOps does the same as the
+  person who asked it, with their own rights: a member is refused, an owner or an admin is not.
+
+Naming a group in an access list (`group:legal`, [permissions.md](permissions.md)) or in a human's `primary_for` names everyone in that
+group and in the groups nested in it.
+
+**The team builder.** Finish setup builds the chart by group: each bot goes in the group its template belongs to (Marketing, Product,
+Engineering and so on), and the group is made if the team has none yet. A group with the same name that the team already has is reused.
+
+**Older rosters.** Before groups there were three overlapping ideas: `teams` (a group with a root bot, everything under it), org groups
+(labels on the chart) and a bot's department (its template's group in the team builder, or its manager's). The first time a team
+starts on this version, each becomes a group and each bot becomes a member of the group it had; a human's `team` that named no group
+becomes one too. Nobody changes group and `reports_to` is not touched. It runs once and is safe to run again.
 
 ## The humans
 
-The example team, Acme, has Ana Rivera at the root. Group labels in the team tree
-(`org_groups` in `registry/people.yaml`) sit above each cluster of humans: for example
-**Marketing**, **Product**, **Engineering**, **Sales** and **Operations**. A group can have a
-lead or no single lead.
+The example team, Acme, has Ana Rivera at the root. Its groups are, for example, **Marketing**, **Product**, **Engineering**, **Sales** and
+**Operations**.
 
 Each human has a manager (`reports_to`), a group (`team`), and optionally a personal message bot. In the web
 team chart, personal message bots appear as messaging icons beside their humans; the icons open the
-matching bot under **Message bots**. Shared mailboxes such as `shared@acme.example` can stay on the
-roster for mail routing with `hidden: true`, so they do not appear in the tree.
+matching bot under **Message bots**. Shared mailboxes such as `shared@acme.example` can stay on the roster for mail routing with
+`hidden: true`, so they do not appear in the tree.
 
 Every Acme address is `<firstname>@acme.example`. Personal message bots come from the `inbox`
 template and read that human plus their reports (`org_read`). Each mailbox has its
@@ -29,25 +70,19 @@ own rules in `registry/mail-rules.yaml`. Photos prefer a Google Workspace Direct
 when domain-wide delegation includes `admin.directory.user.readonly`; otherwise the Slack
 profile image stored on the roster.
 
-## Bot groups
+## Bots in groups
 
-A group holds bots: every bot whose `reports_to` chain in `registry/employees.yaml`
-reaches that group's root bot, the root included. The roots are in the `teams` block of
-`registry/people.yaml`. For example:
+| Group | Bots |
+|---|---|
+| marketing | The CMO bot and the SEO, analytics, listening and content bots. |
+| product | The Product Manager bot and everything under it. |
+| sales | Sales operations and the sales-process bots. |
+| engineering | The CTO bot, which monitors CI, deploys, alerts, security and cost. |
 
-| Group | Root bot | The bots |
-|---|---|---|
-| marketing | `cmo` | The CMO bot and everything under it: SEO, analytics, listening and content bots. |
-| product | `product-manager` | The Product Manager bot and everything under it. |
-| sales | `sales-ops` | Sales operations and the sales-process bots. |
-| engineering | `cto` | The CTO bot, which monitors CI, deploys, alerts, security and cost. |
+A group's lead bot is a member like the others. Bots in no group belong to none; the human they are mainly for is `default_user`.
 
-Bots that report to nobody and sit outside the groups belong to no group. The human they are mainly for is
-`default_user`.
-
-An operations bot such as a **COO** can span every group. It reports to nobody and owns no group,
-because its job is to serve all of them: it reads every bot's runs, tracks what each is still
-missing, ages the queue of what needs a human, and publishes a weekly status broken out by group.
+An operations bot such as a **COO** can span every group. It is in none, because its job is to serve all of them: it reads every bot's runs,
+tracks what each is still missing, ages the queue of what needs a human, and publishes a weekly status broken out by group.
 Routing a note, and writing the notes when a meeting is handed over, are **functions Tico
 performs itself**, in seconds, with no run behind either.
 
@@ -55,7 +90,7 @@ performs itself**, in seconds, with no run behind either.
 
 The human to ask when that bot needs a human, and the human its work is for.
 
-1. Every human whose `primary_for` names the bot's **group** or the bot's own **slug** is a primary
+1. Every human whose `primary_for` names the bot's **group** (or a group it is nested in) or the bot's own **slug** is a primary
    human for it. More than one human on a bot is fine.
 2. If nobody claims it that way, the primary human is `default_user` (the root human).
 

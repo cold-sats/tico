@@ -43,9 +43,12 @@ const writeRequest = async (method, p, body={}, operationId) => {
   }
 };
 const postRequest = (p, body={}, operationId) => writeRequest('POST', p, body, operationId);
+const patchRequest = (p, body={}, operationId) => writeRequest('PATCH', p, body, operationId);
 const putRequest = (p, body={}, operationId) => writeRequest('PUT', p, body, operationId);
 const post = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => postRequest(p, body, operationId)) : postRequest(p, body, operationId);
+const patch = (p, body={}, operationId) => window.TicoObservability
+  ? window.TicoObservability.run(p, () => patchRequest(p, body, operationId)) : patchRequest(p, body, operationId);
 const put = (p, body={}, operationId) => window.TicoObservability
   ? window.TicoObservability.run(p, () => putRequest(p, body, operationId)) : putRequest(p, body, operationId);
 // Keep multipart retries stable across newly constructed FormData boundaries.
