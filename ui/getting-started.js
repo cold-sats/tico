@@ -1,23 +1,8 @@
-/* After the wizard: the tour and the cards at the top of each section
-   (docs/onboarding.md). Every tick on the checklist comes from GET /api/v2/getting-started; the
-   only things kept per person are their own choices (tour seen, card closed, checklist hidden). */
-let GS = null;                     // the last answer, or null when the server has no checklist to give
+/* After the wizard: the tour and the bot card in the sidebar (docs/onboarding.md). What the card shows
+   comes from GET /api/v2/getting-started; the only things kept per person are their own choices (tour
+   seen, card closed). The Market page's empty state (ui/market-page.js) is where the market is asked for. */
+let GS = null;                     // the last answer, or null when the server has none to give
 let GS_LOAD = 0;
-let GS_SENT = null;                // the confirmation a card keeps showing after its form was sent
-// "Not now" on a card lasts for this browser session; the server only keeps "don't show again".
-const GS_LATER_KEY = 'tico.gs.later';
-const gsLater = () => { try { return JSON.parse(sessionStorage.getItem(GS_LATER_KEY) || '[]'); } catch { return []; } };
-const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.stringify([...new Set([...gsLater(), section])])); } catch { /* the card returns on reload */ } };
-
-const gsCards = {
-  market: {owner: true, title: 'Research your market'},
-};
-
-const gsRoute = () => {
-  const r = S.route || '';
-  const at = (base) => r === base || r.startsWith(base + '?') || r.startsWith(base + '/');
-  return at('#/market') ? 'market' : '';
-};
 
 async function gsRefresh() {
   if (!S.me?.cloud) return null;
@@ -30,7 +15,6 @@ async function gsRefresh() {
 }
 
 function gsDraw() {
-  gsCard();
   gsOrgCard();
 }
 
@@ -63,146 +47,9 @@ function gsOrgCard() {
     <button class="ghost gs-x" type="button" data-gs-dismiss="bots" aria-label="Close this">✕</button>`;
 }
 
-function gsCard() {
-  const host = $('#gs-card');
-  if (!host) return;
-  const section = gsRoute();
-  const spec = gsCards[section];
-  const sent = GS_SENT && GS_SENT.section === section ? GS_SENT : null;
-  // A card stays while its section is empty, and goes once the section has content.
-  const empty = GS?.empty?.[section] !== false;
-  const researching = section === 'market' ? gsResearchGet() : null;
-  const shown = !!spec && (!!sent || !!researching || (!!GS && empty && !GS.cards_dismissed.includes(section)
-    && !gsLater().includes(section) && (!spec.owner || GS.owner)));
-  gsResearchWatch(!!researching && shown);
-  if (!shown) { host.hidden = true; host.innerHTML = ''; host.dataset.mode = ''; return; }
-  const mode = `${section}:${sent ? 'sent' : researching ? 'researching' : 'form'}`;
-  if (host.dataset.mode === mode && !host.hidden) return;   // a half-typed form is left alone
-  host.dataset.mode = mode;
-  host.hidden = false;
-  let body;
-  if (sent) body = `<strong>${esc(spec.title)}</strong><p role="status">${sent.html}</p>`;
-  else if (researching) body = gsResearchHtml(researching);
-  else body = gsMarketForm();
-  host.innerHTML = `<aside class="gs-card" data-gs-card="${section}" aria-label="${esc(spec.title)}">
-    <div class="gs-card-body">${body}</div>
-    <div class="gs-card-side">${researching ? '' : `<button class="ghost gs-x" type="button" data-gs-later="${section}" aria-label="Not now">✕</button>`}
-      ${sent || researching ? '' : `<button class="ghost gs-never" type="button" data-gs-dismiss="${section}">Don't show again</button>`}</div></aside>`;
-}
-
-// One box: whatever the owner has about their market. The Librarian reads it and builds the map
-// (templates/catalog/librarian/playbooks/market-setup.md); "Attach files" is the Docs import.
-function gsMarketForm() {
-  return `<strong>Research your market</strong>
-    <form class="gs-market" data-gs-market>
-      <label class="gs-field"><span>Your website, a description, or links to anything about your market</span>
-        <textarea name="text" rows="3" maxlength="8000" required autocomplete="off" placeholder="https://yourcompany.com"></textarea></label>
-      <p class="err" data-gs-error hidden></p>
-      <div class="gs-card-actions"><button class="primary" type="submit">Start research</button>
-        <a class="gs-attach" href="#/docs?import=1">Attach files</a></div>
-    </form>`;
-}
-
-// ---------------------------------------------------------------- the Librarian is researching
-// A notice kept in this browser, no server involved: it shows for at least two minutes and until the
-// market has content, and goes for good after thirty. While it shows, the market's own data is read
-// every thirty seconds (two small GETs), and the Market page is redrawn when that has changed.
-// Styles for the market card and its notice live here, beside the code that draws them.
-const gsStyle = document.createElement('style');
-gsStyle.textContent = `.gs-market .gs-field{max-width:680px}
-.gs-market textarea{min-height:76px;resize:vertical;font:inherit}
-.gs-attach{align-self:center;font-size:13px}
-.gs-researching{display:flex;align-items:flex-start;gap:var(--s3)}
-.gs-researching p{margin:2px 0 0}
-.gs-spin{flex:none;width:14px;height:14px;margin-top:3px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:gsspin .9s linear infinite}
-@keyframes gsspin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.gs-spin{animation:none;border-color:var(--accent)}}
-@media (max-width:600px){.gs-card[data-gs-card=market]{flex-direction:column}.gs-card[data-gs-card=market] .gs-card-body{align-self:stretch}.gs-card[data-gs-card=market] .gs-card-side{flex-direction:row;align-items:center;align-self:flex-end}}`;
-document.head.appendChild(gsStyle);
-
-const GS_RESEARCH_KEY = 'tico.market.researching';
-const GS_RESEARCH_MIN = 2 * 60 * 1000, GS_RESEARCH_MAX = 30 * 60 * 1000, GS_RESEARCH_POLL = 30 * 1000;
-let GS_RESEARCH = null;            // the same record in memory, for a browser that will not store it
-let GS_POLL = 0;
-let GS_SIG = null;
-
-function gsResearchGet() {
-  let row = GS_RESEARCH;
-  try { row = JSON.parse(localStorage.getItem(GS_RESEARCH_KEY) || 'null') || row; } catch { /* the memory copy stands */ }
-  const age = row ? Date.now() - Number(row.at) : NaN;
-  if (row && age >= -60000 && age < GS_RESEARCH_MAX) return row;
-  if (row) gsResearchSet(null);
-  return null;
-}
-
-function gsResearchSet(row) {
-  GS_RESEARCH = row;
-  try { if (row) localStorage.setItem(GS_RESEARCH_KEY, JSON.stringify(row)); else localStorage.removeItem(GS_RESEARCH_KEY); } catch { /* memory only */ }
-}
-
-const gsResearchHtml = row => `<div class="gs-researching" data-gs-researching role="status">
-    <span class="gs-spin" aria-hidden="true"></span>
-    <div><strong>The Librarian is researching your market.</strong>
-      <p>This usually takes 5–10 minutes.${row.task ? ` ${gsTaskLink(row.task, 'View task')}` : ''}</p></div></div>`;
-
-function gsResearchWatch(on) {
-  if (!on) { clearInterval(GS_POLL); GS_POLL = 0; GS_SIG = null; return; }
-  if (!GS_POLL) GS_POLL = setInterval(() => void gsResearchTick(), GS_RESEARCH_POLL);
-}
-
-// What the market holds, in one string: how many entities, and when its newest page was written. The seed's
-// pages are already there when the owner asks, so "has content" means "differs from what it was when asked".
-async function gsMarketSig() {
-  const [entities, pages] = await Promise.all([get('/v2/market/entities'), get('/company-docs?collection=market')]);
-  const written = (pages.documents || []).filter(doc => doc.id !== 'market/weekly-delta').map(doc => String(doc.fetched || ''));
-  return `${(entities.entities || []).length}|${written.reduce((a, b) => a > b ? a : b, '')}`;
-}
-
-async function gsResearchTick() {
-  if (!gsResearchGet()) { gsResearchWatch(false); gsDraw(); return; }   // thirty minutes passed: the card is back
-  let sig;
-  try { sig = await gsMarketSig(); } catch { return; }                    // the next tick tries again
-  const row = gsResearchGet();
-  if (!row) return;
-  const last = GS_SIG ?? row.base;
-  GS_SIG = sig;
-  const arrived = row.base == null ? !sig.startsWith('0|') : sig !== row.base;
-  if (arrived && Date.now() - Number(row.at) >= GS_RESEARCH_MIN) {
-    gsResearchSet(null);
-    gsResearchWatch(false);
-    await gsRefresh();                                                    // the card's own "is it empty" answer
-    window.marketReload?.();
-  } else if (sig !== last) window.marketReload?.();
-}
-
-async function gsSubmitMarket(form) {
-  const text = form.elements.text.value.trim();
-  if (!text) return gsFail(form, new Error('Add your website, a description or a link.'));
-  form.querySelector('[type=submit]').disabled = true;
-  try {
-    const base = await gsMarketSig().catch(() => null);
-    const result = await post('/v2/getting-started/market', {text});
-    gsResearchSet({at: Date.now(), task: result.task_id || '', base});
-    gsDraw();
-  } catch (error) { gsFail(form, error); }
-}
-
-function gsFail(form, error) {
-  const line = form.querySelector('[data-gs-error]');
-  line.textContent = error.message || 'That did not go through.';
-  line.hidden = false;
-  form.querySelector('[type=submit]').disabled = false;
-}
-
-function gsSent(section, html) {
-  GS_SENT = {section, html};
-  gsDraw();
-  void gsState({card: section});
-}
-
+// ---------------------------------------------------------------- "What should your bot do?"
 const gsTaskLink = (id, text) => id ? `<a href="#/task/${esc(id)}">${text}</a>` : '';
 
-// ---------------------------------------------------------------- "What should your bot do?"
 function gsBotForm() {
   const dialog = document.createElement('dialog');
   dialog.className = 'tmodal gs-form';
@@ -362,7 +209,6 @@ window.gsTourAfterSetup = async function () {
   const seen = await gsRefresh();
   if (!seen?.tour_seen) gsTourStart();
 };
-window.gsRoute = function () { gsCard(); };
 window.gsBoot = function () {
   // Someone who joins later gets the same first look, once, unless the wizard is about to run.
   void gsRefresh().then(seen => {
@@ -374,8 +220,6 @@ window.gsBoot = function () {
 // ---------------------------------------------------------------- one listener for all of it
 document.addEventListener('click', event => {
   const t = event.target;
-  const later = t.closest('[data-gs-later]');
-  if (later) { gsLaterAdd(later.dataset.gsLater); gsDraw(); return; }
   const dismiss = t.closest('[data-gs-dismiss]');
   if (dismiss) { void gsState({card: dismiss.dataset.gsDismiss}); return; }
   if (t.closest('[data-gs-build]')) { gsBotForm(); return; }
@@ -387,10 +231,4 @@ document.addEventListener('click', event => {
     SETTINGS_TAB = link.dataset.gsTab;
     if (location.hash === link.getAttribute('href')) route(); else location.hash = link.getAttribute('href');
   }
-});
-document.addEventListener('submit', event => {
-  const market = event.target.closest('[data-gs-market]');
-  if (!market) return;
-  event.preventDefault();
-  void gsSubmitMarket(market);
 });

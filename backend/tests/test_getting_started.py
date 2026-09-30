@@ -144,10 +144,9 @@ def test_a_new_bot_is_a_task_for_botops_and_needs_botops_active(environment):
 
 
 
-def test_the_market_box_is_a_task_for_the_librarian_and_the_card_stays_until_the_market_has_content(environment):
+def test_the_market_box_is_a_task_for_the_librarian(environment):
     api = environment()
     ask = {"text": "https://northwind.example\nOffice cleaning for property managers."}
-    assert body_of(api)["empty"]["market"] is True
     # The Librarian must be running: a task for a bot that is not would wait for nothing.
     refused = api.post("/api/v2/getting-started/market", json=ask, headers=signed_in())
     assert refused.status_code == 409
@@ -164,17 +163,6 @@ def test_the_market_box_is_a_task_for_the_librarian_and_the_card_stays_until_the
     assert again.status_code == 200, again.text
     titles = {row["title"] for row in api.get("/api/v2/tasks", params={"owner": "librarian"}, headers=signed_in()).json()["tasks"]}
     assert titles == {"Set up the market map", "Set up the market map (2)"}
-    # Nothing about the market is saved by asking. The card stays until an entity or a page someone
-    # wrote exists: the pages a fresh install starts with are the seed's and do not count.
-    assert body_of(api)["empty"]["market"] is True
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO market_events (id, subject_kind, subject_id, ts, actor, field, old, new, insight_id, note) "
-                  "VALUES ('e1','document','market/overview',?,'seed','created',NULL,'Overview',NULL,'')", (H.now(),))
-    assert body_of(api)["empty"]["market"] is True
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO market_events (id, subject_kind, subject_id, ts, actor, field, old, new, insight_id, note) "
-                  "VALUES ('e2','document','market/overview',?,'bot:librarian','body',NULL,'Overview',NULL,'')", (H.now(),))
-    assert body_of(api)["empty"]["market"] is False
     # Only the owner asks, and the box may not be empty.
     assert api.post("/api/v2/getting-started/market", json=ask, headers=as_person(api, "quinn")).status_code == 403
     assert api.post("/api/v2/getting-started/market", json={"text": ""}, headers=signed_in()).status_code == 422

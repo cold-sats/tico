@@ -182,19 +182,6 @@ AUDIENCE = {"owner": None,
             "human": {"signed_in", "first_output", "first_update"}}
 
 
-def empty_sections(c):
-    """Sections with nothing in them yet: their card stays until they have content or the person
-    chooses "don't show again". The market is empty until it has an entity or a page someone wrote: the
-    pages a fresh install starts with are the seed's (actor `seed`) and do not count."""
-    def none(sql):
-        return c.execute(sql).fetchone() is None
-    return {"docs": none("SELECT 1 FROM docs WHERE archived=0 LIMIT 1") and none("SELECT 1 FROM linked_docs WHERE archived=0 LIMIT 1"),
-            "market": none("SELECT 1 FROM market_entities LIMIT 1")
-            and none("SELECT 1 FROM market_events WHERE subject_kind='document' AND actor!='seed' LIMIT 1"),
-            "tasks": none("SELECT 1 FROM tasks LIMIT 1"), "updates": none("SELECT 1 FROM updates LIMIT 1"),
-            "goals": none("SELECT 1 FROM goals LIMIT 1"), "meetings": none("SELECT 1 FROM meetings LIMIT 1")}
-
-
 def view(c, who, settings, auth, github=None):
     _person(who)
     state = load_state(c, who)
@@ -207,8 +194,7 @@ def view(c, who, settings, auth, github=None):
     return {"items": items, "done": len(settled), "total": len(items),
             "complete": len(settled) == len(items), "dismissed": state["checklist"],
             "tour_seen": state["tour"], "cards_dismissed": state["cards"],
-            "can_build": auth.bot_admin(who), "owner": who.role == "owner",
-            "empty": empty_sections(c)}
+            "can_build": auth.bot_admin(who), "owner": who.role == "owner"}
 
 
 # ------------------------------------------------------------------ actions

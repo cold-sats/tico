@@ -1,9 +1,9 @@
-// Offline regression for the pieces around the wizard: there is no checklist and no intro cards; the
-// Market card files the expected API call (one box, the Librarian is asked, and a notice shows until the
-// market has content); cards close and stay closed (the server holds that per person); the bot card opens
-// the two ways in; the tour is replayable from Help,
-// traps focus, closes on Escape and works in the phone drawer. Fixtures only - no server.
-// TICO_SCREENSHOT_DIR=<dir> saves the review screenshots.
+// Offline regression for the pieces around the wizard: there is no checklist and no card above any page; an
+// empty Market page is where the owner asks for research (one box, the Librarian is asked, and a notice shows
+// until the market has content), and a quiet empty state for everyone else; the bot card opens the two ways
+// in and stays closed; the tour is replayable from Help, traps focus, closes on Escape and works in the phone
+// drawer. Fixtures only - no server.
+// TICO_SCREENSHOT_DIR=<dir> saves the review screenshots (the market's empty states in both themes, and a phone).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,6 +11,20 @@ const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, `onboarding-v2-${name}.png`)}) : null;
+// One state of the Market page, light and dark, on a desktop and a phone.
+const shotAll = async (page, name) => {
+  if (!shots) return;
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({colorScheme});
+    for (const [size, viewport] of [['desktop', {width: 1440, height: 900}], ['phone', {width: 390, height: 844}]]) {
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(150);
+      await page.screenshot({path: path.join(shots, `market-${name}-${colorScheme}-${size}.png`)});
+    }
+  }
+  await page.emulateMedia({colorScheme: null});
+  await page.setViewportSize({width: 1200, height: 800});
+};
 
 const item = (id, label, done, extra = {}) => ({id, label, done, optional: false, skipped: false, why: '', href: '', tab: '', action: '', ...extra});
 // What the server computed for a company with a computer online but no model signed in yet.
@@ -33,7 +47,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
   try {
     const context = await browser.newContext({viewport: {width: 1200, height: 800}, serviceWorkers: 'block'});
     const calls = [];
-    let items = checklist(), empty = {docs: true, market: true, tasks: true, updates: true, goals: true, meetings: true};
+    let items = checklist(), role = 'owner';
     let dismissed = {tour: true, checklist: false, cards: [], skipped: []};
     let librarianOff = false, polls = [];
     let market = {entities: [], docs: [{id: 'market/overview', title: 'Overview', seeded: true, fetched: '2026-01-01T00:00:00Z'}]};
@@ -41,7 +55,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       const rows = items.map(row => ({...row, skipped: row.optional && !row.done && dismissed.skipped.includes(row.id)}));
       const done = rows.filter(row => row.done || row.skipped).length;
       return {items: rows, done, total: rows.length, complete: done === rows.length, dismissed: dismissed.checklist,
-              tour_seen: dismissed.tour, cards_dismissed: dismissed.cards, can_build: true, owner: true, empty};
+              tour_seen: dismissed.tour, cards_dismissed: dismissed.cards, can_build: true, owner: role === 'owner'};
     };
     await context.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
@@ -53,7 +67,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       if (p.startsWith('/vendor/fonts/') && p.endsWith('.woff2')) return route.fulfill({contentType: 'font/woff2', body: fs.readFileSync(path.join(__dirname, '..', p))});
       if (p === '/api/employees') return json(bots);
       if (p === '/api/issues') return json([]);
-      if (p === '/api/me') return json({id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', cloud: true});
+      if (p === '/api/me') return json({id: 'ana', name: 'Ana', email: 'ana@acme.example', role, cloud: true});
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}]});
@@ -95,16 +109,11 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       return page;
     };
 
-    // ---- no checklist and no intro cards: Updates, Tasks and Goals open straight onto the page
+    // ---- no checklist and no card slot above any page
     let page = await open('#/updates');
     assert.equal(await page.locator('#nav-getting-started').count(), 0);
-    assert.equal(await page.locator('#gs-card').isHidden(), true);
+    assert.equal(await page.locator('#gs-card, [data-gs-card]').count(), 0);
     await page.close();
-    for (const hash of ['#/tasks', '#/goals']) {
-      page = await open(hash);
-      assert.equal(await page.locator('#gs-card').isHidden(), true);
-      await page.close();
-    }
     // The old address lands on Tasks.
     page = await open('#/getting-started');
     await page.waitForFunction(() => location.hash === '#/tasks');
@@ -140,122 +149,97 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
 
     await page.close();
 
-    // ---- Market: one box, the Librarian is asked, a notice shows until the market has content
+    // ---- Market: an empty market is the page's own empty state: one box, the Librarian is asked, and a
+    // notice shows until the market has content
     page = await context.newPage();
     await page.clock.install();
     page.on('pageerror', e => errors.push('market: ' + e.message));
     await page.goto('http://tico-ui.test/#/market');
     await ready(page);
-    await page.locator('[data-gs-card=market]').waitFor();
-    const card = page.locator('[data-gs-card=market]');
-    assert.equal(await card.locator('strong').first().textContent(), 'Research your market');
-    assert.equal(await card.locator('[data-gs-market] label span').textContent(), 'Your website, a description, or links to anything about your market');
-    assert.equal(await card.locator('[data-gs-market] textarea').count(), 1);
-    assert.equal(await card.locator('[data-gs-market] input').count(), 0);          // not four questions
-    assert.equal(await card.locator('[data-gs-market] [type=submit]').textContent(), 'Start research');
-    assert.equal(await card.locator('a[href="#/docs?import=1"]').textContent(), 'Attach files');
-    assert.equal(await card.locator('p').count() - await card.locator('p.err').count(), 0);   // no paragraphs of explanation
-    // The Overview is an empty state pointing at the card, never the seed's text.
-    assert.equal(await page.locator('#market-read').textContent(), 'Nothing here yet. Start the research above.');
-    assert.equal(await page.locator('#market-index .market-empty').count(), 0);
-    await shot(page, 'market-card');
-    await card.locator('[data-gs-market] [type=submit]').click();        // an empty box files nothing
+    const box = page.locator('#market-shell [data-market-research]');
+    await box.waitFor();
+    assert.equal(await box.locator('h1').textContent(), 'Research your market');
+    assert.equal(await box.locator('label').textContent(), 'Your website, a description, or links to anything about your market');
+    assert.equal(await box.locator('textarea').getAttribute('placeholder'), 'https://yourcompany.com');
+    assert.equal(await box.locator('textarea').count(), 1);
+    assert.equal(await box.locator('input').count(), 0);                 // not four questions
+    assert.equal(await box.locator('[type=submit]').textContent(), 'Start research');
+    assert.equal(await box.locator('a[href="#/docs?import=1"]').textContent(), 'Attach files');
+    assert.equal(await box.locator('p').count() - await box.locator('p.err').count(), 0);   // no paragraphs of explanation
+    // It fills the page: no empty graph, index or ask box, and never the seed's text.
+    assert.equal(await page.locator('#market-canvas, #market-index, #market-ask').count(), 0);
+    assert.doesNotMatch(await page.locator('#market-shell').textContent(), /None in the seed|Northwind/);
+    await shotAll(page, 'empty');
+    await box.locator('[type=submit]').click();                          // an empty box files nothing
     assert.equal(calls.filter(c => c.p.endsWith('/market')).length, 0);
     // A Librarian that is not running is said plainly, and the box keeps what was typed.
-    await card.locator('textarea').fill('https://northwind.example\nOffice cleaning for property managers.');
+    await box.locator('textarea').fill('https://northwind.example\nOffice cleaning for property managers.');
     librarianOff = true;
-    await card.locator('[type=submit]').click();
-    await page.locator('#gs-card [data-gs-error]:not([hidden])').waitFor();
-    assert.match(await page.locator('#gs-card [data-gs-error]').textContent(), /Librarian is not running/);
-    assert.equal(await card.locator('textarea').inputValue(), 'https://northwind.example\nOffice cleaning for property managers.');
+    await box.locator('[type=submit]').click();
+    await box.locator('[data-market-error]:not([hidden])').waitFor();
+    assert.match(await box.locator('[data-market-error]').textContent(), /Librarian is not running/);
+    assert.equal(await box.locator('textarea').inputValue(), 'https://northwind.example\nOffice cleaning for property managers.');
     librarianOff = false;
-    await card.locator('[type=submit]').click();
-    await page.locator('#gs-card [data-gs-researching]').waitFor();
+    await box.locator('[type=submit]').click();
+    const notice = page.locator('#market-shell [data-market-researching]');
+    await notice.waitFor();
     assert.deepEqual(calls.filter(c => c.p.endsWith('/market')).at(-1),
       {p: '/api/v2/getting-started/market', body: {text: 'https://northwind.example\nOffice cleaning for property managers.'}});
     assert.equal(calls.filter(c => c.p.endsWith('/market')).length, 2);
-    const notice = page.locator('#gs-card [data-gs-researching]');
     assert.match(await notice.textContent(), /The Librarian is researching your market\.\s+This usually takes 5–10 minutes\./);
-    assert.equal(await page.locator('#gs-card [data-gs-market]').count(), 0);
-    assert.equal(await page.locator('#gs-card a[href="#/task/t-market"]').count(), 1);
-    assert.equal(await page.locator('#gs-card [data-gs-dismiss]').count(), 0);
+    assert.equal(await page.locator('[data-market-research]').count(), 0);
+    assert.equal(await notice.locator('a[href="#/task/t-market"]').count(), 1);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('tico.market.researching')).task), 't-market');
-    await shot(page, 'market-researching');
+    await shotAll(page, 'researching');
     // The notice is kept in this browser: a reload still shows it.
     await page.reload();
-    await page.locator('#gs-card [data-gs-researching]').waitFor();
+    await notice.waitFor();
     // It polls the market every 30 seconds while it shows: two small GETs, no server change.
     const beforePolls = polls.length;
     await page.clock.fastForward(31000);
-    await page.waitForFunction(() => document.querySelector('#gs-card [data-gs-researching]'));
     await page.waitForTimeout(150);
     assert.equal(polls.length, beforePolls + 1);
-    // The market gets its first content a minute in: the page redraws, but the notice stays out its two minutes.
+    // The market gets its first content a minute in: the notice stays out its two minutes.
     market = {entities: [
       {id: 'company/cleanco', name: 'CleanCo', type: 'company', tier: 'core', aliases: [], summary: '', status: 'active'}],
       docs: [{id: 'market/overview', title: 'Overview', fetched: '2026-09-29T10:00:00Z'}]};
-    empty.market = false;
     await page.clock.fastForward(30000);
-    await page.locator('#market-index a', {hasText: 'CleanCo'}).waitFor();
-    assert.equal(await page.locator('#gs-card [data-gs-researching]').count(), 1);
-    assert.match(await page.locator('#market-read').textContent(), /Northwind sells office cleaning/);
-    // ...and goes once two minutes have passed and there is content.
+    await page.waitForTimeout(150);
+    assert.equal(polls.length, beforePolls + 2);
+    assert.equal(await notice.count(), 1);
+    // ...and goes once two minutes have passed and there is content: the normal Market page is drawn.
     await page.clock.fastForward(60000);
-    await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
+    await page.locator('#market-index a', {hasText: 'CleanCo'}).waitFor();
+    assert.match(await page.locator('#market-read').textContent(), /Northwind sells office cleaning/);
+    assert.equal(await notice.count(), 0);
     assert.equal(await page.evaluate(() => localStorage.getItem('tico.market.researching')), null);
-    assert.equal(await page.locator('#gs-card [data-gs-market]').count(), 0);
-    empty.market = true; market = {entities: [], docs: []};
+    market = {entities: [], docs: []};
     await page.close();
 
-    // The notice is only kept for thirty minutes: an old record is dropped and the card is back.
-    for (const [minutes, shows] of [[10, 'notice'], [31, 'card']]) {
+    // The notice is only kept for thirty minutes: an old record is dropped and the box is back.
+    for (const [minutes, shows] of [[10, '[data-market-researching]'], [31, '[data-market-research]']]) {
       page = await context.newPage();
       await page.addInitScript(([ago]) => localStorage.setItem('tico.market.researching', JSON.stringify({at: Date.now() - ago * 60000, task: 't-market', base: '0|'})), [minutes]);
       page.on('pageerror', e => errors.push('market-old: ' + e.message));
       await page.goto('http://tico-ui.test/#/market');
-      await page.locator(shows === 'notice' ? '#gs-card [data-gs-researching]' : '#gs-card [data-gs-market]').waitFor();
+      await page.locator('#market-shell ' + shows).waitFor();
       await page.evaluate(() => localStorage.removeItem('tico.market.researching'));
       await page.close();
     }
 
+    // Someone who is not the owner cannot ask: the empty market just says so.
+    role = 'human';
+    page = await open('#/market');
+    await page.locator('#market-shell .market-none').waitFor();
+    assert.equal(await page.locator('#market-shell').textContent(), 'Nothing here yet.');
+    assert.equal(await page.locator('[data-market-research], #market-canvas').count(), 0);
+    await shotAll(page, 'none');
+    await page.close();
+    role = 'owner';
+
     // ---- Meetings has no intro card: the page itself offers Add notes and the sources
     page = await open('#/meetings');
-    await ready(page);
-    assert.equal(await page.locator('[data-gs-card=meetings]').count(), 0);
-    assert.equal(await page.locator('#gs-card').isHidden(), true);
-    await page.close();
-
-    // ---- the X is "not now": the card comes back in a new session while the section is empty
-    page = await open('#/market');
-    await page.locator('[data-gs-card=market]').waitFor();
-    const before = calls.length;
-    await page.locator('[data-gs-later=market]').click();
-    await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    assert.equal(calls.length, before);                     // nothing is saved for a "not now"
-    await page.reload();
-    await ready(page);
-    assert.equal(await page.locator('#gs-card').isHidden(), true);   // same session: still put away
-    await page.close();
-    page = await open('#/market');                        // a new page has a new session
-    await page.locator('[data-gs-card=market]').waitFor();
-
-    // ...and it goes on its own once the section has content.
-    empty.market = false;
-    await page.reload();
-    await ready(page);
-    await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    empty.market = true;
-    await page.close();
-
-    // "Don't show again" is the one the server keeps.
-    page = await open('#/market');
-    await page.locator('[data-gs-card=market]').waitFor();
-    await page.locator('[data-gs-dismiss=market]').click();
-    await page.waitForFunction(() => document.querySelector('#gs-card').hidden);
-    assert.deepEqual(calls.at(-1), {p: '/api/v2/getting-started/state', body: {card: 'market'}});
-    await page.reload();
-    await ready(page);
-    assert.equal(await page.locator('#gs-card').isHidden(), true);
+    assert.equal(await page.locator('[data-gs-card]').count(), 0);
     await page.close();
 
     // ---- Bots: the rail offers the two ways in until closed
@@ -332,6 +316,6 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await page.close();
 
     assert.deepEqual(errors, []);
-    console.log('PASS: no checklist or intro cards; the market card files its ask, closed cards stay closed, the bot card opens both ways in; the tour traps focus.');
+    console.log('PASS: no checklist or card slot; the empty Market page files its ask and shows the notice until there is content; the bot card opens both ways in; the tour traps focus.');
   } finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -6,8 +6,8 @@ agent, and press **Create my team**. Every company gets the assistant, BotOps, t
 Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
 the moment it is placed, and BotOps sets up every other template.
 
-The wizard is the first of three pieces, all described below: the wizard, a short tour, and the Market and
-bot cards. [After the wizard](#after-the-wizard) covers the last two. To choose a first team and get the most from it, read the [onboarding guide](onboarding-guide.md).
+The wizard is the first of three pieces, all described below: the wizard, a short tour, and the bot card.
+[After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the owner asks for market research. To choose a first team and get the most from it, read the [onboarding guide](onboarding-guide.md).
 
 Nobody else sees the wizard. Only the owner may write onboarding, and the sidebar entry
 **Finish setup** appears only while it is unfinished.
@@ -126,8 +126,8 @@ The wizard is done once, by the owner. Everything after it is per person, so a t
 joins later gets the same help without the owner doing anything.
 
 ```
-wizard  ->  tour (once)  ->  Market and bot cards
-             replay: ?        until closed or filled
+wizard  ->  tour (once)  ->  bot card
+             replay: ?        until closed or a bot exists
 ```
 
 ### The tour
@@ -145,26 +145,36 @@ onboarding answers, via `POST /api/v2/getting-started/bot`. That needs BotOps ac
 a bot administrator. The task names no template, so BotOps picks the closest one
 (`playbooks/set-up-a-bot.md`).
 
-### Cards
+### The bot card
 
-Two cards remain; there is no checklist and no intro card on Updates, Tasks or Goals. The X puts a card away for
-the session; **Don't show again** is kept for that person.
+There is no checklist and no card above any page. The one card left sits in the org list while there are no bots of your
+own: **Connect a bot you already have** (the connect-an-agent dialog) or **Build one with BotOps** (the form above). Its X
+closes it for good, kept for that person.
 
-| Section | The card | What it does |
-|---|---|---|
-| Market (owner) | **Research your market**: one box for a website, a description or links to anything about the market, and **Start research** (with an **Attach files** link to the Docs import). Shown on the Market page while the market is empty | `POST /api/v2/getting-started/market` `{"text"}` files one task, "Set up the market map", to the Librarian and answers `{"task_id", "bot": "librarian"}`; `409 librarian` while the Librarian is not running. The Librarian's `playbooks/market-setup.md` researches the sources and writes the market pages and graph ([librarian.md](librarian.md)). The page then shows "The Librarian is researching your market. This usually takes 5–10 minutes." until the market has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds |
-| Bots | In the org list while there are no bots of your own: **Connect a bot you already have** (the connect-an-agent dialog) or **Build one with BotOps** (the form above) | As above |
+### An empty Market page
+
+While the market has no entity and no page someone wrote (the seed's pages do not count), the Market page is an empty state
+instead of the graph, the index and the ask box. The owner sees **Research your market**: one box for a website, a description
+or links to anything about the market, **Start research**, and an **Attach files** link to the Docs import. Everyone else sees
+"Nothing here yet."
+
+**Start research** calls `POST /api/v2/getting-started/market` `{"text"}`, which files one task, "Set up the market map", to the
+Librarian and answers `{"task_id", "bot": "librarian"}`; `409 librarian` while the Librarian is not running. The Librarian's
+`playbooks/market-setup.md` researches the sources and writes the market pages and graph ([librarian.md](librarian.md)). The page
+then shows "The Librarian is researching your market. This usually takes 5–10 minutes." with a link to the task, until the market
+has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds. Then the normal
+Market page is drawn. The code is `ui/market-page.js`.
 
 ### What is stored, and who may do what
 
 A person's choices are one row in `preferences` (key `onboarding.progress`, the same per-person store as
-`/api/v2/preferences/{key}`): tour seen and cards closed.
+`/api/v2/preferences/{key}`): tour seen and the bot card closed.
 `POST /api/v2/getting-started/state` writes only the caller's own row, and the read shows only
 the caller's own choices. Runners and bots get `403`.
 
 | Endpoint | Who |
 |---|---|
-| `GET /api/v2/getting-started` | Any person (the cards read it) |
+| `GET /api/v2/getting-started` | Any person (the bot card and the tour read it) |
 | `POST /api/v2/getting-started/state` | Any person, for themselves |
 | `POST /api/v2/getting-started/bot` | Owner or bot administrator |
 | `POST /api/v2/getting-started/market` | Owner |
