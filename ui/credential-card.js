@@ -40,7 +40,7 @@
   }
 
   function view(v, esc) {
-    if (v.status === 'saved') return `<div class="cc-done" data-status="saved">Saved. ${esc(v.env)} is set for ${esc(v.bot_name || v.bot)}.</div>`;
+    if (v.status === 'saved') return `<div class="cc-done" data-status="saved">Saved. ${esc(v.label || v.env)} is set for ${esc(v.bot_name || v.bot)}.</div>`;
     if (v.status === 'cancelled') return '<div class="cc-done" data-status="cancelled">Not now.</div>';
     const help = /^https:\/\//i.test(v.help_url || '')
       ? `<a class="cc-help" href="${esc(v.help_url)}" target="_blank" rel="noopener noreferrer">Get one</a>` : '';

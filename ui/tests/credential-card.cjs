@@ -95,7 +95,7 @@ async function open(browser, viewport, view) {
       seen.rejectFormat = false;
 
       await page.locator('[data-credential-host] button[type=submit]').click();
-      await page.getByText('Saved. JIRA_BASIC_AUTH is set for Jira Manager.').waitFor();
+      await page.getByText('Saved. your Jira login is set for Jira Manager.').waitFor();
       assert.equal(await page.locator('[data-credential-host] input').count(), 0, tag + ': the input is gone once saved');
 
       // The value went to the save route, and only there; it is nowhere on the page or in the console.
