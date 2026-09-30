@@ -1041,7 +1041,8 @@ class Runner:
                     access = tools_of(declared)
                     if access and time.monotonic() >= self._tools_after:
                         tools = declared_access.declared_tools(
-                            access, self.credential_environment(bot, {**entry["config"], "access": access, "tools": access}))
+                            access, self.credential_environment(bot, {**entry["config"], "access": access, "tools": access}),
+                            held=("GOOGLE_SA_KEY",) if mail_key.held_by_computer(self.config) else ())
                     expected = entry["config"]
                     cloud_model = expected.get("model_managed_by") == "cloud"
                     configuration_valid = (

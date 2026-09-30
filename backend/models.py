@@ -482,6 +482,7 @@ class ToolAccess(Contract):
     env: str = Field(default="", max_length=100)
     note: str = Field(default="", max_length=500)
     credential: Literal["present", "missing", "hub-vault", "not-declared"] = "not-declared"
+    held: bool = False          # present, but kept by the computer rather than in a run (the Google key on Docker)
     problem: str = Field(default="", max_length=300)
 
 

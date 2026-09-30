@@ -136,3 +136,28 @@ def test_the_bot_user_can_build_the_mail_venv_where_the_connectors_job_made_the_
     """)
     assert started.returncode == 0, started.stdout + started.stderr
     assert started.stdout.split() == ["10003:10002", "2770", "10003:10002", "2770", "mail-ok", "super-ok"], started.stdout
+
+
+def test_both_users_can_write_the_mail_database_the_connectors_job_created_and_nothing_else_widens(volume):
+    # The job (ticorun, umask 022) made mail.db, its -wal/-shm and audit.jsonl as 0644 before any turn ran:
+    # a bot's `mail.sh search` then failed with "attempt to write a readonly database".
+    seeded = docker("run", "--rm", "-u", "0", "-v", f"{volume}:/home/runner", "--entrypoint", "sh", IMAGE, "-c", """
+        set -e; cd /home/runner; : > .tico-two-user-layout; chown 10002:10002 . .tico-two-user-layout; chmod 1770 .
+        mkdir -p workspace/secrets workspace/runtime/mail
+        for f in mail.db mail.db-wal mail.db-shm mail.db-journal audit.jsonl; do echo x > workspace/runtime/mail/$f; done
+        echo x > workspace/runtime/other.txt
+        chown -R 10002:10002 workspace; chmod 755 workspace/runtime workspace/runtime/mail
+        chmod 644 workspace/runtime/mail/* workspace/runtime/other.txt
+    """)
+    assert seeded.returncode == 0, seeded.stderr
+    started = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", *CAPS,
+                     "-v", f"{volume}:/home/runner", IMAGE, "sh", "-c", """
+        cd /home/runner/workspace/runtime
+        stat -c '%a' mail/mail.db mail/mail.db-wal mail/mail.db-shm mail/mail.db-journal mail/audit.jsonl other.txt
+        setpriv --reuid=10003 --regid=10002 --clear-groups --inh-caps=-all --ambient-caps=-all \\
+          sh -c 'for f in mail.db mail.db-wal mail.db-shm mail.db-journal audit.jsonl; do echo bot >> mail/$f; done && echo bot-ok'
+        setpriv --reuid=10002 --regid=10002 --clear-groups \\
+          sh -c 'for f in mail.db mail.db-wal mail.db-shm mail.db-journal audit.jsonl; do echo sup >> mail/$f; done && echo super-ok'
+    """)
+    assert started.returncode == 0, started.stdout + started.stderr
+    assert started.stdout.split() == ["664"] * 5 + ["644", "bot-ok", "super-ok"], started.stdout

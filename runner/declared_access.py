@@ -43,8 +43,10 @@ def credential_state(entry, name, environment):
     return "present" if str(environment.get(name) or "").strip() else "missing"
 
 
-def declared_tools(access, environment):
-    """The report rows for one bot's `access:` list; [] when it is absent or malformed."""
+def declared_tools(access, environment, held=()):
+    """The report rows for one bot's `access:` list; [] when it is absent or malformed. `held` names the
+    variables this computer keeps for its bots instead of putting them in a run's environment (the Google
+    key on a Docker runner, runner/mail_key.py): such a tool is present, marked `held`."""
     if not isinstance(access, list):
         return []
     rows = []
@@ -58,6 +60,8 @@ def declared_tools(access, environment):
                "can": [text(verb, 40) for verb in can[:MAX_CAN] if text(verb, 40)],
                "scope": {k: ([text(i, 100) for i in v] if isinstance(v, list) else text(v, 200)) for k, v in scope_of(entry).items()}, "env": text(name, 100), "note": text(entry.get("note"), 500),
                "credential": credential_state(entry, name, environment)}
+        if row["credential"] == "missing" and name in held:
+            row["credential"], row["held"] = "present", True
         if "{{" in str(entry.get("identity") or ""):
             row["problem"] = "The identity is still the template placeholder"
         rows.append(row)

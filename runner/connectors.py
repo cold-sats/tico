@@ -81,6 +81,14 @@ def failure_reason(exc):
     return "error"
 
 
+def mail_umask():
+    """Where the two-user layout is on, the files the mail CLI makes in workspace/runtime/mail (mail.db and its
+    -wal/-shm/-journal, audit.jsonl) are group-writable: a message bot's own `mail.sh` writes to the same
+    database as this job, from another user in the same group. Nowhere else changes."""
+    from . import isolation
+    return {"umask": 0o002} if isolation.enabled() else {}
+
+
 class ConnectorPublisher:
     def __init__(self, config, *, client=None, fetch=None, mail=None, event=None):
         self.config = config
@@ -133,7 +141,7 @@ class ConnectorPublisher:
         result = subprocess.run([str(self.script), "upcoming", "--as", self.owner, "--for", email,
                                  "--hours", str(hours), "--json"], cwd=self.script.parents[1],
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40,
-                                env=self.mail_env())
+                                env=self.mail_env(), **mail_umask())
         if result.returncode:
             # The CLI's own error stays on this Mac; failure_reason reads it for the kind only.
             raise RuntimeError("Local calendar lookup failed: " + (result.stdout or result.stderr or "")[-400:])
@@ -154,7 +162,7 @@ class ConnectorPublisher:
         result = subprocess.run(
             [str(self.script), "connector-event", "--as", self.owner, "--json"],
             cwd=self.script.parents[1], input=json.dumps(action), capture_output=True,
-            text=True, timeout=40, env=env)
+            text=True, timeout=40, env=env, **mail_umask())
         if result.returncode:
             raise RuntimeError("Local calendar event creation failed")
         try:
@@ -198,7 +206,7 @@ class ConnectorPublisher:
             timeout = 300
         result = subprocess.run([str(self.script), *args], cwd=self.script.parents[1],
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                timeout=timeout, env=env)
+                                timeout=timeout, env=env, **mail_umask())
         if result.returncode:
             # The CLI's own error stays on this Mac; failure_reason reads it for the kind only.
             raise RuntimeError("Local mail lookup failed: " + (result.stdout or result.stderr or "")[-400:])

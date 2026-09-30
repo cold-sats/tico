@@ -64,8 +64,20 @@ def status(config):
     return "exposed" if mail_secret_path(config).is_file() else None
 
 
+def held_by_computer(config):
+    """True when this computer holds the Google key for its bots: the two-user layout is on, the key is in
+    the supervisor's state directory and the connectors job runs here (the runner supervises it when
+    TICO_SIDE_JOBS is 1, the container default). A bot's turn never has GOOGLE_SA_KEY in its environment
+    then; it asks for a short-lived token over the credential socket, so the key is there, not missing."""
+    if not isolation.enabled() or os.environ.get("TICO_SIDE_JOBS") != "1":
+        return False
+    from .connectors import mail_secret_path
+    return mail_secret_path(config).is_file()
+
+
 def minter(config, script=None):
     """(service, mailbox) -> {"token", "expiry"}: the mail CLI, run here with the key, prints one token."""
+    from .connectors import mail_umask
     script = script or ROOT / "scripts" / "mail.sh"
     key = protected_path(config)
 
@@ -74,7 +86,7 @@ def minter(config, script=None):
         env["GOOGLE_SA_KEY"] = str(key)
         result = subprocess.run([str(script), "mint-token", "--mailbox", mailbox, "--service", service],
                                 cwd=ROOT, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                timeout=60, env=env)
+                                timeout=60, env=env, **mail_umask())
         if result.returncode:
             raise RuntimeError("mint-token failed")
         return json.loads(result.stdout)

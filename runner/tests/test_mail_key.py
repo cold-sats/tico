@@ -83,3 +83,37 @@ def test_the_mail_cli_asks_the_supervisor_only_inside_an_isolated_turn(channel, 
     assert auth.supervisor_token("ana@acme.example", [auth.GMAIL_SCOPE])["token"] == "ya29.ana@acme.example"
     with pytest.raises(auth.Failure):
         auth.supervisor_token("cara@acme.example", [auth.GMAIL_SCOPE])
+
+
+def test_the_computer_holds_the_key_only_when_isolated_with_the_key_and_the_connectors_job(tmp_path, monkeypatch):
+    monkeypatch.delenv("GOOGLE_SA_KEY", raising=False)
+    monkeypatch.setenv("TICO_SIDE_JOBS", "1")
+    config = {"projects_dir": str(tmp_path / "workspace"), "state_dir": str(tmp_path / "state-r1")}
+    monkeypatch.setattr(isolation, "identity", lambda: (10003, 10002))
+    assert mail_key.held_by_computer(config) is False                       # no key on this computer
+    (tmp_path / "state-r1").mkdir()
+    (tmp_path / "state-r1" / "google-sa.json").write_text("{}")
+    assert mail_key.held_by_computer(config) is True
+    monkeypatch.setenv("TICO_SIDE_JOBS", "0")
+    assert mail_key.held_by_computer(config) is False                       # nothing runs the connectors job
+    monkeypatch.setenv("TICO_SIDE_JOBS", "1")
+    monkeypatch.setattr(isolation, "identity", lambda: None)
+    assert mail_key.held_by_computer(config) is False                       # a bot reads the key itself there
+
+
+def test_the_connectors_job_writes_group_writable_files_only_in_the_two_user_layout(monkeypatch):
+    from runner.connectors import mail_umask
+    monkeypatch.setattr(isolation, "identity", lambda: (10003, 10002))
+    assert mail_umask() == {"umask": 0o002}
+    monkeypatch.setattr(isolation, "identity", lambda: None)
+    assert mail_umask() == {}
+
+
+def test_a_mail_run_by_the_connectors_job_leaves_files_a_group_member_can_write(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    monkeypatch.setattr(isolation, "identity", lambda: (10003, 10002))
+    from runner.connectors import mail_umask
+    target = tmp_path / "mail.db"
+    subprocess.run([sys.executable, "-c", f"open({str(target)!r}, 'w').close()"], check=True, **mail_umask())
+    assert stat.S_IMODE(target.stat().st_mode) == 0o664

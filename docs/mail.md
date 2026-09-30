@@ -383,6 +383,9 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
   socket, a Gmail or Calendar access token that lasts an hour for one mailbox at a time. The mailboxes it may ask for are the
   one the bot declares (its human's own email only if it declares none), then those of the humans below that human in the
   team chart. Any other bot, and any other mailbox, is refused.
+  Because the key is not in the bot's environment, the Tools row shows `GOOGLE_SA_KEY` as "present (held by the computer)" when the
+  computer has the key and runs the `connectors` job, and as missing only when the computer has no key. The `mail.db` and
+  `audit.jsonl` files in `workspace/runtime/mail` are group-writable so the bot's `mail.sh` and the job can both write them.
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
   Health says so ("Mail key"). Keep such a computer for the message bot alone.
 - A message bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer

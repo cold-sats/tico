@@ -229,3 +229,20 @@ def test_the_tools_are_mcp_tools_too(api):
     assert err and refused["error"] == "secret"
     err, gone = mcp_call(api, "hub_tool_remove", {"bot": "ops", "id": added["tool"]["id"]})
     assert not err and gone["cancelled"] is True
+
+
+def test_a_google_key_the_computer_holds_is_present_and_a_missing_one_is_named(api):
+    configure(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    gmail = {"service": "gmail", "identity": "ana@acme.example", "can": ["read"], "env": "GOOGLE_SA_KEY"}
+    assert report(api, machine, "ops", [{**gmail, "credential": "present", "held": True}]).status_code == 200
+    tool = {t["id"]: t for t in tools_of(api)["tools"]}["gmail"]
+    assert tool["status"] == "ready" and "problem" not in tool
+    assert tool["detail"] == "GOOGLE_SA_KEY is present (held by the computer); a run gets a short-lived token, never the key"
+    assert not [i for i in get(api, "fleet/check", token="ana-test")["issues"] if i["kind"] == "missing_credential"]
+    assert report(api, machine, "ops", [{**gmail, "credential": "missing"}]).status_code == 200
+    issue = [i for i in get(api, "fleet/check", token="ana-test")["issues"] if i["kind"] == "missing_credential"]
+    assert issue and "has no Google service-account key" in issue[0]["text"] and "GOOGLE_SA_KEY is not set" not in issue[0]["text"]
+    tool = {t["id"]: t for t in tools_of(api)["tools"]}["gmail"]
+    assert tool["status"] == "problem" and tool["problem"] == "Test Mac has no Google service-account key (google-sa.json in its state directory)"

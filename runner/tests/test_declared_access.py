@@ -7,6 +7,7 @@ secrets (backend/bot_tools.py turns it into the Tools row on the bot's page).
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from runner import declared_access
@@ -71,6 +72,16 @@ class DeclaredAccess(unittest.TestCase):
         self.assertEqual((tools["slack"]["credential"], tools["slack"]["scope"]), ("hub-vault", {"channels": ["#ops", "#launch"]}))
         self.assertEqual(tools["gmail"]["credential"], "missing")
         self.assertIn("template placeholder", tools["gmail"]["problem"])
+
+    def test_a_key_the_computer_holds_is_present_and_marked_held(self):
+        (self.projects / "emp-atlas" / "employee.yaml").write_text(
+            "name: atlas\naccess:\n  - service: gmail\n    identity: ana@acme.example\n    can: [read]\n    env: GOOGLE_SA_KEY\n"
+            "  - service: posthog\n    can: [read]\n    env: POSTHOG_KEY_2\n")
+        for held, expected in ((("GOOGLE_SA_KEY",), ("present", True)), ((), ("missing", None))):
+            with mock.patch("runner.service.mail_key.held_by_computer", return_value=bool(held)):
+                tools = {row["service"]: row for row in self.report()["bots"]["atlas"]["tools"]}
+            self.assertEqual((tools["gmail"]["credential"], tools["gmail"].get("held")), expected)
+            self.assertEqual(tools["posthog"]["credential"], "missing")         # only the Google key is held
 
     def test_no_value_leaves_the_computer(self):
         text = json.dumps(self.report())

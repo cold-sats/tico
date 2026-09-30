@@ -66,6 +66,16 @@ separate_users() {
   if [ ! -L "$mail_runtime" ] && [ ! -L "$mail_runtime/mail" ]; then
     mkdir -p "$mail_runtime/mail" && chown "$BOT_UID:$SUPERVISOR_GID" "$mail_runtime" "$mail_runtime/mail" \
       && as_bot chmod 2770 "$mail_runtime" "$mail_runtime/mail"
+    # The files in it too: the job wrote mail.db and audit.jsonl as ticorun with umask 022 (0644), so a bot's
+    # `mail.sh search` failed with "attempt to write a readonly database". Both users need to write them
+    # (mail.db and its -wal/-shm/-journal, audit.jsonl). Root has no CAP_FOWNER here, so the mode is set by
+    # whichever of the two owns the file. Nothing outside this folder changes.
+    local mail_file
+    for mail_file in "$mail_runtime"/mail/mail.db "$mail_runtime"/mail/mail.db-* "$mail_runtime"/mail/audit.jsonl; do
+      if [ -f "$mail_file" ] && [ ! -L "$mail_file" ]; then
+        as_supervisor chmod g+rw "$mail_file" 2>/dev/null || as_bot chmod g+rw "$mail_file" 2>/dev/null || true
+      fi
+    done
   fi
   # The Codex login lives in the bot user's setgid, group-writable home, so `codex login` as `bot` works and the
   # supervisor can still read the 0600 files Codex leaves there (`codex login status`, the model list).

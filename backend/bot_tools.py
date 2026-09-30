@@ -130,8 +130,12 @@ def _declared_tool(entry, used, label):
     service = str(entry.get("service") or "")
     env, credential = entry.get("env") or "", entry.get("credential") or "not-declared"
     status, problem, detail = "unknown", entry.get("problem") or "", ""
-    if credential == "present":
+    if credential == "present" and entry.get("held"):
+        status, detail = "ready", f"{env} is present (held by the computer); a run gets a short-lived token, never the key"
+    elif credential == "present":
         status, detail = "ready", f"{env} is set on {label}"
+    elif credential == "missing" and env == "GOOGLE_SA_KEY":
+        status, problem = "problem", problem or f"{label} has no Google service-account key (google-sa.json in its state directory)"
     elif credential == "missing":
         status, problem = "problem", problem or f"Credential missing on {label}"
     elif credential == "hub-vault":
