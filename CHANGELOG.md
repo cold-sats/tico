@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-09-30
+
+### Fixed
+- A credential shared with a bot through Credentials counts as present in the bot's Tools row, Health and `hub tool list`
+  ("granted through the credential vault"). It showed as missing, although the bot's runs received it.
+- Creating bot repositories follows the GitHub App installation's live Administration permission. Turning it on in GitHub
+  (and accepting it for the organisation) is enough; Tico no longer needs GitHub reconnected. The Tools GitHub card says whether
+  Tico can create repositories.
+
 ## [0.2.28] - 2026-09-30
 
 Connect tools and copy bots.
