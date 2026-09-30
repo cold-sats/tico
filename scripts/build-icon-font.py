@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Rebuild the Material Symbols Outlined subset the UI ships.
 
-Scans ui/index.html and ui/*.js for icon names, writes them to ui/vendor/fonts/icons.txt and
-downloads a woff2 that holds just those glyphs from Google Fonts. Run it after adding an icon:
+Scans ui/index.html and ui/*.js for icon names, adds the `icon:` of every catalog card
+(templates/catalog/*/card.yaml) and department (templates/departments.yaml), writes them to
+ui/vendor/fonts/icons.txt and downloads a woff2 that holds just those glyphs from Google Fonts. Run it
+after adding an icon or a template:
 
     python3 scripts/build-icon-font.py          # rescan and download
     python3 scripts/build-icon-font.py --check  # rescan only; exit 1 if icons.txt is stale
@@ -40,6 +42,21 @@ PATTERNS = [
 ]
 
 
+TEMPLATES = ROOT / "templates"
+# `icon: name` on its own line in a card or in templates/departments.yaml.
+YAML_ICON = re.compile(r"^\s*(?:-\s+)?icon:\s*['\"]?(%s)['\"]?\s*(?:#.*)?$" % NAME, re.M)
+
+
+def template_icons():
+    """The icons the catalog and the departments name, which the UI shows next to each bot and department."""
+    files = sorted(TEMPLATES.glob("catalog/*/card.yaml")) + [TEMPLATES / "departments.yaml"]
+    found = set()
+    for path in files:
+        if path.is_file():
+            found.update(YAML_ICON.findall(path.read_text(encoding="utf-8")))
+    return found
+
+
 def sources():
     files = [UI / "index.html"] + sorted(UI.glob("*.js"))
     return [f for f in files if f.is_file()]
@@ -59,7 +76,7 @@ def used_icons():
                     found.update(re.findall(rx % NAME, m.group(1)))
             else:
                 found.update(pat.findall(text))
-    return sorted(found)
+    return sorted(found | template_icons())
 
 
 def css_url(icons):

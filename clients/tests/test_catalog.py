@@ -3,6 +3,7 @@
 Nothing here talks to a server. The catalog is a temporary directory holding one card, which is
 what `TICO_CATALOG_DIR` is for, so these tests say nothing about which bots the product ships.
 """
+import functools
 import json
 import os
 import subprocess
@@ -113,6 +114,14 @@ class Materialize(unittest.TestCase):
 
 
 PACKS = ("basics", "sales", "marketing", "support", "operations", "engineering")
+# templates/departments.yaml: the departments onboarding offers, in order, and the extras it does not offer.
+DEPARTMENTS = ("sales", "marketing", "support", "finance", "operations", "legal", "hr", "product", "engineering")
+# `pack` is the older six-team grouping the chooser still reads; it follows the department.
+PACK_OF = {"sales": "sales", "marketing": "marketing", "support": "support", "operations": "operations", "finance": "basics",
+           "legal": "basics", "hr": "basics", "leadership": "basics", "product": "engineering", "engineering": "engineering"}
+SUGGEST = ("default", "common", "niche")
+# The icons the UI's subset font holds (scripts/build-icon-font.py adds every card's and department's icon to it).
+ICONS = set((catalog.ROOT / "ui/vendor/fonts/icons.txt").read_text().split())
 # The tags backend/onboarding.py derives from a company's answers, and the tools a prerequisite may name.
 TAGS = {"always", "sells_to_businesses", "sells_to_consumers", "sells_software", "small_team", "uses_email", "uses_slack", "uses_crm",
         "uses_tickets", "has_support_inbox", "uses_github", "uses_meetings", "uses_docs", "has_pipeline", "publishes_content",
@@ -120,9 +129,15 @@ TAGS = {"always", "sells_to_businesses", "sells_to_consumers", "sells_software",
 TOOLS = {"hub", "mail", "chat", "crm", "github", "meetings", "calendar", "docs", "web"}
 
 
+@functools.lru_cache(maxsize=None)
+def read_catalog(directory):
+    """Every card once, by template name: the checks below look cards up a hundred times."""
+    return {card["template"]: card for card in catalog.cards(directory)}
+
+
 def starters(directory):
     """Every template a company can pick: all but the built-ins the platform always creates."""
-    return sorted(card["template"] for card in catalog.cards(directory) if not card.get("required") and not card.get("bootstrap"))
+    return sorted(name for name, card in read_catalog(directory).items() if not card.get("required") and not card.get("bootstrap"))
 
 
 class StarterBots(unittest.TestCase):
@@ -133,25 +148,51 @@ class StarterBots(unittest.TestCase):
 
     def test_every_template_is_complete_and_draft_first(self):
         names = starters(self.directory)
-        self.assertGreaterEqual(len(names), 25)
+        self.assertGreaterEqual(len(names), 90)
         for name in names:
             with self.subTest(template=name):
                 self.check(name)
 
-    def test_every_pack_has_one_lead_and_no_pain_phrase_is_offered_twice(self):
-        cards = [catalog.card(name, self.directory) for name in starters(self.directory)]
-        for pack in PACKS:
-            leads = [card["template"] for card in cards if card.get("pack") == pack and card.get("lead") is True]
-            self.assertEqual(len(leads), 1, f"pack {pack} needs exactly one `lead: true` card, has {leads}")
-        self.assertEqual([card["template"] for card in cards if card.get("pack") == "basics" and card.get("lead")], ["chief-of-staff"])
+    def test_every_department_has_its_head_and_no_pain_phrase_is_offered_twice(self):
+        """templates/departments.yaml names each department's head; that card is the department's only `lead: true`, and
+        its `team_templates` are the rest of the department."""
+        cards = [read_catalog(self.directory)[name] for name in starters(self.directory)]
+        document = yaml.safe_load((catalog.ROOT / "templates/departments.yaml").read_text())
+        departments, extras = document["departments"], document.get("extras") or []
+        self.assertEqual([row["id"] for row in departments], list(DEPARTMENTS))
+        for row in departments:
+            for field in ("name", "description", "goal", "question", "placeholder"):
+                self.assertTrue(isinstance(row.get(field), str) and row[field].strip(), f"department {row['id']}: {field}")
+            self.assertIs(row.get("software_only", False), row["id"] in ("product", "engineering"), row["id"])
+        for row in departments + extras:
+            self.assertIn(row["icon"], ICONS, f"department {row['id']}: icon")
+            members = {card["template"]: card for card in cards if card["department"] == row["id"]}
+            leads = [name for name, card in members.items() if card.get("lead") is True]
+            self.assertEqual(leads, [row["head"]], f"department {row['id']} needs exactly one `lead: true` card, its head")
+            self.assertEqual(sorted(members[row["head"]]["team_templates"]), sorted(set(members) - {row["head"]}),
+                             f"{row['head']}: team_templates are the rest of department {row['id']}")
+        known = {row["id"] for row in departments + extras}
+        self.assertFalse({card["department"] for card in cards} - known, "a card names a department not in departments.yaml")
+        self.assertEqual([card["template"] for card in cards if "always" in card["recommend_when"]], ["chief-of-staff"])
         phrases = [phrase.lower() for card in cards for phrase in card["pains"]]
         self.assertEqual(len(phrases), len(set(phrases)), "a pain phrase belongs to one template")
 
+    def test_every_card_and_built_in_has_an_icon_the_ui_font_holds(self):
+        for card in read_catalog(self.directory).values():
+            self.assertIn(card.get("icon"), ICONS, f"template {card['template']}: icon")
+
     def check(self, name):
         folder, where = self.directory / name, f"template {name}"
-        card = catalog.card(name, self.directory)
+        card = read_catalog(self.directory).get(name)
         self.assertTrue(card, where)
         self.assertIn(card.get("pack"), PACKS, where)
+        # What the org builder groups, pictures and pre-checks by (templates/departments.yaml).
+        self.assertIn(card.get("department"), PACK_OF, f"{where}: department")
+        self.assertEqual(card["pack"], PACK_OF[card["department"]], f"{where}: pack follows the department")
+        self.assertIn(card.get("icon"), ICONS, f"{where}: icon {card.get('icon')!r} is not in ui/vendor/fonts/icons.txt")
+        self.assertIn(card.get("suggest"), SUGGEST, f"{where}: suggest")
+        self.assertTrue(card.get("tags") and all(isinstance(t, str) and t == t.lower() and len(t) <= 24 for t in card["tags"]),
+                        f"{where}: tags")
         for field in ("pains", "owns", "never", "approval_required"):
             self.assertTrue(card.get(field) and all(isinstance(x, str) for x in card[field]), f"{where}: {field}")
         self.assertTrue(3 <= len(card["pains"]) <= 6 and all(len(x) <= 90 for x in card["pains"]), f"{where}: pains")
@@ -162,8 +203,6 @@ class StarterBots(unittest.TestCase):
         self.assertTrue(40 <= len(first) <= 185, f"{where}: the first sentence of the summary is {len(first)} characters")
         self.assertNotRegex(summary, r"(?i)fits how you|\btidy\b", where)
         self.assertTrue(card["recommend_when"] and set(card["recommend_when"]) <= TAGS, f"{where}: recommend_when")
-        if name != "chief-of-staff":
-            self.assertNotIn("always", card["recommend_when"], f"{where}: only Chief of Staff is for every company")
         for need in card["prerequisites"]:
             self.assertTrue(need["tool"] in TOOLS and need["why"] and isinstance(need["required"], bool), where)
         self.assertTrue(any(need["required"] for need in card["prerequisites"]), where)

@@ -25,7 +25,7 @@ The docs have two parts, and `hub docs` reads both:
 - Refreshing that map every day, and when asked: `playbooks/refresh-the-map.md`.
 - The first market map, when the owner asks for it on the Market page: `playbooks/market-setup.md`. It
   researches what the owner gave (a website, a description, links) and writes the market pages and graph
-  (`hub market`). The Market Analyst, if there is one, keeps it current afterwards.
+  (`hub market`). The Market Research Analyst, if there is one, keeps it current afterwards.
 - `_librarian/missing.md` (what the docs could not answer), `_librarian/faq-log.md` (what was asked and
   answered) and `FAQ.md` (what keeps being asked): `playbooks/faq-and-gaps.md`.
 
