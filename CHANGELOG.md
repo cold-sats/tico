@@ -7,6 +7,35 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-09-30
+
+Connect tools and copy bots.
+
+### Added
+- **MCP servers as a bot tool.** A bot's `tools:` can declare a vendor's remote MCP server (`mcp: {url, transport, headers}`);
+  `${VAR}` in headers is filled only from credentials granted to that bot. The runner hands them to Claude Code, Codex, Gemini CLI
+  and Grok Build next to Tico's own server (Cursor, Antigravity and pi show a warning instead). The Tools tab, `hub tool list` and
+  readiness show each server as reachable, auth failed or unreachable; `hub tool add|update` take `--mcp-url`, `--transport` and
+  `--header`. Bots use API tokens, never OAuth sign-ins that expire: docs/connect-tools.md says, for Jira, Linear, PostHog, Sentry
+  and Trello, whether the vendor's MCP server takes a token or the bot should use its REST API.
+- **Copy a bot.** "Copy Steven's backend-reviewer for me" makes an independent bot you own, with the original's instructions,
+  skills and tools (no credentials; its notes only if you ask). "Update my copy from the original" merges later changes; "suggest
+  this to the original" opens a pull request or a task for its owner. `hub bot copy|update-from-original|suggest-to-original`. The
+  original's repository is fetched read-only from GitHub when it lives on another computer.
+- **Copy a skill** between bots: `hub skill copy <skill> --from <bot> --to <bot>...`, or ask BotOps.
+- **Slack channels in Settings** (Settings → Tools → Slack, `hub slack channel`, or BotOps): which channels bots may read and post
+  in is stored in Tico, not in `registry/slack-channels.yaml`; an existing file is imported once.
+- Every run's prompt names `hub conversation show` and how to page back; `hub conversation show` returns `has_more` and
+  `next_before` (@cold-sats, #9).
+
+### Fixed
+- Linux runners installed from a checkout get systemd user units and update themselves (`scripts/tico install` once); Settings says
+  so when a checkout runner has no supervisor.
+- Browser and Slack connectors find bot repositories through `TICO_PROJECTS_DIR` (@cold-sats, #10), and refuse a bot name that is
+  not a single folder name.
+- Hermes `doctor` warns when the profile's gateway is not running (it runs scheduled jobs only then) and names chat services that
+  bypass Tico's rules.
+
 ## [0.2.27] - 2026-09-30
 
 ### Added
