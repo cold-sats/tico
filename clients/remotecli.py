@@ -315,7 +315,8 @@ def run(args, who=None):
         return client.get("listening/stats", since=args.since)
     if fn == "conversation show":
         page = client.get(f"conversations/{args.conversation}/messages", before=args.before, since=args.since)
-        return {"conversation": page.get("conversation"), "messages": page.get("messages", [])}
+        return {"conversation": page.get("conversation"), "messages": page.get("messages", []),
+                "has_more": bool(page.get("has_more")), "next_before": page.get("next_before")}
     if cmd == "routine":
         bot = getattr(args, "bot", None) or actor.split(":", 1)[-1]
         if sub == "list":

@@ -204,8 +204,10 @@ routines resume it in the same local `bot-<slug>` checkout, and only that Mac kn
 it is. Tico never ends a thread, never asks the bot for a checkpoint before a model or computer
 change, and never rebuilds history into a prompt: when the conversation fills the model's window
 the runtime compacts it, and a run carries only what the room said since the bot last answered.
-A bot that wants what was said before reads it with `hub conversation show <conversation id>` (the prompt
-names the conversation). The runner fast-forwards the checkout from origin before the run, and
+A bot that wants what was said before reads it with `hub conversation show <conversation id>`: the
+newest 200 messages, then `--before <next_before>` for each older page. Every run's prompt names the
+conversation and that command, because a compacted session, or one on a new model, no longer holds
+all of it. The runner fast-forwards the checkout from origin before the run, and
 pulls or clones any `reads:` sibling repos beside it.
 
 **A bot needs you.** It asks with `hub task ask` (the task goes `waiting`), requests an approval,

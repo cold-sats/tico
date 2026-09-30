@@ -153,6 +153,9 @@ class Stub(BaseHTTPRequestHandler):
             return self.reply(200, {"owner": "bot:coo", "goals": [{"id": "G1"}], "chain": [], "reports": [], "company": []})
         if self.path == "/api/v2/goals/G1":
             return self.reply(200, {"goal": {"id": "G1", "status": "green", "kpis": []}})
+        if self.path == "/api/v2/conversations/C1/messages":
+            return self.reply(200, {"conversation": {"id": "C1"}, "messages": [{"id": "M2"}, {"id": "M3"}],
+                                    "has_more": True, "next_before": "M2"})
         if self.path.startswith("/api/v2/kpis/K1/readings"):
             return self.reply(200, {"kpi": {"id": "K1"}, "readings": [{"value": 17.0}], "query": self.path.partition("?")[2]})
         if self.path.startswith("/api/v2/kpis?"):
@@ -258,6 +261,12 @@ class AgainstAStub(unittest.TestCase):
         self.assertEqual(out["status"], "done")
         posted = next(b for m, p, _, b in Stub.seen if m == "POST")
         self.assertEqual((posted["version"], posted["status"], posted["note"]), (3, "done", "shipped"))
+
+    def test_conversation_show_says_when_there_is_an_older_page_and_where_it_starts(self):
+        # Without these a bot reading back a long conversation takes the newest 200 for all of it.
+        code, out = run_hub("conversation", "show", "C1", env=self.env)
+        self.assertEqual(code, 0, out)
+        self.assertEqual((out["has_more"], out["next_before"]), (True, "M2"))
 
     def test_goal_and_kpi_commands_send_what_the_routes_take(self):
         def sent(*args):

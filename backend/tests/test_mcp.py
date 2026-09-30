@@ -94,6 +94,7 @@ def test_tools_write_through_the_same_rules_as_http(api):
     err, page = call(api, "hub_conversation_show", {"conversation": msg["conversation_id"]}, token=token)
     assert not err and page["conversation"]["id"] == msg["conversation_id"]
     assert [m["body"] for m in page["messages"]][0] == msg["body"]
+    assert (page["has_more"], page["next_before"]) == (False, None)
 
     # A bot sets up its own routine; the same key is the same routine.
     err, routine = call(api, "hub_routine_set", {"key": "audit", "title": "Daily audit", "cron": "0 7 * * 1-5",
