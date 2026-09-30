@@ -10,7 +10,7 @@ is a short answer with the numbers behind it.
 
     hub task show <id>
 
-Which items, which period, and what decision the person is about to make. If a promotion or season is
+Which items, which period, and what decision the human is about to make. If a promotion or season is
 involved, ask for the expected uplift once; do not invent one.
 
 ## 2. Run the numbers

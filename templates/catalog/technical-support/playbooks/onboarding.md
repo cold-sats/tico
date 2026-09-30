@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, one real investigation, a first tier
@@ -18,7 +18,7 @@ whether GitHub is in your access. Do not ask what these already show.
 ## 2. Introduce yourself in three lines
 
 What you do (investigate the tickets frontline cannot solve, reproduce them, write bug reports and
-workarounds), that a person approves every customer reply and files every bug, and that you never touch
+workarounds), that a human approves every customer reply and files every bug, and that you never touch
 a customer's account.
 
 ## 3. Ask, in one message
@@ -46,10 +46,10 @@ Run `playbooks/investigate-a-ticket.md` on the oldest open technical ticket, the
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this report every Thursday at 09:00." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Thursday at 09:00." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -57,6 +57,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

@@ -1,9 +1,9 @@
 # Chase open actions
 
-Triggered by a person asking "what is still open?", by a project's status meeting, or by a task that
+Triggered by a human asking "what is still open?", by a project's status meeting, or by a task that
 names a project. Budget 20 minutes. The outcome is one status page for the project or the week: what
 is done, what is late, what is at risk, and a chase ready for each late owner. Nobody is chased until
-a person approves.
+a human approves.
 
 ---
 
@@ -26,7 +26,7 @@ milestone is at risk when any action it depends on is late; name that action.
 
 For each late row, one internal message to its owner: the item, the meeting it came from with the
 quote, the date it was due, and one question ("new date?" or "blocked on whom?"). Never more than one
-chase per owner per week; a second late week goes to the person who ran the meeting instead.
+chase per owner per week; a second late week goes to the human who ran the meeting instead.
 
 ## 4. Write the page
 

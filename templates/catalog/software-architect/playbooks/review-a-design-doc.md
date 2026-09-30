@@ -25,7 +25,7 @@ problem, that is the first finding.
 - **Data:** ownership, migration and backfill, what happens to existing records, rollback.
 - **Failure:** what happens when a dependency is slow or down; limits and retries.
 - **Operations:** how it is deployed, observed and turned off; who is paged.
-- **Security and privacy:** new data collected, new external calls, new secrets (flag to the Security Engineer).
+- **Security and privacy:** new data collected, new external calls, new credentials (flag to the Security Engineer).
 - **Cost and reversibility:** is this a one-way door? If so, it needs the most scrutiny.
 
 ## 4. Write the notes

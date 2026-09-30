@@ -1,6 +1,6 @@
 # Weekday review queue
 
-Schedule: weekdays at 09:00 company time (routine `weekday-review-queue`), once a person has approved the
+Schedule: weekdays at 09:00 team time (routine `weekday-review-queue`), once a human has approved the
 first queue. Also run by hand on request. Budget 45 minutes. The outcome is one page: the open pull requests
 ordered by what needs a reviewer, with a draft review for each. Nothing is posted and nothing on GitHub changes.
 
@@ -22,7 +22,7 @@ days, changed lines, files touched, review state and whether checks pass.
 
 ## 3. Order the queue
 
-1. Pull requests in a risky path from `knowledge/standards.md`, with the person who must review them.
+1. Pull requests in a risky path from `knowledge/standards.md`, with the human who must review them.
 2. Pull requests waiting longest with no review.
 3. Small, green pull requests ready to be merged after one look.
 4. Pull requests over the team's size line, flagged "too large to review well".

@@ -7,17 +7,17 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: medium
 max_run_minutes: 45
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
 # the bot puts every draft on the task and asks for an approval.
 outbound_send: false
 
-# The first routine is declared off (`enabled: false`) and switched on when a person starts the bot's setup
-# (Start setup, go-live). `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+# The first routine is declared off (`enabled: false`) and switched on when a human starts the bot's setup
+# (Start setup, go-live). `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
 schedules:
   - id: weekly-feedback-report
     title: Weekly feedback report
     cron: "0 8 * * 1"
-    timezone: America/Los_Angeles     # set this to the company's own timezone
+    timezone: America/Los_Angeles     # set this to the team's own timezone
     template: playbooks/weekly-feedback-report.md
     labels: [priority:p2]
     enabled: false
@@ -26,7 +26,7 @@ schedules:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # Feedback arrives as tasks, pasted exports and the reports other bots publish. Optional, uncomment what
-# the onboarding says is connected. Read only, always: it never contacts a customer.
+# the setup says is connected. Read only, always: it never contacts a customer.
 # access:
 #   - service: gmail
 #     identity: "support@example.com"
@@ -34,7 +34,7 @@ schedules:
 #     env: GOOGLE_SA_KEY
 #     note: "reads support threads for feedback themes; never drafts, files or sends"
 #   - service: slack
-#     identity: the company workspace
+#     identity: the team workspace
 #     can: [read]
 #     channels: [feedback]
 #     dms: false
@@ -43,5 +43,5 @@ schedules:
 #   - service: public-web
 #     identity: "Unauthenticated public sources"
 #     can: [read]
-#     note: "reads public reviews of the company when a person points at them; no forms, no accounts"
+#     note: "reads public reviews of the team when a human points at them; no forms, no accounts"
 access: []

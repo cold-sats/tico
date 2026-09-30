@@ -1,6 +1,6 @@
 # Weekly purchase requests digest
 
-Schedule: Mondays at 09:00 company time (routine `weekly-purchase-digest`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-purchase-digest`), once a human has approved
 the first digest. Also run by hand on request. Budget 25 minutes. The outcome is one page: every open
 request, where it stands, what blocks it and when it must be decided. Nothing is sent to a vendor.
 
@@ -15,14 +15,14 @@ last week's digest, `knowledge/criteria.md` and each request's conversation with
 
 ## 2. Place each request in a stage
 
-Requested, must-haves agreed, vendors shortlisted, quotes requested (by a person), comparison drafted,
+Requested, must-haves agreed, vendors shortlisted, quotes requested (by a human), comparison drafted,
 waiting on the approver, decided. For each: the requester, the amount if known, the decide-by date, the
 one thing that blocks it, and who owns that step. A request with no movement for 14 days is "stalled".
 
 ## 3. Advance what you can
 
 For a request without a comparison, start `playbooks/compare-vendors.md` at once, at most two per run.
-For a request waiting on a quote, draft the follow-up in the digest for a person to send. Renewals
+For a request waiting on a quote, draft the follow-up in the digest for a human to send. Renewals
 inside 60 days that the FP&A Analyst (`spend-watcher`) listed are noted with their decide-by date; you do not decide them.
 
 ## 4. Write and hand over

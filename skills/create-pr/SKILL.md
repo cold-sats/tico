@@ -5,15 +5,15 @@ description: Open a draft pull request for the current branch against the repo's
 
 # Create a pull request
 
-Shared procedure for a company's dev bots and for people's own Claude Code sessions, where it is `/tico:create-pr`. The output is one DRAFT PR and its URL. A human reviews and merges. You do not.
+Shared procedure for a team's dev bots and for humans' own Claude Code sessions, where it is `/tico:create-pr`. The output is one DRAFT PR and its URL. A human reviews and merges. You do not.
 
-This file lives in the hub, at `$HUB_DIR/skills/create-pr/SKILL.md`, so every bot has it in every run. A `reads:` sibling is on disk only in a chat turn; `$HUB_DIR` is set in a routine run too. The hub owner owns what it says: change it here, nowhere else, and no bot needs another bot's repo to open a pull request.
+This file lives in Tico, at `$HUB_DIR/skills/create-pr/SKILL.md`, so every bot has it in every run. A `reads:` sibling is on disk only in a chat run; `$HUB_DIR` is set in a routine run too. Tico's owner owns what it says: change it here, nowhere else, and no bot needs another bot's repo to open a pull request.
 
-People's own sessions (threads) get this same file from the `tico` plugin (the README, "Skills in your own Claude Code"). There `$HUB_DIR` is not set: the hub is two folders up from this skill.
+Humans' own sessions (threads) get this same file from the `tico` plugin (the README, "Skills in your own Claude Code"). There `$HUB_DIR` is not set: Tico is two folders up from this skill.
 
 ## Per-repo facts
 
-Each company keeps one row per repository it opens pull requests against. Replace the example rows; keep the columns.
+Each team keeps one row per repository it opens pull requests against. Replace the example rows; keep the columns.
 
 | Repo | Base branch | Title tag | Cheap checks (scoped to the files you changed) |
 |---|---|---|---|
@@ -97,11 +97,11 @@ hub task create --owner <reviewer> --title "Review: <PR title>" \
   --body "<PR URL>. Done when: <the acceptance line from the task or issue>."
 ```
 
-`<reviewer>` is the reviewer bot the company assigned to that repo (for example `backend-reviewer` or
+`<reviewer>` is the reviewer bot the team assigned to that repo (for example `backend-reviewer` or
 `frontend-reviewer`). The reviewer fixes mechanical
 things itself on your branch as a "Review fixes" commit and sends back only design-level changes,
 each with a one-line reason; address those, push, and update the review task with `--note`.
 Never mark the PR ready yourself; a human merges.
 
 In a thread there is no `hub`: file the same task, with the same owner, title and body, through Bot
-Desk's `create_task` tool, unless the person has said they will get it reviewed themselves.
+Desk's `create_task` tool, unless the human has said they will get it reviewed themselves.

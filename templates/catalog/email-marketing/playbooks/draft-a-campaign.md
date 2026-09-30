@@ -39,5 +39,5 @@ sender's to check. You cannot verify these and never mark one done.
 ## 5. Hand over
 
 Commit, then `hub task update <id> --status done --note`: the email in one line, the folder, the gaps
-to fill and the checklist items open. To have it sent, a person loads it; or `hub approval request
+to fill and the checklist items open. To have it sent, a human loads it; or `hub approval request
 --kind send` with the exact text, audience and sender. You never send.

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme tier 2 report, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-software company. Every ticket, issue and name is invented.
+Sample output for Acme, a fictional studio-software team. Every ticket, issue and name is invented.
 No reply has been sent and no issue filed. First draft, not yet reviewed.
 
 **Headline: 9 tier 2 tickets open (3 waiting on engineering); the calendar-sync timezone bug caused 5 tickets this month and has no fix date.**

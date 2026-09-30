@@ -1,6 +1,6 @@
 # Weekly release notes draft
 
-Schedule: Fridays at 14:00 company time (routine `weekly-release-notes`), once a person has approved the
+Schedule: Fridays at 14:00 team time (routine `weekly-release-notes`), once a human has approved the
 first draft. Also run by hand for a named release. Budget 40 minutes. The outcome is one draft: a suggested
 version, a changelog entry and plain-language notes, plus the changes you could not classify. Nothing is
 published and no tag is pushed.
@@ -39,14 +39,14 @@ semantic versioning, suggest a date-based name in its own style.
 1. **Suggested version and date range**, and the one change a user will notice most.
 2. **Changelog entry**, in the repository's own CHANGELOG format, each line ending with its pull request link.
 3. **Customer-facing notes**, plain language, in the voice in `knowledge/voice.md`, no internal names.
-4. **Could not classify**: pull request, why, the question for a person.
+4. **Could not classify**: pull request, why, the question for a human.
 5. **Left out**: counts by reason.
 Then `hub files publish reports/YYYY-MM-DD-release-notes.md`.
 
 ## 6. Finish
 
 Commit, then `hub task update <id> --status done --note`: the suggested version and why, changes included,
-changes unclassified, and which repository you could not read. Publishing is a person's step.
+changes unclassified, and which repository you could not read. Publishing is a human's step.
 
 ## When a source fails
 

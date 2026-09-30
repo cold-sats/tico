@@ -1,6 +1,6 @@
 # Weekly dependency and advisory report
 
-Schedule: Mondays at 08:00 company time (routine `weekly-security-report`), once a person has approved the
+Schedule: Mondays at 08:00 team time (routine `weekly-security-report`), once a human has approved the
 first report. Also run by hand. Budget 45 minutes. The outcome is one page: what to patch first and why, in
 the order to merge it. Nothing is dismissed, merged or changed.
 
@@ -16,7 +16,7 @@ whether last week's plan was merged (`gh pr list -R <repo> --state merged --sear
 ## 2. Collect the alerts
 
 For each repository in scope: open Dependabot pull requests and the advisories they name, plus any
-advisory a person handed you on a task. For each: package, installed and fixed versions, GHSA or CVE, the
+advisory a human handed you on a task. For each: package, installed and fixed versions, GHSA or CVE, the
 advisory's severity.
 
 ## 3. Rank each one
@@ -26,7 +26,7 @@ high EPSS probability (0.1 or more) and reachable on an internet-facing service.
 critical and reach unknown. Tier 3: everything else, including dev-only and test-only packages. Each line
 carries its reason.
 
-## 4. Check for committed secrets
+## 4. Check for committed credentials
 
 Search open pull requests' diffs and the default branch for credential patterns (private keys, cloud and
 API tokens, `.env` files) in a read-only clone. Report each by file, commit and credential kind only, and

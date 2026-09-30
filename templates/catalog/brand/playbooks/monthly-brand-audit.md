@@ -1,6 +1,6 @@
 # Monthly brand consistency audit
 
-Schedule: the 1st of each month at 10:00 company time (routine `monthly-brand-audit`), once a person
+Schedule: the 1st of each month at 10:00 team time (routine `monthly-brand-audit`), once a human
 has approved the first audit. Also run by hand. Budget 45 minutes. The outcome is one page: how
 consistent last month's public work was, and the three fixes that matter most. Nothing is edited.
 
@@ -17,7 +17,7 @@ three fixes were made.
 
 Twelve to fifteen items published last month, spread across the surfaces in `knowledge/brand.md`:
 the pages that changed, emails sent (from the Email Marketing Manager's reports), posts, app store or
-marketplace listings, and any sales deck a person attached. Weight toward what most people see.
+marketplace listings, and any sales deck a human attached. Weight toward what most people see.
 
 ## 3. Score each item
 

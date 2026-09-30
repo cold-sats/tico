@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme product summary, Mon 2026-09-28
 
-Sample output for Acme, a fictional company that sells scheduling software to yoga, pilates and dance
+Sample output for Acme, a fictional team that sells scheduling software to yoga, pilates and dance
 studios. Every item is invented. Nothing was changed in any tool. First draft, not yet reviewed.
 
 **Headline: 4 of 6 committed Q4 items on track, 1 at risk, 1 slipped; 2 decisions wait on Dana.**

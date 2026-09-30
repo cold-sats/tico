@@ -1,11 +1,11 @@
-# Seed roster of humans for a new company environment: who exists, which team they are on, and
+# Seed roster of humans for a new team environment: who exists, which group they are in, and
 # which bot their notes go to. `clients/environments.py` copies it in, filling in the
 # owner given at creation. Add colleagues in the app once the environment is running.
 #
-#   default_user  primary user of any bot no rule below claims
-#   teams         a bot belongs to a team when its reports_to chain reaches that team's root
-#   primary_for   team names and/or bot slugs this person is the primary user of ("*" is all)
-#   bot           the employee slug this person's notes go to; null means "decide by the note"
+#   default_user  primary human of any bot no rule below claims
+#   teams         a bot belongs to a group when its reports_to chain reaches that group's root
+#   primary_for   group names and/or bot slugs this human is the primary human of ("*" is all)
+#   bot           the bot slug this human's notes go to; null means "decide by the note"
 
 default_user: {{owner_id}}
 developers: [{{owner_id}}]

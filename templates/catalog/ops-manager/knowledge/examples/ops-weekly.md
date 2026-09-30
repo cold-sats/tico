@@ -1,15 +1,15 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme ops week, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Every vendor and person below is invented.
+Sample output for Acme, a fictional studio-software team. Every vendor and human below is invented.
 Nothing has been sent, assigned or changed.
 
 **Headline: 1 duty is overdue, 2 fall due this week, 1 vendor thread is blocked; the office insurance
 notice window opened on 2026-09-25 and needs your decision.**
 
-## Needs a person now
+## Needs a human now
 - **Office insurance renewal.** Notice window for cancelling opens 2026-09-25 and closes 2026-10-25
   (policy summary, read 2026-09-27). I have not asked for quotes. Decide whether to shop it; owner Ben Okafor.
 
@@ -48,5 +48,5 @@ The shared operations mailbox is not connected, so vendor silence is judged from
 
 ## Sources
 - duties.md, vendors.md and last week's page, read 2026-09-28
-- Calendar, read 2026-09-28; hub tasks, read 2026-09-28
+- Calendar, read 2026-09-28; Tico tasks, read 2026-09-28
 ```

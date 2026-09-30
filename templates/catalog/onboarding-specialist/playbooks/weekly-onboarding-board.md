@@ -1,6 +1,6 @@
 # Weekly onboarding board
 
-Schedule: Mondays at 10:00 company time (routine `weekly-onboarding-board`), once a person has
+Schedule: Mondays at 10:00 team time (routine `weekly-onboarding-board`), once a human has
 approved the first board. Budget 30 minutes. The outcome is one page: who is on track, who is behind,
 who is stuck and why, and the customer messages ready for approval.
 
@@ -15,7 +15,7 @@ gets one today (`playbooks/plan-a-new-customer.md`).
 ## 2. Read the evidence of progress
 
 For each customer: `hub meetings search "<customer>"`, `hub task list` for tasks naming them, support
-tickets routed to the hub, and a usage reading if one is in your access. Log each dated fact in the
+tickets routed to Tico, and a usage reading if one is in your access. Log each dated fact in the
 plan's progress log. A milestone is done only with evidence.
 
 ## 3. Sort
@@ -23,7 +23,7 @@ plan's progress log. A milestone is done only with evidence.
 - **On track**: current milestone on or before its target date.
 - **Behind**: past the target date but moving.
 - **Stuck**: no progress for the stuck-rule days. Name what it waits on: the customer's data or
-  decision, our fix, or a person on our side.
+  decision, our fix, or a human on our side.
 
 ## 4. Prepare the next step
 

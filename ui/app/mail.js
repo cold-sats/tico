@@ -1,13 +1,13 @@
-/* ui/app/mail.js — Mail page
+/* ui/app/mail.js — Message bots page (synced mail)
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
 // ----------------------------------------------------------------- Mail
 // Server-stored copies only (GET /api/v2/mail). Bodies stay in <pre>; never md() them.
 const MAIL_CHIPS = [
-  ['INBOX', 'Inbox'], ['UNREAD', 'Unread'], ['STARRED', 'Starred'],
+  ['INBOX', 'Messages'], ['UNREAD', 'Unread'], ['STARRED', 'Starred'],
 ];
-const MAIL_LABEL = {INBOX: 'Inbox', UNREAD: 'Unread', STARRED: 'Starred', SENT: 'Sent',
+const MAIL_LABEL = {INBOX: 'Messages', UNREAD: 'Unread', STARRED: 'Starred', SENT: 'Sent',
   IMPORTANT: 'Important', DRAFT: 'Drafts', SPAM: 'Spam', TRASH: 'Trash'};
 let MAIL_LOAD = 0, MAIL_SEARCH = 0;
 let MAIL_ACC = {key: '', messages: [], cursor: null};
@@ -121,16 +121,16 @@ async function pageMail() {
   const load = ++MAIL_LOAD;
   if (!$('#mail-page')) {
     $('#main').innerHTML = `<div id="mail-page">
-      <div class="meeting-head"><div><h1>Mail</h1></div></div>
+      <div class="meeting-head"><div><h1>Message bots</h1></div></div>
       <div class="mail-shell">
-        <nav class="mail-boxes" aria-label="Inboxes"><h2>Inboxes</h2><div class="mail-box-list" id="mail-box-list"></div></nav>
+        <nav class="mail-boxes" aria-label="Message bots"><h2>Message bots</h2><div class="mail-box-list" id="mail-box-list"></div></nav>
         <div class="mail-main">
           <div class="mail-main-head"><h2 id="mail-current"></h2><div class="mail-tabs" role="tablist" aria-label="Mailbox view">
-            <button class="mail-tab" type="button" role="tab" data-mail-view="inbox" aria-controls="mail-inbox-view">Inbox</button>
-            <button class="mail-tab" type="button" role="tab" data-mail-view="agent" aria-controls="mail-agent-view" hidden>Agent instructions</button>
+            <button class="mail-tab" type="button" role="tab" data-mail-view="inbox" aria-controls="mail-inbox-view">Messages</button>
+            <button class="mail-tab" type="button" role="tab" data-mail-view="agent" aria-controls="mail-agent-view" hidden>Instructions</button>
           </div></div>
           <div id="mail-inbox-view" role="tabpanel">
-            <div class="mail-toolbar"><input id="mail-q" type="search" autocomplete="off" placeholder="Search subject, body, or sender…" aria-label="Search mail"></div>
+            <div class="mail-toolbar"><input id="mail-q" type="search" autocomplete="off" placeholder="Search subject, body, or sender…" aria-label="Search messages"></div>
             <div class="mail-chips" id="mail-chips"></div>
             <p class="mail-fresh" id="mail-fresh" role="status"></p>
             <div class="mail-split" id="mail-split">
@@ -197,10 +197,10 @@ async function pageMail() {
   const filterBox = mailBoxParam(st.mailbox);
   const box = boxes.find(b => b.address === filterBox);
   $('#mail-box-list').innerHTML = (boxes.length > 1
-    ? `<button class="mail-box-link${st.mailbox === 'all' ? ' on' : ''}" type="button" data-mailbox="all"${st.mailbox === 'all' ? ' aria-current="true"' : ''}><span class="name">All inboxes</span></button>` : '') +
+    ? `<button class="mail-box-link${st.mailbox === 'all' ? ' on' : ''}" type="button" data-mailbox="all"${st.mailbox === 'all' ? ' aria-current="true"' : ''}><span class="name">All message bots</span></button>` : '') +
     boxes.map(b => `<button class="mail-box-link${st.mailbox === b.address ? ' on' : ''}" type="button" data-mailbox="${esc(b.address)}" title="${esc(b.address)}"${st.mailbox === b.address ? ' aria-current="true"' : ''}>
       <span class="name">${esc(b.name || b.address)}</span>${b.agent_bot ? '<span class="agent-mark" aria-hidden="true">mail</span>' : ''}<span class="count">${esc(b.message_count || 0)}</span></button>`).join('');
-  $('#mail-current').textContent = filterBox ? (box?.name ? `${box.name} · ${filterBox}` : filterBox) : 'All inboxes';
+  $('#mail-current').textContent = filterBox ? (box?.name ? `${box.name} · ${filterBox}` : filterBox) : 'All message bots';
   const agentTab = $('[data-mail-view="agent"]');
   agentTab.hidden = !box?.agent_instructions;
   if (st.view === 'agent' && agentTab.hidden) { mailGo({view: 'inbox'}); return; }
@@ -214,7 +214,7 @@ async function pageMail() {
   $('#mail-agent-view').hidden = st.view !== 'agent';
   if (st.view === 'agent') {
     const target = $('#mail-agent-view');
-    target.innerHTML = '<div class="empty">Loading agent instructions…</div>';
+    target.innerHTML = '<div class="empty">Loading instructions…</div>';
     try {
       const response = await get(`/v2/mail/agent?mailbox=${encodeURIComponent(filterBox)}`);
       if (load !== MAIL_LOAD) return;
@@ -232,7 +232,7 @@ async function pageMail() {
   const freshBox = filterBox ? box : boxes.filter(b => b.synced_at).sort((a, b) => (b.synced_at || '').localeCompare(a.synced_at || ''))[0];
   $('#mail-fresh').textContent = boxes.some(b => b.synced_at)
     ? (filterBox ? mailFresh(box || {address: filterBox}) : `Showing every mailbox you can see · newest sync ${ago(freshBox.synced_at)}`)
-    : 'No mail has been synced yet.';
+    : 'No messages have been synced yet.';
   const key = mailFilterKey(st);
   if (MAIL_ACC.key !== key) MAIL_ACC = {key, messages: [], cursor: null};
   if (!MAIL_ACC.messages.length) {

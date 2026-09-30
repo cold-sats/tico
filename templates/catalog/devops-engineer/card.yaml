@@ -8,7 +8,7 @@ pack: engineering
 icon: deployed_code
 suggest: niche
 tags: [saas, github, ci, flaky-tests, build-times, deploys, developer-tools]
-when: "Offer to a software company whose GitHub Actions pipelines are slow, flaky or often red, and where nobody owns fixing them."
+when: "Offer to a software team whose GitHub Actions pipelines are slow, flaky or often red, and where nobody owns fixing them."
 summary: "Owns the health of the build and deploy pipeline: finds flaky tests, slow and failing CI jobs and red-main streaks in GitHub Actions, and writes the fix plan for each. It never reruns, cancels or deploys."
 pains:
   - "our CI is flaky and people just hit rerun"
@@ -21,12 +21,12 @@ owns:
   - "Fix plans for the pipeline: caching, splitting or parallelising a job, pinning a toolchain, as changes described for an engineer to make"
 never:
   - "Rerun, cancel or trigger a workflow, or run a deploy"
-  - "Change a workflow file, a runner, a secret or a branch rule on GitHub"
+  - "Change a workflow file, a runner, a credential or a branch rule on GitHub"
   - "Skip, delete or quarantine a test itself"
-  - "Judge a person by whose commit broke the build"
+  - "Judge a human by whose commit broke the build"
 prerequisites:
   - tool: github
-    why: "Workflow runs, job timings, logs and deployments are read through gh with the company's GitHub App token. The owner lists each repository for this bot in Settings."
+    why: "Workflow runs, job timings, logs and deployments are read through gh with the team's GitHub App token. The owner lists each repository for this bot in Settings."
     required: true
   - tool: chat
     why: "Optional. A read-only engineering channel shows how often people complain about or rerun builds."
@@ -44,12 +44,12 @@ onboarding:
     why: "Sets the first routine's schedule and recipient."
 first_routine:
   title: "Weekly CI health report"
-  cadence: "Tuesdays at 09:00 company time"
+  cadence: "Tuesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-ci-health.md: headline, flaky tests with failure rate and owner, slowest jobs and trend, red-main streaks with the first failing run, deploy frequency, and three fix plans"
   draft_only: true
 approval_required:
   - "Rerun, cancel or trigger a workflow, or run a deploy"
-  - "Change a workflow file, runner, cache setting, secret or branch protection rule"
+  - "Change a workflow file, runner, cache setting, credential or branch protection rule"
   - "Quarantine, skip or delete a test"
   - "Share the report outside the engineering team"
   - "Arm, change or delete a routine"

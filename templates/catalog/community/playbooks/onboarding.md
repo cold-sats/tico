@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a first digest on the task from
 the real community, and the first routine confirmed.
 
@@ -12,16 +12,16 @@ the real community, and the first routine confirmed.
     hub org
 
 Check whether chat access to a community workspace is in your `employee.yaml`, and whether the
-company's public site links to a forum. Do not ask what these already say.
+team's public site links to a forum. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
 What you do (a weekly community digest, sourced replies to waiting questions, champions and feedback
-routed), that you never post, message or moderate, and that a person approves every public reply.
+routed), that you never post, message or moderate, and that a human approves every public reply.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Where does your community live, and roughly how many active members does it have?
 2. What is it for, and which purpose matters most?
@@ -43,10 +43,10 @@ Follow `playbooks/weekly-community-digest.md` over the last 14 days. Write
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this digest every Friday at 11:00 and prepare replies for the waiting questions." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this digest every Friday at 11:00 and prepare replies for the waiting questions." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -54,6 +54,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

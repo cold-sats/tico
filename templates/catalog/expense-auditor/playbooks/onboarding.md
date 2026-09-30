@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first audit of a real month, and the first routine confirmed.
 
 ---
@@ -20,7 +20,7 @@ to question), that you never approve, reject or reimburse, and that expenses sta
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Where do expenses come from, and can you attach last month's export with receipts?
 2. Where is the expense and travel policy, or what are the limits for meals, hotels, flights and gifts?
@@ -42,10 +42,10 @@ Follow `playbooks/monthly-expense-audit.md` on the month attached. Write
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will audit each month on the 3rd." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will audit each month on the 3rd." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -53,6 +53,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

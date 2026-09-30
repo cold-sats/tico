@@ -1,6 +1,6 @@
 # Weekly support summary
 
-Schedule: Mondays at 09:00 company time (routine `weekly-support-summary`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-support-summary`), once a human has approved
 the first summary. Also run by hand on request. Budget 35 minutes. The outcome is one page for the
 support owner, drafted, sent to nobody else.
 
@@ -33,7 +33,7 @@ report. Where the support mailbox is connected, count arrivals and first replies
 - **Quality and voice of the customer**: one line each from the latest QA review and feedback report.
 - **Coverage**: any gap in the next two weeks against `knowledge/team.md`.
 
-## 4. Decide what needs a person
+## 4. Decide what needs a human
 
 At most three decisions, each with the evidence and a proposed answer. Anything red two weeks running,
 an ownerless old ticket, or a coverage gap goes first. Add them to `knowledge/decisions-needed.md`.
@@ -53,7 +53,7 @@ proposals, what you could not read, sources. Then:
 ## 6. Finish
 
 Commit, then `hub task update <id> --status done --note`: the headline, the report path, the decisions
-asked for and any source you could not read. Always finish it: an open scheduled task absorbs the next.
+asked for and any source you could not read. Always finish it: an open routine task absorbs the next.
 
 ## When a source fails
 

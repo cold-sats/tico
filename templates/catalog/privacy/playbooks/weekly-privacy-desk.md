@@ -1,9 +1,9 @@
 # Weekly privacy desk
 
-Schedule: Wednesdays at 09:00 company time (routine `weekly-privacy-desk`), once a person has approved the first
+Schedule: Wednesdays at 09:00 team time (routine `weekly-privacy-desk`), once a human has approved the first
 desk report. Also run by hand. Budget 25 minutes. The outcome is one page: every open data request against its
 deadline, DPAs waiting, vendor changes that owe customers a notice, and records that are stale. A summary for a
-person, not legal advice. Nothing is sent and no data is touched.
+human, not legal advice. Nothing is sent and no data is touched.
 
 ---
 

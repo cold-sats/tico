@@ -1,4 +1,4 @@
-/* The Assistant tab on your own person page (docs/assistant.md): your private chat with the company's
+/* The Assistant tab on your own page (docs/assistant.md): your private chat with the team's
    assistant. It answers lookups at once (what is waiting on you, search, "open X", how do I ...) and
    hands everything else to the assistant bot, which acts as you and never more. Anything with a side
    effect that matters arrives as a Confirm / Cancel card; only your click runs it.
@@ -165,7 +165,7 @@
       if (!d.available) {
         root.innerHTML = `<div class="asst-off"><p><strong>The Assistant is off.</strong> ${d.can_turn_on
           ? `Turn it on to get a private assistant that finds things in ${esc(document.title || 'Tico')} and does them for you.`
-          : `Ask the owner of this company to turn it on.`}</p>
+          : `Ask the owner of this team to turn it on.`}</p>
           ${d.can_turn_on ? '<button class="primary" type="button" data-turn-on>Turn on the Assistant</button> <span class="asst-state" data-turn-status></span>' : ''}</div>`;
         const on = root.querySelector('[data-turn-on]');
         if (on) on.onclick = async () => {
@@ -236,8 +236,8 @@
     void load();
   }
 
-  // Settings > Bots, owner only: when the company has no Assistant (archived at setup, or never added),
-  // one button restores it or adds it from the catalog, and every person's Assistant tab starts working.
+  // Settings > Bots, owner only: when the team has no Assistant (archived at setup, or never added),
+  // one button restores it or adds it from the template, and every human's Assistant tab starts working.
   async function settingsStrip(host, deps) {
     if (!host) return;
     style();
@@ -246,7 +246,7 @@
     try { info = await get('/v2/assistant'); } catch { host.innerHTML = ''; return; }
     if (info.available || !info.can_turn_on) { host.innerHTML = ''; return; }
     host.innerHTML = `<section class="card" data-assistant-off><header><h2>The Assistant is off</h2></header>
-      <p>Everyone gets a private Assistant on their own page once it is on. It ${info.state === 'archived' ? 'was set aside when this company was set up; turning it on brings it back with its history.' : 'has not been added to this company yet; turning it on adds it from the catalog.'}</p>
+      <p>Everyone gets a private Assistant on their own page once it is on. It ${info.state === 'archived' ? 'was set aside when this team was set up; turning it on brings it back with its history.' : 'has not been added to this team yet; turning it on adds it from the template.'}</p>
       <div class="asst-row"><button class="primary" type="button" data-turn-on>Turn on Assistant</button><span class="asst-state" data-turn-status role="status"></span></div></section>`;
     const button = host.querySelector('[data-turn-on]'), status = host.querySelector('[data-turn-status]');
     button.onclick = async () => {

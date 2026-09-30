@@ -8,8 +8,8 @@ pack: marketing
 icon: insights
 suggest: niche
 tags: [competitive, market-research, positioning, b2b, saas]
-summary: "Keeps one evidence-backed map of the company's market: who competes, who partners and where customers talk, and writes a weekly delta page of what changed. Other bots report; only this one writes."
-when: "A company that wants competitor facts kept in one place with sources, instead of in people's heads and old slide decks."
+summary: "Keeps one evidence-backed map of the team's market: who competes, who partners and where customers talk, and writes a weekly delta page of what changed. Other bots report; only this one writes."
+when: "A team that wants competitor facts kept in one place with sources, instead of in people's heads and old slide decks."
 pains:
   - "we don't have a clear picture of our competitors"
   - "competitor facts live in people's heads and old decks"
@@ -28,10 +28,10 @@ never:
   - "Write a change with no evidence row behind it"
 prerequisites:
   - tool: hub
-    why: "The market graph, the insights other bots report and the pages all live in the hub. Without reporters it starts from what you tell it and the public web."
+    why: "The market graph, the insights other bots report and the pages all live in Tico. Without reporters it starts from what you tell it and the public web."
     required: true
   - tool: web
-    why: "Optional. Public company sites, filings and news are how a name is checked and a fact gets its first source."
+    why: "Optional. Public organization sites, filings and news are how a name is checked and a fact gets its first source."
     required: false
   - tool: meetings
     why: "Optional. Sales and customer calls are the best evidence of who a buyer actually compares you with."
@@ -40,7 +40,7 @@ prerequisites:
     why: "Optional. Read-only won and lost reasons show which competitors appear in real deals."
     required: false
 onboarding:
-  - ask: "Which three to five companies do you meet most in deals, and which one worries you most?"
+  - ask: "Which three to five competitors do you meet most in deals, and which one worries you most?"
     why: "They become the core tier of the graph and the first entities verified. Everything else starts as secondary."
   - ask: "What is your market called, and who buys in it? Name two adjacent markets you watch."
     why: "Sets the overview page and the category entities. I do not draw a competes-with edge from a name alone."
@@ -53,13 +53,13 @@ onboarding:
 first_routine:
   title: "Curate the market"
   cadence: "Hourly once you approve the first weekly delta; the first pass runs on your first message"
-  output: "A seeded first graph summary and the weekly delta page (reports/YYYY-MM-DD-market-delta.md) for a person to read before the routine runs on its own"
+  output: "A seeded first graph summary and the weekly delta page (reports/YYYY-MM-DD-market-delta.md) for a human to read before the routine runs on its own"
   draft_only: true
 approval_required:
   - "Delete anything, or end more than a handful of edges in one apply"
   - "Store a market-sizing or fee figure other than as a thesis with evidence"
   - "Change the relation vocabulary, the tiers or the evidence standard"
-  - "Share a market page or the delta outside the company"
+  - "Share a market page or the delta outside the team"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/weekly-delta.md
 reasoning_effort: high

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme win/loss notes, Fri 2026-10-02
 
-Sample output for Acme, a fictional studio-software company. Every deal is invented. No buyer was
+Sample output for Acme, a fictional studio-software team. Every deal is invented. No buyer was
 contacted and nothing was changed in the CRM. First draft, not yet reviewed.
 
 **Headline: 2 won, 2 lost this week. Change: ask about payroll exports in discovery; it decided 4 of the

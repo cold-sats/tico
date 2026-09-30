@@ -27,5 +27,5 @@ are labelled as leads to test, not results.
 ## 4. Write
 
 `reports/YYYY-MM-DD-experiment-<name>.md`: the verdict in one line (better, worse, no detectable
-difference, not yet readable), the numbers, the checks, and what a person would need to decide. Declaring
+difference, not yet readable), the numbers, the checks, and what a human would need to decide. Declaring
 a winner is theirs. Publish, commit, finish the task.

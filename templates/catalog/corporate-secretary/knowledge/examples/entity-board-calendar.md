@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme entity and board calendar, 2026-10-03
 
-Sample output for Acme, a fictional studio-software company with a parent company and one subsidiary abroad, a
+Sample output for Acme, a fictional studio-software team with a parent team and one subsidiary abroad, a
 five-seat board and two investors with consent rights. Every entity, person and date is invented. Nothing has
 been sent, signed or filed.
 
@@ -31,7 +31,7 @@ still unsigned.**
 | Acme Studio Software Ltd (subsidiary) | Confirmation statement | 2026-11-30 | Yes |
 - Director change: Tomas left 2026-06-30 and is still a director of the subsidiary on the register.
 
-**Summary for a person, not legal advice.**
+**Summary for a human, not legal advice.**
 
 ## Sources
 - `knowledge/board.md` (bylaws read 2026-09-14); `knowledge/minute-book.md` and `knowledge/cap-table-log.md`

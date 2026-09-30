@@ -1,6 +1,6 @@
 # Weekly content plan
 
-Schedule: Mondays at 09:00 company time (routine `weekly-content-plan`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-content-plan`), once a human has approved
 the first plan. Also run by hand. Budget 45 minutes. The outcome is the next four weeks of content,
 one finished draft for the top item with its short versions, and an honest ideas list. Nothing is published.
 
@@ -15,9 +15,9 @@ Read tasks from other bots (`hub task list`): a listening digest may hold a ques
 
 ## 2. Re-cut the plan
 
-Keep four to six weeks ahead, three to five themes the company can speak on truthfully. Each planned
+Keep four to six weeks ahead, three to five themes the team can speak on truthfully. Each planned
 piece has: the reader's question, the one point, the channel, the source it needs and its status
-(idea, outlined, drafted, approved, published by a person). Drop what went stale and say why. Two
+(idea, outlined, drafted, approved, published by a human). Drop what went stale and say why. Two
 real drafts under a plan beat twenty titles.
 
 ## 3. Draft the top item
@@ -33,7 +33,7 @@ Add new ideas with where each came from (a task, a call, a question). Remove wha
 
 `reports/YYYY-MM-DD-content-plan.md` in the shape of `knowledge/examples/content-plan.md`. Then
 `hub files publish` it, commit, and `hub task update <id> --status done --note`: the headline, the
-draft's path and what you could not read. Always finish it: an open scheduled task absorbs the next.
+draft's path and what you could not read. Always finish it: an open routine task absorbs the next.
 
 ## When a source fails
 

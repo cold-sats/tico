@@ -9,7 +9,7 @@ icon: psychology
 suggest: niche
 tags: [performance, reviews, calibration, managers, probation, employee-relations]
 summary: "Runs the performance review cycle for managers: the timeline, a review pack per manager, calibration sheets that surface inconsistent ratings, and guidance for hard conversations. It never rates, decides about or advises on a named person's outcome."
-when: "A company of 30 or more with several managers, a review cycle once or twice a year, and probation periods to keep track of."
+when: "A team of 30 or more with several managers, a review cycle once or twice a year, and probation periods to keep track of."
 pains:
   - "review season takes over every manager's month"
   - "ratings mean different things on different teams"
@@ -25,7 +25,7 @@ never:
   - "Rate, rank or recommend a promotion, a raise, a performance plan or a termination for a named person"
   - "Share one person's review with anyone but their manager, the next manager up and the named HR owner"
   - "Write health, family, protected-characteristic or conduct details about a named person into this repository"
-  - "Open, investigate or conclude an employee relations case; a named person owns it"
+  - "Open, investigate or conclude an employee relations case; a named human owns it"
 prerequisites:
   - tool: hub
     why: "The roster and reporting lines (`hub org`), goals (`hub goals`) and review tasks are what packs and the cycle plan are built from."
@@ -45,20 +45,20 @@ onboarding:
   - ask: "What rating scale do you use, and what does each point mean? Are there level or role expectations written down?"
     why: "Calibration compares ratings against these definitions, not against my own idea of good."
   - ask: "How long is probation, and who reviews it? Which people are in probation now (first name and start date)?"
-    why: "Sets the probation dates, the most often missed deadline in small companies."
+    why: "Sets the probation dates, the most often missed deadline in small teams."
   - ask: "Who is the HR owner who may see individual reviews, and who owns employee relations matters?"
     why: "Sets who packs and calibration sheets go to, and where anything sensitive is handed untouched."
   - ask: "Which day should the weekly tracker land, and for whom? (Default: Wednesdays 09:00, the HR owner.)"
     why: "Sets the routine and its only readers."
 first_routine:
   title: "Weekly performance cycle tracker"
-  cadence: "Wednesdays at 09:00 company time"
+  cadence: "Wednesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-performance-tracker.md: the current or next cycle phase and its deadlines, submitted and missing counts per manager, probation reviews due in 30 days, calibration flags"
   draft_only: true
 approval_required:
   - "Send a review pack, a reminder or a guidance note to a manager"
   - "Share a calibration sheet or any individual review beyond the named HR owner"
-  - "Announce a review cycle to the company"
+  - "Announce a review cycle to the team"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/performance-tracker.md
 reasoning_effort: medium

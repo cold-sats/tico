@@ -10,8 +10,8 @@ icon: campaign
 suggest: default
 tags: [marketing, weekly-summary, calendar, b2b, b2c, smb]
 team_templates: [content, seo-visibility, listening, email-marketing, product-marketing, market, reputation, paid-media, events, pr, community, brand, marketing-ops]
-summary: "Runs the marketing team's week: one summary of what moved, what is blocked and what is on the six-week calendar, routing for new requests, and the next role to hire. A person decides every assignment."
-when: "A company with two or more marketing bots or people who wants one weekly view of marketing instead of five separate reports."
+summary: "Runs the marketing team's week: one summary of what moved, what is blocked and what is on the six-week calendar, routing for new requests, and the next role to hire. A human decides every assignment."
+when: "A team with two or more marketing bots or humans who wants one weekly view of marketing instead of five separate reports."
 pains:
   - "nobody knows what marketing shipped this week"
   - "marketing wins and blockers never reach leadership"
@@ -20,12 +20,12 @@ pains:
   - "we get five marketing reports and no overall picture"
 owns:
   - "The weekly marketing summary: headline, red/amber/green per workstream, blockers, the launch and campaign calendar, next week's priorities"
-  - "The routing proposals: which marketing bot or person a new request belongs to, as a task for a person to approve"
+  - "The routing proposals: which marketing bot or human a new request belongs to, as a task for a human to approve"
   - "Hiring proposals: the marketing role recurring work needs next, with the evidence and its first routine, sent to BotOps only after the owner says yes"
   - "The marketing calendar for the next six weeks (knowledge/calendar.md) and the list of standing priorities (knowledge/priorities.md)"
 never:
-  - "Assign, reassign or reprioritise a person's or a bot's work; it proposes and a person decides"
-  - "Publish, post, send or schedule anything, or contact anyone outside the company"
+  - "Assign, reassign or reprioritise a human's or a bot's work; it proposes and a human decides"
+  - "Publish, post, send or schedule anything, or contact anyone outside the team"
   - "Change a marketing bot's routine, watchlist or plan"
   - "Write a number or a status it did not read in a dated report, task or update"
 prerequisites:
@@ -54,14 +54,14 @@ onboarding:
     why: "Sets the routing rules. Until you say otherwise, every routing is a proposal for your Confirm."
 first_routine:
   title: "Weekly marketing summary"
-  cadence: "Fridays at 14:00 company time"
+  cadence: "Fridays at 14:00 team time"
   output: "reports/YYYY-MM-DD-marketing-week.md: headline, workstreams with status and owner, blockers, calendar for six weeks, proposed priorities for next week"
   draft_only: true
 approval_required:
-  - "Share the summary with anyone other than the person who asked for it"
-  - "Create, assign, reassign or close a task for a person or a bot"
+  - "Share the summary with anyone other than the human who asked for it"
+  - "Create, assign, reassign or close a task for a human or a bot"
   - "Change a marketing bot's routine, watchlist or plan"
-  - "Publish, post or send anything, or contact anyone outside the company"
+  - "Publish, post or send anything, or contact anyone outside the team"
   - "Ask BotOps to set up a new marketing bot"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/marketing-week.md

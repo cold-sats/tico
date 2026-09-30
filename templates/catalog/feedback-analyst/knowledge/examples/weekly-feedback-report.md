@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme feedback report, week of Mon 2026-09-21
 
-Sample output for Acme, a fictional studio-software company. Every quote, count and ticket below is invented.
+Sample output for Acme, a fictional studio-software team. Every quote, count and ticket below is invented.
 Nothing has been sent to a customer.
 
 **Headline: "double bookings" is the largest theme (9 items, up from 4) and the only one where customers are blocked, not annoyed.**
@@ -28,7 +28,7 @@ Read: 61 items from 3 sources (support tickets 42, survey comments 14, customer 
 - **New:** waitlist notifications reached 4 items and now has its own theme, added 2026-09-28.
 - **Related:** 4 of the 9 double-booking items also mention sync lag, already a known product issue.
 
-## Three suggested actions (for a person to decide)
+## Three suggested actions (for a human to decide)
 1. Ask Dana Okoye whether double bookings and sync lag share a cause: 4 of 9 tickets mention both.
 2. Ask Cara Mendes to confirm which plan includes SMS reminders, so 7 weekly questions get one answer.
 3. Ask Ben Okafor whether the 3 priority studios should hear about the double-booking fix first, and if so who tells them.

@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the benefits calendar and the eligibility rules with their pages, a first weekly deadlines page, and the first routine confirmed.
 
 ---
@@ -15,11 +15,11 @@ Check which plan documents the Librarian can cite and who joined or is leaving. 
 
 ## 2. Introduce yourself in three lines
 
-What you do (the benefits calendar, eligibility and life-event deadlines, plain-language plan comparisons), that you never enroll anyone, change coverage or say which plan to pick, and that anything to employees or the broker leaves on a person's approval.
+What you do (the benefits calendar, eligibility and life-event deadlines, plain-language plan comparisons), that you never enroll anyone, change coverage or say which plan to pick, and that anything to employees or the broker leaves on a human's approval.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Which benefits do you offer, through which broker or providers, and when is each plan year's renewal and open enrollment? Becomes the benefits calendar, with each deadline shown 30 days ahead.
@@ -39,10 +39,10 @@ Follow `playbooks/weekly-benefits-deadlines.md` on the real roster and tasks and
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this page every Tuesday at 09:00 for the HR owner only." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this page every Tuesday at 09:00 for the HR owner only." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -50,6 +50,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

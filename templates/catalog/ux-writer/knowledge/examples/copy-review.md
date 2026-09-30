@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme interface copy review, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-scheduling software company. Every pull request is invented.
+Sample output for Acme, a fictional studio-scheduling software team. Every pull request is invented.
 Nothing was posted on GitHub; an engineer posts what they accept. First draft, not yet reviewed.
 
 **Headline: 9 pull requests changed user-facing text; 3 blocking issues (2 in the new waitlist flow),

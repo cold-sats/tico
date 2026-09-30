@@ -1,6 +1,6 @@
 # Weekly performance cycle tracker
 
-Schedule: Wednesdays at 09:00 company time (routine `weekly-performance-tracker`), once a person has
+Schedule: Wednesdays at 09:00 team time (routine `weekly-performance-tracker`), once a human has
 approved the first tracker. Budget 25 minutes. The outcome is one page for the HR owner: where the cycle
 stands, who is behind, which probation reviews are coming, and what calibration should look at. It
 carries counts and references, never a rating.

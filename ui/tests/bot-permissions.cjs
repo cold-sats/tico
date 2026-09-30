@@ -190,7 +190,7 @@ async function access(browser) {
   const about = page.locator('#pane-more');
   assert.match(await about.innerText(), /About/);
   assert.match(await about.innerText(), /Takes requests\./);
-  assert.match(await about.innerText(), /Run by\s*Ana/);
+  assert.match(await about.innerText(), /Owner\s*Ana/);
   assert.match(await about.innerText(), /See it and send requests/);
   await page.goto('https://tico-ui.test/#/bot/sales');
   await page.locator('#btabs').waitFor({state: 'attached'});

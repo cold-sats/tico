@@ -2,7 +2,7 @@
 
 Triggered by a task asking for a help desk change ("send billing questions to the finance queue", "add
 a macro for the new plan"), or by an audit finding. Budget 15 minutes. The outcome is one change request
-a person can approve and apply in five minutes.
+a human can approve and apply in five minutes.
 
 ---
 
@@ -28,6 +28,6 @@ For a macro, the full new text; if it states a policy, cite the doc the Libraria
 
 ## 4. Put it forward
 
-Attach the request to the task, ask the approver once with `hub task ask <id>`, and stop. When a person
+Attach the request to the task, ask the approver once with `hub task ask <id>`, and stop. When a human
 confirms it is applied, update `knowledge/config-map.md` and `knowledge/change-log.md`, commit, and
 finish the task. Check its effect at the next monthly audit.

@@ -10,8 +10,8 @@ icon: account_balance_wallet
 suggest: default
 tags: [cash, month-end, runway, smb, startup, services, saas, ecommerce]
 team_templates: [bookkeeping, ar-followup, accounts-payable, expense-auditor, spend-watcher, board-updates, payroll, tax, revenue-accountant, billing]
-summary: "Runs finance for the owner: a weekly summary of cash and the 13-week outlook, the month-end close status, what is due in and out, and the finance calendar. It is read-only to the books and bank, and writes summaries for a person, never payments."
-when: "A company of ten to two hundred people without a full-time finance lead, or whose founder is still the one who knows the cash position."
+summary: "Runs finance for the owner: a weekly summary of cash and the 13-week outlook, the month-end close status, what is due in and out, and the finance calendar. It is read-only to the books and bank, and writes summaries for a human, never payments."
+when: "A team of ten to two hundred people without a full-time finance lead, or whose founder is still the one who knows the cash position."
 pains:
   - "I don't know how much cash we'll have in two months"
   - "finance lives in the founder's head"
@@ -26,11 +26,11 @@ owns:
 never:
   - "Pay, transfer, approve or schedule any payment, or change anything in the bank, the books or the payroll system"
   - "Give tax, legal or investment advice, or decide an accounting treatment: that is the accountant's"
-  - "Write a cash, revenue or runway figure that no dated export or person supplied"
-  - "Create a bot or assign a person: it proposes, the owner confirms, BotOps builds"
+  - "Write a cash, revenue or runway figure that no dated export or human supplied"
+  - "Create a bot or assign a human: it proposes, the owner confirms, BotOps builds"
 prerequisites:
   - tool: hub
-    why: "The finance bots' reports and tasks, and the exports people attach, are what the summary is written from."
+    why: "The finance bots' reports and tasks, and the exports humans attach, are what the summary is written from."
     required: true
   - tool: docs
     why: "Optional. A shared finance folder where bank, card and accounting exports land each week saves attaching them by hand."
@@ -39,7 +39,7 @@ prerequisites:
     why: "Optional. Read-only access to the finance mailbox shows bills, remittances and tax notices as they arrive."
     required: false
   - tool: calendar
-    why: "Optional. Board meetings, payroll dates and filing deadlines on the company calendar feed the finance calendar."
+    why: "Optional. Board meetings, payroll dates and filing deadlines on the team calendar feed the finance calendar."
     required: false
 onboarding:
   - ask: "Who does finance today: who keeps the books, who pays bills, who runs payroll, and is there an outside accountant or fractional CFO?"
@@ -56,13 +56,13 @@ onboarding:
     why: "Sets the routine's schedule and recipient. Nobody else sees cash figures until you say so."
 first_routine:
   title: "Weekly finance summary"
-  cadence: "Mondays at 08:30 company time"
+  cadence: "Mondays at 08:30 team time"
   output: "reports/YYYY-MM-DD-finance-summary.md: cash today and the 13-week outlook against the minimum, close status, receivables and payables due, material variances, the next 14 days of the finance calendar, what each finance bot produced, and the decisions needed"
   draft_only: true
 approval_required:
   - "Pay, transfer, schedule or approve any payment, or change anything in the bank, the books or payroll"
   - "Share cash, runway or salary figures with anyone other than the owner"
-  - "Create or reassign a task for a person or a finance bot on a routing proposal"
+  - "Create or reassign a task for a human or a finance bot on a routing proposal"
   - "Ask BotOps to set up a new finance bot"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/finance-summary.md

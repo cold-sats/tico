@@ -1,8 +1,8 @@
 # Clearance notes for a name
 
-Triggered by a task proposing a product, feature or company name. Budget 30 minutes per name, three names at most
+Triggered by a task proposing a product, feature or team name. Budget 30 minutes per name, three names at most
 per task. The outcome is notes counsel can use to judge risk quickly. They never say a name is free to use or
-registrable. A summary for a person, not legal advice.
+registrable. A summary for a human, not legal advice.
 
 ---
 
@@ -17,7 +17,7 @@ date. Ask once if the goods or countries are missing; the search depends on them
 
 1. The public trademark database of each country named: the exact word, then variants (spelling, sound,
    plural, split or joined words, translation where obvious), in the likely classes and related ones.
-2. The company's own register, so you do not flag the company's own marks.
+2. The team's own register, so you do not flag the team's own marks.
 3. A public web search and the main app and marketplace listings for the name with the product words.
 4. Domain availability for the obvious domains, read only.
 Record every database, term, class and the date.
@@ -32,6 +32,6 @@ Record every database, term, class and the date.
 ## 4. Hand over
 
 Write `reports/clearance/<name>.md`: three lines first (the name, the use, how many close marks and uses), then the
-tables, then "what was searched", then questions for counsel, then **Summary for a person, not legal advice; a
+tables, then "what was searched", then questions for counsel, then **Summary for a human, not legal advice; a
 full clearance search is counsel's.** `hub files publish` it and put it on the task. Record the name in
 `knowledge/watch-terms.md` if it is adopted.

@@ -8,8 +8,8 @@ pack: marketing
 icon: reviews
 suggest: common
 tags: [reviews, reputation, b2c, retail, services, saas]
-summary: "Reads the company's public review listings every Monday, logs every review and prepares one batch per surface of honest replies and rule-based flags. Nothing is posted or flagged without approval."
-when: "A company whose buyers check review sites or Google before they buy, and that has reviews it cannot ignore."
+summary: "Reads the team's public review listings every Monday, logs every review and prepares one batch per surface of honest replies and rule-based flags. Nothing is posted or flagged without approval."
+when: "A team whose buyers check review sites or Google before they buy, and that has reviews it cannot ignore."
 pains:
   - "bad reviews are the first thing buyers see"
   - "we have too few reviews on the software review sites"
@@ -32,7 +32,7 @@ prerequisites:
     why: "Public review pages and the platforms' own policy pages are what it reads. It never signs in to read."
     required: true
   - tool: hub
-    why: "Batches go to a person as approvals with the full payload, and claims only the owner can make go out as tasks."
+    why: "Batches go to a human as approvals with the full payload, and claims only the owner can make go out as tasks."
     required: true
   - tool: crm
     why: "Optional. Read-only access to the customer list lets the invitation program find everyone at the milestone, not just the happy ones."
@@ -44,16 +44,16 @@ onboarding:
   - ask: "Which review sites matter to your buyers: Google, Yelp, the Better Business Bureau, G2, Capterra, the app stores, Glassdoor? Where are your listings?"
     why: "Becomes knowledge/surfaces.md. Only surfaces you name are read, and each is checked against the platform's own rules."
   - ask: "Do you own or have claimed each listing? Who holds the login?"
-    why: "A listing only its owner can claim becomes a task for that person with exact steps. I never sign up or claim anything myself."
+    why: "A listing only its owner can claim becomes a task for that human with exact steps. I never sign up or claim anything myself."
   - ask: "What is your current rating on each site, and is there a review that worries you most?"
     why: "Sets the baseline for the first digest and the first batch, newest and most visible first."
   - ask: "Who approves a reply or a flag, and what tone should replies take? Can you paste one reply you were happy with?"
-    why: "Every batch goes to that person, and replies are drafted in the company's voice, short and never defensive."
+    why: "Every batch goes to that human, and replies are drafted in the team's voice, short and never defensive."
   - ask: "Which customers should be invited to review on the software sites, and at what milestone (for example 90 days after signup)?"
     why: "The invitation program invites everyone at the milestone or nobody, and the platforms' own labelled programs are the only place a reward is allowed."
 first_routine:
   title: "Weekly review sweep"
-  cadence: "Mondays at 09:00 company time"
+  cadence: "Mondays at 09:00 team time"
   output: "reports/sweeps/YYYY-MM-DD.md: coverage first, then counts per surface, outcomes of earlier batches, the batches requested for approval and unclaimed listings"
   draft_only: true
 approval_required:

@@ -51,11 +51,11 @@ function hlCheckHtml(check) {
 
 function hlComputerHtml(machine) {
   const models = machine.runtimes.map(row => {
-    const state = row.rejected ? `sign-in rejected${row.rejected_at ? ' ' + ago(row.rejected_at) : ''}${row.rejected_reason ? ' (' + row.rejected_reason + ')' : ''}. Replace the key in the runner's secrets, or sign in again`
+    const state = row.rejected ? `sign-in rejected${row.rejected_at ? ' ' + ago(row.rejected_at) : ''}${row.rejected_reason ? ' (' + row.rejected_reason + ')' : ''}. Replace the credential on the computer, or sign in again`
       : row.ready ? 'signed in' : row.installed ? 'not signed in' : 'not installed';
     const login = row.signable
       ? ` <button class="ghost" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(row.name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';
-    // Red only when the company or an assigned bot needs it; the server sends only relevant harnesses.
+    // Red only when the team or an assigned bot needs it; the server sends only relevant harnesses.
     const bad = row.rejected || (!row.installed && row.needed !== false);
     return `<li data-ready="${row.ready}"${bad ? ' class="hl-model-bad"' : ''}>${esc(row.name)}: ${state}${login}</li>`;
   }).join('');
@@ -70,7 +70,7 @@ function hlPageDraw() {
   if (!host) return;
   if (!HL) { host.innerHTML = '<div class="empty">Nothing to show yet.</div>'; return; }
   const bots = list => list.map(row => `<li><a href="#/bot/${esc(row.bot)}">${esc(row.name)}</a> <span class="muted">${row.reason === 'no_computer' ? 'no computer is online' : row.computer ? esc(row.computer) + ' is offline' : 'waiting ' + esc(ago(row.oldest))}${row.queued ? ', ' + row.queued + ' waiting' : ''}</span></li>`).join('');
-  host.innerHTML = `<p class="muted" id="hl-summary">${HL.attention ? `${HL.attention} thing${HL.attention === 1 ? '' : 's'} to look at` : 'Everything looks fine.'}</p>
+  host.innerHTML = `<p class="muted" id="hl-summary">${HL.attention ? `${HL.attention} issue${HL.attention === 1 ? '' : 's'} to look at` : 'Everything looks fine.'}</p>
     <ul class="hl-list">${HL.checks.map(hlCheckHtml).join('')}</ul>
     ${HL.computers.length ? `<h2>Computers</h2><ul class="hl-computers">${HL.computers.map(hlComputerHtml).join('')}</ul>` : ''}
     ${HL.waiting.length || HL.slow.length ? `<h2>Bots waiting</h2><ul class="hl-bots">${bots(HL.waiting)}${bots(HL.slow)}</ul>` : ''}

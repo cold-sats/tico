@@ -64,7 +64,7 @@ function messagingRuns(data) {
     <div class="msg-run-meta"><span>${esc(d.channels.join(' · '))}</span><span>${d.count} message${d.count === 1 ? '' : 's'}</span>${d.skipped ? `<span>${d.skipped} skipped in high volume</span>` : ''}<span>${esc(d.attempt?.state || 'Queued')}</span></div>
     <button class="ghost" type="button" data-msg-digest="${esc(d.id)}" style="margin-top:8px">View messages reviewed</button>
   </div>`).join('');
-  return routines + digests || '<div class="empty">No scheduled runs recorded yet.</div>';
+  return routines + digests || '<div class="empty">No routine runs recorded yet.</div>';
 }
 function messagingDetail(data) {
   const b = data.bot, state = messagingParams();
@@ -80,14 +80,14 @@ function messagingDetail(data) {
         <div class="msg-actions"><a class="ghost" href="#/bot/${encodeURIComponent(b.bot)}">Bot settings</a>${b.can_manage && ['active', 'paused'].includes(b.state) ? `<button class="ghost" type="button" data-msg-pause="${esc(b.bot)}">${b.state === 'active' ? 'Pause bot' : 'Resume bot'}</button>` : ''}</div></div>
       ${sourceControl}
       <section class="msg-panel" aria-labelledby="msg-instructions-title">
-        <div class="msg-panel-title"><h2 id="msg-instructions-title">Instructions</h2><div class="muted">${data.instructions.published ? 'AGENT.md published by the assigned runner' + (data.instructions.updated ? ' · ' + ago(data.instructions.updated) : '') : 'Published role summary; AGENT.md has not been reported yet'}</div></div>
+        <div class="msg-panel-title"><h2 id="msg-instructions-title">Instructions</h2><div class="muted">${data.instructions.published ? 'Published by its computer' + (data.instructions.updated ? ' · ' + ago(data.instructions.updated) : '') : 'Published summary; its instructions have not been reported yet'}</div></div>
         <div class="msg-panel-body">
-          <div class="msg-facts"><span><strong>${b.sources.length}</strong> source${b.sources.length === 1 ? '' : 's'}</span><span><strong>${b.routine_count}</strong> routine${b.routine_count === 1 ? '' : 's'}</span><span>Last pass <strong>${b.last_run ? esc(ago(b.last_run)) : 'not recorded'}</strong></span><span>Next <strong>${b.next_run ? esc(fmt(b.next_run)) : b.slack_interval_minutes ? `Slack every ${b.slack_interval_minutes} minutes when new` : 'not scheduled'}</strong></span></div>
+          <div class="msg-facts"><span><strong>${b.sources.length}</strong> source${b.sources.length === 1 ? '' : 's'}</span><span><strong>${b.routine_count}</strong> routine${b.routine_count === 1 ? '' : 's'}</span><span>Last run <strong>${b.last_run ? esc(ago(b.last_run)) : 'not recorded'}</strong></span><span>Next <strong>${b.next_run ? esc(fmt(b.next_run)) : b.slack_interval_minutes ? `Slack every ${b.slack_interval_minutes} minutes when new` : 'not scheduled'}</strong></span></div>
           ${shownSources.length ? `<div class="msg-facts" style="margin-top:10px">${shownSources.map(s => `<span>${esc(s.name)}${s.kind === 'email' ? ` · ${s.error ? 'sync error' : s.synced_at ? 'synced ' + ago(s.synced_at) : 'not synced'}` : ` · ${s.post ? 'can post' : 'reads only'}`}</span>`).join('')}</div>` : ''}
           <pre>${esc(data.instructions.content || 'No instructions have been published.')}</pre>
         </div>
       </section>
-      <section class="msg-section msg-scheduled"><h2>Scheduled work</h2>${messagingRuns(data)}</section>
+      <section class="msg-section msg-scheduled"><h2>Routines</h2>${messagingRuns(data)}</section>
     </div>
     <section class="msg-example-inbox" aria-labelledby="msg-examples-title">
       <header class="msg-example-head"><h2 id="msg-examples-title">Example messages</h2></header>

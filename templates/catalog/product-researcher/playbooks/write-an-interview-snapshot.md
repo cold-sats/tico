@@ -11,12 +11,12 @@ Triggered by a task naming an interview, call or feedback batch, and used for ea
     hub meetings transcript <id>
 
 Or the notes attached to the task. Read the whole thing before writing. If it is a private meeting, stop: bots
-read company meetings only. Note who spoke, when, and how the conversation came about.
+read team meetings only. Note who spoke, when, and how the conversation came about.
 
 ## 2. Write the snapshot
 
 `knowledge/snapshots/YYYY-MM-DD-<source>.md`, in this order:
-- **Who**: role, kind of company, how long they have used the product. No name unless `knowledge/privacy.md`
+- **Who**: role, kind of team, how long they have used the product. No name unless `knowledge/privacy.md`
   allows it.
 - **Their job**: what they were trying to get done, in one sentence.
 - **The story**: one specific recent time they tried, in order: what triggered it, what they did, where it
@@ -24,7 +24,7 @@ read company meetings only. Note who spoke, when, and how the conversation came 
 - **Needs and pain points**: each as "wants to X so that Y", tagged with the quote that shows it.
 - **Quotes**: three at most, exact, anonymised, each with the timestamp or line.
 - **Surprises**: what contradicted `knowledge/opportunities.md`.
-- **Follow-up questions**: what a person could ask next time. You do not ask them.
+- **Follow-up questions**: what a human could ask next time. You do not ask them.
 
 ## 3. Keep the evidence honest
 

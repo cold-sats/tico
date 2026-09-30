@@ -1,6 +1,6 @@
 # Weekday NDA desk
 
-Schedule: weekdays at 09:00 company time (routine `nda-desk`), once a person has approved the first desk
+Schedule: weekdays at 09:00 team time (routine `nda-desk`), once a human has approved the first desk
 report. Also run by hand when an NDA arrives. Budget 20 minutes, plus 10 per NDA. The outcome is every open
 NDA with a status and the exact changes, and the packets and index up to date. Nothing is sent or signed.
 
@@ -11,7 +11,7 @@ NDA with a status and the exact changes, and the packets and index up to date. N
     hub task list --owner me --status open --status doing --status waiting
 
 Plus NDAs that arrived in the contracts mailbox, if it is connected. Yesterday's desk report tells you what
-was waiting on a person; check whether each moved.
+was waiting on a human; check whether each moved.
 
 ## 2. Check each inbound NDA
 
@@ -30,12 +30,12 @@ Mark each: same as the standard, inside `knowledge/variations.md` (quote the lin
 
 - **Ready for signature**: everything same or inside the variations list.
 - **Needs changes**: list each change as "strike ... / insert ...", taken from the standard.
-- **Needs counsel**: anything outside the variations with no company position.
+- **Needs counsel**: anything outside the variations with no team position.
 Write `reports/ndas/<party>.md` in the shape of `knowledge/examples/nda-check.md`.
 
 ## 4. Outbound requests
 
-For each request to send the company's NDA: fill the template from `knowledge/templates.md` with the party's
+For each request to send the team's NDA: fill the template from `knowledge/templates.md` with the party's
 legal name, address for notices and purpose as the requester gave them; list every blank and its source; ask
 the requester once for any missing value. Never guess a legal entity name.
 

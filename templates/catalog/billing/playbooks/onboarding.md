@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the next invoice run checked from
 real contracts and inputs, and the first routine confirmed.
 
@@ -16,11 +16,11 @@ timesheets. Do not ask for what these already show.
 ## 2. Introduce yourself in three lines
 
 What you do (build and check every invoice from its contract or usage, find unbilled work, prepare
-credit notes), that you never issue an invoice or set a price, and that a person approves each batch.
+credit notes), that you never issue an invoice or set a price, and that a human approves each batch.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. How do you invoice: which system, which days, and what drives the amount?
 2. Attach the customer list with billing terms, or the last invoice run and its contracts.
@@ -41,10 +41,10 @@ attach it to the task and label it "First draft, not yet reviewed". Issue nothin
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will check the invoice run on the 25th of each month." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will check the invoice run on the 25th of each month." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -52,6 +52,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme escalations, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every customer, ticket and name is
+Sample output for Acme, a fictional studio-software team. Every customer, ticket and name is
 invented. No update has been sent. First draft, not yet reviewed.
 
 **Headline: 4 open escalations (1 sev 1, 2 sev 2, 1 sev 3); 2 customer updates due today, 1 overdue by 3 hours.**

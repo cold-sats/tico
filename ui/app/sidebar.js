@@ -327,7 +327,7 @@ function orgTreeWithHelpers(byParent) {
     else (out[lift(parent)] ||= []).push(n);
   }
   if (helpers.length) {
-    (out[''] ||= []).push({kind: 'group', id: HELPERS_GROUP, name: 'Helpers', helpers: true});
+    (out[''] ||= []).push({kind: 'group', id: HELPERS_GROUP, name: 'Built-in', helpers: true});
     out['g:' + HELPERS_GROUP] = helpers;
   }
   return out;
@@ -348,7 +348,7 @@ function renderTree() {
     .sort((a, b) => {
       if (!!a.helpers !== !!b.helpers) return a.helpers ? 1 : -1;        // the Helpers group comes last
       if ((a.kind === 'group') !== (b.kind === 'group')) {
-        // At the company root, department labels lead. Under a person, their bots and
+        // At the team root, department labels lead. Under a person, their bots and
         // people come first and the next department (Engineering under Product) follows.
         return a.kind === 'group' ? (parent ? 1 : -1) : (parent ? -1 : 1);
       }
@@ -378,7 +378,7 @@ function renderTree() {
         <a class="node person ${curPerson === p.id ? 'cur' : ''}" href="#/person/${encodeURIComponent(p.id)}" title="${esc(personTitle(p))}"${curPerson === p.id ? ' aria-current="page"' : ''} data-org="p:${esc(p.id)}"${!flat && orgMayMove(key) ? ' draggable="true"' : ''}>
           ${personAvatar(p, depth ? 16 : 20)}<span class="nm">${esc(firstName(p.name) || p.id)}</span>
           ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}</a>
-        ${mailPersonVisible(p) ? `<a class="person-mail-link${S.route.startsWith(MESSAGING) && messagingParams().bot === p.inbox_bot ? ' cur' : ''}" href="${MESSAGING}?bot=${encodeURIComponent(p.inbox_bot)}&source=${encodeURIComponent('email:' + p.email)}" title="${esc(p.name || p.id)} has a messaging agent" aria-label="Open ${esc(p.name || p.id)}'s messaging agent">forum</a>` : ''}</div>
+        ${mailPersonVisible(p) ? `<a class="person-mail-link${S.route.startsWith(MESSAGING) && messagingParams().bot === p.inbox_bot ? ' cur' : ''}" href="${MESSAGING}?bot=${encodeURIComponent(p.inbox_bot)}&source=${encodeURIComponent('email:' + p.email)}" title="${esc(p.name || p.id)} has a message bot" aria-label="Open ${esc(p.name || p.id)}'s message bot">forum</a>` : ''}</div>
         ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
     }
     const e = node, key = 'b:' + e.name, st = stateOf(e.name), n = needsMeCount(e.name), kids = !flat && byParent[key], isCol = kids && collapsed.has(key);

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme marketing, week of 2026-09-21
 
-Sample output for Acme, a fictional studio-software company. Nothing has been shared and no task was
+Sample output for Acme, a fictional studio-software team. Nothing has been shared and no task was
 created.
 
 **Headline: 3 of 5 workstreams on track; the October launch email is blocked on your approval.**
@@ -11,7 +11,7 @@ created.
 ## Needs you
 - **Launch email (email)**: draft v2 waiting since 2026-09-23. Approve or edit so it can be loaded by 2026-09-30.
   Source: task "October launch email", 2026-09-23.
-- **Home page copy (content)**: the change to the studio plan page needs a person; not started.
+- **Home page copy (content)**: the change to the studio plan page needs a human; not started.
 
 ## Workstreams
 - **Content: green.** 2 posts drafted, 1 published by Sam on 2026-09-24. Next: plan for October. Owner: content.

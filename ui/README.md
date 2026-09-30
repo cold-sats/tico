@@ -58,14 +58,14 @@ Every file in `app/` starts with `'use strict'`, as the old inline script did. U
 
 | File(s) in `app/` | What |
 | --- | --- |
-| core, markdown, viewer, format, api, state, notices | routes, `$`/`esc`/`md`, `safeMd`, the file viewer, formatting, `get`/`post`, the state `S` and company names, the new-version and usage notices |
-| avatars, sidebar, heartbeat, tooltip | bot avatars and blobs, the org tree, heartbeat and account menu, hover status |
+| core, markdown, viewer, format, api, state, notices | routes, `$`/`esc`/`md`, `safeMd`, the file viewer, formatting, `get`/`post`, the state `S` and team names, the new-version and usage notices |
+| avatars, sidebar, heartbeat, tooltip | bot avatars and blobs, the team tree, heartbeat and account menu, hover status |
 | issues, hub-v2, needs-you, bot-tasks | shared request rows and tables, hub v2 helpers, Needs you, a bot's tasks |
-| chat, pill, bot-page, bot-conversation, person-page | bot chat and its live reply, the composer, the bot and person pages |
+| chat, pill, bot-page, bot-conversation, person-page | bot chat and its live reply, the composer, the bot and human pages |
 | tasks, task-modal, tasks-page, recurring | Tasks: rows and cards, the modal and its comments, the page, routines |
 | meetings, mail, messaging, credentials, sql, integrations, help | one page each |
-| settings, settings-*, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, credential vault, catalog cards |
-| welcome, updates, goals | first run, Updates, Goals |
-| router, drawer, search, org-fan, nav-events, viewport, refresh, native, boot | `route()`, account menu and phone drawer, search, mobile org switcher, keyboard viewport, the refresh loop, the desktop bridge, startup |
+| settings, settings-*, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, credential vault, template cards |
+| welcome, updates, goals | setup, Updates, Goals |
+| router, drawer, search, org-fan, nav-events, viewport, refresh, native, boot | `route()`, account menu and phone drawer, search, mobile team switcher, keyboard viewport, the refresh loop, the desktop bridge, startup |
 
 Files under about 1,500 lines; split a file along its section comments when it grows past that.

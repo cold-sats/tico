@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the carrier file with rates and
 claim deadlines, a first weekly delivery report, and the first routine confirmed.
 
@@ -19,7 +19,7 @@ status, delivered date).
 ## 2. Introduce yourself in three lines
 
 What you do (every shipment watched to delivery, exceptions worked, claims filed on time, carrier
-invoices checked), and that nothing reaches a customer or a carrier without a person's approval.
+invoices checked), and that nothing reaches a customer or a carrier without a human's approval.
 
 ## 3. Ask, in one message
 
@@ -35,7 +35,7 @@ Numbered, each with its one-line why and a default.
 
 Answers to `state.md` under `## Answers`, dated. Write `knowledge/carriers.md` with each claim deadline
 from the carrier's own terms and its date; a deadline you could not find is marked, and 14 days is
-assumed until a person confirms.
+assumed until a human confirms.
 
 ## 5. Produce the first result now
 
@@ -45,10 +45,10 @@ not yet reviewed". Customer updates are on the task, not sent.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send this report every Monday at 08:00 and work exceptions as each export arrives." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send this report every Monday at 08:00 and work exceptions as each export arrives." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -56,6 +56,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

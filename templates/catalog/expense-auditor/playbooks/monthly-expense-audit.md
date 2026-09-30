@@ -1,6 +1,6 @@
 # Monthly expense audit
 
-Schedule: the 3rd of each month at 09:00 company time (routine `monthly-expense-audit`), once a person
+Schedule: the 3rd of each month at 09:00 team time (routine `monthly-expense-audit`), once a human
 has approved the first audit. Budget 40 minutes. The outcome is one audit for finance with a section
 per approver. Nothing is approved, rejected or sent.
 
@@ -35,4 +35,4 @@ what is large, repeated or a duplicate candidate.
 `reports/YYYY-MM-expense-audit.md` in the shape of `knowledge/examples/expense-audit.md`:
 headline, totals, per-approver sections, then "Could not read". `hub files publish` it (finance only),
 commit, and `hub task update <id> --status done --note` with the headline and the path. Offer, on the
-task, a prepared note per approver; send nothing until a person says yes.
+task, a prepared note per approver; send nothing until a human says yes.

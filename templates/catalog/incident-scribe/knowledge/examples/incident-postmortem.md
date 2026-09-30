@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Postmortem draft: booking page slow and failing, 2026-09-22
 
-Sample output for Acme, a fictional studio-software company. Every name and figure is invented.
+Sample output for Acme, a fictional studio-software team. Every name and figure is invented.
 Draft for the incident lead's review. Nothing has been posted or shared.
 
 **Summary:** From 14:02 to 14:47 UTC on 2026-09-22 the booking page returned errors for about a third of visits.

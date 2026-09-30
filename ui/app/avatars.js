@@ -192,7 +192,7 @@ function runtimeTag(e) {
   if (!raw) return '';
   const label = RUNTIME_LABELS[raw] || raw.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   const model = e.resolved_model || e.model || '';
-  const source = !model ? '' : e.model_source === 'company' ? ' (company default)' : e.model_source === 'bot' ? " (this bot's own choice)" : '';
+  const source = !model ? '' : e.model_source === 'company' ? ' (team default)' : e.model_source === 'bot' ? " (this bot's own choice)" : '';
   const mark = window.toolIcons?.markup({logo_key: RUNTIME_MARKS[raw], name: label}) || '';
   return `<span class="rt" role="img" aria-label="Runs on ${esc(label)}" title="${esc('Runs on ' + label + (model ? ' \u00b7 ' + model : '') + source)}">${mark}</span>`;
 }

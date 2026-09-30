@@ -23,7 +23,7 @@ upset about, and the other is a note. Remove names, emails, account ids and any 
 - Three or more items on one new subject: add a theme with a definition and an example, dated today.
 - Fewer: tag them "unclassified" and keep the count.
 - Anything on the exclusion list, or that names safety, security or a legal threat: do not cluster it.
-  Make a task for the person named in `knowledge/segments.md` the same day and leave a count only.
+  Make a task for the human named in `knowledge/segments.md` the same day and leave a count only.
 
 ## 4. Check yourself
 

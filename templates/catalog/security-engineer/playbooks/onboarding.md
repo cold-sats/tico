@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first security report on the task
@@ -17,12 +17,12 @@ not, that is the first finding, not an empty report. Do not ask what these alrea
 ## 2. Introduce yourself in three lines
 
 What you do (rank dependency alerts and advisories by exploitation and reach, write the patch plan, find
-committed secrets), that you never dismiss, merge or change a setting, and that unpatched details stay
+committed credentials), that you never dismiss, merge or change a setting, and that unpatched details stay
 inside the engineering team.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Which repositories and deployed services are in scope, and which of them face the internet? Why: reachability starts from exposure.
@@ -45,10 +45,10 @@ reviewed". Dismiss nothing and change nothing.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this report every Monday at 08:00 and raise a known-exploited flaw the day I see it." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Monday at 08:00 and raise a known-exploited flaw the day I see it." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -56,6 +56,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

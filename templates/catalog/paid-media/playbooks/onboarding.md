@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a first review on the task from a
@@ -18,11 +18,11 @@ what these already say.
 ## 2. Introduce yourself in three lines
 
 What you do (a weekly review of every paid campaign and three changes prepared for approval), that you
-never touch an ad account or spend money, and that a person approves and applies each change.
+never touch an ad account or spend money, and that a human approves and applies each change.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Which ad platforms do you run, roughly what do you spend a month on each, and who can change the accounts today?
 2. What is each campaign for, and what may one result cost? (Default: last 90 days' average.)
@@ -44,10 +44,10 @@ reviewed". Change nothing and request no approval yet.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will review every campaign each Monday at 09:00 from the exports you attach." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will review every campaign each Monday at 09:00 from the exports you attach." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -55,6 +55,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

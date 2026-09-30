@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Trip plan: Dana to the studio expo, Denver, Wed 14 to Fri 16 Oct 2026
 
-Sample output for Acme, a fictional studio-software company. Every person, fare and hotel is
+Sample output for Acme, a fictional studio-software team. Every human, fare and hotel is
 invented. Nothing has been booked. First draft, not yet reviewed.
 
 **Recommended: option B, $1,012 total, within policy. Booking 16 days ahead; fares last checked

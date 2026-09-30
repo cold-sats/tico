@@ -1,7 +1,7 @@
 # Monthly revenue close pack
 
-Schedule: the 2nd of each month at 09:00 company time (routine `monthly-revenue-close`), once a person
-has approved the first pack. Budget 50 minutes. The outcome is one pack a person posts from. Nothing is
+Schedule: the 2nd of each month at 09:00 team time (routine `monthly-revenue-close`), once a human
+has approved the first pack. Budget 50 minutes. The outcome is one pack a human posts from. Nothing is
 posted or changed.
 
 ---
@@ -44,4 +44,4 @@ tied to named contracts. Explain the movement in one sentence.
 
 `reports/YYYY-MM-revenue-close.md` in the shape of `knowledge/examples/revenue-close.md`, `hub files
 publish` it, commit, and `hub task update <id> --status done --note`: reconciled or the difference, the
-entries count, the path. Questions for the accountant go on the task, prepared for a person to send.
+entries count, the path. Questions for the accountant go on the task, prepared for a human to send.

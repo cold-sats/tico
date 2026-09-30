@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme market delta, week of 2026-09-21
 
-Sample output for Acme, a fictional studio-software company. This is a draft page; the live Weekly delta has not been refreshed.
+Sample output for Acme, a fictional studio-software team. This is a draft page; the live Weekly delta has not been refreshed.
 
 **Headline: 1 competitor price change, 2 new entities, 0 edges ended. One item needs you (a conflict between two sources).**
 

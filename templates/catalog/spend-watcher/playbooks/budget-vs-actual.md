@@ -1,7 +1,7 @@
 # Budget against actual
 
 Triggered by a task after the month is closed (the Bookkeeper's close status says "ready to close" or
-a person says the books are final), or by a request for "how are we doing against budget". Budget 40
+a human says the books are final), or by a request for "how are we doing against budget". Budget 40
 minutes. The outcome is one page: each budget line's actual, the variance, the material ones explained
 and owned, and the forecast rolled forward. Nothing in the budget or the books is changed.
 
@@ -24,7 +24,7 @@ the category rules, and list anything unmapped rather than guessing.
 
 ## 3. Pick the material variances
 
-Material means over both the percentage and the amount the company agreed (default 10 percent and
+Material means over both the percentage and the amount the team agreed (default 10 percent and
 2,000). For each: the cause as a source shows it (a vendor line, a hire date, a one-off), whether it is
 timing (spend moved between months) or permanent, and the owner who should answer for it. A cause no
 source shows is a question for the owner, never a guess.
@@ -32,7 +32,7 @@ source shows is a question for the owner, never a guess.
 ## 4. Roll the forecast forward
 
 Replace the month just closed with its actual. For the remaining months, change a line only for a
-reason on record: a permanent variance, a signed contract, a hire date a person gave. Each changed
+reason on record: a permanent variance, a signed contract, a hire date a human gave. Each changed
 line names the reason and the date in `knowledge/forecast.md`. Show the full-year outlook against the
 budget: budget, forecast, difference.
 

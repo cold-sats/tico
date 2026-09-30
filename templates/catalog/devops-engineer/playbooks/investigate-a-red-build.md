@@ -18,7 +18,7 @@ Walk back to the last green run. The first red run after it names the commit ran
 `gh run view <id> -R <repo> --log-failed`. Classify: a test assertion (product bug or broken test), a
 flaky signature (timeout, port in use, order-dependent state), infrastructure (runner, network, rate
 limit, expired credential), or a dependency (a new release upstream, a yanked version). Quote the three
-lines that show it; redact anything secret.
+lines that show it; redact anything credential.
 
 ## 3. Check flakiness before blaming a commit
 
@@ -28,6 +28,6 @@ so, it is flaky, not broken: say so, and propose the register entry.
 ## 4. Answer
 
 On the task, in four lines: **Cause** with the quoted evidence; **First bad run and commit** (link);
-**Fix** (the change or the revert a person should consider) or **Owner** from `knowledge/pipeline.md`;
+**Fix** (the change or the revert a human should consider) or **Owner** from `knowledge/pipeline.md`;
 **Confidence** and what would confirm it. `hub task update <id> --status done --note`. A product bug also
 becomes a note for the QA Engineer to triage, after the requester's yes.

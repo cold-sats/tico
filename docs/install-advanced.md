@@ -16,12 +16,12 @@ python3 -m setup            # or scripts/tico-setup
 
 It asks **Where should Tico run?** and the rest of the questions are the same as in [install.md](install.md#what-the-wizard-asks):
 
-- **A server I already have** (`--target ssh --ssh user@host`): any Linux box you can SSH into; it installs Docker over SSH.
+- **A server I already have** (`--target ssh --ssh user@host`): any Linux computer you can SSH into; it installs Docker over SSH.
 - **A new EC2 server on AWS** (`--target aws`, or `--cloud aws`): it creates and tags everything and prints a cost estimate.
 - **A new server on Hetzner Cloud or DigitalOcean** (`--cloud hetzner|digitalocean`), through your own `hcloud` / `doctl`.
 - **A one-line install command** (`--target command`): written to a private file for you to paste on any Debian or Ubuntu server.
 
-Answers and secrets are kept in `~/.config/tico-setup/<domain>/` so a re-run resumes. `--dry-run` prints the plan. Further
+Answers and credentials are kept in `~/.config/tico-setup/<domain>/` so a re-run resumes. `--dry-run` prints the plan. Further
 flags for this mode: `--target ssh|aws|command`, `--ssh`, `--ssh-port`, `--ssh-identity`, `--aws-region`, `--aws-profile`,
 `--aws-instance-type`, `--aws-os`, `--cloud-location`, `--cloud-size`, `--cloud-ssh-key`, `--compose-ref`.
 
@@ -41,26 +41,26 @@ python3 -m setup destroy --domain tico.example.com             # asks you to typ
 
 Destroy deletes the instance and its data with it, and leaves your DNS records alone.
 
-### A Linux runner box from your laptop
+### A Linux runner computer from your laptop
 
 ```
 python3 -m setup runner --server-url https://tico.example.com
 ```
 
-It uses the same targets (an existing server over SSH, a new EC2 box with no inbound ports at all, or a paste command) and
+It uses the same targets (an existing server over SSH, a new EC2 computer with no inbound ports at all, or a paste command) and
 runs `ghcr.io/ticoteam/tico-runner` with a volume for logins and repositories. The one-time join code lasts 15 minutes and works
 once: set `TICO_OWNER_TOKEN` (the owner's personal token) and it mints one at the last moment, or set `TICO_ENROLL_CODE`, or
 paste one when asked. Plan for about 0.5-1 GiB of RAM per bot working at the same time (`t4g.medium` is the default).
 
 ```
 python3 -m setup doctor --domain tico.example.com            # re-runs the checks, with a fix for each failure
-python3 -m setup doctor --domain tico.example.com --runner   # also checks the runners set up from this machine
+python3 -m setup doctor --domain tico.example.com --runner   # also checks the runners set up from this computer
 ```
 
 ## Paste cloud-init by hand
 
 `infra/cloud-init/tico-server.yaml` and `tico-runner.yaml` work on any Ubuntu 24.04 cloud that accepts cloud-init user data
-(secrets and behaviour: [install.md](install.md#automation)). Edit only the block between the two `inputs` markers.
+(credentials and behaviour: [install.md](install.md#automation)). Edit only the block between the two `inputs` markers.
 
 **Hetzner Cloud.** Servers > Add Server, Ubuntu 24.04, your type and location, your SSH key, a firewall allowing inbound 80
 and 443 (and 22), and under **Cloud config** paste the edited file. Point the domain's `A` record at the server's IPv4; the
@@ -71,15 +71,15 @@ Platform app, and no create-Droplet link accepts user data. Create > Droplets, U
 tick **Add Initialization scripts** and paste the edited file, then Networking > Firewalls (inbound 80, 443, 22) and Reserved
 IPs (assign one). Or `doctl compute droplet create ... --user-data-file`.
 
-**A runner box.** Edit `tico-runner.yaml` (version, `TICO_URL`, `TICO_CODE`, label), create a server of 4 GB or more with it
+**A runner computer.** Edit `tico-runner.yaml` (version, `TICO_URL`, `TICO_CODE`, label), create a server of 4 GB or more with it
 (`cax21` or `cx33` on Hetzner, `s-2vcpu-4gb` on DigitalOcean), and attach a firewall with no inbound rules. The join code
 works once and expires after 15 minutes, so create the server right after copying it.
 
 ## Advanced: your own front door
 
 The wizard sets up Caddy (automatic HTTPS) or a Cloudflare Tunnel, and the sign-in options in
-[install.md](install.md#sign-in). If your company already has a front door, keep the Docker server and put yours in front of it.
-Tico verifies who the proxy says the person is; the email must still be on the people roster. Every option and its exact
+[install.md](install.md#sign-in). If your team already has a front door, keep the Docker server and put yours in front of it.
+Tico verifies who the proxy says the human is; the email must still be on the roster. Every option and its exact
 behaviour is in [environments](environments.md#sign-in-options).
 
 - **Cloudflare Access in front of the tunnel:** `TICO_AUTH_PROXY=cloudflare`, `TICO_ACCESS_ISSUER`, `TICO_ACCESS_AUDIENCE`.

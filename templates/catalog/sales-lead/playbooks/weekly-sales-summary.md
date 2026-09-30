@@ -1,8 +1,8 @@
 # Weekly sales team summary
 
-Schedule: Mondays at 08:00 company time (routine `weekly-sales-summary`), once a person has approved
+Schedule: Mondays at 08:00 team time (routine `weekly-sales-summary`), once a human has approved
 the first summary. Also run by hand. Budget 35 minutes. The outcome is one page for the owner: how the
-pipeline moved, which deals need a person, and what to route where. Nothing is changed or sent.
+pipeline moved, which deals need a human, and what to route where. Nothing is changed or sent.
 
 ---
 
@@ -23,7 +23,7 @@ step. Compare with last week's summary to find what entered, moved, closed and s
 
 `hub updates --kind weekly` and `hub task list` for each sales bot in `knowledge/team.md`, plus the
 newest file in its `reports/`. Count drafts made, leads researched, proposals started, renewals
-flagged. List tasks waiting more than 5 days on a person or on a missing input.
+flagged. List tasks waiting more than 5 days on a human or on a missing input.
 
 ## 3b. Read the forecast
 
@@ -39,7 +39,7 @@ Three to five, in this order: closest to close and needing a step; stalled past 
 ## 5. Draft routing proposals
 
 For each new lead, account or request with no owner: pick the owner from `knowledge/routing.md` and
-propose it in one line with the reason. Do not create tasks. A proposal a person approves on the task
+propose it in one line with the reason. Do not create tasks. A proposal a human approves on the task
 becomes `hub task create --owner <slug>` (see `playbooks/route-a-request.md`).
 
 ## 5b. Note coaching and hiring

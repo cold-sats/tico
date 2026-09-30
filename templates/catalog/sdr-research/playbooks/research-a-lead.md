@@ -15,7 +15,7 @@ Look in `knowledge/leads/` for an existing file and update it rather than starti
 
 ## 2. Read the public sources, in order
 
-1. What the company says about itself: site, product pages, pricing page, about page.
+1. What the organization says about itself: site, product pages, pricing page, about page.
 2. What changed lately: news, its own posts, changelog, hiring pages (a new team or role is a signal).
 3. Who would buy, by role, from public profiles only; nothing personal.
 4. What its customers or users say in public.

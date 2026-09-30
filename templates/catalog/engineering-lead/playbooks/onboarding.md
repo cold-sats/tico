@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is six recorded answers, a real draft of this week's summary on the task, and the first routine confirmed.
 
 ---
@@ -17,11 +17,11 @@ these already say. If you cannot read a repository, that is a gap to name, and a
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly summary of what shipped, what is stuck and what is blocked, and routing proposals), that you never change GitHub or assign a person's work, and that a person approves anything that leaves the team.
+What you do (a weekly summary of what shipped, what is stuck and what is blocked, and routing proposals), that you never change GitHub or assign a human's work, and that a human approves anything that leaves the team.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Which repositories make up the product, and who owns each area? Why: Sets the scope of the summary and lets me name an owner beside every stuck item.
 2. Who reads the weekly summary, and which day and hour should it land? (Default: you, Mondays at 09:00.) Why: Sets the recipient and the first routine's schedule. Nobody else receives it until you say so.
@@ -41,10 +41,10 @@ Read the last two weeks of merged and open pull requests in the named repositori
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send you this summary every Monday at 09:00, and I will not assign or message anyone." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this summary every Monday at 09:00, and I will not assign or message anyone." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -52,6 +52,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

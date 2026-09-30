@@ -1,8 +1,8 @@
-/* ui/app/state.js — Entry route, the state object S, company names, derived bot state
+/* ui/app/state.js — Entry route, the state object S, team names, derived bot state
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// Chat is the front door, unless this company has never been set up: the boot below sends a
+// Chat is the front door, unless this team has never been set up: the boot below sends a
 // defaulted address to #/welcome once the config says onboarding is still needed. A typed or
 // shared address is never redirected, so the rest of the app stays reachable during setup.
 // Links shared outside Tico use ordinary query parameters. Some chat and mail clients drop URL
@@ -20,8 +20,8 @@ let BOOT_DEFAULT_ROUTE = false;
 const ENTRY_ROUTE = entryRoute();
 if (ENTRY_ROUTE) history.replaceState(null, '', location.pathname + ENTRY_ROUTE);
 else if (!location.hash || location.hash === '#/') { BOOT_DEFAULT_ROUTE = true; history.replaceState(null, '', UPDATES); }   // Updates is home
-// Every company-facing name comes from the server (GET /api/me -> config, also GET /api/v2/config),
-// so a second environment shows its own application, company and assistant names. The defaults keep
+// Every team-facing name comes from the server (GET /api/me -> config, also GET /api/v2/config),
+// so a second environment shows its own application, team and assistant names. The defaults keep
 // an older server working, and strings built before /api/me answers read the names lazily.
 const CONFIG_DEFAULTS = {environment_id: '', company_name: '', app_name: 'Tico', assistant_name: 'Assistant',
                          assistant_bot: 'coo', public_url: '', runner_url: location.origin,
@@ -32,10 +32,10 @@ const S = { emps: [], people: [], orgGroups: [], status: null, issues: [], me: n
 const appName = () => S.config.app_name || CONFIG_DEFAULTS.app_name;
 const assistantName = () => S.config.assistant_name || CONFIG_DEFAULTS.assistant_name;
 const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_bot;
-// The assistant, BotOps, the Librarian and the Goal Manager are built in to every company: pause and rename them, never archive or delete.
+// The assistant, BotOps, the Librarian and the Goal Manager are built in to every team: pause and rename them, never archive or delete.
 const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager';
 const companyName = () => S.config.company_name || appName();
-// Tico's own wordmark, only while the app is called Tico; a company that named its app gets that name as text.
+// Tico's own wordmark, only while the app is called Tico; a team that named its app gets that name as text.
 const brandLogo = () => appName() === CONFIG_DEFAULTS.app_name
   ? `<img class="brand-logo on-light" src="assets/tico/tico-wordmark.svg" alt="${esc(appName())}"><img class="brand-logo on-dark" src="assets/tico/tico-wordmark-reversed.svg" alt="${esc(appName())}">`
   : `<span class="brand-name">${esc(appName())}</span>`;

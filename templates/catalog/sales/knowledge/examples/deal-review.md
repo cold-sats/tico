@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme deal review, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Every deal and person is invented and every
+Sample output for Acme, a fictional studio-software team. Every deal and person is invented and every
 address uses a reserved example domain. Nothing has been sent and the CRM is untouched. First draft, not
 yet reviewed.
 

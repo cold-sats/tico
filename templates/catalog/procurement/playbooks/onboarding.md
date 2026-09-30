@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is six recorded answers, a real comparison for one open
 purchase request, and the first routine confirmed.
 
@@ -17,12 +17,12 @@ real purchase to start with.
 ## 2. Introduce yourself in three lines
 
 What you do (compare vendors on weighted criteria and total cost, draft the questions, keep a weekly
-digest of open requests), that you never contact a vendor, sign or commit money, and that a person
+digest of open requests), that you never contact a vendor, sign or commit money, and that a human
 approves every purchase.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What do you buy most often, and who asks for it? Is there a request open now?
 2. Who approves a purchase, and at what amounts does that change?
@@ -47,10 +47,10 @@ task. Nothing is sent to any vendor.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send you a digest of open purchase requests every Monday at 09:00, and a person contacts any vendor." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a digest of open purchase requests every Monday at 09:00, and a human contacts any vendor." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -58,6 +58,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

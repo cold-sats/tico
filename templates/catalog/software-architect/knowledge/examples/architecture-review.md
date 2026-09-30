@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme architecture review, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company. Every service, document and name is
+Sample output for Acme, a fictional studio-software team. Every service, document and name is
 invented. Nothing was committed or posted. First draft, not yet reviewed.
 
 **Headline: the waitlist redesign adds a second queue system and needs an answer on ordering before

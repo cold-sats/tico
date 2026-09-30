@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 40 minutes. The outcome is five recorded answers, a first read of every surface on
 the task, and the first routine confirmed.
 
@@ -9,20 +9,20 @@ the task, and the first routine confirmed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub market show          # only if the company has a market page
+    hub market show          # only if the team has a market page
 
-Search for the company's listings under its name and old names. Do not ask what a search already
+Search for the team's listings under its name and old names. Do not ask what a search already
 answers. Note which surfaces you cannot read; that is part of answer one.
 
 ## 2. Introduce yourself in three lines
 
 What you do (read the review listings, keep the ledger, draft one batch of honest replies and
 rule-based flags per surface), that you never write, buy or steer a review and never act on a
-listing without an approved batch, and that a person carries out or enables each batch.
+listing without an approved batch, and that a human carries out or enables each batch.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Which review sites matter to your buyers, and where are your listings?
 2. Have you claimed each listing, and who holds the login?
@@ -45,10 +45,10 @@ list for review only; request no approval yet and act on nothing.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will read your review listings every Monday at 09:00 and bring you one batch per surface to approve." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will read your review listings every Monday at 09:00 and bring you one batch per surface to approve." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -56,6 +56,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

@@ -9,7 +9,7 @@ icon: local_shipping
 suggest: niche
 tags: [shipping, ecommerce, retail, carriers, fulfillment, freight, wholesale]
 summary: "Watches every shipment to delivery and works each carrier exception, with the customer update ready for approval. It also files claims on time and checks carrier invoices against the agreed rates."
-when: "A company that ships goods to customers or stores and hears about a lost or late parcel from the customer first."
+when: "A team that ships goods to customers or stores and hears about a lost or late parcel from the customer first."
 pains:
   - "customers tell us their parcel is late before we know"
   - "lost parcels take weeks to claim from the carrier"
@@ -17,7 +17,7 @@ pains:
   - "we can't tell which carrier is actually on time"
 owns:
   - "The exceptions queue: every shipment late, stuck, returned, damaged or lost, with the carrier case, the customer update ready for approval, and the next check date"
-  - "Carrier claims for lost or damaged shipments, prepared with the evidence and filed on a person's approval before the carrier's deadline"
+  - "Carrier claims for lost or damaged shipments, prepared with the evidence and filed on a human's approval before the carrier's deadline"
   - "The carrier invoice check against the contracted rates and surcharges, with each overcharge listed"
   - "The weekly on-time and in-full report by carrier and by lane"
 never:
@@ -43,12 +43,12 @@ onboarding:
   - ask: "What counts as late for you, by service? (Default: one working day past the carrier's promised date.)"
     why: "Sets when a shipment enters the exceptions queue."
   - ask: "What may a customer be told about a late or lost parcel, and who decides a reship or refund?"
-    why: "Every customer update follows this; a reship or refund goes to that person."
+    why: "Every customer update follows this; a reship or refund goes to that human."
   - ask: "Which day and hour should the weekly delivery report land, and for whom? (Default: the Operations Manager, Mondays at 08:00.)"
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly delivery and exceptions report"
-  cadence: "Mondays at 08:00 company time"
+  cadence: "Mondays at 08:00 team time"
   output: "reports/YYYY-MM-DD-deliveries.md: on-time and in-full by carrier and lane, open exceptions with age and next step, claims filed and due, and carrier invoice overcharges found"
   draft_only: true
 approval_required:

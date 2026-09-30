@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme reply review, week of Mon 2026-09-21
 
-Sample output for Acme, a fictional company. Every ticket and name below is invented. Nothing was changed in the
+Sample output for Acme, a fictional team. Every ticket and name below is invented. Nothing was changed in the
 support tool and nothing has been shared beyond the owner.
 
 **Headline: 9 of 10 sampled replies met the scorecard (pass rate 90 percent, up from 80 percent); the one repeated miss is a missing next step on refund replies.**

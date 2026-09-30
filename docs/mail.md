@@ -1,22 +1,22 @@
-# Mail: how an employee reads and files email
+# Message bots: how a bot reads and files email
 
-In the web app, **Message bots** in the sidebar groups connected email inboxes and Slack channels
-by the bot that covers them. Open one to see that bot's instructions and recurring work on the
-left and example messages on the right. Email threads are synced copies; the connector still
-handles Gmail actions. A messaging icon beside a person in the org chart opens their inbox bot.
+In the web app, **Message bots** in the sidebar groups connected mailboxes and Slack channels
+by the bot that covers them. Open one to see that bot's instructions and routines on the
+left and example messages on the right. Email threads are synced copies; the mail tool still
+handles Gmail actions. A messaging icon beside a human in the team chart opens their message bot.
 The old `#/mail` route remains available for existing deep links.
 
 Mail is one shared tool, `$HUB_DIR/scripts/mail.sh`. One Google service account acts as every
 mailbox; who may act as which one comes from the `access:` block in your `employee.yaml`
 (`policies/access.md`), never from a prompt. Every read of a body and every label, archive or
-star is written to an audit log with your slug and the Issue.
+star is written to an audit log with your slug and the task.
 
 **Never call the Gmail or Calendar API directly.** Not with curl, not with a Google SDK, not
 from your own `software/`. The access checks, the rules, the audit log and the retry handling
 live in the tool; a direct call skips all four and is a policy violation, not a shortcut. The
 service-account key is not in your environment, so a direct call would not work anyway.
 
-The dispatcher gives every run `HUB_EMPLOYEE` (your slug) and `HUB_DIR` (the hub clone), so
+The dispatcher gives every run `HUB_EMPLOYEE` (your slug) and `HUB_DIR` (the Tico clone), so
 `mail.sh` already knows who you are. `--as <slug>` is only for running it by hand.
 
 ## What you can do today
@@ -61,8 +61,8 @@ $HUB_DIR/scripts/mail.sh rules explain 18f2...        # why this message got wha
 
 Rules run before any model. Marketing (unsubscribe links), notification senders, and
 `registry/mail-rules.yaml` `skip:` addresses/domains are filed and never opened by the bot.
-Each mailbox can add its own rules under that address after `common`. An inbox bot for a
-person also reads everyone who reports to them; use `--all-mailboxes`.
+Each mailbox can add its own rules under that address after `common`. A message bot for a
+human also reads everyone who reports to them; use `--all-mailboxes`.
 
 And the record:
 
@@ -82,7 +82,7 @@ per-mailbox `sync_state` cursor). First run backfills `--backfill 90d`; later ru
 history and, if that cursor has expired, `after:<last_run − 2d>`. `--all-roster` is every
 address on `registry/people.yaml`. The same rows are also written whenever `inbox`, `thread` or
 `search` already fetches a message. Export/ack print and acknowledge a batch only — this
-command does not hold a hub token or push to the server.
+command does not hold a Tico token or push to the server.
 
 ## Writing: draft, reply, send
 
@@ -102,7 +102,7 @@ $HUB_DIR/scripts/mail.sh draft --reply-to 18f2c9a3b4d5e6f7 --body-file out/reply
 `In-Reply-To` and `References`, so the message lands in the conversation instead of starting a
 new one. `--cc` takes internal addresses only. `--dry-run` lints and reviews and writes nothing.
 
-The draft is keyed on (you, the Issue, the recipient, the subject, the body): running the same
+The draft is keyed on (you, the task, the recipient, the subject, the body): running the same
 command twice **updates the same Gmail draft** instead of leaving two. Change a word and it is a
 new draft. The thread gets `hub/drafted`, so Ana can see it in Gmail.
 
@@ -119,10 +119,10 @@ new draft. The thread gets `hub/drafted`, so Ana can see it in Gmail.
 $HUB_DIR/scripts/mail.sh send --draft r-882... --issue 128 [--approval-issue 131] [--dry-run]
 ```
 
-**A send needs an approval Issue unless a standing allowance covers the recipient.** Internal
+**A send needs an approval task unless a standing allowance covers the recipient.** Internal
 addresses (`@acme.example`) need neither. Everyone else needs one of: an allowance in
 `registry/mail-policy.yaml` that lists the recipient (Influencer's creator table is one), or
-`--approval-issue N` where N is a **closed** Issue in the hub with `owner:ana` and
+`--approval-issue N` where N is a **closed** task in Tico with `owner:ana` and
 `type:decision` whose title or body names that address or the thread. `mail policy show` says
 which of those you have.
 
@@ -160,32 +160,32 @@ $HUB_DIR/scripts/mail.sh review --body-file out/reply.txt --thread 18f2c9a3b4d5e
 ```
 
 `lint` exits 0 when clean and 2 when a rule blocks. Every finding has a stable id, a severity
-and a fix, and the ids are stable enough to quote on an Issue:
+and a fix, and the ids are stable enough to quote on a task:
 
 ```json
 { "ok": false, "summary": "1 error(s), 0 warning(s)",
   "findings": [ { "id": "L001", "severity": "error",
                   "message": "forbidden phrase: 'we guarantee'",
-                  "fix": "Company writing rules: do not promise outcomes. Say
+                  "fix": "Team writing rules: do not promise outcomes. Say
                           'we will look into it', ..." } ] }
 ```
 
 The rules, in short: no forbidden phrases (for example `we guarantee`, `AI Agent`,
 `outsource`, `is locked`, `our crew`; the list is yours to set in the policy); acme.example links only, and if you have a
-required CTA every link must be it; no placeholders, key-shaped strings, `s3://`, `emp-` or hub
-Issue numbers; a subject under 120 characters, a body of 20-2500, at most three exclamation
+required CTA every link must be it; no placeholders, key-shaped strings, `s3://`, `emp-` or Tico
+task numbers; a subject under 120 characters, a body of 20-2500, at most three exclamation
 marks, a signature naming Ana, one external recipient; and for times offered: at least two, in
 order, in the future, on a weekday, in business hours, with the zone spelled out. Confirmation
 language without `--slot` is an error - **never confirm a time before the invite exists.**
 
 `review` asks a second model (Grok, a different vendor from the one that wrote the draft) to
-judge the draft against the incoming thread. Any commitment - money, a date, a discount, a legal
+check the draft against the incoming thread. Any commitment - money, a date, a discount, a legal
 position, a guarantee - fails it. If the reviewer is unreachable, a draft still goes through
 flagged `"review": "unavailable"`, and a send is downgraded to a draft.
 
 ## Calendar
 
-Every bot can read and schedule appointments through the Hub MCP, without a Gmail grant in its
+Every bot can read and schedule appointments through the Tico MCP, without a Gmail grant in its
 manifest:
 
 ```text
@@ -195,13 +195,13 @@ hub_calendar_schedule(title="Murphy hold", start="2026-09-22T09:00:00-07:00",
 hub_calendar_status(id="<action id>")
 ```
 
-The schedule call queues one idempotent action for the private Mac connector. Only a status of
+The schedule call queues one idempotent action for the private Mac calendar tool. Only a status of
 `succeeded` means the Google event and invitations exist. `pending` and `running` are unfinished;
 `unknown` must be inspected before retrying. This standing calendar grant does not enable Gmail
 reading, drafting or sending. The equivalent shell commands are `hub calendar upcoming`,
 `hub calendar schedule` and `hub calendar status`.
 
-The mail-local calendar commands use the same company-wide grant. Every bot can read or create an
+The mail-local calendar commands use the same team-wide grant. Every bot can read or create an
 event on any address in `registry/people.yaml`; Gmail permissions, including `read_only`, do not
 change that calendar access:
 
@@ -217,7 +217,7 @@ $HUB_DIR/scripts/mail.sh schedule --thread 18f2... --slot 2026-09-08T13:00:00-07
 ```
 
 `calendar add` is audited and deterministic: the same exact request retrieves the existing event
-instead of making a duplicate. It accepts only company-roster attendees. External invitations
+instead of making a duplicate. It accepts only roster attendees. External invitations
 stay in the guarded `schedule` flow.
 
 `slots` reads **every** calendar the mailbox can see, treats all of them as busy, keeps a
@@ -234,7 +234,7 @@ and answers with the draft plus `"would_schedule": {...}` so Ana can do it in on
 Your `access:` entry lists verbs: `read`, `draft`, `send`.
 
 `read` also allows `label`, `archive`, `mark-read`, `star` and `triaged` **on your own
-mailbox**. Moving a message between folders is not a send: nothing leaves the company, the
+mailbox**. Moving a message between folders is not a send: nothing leaves the team, the
 change is visible in Gmail, and Ana undoes it by relabelling.
 
 `draft` is needed for `draft`, `reply` and `schedule`. `send` is needed on top of that for
@@ -242,7 +242,7 @@ anything to leave, and `send` also needs `outbound_send: true` in your `employee
 flag false, every send is a draft, whatever an older instruction says.
 
 Anything you are not granted is refused with exit code 2 and a line telling you what to ask
-for. Do not work around a refusal: open an Issue with `owner:ana` and `type:decision` naming
+for. Do not work around a refusal: open a task with `owner:ana` and `type:decision` naming
 the mailbox and why, per `policies/access.md`.
 
 ## The rules do the boring half
@@ -273,7 +273,7 @@ also asking, because payroll runs and receipts score money high with nobody aski
 filings need high confidence, because a wrong archive costs a missed email. `read` means the model was not sure enough: open the thread
 and decide the way you always did. It changes nothing in Gmail; the JSON carries the same under
 `judgment`, and one `judge` audit line (the audit name is unchanged) keeps the counts and the suggestion per id. Inside a bot
-turn the call goes through the hub with your credential; outside one it needs
+run the call goes through Tico with your credential; outside one it needs
 the decision model API key (`skills/decisions/SKILL.md`), and `MAIL_DECISIONS=none` switches it off (`MAIL_JUDGE` and `--judge` are the deprecated old names and still work).
 
 `draft` runs the same model as a gate before the second reviewer: six yes/no questions
@@ -287,8 +287,8 @@ Three rules under `ana@acme.example` (`judge-legal-risk`, `judge-needs-owner`, `
 instead of matching words: a `decision` condition (`judge` is the old spelling and is still read) reads what the model said about the message
 from the same listing fields as `--decisions` (`registry/mail-rules.yaml` explains the shape). They
 sit under the mailbox on purpose: they run after every common rule, so a word protection still
-blocks the model's archive, and only that mailbox's mail is sent to the model. Inside a bot turn
-the call goes through the hub; with no decision model available those rules simply do not fire and the
+blocks the model's archive, and only that mailbox's mail is sent to the model. Inside a bot run
+the call goes through Tico; with no decision model available those rules simply do not fire and the
 report says so. `mail rules explain <id>` prints the answer a message got.
 
 If you keep triaging the same kind of message by hand, that is a rule. Write it in the file's
@@ -298,13 +298,13 @@ mailbox and `stop: true` (a mailbox-section rule runs after `common` and can nev
 fixture, then open a PR against ticoteam/tico; a human merges it. Do not edit
 `registry/mail-rules.yaml` in place.
 
-## Labels the hub owns
+## Labels Tico owns
 
 `hub/triaged/<slug>`, `hub/handled/<slug>`, `hub/drafted`, `hub/needs-owner`, `hub/marketing`,
 `hub/notification`, `hub/noise`. The tool refuses to touch any label outside `hub/` (and
 Gmail's own INBOX, UNREAD, STARRED), because everything else is Ana's own filing.
 
-## What to put in the Issue closing comment
+## What to put in the task closing comment
 
 Per `policies/handoffs.md`, three sections and under 200 words. For a mail run, **what was
 done** is counts and not a transcript:
@@ -319,23 +319,23 @@ What the requester should know: the renewal needs a number I do not have.
 Audit: scripts/mail.sh audit --since 24h --employee <slug>
 ```
 
-Never paste a full message body into an Issue, and never paste an address list. Message ids and
+Never paste a full message body into a task, and never paste an address list. Message ids and
 one line of context are enough for Ana to open the thread herself. Nothing from a mailbox
 goes into Slack.
 
 ## When something is wrong
 
 `doctor` prints one line per problem with the exact fix. If it says the key is missing or
-delegation is not granted, that is Ana's twenty minutes, not yours: open an Issue with
+delegation is not granted, that is Ana's twenty minutes, not yours: open a task with
 `owner:ana` and `needs-human` quoting the failing line, and stop. Exit codes: 0 fine,
-1 something broke, 2 a hub policy refused you.
+1 something broke, 2 a Tico policy refused you.
 
 Details of the plan and the reasoning behind every gate: `docs/mail-service.md`. The rule ids,
 the policy schema and the reviewer backends: `connectors/mail/README.md`.
 
 ## Works on Linux runners
 
-The mail and calendar sync (the `connectors` job) runs on a Docker runner, so a company whose bots all live
+The mail and calendar sync (the `connectors` job) runs on a Docker runner, so a team whose bots all live
 on cloud Linux can sync mail and calendar with no Mac. It is the same code and behavior as on a Mac; only the places it
 looks are named instead of guessed.
 
@@ -343,42 +343,42 @@ looks are named instead of guessed.
 2. Put the key on **one** runner, in the runner's own state directory, where only the runner can read it (owner `ticorun`, mode 0600):
    `docker exec -i -u ticorun tico-runner sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`.
    A key left in `workspace/secrets/google-sa.json` (an older install, or an older version of this page) is moved there within
-   a minute. Bots cannot read that place: an inbox bot's turn asks the runner for a short-lived token for one mailbox instead
+   a minute. Bots cannot read that place: a message bot's run asks the runner for a short-lived token for one mailbox instead
    (below).
 3. Wait a minute. `docker logs tico-runner` says `Tico side jobs: started connectors (mail, calendar)`. The first start builds
    the Python environment into the runner's volume (`/home/runner/tools/mail-venv`, or `/var/lib/tico-runner/tools/mail-venv`),
    about a minute, needing outbound access to PyPI once. It is not in the image, so the image stays slim for runners that never sync mail;
    it is rebuilt when `connectors/mail/requirements.txt` changes.
 4. Check: `python -m runner --config <runner.json> connectors-doctor`, then Settings shows the mail and calendar
-   connector health.
+   tool health.
 
 ### Who can read the key
 
-The key can act as any mailbox in the company, so bots must not be able to read it.
+The key can act as any mailbox in the team, so bots must not be able to read it.
 
 - **Docker runner with the two-user layout** (the current `runner.compose.yaml`): the key is in the runner's state directory,
-  closed to the bots' user. The `connectors` job reads it there. An inbox bot's turn gets, from the runner over its credential
-  socket, a Gmail or Calendar access token that lasts an hour for one mailbox: its person's, and the people below them in the
-  org chart. Any other bot, and any other mailbox, is refused.
+  closed to the bots' user. The `connectors` job reads it there. A message bot's run gets, from the runner over its credential
+  socket, a Gmail or Calendar access token that lasts an hour for one mailbox: its human's, and the humans below them in the
+  team chart. Any other bot, and any other mailbox, is refused.
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
-  Health says so ("Mail key"). Keep such a computer for the inbox bot alone.
-- An inbox bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
-  for the inbox bot). Several inbox bots may share one only if the operator allows it with
+  Health says so ("Mail key"). Keep such a computer for the message bot alone.
+- A message bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
+  for the message bot). Several message bots may share one only if the owner allows it with
   `POST /api/v2/runners/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway. Where one owner runs every
-  computer and bot, the refusal offers this and BotOps turns it on as the person who asked; anywhere else an owner or an admin does it
-  (an inbox bot still never shares a computer with another kind of bot).
-- Bots that are not inbox bots but declare `gmail` access do not get mail on an isolated runner.
+  computer and bot, the refusal offers this and BotOps turns it on as the human who asked; anywhere else an owner or an admin does it
+  (a message bot still never shares a computer with another kind of bot).
+- Bots that are not message bots but declare `gmail` access do not get mail on an isolated runner.
 
-Instead of the key, the owner can set `TICO_PROCESSING_OPERATORS=<operator>` on the server: that operator's runners run
+Instead of the key, the owner can set `TICO_PROCESSING_OPERATORS=<operator>` on the server: that owner's runners run
 the job (and show a sign-in problem in Settings until the key is there).
 
 | Setting | Default (Mac) | Linux runner |
 | --- | --- | --- |
 | `TICO_PROJECTS_DIR` bot repos, `secrets/` | folder above the checkout | `<home>/workspace` |
-| `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` for the connectors job; a bot's turn is given `TICO_PROJECTS_DIR`, so its first `mail.sh` builds `<home>/workspace/runtime/mail/venv` (the bot user can write it) |
+| `TICO_MAIL_VENV` | `<projects>/runtime/mail/venv` | `<tools>/mail-venv` for the connectors job; a bot's run is given `TICO_PROJECTS_DIR`, so its first `mail.sh` builds `<home>/workspace/runtime/mail/venv` (the bot user can write it) |
 | `TICO_MAIL_RUNTIME_DIR` mail.db, audit log | `<projects>/runtime/mail` | same, under `workspace/runtime/mail` |
 | `GOOGLE_SA_KEY` | `<projects>/secrets/google-sa.json` | the runner's state directory (`~/state-<id>/google-sa.json`) |
-| `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot inbox rules do |
+| `TICO_REGISTRY_DIR` | `<checkout>/registry` | unset: the sync needs no registry; per-bot mailbox rules do |
 
 Nothing in the connectors job is Mac-only: the key is a file on both (no Keychain), and there is no browser automation
 in it. What stays Mac-only is launchd (`scripts/tico install`; Linux uses the runner's own supervisor) and
@@ -411,11 +411,11 @@ Unsubscribe requires choosing unwanted subscription mail; it does not cancel a p
 
 ## Scoped automatic scheduling (Ana approved September 8)
 
-The inbox bot uses `mail scheduling offer|book`, not generic `reply`, `send` or `schedule`.
+The message bot uses `mail scheduling offer|book`, not generic `reply`, `send` or `schedule`.
 It has `scheduling_send: true` and separate Gmail/Calendar `schedule` verbs; general
 `outbound_send` stays false. `policy show` reports both. Scope is influencers and BD-confirmed
 non-investor contacts only. An independent reviewer checks relationship and explicit acceptance;
-only fixed scheduling text can be sent. BD confirmation must be an actual Hub message authored
+only fixed scheduling text can be sent. BD confirmation must be an actual Tico message authored
 by that bot with exact `Scheduling approval: <email>` and `Thread: <thread>` lines.
 
 Offers use two 30-minute slots, 20 hours notice, weekdays excluding nationwide federal/observed
@@ -427,4 +427,4 @@ suppress duplicates; uncertain delivery is recorded for reconciliation, never au
 retried or falsely described as rolled back. `--dry-run` performs no outbound action.
 
 Ana's `mail slots` uses the same time rules and defaults to 30 minutes. The older generic
-scheduler is not the inbox bot's standing-authorized workflow.
+scheduler is not the message bot's standing-authorized workflow.

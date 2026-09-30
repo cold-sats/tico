@@ -1,6 +1,6 @@
 # Weekly research digest
 
-Schedule: Thursdays at 10:00 company time (routine `weekly-research-digest`), once a person has approved the
+Schedule: Thursdays at 10:00 team time (routine `weekly-research-digest`), once a human has approved the
 first digest. Also run by hand. Budget 45 minutes. The outcome is one page for the product team: what users
 said this week, which opportunities gained evidence, and one thing worth testing. You contact no one.
 
@@ -18,7 +18,7 @@ Then `knowledge/opportunities.md` (the outcome and the open decision), `knowledg
     hub docs search "interview"
 
 Also tasks that carry interview notes or feedback exports (`hub task list`), and the Customer Insights Analyst's latest
-report if the company runs one. List each source: what it is, when, and whether you can read it.
+report if the team runs one. List each source: what it is, when, and whether you can read it.
 
 ## 3. Snapshot each new source
 
@@ -34,7 +34,7 @@ more, from different people). Move anything that does not serve the outcome to t
 ## 5. Pick one thing to test
 
 The opportunity with the most evidence and the least testing. Name its riskiest assumption and one cheap way
-to test it that a person can run in a week. Do not choose the solution.
+to test it that a human can run in a week. Do not choose the solution.
 
 ## 6. Write the digest
 

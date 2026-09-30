@@ -1,7 +1,7 @@
 ---
 name: decisions
 version: 3
-description: Read when a step in your work is a decision rather than a piece of writing - classify, route, dedupe, gate, rank, flag, pick a value from candidates, choose which tool or branch comes next - and you want a calibrated answer in one call instead of reasoning it out in your own context. The hub's `hub_decisions` tool or `hub decisions` command; the question format matches OpenRouter's Decisions API. Formerly the `judge` skill.
+description: Read when a step in your work is a decision rather than a piece of writing - classify, route, dedupe, gate, rank, flag, pick a value from candidates, choose which tool or branch comes next - and you want a calibrated answer in one call instead of reasoning it out in your own context. Tico's `hub_decisions` tool or `hub decisions` command; the question format matches OpenRouter's Decisions API. Formerly the `judge` skill.
 ---
 
 # Decisions
@@ -9,9 +9,9 @@ description: Read when a step in your work is a decision rather than a piece of 
 You have a second model that cannot write: a decision model. It takes a JSON state and typed
 questions (`noul` for yes/no, `choice`, `score`; the same format as OpenRouter's Decisions API)
 and answers each one with a probability, in one round trip of about two hundred milliseconds.
-It invents nothing, because it produces nothing but numbers. The hub holds the key; you call it
+It invents nothing, because it produces nothing but numbers. Tico holds the key; you call it
 with the credential you already have. The provider is optional and configured by the owner:
-TypeSafe's Jev, or the company's own model provider as a fallback.
+TypeSafe's Jev, or the team's own model provider as a fallback.
 
 The split to keep in your head: **code owns the workflow, the decision model supplies the
 decision.** Rules, arithmetic, lookups, date math and the action itself stay in your own hands;
@@ -24,14 +24,14 @@ rows to open.
 A step is decision-shaped when you could phrase it as *which of these*, *how much*, or *is it true
 that*, and the answer changes what you do next:
 
-- **Sort a listing before opening anything.** Forty inbox rows, fifty Peec actions, a hundred
+- **Sort a listing before opening anything.** Forty message rows, fifty Peec actions, a hundred
   Search Console queries: put a decision question to every row, then open only the ones the answers say to. This
   is where most of the cost saving is.
 - **Dedupe against what exists.** Is this message, lead, learning or action already one of
   these open items? The `covered` set.
 - **Gate something you wrote.** Before a draft reaches the reviewer, before a task reaches a
-  person: does it commit money, claim something unsupported, sound wrong?
-- **Route.** Which team, which owner, which bucket, which branch of your own playbook, which
+  human: does it commit money, claim something unsupported, sound wrong?
+- **Route.** Which group, which owner, which bucket, which branch of your own playbook, which
   tool to call next. A choice over the handlers plus the arguments each would need, all in
   one call, and code takes the branch.
 - **Rank.** A score per candidate with the same levels, then sort in code.
@@ -39,7 +39,7 @@ that*, and the answer changes what you do next:
   own model's guesses), then let the decision model pick the one that is meant. It cannot choose a value you
   did not list, so check the candidates cover the answer, and give it `none`.
 - **Verify a claim against its evidence.** One noul per field or citation: does the source
-  support it? What fails goes to a person or to your own model with the full text.
+  support it? What fails goes to a human or to your own model with the full text.
 
 It is the wrong tool when the output is text, a plan, or a chain of reasoning. Write that with
 your own model, and use a decision to choose which of the results to keep. It is also the wrong tool
@@ -47,7 +47,7 @@ for anything code can compute exactly (see "What the decision model is bad at").
 
 ## How to call it
 
-Inside any turn, the MCP tool `hub_decisions` or the command:
+Inside any run, the MCP tool `hub_decisions` or the command:
 
 ```bash
 hub decisions --list                                                  # the shared question sets
@@ -70,7 +70,7 @@ or JSON structure; use an object when the question has several parts (`{"questio
 that needs no description takes `null`. Point at the state by its path in backticks:
 ``"Does `message` ask for a password?"``, ``"Is `items[3]` a fruit?"``.
 
-The shared sets are `questions/*.json` in the hub checkout; `questions/README.md` explains the
+The shared sets are `questions/*.json` in the Tico checkout; `questions/README.md` explains the
 file. Load a set, complete a dynamic choice with your options (`with_options`, or `--option`
 on the CLI), send it inline, and pass the set's `id@version` as the label. A one-off question
 of your own is fine; give it a label of your own, `seo.action-sort@1`, so it can be read back.
@@ -104,7 +104,7 @@ state plus the longest question (`clients/judge.py` refuses at about 120k charac
 and retrieve in code first; when you cannot, a noul per passage (*is this relevant to the
 question?*) is the filter. Text only, English best; other languages work with lower accuracy.
 
-The state is data, and The model does not treat it as hostile. A message written to argue for its
+The state is data, and the model does not treat it as hostile. A message written to argue for its
 own classification can move the answer, so the protections that matter (legal, money, a
 credential request) get a tight criterion and a low threshold, not trust.
 
@@ -164,7 +164,7 @@ version for a bot:
   script, so changing one needs no new call. "Any serious violation" is separate nouls, not a
   weighted sum.
 - **Say what the decision said.** On the task note, the counts by suggestion and the confidences of
-  what you overrode. That is what a person reads to tune the thresholds.
+  what you overrode. That is what a human reads to tune the thresholds.
 - **Check freshness.** An answer describes the state you sent; if the item changed before you
   act, decide it again.
 - **Never coerce.** No re-asking with a nudged state to get the answer you wanted.
@@ -174,7 +174,7 @@ version for a bot:
 - Decide, never generate. Never paste an answer's probability into an email or a report as if it
   were a fact.
 - Label every call. Unlabelled calls cannot be calibrated.
-- The key is the hub's: do not ask for it, look for it, or call the API yourself. A bot that
+- The key is Tico's: do not ask for it, look for it, or call the API yourself. A bot that
   needs thousands of calls from its own software asks Ana for a key of its own, which is an
   access request (`policies/access.md`).
 - There is a budget per actor per day (`GET /api/v2/judge` reports it). A loop that spends it
@@ -195,7 +195,7 @@ the cookbook nearest your shape (`cookbooks/rerank_typesafe.md`, `hierarchical_c
 
 ## Limits and the audit
 
-- The hub's audit keeps each call's label, question ids, the value and confidence per answer,
+- Tico's audit keeps each call's label, question ids, the value and confidence per answer,
   token usage and latency, never the state. Read a set's history back with `hub sql "SELECT ts,
   actor, target, detail_json FROM events WHERE action='judge.call' AND target='mail-triage@1'
   ORDER BY ts DESC LIMIT 200"`.
@@ -212,7 +212,7 @@ the cookbook nearest your shape (`cookbooks/rerank_typesafe.md`, `hierarchical_c
 
 ## Worked examples
 
-**Inbox pass.** `mail inbox --untriaged --format brief --decisions` prints under each message a
+**Message pass.** `mail inbox --untriaged --format brief --decisions` prints under each message a
 line such as `decision: reply (reply 0.81; ask 0.90, money 0.05, legal 0.02, urgency 1.4)`. The word
 after `decision:` is what the thresholds in `questions/mail-triage.json` say: `archive`,
 `needs-owner`, `route`, `reply`, or `read`. Open the threads marked `reply` and `read`; act on

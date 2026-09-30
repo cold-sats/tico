@@ -2,7 +2,7 @@
 
 Triggered by a task that asks for duplicates, and by the monthly step in `playbooks/weekly-crm-report.md`.
 Budget 30 minutes. The outcome is a list of duplicate candidate groups with a proposed survivor for a
-person to merge. Nothing is merged.
+human to merge. Nothing is merged.
 
 ---
 
@@ -15,7 +15,7 @@ removing punctuation and legal suffixes and that share a domain or a city.
 ## 2. Find candidates
 
 Read leads and contacts created in the last 30 days first, then the rest. Group them. Never store an email
-or phone in a file: refer to records by id and company name.
+or phone in a file: refer to records by id and organization name.
 
 ## 3. Sort each group
 
@@ -27,7 +27,7 @@ or phone in a file: refer to records by id and company name.
 ## 4. Write the list
 
 In the report or on the task: the group, the records with owners, the proposed survivor, why, and who
-should merge. A person merges. If a group crosses two owners, name both.
+should merge. A human merges. If a group crosses two owners, name both.
 
 ## 5. Finish
 

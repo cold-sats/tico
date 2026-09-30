@@ -3,7 +3,7 @@
 'use strict';
 
 // ----------------------------------------------------------------- AI providers
-// Which model vendors this company uses and the default model (backend/providers.py). One form
+// Which model vendors this team uses and the default model (backend/providers.py). One form
 // serves the first-run step and Settings; the server derives the runtime from the model.
 function providersModels(view, models, enabled) {
   const labels = Object.fromEntries((view.providers || []).map(row => [row.id, row.label]));

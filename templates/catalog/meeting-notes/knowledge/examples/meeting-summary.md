@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Pricing call, Acme, 2026-09-23
 
-Sample output for Acme, a fictional company. Every name and quote is invented.
+Sample output for Acme, a fictional team. Every name and quote is invented.
 
 **Headline: Keep the studio plan at its current price through December; two follow-ups are proposed.**
 

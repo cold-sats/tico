@@ -1,6 +1,6 @@
 # On-call handoff
 
-Triggered by a task at a rotation change ("handoff from Omar to Lena") or by a person asking for one. Budget
+Triggered by a task at a rotation change ("handoff from Omar to Lena") or by a human asking for one. Budget
 20 minutes. The outcome is one page the incoming person reads before their first page arrives. You page,
 silence and change nothing.
 

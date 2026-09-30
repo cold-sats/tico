@@ -1,7 +1,7 @@
 # Route a request
 
 Triggered by a task that names a lead, an account or a request and asks who should take it. Budget 10
-minutes. The outcome is one routing proposal with its reason. Nothing is assigned until a person says yes.
+minutes. The outcome is one routing proposal with its reason. Nothing is assigned until a human says yes.
 
 ---
 
@@ -10,7 +10,7 @@ minutes. The outcome is one routing proposal with its reason. Nothing is assigne
     hub task show <id>
 
 Find what it is: a net-new lead, an existing account, a data problem, a proposal, a renewal or
-something for a person only. Look the account up in `knowledge/pipeline-rules.md`'s pipeline source and
+something for a human only. Look the account up in `knowledge/pipeline-rules.md`'s pipeline source and
 in `hub meetings search "<account>"` so you do not route a customer as a lead.
 
 ## 2. Pick the owner
@@ -19,7 +19,7 @@ Use `knowledge/routing.md` first. Otherwise: net-new lead to `sdr-research`; ope
 proposal, quote or questionnaire to `sales`; renewal or expansion to `account-manager`; stale or
 duplicate data, forecast or routing rules to `sales-ops`; technical question or proof of concept to
 `sales-engineer`; partner-sourced deal to `partnerships`; health problem to `customer-success`. If the deal is in a live
-negotiation, or the prospect replied or asked about price, it belongs to a person: name them.
+negotiation, or the prospect replied or asked about price, it belongs to a human: name them.
 
 ## 3. Propose
 

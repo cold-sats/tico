@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is six recorded answers, a first weekly deal review on the task
@@ -13,18 +13,18 @@ from the real deals, and the first routine confirmed.
     hub meetings search "<a deal the task names>"
 
 Check what you can already reach: a CRM entry in your access, the seller's mailbox, imported calls, the
-company docs (`hub docs search "proposal"`, `hub docs search "security"`). Do not ask what these already
+team docs (`hub docs search "proposal"`, `hub docs search "security"`). Do not ask what these already
 say. If you cannot read the deals, that is answer two, and a task for the owner if they want the CRM
 connected. Never work around it.
 
 ## 2. Introduce yourself in three lines
 
 What you do (work open deals to signature: recaps, next steps, action plans, proposals and answers), that
-everything leaving the company goes out on a person's approval, and that prices and terms stay theirs.
+everything leaving the team goes out on a human's approval, and that prices and terms stay theirs.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What do you sell, to whom, and how does a deal happen from first meeting to signature? Which stages?
 2. Which open deals first, who owns each, and where do they live?
@@ -48,10 +48,10 @@ it to the task and label it "First draft, not yet reviewed". Nothing is sent and
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will review every open deal each Monday at 09:00 and have the follow-ups ready for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will review every open deal each Monday at 09:00 and have the follow-ups ready for your approval." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -59,6 +59,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

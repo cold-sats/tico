@@ -22,7 +22,7 @@ if the campaign already exists in `knowledge/campaigns.md`; one campaign, one na
 
 One row per placement: landing page, source (the platform or sender), medium (from the convention's
 list), campaign, and content where two links in one placement need telling apart. Lowercase, hyphens,
-no personal data, no tags on links between the company's own pages. Open each landing page once to
+no personal data, no tags on links between the team's own pages. Open each landing page once to
 check it loads and that a lead form on it carries the hidden source field.
 
 ## 4. Hand over

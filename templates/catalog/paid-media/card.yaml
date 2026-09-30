@@ -9,7 +9,7 @@ icon: ads_click
 suggest: common
 tags: [paid-ads, search-ads, social-ads, ecommerce, b2b, b2c, performance]
 summary: "Reviews every paid campaign each week against cost per result, finds the wasted spend and the search terms to exclude, and prepares each budget, keyword and ad change for approval. It never touches an ad account itself."
-when: "A company spending on search or social ads every month without someone who reads the results closely each week."
+when: "A team spending on search or social ads every month without someone who reads the results closely each week."
 pains:
   - "we don't know which of our ads actually work"
   - "ad spend keeps rising and leads don't"
@@ -18,7 +18,7 @@ pains:
 owns:
   - "The weekly paid media review: spend, results and cost per result by campaign against target, what changed and why, the three changes worth making"
   - "The search-term and placement review: terms and placements that spend without results, proposed as exclusions with the spend they cost"
-  - "Change proposals: budget shifts, new ad copy variants, paused ads, each prepared with its evidence for a person to approve and apply"
+  - "Change proposals: budget shifts, new ad copy variants, paused ads, each prepared with its evidence for a human to approve and apply"
   - "The targets and the change log (knowledge/targets.md, knowledge/changes.md): what each campaign is for, what it may cost, what was changed and what happened after"
 never:
   - "Change a bid, budget, audience, keyword, ad or campaign in any ad account"
@@ -48,7 +48,7 @@ onboarding:
     why: "Recorded in knowledge/targets.md as rules every proposal respects."
 first_routine:
   title: "Weekly paid media review"
-  cadence: "Mondays at 09:00 company time"
+  cadence: "Mondays at 09:00 team time"
   output: "reports/YYYY-MM-DD-paid-media.md: spend and cost per result by campaign against target, wasted spend, proposed exclusions, and three changes prepared for approval"
   draft_only: true
 approval_required:

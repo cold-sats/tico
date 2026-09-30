@@ -16,7 +16,7 @@ it, and whether another member already answered (then your reply confirms or cor
 - **An account-specific problem** (billing, their data, a login): do not answer in public. Prepare a
   short public line ("We've opened a ticket and will follow up directly") and a task for the Support
   Agent with the link.
-- **A bug or outage:** route to the person named for bugs; the public line acknowledges it without a date.
+- **A bug or outage:** route to the human named for bugs; the public line acknowledges it without a date.
 - **A feature request:** thank them, say it has been passed on, promise nothing; route it as feedback.
 
 ## 3. Find the answer
@@ -24,7 +24,7 @@ it, and whether another member already answered (then your reply confirms or cor
     hub docs ask "<the member's question, in their words>"
 
 Use the answer and its citations. If the Librarian says it is not covered, do not guess: report the
-gap to it (`hub task create --owner librarian`) and tell the owner the thread needs a person.
+gap to it (`hub task create --owner librarian`) and tell the owner the thread needs a human.
 
 ## 4. Write the reply
 

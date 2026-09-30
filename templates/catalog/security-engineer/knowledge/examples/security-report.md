@@ -1,10 +1,10 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme security report, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Every package, advisory number and
-person is invented. Nothing was dismissed, merged or changed. First draft, not yet reviewed.
+Sample output for Acme, a fictional studio-software team. Every package, advisory number and
+human is invented. Nothing was dismissed, merged or changed. First draft, not yet reviewed.
 
 **Headline: 1 known-exploited flaw is reachable on the public booking API (deadline Thu 2026-10-01);
 3 more are reachable; 1 test key is committed and needs rotating.**
@@ -25,7 +25,7 @@ person is invented. Nothing was dismissed, merged or changed. First draft, not y
 All dev or test dependencies (bundler, test runner plugins). Proposed: one batched upgrade in the quarterly
 cleanup. List in `knowledge/ledger.md`.
 
-## Secrets
+## Credentials
 - `web-app`, `tests/fixtures/payments.env`, added in commit 3f9c2a1 on 2026-09-22: a payment provider
   **test** secret key. Rotate it in the provider's dashboard, then remove the file; deleting it alone
   leaves it in history. Owner: Marco. Value not copied here.

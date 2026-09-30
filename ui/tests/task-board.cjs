@@ -135,7 +135,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     for (const width of [1280, 900, 768]) await checkDesktopToolbar(width);
     await page.setViewportSize({width: 1200, height: 900});
     assert.deepEqual(await page.locator('#task-view button').evaluateAll(buttons => buttons.map(b => [b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('aria-pressed')])),
-      [['For you', 'For you', 'true'], ['List', 'List', 'false'], ['Board', 'Board', 'false'], ['Recurring', 'Recurring', 'false'], ['Done', 'Done', 'false']]);
+      [['Needs you', 'Needs you', 'true'], ['List', 'List', 'false'], ['Board', 'Board', 'false'], ['Routines', 'Routines', 'false'], ['Done', 'Done', 'false']]);
     // For you is a person icon, left of List.
     assert.equal(await page.locator('#task-view [data-view="foryou"] .nav-icon').innerText(), 'person');
     await page.locator('#task-q').focus();

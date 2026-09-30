@@ -24,5 +24,5 @@ and the correction the payroll owner may want in the next run or off-cycle. The 
 
 ## 4. Update the baseline
 
-Once a person confirms the register is final, write the new headcount and gross by pay group to
+Once a human confirms the register is final, write the new headcount and gross by pay group to
 `knowledge/baseline.md` with the register date, commit, and finish the task.

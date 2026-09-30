@@ -1,7 +1,7 @@
 # Monthly evidence and controls page
 
-Schedule: the first of each month at 10:00 company time (routine `monthly-controls-page`), once a
-person has approved the first page. Budget 40 minutes. The outcome is one page and, for the approved
+Schedule: the first of each month at 10:00 team time (routine `monthly-controls-page`), once a
+human has approved the first page. Budget 40 minutes. The outcome is one page and, for the approved
 owners, one evidence request each. Nothing in any system is changed.
 
 ---
@@ -23,14 +23,14 @@ with the review note"), and the due date. Quarterly and yearly controls appear i
 In the first month of a quarter, start `playbooks/access-review.md` for every in-scope tool, and list
 last quarter's reviews that are still undecided.
 
-## 4. People and vendors
+## 4. Humans and vendors
 
-From `knowledge/acknowledgements.md`: people who joined more than 14 days ago without accepting the
+From `knowledge/acknowledgements.md`: humans who joined more than 14 days ago without accepting the
 policies, and yearly acceptances overdue. From `knowledge/vendor-reviews.md` and the vendor register:
-vendors holding company or customer data with no security review, or one older than a year.
+vendors holding team or customer data with no security review, or one older than a year.
 
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-controls.md` in the shape of `knowledge/examples/controls-page.md` and
-`hub files publish` it. For owners on the approved list, `hub task create --owner <person>` with the
+`hub files publish` it. For owners on the approved list, `hub task create --owner <human>` with the
 exact evidence, the control and the due date. Commit, then `hub task update <id> --status done --note`.

@@ -1,7 +1,7 @@
 # Monday agenda
 
 Triggered by a request ("prepare Monday's agenda") or as the last section of the weekly brief.
-Budget 10 minutes. The outcome is a draft agenda a person can run the meeting from, with an owner
+Budget 10 minutes. The outcome is a draft agenda a human can run the meeting from, with an owner
 and a time on every item.
 
 ---
@@ -19,7 +19,7 @@ booked, and last Monday's agenda in `reports/` to see what was left open.
 An item earns its place if it is:
 1. a decision that only this group can take, waiting more than a few days;
 2. a goal that is red, or yellow for two weeks running;
-3. a stalled item that needs a person in the room to unblock;
+3. a stalled item that needs a human in the room to unblock;
 4. carried over from last Monday and still open.
 
 Status updates that nobody needs to discuss are not items. Put them in one "For your information"

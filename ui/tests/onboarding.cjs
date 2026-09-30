@@ -5,7 +5,7 @@
 // it picks departments, answers one question per department, sees "Recruiting bots…", checks the suggested bots and
 // watches the chart grow; the finished chart can rename or re-point a bot. Nothing is created until "Create my team",
 // which posts /api/v2/onboarding/complete exactly once. After it: each
-// starter shows "Needs onboarding" with a Start setup button that says "Let's set you up.", an admin can be
+// starter shows "Needs setup" with a Set up button that says "Let's set you up.", an admin can be
 // invited, bot owners named and where to keep keys found; the bot page and the org chart carry the same mark.
 // Settings -> Bots reuses the catalog cards. Fixtures only - no server, no network.
 const {chromium} = require('playwright');
@@ -324,10 +324,10 @@ function recruitFor({department, briefing, share}) {
     // First, which departments: Engineering and Product are suggested because software is the product; Legal and HR wait.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 6');
     if (shots) await page.setViewportSize({width: 1440, height: 900});      // the org chart photographed on a laptop screen
-    assert.equal(await page.locator('#onb h1').textContent(), 'Your org chart');
-    assert.doesNotMatch(await page.locator('.onb-progress').textContent(), /What hurts|Your team/);
+    assert.equal(await page.locator('#onb h1').textContent(), 'Your team chart');
+    assert.doesNotMatch(await page.locator('.onb-progress').textContent(), /What hurts|Your team(?! chart)/);
     assert.equal(await page.locator('[data-onb-hint]').count(), 0);
-    assert.equal(await page.locator('.ob-title').textContent(), 'What departments do you want?');
+    assert.equal(await page.locator('.ob-title').textContent(), 'What groups do you want?');
     const tilesOn = () => page.locator('[data-ob-tile][aria-pressed=true]').evaluateAll(els => els.map(el => el.dataset.obTile));
     assert.deepEqual(await tilesOn(), ['sales', 'marketing', 'support', 'finance', 'operations', 'product', 'engineering']);
     assert.equal(await page.locator('[data-ob-tile]').count(), 9);
@@ -473,7 +473,7 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#ob-brief').press('Enter');
     await page.locator('#ob-suggested').waitFor();
     assert.deepEqual(await picked(), ['engineering-lead', 'issue-triage']);
-    assert.match(await page.locator('#ob-next').textContent(), /See org chart/);
+    assert.match(await page.locator('#ob-next').textContent(), /See team chart/);
     await page.locator('#ob-next').click();
 
     // The finished chart: every department with bots, its head under it and the team under the head.
@@ -483,7 +483,7 @@ function recruitFor({department, briefing, share}) {
       ['sales', 'marketing', 'support', 'operations', 'engineering']);
     assert.equal(await page.locator('#ob-side').isVisible(), false);
     // Helpers sit apart from the chart: the Inbox Manager is one switch, off until someone turns it on.
-    assert.equal(await page.locator('#ob-helpers h3').textContent(), 'Helpers');
+    assert.equal(await page.locator('#ob-helpers h3').textContent(), 'Built-in');
     assert.equal(await page.locator('[data-ob-helper=inbox]').isChecked(), false);
     assert.doesNotMatch(await page.locator('#ob-chart-big').textContent(), /Inbox Manager/);
     await page.locator('[data-ob-helper=inbox]').check();
@@ -619,13 +619,13 @@ function recruitFor({department, briefing, share}) {
     await page.locator('.gs-tour').waitFor({state: 'detached'});
     assert.deepEqual(tourPosts, [{tour: true}]);
 
-    // ---- after Create, one screen. Each starter is parked ("Needs onboarding") with its repository still being set up
-    // on the computer until it exists; only then does Start setup work.
-    assert.equal(await page.locator('#onb h1').textContent(), 'Setting up Initech');
+    // ---- after Create, one screen. Each starter is parked ("Needs setup") with its repository still being set up
+    // on the computer until it exists; only then does Set up work.
+    assert.equal(await page.locator('#onb h1').textContent(), 'Finish setup');
     assert.match(await page.locator('[data-onb-bot=coo]').textContent(), /Ace\s+Set up automatically once a computer is online\./);
     assert.match(await page.locator('[data-onb-bot=botops]').textContent(), /Set up automatically once a computer is online\./);
     assert.equal(await page.locator('[data-onb-bot=coo] [data-needs-onboarding]').count(), 0);        // the built-ins work at once
-    assert.match(await page.locator('[data-onb-bot=support]').textContent(), /Needs onboarding/);
+    assert.match(await page.locator('[data-onb-bot=support]').textContent(), /Needs setup/);
     assert.match(await page.locator('[data-onb-bot=support]').textContent(), /Repository ready\./);
     assert.match(await page.locator('[data-onb-bot=meeting-notes]').textContent(), /Setting up its repository/);
     assert.equal(await page.locator('[data-fr-start=meeting-notes]').isDisabled(), true);
@@ -648,7 +648,7 @@ function recruitFor({department, briefing, share}) {
     assert.deepEqual(await page.locator('#fr-tools [data-fr-link]').evaluateAll(els => els.map(el => el.dataset.frLink)),
       ['credentials', 'integrations']);
     assert.equal(await page.locator('[data-fr-link=credentials]').getAttribute('href'), '#/credentials');
-    assert.match(await page.locator('[data-fr-secrets]').textContent(), /Enter secrets in those fields, never in a chat with a bot/);
+    assert.match(await page.locator('[data-fr-secrets]').textContent(), /Enter credentials in those fields, never in a chat with a bot/);
     // What was typed survives the progress poll (only the rows are redrawn).
     await page.locator('#fr-admin-form [name=name]').fill('Half typed');
     await page.evaluate(() => onbRenderDone(ONB));
@@ -659,23 +659,23 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.title(), 'Initech Hub');
     await page.locator('#tree .node[href="#/bot/support"] .tree-setup').waitFor();
     assert.equal(await page.locator('#tree .node[href="#/bot/coo"] .tree-setup').count(), 0);
-    // Start setup: one line from the person begins its onboarding conversation, and the bot page carries the mark.
+    // Set up: one line from the person begins its onboarding conversation, and the bot page carries the mark.
     await page.locator('[data-fr-start=support]').click();
     await page.waitForFunction(() => location.hash === '#/bot/support');
     assert.deepEqual(chats, [['support', {text: "Let's set you up."}]]);
     assert.deepEqual(definitions, []);                                    // it was already active: nothing to activate first
     await page.locator('#bot-onboard').waitFor();
     await shot(page, 'desktop-7-bot-page');
-    assert.match(await page.locator('#bot-onboard').textContent(), /Needs onboarding/);
+    assert.match(await page.locator('#bot-onboard').textContent(), /Needs setup/);
     assert.equal(await page.locator('#bot-onboard p').count(), 0);                                    // the pill and the button, no paragraph
-    assert.equal(await page.locator('#bot-start-setup').textContent(), 'Start setup');
-    // The Chat tab shows the setup conversation: the person's line, in the chat Start setup wrote to.
+    assert.equal(await page.locator('#bot-start-setup').textContent(), 'Set up');
+    // The Chat tab shows the setup conversation: the person's line, in the chat Set up wrote to.
     await page.locator('#conv-thread .bubble.you', {hasText: "Let's set you up."}).waitFor();
     // A planned starter is activated first (an owner's call), then told the same line.
     await page.goto('https://tico-ui.test/#/bot/meeting-notes');
     await page.locator('#bot-start-setup').click();
     await page.locator('#bot-start-setup', {hasText: 'Setup started'}).waitFor();
-    // Its Chat tab was open and empty when Start setup was pressed: the message shows at once, not after a reload.
+    // Its Chat tab was open and empty when Set up was pressed: the message shows at once, not after a reload.
     await page.locator('#conv-thread .bubble.you', {hasText: "Let's set you up."}).waitFor({timeout: 3000});
     assert.equal(await page.locator('#conv-thread .empty').count(), 0);
     assert.deepEqual(definitions, [{path: '/api/v2/bots/meeting-notes/definition', body: {status: 'active', expected_revision: 4}}]);
@@ -747,7 +747,7 @@ function recruitFor({department, briefing, share}) {
     assert.equal(created.length, 2);
     assert.equal(created[1].slug, 'ana-inbox');
     assert.equal(created[1].template, 'inbox');
-    assert.equal(created[1].display_name, 'Ana Rivera Inbox');
+    assert.equal(created[1].display_name, 'Ana Rivera message bot');
     assert.match(created[1].instructions, /Mailbox: ana@acme.example/);
 
     // ---- phone width: the wizard is one column and never scrolls sideways; the chart is a strip above the card.

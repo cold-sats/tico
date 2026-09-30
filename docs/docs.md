@@ -1,13 +1,13 @@
 # Docs
 
-**Docs** is where a company keeps what its people and its bots should know. It has two kinds of thing,
+**Docs** is where a team keeps what its humans and bots should know. It has two kinds of thing,
 and search covers both.
 
 | | Internal docs | Linked docs |
 |---|---|---|
 | What it is | Markdown written, pasted or imported in Tico | A link to a doc that lives somewhere else |
 | Where the text is | In Tico, with its full history | At the source; Tico stores no copy and runs no sync |
-| Who can read | Everyone in the company, and every bot | Everyone in the company, and every bot |
+| Who can read | Everyone on the team, and every bot | Everyone on the team, and every bot |
 | Who can change | Everyone; an owner or bot administrator can lock one | Whoever added it, an owner or a bot administrator |
 | Opening one | In the page (read, edit, history) | In a new tab, at the source |
 
@@ -51,15 +51,15 @@ A linked doc is a title, an address, a **kind** and an optional one-line descrip
 The kind comes from the address: `website`, `google_drive` (Drive folders and Sheets, Slides, Forms), `google_doc`,
 `notion`, `github` or `other` (Dropbox, SharePoint, Confluence, Figma and similar). The title defaults to the host
 and path. Add one with **Add link** on the page (anyone may); its adder, an owner or a bot administrator can edit or
-remove it. Opening one goes to the source in a new tab, so people need access there. Tico never fetches it.
+remove it. Opening one goes to the source in a new tab, so humans need access there. Tico never fetches it.
 
 ## The Tico manual
 
 Every install carries the manual for its own release: the `docs/*.md` its image ships, as a **read-only** collection kept
-apart from the company's docs. It is built in memory when the server starts and rebuilt when the release changes; it is never
-stored in the company's docs, so it cannot be edited (`405 read_only`), listed with `hub docs list`, synced or backed up as
-company content. `GET /api/v2/docs/search?collection=company|manual|all` (default `company`, which is what the Docs page uses)
-and `hub docs search` (all: the company's results first, then the manual's) label each manual result `Tico manual` with its
+apart from the team's docs. It is built in memory when the server starts and rebuilt when the release changes; it is never
+stored in the team's docs, so it cannot be edited (`405 read_only`), listed with `hub docs list`, synced or backed up as
+team content. `GET /api/v2/docs/search?collection=company|manual|all` (default `company`, which is what the Docs page uses)
+and `hub docs search` (all: the team's results first, then the manual's) label each manual result `Tico manual` with its
 file (`docs/backups.md`), a link to that page (the GitHub file at the release tag, `main` on a build with no version) and the
 section's excerpt. `hub docs read manual:<name>` (`GET /api/v2/docs/manual/{name}`) reads one page; `GET /api/v2/docs/manual`
 lists them.
@@ -73,7 +73,7 @@ which it is: **Internal** or **Linked**. Where SQLite has no FTS5, search falls 
 
 ## Ask AI
 
-**Ask AI** asks the Librarian, the built-in bot for the company's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub docs ask`.
+**Ask AI** asks the Librarian, the built-in bot for the team's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub docs ask`.
 
 ## Upgrading
 
@@ -86,7 +86,7 @@ reachable from the bot's page.
 ## API
 
 All of it is in the stable v2 contract ([openapi/v2.json](openapi/v2.json), tag **Docs**); every write needs an
-`Idempotency-Key`. Reads are open to every signed-in person and bot.
+`Idempotency-Key`. Reads are open to every signed-in human and bot.
 
 | | |
 |---|---|

@@ -33,9 +33,9 @@ function gsOrgHint() {
 // ---------------------------------------------------------------- the tour
 const GS_STEPS = [
   ['[data-nav="updates"]', 'Updates', 'Every bot posts a short update each day, and a fuller one on Fridays.'],
-  ['[data-nav="tasks"]', 'Tasks', 'Work for bots and people. Give a task an owner and it gets done, or comes back with a question.'],
-  ['#nav-organisation', 'Your bots', 'Your bots are listed here. Open one to chat, see its work and change its settings.'],
-  ['[data-nav="docs"]', 'Docs', 'Your company docs, searchable, with questions answered from them.'],
+  ['[data-nav="tasks"]', 'Tasks', 'Work for bots and humans. Give a task an owner and it gets done, or comes back with a question.'],
+  ['#nav-organisation', 'Team', 'Your team is listed here. Open a bot to chat, see its work and change its settings.'],
+  ['[data-nav="docs"]', 'Docs', 'Your docs, searchable, with questions answered from them.'],
   ['[data-nav="market"]', 'Market', 'A map of your competitors, customers and channels that a bot keeps current.'],
   ['[data-nav="meetings"]', 'Meetings', 'Connect a source or add notes, and bots pull out the tasks and follow-ups.'],
 ];

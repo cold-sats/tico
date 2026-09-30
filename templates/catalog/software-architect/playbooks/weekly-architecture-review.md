@@ -1,6 +1,6 @@
 # Weekly architecture review
 
-Schedule: Wednesdays at 09:00 company time (routine `weekly-architecture-review`), once a person has approved
+Schedule: Wednesdays at 09:00 team time (routine `weekly-architecture-review`), once a human has approved
 the first review. Also run by hand. Budget 50 minutes. The outcome is one page: designs that need an answer,
 decisions that need a record, and the debt worth planning. Nothing is committed or posted.
 

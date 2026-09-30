@@ -3,17 +3,17 @@
 'use strict';
 
 // ----- Access: who may see, read and write to a bot (backend/bot_access.py, docs/permissions.md).
-// Each level is everyone, or people, teams and bots. Open is all three Everyone; the owner, the bot
-// itself and the people it reports up to always have all three.
+// Each level is everyone, or humans, groups and bots. Open is all three Everyone; the owner, the bot
+// itself and the humans it reports up to always have all three.
 const ACCESS_LEVELS = [
-  ['see', 'See', 'the bot in the org chart and lists: its name, role, who runs it and who it reports to'],
+  ['see', 'See', 'the bot in the team chart and lists: its name, role, who owns it and who it reports to'],
   ['read', 'Read', 'its work: tasks, updates, files, status, run log and routines'],
   ['write', 'Write', 'send it messages, tasks, notes and comments'],
 ];
 const ACCESS_PRESETS = [
   ['open', 'Open', 'Everyone'],
-  ['requests', 'Requests only', 'Everyone sends requests; chosen people read its work'],
-  ['private', 'Private', 'Chosen people only'],
+  ['requests', 'Requests only', 'Everyone sends requests; chosen humans read its work'],
+  ['private', 'Private', 'Chosen humans only'],
   ['custom', 'Custom', 'See, read and write separately'],
 ];
 const accessTeamName = id => (S.orgGroups || []).find(g => g.id === id)?.name || teamLabel(id);
@@ -40,7 +40,7 @@ function settingsAccessCell(e) {
   return `<span class="sb-access" data-access-summary title="${esc(e.access_policy ? accessSummary(e.access_policy) : word)}">${esc(word)}</span>`;
 }
 // Who owns a bot: its creator and co-owners (and its operator). Whoever it reports up to and the admins own it too,
-// without being listed. Any owner adds or removes people here; the server checks it (docs/permissions.md).
+// without being listed. Any owner adds or removes humans here; the server checks it (docs/permissions.md).
 async function settingsEditBotOwners(slug) {
   const e = S.emps.find(row => row.name === slug);
   if (!e) return;
@@ -53,7 +53,7 @@ async function settingsEditBotOwners(slug) {
   const listed = new Set((e.bot_owners || []).map(o => o.id));
   const people = SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.people || []).filter(p => !p.hidden);
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-owners-title">Who owns ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-owners-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body">${e.operator ? `<p class="muted">${esc(settingsPersonName(e.operator))} runs its computer and is always an owner.</p>` : ''}
+    <div class="owner-picker-body">${e.operator ? `<p class="muted">${esc(settingsPersonName(e.operator))} owns its computer and is always an owner.</p>` : ''}
       <div class="owner-options">${people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${listed.has(person.id) || person.id === e.operator ? 'checked' : ''} ${person.id === e.operator ? 'disabled' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
       <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owners-close]').forEach(button => button.onclick = () => dialog.close());
@@ -114,8 +114,8 @@ async function settingsEditAccess(slug) {
     const level = draft[levels[0]];
     return `<fieldset class="access-level" data-access-levels="${levels.join(',')}"><legend>${esc(title)}${hint ? `<small>${esc(hint)}</small>` : ''}</legend>
       ${withEveryone ? `<label class="access-everyone"><input type="checkbox" data-access-everyone ${level.everyone ? 'checked' : ''}> Everyone</label>` : ''}
-      <div data-access-lists ${level.everyone ? 'hidden' : ''}>${list(level, 'people', people.map(p => ({id: p.id, name: p.name || p.id})), 'People')}
-      ${teams.length ? list(level, 'teams', teams, 'Teams') : ''}${bots.length ? list(level, 'bots', bots.map(b => ({id: b.name, name: b.display_name || b.name})), 'Bots') : ''}</div></fieldset>`;
+      <div data-access-lists ${level.everyone ? 'hidden' : ''}>${list(level, 'people', people.map(p => ({id: p.id, name: p.name || p.id})), 'Humans')}
+      ${teams.length ? list(level, 'teams', teams, 'Groups') : ''}${bots.length ? list(level, 'bots', bots.map(b => ({id: b.name, name: b.display_name || b.name})), 'Bots') : ''}</div></fieldset>`;
   };
   const paintPickers = () => {
     const host = dialog.querySelector('[data-access-pickers]');

@@ -1,6 +1,6 @@
 # Tomorrow's dispatch plan
 
-Schedule: weekdays at 15:00 company time (routine `tomorrows-dispatch-plan`), once a person has approved
+Schedule: weekdays at 15:00 team time (routine `tomorrows-dispatch-plan`), once a human has approved
 the first plan. Budget 30 minutes. The outcome is tomorrow's plan by crew, the clash list and the
 arrival notices, all waiting for the dispatcher's approval. Nothing is sent or changed.
 

@@ -1,6 +1,6 @@
 # Weekly people records check
 
-Schedule: Mondays at 10:00 company time (routine `weekly-records-check`), once a person has approved the
+Schedule: Mondays at 10:00 team time (routine `weekly-records-check`), once a human has approved the
 first check. Budget 30 minutes. The outcome is one page for the HR owner: leavers and what is still open,
 records that disagree, letters waiting, acknowledgements outstanding. Nothing is changed or sent.
 

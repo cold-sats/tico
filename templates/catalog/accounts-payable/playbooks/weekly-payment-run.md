@@ -1,7 +1,7 @@
 # Weekly payment run proposal
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-payment-run`), once a person has approved
-the first proposal. Budget 35 minutes. The outcome is one proposal a person approves as a whole or line
+Schedule: Tuesdays at 09:00 team time (routine `weekly-payment-run`), once a human has approved
+the first proposal. Budget 35 minutes. The outcome is one proposal a human approves as a whole or line
 by line, and a spend approval request for exactly what is approved. Nothing is paid.
 
 ---
@@ -14,7 +14,7 @@ or payables export attached to the task; a bill you cannot confirm as paid stays
 ## 2. Choose what is due
 
 Due this run: bills whose due date falls before the next run, plus bills with an early-payment discount
-the company takes. Everything else waits, and its due date is shown in the "coming up" line.
+the team takes. Everything else waits, and its due date is shown in the "coming up" line.
 
 ## 3. Hold what is not ready
 

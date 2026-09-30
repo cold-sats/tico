@@ -8,8 +8,8 @@ pack: marketing
 icon: forward_to_inbox
 suggest: common
 tags: [email, newsletter, lifecycle, ecommerce, b2c, subscription]
-summary: "Writes the next campaign email or nurture sequence with three subject lines, a preview line and a send checklist, ready to load. A person approves every send and every schedule."
-when: "A company that emails customers or a newsletter list and wants the drafts written in its own voice, on time."
+summary: "Writes the next campaign email or nurture sequence with three subject lines, a preview line and a send checklist, ready to load. A human approves every send and every schedule."
+when: "A team that emails customers or a newsletter list and wants the drafts written in its own voice, on time."
 pains:
   - "writing campaign emails takes days"
   - "our newsletter goes out too rarely"
@@ -18,7 +18,7 @@ pains:
   - "our email open rates keep dropping"
 owns:
   - "Campaign drafts: newsletters, launch and announcement emails, nurture and onboarding sequences, each with subject options and a preview line"
-  - "The send checklist on every draft: audience, unsubscribe, address, sender, links, plain-text version, deliverability items for a person to confirm"
+  - "The send checklist on every draft: audience, unsubscribe, address, sender, links, plain-text version, deliverability items for a human to confirm"
   - "The email calendar (knowledge/calendar.md) and what each past campaign achieved (knowledge/results.md)"
   - "The voice and the audience segments (knowledge/voice.md, knowledge/segments.md)"
 never:
@@ -38,7 +38,7 @@ prerequisites:
     required: false
 onboarding:
   - ask: "What emails do you send today, to whom, and how often: newsletter, product news, promotions, onboarding? Which tool sends them?"
-    why: "Sets the calendar and the format of every draft, and the field names a person uses to load it."
+    why: "Sets the calendar and the format of every draft, and the field names a human uses to load it."
   - ask: "Who are the two or three groups you would email differently: customers, trial users, leads, past customers?"
     why: "Becomes knowledge/segments.md. Each draft names its audience; I never write one email for everyone."
   - ask: "Can you paste two past emails that did well and one that did badly, with the numbers if you have them?"
@@ -49,7 +49,7 @@ onboarding:
     why: "The first draft is a real one, and the checklist needs the legal footer text you already use."
 first_routine:
   title: "Weekly email campaign draft"
-  cadence: "Tuesdays at 09:00 company time"
+  cadence: "Tuesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-<campaign>/email.md: the draft with three subject lines, a preview line, a plain-text version, the audience and a send checklist"
   draft_only: true
 approval_required:

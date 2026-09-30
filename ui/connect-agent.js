@@ -157,8 +157,8 @@
     const dialog = document.createElement('dialog');
     dialog.className = 'tmodal connect-agent';
     dialog.setAttribute('aria-labelledby', 'ca-title');
-    dialog.innerHTML = `<header class="ca-head"><div><h2 id="ca-title">Connect an agent</h2>
-        <p class="ca-intro">Connect Grok, Dots, Muse or any MCP agent to Tico. It can then read and act on your tasks, goals and docs as you.</p></div>
+    dialog.innerHTML = `<header class="ca-head"><div><h2 id="ca-title">Connect an external agent</h2>
+        <p class="ca-intro">Connect Grok, Dots, Muse or any external agent to Tico. It can then read and act on your tasks, goals and docs as you.</p></div>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
       <div class="ca-body" data-ca-body></div>`;
     const body = dialog.querySelector('[data-ca-body]');
@@ -173,7 +173,7 @@
 
     async function showPicker() {
       stopPolling(); issued = null;
-      body.innerHTML = `<ul class="ca-tiles" aria-label="Agents">${AGENTS.map(agent =>
+      body.innerHTML = `<ul class="ca-tiles" aria-label="External agents">${AGENTS.map(agent =>
         `<li><button class="ca-tile" type="button" data-agent="${agent.id}">${logo(agent, agent.name)}<span>${esc(agent.name)}</span></button></li>`).join('')}</ul>
         <section class="ca-section" data-conns hidden></section>`;
       body.querySelectorAll('[data-agent]').forEach(button => { button.onclick = () => void showAgent(byId(button.dataset.agent)); });
@@ -190,7 +190,7 @@
       const now = Date.now();
       const live = rows.filter(row => !row.revoked_at && !(row.expires_at && new Date(row.expires_at) < now));
       host.hidden = !live.length;
-      host.innerHTML = `<h3 class="ca-label">Connections</h3><ul class="ca-conns">${live.map(row =>
+      host.innerHTML = `<h3 class="ca-label">External agents</h3><ul class="ca-conns">${live.map(row =>
         `<li class="ca-conn" data-conn="${esc(row.id)}">${logo(agentOf(row.label), row.label, true)}
           <span class="ca-conn-name">${esc(row.label)}</span>
           <span class="ca-conn-used">${row.last_used ? 'Used ' + esc(ago(row.last_used)) : 'Never used'}</span>
@@ -198,7 +198,7 @@
       host.querySelectorAll('[data-revoke]').forEach(button => {
         const row = live.find(r => r.id === button.dataset.revoke);
         button.onclick = async () => {
-          if (!confirm(`Revoke ${row.label}? The agent loses access at once.`)) return;
+          if (!confirm(`Revoke ${row.label}? The external agent loses access at once.`)) return;
           button.disabled = true;
           try { await post(`/v2/me/tokens/${encodeURIComponent(row.id)}/revoke`, {}); toast(`${row.label} revoked`); }
           catch (error) { toast(error.message, true); }
@@ -214,12 +214,12 @@
       catch (error) { toast(error.message, true); return; }
       if (closed) return;
       body.innerHTML = `<div class="ca-agent">${logo(agent, agent.name)}<h3>${esc(agent.name)}</h3>
-          <button class="ghost ca-back" type="button" data-back>All agents</button></div>
+          <button class="ghost ca-back" type="button" data-back>All external agents</button></div>
         <div class="ca-section"><h4 class="ca-label">MCP server URL</h4>
           <div class="ca-row"><code data-url>${esc(url)}</code><button class="ghost" type="button" data-copy-url>Copy</button></div>
           ${bypass ? '<p class="ca-note" data-access-note>Cloudflare Access must let <code>/api/v2/mcp</code> through: give that path a Bypass policy. Tico checks the token itself.</p>' : ''}</div>
         <div class="ca-section" data-token-section><h4 class="ca-label">Token</h4>
-          ${agent.other ? `<div class="ca-row"><input type="text" data-other maxlength="40" placeholder="Agent name" aria-label="Agent name" autocomplete="off"></div>` : ''}
+          ${agent.other ? `<div class="ca-row"><input type="text" data-other maxlength="40" placeholder="External agent name" aria-label="External agent name" autocomplete="off"></div>` : ''}
           <div class="ca-actions"><button class="primary" type="button" data-create>Create token</button></div></div>
         <ol class="ca-steps">${agent.steps.map(step => `<li><span>${step}</span></li>`).join('')}</ol>
         <div data-after></div>`;

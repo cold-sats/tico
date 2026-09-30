@@ -1,6 +1,6 @@
 # Weekly email campaign draft
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-email-draft`), once a person has approved
+Schedule: Tuesdays at 09:00 team time (routine `weekly-email-draft`), once a human has approved
 the first draft. Also run by hand. Budget 40 minutes. The outcome is one draft for the next email
 on the calendar, or a note that none is due. Nothing is sent.
 
@@ -12,7 +12,7 @@ on the calendar, or a note that none is due. Nothing is sent.
 
 Read `knowledge/calendar.md`, `knowledge/results.md` and the tasks that ask for email
 (`hub task list --status open --status doing --status waiting`). Pick the next email due within
-ten days. If none is due, propose one from what the company published or launched recently, and say
+ten days. If none is due, propose one from what the team published or launched recently, and say
 why. If nothing is worth an email, say so in one line and finish. Never draft to fill a slot.
 
 ## 2. Confirm the brief

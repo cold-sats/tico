@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme pricing review, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-scheduling software company. Competitors, deals and prices
+Sample output for Acme, a fictional studio-scheduling software team. Competitors, deals and prices
 are invented. Nothing was changed. First draft, not yet reviewed.
 
 **Headline: Bendwell moved SMS reminders into its free plan (read 2026-09-30); Acme gave a discount

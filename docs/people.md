@@ -1,49 +1,49 @@
-# People and access
+# Humans and access
 
-Who is on the roster, who may sign in and who owns the environment are settings in the app, not
-files on the server. The owner manages them in **Settings > People**; nothing needs a restart.
+Who is on the team, who may sign in and who owns the environment are settings in the app, not
+files on the server. The owner manages them in **Settings > Humans**; nothing needs a restart.
 
 ## Roles
 
-Everyone on the roster is an **Owner**, an **Admin** or a **Member**. Members can add coworkers at the company domain and
-create and manage their own bots; Admins manage people, computers and every bot but the built-in ones; the Owner does
+Every human on the team is an **Owner**, an **Admin** or a **Member**. Members can add coworkers at the team's email domain and
+create and manage their own bots; Admins manage humans, computers and every bot but the built-in ones; the Owner does
 everything. The full rules, including per-bot See, Read and Write, are in [permissions](permissions.md).
 
-## Settings > People
+## Settings > Humans
 
-The page answers three things: how people get here, who is here, and what each person may do.
+The page answers three things: how humans get here, who is here, and what each human may do.
 
-- **How people join.** Pick **Add manually** or **Sync with directory**. There is no separate mode setting: a saved directory
-  source means Sync, none means manual. Going back to manual turns the sync off; the people it added stay.
-  - **Add manually** is one row: an email and, optionally, a name. The person goes on the roster and the sign-in list at once.
+- **How humans join.** Pick **Add manually** or **Sync with directory**. There is no separate mode setting: a saved directory
+  source means Sync, none means manual. Going back to manual turns the sync off; the humans it added stay.
+  - **Add manually** is one row: an email and, optionally, a name. The human goes on the roster and the sign-in list at once.
     Type a domain instead (`partner.com` or `@partner.com`) to let anyone at it sign in.
   - **Sync with directory** is the source, its status and **Sync now** ([Directory sync](#directory-sync)). The "ask me first"
-    number for people a sync would mark as left is under **Options**.
-- **Anyone at <domain> can sign in** (owner only). The domain is the owner's own when that is a company address, else the first
+    number for humans a sync would mark as left is under **Options**.
+- **Anyone at <domain> can sign in** (owner only). The domain is the owner's own when that is a work address, else the first
   allowed domain. On means the domain is in `allowed_domains`; off takes it out. Someone not on the roster whose verified sign-in
-  is at an allowed domain or on the allowed list joins as a normal person on first sign-in (audit event `person.joined`).
-- **Also allowed.** Anything else on the allow list (other domains, and addresses of people not on the roster yet) is shown as
+  is at an allowed domain or on the allowed list joins as a normal human on first sign-in (audit event `person.joined`).
+- **Also allowed.** Anything else on the allow list (other domains, and addresses of humans not on the roster yet) is shown as
   chips the owner can remove. Nothing on the list is rewritten on upgrade: entries saved by an earlier release keep working
-  exactly as before. The server still refuses a wildcard inside an address (`a*@company.com`), a malformed address and a public
-  mail domain such as gmail.com. Narrowing the list stops new people; it does not remove anyone on the roster.
-- **Each person** is one row: the role (**Owner** is fixed; the owner switches **Admin** and **Member**), a **Can sign in** switch
-  (see [permissions](permissions.md)), and a ⋯ menu: **Can add bots** and **Can add people** for a member, **Make owner** and
-  **Mark as left** for the owner. Everything saves when it changes. Title and team are kept on the person but edited on
+  exactly as before. The server still refuses a wildcard inside an address (`a*@example.com`), a malformed address and a public
+  email domain such as gmail.com. Narrowing the list stops new humans; it does not remove anyone on the roster.
+- **Each human** is one row: the role (**Owner** is fixed; the owner switches **Admin** and **Member**), a **Can sign in** switch
+  (see [permissions](permissions.md)), and a ⋯ menu: **Can add bots** and **Can add humans** for a member, **Make owner** and
+  **Mark as left** for the owner. Everything saves when it changes. Title and group are kept on the human but edited on
   their profile, not here.
-- **Mark as left.** They drop off the org chart, their API tokens are revoked, and they can no longer sign in. **Restore** (under
+- **Mark as left.** They drop off the team chart, their API tokens are revoked, and they can no longer sign in. **Restore** (under
   **Left**) brings them back (their old tokens stay revoked).
-- **Bot limit per member**: 25 active bots by default. A company still on the old default of 5 is moved to 25 once on upgrade;
+- **Bot limit per member**: 25 active bots by default. A team still on the old default of 5 is moved to 25 once on upgrade;
   a 5 someone set by changing it from another number, and any other number, stays.
 
 ## Transferring ownership
 
-The owner picks an active person, ticks whether they stay an Admin, and types the new
+The owner picks an active human, ticks whether they stay an Admin, and types the new
 owner's email to confirm. On commit the new owner is the owner at once, in the same transaction that
-writes the `owner.transferred` audit event. The previous owner becomes a normal person. Owner-only
-routes, the runner rule that only the owner's machines host any bot, onboarding's machine wiring,
-the credential administrators (the owner and the Admins, when `TICO_CREDENTIAL_ADMINS` is unset), mail and calendar defaults
-all read the owner in force. A machine stays with the person who enrolled it: if a bot the new
-owner operates was placed on the old owner's machine, reassign it in Settings > Devices.
+writes the `owner.transferred` audit event. The previous owner becomes a normal human. Owner-only
+routes, the runner rule that only the owner's computers host any bot, setup's computer wiring,
+the credential administrators (the owner and the Admins, when `TICO_CREDENTIAL_ADMINS` is unset), email and calendar defaults
+all read the owner in force. A computer stays with the human who enrolled it: if a bot the new
+owner owns was placed on the old owner's computer, reassign it in Settings > Computers.
 
 ## Where it is stored
 
@@ -63,9 +63,9 @@ editing `api.env` or the file changes nothing. `private_owners` and `routing_per
 ## The identity proxy must agree
 
 With `TICO_AUTH_PROXY=cloudflare` (Cloudflare Access) or `aws-alb` (Cognito) the proxy authenticates
-people before Tico sees them. Adding a person or an allowed domain here does not change that
-policy: also allow the same addresses in the Access policy or the Cognito user pool, or the person is
-stopped before they reach the app. Tico does not change that policy itself; after an add, Settings > People shows one line saying
+humans before Tico sees them. Adding a human or an allowed domain here does not change that
+policy: also allow the same addresses in the Access policy or the Cognito user pool, or the human is
+stopped before they reach the app. Tico does not change that policy itself; after an add, Settings > Humans shows one line saying
 so when either proxy is on.
 
 ## API
@@ -78,24 +78,24 @@ uses `POST /api/v2/people/{id}` with `left: true` (owner only).
 
 ## Directory sync
 
-Instead of adding people one by one, the owner can sync them from the company directory:
-**Settings > People > Sync with directory**. Pick one source: Google Workspace or Microsoft Entra ID
+Instead of adding humans one by one, the owner can sync them from the team's directory:
+**Settings > Humans > Sync with directory**. Pick one source: Google Workspace or Microsoft Entra ID
 (Tico reads the directory on a schedule) or SCIM (your identity provider pushes changes).
 
 Everyone a sync adds joins the roster and **can sign in**, so scope it (group, organizational unit,
-domain) to the people who should use Tico.
+domain) to the humans who should use Tico.
 
 ### What a sync does
 
-- Adds people with name, email, title and manager (who they report to). Photos come from the
-  same photo cache as the org chart: Workspace thumbnails and Entra profile photos are fetched
-  for people added or updated by a pull.
-- Updates those fields for people a sync created. The directory wins over hand edits to them.
+- Adds humans with name, email, title and manager (who they report to). Photos come from the
+  same photo cache as the team chart: Workspace thumbnails and Entra profile photos are fetched
+  for humans added or updated by a pull.
+- Updates those fields for humans a sync created. The directory wins over hand edits to them.
 - **Leavers are marked left, never deleted.** A suspended or archived Google user, a disabled Entra
   user, or (for a pull) someone who is no longer in scope is marked left: off the chart, API tokens
   and sessions ended, exactly as **Mark as left** does. If the directory turns them back on, a sync
   restores them, unless you marked them left by hand.
-- **Never removes a person you added by hand**, and only fills blank fields on them (a title, a
+- **Never removes a human you added by hand**, and only fills blank fields on them (a title, a
   manager). Someone created by another source is treated the same way.
 - **Never demotes or marks the owner as left**, even if the directory disables the owner's
   account. The preview lists them as protected.
@@ -104,7 +104,7 @@ domain) to the people who should use Tico.
 
 Every pull starts as a dry run: **Sync now** shows what would be added, updated, restored and
 marked left, and what is protected or skipped. Nothing changes until you press **Apply**. You must
-tick a confirmation for the **first** sync, and for any sync that would mark **more than N people as
+tick a confirmation for the **first** sync, and for any sync that would mark **more than N humans as
 left** (N is the "ask me first" number, default 10). The confirmation is for that exact list: if
 the directory changes before you apply, Tico asks you to review again.
 
@@ -123,7 +123,7 @@ deactivations in an hour, further ones get `429` with `Retry-After` and audit ev
 
 `directory.configured`, `directory.scim_token_created`, `directory.person_added`,
 `directory.person_updated`, `directory.person_left`, `directory.person_restored`,
-`directory.synced` (one per sync, with counts and protected people), `directory.sync_held`,
+`directory.synced` (one per sync, with counts and protected humans), `directory.sync_held`,
 `directory.scim_guard`. Credentials never appear in an event. Actors are the owner for Sync now,
 `directory` for the interval and `scim` for pushes.
 
@@ -154,7 +154,7 @@ users.)
 
 Filter: **groups** are group email addresses (direct and nested user members),
 **organizational units** are paths like `/Sales` (sub-units are included), **domains** limit by
-email domain. A person in any listed group or unit is in scope, then the domain limit applies.
+email domain. A human in any listed group or unit is in scope, then the domain limit applies.
 Empty means everyone. Suspended and archived users are leavers. Manager comes from the user's
 `manager` relation.
 
@@ -185,10 +185,10 @@ Select **SCIM**, **Create token** (shown once), and give the identity provider t
 (`https://your-tico/scim/v2`) and the token as a bearer token. Tico implements SCIM 2.0 `Users`
 (create, get, list with `filter=userName eq "..."`, `startIndex`/`count`, replace, patch,
 delete), plus `ServiceProviderConfig`, `ResourceTypes` and `Schemas`. `Groups` is answered with an
-empty list and refuses writes: turn group provisioning off. `userName` must be the person's email
+empty list and refuses writes: turn group provisioning off. `userName` must be the human's email
 address and cannot be changed; `active: false` marks them left; a `DELETE` does the same, never a
 removal. A create for an email that already exists is `409`, as both vendors expect, and the
-identity provider then looks the person up and updates them.
+identity provider then looks the human up and updates them.
 
 With `TICO_AUTH_PROXY=cloudflare` or `aws-alb`, the identity provider cannot sign in, so allow
 `/scim/v2/*` through the proxy (a Cloudflare Access **Bypass** policy for that path, or an ALB
@@ -199,7 +199,7 @@ rule that skips Cognito for it). The bearer token is the only credential on that
 the Base URL, set **Unique identifier field for users** to `userName`, tick **Push New Users** and
 **Push Profile Updates**, and put the token in **Authorization** (if Tico answers 401, enter
 `Bearer <token>`). **Test API Credentials**, **Save.** Under **To App**, enable **Create Users**,
-**Update User Attributes** and **Deactivate Users.** Assign the people or groups to sync. Do not
+**Update User Attributes** and **Deactivate Users.** Assign the humans or groups to sync. Do not
 use **Push Groups.** Okta deactivates with `PATCH` and `active: false` and never sends `DELETE`.
 
 **Microsoft Entra:** **Enterprise applications > New application > Create your own application**
@@ -210,7 +210,7 @@ then **Create.** In **Mappings**, open **Provision Microsoft Entra ID Groups** a
 to **No.** In **Provision Microsoft Entra ID Users**, keep `userName` (from the email or user
 principal name, as an email address) as the matching attribute, keep `active`, `displayName`,
 `title`, and add `manager` (to
-`urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:manager`) if you want the org chart.
+`urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:manager`) if you want the team chart.
 **Users and groups:** assign who to provision (scope **Sync only assigned users and groups**),
 then set **Provisioning Status** to **On.** Entra pushes changes about every 40 minutes.
 

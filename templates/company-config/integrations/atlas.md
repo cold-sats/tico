@@ -5,7 +5,7 @@ kind: sql
 summary: Acme's product MongoDB Atlas cluster (accounts, events, sessions), read through `hub db atlas`.
 access: "`hub db atlas find|aggregate|count|distinct|collections ...` or `hub db atlas --query <id>`; read-only, audited."
 credentials:
-  - DB_ATLAS_URL — mongodb+srv connection string of the Atlas user with the `read` role on database `app`, in secrets/_shared.env on the runner computer (or a vault credential granted to the bot)
+  - DB_ATLAS_URL — mongodb+srv connection string of the Atlas user with the `read` role on database `app`, in secrets/_shared.env on the runner computer (or a credential granted to the bot)
 declared_as: |
   - service: mongodb
     identity: Atlas database user with the read role on app
@@ -59,5 +59,5 @@ hub queries atlas signups
 
 ## Learnings
 
-What bots and people learn about this integration is added with `hub learn atlas "..."` and
-shown under this page; a person folds it into the page over time. The page is the rule.
+What bots and humans learn about this tool is added with `hub learn atlas "..."` and
+shown under this page; a human folds it into the page over time. The page is the rule.

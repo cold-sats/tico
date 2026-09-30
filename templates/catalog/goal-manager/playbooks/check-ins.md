@@ -8,9 +8,9 @@ pass. Not when a check-in for that goal exists from the last 7 days (`hub goal c
 question per goal per week.
 
 1. `hub goal show <id>`: owner, KPIs, the reason line, recent check-ins.
-2. Ask the owner, a person or a bot, one question with the facts in it:
+2. Ask the owner, a human or a bot, one question with the facts in it:
    "Activation is 52% against the 58% we need on pace this week (from 55% last week). What is going on?" Ask a
-   person with `hub task create --owner <person>` when it needs their answer; ask a bot with `hub ask <bot>`.
+   human with `hub task create --owner <person>` when it needs their answer; ask a bot with `hub ask <bot>`.
    Do not suggest an answer and do not argue with the one you get.
 3. When the answer arrives, record it in their words:
    `hub goal checkin <goal-id> "<their words>" --signal on_track|at_risk|off_track --from <owner> [--kpi <id>]`.

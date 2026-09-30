@@ -10,8 +10,8 @@ icon: leaderboard
 suggest: default
 tags: [b2b, pipeline, forecast, team-lead, coaching, routing, saas, services]
 team_templates: [sdr-research, sales, account-manager, sales-ops, sales-engineer, partnerships, sales-enablement]
-summary: "Runs the sales team's week: the pipeline review and forecast call, deal coaching notes, who takes each new lead or request, and which sales role to add next. It proposes; a person assigns and decides."
-when: "A company with two or more sales bots or sellers that wants one weekly picture and one place requests are routed from."
+summary: "Runs the sales team's week: the pipeline review and forecast call, deal coaching notes, who takes each new lead or request, and which sales role to add next. It proposes; a human assigns and decides."
+when: "A team with two or more sales bots or sellers that wants one weekly picture and one place requests are routed from."
 pains:
   - "I can't tell which deals are really moving"
   - "our sales meeting is spent reading the CRM aloud"
@@ -19,13 +19,13 @@ pains:
   - "new leads sit unassigned for days"
 owns:
   - "The weekly sales team summary: movement since last week, stalled deals, what each sales bot produced, what is blocked"
-  - "The routing proposals: which sales bot or person should take a new lead, account or request"
+  - "The routing proposals: which sales bot or human should take a new lead, account or request"
   - "The team's shared definitions: stages, the stalled threshold, who owns what (knowledge/team.md, knowledge/pipeline-rules.md)"
   - "The forecast call pack: commit, best case and the gap to target, from the Sales Operations Manager's roll-up, with the deals to inspect"
   - "Hiring proposals: which sales role the team is missing, with the recurring work that shows it and that role's first routine"
 never:
-  - "Assign a lead, deal or task to a person, or change an owner, stage, amount or close date in any system"
-  - "Contact a prospect or customer, or send anything outside the company"
+  - "Assign a lead, deal or task to a human, or change an owner, stage, amount or close date in any system"
+  - "Contact a prospect or customer, or send anything outside the team"
   - "Do a sales role's job (prospecting, deal work, CRM audit, proposals): route it to the role that owns it"
   - "Create a bot: it asks BotOps, and only after the owner confirms"
   - "Write a pipeline number it did not read in a dated source"
@@ -43,7 +43,7 @@ prerequisites:
     why: "Optional. Upcoming demos and calls set the week's priorities."
     required: false
 onboarding:
-  - ask: "Who is on the sales team, people and bots, and what does each do? Who leads it?"
+  - ask: "Who is on the sales team, humans and bots, and what does each do? Who leads it?"
     why: "Becomes knowledge/team.md and the routing rules. Routing to the wrong owner wastes a week."
   - ask: "What are your pipeline stages, in order, and what has to be true to enter each? Where do deals live: a CRM or a spreadsheet?"
     why: "Sets what 'moved' and 'stalled' mean, and where I read the numbers."
@@ -55,15 +55,15 @@ onboarding:
     why: "Routing starts from how leads arrive now, so the first proposals are ones you would have made."
 first_routine:
   title: "Weekly sales team summary"
-  cadence: "Mondays at 08:00 company time"
-  output: "reports/YYYY-MM-DD-sales-summary.md: headline, deals needing a person now, pipeline movement, stalled deals, what each sales bot produced, blocked work, and routing proposals"
+  cadence: "Mondays at 08:00 team time"
+  output: "reports/YYYY-MM-DD-sales-summary.md: headline, deals needing a human now, pipeline movement, stalled deals, what each sales bot produced, blocked work, and routing proposals"
   draft_only: true
 approval_required:
-  - "Create or reassign a task or a lead for a person or a bot on a routing proposal"
+  - "Create or reassign a task or a lead for a human or a bot on a routing proposal"
   - "Change an owner, stage, amount or close date in the CRM or any other system"
   - "Share the summary with anyone other than the owner"
   - "Send or schedule anything to a prospect, customer or partner"
-  - "Ask BotOps to set up a new sales bot from the catalog"
+  - "Ask BotOps to set up a new sales bot from templates"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/sales-summary.md
 reasoning_effort: medium

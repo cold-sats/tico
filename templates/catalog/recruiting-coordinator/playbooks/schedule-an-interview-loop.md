@@ -18,7 +18,7 @@ this candidate, use the task and note why. Missing panel names: one question to 
 Read each panel member's calendar for the window in `state.md` (default five working days):
 `hub calendar upcoming --calendar <email>`. Apply `knowledge/interviewer-rules.md`. For a loop with
 several rounds, prefer back-to-back rounds on one day with a 10 minute break, or at most two days.
-Three options, each with every round's time in the candidate's zone and the company's.
+Three options, each with every round's time in the candidate's zone and the team's.
 
 ## 3. Write the message
 
@@ -28,7 +28,7 @@ time or an accommodation. Put it up with `hub approval request --kind send --tas
 
 ## 4. On the candidate's choice
 
-Book the roster interviewers once a person confirms: `hub calendar schedule --title "<role> interview:
+Book the roster interviewers once a human confirms: `hub calendar schedule --title "<role> interview:
 <reference>" --start <iso> --end <iso>` per round, and check it with `hub calendar status <action-id>`.
 The candidate's invitation with the join link goes up for approval as a message. Update
 `knowledge/schedule.md`.

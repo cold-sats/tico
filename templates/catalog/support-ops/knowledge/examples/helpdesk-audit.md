@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme help desk audit, Mon 2026-10-05
 
-Sample output for Acme, a fictional studio-software company. Every rule, ticket and figure is
+Sample output for Acme, a fictional studio-software team. Every rule, ticket and figure is
 invented. Nothing has been changed in the help desk. First draft, not yet reviewed.
 
 **Headline: one overlapping trigger sent 41 billing tickets to the general queue in September; removing it fixes most misroutes.**

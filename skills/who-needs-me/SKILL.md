@@ -1,6 +1,6 @@
 ---
 name: who-needs-me
-description: Read when the owner asks "who needs me", "what's next" or what a bot is waiting on, from an outside agent (Grok Bot, Meta Muse) connected to the tico-hub MCP. Works their bots one at a time through the hub_batch_* tools, reads them the bots' daily updates with hub_updates, and picks up where they left off with hub_recent ("where was I"). The MCP server sends this same text as its instructions; the source is clients/agent_skill.py.
+description: Read when the owner asks "who needs me", "what's next" or what a bot is waiting on, from an external agent (Grok Bot, Meta Muse) connected to the tico-hub MCP. Works their bots one at a time through the hub_batch_* tools, reads them the bots' daily updates with hub_updates, and picks up where they left off with hub_recent ("where was I"). The MCP server sends this same text as its instructions; the source is clients/agent_skill.py.
 ---
 
 SKILL: "Who needs me" — working the user's bots through the tico-hub MCP

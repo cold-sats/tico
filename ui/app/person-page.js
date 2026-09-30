@@ -1,8 +1,8 @@
-/* ui/app/person-page.js — The person page (org tree): profile, tasks, Slack
+/* ui/app/person-page.js — The human page (team tree): profile, tasks, Slack
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// ----------------------------------------------------------------- person page (org tree)
+// ----------------------------------------------------------------- human page (team tree)
 const PERSON_TABS = ['profile', 'slack'];
 // The Assistant tab is first, and only on your own page: your private chat with the assistant (ui/assistant.js).
 const personTabs = p => S.me?.id === p.id ? ['assistant', ...PERSON_TABS] : PERSON_TABS;
@@ -41,7 +41,7 @@ function bindFieldEditor(root, onSave) {
 }
 function pagePerson(id, tab) {
   const p = (S.people || []).find(row => row.id === id && !row.hidden);
-  if (!p) { $('#main').innerHTML = `<div class="empty">Unknown person.</div>`; return; }
+  if (!p) { $('#main').innerHTML = `<div class="empty">Unknown human.</div>`; return; }
   orgHistoryVisit('p:' + p.id);
   const tabs = personTabs(p);
   tab = tabs.includes(tab) ? tab : 'profile';
@@ -80,7 +80,7 @@ function pagePerson(id, tab) {
         <button class="ghost" type="button" id="person-task-add" aria-haspopup="dialog">+ Add task</button></header>
       <div id="person-tasks">Loading…</div></section>
     ${fieldEditor('Goals', p.goals, {placeholder: 'What they are trying to get done.', save: edit})}
-    ${fieldEditor('Notes', p.notes, {placeholder: 'Working notes about this person. Visible to people who can open this profile.', rows: 8, save: edit})}
+    ${fieldEditor('Notes', p.notes, {placeholder: 'Working notes about this human. Visible to humans who can open this profile.', rows: 8, save: edit})}
     ${reports.length ? `<section class="card"><header><h2>Reports</h2></header>
       <div>${reports.map(row => `<a class="chip" href="#/person/${encodeURIComponent(row.id)}">${personAvatar(row, 20)}<span>${esc(firstName(row.name) || row.id)}</span></a>`).join('')}</div></section>` : ''}
     ${(bots.length || under.length) ? `<section class="card"><header><h2>Bots</h2></header>
@@ -111,7 +111,7 @@ function pagePerson(id, tab) {
     const row = await post(`/v2/people/${encodeURIComponent(p.id)}`, {notes: text});
     p.notes = row.notes; pagePerson(p.id, 'profile');
   });
-  // The top of a person's page is their name and goal; the title and
+  // The top of a human's page is their name and goal; the title and
   // description are the About card's, edited in place there.
   const editHead = $('#person-edit');
   if (editHead) editHead.onclick = () => {
@@ -145,7 +145,7 @@ function pagePerson(id, tab) {
   if (tab === 'assistant') window.assistantChat?.mount($('#assistant-chat'), {get, post, esc, toast, me: S.me});
   else window.assistantChat?.stop();
 }
-// The person's hub tasks: what they own, active first, finished behind a toggle. The rows are
+// The human's tasks: what they own, active first, finished behind a toggle. The rows are
 // the same as a keeper bot's (v2TaskRow), so Done/Close and the chat button work unchanged;
 // v2TaskAct reloads this list after acting while the card is on the page.
 let PERSON_TASKS = null;
@@ -159,7 +159,7 @@ async function personTasksLoad(p) {
   const active = all.filter(t => V2_ACTIVE.includes(String(t.status)));
   const finished = all.filter(t => !V2_ACTIVE.includes(String(t.status)));
   const first = firstName(p.name) || p.id;
-  // A person's open task is to do, not "doing" the way a bot's is the moment it is assigned.
+  // A human's open task is to do, not "doing" the way a bot's is the moment it is assigned.
   const groups = (list, kinds) => kinds.map(([k, label]) => {
     const rows = list.filter(t => String(t.status) === k);
     return rows.length ? `<div class="v2-group"><h3>${label} <span class="muted">${rows.length}</span></h3>${rows.map(t => v2TaskRow(t, '')).join('')}</div>` : '';
@@ -175,7 +175,7 @@ function personTasksReload() {
   const p = PERSON_TASKS && (S.people || []).find(row => row.id === PERSON_TASKS);
   if (p && $('#person-tasks')) void personTasksLoad(p);
 }
-// "+ Add task" on a person's page: the give-a-task form in a modal, assigned to them, added by you.
+// "+ Add task" on a human's page: the give-a-task form in a modal, assigned to them, added by you.
 function personTaskModal(p) {
   let d = $('#person-task-modal');
   if (!d) {

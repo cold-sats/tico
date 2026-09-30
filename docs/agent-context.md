@@ -1,14 +1,14 @@
-# Company context and meeting search
+# Team context and meeting search
 
 The `hub` CLI and MCP expose the same read-only functions, and one that files a meeting:
 
 | CLI | MCP | Purpose |
 | --- | --- | --- |
-| `hub context search "pricing"` | `hub_context_search` | Search full company document text and market entities/evidence. |
+| `hub context search "pricing"` | `hub_context_search` | Search full team document text and market entities/evidence. |
 | `hub context show <document-id>` | `hub_context_show` | Read a complete document found by search. |
 | `hub meetings search "pricing"` | `hub_meetings_search` | Search meeting titles, notes, and transcripts; omit the query for recent history. |
 | `hub meetings transcript <meeting-id>` | `hub_meetings_transcript` | Read the full transcript in bounded pages. |
-| `hub meetings import call.vtt --source zoom` | `hub_meetings_import` | File a transcript from another tool as a meeting of yours (people only; [Meetings](meetings.md)). |
+| `hub meetings import call.vtt --source zoom` | `hub_meetings_import` | File a transcript from another tool as a meeting of yours (humans only; [Meetings](meetings.md)). |
 
 Context search accepts `--source all|docs|market` and `--limit` (1–50). Results
 include source IDs, links, and matching excerpts. Use the existing `hub market show`
@@ -23,7 +23,7 @@ for additional results. Transcript reads accept `--offset` and `--limit` in char
 
 Document reads preserve the document library's existing visibility: owners see all
 documents and other identities see external documents. Market knowledge follows the
-existing market access rules. Bots may read explicitly non-private company meetings;
-they do not inherit their operator's access to private meetings or personal notes.
+existing market access rules. Bots may read explicitly non-private team meetings;
+they do not inherit their owner's access to private meetings or personal notes.
 Human access follows the existing owner/attendee rules. Deleted meetings are excluded.
 The read tools do not expose audio, attachments, or credentials.

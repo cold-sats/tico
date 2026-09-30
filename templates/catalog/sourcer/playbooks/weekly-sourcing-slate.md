@@ -1,6 +1,6 @@
 # Weekly sourcing slate
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-sourcing-slate`), once a person has approved the
+Schedule: Tuesdays at 09:00 team time (routine `weekly-sourcing-slate`), once a human has approved the
 first slate. Budget 45 minutes. The outcome is one slate per open role: new profiles with evidence and a
 first message each, the week's replies, and yeses handed to the Recruiter. Nothing is sent without a yes.
 
@@ -24,7 +24,7 @@ question you cannot answer goes to the hiring manager.
 ## 3. Search
 
 Work the sources in the search file, best-yielding first: communities, open-source work, talks and
-portfolios, company pages where the skills live, past applicants who were close. Keep the search
+portfolios, employer pages where the skills live, past applicants who were close. Keep the search
 strings you used. Stop at 15 profiles per role.
 
 ## 4. Check each profile

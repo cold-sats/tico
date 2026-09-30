@@ -1,6 +1,6 @@
 # Weekly people summary
 
-Schedule: Mondays at 08:30 company time (routine `weekly-people-summary`), once a person has approved the
+Schedule: Mondays at 08:30 team time (routine `weekly-people-summary`), once a human has approved the
 first summary. Also run by hand. Budget 35 minutes. The outcome is one confidential page for the named
 readers: hires against plan, who starts and leaves, what is due, and who should take what. Nothing is
 assigned, published or sent.
@@ -30,11 +30,11 @@ Starters in the next 30 days (from `people-hr`'s tracker) and leavers with a las
 ## 4. Deadlines
 
 Every item in `knowledge/people-calendar.md` falling in the next 30 days, with owner and status. Anything
-due in 7 days and not done is bold and goes into "Needs a person".
+due in 7 days and not done is bold and goes into "Needs a human".
 
 ## 5. What the people bots produced
 
-For each people bot in `hub org`: its newest report and anything waiting on a person more than 5 days.
+For each people bot in `hub org`: its newest report and anything waiting on a human more than 5 days.
 One line each. A bot you could not read is named.
 
 ## 6. Routing and hiring proposals

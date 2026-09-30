@@ -1,8 +1,8 @@
 # Monthly legal spend summary
 
-Schedule: the 5th of each month at 09:00 company time (routine `monthly-legal-spend`), once a person has approved
+Schedule: the 5th of each month at 09:00 team time (routine `monthly-legal-spend`), once a human has approved
 the first summary. Also run by hand. Budget 30 minutes. The outcome is one page: where last month's legal money
-went, against budget, and what to ask about. A summary for a person, not legal advice. Nothing is paid or sent.
+went, against budget, and what to ask about. A summary for a human, not legal advice. Nothing is paid or sent.
 
 ---
 

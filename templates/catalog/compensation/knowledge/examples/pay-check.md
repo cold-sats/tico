@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme offer and pay change check, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company. Counts only: person-level figures are in
+Sample output for Acme, a fictional studio-software team. Counts only: person-level figures are in
 the attachment on T-470 for the approvers (Ruth, Marco). Nothing has been published or shared. First
 draft, not yet reviewed.
 

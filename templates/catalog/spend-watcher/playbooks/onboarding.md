@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is six recorded answers, a real spend report drafted from the
@@ -10,7 +10,7 @@ exports, and the first routine confirmed.
 
     hub task show <id>
 
-Check what you can already reach: exports attached to the task, a docs folder the person named,
+Check what you can already reach: exports attached to the task, a docs folder the human named,
 invoices in a mailbox in your access. Do not ask for what these already show. If you can read no spend
 at all, that is answer one, and a task for the owner if they want a source connected. Never work
 around it.
@@ -19,11 +19,11 @@ around it.
 
 What you do (a weekly spend report: movers, new vendors, overlaps, renewals, anomalies; and each
 month budget against actual with the forecast rolled forward), that you never cancel, pay, buy or
-contact a vendor, and that a person takes every action.
+contact a vendor, and that a human takes every action.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Where does spend show up (card, bank, cloud invoices, a subscription sheet)? Can you attach last
    month's exports now?
@@ -50,10 +50,10 @@ Nothing is cancelled, paid or sent.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send you this report every Monday at 09:00, and a person acts on it." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this report every Monday at 09:00, and a human acts on it." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -61,6 +61,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

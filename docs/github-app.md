@@ -1,7 +1,7 @@
 # GitHub App
 
-Each company gets GitHub access through a GitHub App that the owner creates in the company's own
-GitHub organization. Tico holds no shared token: for every turn the hub asks GitHub for a token that
+Your team gets GitHub access through a GitHub App that the owner creates in the team's own
+GitHub organization. Tico holds no shared token: for every run Tico asks GitHub for a token that
 works on that one bot's repository (and any extra ones the owner allowed) and expires within the hour. Without a connected app nothing
 changes; bots keep using whatever git access their computer already has.
 
@@ -19,14 +19,14 @@ The app is private, has no webhook (nothing here needs GitHub to call Tico), and
 workflow permission, so a bot cannot change `.github/workflows` files. Add Workflows: write on the
 app's GitHub settings page if a bot's repository needs that.
 
-Turn tokens ask for exactly the four non-administration permissions and only the bot's own repository
+Run tokens ask for exactly the four non-administration permissions and only the bot's own repository
 plus the extra repositories the owner listed for it.
-The runner cannot pick the repository: the hub reads it from the bot's configuration, and refuses a
+The runner cannot pick the repository: Tico reads it from the bot's configuration, and refuses a
 bot the caller does not run or a repository outside the connected organization.
 
 ## Set up
 
-1. As the owner, open Settings, Cloud services, GitHub. Enter the organization, optionally rename
+1. As the owner, open Tools, GitHub. Enter the organization, optionally rename
    the app, and choose whether Tico may create bot repositories. Select Connect GitHub.
 2. GitHub shows the app to create. Confirm it. GitHub returns to Tico, which stores the app's
    credentials and sends you to install the app on the organization.
@@ -79,24 +79,24 @@ bot's checkout:
     hub github create-bot-repo <slug> --empty
 
 Then set the bot's repository (Settings, Bots) to `<org>/emp-<slug>`; a bare `emp-<slug>` there also
-works and means the connected organization. Nobody pushes by hand: a turn's token
+works and means the connected organization. Nobody pushes by hand: a run's token
 (`POST /api/v2/github/token {"bot": "<slug>"}`) is scoped to that bot's own repository, so BotOps
-cannot push another bot's history. Instead the runner does it in the bot's own turn, at the start
-and again after a completed turn: when the checkout has commits but no upstream, it sets `origin` to
+cannot push another bot's history. Instead the runner does it in the bot's own run, at the start
+and again after a completed run: when the checkout has commits but no upstream, it sets `origin` to
 the resolved https URL and runs `git push -u origin <branch>` with that bot's token. It never forces.
 If the repository already has history the checkout does not contain, or `origin` points somewhere
 else, nothing is pushed and Health shows "Bot history" with the reason (the bot's warning in
-Settings, Bots says the same); fix the cause and the next turn publishes.
+Settings, Bots says the same); fix the cause and the next run publishes.
 
 ## Where the key lives
 
-The app's private key, client secret and webhook secret are encrypted (AES-GCM) in the hub database.
+The app's private key, client secret and webhook secret are encrypted (AES-GCM) in the Tico database.
 With `TICO_CREDENTIAL_KMS_KEY` set the key is the credential vault's KMS-wrapped data key; otherwise
 it is a random `github-app.key` (mode 0600) beside the database, so a database copy alone does not
 carry the app's key. No API returns the key and it is never logged. Installation tokens are cached in
-server memory only, until five minutes before they expire. The runner holds the turn's token in the
-turn's process environment (`GH_TOKEN`, and an inline git credential helper); nothing is written to disk.
-A token is fixed for its turn, and a turn may outlast it only after about fifty minutes of the hour.
+server memory only, until five minutes before they expire. The runner holds the run's token in the
+run's process environment (`GH_TOKEN`, and an inline git credential helper); nothing is written to disk.
+A token is fixed for its run, and a run may outlast it only after about fifty minutes of the hour.
 
 ## Rotating the key
 

@@ -8,7 +8,7 @@ pack: engineering
 icon: architecture
 suggest: niche
 tags: [saas, github, architecture, design-docs, adr, tech-debt, scale]
-when: "Offer to a software company with several engineers or services, where big technical decisions are made in chat and forgotten, and technical debt is argued about rather than listed."
+when: "Offer to a software team with several engineers or services, where big technical decisions are made in chat and forgotten, and technical debt is argued about rather than listed."
 summary: "Keeps the system's big decisions deliberate and written down. It reviews design docs and RFCs against the architecture, records each decision as an ADR and keeps a ranked technical debt register."
 pains:
   - "big technical decisions are made in Slack and forgotten"
@@ -23,11 +23,11 @@ owns:
 never:
   - "Approve, block or merge a design or a pull request on anyone's behalf"
   - "Commit, push or edit a repository, including the ADR folder"
-  - "Decide a technology choice; it lays out the options and the trade-offs for the people who decide"
-  - "Rank engineers or attribute debt to a person"
+  - "Decide a technology choice; it lays out the options and the trade-offs for the humans who decide"
+  - "Rank engineers or attribute debt to a human"
 prerequisites:
   - tool: github
-    why: "Design docs, RFCs, ADR folders and the code the map is drawn from are read through gh with the company's GitHub App token. The owner lists each repository for this bot in Settings."
+    why: "Design docs, RFCs, ADR folders and the code the map is drawn from are read through gh with the team's GitHub App token. The owner lists each repository for this bot in Settings."
     required: true
   - tool: docs
     why: "Optional. Design docs kept in Google Docs or a wiki are read as links; the Librarian finds them."
@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the first routine's schedule and recipient."
 first_routine:
   title: "Weekly architecture review"
-  cadence: "Wednesdays at 09:00 company time"
+  cadence: "Wednesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-architecture-review.md: new design docs with review notes, decisions made this week without an ADR and the ADR proposed for each, changes to the system map, and the top five debt items"
   draft_only: true
 approval_required:

@@ -42,13 +42,13 @@ new page, the reader, the type and the sources. Keep the draft in the format of 
 ## 5. Check
 
 Every command, path and name is spelled as it is in the product. Every link points at a page that exists or is
-marked new. No secret or customer detail. Under the length a reader can finish in one sitting.
+marked new. No credential or customer detail. Under the length a reader can finish in one sitting.
 
 ## 6. Finish
 
 Save the draft, attach it to the task, commit, then `hub task update <id> --status done --note`: the path,
-the type, the items marked to verify, and who should review. A person commits it; you never do.
+the type, the items marked to verify, and who should review. A human commits it; you never do.
 
 ## When you cannot verify
 
-Ask once with `hub task ask <id>`, naming the sentence and the person who knows. Ship the draft with the gap marked.
+Ask once with `hub task ask <id>`, naming the sentence and the human who knows. Ship the draft with the gap marked.

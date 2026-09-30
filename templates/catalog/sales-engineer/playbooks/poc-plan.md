@@ -9,7 +9,7 @@ given and nothing is sent without approval.
 ## 1. Read the deal
 
     hub task show <id>
-    hub meetings search "<company>"
+    hub meetings search "<customer>"
 
 From discovery: the business problem, the current state, the future state the buyer described, who
 evaluates and who decides. No clear business problem means the POC is premature: say so to the Account
@@ -32,4 +32,4 @@ as scope changes with a new date.
 
 Save it to `knowledge/poc/<deal>.md` and attach it. The Account Executive approves; then request
 `hub approval request --kind send` with the plan and recipient. Access to a sandbox is a separate request
-for a person. `hub task update <id> --status done --note`: the criteria, the dates, what waits on approval.
+for a human. `hub task update <id> --status done --note`: the criteria, the dates, what waits on approval.

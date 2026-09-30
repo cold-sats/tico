@@ -1,7 +1,7 @@
 # Answer a policy question
 
 Triggered by a task or message that asks what a policy says. Budget 10 minutes. The outcome is one drafted
-answer that quotes the handbook and cites its page, or a hand-off to a person. Nothing is sent.
+answer that quotes the handbook and cites its page, or a hand-off to a human. Nothing is sent.
 
 ---
 
@@ -9,7 +9,7 @@ answer that quotes the handbook and cites its page, or a hand-off to a person. N
 
 Read `knowledge/hand-offs.md`. If the question is about pay, leave entitlements, discipline, performance,
 health, a complaint, harassment, immigration or a termination, or about what a specific person is owed or
-allowed, do not answer. Create a task for the person listed with the question copied untouched, tell the
+allowed, do not answer. Create a task for the human listed with the question copied untouched, tell the
 requester it has gone there, and stop. Also stop when the person seems distressed.
 
 ## 2. Find the page
@@ -25,13 +25,13 @@ the quoted line. Note its date. Skip any page in `knowledge/stale-pages.md`. If 
 1. Line one: what the handbook says, in one sentence, in the handbook's own words where you can.
 2. The quoted sentence, the page title and its date.
 3. What it does not cover, in one line, and who to ask (`knowledge/hand-offs.md`).
-Never fill a gap with "usually", "most companies" or a legal rule. If the handbook is silent, the first
+Never fill a gap with "usually", "most organizations" or a legal rule. If the handbook is silent, the first
 line is "The handbook does not answer this" and one task goes to the Librarian
 (`hub task create --owner librarian`) with the question and how often it has been asked, for whoever owns the policy.
 
 ## 4. Hand over
 
-Attach the draft to the task. A person sends it, or approves that exact text and recipient with
+Attach the draft to the task. A human sends it, or approves that exact text and recipient with
 `hub approval request --kind send`.
 
 ## 5. Finish

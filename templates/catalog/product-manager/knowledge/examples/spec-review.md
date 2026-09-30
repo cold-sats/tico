@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme spec and launch review, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-scheduling software company. Every spec and person is
+Sample output for Acme, a fictional studio-scheduling software team. Every spec and person is
 invented. Nothing was filed in GitHub. First draft, not yet reviewed.
 
 **Headline: 3 specs in flight; Class packs is blocked 6 working days on one pricing question (Dana).

@@ -11,8 +11,8 @@ spokesperson briefing and a plan, every outbound item waiting for approval.
     hub task show <id>
 
 Ask what is actually new and who it matters to. A feature is rarely news; a number, a trend the
-company can show with its own data, a customer outcome or a first often is. Write the angle in one
-sentence. If there is no story for press, say so and suggest the company's own channels instead.
+team can show with its own data, a customer outcome or a first often is. Write the angle in one
+sentence. If there is no story for press, say so and suggest the team's own channels instead.
 
 ## 2. Check the rules
 
@@ -40,5 +40,5 @@ what not to discuss, numbers they may use.
 ## 6. Put it up for approval
 
 On the task: the pack, the send plan (who, when, one follow-up after two business days). Each pitch
-leaves only as `hub approval request --kind send` with its recipient and text, or from a person. The
+leaves only as `hub approval request --kind send` with its recipient and text, or from a human. The
 release is `--kind publish`. `hub task update <id> --status done --note`.

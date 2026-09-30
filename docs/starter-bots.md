@@ -1,26 +1,26 @@
 # Starter bots
 
-The catalog holds 94 templates: 91 in nine departments (Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
-Product and Engineering), a small Leadership extra and one helper, enough to staff a company of ten to two hundred people. **Every
-template is a real role that does the work; approvals gate what leaves the company.** Each is a job title a company would
-hire and put on its org chart (Sales Development Representative, Bookkeeper, Recruiter, Site Reliability Engineer), never a
+There are 94 templates: 91 in nine groups (Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
+Product and Engineering), a small Leadership extra and one message bot, enough to staff a team of ten to two hundred humans. **Every
+template is a real role that does the work; approvals gate what leaves the team.** Each is a job title a team would
+hire and put on its team chart (Sales Development Representative, Bookkeeper, Recruiter, Site Reliability Engineer), never a
 feature or a document: it does the research, keeps its records, prepares the finished work and carries it to the point of
-action, and a person's approval is what sends, posts, pays, signs or changes an outside record. Every bot is created parked in
-"Needs onboarding" and costs nothing until someone sets it up; it then gets a first useful, reviewable result in its first
-session. The catalog format is in [First run](onboarding.md); how to write and tune a bot is in [Creating bots](creating-bots.md).
+action, and a human's approval is what sends, posts, pays, signs or changes an outside record. Every bot is created parked in
+"Needs setup" and costs nothing until someone sets it up; it then gets a first useful, reviewable result in its first
+session. The template format is in [Finish setup](onboarding.md); how to write and tune a bot is in [Creating bots](creating-bots.md).
 
-## Departments
+## Groups
 
-`templates/departments.yaml` lists the nine departments in the order onboarding offers them. For each: `id`, `name`, a
+`templates/departments.yaml` lists the nine groups in the order Finish setup offers them. For each: `id`, `name`, a
 one-sentence `description`, a short `goal`, the one briefing `question` and an example answer (`placeholder`), a Material
-Symbols `icon`, the template id of the department's `head`, and `software_only: true` for Product and Engineering, which are
-offered only when software is the product. The org builder takes one department at a time: it shows the description and goal,
-asks the question, then suggests the department's templates to tick, pre-checking the `suggest: default` ones and matching the
+Symbols `icon`, the template id of the group's `head`, and `software_only: true` for Product and Engineering, which are
+offered only when software is the product. The team builder takes one group at a time: it shows the description and goal,
+asks the question, then suggests the group's templates to tick, pre-checking the `suggest: default` ones and matching the
 answer against each card's `tags`, `pains` and `summary` to offer `common` and `niche` ones. An `extras:` list holds the
-Leadership group, which the picker does not offer: the built-in Assistant already covers a person's own brief and inbox, so the
+Leadership group, which the picker does not offer: the built-in Assistant already covers a human's own brief and email, so the
 Chief of Staff is no longer a default.
 
-| Department | Icon | Head | Templates | Goal |
+| Group | Icon | Head | Templates | Goal |
 |---|---|---|---|---|
 | Sales | `handshake` | Sales Manager (`sales-lead`) | 8 | Turn interest into revenue |
 | Marketing | `campaign` | Head of Marketing (`marketing-lead`) | 14 | Be known by the customers you want |
@@ -33,46 +33,46 @@ Chief of Staff is no longer a default.
 | Engineering | `code` | Head of Engineering (`engineering-lead`) | 10 | Ship reliable software, steadily |
 | Leadership | `star` | Chief of Staff (`chief-of-staff`) | 2 | Keep the leaders focused |
 
-Every department has a head (`lead: true`): it writes the department's weekly summary from what its bots and people
-produced, proposes who should take a stuck or misrouted request, and **hires**: when recurring work in the department is not
+Every group has a head (`lead: true`): it writes the group's weekly summary from what its bots and humans
+produced, proposes who should take a stuck or misrouted request, and **hires**: when repeated work in the group is not
 covered, it proposes a specific worker template from its `team_templates` with the reason and that template's first routine,
 and only after the owner confirms asks BotOps to set it up (`hub task create --owner botops`). Heads never create bots
 themselves and never do their team's work.
 
-Roles are real job titles on the org chart; helpers (Assistant, BotOps, Librarian, Goal Manager, Inbox Manager) have plain
+Roles are real job titles on the team chart; built-in bots (Assistant, BotOps, Librarian, Goal Manager) and message bots (Inbox Manager) have plain
 function names and live outside it.
 
-The built-ins are not in any department and no template duplicates them: the Librarian owns the docs, the FAQ and the answers
+The built-ins are not in any group and no template duplicates them: the Librarian owns the docs, the FAQ and the answers
 built from them (Support Agent asks it with `hub docs ask` and reports a missing or wrong doc to it as a task; HR Generalist and
 Benefits Administrator do the same for policy and plan questions; Technical Writer covers only READMEs and API docs in the
-product repositories); BotOps creates and maintains bots; the Assistant is each person's own; and the Goal Manager keeps the
+product repositories); BotOps creates and maintains bots; the Assistant is each human's own; and the Goal Manager keeps the
 KPIs, so no template owns a KPI (Product Analyst and FP&A Analyst answer questions and explain numbers, they do not keep them).
 
-## The catalog
+## The templates
 
 Icons are [Material Symbols](https://fonts.google.com/icons) names in the style the UI already uses (Outlined, weight 300, no
-fill); `scripts/build-icon-font.py` adds every card's and department's icon to the subset font in `ui/vendor/fonts/`.
-`suggest` is `default` (pre-checked for most companies), `common` or `niche`.
+fill); `scripts/build-icon-font.py` adds every card's and group's icon to the subset font in `ui/vendor/fonts/`.
+`suggest` is `default` (pre-checked for most teams), `common` or `niche`.
 
 ### Sales
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `leaderboard` | `sales-lead` | Sales Manager (head) | A weekly sales summary with the forecast call pack (commit, best case, gap to target), deals needing a person, coaching notes, routing proposals and hiring proposals | default | Tico only; a CRM optional |
-| `person_search` | `sdr-research` | Sales Development Representative | A weekday prospecting pack: inbound qualified, new leads scored A/B/C with a sourced brief, first touches and due follow-ups ready for approval, meetings booked and handed over | default | Public web; a CRM and mail optional |
-| `handshake` | `sales` | Account Executive | A weekly deal review with a dated next step per deal and follow-ups ready for approval; call recaps, mutual action plans, proposals and RFP answers with every price a gap | default | Tico only; a CRM, meetings, mail and docs optional |
-| `manage_accounts` | `account-manager` | Account Manager | A weekly renewal and expansion review (renewals by 120/90/60/30 day stage with notice deadlines, expansion with evidence) and renewal packs ready to price | common | Tico only; a CRM, meetings and mail optional |
+| `leaderboard` | `sales-lead` | Sales Manager (head) | A weekly sales summary with the forecast call pack (commit, best case, gap to target), deals needing a human, coaching notes, routing proposals and hiring proposals | default | Tico only; a CRM optional |
+| `person_search` | `sdr-research` | Sales Development Representative | A weekday prospecting pack: inbound qualified, new leads scored A/B/C with a sourced brief, first touches and due follow-ups ready for approval, meetings booked and handed over | default | Public web; a CRM and email optional |
+| `handshake` | `sales` | Account Executive | A weekly deal review with a dated next step per deal and follow-ups ready for approval; call recaps, mutual action plans, proposals and RFP answers with every price a gap | default | Tico only; a CRM, meetings, email and docs optional |
+| `manage_accounts` | `account-manager` | Account Manager | A weekly renewal and expansion review (renewals by 120/90/60/30 day stage with notice deadlines, expansion with evidence) and renewal packs ready to price | common | Tico only; a CRM, meetings and email optional |
 | `query_stats` | `sales-ops` | Sales Operations Manager | A weekly CRM hygiene and pipeline report with the forecast roll-up by category, unassigned leads and a fix per exception; lead routing and territory rules | common | A CRM (read only until the owner turns writing on) |
-| `integration_instructions` | `sales-engineer` | Sales Engineer | A weekly technical deal prep: discovery gaps, demo scripts around the buyer's workflows, POC plans scored against agreed criteria, technical and security answers from approved sources | niche | Tico and company docs; meetings and GitHub optional |
-| `partner_exchange` | `partnerships` | Partnerships Manager | A weekly partner review: registrations with a proposed decision under the rules of engagement, partner-sourced pipeline, idle partners, and fees owed for approval | niche | Tico only; a CRM, public web and mail optional |
+| `integration_instructions` | `sales-engineer` | Sales Engineer | A weekly technical deal prep: discovery gaps, demo scripts around the buyer's workflows, POC plans scored against agreed criteria, technical and security answers from approved sources | niche | Tico and team docs; meetings and GitHub optional |
+| `partner_exchange` | `partnerships` | Partnerships Manager | A weekly partner review: registrations with a proposed decision under the rules of engagement, partner-sourced pipeline, idle partners, and fees owed for approval | niche | Tico only; a CRM, public web and email optional |
 | `cast_for_education` | `sales-enablement` | Sales Enablement Manager | Weekly win/loss notes from buyers' own words with counts over 90 days, one proposed talk-track change, and a 90-day ramp plan per new seller | niche | Imported sales calls; a CRM optional |
 
 ### Marketing
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `campaign` | `marketing-lead` | Head of Marketing (head) | A weekly marketing summary (red/amber/green per workstream, blockers, a six-week calendar, proposed priorities), routing proposals, and a hiring proposal when recurring work has no owner | default | Tico only; calendar, meetings and docs optional |
-| `edit_note` | `content` | Content Marketer | A four-week content plan and one finished piece a week with short versions, published after a person's approval | default | Tico only |
+| `campaign` | `marketing-lead` | Head of Marketing (head) | A weekly marketing summary (red/amber/green per workstream, blockers, a six-week calendar, proposed priorities), routing proposals, and a hiring proposal when repeated work has no owner | default | Tico only; calendar, meetings and docs optional |
+| `edit_note` | `content` | Content Marketer | A four-week content plan and one finished piece a week with short versions, published after a human's approval | default | Tico only |
 | `travel_explore` | `seo-visibility` | SEO Specialist | A weekly report on search and AI-answer visibility with three page fixes written ready to apply | common | Public web; search and AI-visibility exports optional |
 | `tag` | `listening` | Social Media Manager | Two weeks of social posts per account up for one approval batch, and a weekday digest of public mentions, questions and competitor moves | common | Public web; social accounts named at setup |
 | `forward_to_inbox` | `email-marketing` | Email Marketing Manager | A campaign or sequence with subject lines, a preview line and a send checklist, ready to load after approval | common | Tico only; past results optional |
@@ -90,28 +90,28 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `headset_mic` | `support-lead` | Head of Customer Support (head) | A weekly support summary (response and resolution times against target, backlog by age, repeats, decisions needed), routing proposals, and hiring proposals for the support role that would cover unowned work | default | Tico only; support mail and chat optional |
-| `support_agent` | `support` | Support Agent | Works each ticket to resolution: a bucket and a reply ready for approval per ticket with the docs it rests on (asked of the Librarian), follow-ups, product issues from repeats, doc gaps reported to the Librarian; hands technical, VIP, cancellation and return tickets to their owners | default | Support mail or tickets routed as tasks. The project's own Support Agent also watches Tico HQ tickets and GitHub issues and Discussions with no model, through two [watchers](watchers.md) ([support.md](support.md)) |
-| `grading` | `support-qa` | Support Quality Analyst | A weekly scored sample of sent replies with patterns and coaching notes for a person | common | Sent replies routed as tasks or a support mailbox |
-| `sentiment_satisfied` | `customer-success` | Customer Success Manager | A weekly health and renewal brief (renewals by 120, 90, 60 and 30 day stage, accounts at risk, the next touch ready for approval) and business review packs; price and terms go to the Account Manager | common | Tico only; a CRM, support mail and meetings optional |
+| `headset_mic` | `support-lead` | Head of Customer Support (head) | A weekly support summary (response and resolution times against target, backlog by age, repeats, decisions needed), routing proposals, and hiring proposals for the support role that would cover unowned work | default | Tico only; support email and chat optional |
+| `support_agent` | `support` | Support Agent | Works each ticket to resolution: a bucket and a reply ready for approval per ticket with the docs it rests on (asked of the Librarian), follow-ups, product issues from repeats, doc gaps reported to the Librarian; hands technical, VIP, cancellation and return tickets to their owners | default | Support email or tickets routed as tasks. The project's own Support Agent also watches Tico HQ tickets and GitHub issues and Discussions with no model, through two [watchers](watchers.md) ([support.md](support.md)) |
+| `grading` | `support-qa` | Support Quality Analyst | A weekly scored sample of sent replies with patterns and coaching notes for a human | common | Sent replies routed as tasks or a support mailbox |
+| `sentiment_satisfied` | `customer-success` | Customer Success Manager | A weekly health and renewal brief (renewals by 120, 90, 60 and 30 day stage, accounts at risk, the next touch ready for approval) and business review packs; price and terms go to the Account Manager | common | Tico only; a CRM, support email and meetings optional |
 | `waving_hand` | `onboarding-specialist` | Customer Onboarding Specialist | A plan per new customer (goals in their words, four to six milestones, owners on both sides), the kickoff agenda, and a weekly onboarding board of who is on track, behind or stuck, with messages ready for approval | common | Tico only; a CRM, meetings and calendar optional |
-| `crisis_alert` | `escalations` | Escalations Manager | A daily escalation digest: open cases by severity with one named owner, customer updates due on the severity's cadence ready for approval, engineering-ready bug reports, and a lesson per closed case | niche | Tico only; support mail, GitHub and chat optional |
-| `loyalty` | `retention` | Retention Specialist | Each cancellation or downgrade coded by reason with the one save offer written policy allows, a reply ready for approval, and a weekly retention report with the at-risk watch list; cancelling is never blocked | common | Cancellation requests routed as tasks; support mail and CRM optional |
-| `alt_route` | `support-ops` | Support Operations Specialist | A monthly help desk audit (misroutes by the rule that caused them, SLA policies against promised times, duplicate tags, stale macros) with one exact change request per fix for a person to apply | niche | Tico only; a help desk configuration export or read-only access |
-| `troubleshoot` | `technical-support` | Technical Support Engineer | Tier 2 investigations with a verdict (bug, setup, doc gap, could not reproduce), tested workarounds, engineering-ready bug reports for a person to file, and a weekly tier 2 queue report | niche | Tico only; GitHub and product docs optional |
-| `assignment_return` | `returns` | Returns and Refunds Specialist | Each return checked against the written policy and the order, with the reply and the refund or label request ready for approval, and a weekly returns report: overdue refunds, reasons by product and variant, flagged patterns | niche | Return requests routed as tasks; support mail, an order export and the written policy |
+| `crisis_alert` | `escalations` | Escalations Manager | A daily escalation digest: open cases by severity with one named owner, customer updates due on the severity's cadence ready for approval, engineering-ready bug reports, and a lesson per closed case | niche | Tico only; support email, GitHub and chat optional |
+| `loyalty` | `retention` | Retention Specialist | Each cancellation or downgrade coded by reason with the one save offer written policy allows, a reply ready for approval, and a weekly retention report with the at-risk watch list; cancelling is never blocked | common | Cancellation requests routed as tasks; support email and CRM optional |
+| `alt_route` | `support-ops` | Support Operations Specialist | A monthly help desk audit (misroutes by the rule that caused them, SLA policies against promised times, duplicate tags, stale macros) with one exact change request per fix for a human to apply | niche | Tico only; a help desk configuration export or read-only access |
+| `troubleshoot` | `technical-support` | Technical Support Engineer | Tier 2 investigations with a verdict (bug, setup, doc gap, could not reproduce), tested workarounds, engineering-ready bug reports for a human to file, and a weekly tier 2 queue report | niche | Tico only; GitHub and product docs optional |
+| `assignment_return` | `returns` | Returns and Refunds Specialist | Each return checked against the written policy and the order, with the reply and the refund or label request ready for approval, and a weekly returns report: overdue refunds, reasons by product and variant, flagged patterns | niche | Return requests routed as tasks; support email, an order export and the written policy |
 
 ### Finance
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `account_balance_wallet` | `finance-lead` | Head of Finance (head) | A weekly finance summary: cash today and the 13-week outlook against the minimum, close status, what is due in and out, the next 14 days of the finance calendar, decisions needed; routes finance work and proposes finance hires | default | Tico only; bank and accounting exports on a task; docs, mail and calendar optional |
+| `account_balance_wallet` | `finance-lead` | Head of Finance (head) | A weekly finance summary: cash today and the 13-week outlook against the minimum, close status, what is due in and out, the next 14 days of the finance calendar, decisions needed; routes finance work and proposes finance hires | default | Tico only; bank and accounting exports on a task; docs, email and calendar optional |
 | `menu_book` | `bookkeeping` | Bookkeeper | A category for every unsorted transaction, the missing-receipt list and the month-end close checklist run to done; read-only to the books | default | An exported transaction file on a task |
-| `request_quote` | `ar-followup` | Accounts Receivable Specialist | A weekly aging summary and a reminder ready for each overdue invoice, friendly first and firmer later, each sent only on a person's approval | common | An invoice aging export on a task |
+| `request_quote` | `ar-followup` | Accounts Receivable Specialist | A weekly aging summary and a reminder ready for each overdue invoice, friendly first and firmer later, each sent only on a human's approval | common | An invoice aging export on a task |
 | `receipt_long` | `accounts-payable` | Accounts Payable Specialist | A bills register with each bill matched and checked for duplicates and changed bank details, and the weekly payment run proposed as a spend approval | common | Bills on a task; a bills mailbox optional |
 | `credit_card` | `expense-auditor` | Expense Auditor | A monthly audit of every expense report and card charge against the written policy (receipts, limits, duplicates, late claims), one section per approver | niche | A card or expense export on a task |
 | `analytics` | `spend-watcher` | FP&A Analyst | A weekly software and cloud spend report, and each month budget against actual with material variances explained and the forecast rolled forward | common | Card, bank, billing and P&L exports on a task |
-| `co_present` | `board-updates` | Investor Relations Manager | A one-page monthly investor update: metrics, asks, highlights, lowlights, recap; finance figures only as supplied; the owner approves every send | niche | Tico only; docs and mail optional |
+| `co_present` | `board-updates` | Investor Relations Manager | A one-page monthly investor update: metrics, asks, highlights, lowlights, recap; finance figures only as supplied; the owner approves every send | niche | Tico only; docs and email optional |
 | `payments` | `payroll` | Payroll Specialist | A pre-payroll change summary per pay run (joiners, leavers, pay changes, hours, bonuses) reconciled to HR records and the last register, and a post-run check | common | The last payroll register and HR changes on a task |
 | `percent` | `tax` | Tax Specialist | A monthly tax calendar for the next 90 days with each filing's inputs and filer, a sales tax and VAT threshold watch, and the accountant's document lists; not tax advice | niche | Tico only; sales exports and last year's returns list |
 | `price_check` | `revenue-accountant` | Revenue Accountant | A monthly revenue close pack: billing reconciled to the books, the deferred revenue roll-forward, proposed journal entries, recognition notes and the recurring revenue bridge | niche | Billing and ledger exports on a task |
@@ -121,13 +121,13 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `assignment_turned_in` | `ops-manager` | Operations Manager (head) | The recurring-duties register and a weekly checklist of what is due, overdue and blocked, vendor follow-ups ready for approval, the Operations team summary, routing and hiring proposals | default | Tico only; calendar, mail and docs optional |
+| `assignment_turned_in` | `ops-manager` | Operations Manager (head) | The routine duties register and a weekly checklist of what is due, overdue and blocked, vendor follow-ups ready for approval, the Operations group summary, routing and hiring proposals | default | Tico only; calendar, email and docs optional |
 | `event_note` | `meeting-notes` | Project Coordinator | A write-up per imported meeting (summary, decisions, action items with quotes), and every action item and milestone tracked and chased until done | common | A meeting importer or manual imports |
 | `shopping_cart` | `procurement` | Procurement Manager | A weighted vendor comparison per purchase request with total cost and sourced claims, vendor questions sent on approval, a weekly digest of open requests | common | A purchase request on a task; public web |
 | `store` | `vendor-manager` | Vendor Manager | The vendor register (owner, tier, cost, notice date), each renewal opened 90 days before notice with a keep, renegotiate or exit brief, reviews by tier | common | Tico only; a contracts folder and a billing mailbox optional |
 | `chair` | `office-manager` | Office Manager | A weekly office page: requests by age with their fixer, supplies below par with the order ready for approval, visitors and office dates | niche | Tico only; calendar and an office channel optional |
 | `computer` | `it-support` | IT Support Specialist | IT requests worked to a fix by impact, access changes prepared for the approver, joiner and leaver checklists, the device list, a weekly IT page | common | Tico only; docs and an IT channel optional |
-| `verified_user` | `security-compliance` | Security and Compliance Analyst | A monthly controls page (evidence due, collected, missing per control), quarterly access reviews for each tool owner, policy acknowledgements and vendor security reviews | niche | The controls and policies in the company docs; GitHub optional |
+| `verified_user` | `security-compliance` | Security and Compliance Analyst | A monthly controls page (evidence due, collected, missing per control), quarterly access reviews for each tool owner, policy acknowledgements and vendor security reviews | niche | The controls and policies in the team docs; GitHub optional |
 | `flight` | `travel` | Travel Coordinator | A trip plan per request with two or three options within policy, the booking prepared for approval, the itinerary, and a weekly trips page | niche | Public web; calendars optional |
 | `inventory_2` | `inventory` | Inventory Planner | A weekly reorder list from reorder points and observed lead times, one purchase order per supplier ready for approval, stock-out and overstock risks | niche | Sales and stock exports on a task |
 | `local_shipping` | `logistics` | Logistics Coordinator | A weekly on-time and in-full report by carrier and lane, exceptions worked with customer updates ready for approval, claims before deadline, carrier invoice overcharges | niche | Shipment exports and carrier invoices on a task |
@@ -137,13 +137,13 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `balance` | `general-counsel` | General Counsel (head) | One legal request queue with an outcome per request, reviews of the contracts that need a lawyer's call, policy drafts for a person to adopt, a weekly legal summary with routing and hiring proposals; not legal advice, never sends or signs | default | Tico only; docs, mail and calendar optional |
-| `contract` | `legal-review` | Contracts Manager | A plain-language summary, key-terms table and flags against your playbook per contract, an issues list with playbook fallbacks for the negotiator, the signed-contract register and a weekly renewal and notice calendar; not legal advice | default | Contracts attached to tasks; docs and mail optional |
+| `balance` | `general-counsel` | General Counsel (head) | One legal request queue with an outcome per request, reviews of the contracts that need a lawyer's call, policy drafts for a human to adopt, a weekly legal summary with routing and hiring proposals; not legal advice, never sends or signs | default | Tico only; docs, email and calendar optional |
+| `contract` | `legal-review` | Contracts Manager | A plain-language summary, key-terms table and flags against your playbook per contract, an issues list with playbook fallbacks for the negotiator, the signed-contract register and a weekly renewal and notice calendar; not legal advice | default | Contracts attached to tasks; docs and email optional |
 | `assignment` | `paralegal` | Paralegal | A weekday NDA desk: each inbound NDA checked clause by clause against your standard (ready, needs changes with exact strikes, or needs counsel), outbound NDAs on your template, signature packets and the executed-agreement index | common | Tico only; docs and a legal mailbox optional |
-| `calendar_month` | `compliance` | Compliance Manager | An obligations register (annual reports, registered agent, licences, regulatory filings, insurance renewals), a weekly calendar with owners and proof, and a filing pack before each deadline; a person files | common | Tico only; calendar, docs and public web optional |
+| `calendar_month` | `compliance` | Compliance Manager | An obligations register (annual reports, registered agent, licences, regulatory filings, insurance renewals), a weekly calendar with owners and proof, and a filing pack before each deadline; a human files | common | Tico only; calendar, docs and public web optional |
 | `shield_person` | `privacy` | Privacy Manager | DPA reviews against your position, a data subject request log run to each legal deadline with steps per system, the subprocessor list and records of processing, and a weekly privacy desk | common | Tico only; docs and a privacy mailbox optional |
 | `copyright` | `ip-paralegal` | IP Paralegal | A trademark and domain register with every declaration, renewal and expiry date, a monthly look-alike watch, clearance notes for proposed names, and the contractor IP assignment check | niche | Public web; docs optional |
-| `fact_check` | `legal-ops` | Legal Operations Manager | The matter list with budgets, a consistent brief per new matter, each law firm invoice checked line by line against its engagement letter and billing rules, and a monthly legal spend summary | niche | Invoices and engagement letters on tasks; docs and mail optional |
+| `fact_check` | `legal-ops` | Legal Operations Manager | The matter list with budgets, a consistent brief per new matter, each law firm invoice checked line by line against its engagement letter and billing rules, and a monthly legal spend summary | niche | Invoices and engagement letters on tasks; docs and email optional |
 | `history_edu` | `corporate-secretary` | Corporate Secretary | Board and shareholder meeting packs, draft minutes and written consents for counsel, the entity register, the minute book index and a cap table change log tying each grant to its approval | niche | Tico only; meetings, calendar and docs optional |
 
 ### HR
@@ -152,13 +152,13 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 |---|---|---|---|---|---|
 | `supervisor_account` | `people-lead` | Head of People (head) | A weekly people summary (hires against plan, starters and leavers, deadlines in 30 days, blocked work), the people calendar, the headcount plan, policies for approval, routing and hiring proposals | default | Tico only; docs, calendar and chat optional |
 | `person_add` | `recruiting` | Recruiter | Job posts published on approval, a summary per application against the stated criteria, an interview kit per role, candidate replies at every stage, and the weekly hiring pipeline | default | Role briefs and applications as tasks; a hiring mailbox optional |
-| `contact_page` | `people-hr` | HR Generalist | An onboarding checklist per new hire through the 90 day check-in, a weekly tracker, and policy answers the Librarian cites from the handbook | default | The handbook in the company docs |
+| `contact_page` | `people-hr` | HR Generalist | An onboarding checklist per new hire through the 90 day check-in, a weekly tracker, and policy answers the Librarian cites from the handbook | default | The handbook in the team docs |
 | `manage_search` | `sourcer` | Sourcer | A weekly slate of people who did not apply, each matched to the criteria with public sources, three-touch personal outreach sent on approval, yeses handed to the Recruiter | common | Public web; a recruiting mailbox optional |
 | `event_upcoming` | `recruiting-coordinator` | Recruiting Coordinator | A daily interview logistics sheet: loops scheduled from real calendars, candidate messages on approval, kits to panels, scorecards chased, debriefs ready | common | Calendar; a recruiting mailbox optional |
 | `psychology` | `hr-business-partner` | HR Business Partner | A weekly performance cycle tracker, review packs per manager, calibration sheets that flag inconsistent ratings, probation dates and guidance for hard conversations | niche | Tico only; docs, calendar and meetings optional |
-| `health_and_safety` | `benefits` | Benefits Administrator | A weekly benefits deadlines page (life-event windows, joiners' and leavers' coverage, enrollment milestones) and plain-language plan comparisons cited to the plan documents | niche | Plan documents in the company docs |
+| `health_and_safety` | `benefits` | Benefits Administrator | A weekly benefits deadlines page (life-event windows, joiners' and leavers' coverage, enrollment milestones) and plain-language plan comparisons cited to the plan documents | niche | Plan documents in the team docs |
 | `celebration` | `employee-experience` | Employee Experience Manager | Quarterly pulse readouts with themes and two or three owned actions (groups under five suppressed), a weekly milestones and actions page, event plans | niche | Tico only; a survey export on a task, chat optional |
-| `folder_shared` | `people-ops` | People Operations Specialist | An offboarding checklist per leaver through the 24 hour access check, a weekly records audit against roster and payroll, letters and verifications for a person to sign | common | HR and payroll exports on tasks; docs and mail optional |
+| `folder_shared` | `people-ops` | People Operations Specialist | An offboarding checklist per leaver through the 24 hour access check, a weekly records audit against roster and payroll, letters and verifications for a human to sign | common | HR and payroll exports on tasks; docs and email optional |
 | `paid` | `compensation` | Compensation Analyst | Salary bands with sources, a weekly check of offers and pay changes against their band (person-level detail only for approvers), the review pack and pay equity checks | niche | Payroll and offer exports on tasks; public web optional |
 | `school` | `learning` | Learning and Development Specialist | A weekly mandatory training tracker from completion records, learning plans per role (work, colleagues, then courses), a new-manager curriculum, spend requests | niche | A completion export on a task; docs optional |
 
@@ -167,11 +167,11 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
 | `lightbulb` | `product-lead` | Head of Product (head) | A weekly product summary: committed roadmap items on track, at risk or slipped, up to three decisions for the owner with evidence, evidence-scored proposals, routing and hiring proposals | default | Tico only; GitHub, docs and meetings optional |
-| `feedback` | `feedback-analyst` | Customer Insights Analyst | A weekly report of customer feedback themes with counts, anonymised quotes, the trend and three actions; approved requests and bugs filed with Product Ops or QA, and a close-the-loop list | default | Feedback routed as tasks; mail, meetings and chat optional |
+| `feedback` | `feedback-analyst` | Customer Insights Analyst | A weekly report of customer feedback themes with counts, anonymised quotes, the trend and three actions; approved requests and bugs filed with Product Ops or QA, and a close-the-loop list | default | Feedback routed as tasks; email, meetings and chat optional |
 | `record_voice_over` | `product-researcher` | UX Researcher | Interview snapshots, an opportunity map with source counts, study plans and discussion guides, research briefs and a weekly research digest | common | Tico only; a meetings importer optional |
 | `view_timeline` | `product-manager` | Product Manager | One-page specs with evidence, non-goals and Given/When/Then acceptance criteria, and a weekly spec and launch review with blocking questions and checklist lines due | default | Tico only; GitHub (read), docs and meetings optional |
-| `monitoring` | `product-analyst` | Product Analyst | A weekly usage readout (adoption of recent launches, activation funnel, retention cohorts), answers to product questions and experiment readouts, each with its query | common | A company database readable through `hub db`, or exports on a task |
-| `dashboard_customize` | `product-ops` | Product Operations Manager | One feature request ledger with the accounts behind each request, the beta roster, an eight-week release calendar, roadmap hygiene flags and ship notices for a person to send | niche | Tico only; CRM, GitHub and calendar optional |
+| `monitoring` | `product-analyst` | Product Analyst | A weekly usage readout (adoption of recent launches, activation funnel, retention cohorts), answers to product questions and experiment readouts, each with its query | common | A team database readable through `hub db`, or exports on a task |
+| `dashboard_customize` | `product-ops` | Product Operations Manager | One feature request ledger with the accounts behind each request, the beta roster, an eight-week release calendar, roadmap hygiene flags and ship notices for a human to send | niche | Tico only; CRM, GitHub and calendar optional |
 | `text_fields` | `ux-writer` | UX Writer | Copy tables for each spec (labels, errors, empty states), the product glossary, and a weekly review of pull requests that change user-facing text, for an engineer to post | niche | GitHub connected (read) |
 | `sell` | `pricing` | Pricing Analyst | A monthly pricing review (competitor price changes, discounts given, plan mix) and impact notes for a price change being weighed | niche | Public web; a CRM optional |
 
@@ -179,9 +179,9 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `developer_board` | `engineering-lead` | Head of Engineering (head) | A weekly engineering summary (shipped, stuck pull requests, incidents, blocked work), routing proposals, and a hiring proposal when recurring work has no owner | default | GitHub connected |
+| `developer_board` | `engineering-lead` | Head of Engineering (head) | A weekly engineering summary (shipped, stuck pull requests, incidents, blocked work), routing proposals, and a hiring proposal when repeated work has no owner | default | GitHub connected |
 | `bug_report` | `issue-triage` | QA Engineer | Label and duplicate proposals, repro-step requests, a weekly issue digest, and a risk-ranked test plan and regression checklist per release | default | GitHub connected; offer it only then |
-| `code_blocks` | `pr-reviewer` | Senior Software Engineer | A weekday review queue with a finished review per pull request (blocking issues first) for a person to post | common | GitHub connected |
+| `code_blocks` | `pr-reviewer` | Senior Software Engineer | A weekday review queue with a finished review per pull request (blocking issues first) for a human to post | common | GitHub connected |
 | `new_releases` | `release-notes` | Release Manager | A readiness checklist with a go or no-go call, the changelog entry, plain-language release notes and a suggested version | common | GitHub connected |
 | `monitor_heart` | `incident-scribe` | Site Reliability Engineer | An incident timeline, a blameless postmortem, action items followed to done, an on-call handoff and a weekly incident review | common | Tico only; an incident channel or error-tracker exports optional |
 | `description` | `docs-writer` | Technical Writer | A weekly drift report on READMEs and API docs in the product repositories, with the fixes written for an engineer to commit; internal docs stay with the Librarian | niche | GitHub connected |
@@ -190,57 +190,59 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 | `podium` | `developer-advocate` | Developer Advocate | A weekly developer pulse: a ready answer for each public question (posted after approval), the friction log with counts, and runnable samples and tutorials | niche | Public web; GitHub and a community channel optional |
 | `architecture` | `software-architect` | Software Architect | Design doc and RFC review notes, proposed ADRs for decisions made without one, the system map and a ranked technical debt register | niche | GitHub connected; docs and meetings optional |
 
-### Helpers
+### Message bots
 
-A helper serves one person rather than doing a department's job, so its card says `kind: helper` and has no department, pack,
-head or `suggest`. First run offers it on its own, off by default, beside the org chart rather than in it.
+A message bot serves one human rather than doing a group's job, so its card says `kind: helper` and has no group, pack,
+head or `suggest`. Finish setup offers it on its own, off by default, beside the team chart rather than in it.
 
 | Icon | Template | Name | What it does | Needs |
 |---|---|---|---|---|
-| `inbox` | `inbox` | Inbox Manager | A morning brief over one person's mailbox, replies ready to send on their approval, what needs them | A Google Workspace mailbox for that person |
+| `inbox` | `inbox` | Inbox Manager | A morning brief over one human's mailbox, replies ready to send on their approval, what needs them | A Google Workspace mailbox for that human |
 
 ### Leadership (extra, not offered by the picker)
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
-| `star` | `chief-of-staff` | Chief of Staff (head) | A weekly brief to the owner from goals, tasks, updates and meetings, stalled-goal follow-up, the Monday agenda, and hiring proposals for Leadership bots or a missing department head | niche | Tico only |
+| `star` | `chief-of-staff` | Chief of Staff (head) | A weekly brief to the owner from goals, tasks, updates and meetings, stalled-goal follow-up, the Monday agenda, and hiring proposals for Leadership bots or a missing group head | niche | Tico only |
 | `strategy` | `strategy-planning` | Strategy Analyst | A quarterly plan and OKR draft (three to five objectives, about three measurable key results each), last quarter graded 0 to 1, and a mid-quarter check-in | niche | Tico only |
 
-Every one of them is internal until a person says otherwise: it does the work and prepares the action, and a person
+Every one of them is internal until a human says otherwise: it does the work and prepares the action, and a human
 confirms anything that would send, post, pay, change a record or delete.
 
 ## What every starter does the same way
 
-1. **First message: onboarding.** On its first task the bot introduces itself in three lines, asks the
+1. **First message: setup.** On its first task the bot introduces itself in three lines, asks the
    template's `onboarding` questions in one message (each with its why), records the answers in
-   `state.md`, and does not ask what the hub already answers.
+   `state.md`, and does not ask what Tico already answers.
 2. **A first result in the same session.** It produces a real draft of its `first_routine` output from
-   the company's own data, labelled "First draft, not yet reviewed". A person reacts to something real.
-3. **A routine that starts with setup.** It confirms the first routine and tells the person what it does. The routine is declared in
+   the team's own data, labelled "First draft, not yet reviewed". A human reacts to something real.
+3. **A routine that starts with setup.** It confirms the first routine and tells the human what it does. The routine is declared in
    `employee.yaml` with `enabled: false`, so `hub bot create` seeds it off; starting the setup (**Start setup**, go-live) switches it on,
    so nobody approves it separately, and the bot logs it.
 4. **An approval before anything external.** The card's `approval_required` list is what the bot never
    does alone. The platform's own gates still apply (`outbound_send: false`, the approvals policy).
-5. **Parked until then.** First run creates every starter `needs_onboarding`: it answers a person's message and nothing else
-   (no routine, task notice, Slack route or bot request wakes it) until its onboarding playbook ends with `hub bot onboarded`,
-   which it calls once its answers and first result are recorded. **Start setup** on its page, or any first message, begins the
-   conversation. Parked starters do not count toward a member's bot limit. See [First run](onboarding.md#needs-onboarding).
+5. **Parked until then.** Finish setup creates every starter `needs_onboarding`: it answers a human's message and nothing else
+   (no routine, task notice, Slack route or bot request wakes it) until its setup playbook ends with `hub bot onboarded`,
+   which it calls once its answers and first result are recorded. **Set up** on its page, or any first message, begins the
+   conversation. Parked starters do not count toward a member's bot limit. See [Finish setup](onboarding.md#needs-setup).
 
-## What stops a starter sending things outside the company
+<a id="what-stops-a-starter-sending-things-outside-the-company"></a>
 
-A starter's own prompt is not the gate. What the platform does, checked for every template in the catalog:
+## What stops a starter sending things outside the team
+
+A starter's own prompt is not the gate. What the platform does, checked for every template:
 
 | It might | The gate | Where |
 |---|---|---|
-| Send, reply to or forward mail | The mail connector downgrades a send to a Gmail draft unless the mailbox declares the `send` verb, `outbound_send: true` is set and the recipient is internal, allowed or covered by an approval. The starters declare `read` and `draft` only and `outbound_send: false`; a test refuses `send` in any starter's `access:` | `connectors/mail/policy.py`, `clients/tests/test_catalog.py` |
+| Send, reply to or forward email | The email tool downgrades a send to a Gmail draft unless the mailbox declares the `send` verb, `outbound_send: true` is set and the recipient is internal, allowed or covered by an approval. The starters declare `read` and `draft` only and `outbound_send: false`; a test refuses `send` in any starter's `access:` | `connectors/mail/policy.py`, `clients/tests/test_catalog.py` |
 | Post to Slack | A post needs the `post` verb in the bot's Slack access, and the channel must not say `post: false` in `registry/slack-channels.yaml`; reading grants no posting right. Externally shared channels are always refused. The starters declare Slack read only, commented out until the owner connects it | [Slack gateway](slack-gateway.md) |
-| Comment on or label a GitHub issue, or review a pull request | **Added in this release.** The company's GitHub App token carries Issues: write, so nothing but a prompt stood between the QA Engineer (`issue-triage`) and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a person runs them. Senior Software Engineer, Release Manager, Technical Writer, Security Engineer, DevOps Engineer and Head of Engineering read GitHub the same way: `read` access, only `gh pr list`, `view`, `diff` and `checks` allowed, and `gh pr review`, `comment`, `merge`, `close`, `edit` and `create` denied, so a review is a draft on the task that a person posts. Turning writing on is the owner's edit of `employee.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
-| Invite someone to a calendar event | Any address may be invited. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to limit bots to people on the company roster (`403 external_attendee` otherwise); an invitation to anyone else is then a person's act | `backend/connectors.py`, `backend/tests/test_security_review.py` |
-| Message a person inside the company | Bot-to-person messages are linted and capped at ten unsolicited a day | `hub say` |
-| Change a record in a CRM, the support tool, the books or a repository | The starters declare no such access. Sales Operations Manager reads the CRM and only lists the fixes; the finance roles read exports and never post, pay or send (Accounts Payable Specialist proposes the payment run as a `spend` approval). A CRM stage change is on `approval_required`, and a tool the company adds is the owner's decision | the card |
-| Act on a public review surface | Reputation Manager declares `read` on its review surfaces and on Slack, and keeps `act` and `post` as a commented block the owner uncomments after a person has approved the first batch; until then a person carries out each approved batch | `templates/catalog/reputation`, `clients/tests/test_catalog.py` |
+| Comment on or label a GitHub issue, or review a pull request | **Added in this release.** The team's GitHub App token carries Issues: write, so nothing but a prompt stood between the QA Engineer (`issue-triage`) and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a human runs them. Senior Software Engineer, Release Manager, Technical Writer, Security Engineer, DevOps Engineer and Head of Engineering read GitHub the same way: `read` access, only `gh pr list`, `view`, `diff` and `checks` allowed, and `gh pr review`, `comment`, `merge`, `close`, `edit` and `create` denied, so a review is a draft on the task that a human posts. Turning writing on is the owner's edit of `employee.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
+| Invite someone to a calendar event | Any address may be invited. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to limit bots to humans on the team roster (`403 external_attendee` otherwise); an invitation to anyone else is then a human's act | `backend/connectors.py`, `backend/tests/test_security_review.py` |
+| Message a human inside the team | Bot-to-human messages are linted and capped at ten unsolicited a day | `hub say` |
+| Change a record in a CRM, the support tool, the books or a repository | The starters declare no such access. Sales Operations Manager reads the CRM and only lists the fixes; the finance roles read exports and never post, pay or send (Accounts Payable Specialist proposes the payment run as a `spend` approval). A CRM stage change is on `approval_required`, and a tool the team adds is the owner's decision | the card |
+| Act on a public review surface | Reputation Manager declares `read` on its review surfaces and on Slack, and keeps `act` and `post` as a commented block the owner uncomments after a human has approved the first batch; until then a human carries out each approved batch | `templates/catalog/reputation`, `clients/tests/test_catalog.py` |
 
-No template declares a `send`, `write`, `modify` or `delete` verb in `access:`, and the catalog test fails one that does. A template's `.claude/settings.json` allows only its own repository's `git` and, for the GitHub bots, the read-only `gh` commands above; none allows `gh issue *` or `gh pr *` as a whole.
+No template declares a `send`, `write`, `modify` or `delete` verb in `access:`, and the template test fails one that does. A template's `.claude/settings.json` allows only its own repository's `git` and, for the GitHub bots, the read-only `gh` commands above; none allows `gh issue *` or `gh pr *` as a whole.
 
 ## The card
 
@@ -250,29 +252,29 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 
 | Field | What it holds |
 |---|---|
-| `name` | The job title, as it would appear on a real org chart ("Accounts Payable Specialist"), never a feature, document or task |
-| `department` | One of the ids in `templates/departments.yaml` (`sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`), or `leadership` for the extra. What the org builder groups by |
-| `lead` | `true` on exactly one template per department: its head, the template `departments.yaml` names as `head`. The catalog test requires exactly one and that they agree |
-| `team_templates` | Heads only: every other template in the department. What the head hires from |
-| `kind` | `helper` for a template that serves one person (the Inbox Manager): no department, pack, head or `suggest`, and never on the org chart. Every other template is a role and leaves it out |
+| `name` | The job title, as it would appear on a real team chart ("Accounts Payable Specialist"), never a feature, document or task |
+| `department` | One of the ids in `templates/departments.yaml` (`sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`), or `leadership` for the extra. What the team builder groups by |
+| `lead` | `true` on exactly one template per group: its head, the template `departments.yaml` names as `head`. The template test requires exactly one and that they agree |
+| `team_templates` | Heads only: every other template in the group. What the head hires from |
+| `kind` | `helper` for a message bot template that serves one human (the Inbox Manager): no group, pack, head or `suggest`, and never on the team chart. Every other template is a role and leaves it out |
 | `icon` | A Material Symbols name that fits the role; it must be in `ui/vendor/fonts/icons.txt` (run `scripts/build-icon-font.py` after adding a template) |
-| `suggest` | `default` (pre-checked for most companies), `common` or `niche` |
+| `suggest` | `default` (pre-checked for most teams), `common` or `niche` |
 | `tags` | Short lowercase keywords a briefing answer is matched against: `b2b`, `b2c`, `saas`, `ecommerce`, `retail`, `services`, `enterprise`, `smb`, `outbound`, `content`, `paid-ads`, `field-service` and the role's own words |
-| `summary` | One crisp line of what it does, shown under each suggestion. Its first sentence (40 to 185 characters) is the onboarding line |
-| `pack` | The older six-team grouping the current chooser (`TEAMS` in `backend/onboarding.py`) still reads; it follows the department: `sales`, `marketing`, `support` and `operations` map to themselves, `finance`, `legal`, `hr` and `leadership` to `basics`, `product` and `engineering` to `engineering`. The catalog test checks the mapping |
-| `pains` | Plain phrases a person might say ("too much email", "leads go cold"). The chooser matches a company's free text against them (and against the summary), so write them as words a company would use; no phrase belongs to two templates |
-| `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. Nothing is held back for a missing tool: the bot asks for what it needs in its own Start setup conversation. Keep `required` for what the bot cannot work at all without |
+| `summary` | One crisp line of what it does, shown under each suggestion. Its first sentence (40 to 185 characters) is the setup line |
+| `pack` | The older six-group grouping the current chooser (`TEAMS` in `backend/onboarding.py`) still reads; it follows the group: `sales`, `marketing`, `support` and `operations` map to themselves, `finance`, `legal`, `hr` and `leadership` to `basics`, `product` and `engineering` to `engineering`. The template test checks the mapping |
+| `pains` | Plain phrases a human might say ("too much email", "leads go cold"). The chooser matches a team's free text against them (and against the summary), so write them as words a team would use; no phrase belongs to two templates |
+| `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. Nothing is held back for a missing tool: the bot asks for what it needs in its own Set up conversation. Keep `required` for what the bot cannot work at all without |
 | `onboarding` | Four to seven `{ask, why}` questions the bot asks on its first message |
 | `first_routine` | `{title, cadence, output, draft_only: true}`: the reviewable internal result the bot produces first |
-| `approval_required` | Actions that always need a person's Confirm: send, post, pay, sign, comment on GitHub, change a CRM stage, arm a routine, and for heads, ask BotOps to set up a bot |
+| `approval_required` | Actions that always need a human's Confirm: send, post, pay, sign, comment on GitHub, change a CRM stage, arm a routine, and for heads, ask BotOps to set up a bot |
 | `example_output` | Path, inside the template, to a short sample of excellent output under `knowledge/examples/` |
 | `when` | Optional, existing: one sentence saying who wants the template |
 
-`recommend_when` says who the template is for (see [First run](onboarding.md#the-org-builder)). The org builder reads only two of its tags:
-`sells_to_businesses` without `sells_to_consumers` marks a template as business-only, and it is suggested last to a company that sells only
+`recommend_when` says who the template is for (see [Finish setup](onboarding.md#the-team-builder)). The team builder reads only two of its tags:
+`sells_to_businesses` without `sells_to_consumers` marks a template as business-only, and it is suggested last to a team that sells only
 to consumers. Every other tag (`sells_software`, `uses_crm`, `uses_github`, `uses_meetings`, `has_support_inbox`, `always`) is
-descriptive and matched to nothing, so use the ones a reader would expect. The Engineering and Product departments start picked only
-for a company whose product is software; anyone may pick them.
+descriptive and matched to nothing, so use the ones a reader would expect. The Engineering and Product groups start picked only
+for a team whose product is software; anyone may pick them.
 
 ```yaml
 template: sales
@@ -296,7 +298,7 @@ prerequisites:
     required: false
 first_routine:
   title: "Weekly deal review"
-  cadence: "Mondays at 09:00 company time"
+  cadence: "Mondays at 09:00 team time"
   output: "reports/YYYY-MM-DD-deal-review.md: each open deal with its stage, days quiet and next step, the recaps and follow-ups ready to send, mutual action plan slips, and the proposals and questionnaires due this week"
   draft_only: true
 approval_required:
@@ -306,7 +308,7 @@ approval_required:
 example_output: knowledge/examples/deal-review.md
 ```
 
-A head adds `lead: true` and its department:
+A head adds `lead: true` and its group:
 
 ```yaml
 template: finance-lead
@@ -321,16 +323,16 @@ team_templates: [bookkeeping, ar-followup, accounts-payable, expense-auditor, sp
 
 ## The repository each one starts from
 
-Same layout as every catalog template, plus what makes a starter reviewable:
+Same layout as every template, plus what makes a starter reviewable:
 
-- `AGENT.md`, under 150 lines (most are 80 to 100): mandate, what it owns, its onboarding conversation, `## Never without
+- `AGENT.md`, under 150 lines (most are 80 to 100): mandate, what it owns, its setup conversation, `## Never without
   approval` (matching `approval_required`), how it starts and ends a run, how it uses `hub`, quality
   standards and how it escalates. A head's also has `## Hiring`.
 - `playbooks/`: one for the first routine, one for the most common request, and `onboarding.md`.
-- `knowledge/examples/`: one sample of excellent output for the fictional company Acme. Never a real
-  company or person.
+- `knowledge/examples/`: one sample of excellent output for the fictional team Acme. Never a real
+  team or person.
 - `employee.yaml`: `outbound_send: false`, the first routine declared with `enabled: false`, and
-  `access:` with `read` unless drafting needs more. A tool the company may not have is a commented block
+  `access:` with `read` unless drafting needs more. A tool the team may not have is a commented block
   the owner uncomments when it is connected, because changing access is an owner decision.
 
 ## What a good bot looks like
@@ -338,15 +340,15 @@ Same layout as every catalog template, plus what makes a starter reviewable:
 The quality bar, in five checks a reviewer can apply to any bot in ten minutes:
 
 1. **Answer first.** The first line of every output is the result, not the process.
-2. **Short and scannable.** One page. One line per item. A person decides in two minutes.
+2. **Short and scannable.** One page. One line per item. A human decides in two minutes.
 3. **Cited.** Every claim points at the record it came from and the date. A number with no source is
    left out.
 4. **Honest about gaps.** What it could not read is named. "Not found" is never used for "could not
    look". A missing fact is a marked gap, never an invented one.
-5. **Gated.** Nothing leaves the company, changes a record or commits a person without a Confirm, and the
+5. **Gated.** Nothing leaves the team, changes a record or commits a human without a Confirm, and the
    draft it leaves is ready to approve with one edit.
 
-A worked example. A person asks Support Agent about a ticket. Weak:
+A worked example. A human asks Support Agent about a ticket. Weak:
 
 > I looked at the ticket. The customer seems unhappy about their calendar and probably needs help.
 > I would suggest replying soon and maybe offering a refund.
@@ -366,8 +368,8 @@ sends nothing. The full samples live in each template's `knowledge/examples/`.
 
 ## Best practice each template draws on
 
-The methods are standard practice, not proprietary. Public sources consulted while writing them, by department. The heads'
-hiring rule is the same everywhere: propose a role only from recurring, evidenced work, name the catalog template and its first
+The methods are standard practice, not proprietary. Public sources consulted while writing them, by group. The heads'
+hiring rule is the same everywhere: propose a role only from repeated, evidenced work, name the template and its first
 routine, and ask BotOps to set it up only after the owner says yes.
 
 ### Sales
@@ -413,13 +415,13 @@ routine, and ask BotOps to set it up only after the owner says yes.
 - Retention Specialist: one question on why the customer is leaving, one save offer matched to that reason (a pause for "not using it", a cheaper plan for price), cancelling kept at least as easy as signing up, and no second save attempt, from [ProsperStack on cancellation flows](https://prosperstack.com/blog/cancellation-flow/) and [Chargebee on click-to-cancel compliance](https://www.chargebee.com/blog/comply-ftc-click-to-cancel-rule-retain-subscribers/) (state automatic-renewal laws such as California's limit retention to a single offer).
 - Support Operations Specialist: start SLA measurement with first reply time and pick one resolution measure, use tags with a consistent naming convention, and audit triggers and automations because overlapping rules cause unintended routing, from Zendesk's help centre on [defining SLA policies](https://support.zendesk.com/hc/en-us/articles/4408829459866-Defining-SLA-policies) and [routing and automation options for incoming tickets](https://support.zendesk.com/hc/en-us/articles/4408831658650-Routing-and-automation-options-for-incoming-tickets).
 - Technical Support Engineer: one bug per report with a concise title, numbered steps from a known state, expected against actual result, the environment and evidence, and a search for an existing report before filing, from [BrowserStack on writing a bug report](https://www.browserstack.com/guide/how-to-write-a-bug-report) and [Marker.io's bug report guide](https://marker.io/blog/how-to-write-bug-report).
-- Returns and Refunds Specialist: separate the return decision (the goods) from the refund decision (the money), measure and age the time from receipt to refund against the time the shop publishes, fast-track low-risk returns and route suspicious ones to a person, from [Claimlane on refund policy best practices](https://www.claimlane.com/resources/blog/refund-policy-best-practices) and [Signifyd on ecommerce return policies](https://www.signifyd.com/blog/ecommerce-return-policy/); the refund deadlines when an order cannot ship come from the [FTC Mail, Internet, or Telephone Order Merchandise Rule](https://www.ftc.gov/legal-library/browse/rules/mail-internet-or-telephone-order-merchandise-rule).
+- Returns and Refunds Specialist: separate the return decision (the goods) from the refund decision (the money), measure and age the time from receipt to refund against the time the shop publishes, fast-track low-risk returns and route suspicious ones to a human, from [Claimlane on refund policy best practices](https://www.claimlane.com/resources/blog/refund-policy-best-practices) and [Signifyd on ecommerce return policies](https://www.signifyd.com/blog/ecommerce-return-policy/); the refund deadlines when an order cannot ship come from the [FTC Email, Internet, or Telephone Order Merchandise Rule](https://www.ftc.gov/legal-library/browse/rules/mail-internet-or-telephone-order-merchandise-rule).
 
 ### Finance
 
 - Head of Finance: a 13-week cash forecast of 8 to 12 lines, rolled forward every week and reconciled to the previous week's actuals, with collections timed from the receivables aging, from [PKF O'Connor Davies on the 13-week cash flow forecast](https://www.pkfod.com/insights/a-cfos-lifeline-mastering-the-13-week-cash-flow-forecast/) and [Accordion's 13-week cash flow guide](https://www.accordion.com/our-insights/knowledge/13-week-cash-flow-forecasting-guide/); the close run in the order of [Business.com's month-end close checklist](https://www.business.com/articles/month-end-close-checklist/).
-- Bookkeeper: a month-end checklist that runs in order (feeds complete, receipts collected, uncategorised transactions cleared, accounts reconciled, receivables and payables reviewed, statements compared with last month, period locked by a person), categorising weekly instead of in one batch, and one batched list of owner questions with items for the accountant kept separate, from [Business.com's month-end close checklist](https://www.business.com/articles/month-end-close-checklist/) and [Chaser's monthly bookkeeping checklist](https://www.trychaser.com/checklist-articles/monthly-bookkeeping-checklist-for-small-businesses).
-- Accounts Receivable Specialist: overdue invoices followed up in full with polite early reminders and firmer later ones, 50 to 125 words, the invoice details and a clear action in each, a person taking over at the last step, from [Chaser on dunning](https://www.chaserhq.com/blog/what-is-dunning-in-accounts-receivables-and-how-to-optimize-it) and [Gaviti's collection email templates](https://gaviti.com/5-most-effective-collection-email-templates/).
+- Bookkeeper: a month-end checklist that runs in order (feeds complete, receipts collected, uncategorised transactions cleared, accounts reconciled, receivables and payables reviewed, statements compared with last month, period locked by a human), categorising weekly instead of in one batch, and one batched list of owner questions with items for the accountant kept separate, from [Business.com's month-end close checklist](https://www.business.com/articles/month-end-close-checklist/) and [Chaser's monthly bookkeeping checklist](https://www.trychaser.com/checklist-articles/monthly-bookkeeping-checklist-for-small-businesses).
+- Accounts Receivable Specialist: overdue invoices followed up in full with polite early reminders and firmer later ones, 50 to 125 words, the invoice details and a clear action in each, a human taking over at the last step, from [Chaser on dunning](https://www.chaserhq.com/blog/what-is-dunning-in-accounts-receivables-and-how-to-optimize-it) and [Gaviti's collection email templates](https://gaviti.com/5-most-effective-collection-email-templates/).
 - Accounts Payable Specialist: match the bill to the purchase order and the receipt before paying, and detect duplicates beyond the invoice number (same vendor and amount, normalised numbers), from [Ramp on three-way matching](https://ramp.com/blog/accounts-payable/3-way-match) and [Ramp on duplicate invoices](https://ramp.com/blog/accounts-payable/duplicate-invoices); verify any change to a vendor's payment details by calling a number already on file, never one in the request, from the [FBI on business email compromise](https://www.fbi.gov/how-we-can-help-you/scams-and-safety/common-frauds-and-scams/business-email-compromise).
 - Expense Auditor: an accountable plan needs a business connection, substantiation within 60 days and return of any excess within 120, from [IRS Publication 463](https://www.irs.gov/publications/p463); check every report for policy compliance, duplicate receipts and submission timing, from [Emburse's expense report audit guide](https://www.emburse.com/resources/expense-report-audit-guide-for-finance-teams).
 - FP&A Analyst (budget and forecast): variance as actual minus budget in money and percent, commentary only on variances over a percentage and an amount, each with an owner, and the forecast updated in the same monthly cycle, from [Wall Street Prep on budget-to-actual variance analysis](https://www.wallstreetprep.com/knowledge/budget-actual-variance-analysis-fpa/) and [Numeric on budget variance](https://www.numeric.io/blog/budget-variance); the weekly spend watch is below.
@@ -450,8 +452,8 @@ routine, and ask BotOps to set it up only after the owner says yes.
 
 ### Legal
 
-- General Counsel: one intake point for every legal request, triaged by type, urgency, completeness and risk so high-risk and time-sensitive work goes first and the right owner gets it, from [Streamline AI on legal intake for in-house teams](https://www.streamline.ai/blog/legal-intake-form-guide) and [Dazychain's legal intake workflow guide](https://www.dazychain.com/guides/legal-intake-workflow-guide/); a first general counsel's priorities (relationships, the company's structure, good governance, a foundation for efficient process), from [ACC's guide for an organization's first general counsel](https://www.acc.com/resource-library/establishing-house-law-department-guide-organizations-first-general-counsel) and [ACC Docket on the first year as general counsel](https://docket.acc.com/actions-take-during-your-first-year-general-counsel).
-- Contracts Manager: read limitation of liability, indemnity, renewal, termination and IP first, tabulate key terms with clause references, flag deviations from the company's own playbook rather than a general view, and have a lawyer review any AI-assisted analysis, from [Spellbook's contract review checklist](https://spellbook.com/learn/contract-review-checklist) and [Harvey's contract review checklist](https://www.harvey.ai/blog/contract-review-checklist).
+- General Counsel: one intake point for every legal request, triaged by type, urgency, completeness and risk so high-risk and time-sensitive work goes first and the right owner gets it, from [Streamline AI on legal intake for in-house teams](https://www.streamline.ai/blog/legal-intake-form-guide) and [Dazychain's legal intake workflow guide](https://www.dazychain.com/guides/legal-intake-workflow-guide/); a first general counsel's priorities (relationships, the team's structure, good governance, a foundation for efficient process), from [ACC's guide for an organization's first general counsel](https://www.acc.com/resource-library/establishing-house-law-department-guide-organizations-first-general-counsel) and [ACC Docket on the first year as general counsel](https://docket.acc.com/actions-take-during-your-first-year-general-counsel).
+- Contracts Manager: read limitation of liability, indemnity, renewal, termination and IP first, tabulate key terms with clause references, flag deviations from the team's own playbook rather than a general view, and have a lawyer review any AI-assisted analysis, from [Spellbook's contract review checklist](https://spellbook.com/learn/contract-review-checklist) and [Harvey's contract review checklist](https://www.harvey.ai/blog/contract-review-checklist).
 - Paralegal: a mutual NDA where both sides share, the five standard exclusions from confidential information, a defined confidentiality period (commonly two to five years, trade secrets treated separately), and residuals clauses struck or narrowed, from [Common Paper's Mutual NDA standard](https://commonpaper.com/standards/mutual-nda/) (a committee-drafted, openly licensed standard), [Common Paper on residuals](https://commonpaper.com/standards/mutual-nda/mutual-right-to-use-residual-information/) and [Vaquill on confidentiality clauses and the residuals trap](https://www.vaquill.ai/clauses/confidentiality).
 - Compliance Manager: external obligations (state annual reports, a registered agent in each state of registration, renewed business licences and permits) kept current with internal records, and foreign registrations filing in each state where they do business, from the [SBA's Stay legally compliant guide](https://www.sba.gov/business-guide/manage-your-business/stay-legally-compliant); the rule behind each date cited from the authority's own page, and done meaning proven.
 - Privacy Manager: a data subject access request answered within one month of receipt (counted from the day it arrives), extendable by up to two months for complex requests, with the clock paused only while genuinely needed clarification is outstanding, from the [ICO's guide to subject access](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/subject-access-requests/a-guide-to-subject-access/); the terms a processor contract must cover and flow down to subprocessors, from [GDPR Article 28](https://gdpr-info.eu/art-28-gdpr/); records of processing (purposes, categories, recipients, transfers, retention, security) from [the ICO on Article 30 documentation](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/accountability-and-governance/documentation/what-do-we-need-to-document-under-article-30-of-the-gdpr/).
@@ -461,7 +463,7 @@ routine, and ask BotOps to set it up only after the owner says yes.
 
 ### HR
 
-- Head of People: headcount plan against actual as a living plan rather than an annual exercise, with attrition and hires tracked against it, from [Rippling on headcount planning](https://www.rippling.com/blog/effective-headcount-planning) and [Deel on workforce planning metrics](https://www.deel.com/blog/workforce-planning-metrics/); the same routing and weekly summary pattern as the other department heads.
+- Head of People: headcount plan against actual as a living plan rather than an annual exercise, with attrition and hires tracked against it, from [Rippling on headcount planning](https://www.rippling.com/blog/effective-headcount-planning) and [Deel on workforce planning metrics](https://www.deel.com/blog/workforce-planning-metrics/); the same routing and weekly summary pattern as the other group heads.
 - Recruiter: job-related, uniformly applied criteria and job posts that do not discourage applicants, from the [EEOC's best practices for employers](https://www.eeoc.gov/initiatives/e-race/best-practices-employers-and-human-resourceseeo-professionals); the same questions and scoring scale for every candidate, agreed with the hiring manager up front, from [Google re:Work's structured interviewing guide](https://rework.withgoogle.com/intl/en/guides/a-guide-to-structured-interviewing-for-better-hiring-practices); timely, consistent communication at every stage, from [SHRM's guide to effective recruiting](https://www.shrm.org/topics-tools/workplace/complete-guide-to-effective-recruiting).
 - HR Generalist: compliance, clarification, culture and connection across preboarding, day one, the first week and 30, 60 and 90 day check-ins, from [SHRM's 4 Cs as summarised by HR Cloud](https://www.hrcloud.com/blog/onboarding-best-practices-the-4-cs); collecting only what the purpose needs and reviewing what is held, from the [ICO's data minimisation principle](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-protection-principles/a-guide-to-the-data-protection-principles/data-minimisation/).
 - Sourcer: personal messages that cite the person's own work get several times the replies of generic ones, three to five touches over two to three weeks, and tracking which sources produce hires rather than volume, from [Gem on how to source candidates](https://www.gem.com/blog/how-to-source-candidates) and [Truffle on passive candidate sourcing](https://www.hiretruffle.com/blog/sourcing-candidates); no screening by protected characteristic or proxy, from the [EEOC's prohibited practices](https://www.eeoc.gov/prohibited-employment-policiespractices).
@@ -476,7 +478,7 @@ routine, and ask BotOps to set it up only after the owner says yes.
 ### Product
 
 - Head of Product: candidates scored on reach, impact (a fixed 3 to 0.25 scale), confidence (100, 80 or 50 percent) and effort in person-weeks, re-scored each planning cycle, from [Intercom on RICE prioritization](https://www.intercom.com/blog/rice-simple-prioritization-for-product-managers/); every proposal tied to one outcome, with opportunities under it, from [Product Talk on the opportunity solution tree](https://www.producttalk.org/opportunity-solution-tree/).
-- Customer Insights Analyst: one shared theme list, tagging each item, ranking by frequency and severity weighted by account value, weekly triage, and closing the loop with customers (prepared for a person to send), from [CustomerGauge on voice of customer analysis](https://customergauge.com/blog/voice-of-customer-analysis) and [Umbrex on voice of the customer feedback loops](https://umbrex.com/resources/customer-retention-playbook/voice-of-the-customer-feedback-loops/).
+- Customer Insights Analyst: one shared theme list, tagging each item, ranking by frequency and severity weighted by account value, weekly triage, and closing the loop with customers (prepared for a human to send), from [CustomerGauge on voice of customer analysis](https://customergauge.com/blog/voice-of-customer-analysis) and [Umbrex on voice of the customer feedback loops](https://umbrex.com/resources/customer-retention-playbook/voice-of-the-customer-feedback-loops/).
 - UX Researcher: story-based interviews and an opportunity map refined every three to four interviews, from [Product Talk on the opportunity solution tree](https://www.producttalk.org/opportunity-solution-tree/); choosing the method by attitudinal versus behavioural, qualitative versus quantitative and context of use, from [NN/g, When to use which user-experience research methods](https://www.nngroup.com/articles/which-ux-research-methods/).
 - Product Manager: start with the problem and who has it, explicit scope and non-goals, testable requirements, a short core document kept current, from [Carlin Yuen on writing PRDs](https://carlinyuen.medium.com/writing-prds-and-product-requirements-2effdb9c6def) and [Heretto's guide to product requirements documents](https://www.heretto.com/blog/product-requirements-document); acceptance criteria as Given/When/Then, from [Martin Fowler, Given When Then](https://martinfowler.com/bliki/GivenWhenThen.html).
 - Product Analyst: adoption as the share of users who performed the action, retention by signup cohort to find when engagement drops, activation as the leading signal, from [Amplitude on cohort retention analysis](https://amplitude.com/explore/analytics/cohort-retention-analysis) and [Amplitude on cohort analysis](https://amplitude.com/explore/analytics/cohort-analysis); a sample size fixed in advance and no stopping on a peek, from [Evan Miller, How not to run an A/B test](https://www.evanmiller.org/how-not-to-run-an-ab-test.html).
@@ -513,11 +515,11 @@ routine, and ask BotOps to set it up only after the owner says yes.
 
 ## Adding your own
 
-Copy the nearest template in the same department and keep the card fields above; give it a job title, an icon from Material
+Copy the nearest template in the same group and keep the card fields above; give it a job title, an icon from Material
 Symbols, and add it to its head's `team_templates`, then run `scripts/build-icon-font.py` so the icon is in the UI's font.
-`clients/tests/test_catalog.py` checks every template in the catalog except the four built-ins (no list to update) for those
-fields: a department from `templates/departments.yaml` with `pack` following it, an icon the UI font holds, `suggest` and
-`tags`, exactly one head per department matching `departments.yaml` and listing the rest of it, at least 90 templates, the 150
-line limit, a first sentence of the summary that fits the onboarding line, a declared but paused routine, an example that names
-the fictional company, no pain phrase used twice and no `send`, `write`, `modify` or `delete` verb in `access:`. The card's
+`clients/tests/test_catalog.py` checks every template except the four built-ins (no list to update) for those
+fields: a group from `templates/departments.yaml` with `pack` following it, an icon the UI font holds, `suggest` and
+`tags`, exactly one head per group matching `departments.yaml` and listing the rest of it, at least 90 templates, the 150
+line limit, a first sentence of the summary that fits the setup line, a declared but paused routine, an example that names
+the fictional team, no pain phrase used twice and no `send`, `write`, `modify` or `delete` verb in `access:`. The card's
 `first_routine.title` must be the title of the routine in `employee.yaml`.

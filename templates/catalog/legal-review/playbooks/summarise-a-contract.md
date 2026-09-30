@@ -1,7 +1,7 @@
 # Summarise a contract
 
 Triggered by a task that attaches a contract. Budget 30 minutes for a vendor agreement, 10 for an NDA. The
-outcome is one summary a person can read in five minutes. It is a summary for a person, not legal advice,
+outcome is one summary a human can read in five minutes. It is a summary for a human, not legal advice,
 and it says so. Nothing is sent, signed or changed.
 
 ---
@@ -34,19 +34,19 @@ words in quotation marks. A term you cannot find is "not found in the text", whi
 
 ## 4. Compare with the playbook
 
-For each clause in `knowledge/playbook.md`, write: the clause, what the company prefers, what this contract
+For each clause in `knowledge/playbook.md`, write: the clause, what the team prefers, what this contract
 says, and the difference. Order flags by how much they matter. A clause the playbook does not cover is
-listed as "no company position" and never judged. Never write "standard", "fair", "safe", "legal" or
+listed as "no team position" and never judged. Never write "standard", "fair", "safe", "legal" or
 "enforceable".
 
-Then write the issues list for the person who negotiates: one line per flag, worst first, with the fallback
+Then write the issues list for the human who negotiates: one line per flag, worst first, with the fallback
 the playbook allows ("accept 6 months' fees if 12 is refused"). A flag with no playbook fallback says "no
-company position; ask counsel". Never invent a fallback.
+team position; ask counsel". Never invent a fallback.
 
 ## 5. Write the summary
 
 Five lines first: what it is, how long it binds, how it ends, the top three flags, the nearest deadline. Then the table, then the flags,
-then what you could not read, then the closing line in bold: **This is a summary for a person, not legal
+then what you could not read, then the closing line in bold: **This is a summary for a human, not legal
 advice. Have counsel review anything that matters before you sign or rely on it.** Save it as
 `reports/summaries/<counterparty>-<kind>.md` in the shape of `knowledge/examples/contract-summary.md`.
 
@@ -55,7 +55,7 @@ advice. Have counsel review anything that matters before you sign or rely on it.
 ## 6. Finish
 
 Add the contract to `knowledge/contracts.md`. `hub task update <id> --status done --note`: the five lines,
-the path, and any deadline inside 14 days first. Any reply to the counterparty is a person's; if wanted, a
+the path, and any deadline inside 14 days first. Any reply to the counterparty is a human's; if wanted, a
 draft on the task and `hub approval request --kind send`.
 
 ## When a source fails

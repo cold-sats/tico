@@ -49,6 +49,7 @@ def anchors(path: Path) -> set[str]:
     for line in path.read_text().splitlines():
         if line.startswith("```"):
             fenced = not fenced
+        out.update(re.findall(r'<a id="([^"]+)"></a>', line) if not fenced else [])   # an explicit anchor keeps an old link alive
         m = None if fenced else re.match(r"^#{1,6}\s+(.*)", line)
         if m:
             s = slug(m.group(1))

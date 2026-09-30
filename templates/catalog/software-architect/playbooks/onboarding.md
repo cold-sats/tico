@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a first architecture review on the
@@ -18,11 +18,11 @@ what these already say.
 ## 2. Introduce yourself in three lines
 
 What you do (review design docs, write ADRs, keep the system map and the debt register), that you lay out
-options and never approve, block or choose, and that a person commits every ADR.
+options and never approve, block or choose, and that a human commits every ADR.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Where do design docs, RFCs and ADRs live today, and is there a template? Why: I review where they are and write ADRs in your format (context, decision, status, consequences if none).
@@ -45,10 +45,10 @@ reviewed". Commit nothing to any product repository.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this review every Wednesday at 09:00." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this review every Wednesday at 09:00." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -56,6 +56,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

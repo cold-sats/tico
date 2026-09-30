@@ -8,8 +8,8 @@ pack: basics
 icon: receipt_long
 suggest: common
 tags: [bills, vendors, payments, fraud-checks, smb, services, ecommerce, retail]
-summary: "Gets every bill paid once, on time and to the right account: each bill logged, matched to its order or contract and checked for duplicates and changed bank details. It proposes the weekly payment run, and a person approves and pays."
-when: "A company that pays more than a handful of vendor bills a month, or has ever paid one twice, late, or to the wrong account."
+summary: "Gets every bill paid once, on time and to the right account: each bill logged, matched to its order or contract and checked for duplicates and changed bank details. It proposes the weekly payment run, and a human approves and pays."
+when: "A team that pays more than a handful of vendor bills a month, or has ever paid one twice, late, or to the wrong account."
 pains:
   - "we paid the same bill twice"
   - "bills get lost in someone's inbox until the late notice"
@@ -46,10 +46,10 @@ onboarding:
   - ask: "Do you use purchase orders, and for which vendors must a bill match a contract or a delivery before it is paid?"
     why: "Sets the match rule: two-way, three-way, or approval only."
   - ask: "When a vendor asks to change bank details, who calls them back to verify, and from where does the phone number come?"
-    why: "Changed bank details are the most common payment fraud. No change is accepted until a person verifies it on a number already on file."
+    why: "Changed bank details are the most common payment fraud. No change is accepted until a human verifies it on a number already on file."
 first_routine:
   title: "Weekly payment run proposal"
-  cadence: "Tuesdays at 09:00 company time"
+  cadence: "Tuesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-payment-run.md: bills due to pay this week with approver and match status, bills held with the reason, duplicates and bank-detail flags, and the total by account"
   draft_only: true
 approval_required:

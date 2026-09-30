@@ -4,7 +4,14 @@
 
 // ----------------------------------------------------------------- shared fragments
 const issueLink = i => `<a href="${i.url}" target="_blank" rel="noopener" class="mono">#${i.number}</a>`;
-const statusPill = i => i.state === 'CLOSED' ? `<span class="pill">closed</span>` : `<span class="pill ${i.status || ''}">${esc(i.status || 'no status')}</span>${i.needs_human ? ' <span class="pill needs">needs you</span>' : ''}`;
+const statusPill = i => i.state === 'CLOSED' ? `<span class="pill">closed</span>` : `<span class="pill ${i.status || ''}">${esc(i.status || 'no status')}</span>${i.needs_human ? ` <span class="pill needs">${esc(needsLabel(i.owner))}</span>` : ''}`;
+// "Needs you" only when the viewer is the one it waits on; otherwise "Needs <Name>".
+const needsLabel = owner => {
+  const slug = String(owner || '').toLowerCase();
+  const p = slug && (S.people || []).find(x => (x.email || '').split('@')[0].toLowerCase() === slug);
+  if (!p || slug === myHandle()) return 'Needs you';
+  return 'Needs ' + String(p.name || slug).trim().split(/\s+/)[0];
+};
 const prioPill = i => i.priority ? `<span class="pill ${i.priority}">${i.priority}</span>` : '';
 const botDisplayName = slug => slug === assistantBot() ? assistantName() : S.emps.find(e => e.name === slug)?.display_name || slug || '—';
 const empName = slug => esc(botDisplayName(slug));
@@ -83,7 +90,7 @@ function requestDue(i) {
 // A request list folds anything past `limit` behind "Show N more"; the fold stays open for the
 // session once it has been opened (S.needsExpanded).
 function needsYouBlock(items, limit = Infinity) {
-  if (!items.length) return `<div class="empty">Nothing is waiting on you.</div>`;
+  if (!items.length) return `<div class="empty">Nothing needs you.</div>`;
   const more = Math.max(0, items.length - limit);
   return items.map((i, n) => needsYouItem(i, n >= limit)).join('')
     + (more ? `<div class="needs-more"><button class="morechip" type="button" data-needs-more aria-expanded="false">Show ${more} more</button></div>` : '');
@@ -107,7 +114,7 @@ function needsYouItem(i, folded, showName = true) {
     const why = requestPart(parts, 'Why now', 'Why');
     const next = requestPart(parts, 'If yes');
     const preview = text.replace(/[#*>`]/g, '').replace(/\s+/g, ' ').trim().slice(0, 220);
-    const ask = i.title || decision || preview || `Issue #${i.number}`;
+    const ask = i.title || decision || preview || `Task #${i.number}`;
     const due = requestDue(i);
     const context = requestContext(why || (!parts['decision needed'] && !parts.question && !parts.decision ? text : ''));
     const previews = requestPreviewKeys(text);
@@ -147,7 +154,7 @@ async function closeIssue(button, n) {
     const issue = S.issues.find(i => i.number === n);
     if (issue) Object.assign(issue, {state: 'CLOSED', needs_human: false, closedAt: new Date().toISOString()});
     document.querySelectorAll(`.req[data-n="${n}"], .bcard[data-n="${n}"], .trow[data-n="${n}"]`).forEach(el => el.remove());
-    if ($('#needs') && !$('#needs .req')) $('#needs').innerHTML = '<div class="empty">Nothing is waiting on you.</div>';
+    if ($('#needs') && !$('#needs .req')) $('#needs').innerHTML = '<div class="empty">Nothing needs you.</div>';
     renderTree();
     toast(`Closed #${n}`);
     void refresh(false);
@@ -163,7 +170,7 @@ function issueComposer(host, n, mode) {
   host.hidden = false; host.dataset.mode = mode;
   host.innerHTML = `<form>
     <textarea aria-label="${closing ? 'Optional closing note' : 'Comment'} on #${esc(n)}" placeholder="${closing ? 'Optional closing note…' : 'What should the bot know?'}"></textarea>
-    <div class="row"><button class="${closing ? 'ghost danger' : 'primary'}" type="submit">${closing ? 'Close issue' : 'Send to bot'}</button>
+    <div class="row"><button class="${closing ? 'ghost danger' : 'primary'}" type="submit">${closing ? 'Close task' : 'Send to bot'}</button>
       <button class="ghost" type="button" data-issue-cancel>Cancel</button><span class="muted" data-issue-msg></span></div>
     <p class="issue-help">${closing ? 'Closing does not approve the proposed action.' : 'Leaves Needs you until the bot needs another decision.'}</p>
   </form>`;
@@ -283,7 +290,7 @@ function issuesTable(list, showOwner) {
 }
 function runsTable(list, showEmp=true) {
   if (!list.length) return `<div class="empty">No runs yet.</div>`;
-  return `<div class="scroll"><table><tr>${showEmp ? '<th>Employee</th>' : ''}<th>Finished</th><th>Result</th><th>Duration</th><th>Output</th><th>Session</th><th></th></tr>
+  return `<div class="scroll"><table><tr>${showEmp ? '<th>Bot</th>' : ''}<th>Finished</th><th>Result</th><th>Duration</th><th>Output</th><th>Session</th><th></th></tr>
   ${list.map(r => `<tr>${showEmp ? `<td>${empChip(r.employee)}</td>` : ''}
     <td class="muted tnum">${ago(r.finished)}</td><td>${r.exit === 0 ? '<span class="pill ok">ok</span>' : `<span class="pill fail">exit ${r.exit}</span>`}</td>
     <td class="tnum">${r.duration_s != null ? Math.round(r.duration_s/60) + 'm ' + (r.duration_s%60) + 's' : ''}</td>
@@ -307,9 +314,9 @@ function accessTable(e) {
   return `<div class="acc-summary">
       <div><span class="k">Email</span> ${emailLine}</div>
       <div><span class="k">Outbound</span> ${e.outbound_send ? '<strong>on</strong>' : '<strong>off</strong>: drafts only'}</div>
-      ${e.secrets_file ? '' : '<div><span class="muted">No secrets file yet: nothing is connected.</span></div>'}
+      ${e.secrets_file ? '' : '<div><span class="muted">No credentials file yet: nothing is connected.</span></div>'}
     </div>
-    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No connectors.</div>'}`;
+    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No tools.</div>'}`;
 }
 
 async function pageRuns() {

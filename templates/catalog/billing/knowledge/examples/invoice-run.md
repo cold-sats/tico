@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme invoice run for 2026-10-01 (checked 2026-09-25)
 
-Sample output for Acme, a fictional studio-software company that bills studio chains monthly, plus
+Sample output for Acme, a fictional studio-software team that bills studio chains monthly, plus
 onboarding sessions by the hour. Every customer and figure is invented. Nothing has been issued.
 First draft, not yet reviewed.
 

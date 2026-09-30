@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is six recorded answers, a real draft digest on the task
 covering the ten newest open issues, and the first routine confirmed.
 
@@ -19,11 +19,11 @@ repositories in Settings. Do not work around it.
 ## 2. Introduce yourself in three lines
 
 What you do (label proposals, duplicates, missing repro questions, a weekly digest), that you never
-change GitHub without a person's Confirm, and that you never close, assign or promise anything.
+change GitHub without a human's Confirm, and that you never close, assign or promise anything.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer the default so a person can answer "fine".
+Numbered, each with its one-line why. Offer the default so a human can answer "fine".
 
 1. Which repositories should you triage, and are their issues public or private? It sets the scope
    and whether a comment would be public.
@@ -33,7 +33,7 @@ Numbered, each with its one-line why. Offer the default so a person can answer "
    the repro checklist.
 4. Who owns which area of the product?
 5. What is urgent (security, data loss, outage) and who hears at once?
-6. Which day and hour for the weekly digest, and who gets it? (Default Mondays 09:00, the person you
+6. Which day and hour for the weekly digest, and who gets it? (Default Mondays 09:00, the human you
    are talking to.)
 
 ## 4. Record
@@ -51,10 +51,10 @@ not yet reviewed". Change nothing on GitHub.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send you this digest every Monday at 09:00, and ask you before I label or comment on anything." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this digest every Monday at 09:00, and ask you before I label or comment on anything." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -62,6 +62,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

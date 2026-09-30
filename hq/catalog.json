@@ -103,7 +103,7 @@
    "lead": false,
    "name": "Investor Relations Manager",
    "suggest": "niche",
-   "summary": "Keeps investors informed: the monthly investor update written from goals, KPI readings and the finance figures a person supplies, metrics first, asks second, a…",
+   "summary": "Keeps investors informed: the monthly investor update written from goals, KPI readings and the finance figures a human supplies, metrics first, asks second, a…",
    "tags": [
     "fundraising",
     "investors",
@@ -139,7 +139,7 @@
    "lead": false,
    "name": "Brand Manager",
    "suggest": "niche",
-   "summary": "Keeps the company's brand written down and applied: voice, words, naming and visual rules, reviews of copy and assets against them, and a monthly audit of what…",
+   "summary": "Keeps the team's brand written down and applied: voice, words, naming and visual rules, reviews of copy and assets against them, and a monthly audit of what we…",
    "tags": [
     "brand",
     "voice",
@@ -215,7 +215,7 @@
    "lead": false,
    "name": "Content Marketer",
    "suggest": "default",
-   "summary": "Plans the next four weeks of posts and articles and writes one finished piece a week in the company's voice, ready to publish.",
+   "summary": "Plans the next four weeks of posts and articles and writes one finished piece a week in the team's voice, ready to publish.",
    "tags": [
     "content",
     "blog",
@@ -234,7 +234,7 @@
    "lead": false,
    "name": "Corporate Secretary",
    "suggest": "niche",
-   "summary": "Keeps the company's corporate records in order: board and shareholder meeting packs, draft minutes and written consents for counsel, the entity register and a…",
+   "summary": "Keeps the team's corporate records in order: board and shareholder meeting packs, draft minutes and written consents for counsel, the entity register and a cap…",
    "tags": [
     "legal",
     "board",
@@ -381,7 +381,7 @@
    "lead": true,
    "name": "Head of Engineering",
    "suggest": "default",
-   "summary": "Runs the engineering department: a weekly summary from GitHub and the engineering bots (shipped, stuck pull requests, incidents, blockers), routing, and the ne…",
+   "summary": "Runs the engineering group: a weekly summary from GitHub and the engineering bots (shipped, stuck pull requests, incidents, blockers), routing, and the next hi…",
    "tags": [
     "saas",
     "developer-tools",
@@ -436,7 +436,7 @@
    "lead": false,
    "name": "Expense Auditor",
    "suggest": "niche",
-   "summary": "Checks every expense report and company card charge against your written policy: missing receipts, out-of-policy items, duplicates and late claims, with one su…",
+   "summary": "Checks every expense report and team card charge against your written policy: missing receipts, out-of-policy items, duplicates and late claims, with one summa…",
    "tags": [
     "expenses",
     "company-cards",
@@ -494,7 +494,7 @@
    "lead": true,
    "name": "General Counsel",
    "suggest": "default",
-   "summary": "Runs the company's legal desk: takes every legal request in one queue, reviews the contracts that matter, watches the compliance calendar and drafts policies f…",
+   "summary": "Runs the team's legal desk: takes every legal request in one queue, reviews the contracts that matter, watches the compliance calendar and drafts policies for…",
    "tags": [
     "legal",
     "contracts",
@@ -662,7 +662,7 @@
    "lead": false,
    "name": "Contracts Manager",
    "suggest": "default",
-   "summary": "Reviews every contract the company is asked to sign against your own playbook and keeps the renewal and notice calendar for the ones already signed.",
+   "summary": "Reviews every contract the team is asked to sign against your own playbook and keeps the renewal and notice calendar for the ones already signed.",
    "tags": [
     "legal",
     "contracts",
@@ -680,7 +680,7 @@
    "lead": false,
    "name": "Social Media Manager",
    "suggest": "common",
-   "summary": "Plans and prepares the company's social posts and sweeps public conversation every weekday for mentions, questions and competitor moves.",
+   "summary": "Plans and prepares the team's social posts and sweeps public conversation every weekday for mentions, questions and competitor moves.",
    "tags": [
     "social",
     "listening",
@@ -717,7 +717,7 @@
    "lead": false,
    "name": "Market Research Analyst",
    "suggest": "niche",
-   "summary": "Keeps one evidence-backed map of the company's market: who competes, who partners and where customers talk, and writes a weekly delta page of what changed.",
+   "summary": "Keeps one evidence-backed map of the team's market: who competes, who partners and where customers talk, and writes a weekly delta page of what changed.",
    "tags": [
     "competitive",
     "market-research",
@@ -771,7 +771,7 @@
    "lead": false,
    "name": "Project Coordinator",
    "suggest": "common",
-   "summary": "Writes up every imported company meeting (summary, decisions, action items) and tracks each action item and project milestone until it is done.",
+   "summary": "Writes up every imported team meeting (summary, decisions, action items) and tracks each action item and project milestone until it is done.",
    "tags": [
     "meetings",
     "projects",
@@ -827,7 +827,7 @@
    "lead": true,
    "name": "Operations Manager",
    "suggest": "default",
-   "summary": "Runs the company's register of recurring duties and a weekly checklist of what is due, overdue and blocked, chases quiet vendors and heads Operations.",
+   "summary": "Runs the team's register of recurring duties and a weekly checklist of what is due, overdue and blocked, chases quiet vendors and heads Operations.",
    "tags": [
     "operations",
     "vendors",
@@ -924,7 +924,7 @@
    "lead": false,
    "name": "HR Generalist",
    "suggest": "default",
-   "summary": "Runs onboarding for every new hire, from the checklist before day one to the 90 day check-in, and answers policy questions from the company's own handbook with…",
+   "summary": "Runs onboarding for every new hire, from the checklist before day one to the 90 day check-in, and answers policy questions from the team's own handbook with th…",
    "tags": [
     "hiring",
     "onboarding",
@@ -942,7 +942,7 @@
    "lead": true,
    "name": "Head of People",
    "suggest": "default",
-   "summary": "Runs the people side of the company: a weekly summary of hires against plan, starters, leavers and deadlines, the people calendar, and policies written for a p…",
+   "summary": "Runs the people side of the team: a weekly summary of hires against plan, starters, leavers and deadlines, the people calendar, and policies written for a huma…",
    "tags": [
     "hiring",
     "headcount",
@@ -979,7 +979,7 @@
    "lead": false,
    "name": "PR Manager",
    "suggest": "niche",
-   "summary": "Keeps the company's media list and coverage log, finds the story in each announcement, and prepares press releases and short targeted pitches for approval.",
+   "summary": "Keeps the team's media list and coverage log, finds the story in each announcement, and prepares press releases and short targeted pitches for approval.",
    "tags": [
     "pr",
     "media-relations",
@@ -1091,7 +1091,7 @@
    "lead": true,
    "name": "Head of Product",
    "suggest": "default",
-   "summary": "Runs the product team's week: roadmap status, the decisions waiting on a person, what each product bot found, and evidence-scored proposals for what to build n…",
+   "summary": "Runs the product team's week: roadmap status, the decisions waiting on a human, what each product bot found, and evidence-scored proposals for what to build ne…",
    "tags": [
     "saas",
     "software",
@@ -1183,7 +1183,7 @@
    "lead": false,
    "name": "Recruiter",
    "suggest": "default",
-   "summary": "Fills the company's open roles: writes the job post, screens every application against the hiring manager's criteria, keeps every candidate answered, and runs…",
+   "summary": "Fills the team's open roles: writes the job post, screens every application against the hiring manager's criteria, keeps every candidate answered, and runs the…",
    "tags": [
     "hiring",
     "smb",
@@ -1235,7 +1235,7 @@
    "lead": false,
    "name": "Reputation Manager",
    "suggest": "common",
-   "summary": "Reads the company's public review listings every Monday, logs every review and prepares one batch per surface of honest replies and rule-based flags.",
+   "summary": "Reads the team's public review listings every Monday, logs every review and prepares one batch per surface of honest replies and rule-based flags.",
    "tags": [
     "reviews",
     "reputation",
@@ -1273,7 +1273,7 @@
    "lead": false,
    "name": "Returns and Refunds Specialist",
    "suggest": "niche",
-   "summary": "Decides every return and refund request against your written policy and the order record, and prepares the reply and the refund for a person's approval.",
+   "summary": "Decides every return and refund request against your written policy and the order record, and prepares the reply and the refund for a human's approval.",
    "tags": [
     "ecommerce",
     "retail",
@@ -1449,7 +1449,7 @@
    "lead": false,
    "name": "Security Engineer",
    "suggest": "common",
-   "summary": "Works the product's security backlog: triages dependency alerts and advisories by exploitability and reachability, writes the patch plan, and flags secrets com…",
+   "summary": "Works the security backlog: triages dependency alerts and advisories by exploitability and reachability, writes the patch plan, and flags credentials committed…",
    "tags": [
     "saas",
     "github",
@@ -1468,7 +1468,7 @@
    "lead": false,
    "name": "SEO Specialist",
    "suggest": "common",
-   "summary": "Tracks how the company shows up in search and in AI answers every week and hands over the three page fixes worth doing first, written ready to apply.",
+   "summary": "Tracks how the team shows up in search and in AI answers every week and hands over the three page fixes worth doing first, written ready to apply.",
    "tags": [
     "seo",
     "ai-search",
@@ -1600,7 +1600,7 @@
    "lead": false,
    "name": "Support Quality Analyst",
    "suggest": "common",
-   "summary": "Scores a weekly sample of sent support replies against your own scorecard, finds the patterns behind the misses and prepares coaching notes for a person to giv…",
+   "summary": "Scores a weekly sample of sent support replies against your own scorecard, finds the patterns behind the misses and prepares coaching notes for a human to give.",
    "tags": [
     "support",
     "quality",
@@ -1619,7 +1619,7 @@
    "lead": false,
    "name": "Tax Specialist",
    "suggest": "niche",
-   "summary": "Keeps the company ahead of its tax deadlines: a monthly calendar of filings and payments with their inputs, and a sales tax and VAT threshold watch by place.",
+   "summary": "Keeps the team ahead of its tax deadlines: a monthly calendar of filings and payments with their inputs, and a sales tax and VAT threshold watch by place.",
    "tags": [
     "tax",
     "sales-tax",
@@ -1694,7 +1694,7 @@
    "lead": false,
    "name": "Vendor Manager",
    "suggest": "common",
-   "summary": "Keeps the register of every vendor the company pays, with owner, risk tier and notice date, and opens each renewal 90 days out with a keep, renegotiate or exit…",
+   "summary": "Keeps the register of every vendor the team pays, with owner, risk tier and notice date, and opens each renewal 90 days out with a keep, renegotiate or exit br…",
    "tags": [
     "vendors",
     "contracts",
@@ -1720,7 +1720,7 @@
    "software_only": false
   },
   {
-   "description": "Makes the right people aware of the company and gives sales a steady flow of interested buyers.",
+   "description": "Makes the right people aware of your team and gives sales a steady flow of interested buyers.",
    "goal": "Be known by the customers you want",
    "head": "marketing-lead",
    "icon": "campaign",
@@ -1742,7 +1742,7 @@
    "software_only": false
   },
   {
-   "description": "Keeps the books current, cash visible and bills paid and collected, with every number ready for a person to check.",
+   "description": "Keeps the books current, cash visible and bills paid and collected, with every number ready for a human to check.",
    "goal": "Know where the money is",
    "head": "finance-lead",
    "icon": "account_balance",
@@ -1753,18 +1753,18 @@
    "software_only": false
   },
   {
-   "description": "Keeps the company running: vendors, purchases, projects, IT, the office and the checklists nobody should forget.",
+   "description": "Keeps the team running: vendors, purchases, projects, IT, the office and the checklists nobody should forget.",
    "goal": "Run smoothly, nothing dropped",
    "head": "ops-manager",
    "icon": "settings_suggest",
    "id": "operations",
    "name": "Operations",
    "placeholder": "Vendor renewals, buying laptops, the office lease, weekly project check-ins and our field crew schedule",
-   "question": "What keeps the company running day to day that someone has to remember?",
+   "question": "What keeps the team running day to day that someone has to remember?",
    "software_only": false
   },
   {
-   "description": "Reviews contracts, keeps the company's filings and policies current and flags risk early, as summaries for a person and never legal advice.",
+   "description": "Reviews contracts, keeps the team's filings and policies current and flags risk early, as summaries for a human and never legal advice.",
    "goal": "Sign with eyes open",
    "head": "general-counsel",
    "icon": "gavel",
@@ -1808,5 +1808,5 @@
    "software_only": true
   }
  ],
- "version": "64ac7d492f37"
+ "version": "59e2127b753b"
 }

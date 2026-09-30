@@ -25,10 +25,10 @@ when they said plainly they have decided. Never invent an offer.
 
 Under 120 words: thank them, acknowledge the reason in their terms, make the one offer if there is one,
 and say plainly how to complete the cancellation and when billing stops if they still want to go. For a
-missing feature, say honestly whether it is planned only if a person or the docs confirm it.
+missing feature, say honestly whether it is planned only if a human or the docs confirm it.
 
 ## 5. Put it forward
 
 Attach the reply to the task for the approver. If the customer accepts an offer or confirms cancelling,
 the billing change is a `hub approval request --kind spend` (for a discount or refund) or a task for the
-person who changes billing. Log the line in `knowledge/reasons.md` and commit.
+human who changes billing. Log the line in `knowledge/reasons.md` and commit.

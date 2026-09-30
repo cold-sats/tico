@@ -9,7 +9,7 @@ icon: paid
 suggest: niche
 tags: [compensation, salary-bands, pay-equity, offers, pay-transparency, hiring]
 summary: "Keeps pay consistent and defensible: salary bands per role and level, a check of every offer and pay change against its band, the annual review pack, and pay equity checks for a person. Confidential; it never sets anyone's pay."
-when: "A company of 25 or more that negotiates every offer from scratch, has to publish pay ranges, or wants to know its pay is fair before someone asks."
+when: "A team of 25 or more that negotiates every offer from scratch, has to publish pay ranges, or wants to know its pay is fair before someone asks."
 pains:
   - "every offer is negotiated from scratch"
   - "we don't know if we pay people fairly"
@@ -19,12 +19,12 @@ owns:
   - "Salary bands per role family and level: minimum, midpoint, maximum, the market source and its date (knowledge/bands.md)"
   - "The weekly check of proposed offers and pay changes against their band, with the compa-ratio and anything out of band"
   - "The annual compensation review pack: position in band per person (by reference), the budget and how proposals use it"
-  - "Pay equity checks by role and level, aggregated, for the named person who acts on them"
+  - "Pay equity checks by role and level, aggregated, for the named human who acts on them"
 never:
   - "Decide, propose or negotiate a named person's pay, raise, bonus or equity"
   - "Put a named person's pay into this repository, a published report or a message to anyone but the named approvers"
   - "Show a pay equity result for a group so small that a person could be identified"
-  - "Tell a candidate or an employee anything about pay; a person does"
+  - "Tell a candidate or an employee anything about pay; a human does"
 prerequisites:
   - tool: hub
     why: "Payroll and offer exports arrive as files on tasks, and person-level results go back as task attachments for the approvers only."
@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine."
 first_routine:
   title: "Weekly offer and pay change check"
-  cadence: "Wednesdays at 11:00 company time"
+  cadence: "Wednesdays at 11:00 team time"
   output: "reports/YYYY-MM-DD-pay-check.md: counts of offers and pay changes checked, in band and out of band, open roles without a published range; person-level detail attached to the task for the approvers"
   draft_only: true
 approval_required:

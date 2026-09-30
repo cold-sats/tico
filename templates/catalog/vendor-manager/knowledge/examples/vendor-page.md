@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme vendors, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every vendor and person is invented.
+Sample output for Acme, a fictional studio-software team. Every vendor and human is invented.
 Nothing has been sent, renewed or cancelled. First draft, not yet reviewed.
 
 **Headline: 3 notice deadlines in the next 90 days; the soonest is Northwind SMS on 2026-10-19 (20

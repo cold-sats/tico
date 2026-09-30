@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme compliance calendar, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company registered in one state, with staff in two more
+Sample output for Acme, a fictional studio-software team registered in one state, with staff in two more
 and a subsidiary abroad. Every authority, rule and date is invented. Nothing has been filed or paid.
 
 **Headline: 0 overdue; 2 urgent; 5 due inside 60 days; 1 done but missing proof; 2 places never checked.**
@@ -26,11 +26,11 @@ and a subsidiary abroad. Every authority, rule and date is invented. Nothing has
 ## Waiting for proof
 - Registered agent renewal, paid 2026-09-02 per Omar; the receipt is not yet attached.
 
-## Never checked (a person decides)
+## Never checked (a human decides)
 - Payroll registration in the third state where one employee started 2026-08-01.
 - Whether the new online payments feature needs a money-transmitter review. For counsel.
 
-**Summary for a person, not legal advice.**
+**Summary for a human, not legal advice.**
 
 ## Sources
 - `knowledge/register.md` 2026-09-29; `knowledge/proof.md` 2026-09-29; authority pages as dated above

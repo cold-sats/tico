@@ -20,7 +20,7 @@ one found by search is a line added to `surfaces.md` in this run, then read.
 ## 2. Read each surface
 
 Newest first, over the window since the last sweep (the newest `review_date` in the ledger for
-that surface). Open the listing through the browser connector:
+that surface). Open the listing through the browser tool:
 
     $HUB_DIR/connectors/browser.py repl --as reputation "const p = await openTab('<listing url>'); ..."
 
@@ -37,7 +37,7 @@ edited, removed or answered. Never delete a row.
 ## 4. Work the queue
 
 Run `playbooks/work-queue.md` for each surface with rows that have no lever yet, newest and
-most visible first, capped per batch. Then, when the owner has enabled execution (`act` access), execute any batch approved since the last sweep; otherwise a person carries it out from the approved payload.
+most visible first, capped per batch. Then, when the owner has enabled execution (`act` access), execute any batch approved since the last sweep; otherwise a human carries it out from the approved payload.
 
 ## 5. Write the digest
 
@@ -50,7 +50,7 @@ most visible first, capped per batch. Then, when the owner has enabled execution
 4. **Batches requested**: one line per approval, with the surface and the item count.
 5. **Claims and programs**: what is still unclaimed, what the invitation program did this week.
 
-A section with nothing in it is absent. Put coverage, counts and outcomes in five lines or fewer at the top of the task note with the path to the digest. Posting them to the company channel needs the Slack `post` access, which the owner turns on.
+A section with nothing in it is absent. Put coverage, counts and outcomes in five lines or fewer at the top of the task note with the path to the digest. Posting them to the team channel needs the Slack `post` access, which the owner turns on.
 
 ## 6. Hand over what needs someone
 

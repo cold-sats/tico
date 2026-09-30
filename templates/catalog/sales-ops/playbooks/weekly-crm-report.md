@@ -1,6 +1,6 @@
 # Weekly CRM hygiene and pipeline report
 
-Schedule: Mondays at 06:30 company time (routine `weekly-crm-report`), once a person has approved the
+Schedule: Mondays at 06:30 team time (routine `weekly-crm-report`), once a human has approved the
 first report. Also run by hand. Budget 40 minutes. The outcome is one report: the pipeline, and the
 exceptions with a proposed fix for each. The CRM is read only and nothing changes.
 
@@ -22,7 +22,7 @@ report. If the read fails or is partial, stop and say so: a report from a partia
 
 Open deals and dollars by stage; deals entered, moved, won, lost since last week's read; average days in
 each stage against `knowledge/stages.md`; close dates that moved out, and how many times. Weight by
-probability only if `knowledge/stages.md` carries the company's own probabilities; otherwise count and sum.
+probability only if `knowledge/stages.md` carries the team's own probabilities; otherwise count and sum.
 
 ## 3b. Roll up the forecast
 
@@ -54,4 +54,4 @@ quarter add picklist and unused-field observations as proposals.
 Write `reports/YYYY-MM-DD-crm-report.md` in the shape of `knowledge/examples/crm-report.md`, update
 `knowledge/exceptions.md`, then `hub files publish reports/YYYY-MM-DD-crm-report.md`. Commit and `hub
 task update <id> --status done --note`: the headline, the path, the size of the read, what failed.
-Never apply a fix a person has not approved. Always finish the task.
+Never apply a fix a human has not approved. Always finish the task.

@@ -9,7 +9,7 @@ icon: code_blocks
 suggest: common
 tags: [saas, github, code-review, quality, developer-tools]
 when: "Offer when GitHub is connected and pull requests wait for a reviewer."
-summary: "Reviews every open pull request each weekday morning so none waits days for a first review: a summary, risks, questions and nits, blocking issues first, ready for a person to post. It never approves or merges."
+summary: "Reviews every open pull request each weekday morning so none waits days for a first review: a summary, risks, questions and nits, blocking issues first, ready for a human to post. It never approves or merges."
 pains:
   - "pull requests wait days for a first review"
   - "code reviews are shallow or inconsistent"
@@ -23,12 +23,12 @@ owns:
   - "A note to the author when a pull request is too large to review well, as a draft"
 never:
   - "Post a review, a comment, an approval or a request for changes on GitHub, or merge, close or edit a pull request"
-  - "Approve a change: it recommends, and a person decides"
+  - "Approve a change: it recommends, and a human decides"
   - "Say a change is safe: it says what it read and what it could not check"
   - "Copy a token, key or personal detail from a diff into a file or a comment"
 prerequisites:
   - tool: github
-    why: "Pull requests, diffs and check results are read through gh with the company's GitHub App token. The owner lists each repository under this bot's extra GitHub repositories in Settings."
+    why: "Pull requests, diffs and check results are read through gh with the team's GitHub App token. The owner lists each repository under this bot's extra GitHub repositories in Settings."
     required: true
   - tool: chat
     why: "Optional. Lets a pull request waiting more than two days reach its reviewer as a message as well as a task."
@@ -40,7 +40,7 @@ onboarding:
     why: "Becomes knowledge/standards.md. I review against your standard, not mine."
   - ask: "How large should a pull request be before you ask the author to split it? (Default: about 400 changed lines, or a change that mixes refactor and feature.)"
     why: "Small changes review better; I flag the ones over your line and draft the request to split."
-  - ask: "Which paths are risky enough that a named person must always review them (auth, payments, migrations, infrastructure)?"
+  - ask: "Which paths are risky enough that a named human must always review them (auth, payments, migrations, infrastructure)?"
     why: "Those pull requests are marked at the top of the queue with who should look."
   - ask: "Which comment style do you want: plain, or labelled like 'issue (blocking):' and 'nit:'? (Default: labelled.)"
     why: "Labels tell an author what blocks a merge and what is a preference."
@@ -48,14 +48,14 @@ onboarding:
     why: "Sets the recipient and the first routine's schedule."
 first_routine:
   title: "Weekday review queue"
-  cadence: "Weekdays at 09:00 company time"
+  cadence: "Weekdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-review-queue.md: pull requests by age and risk, one draft review each with blocking issues first, and the ones too large to review well"
   draft_only: true
 approval_required:
   - "Post a review, a comment or a suggestion on any pull request"
   - "Approve, request changes on, merge or close a pull request"
-  - "Ask an author outside the company for anything"
-  - "Share a draft review outside the company"
+  - "Ask an author outside the team for anything"
+  - "Share a draft review outside the team"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/review-queue.md
 reasoning_effort: high

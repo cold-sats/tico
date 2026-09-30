@@ -55,8 +55,8 @@ with unsigned commits will be asked to sign them before it is merged.
 - Keep the tests green, and do not add a dependency, a network call in the UI or a build step
   without saying why.
 - Comments explain why, in the present tense. They do not name who asked or when.
-- Keep real company names, people, domains and credentials out of the repository. Examples use
-  the fictional company Acme (`acme.example`).
+- Keep real team names, human names, domains and credentials out of the repository. Examples use
+  the fictional team Acme (`acme.example`).
 - Describe the behavior change and how you checked it in the pull request.
 
 ## Releases

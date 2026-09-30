@@ -5,7 +5,7 @@
 // ----------------------------------------------------------------- updates
 // "an updates section of the app, like a twitter feed with 2 toggles, daily
 // and weekly. All bots report in daily, with Fridays being a more comprehensive week review."
-// The hub asks the bots one at a time (backend/updates.py). This page is built to be snappy:
+// Tico asks the bots one at a time (backend/updates.py). This page is built to be snappy:
 // the last feed paints at once from this tab's cache, reads are marked as cards are seen and sent
 // in small batches, and a reply shows the moment it is sent. j / k move, r replies, u flips read,
 // o opens the bot (desktop).
@@ -20,7 +20,7 @@ function updCacheWrite(kind, data) {
 function pageUpdates() {
   const kind = new URLSearchParams(S.route.split('?')[1] || '').get('kind') === 'weekly' ? 'weekly' : 'daily';
   const cached = updCacheRead(kind);
-  // "a filter at the top, on by default, to only show my bots" (the bots I operate).
+  // "a filter at the top, on by default, to only show my bots" (the bots I own).
   let mine = true;
   try { mine = localStorage.getItem('tico.updates.mine') !== '0'; } catch {}
   const state = UPD = {kind, mine, data: cached, open: new Set(), threads: {}, pending: new Set(),

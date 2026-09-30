@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme field team, plan for Tue 2026-09-29 (built Mon 2026-09-28 15:00)
 
-Sample output for Acme's field team, the fictional company's crew that installs check-in kiosks in
+Sample output for Acme's field team, the fictional team's crew that installs check-in kiosks in
 customers' studios. Every person, studio and time is invented. Nothing has been sent or changed. First
 draft, not yet reviewed.
 

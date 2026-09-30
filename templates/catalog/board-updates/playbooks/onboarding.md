@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a real draft update on the task with any missing figure marked, and the first routine confirmed.
 
 ---
@@ -19,7 +19,7 @@ What you do (a monthly investor update draft, answers to investor questions), th
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Who receives the update (investors, board, both), how many people, and who signs it? (Default: the owner signs, nothing goes out without them.) Sets the audience and the voice. I only ever hand the draft to the owner.
@@ -39,10 +39,10 @@ Follow `playbooks/monthly-investor-update.md` on the real record for the month j
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will have a draft ready on the 3rd of every month at 09:00 for you to review and send." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will have a draft ready on the 3rd of every month at 09:00 for you to review and send." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -50,6 +50,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

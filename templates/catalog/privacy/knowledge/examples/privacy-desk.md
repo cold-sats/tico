@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme privacy desk, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company whose studios are its business customers and whose
+Sample output for Acme, a fictional studio-software team whose studios are its business customers and whose
 studio members are the people in the data. Every party, request and date is invented. Nothing has been sent and
 no data has been touched.
 
@@ -29,7 +29,7 @@ no data has been touched.
 ## Stale records
 - "Marketing email" row last confirmed 2026-02-11; the email tool changed in July. Owner: Priya.
 
-**Summary for a person, not legal advice.**
+**Summary for a human, not legal advice.**
 
 ## Sources
 - `knowledge/requests.md`, `knowledge/subprocessors.md` 2026-09-30; finance spend report 2026-09-28; task 4190

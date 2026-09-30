@@ -3,24 +3,24 @@
 'use strict';
 
 // ----------------------------------------------------------------- first run (#/welcome)
-// A company's first hour is its own flow, not a settings page. Name the app
-// and the company; say what the company does; build the org chart department by department
+// A team's first hour is its own flow, not a settings page. Name the app
+// and the team; say what the team does; build the team chart group by group
 // (ui/org-builder.js); enroll this Mac; connect your own agent if you have one; finish.
 // Every Next saves a draft, so a closed tab loses nothing. There is no assistant
-// to name in the wizard: people talk to it in the Assistant tab on their own page, act through their own agent, or use a bot's Chat tab.
+// to name in the wizard: humans talk to it in the Assistant tab on their own page, act through their own agent, or use a bot's Chat tab.
 const ONB_STEPS = ['names', 'about', 'org', 'machine', 'agent', 'review'];
-// A company that has not chosen its AI providers starts there; state.steps is fixed at load, so the
+// A team that has not chosen its AI providers starts there; state.steps is fixed at load, so the
 // step does not vanish from the list the moment it is saved.
 const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEPS] : ONB_STEPS;
-const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company',
-                    org: 'Your org chart', machine: 'Add the computer that runs your bots', agent: 'Connect your agent', review: 'Review and create'};
+const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the team',
+                    org: 'Your team chart', machine: 'Add the computer that runs your bots', agent: 'Connect an external agent', review: 'Review and create'};
 // At most one short hint line under a step's title; most steps have none.
 const ONB_BLURB = {providers: 'Optional.', agent: 'Optional.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
 const ONB_NEVER = [['send', 'Send anything'], ['spend', 'Spend money'], ['publish', 'Publish anything'], ['hire', 'Hire anyone']];
-// Kept with a number in them: a person reads the answer, and an older record's chooser read the largest number.
+// Kept with a number in them: a human reads the answer, and an older record's chooser read the largest number.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
 const ONB_BLANK = {
   names: {company_name: '', app_name: '', assistant_name: '', owner_name: '', team_domain: ''},
@@ -36,7 +36,7 @@ const onbOwnerGuess = () => (S.me?.name && !/@/.test(S.me.name) ? S.me.name : S.
 const onbAsksDomain = () => S.me?.role === 'owner' && !(S.me.company_domains || []).length;
 function onbStop() { if (ONB) clearInterval(ONB.poll); ONB = null; }
 function pageWelcome() {
-  // Only the owner may set a company up; everyone else has no reason to see the address either.
+  // Only the owner may set a team up; everyone else has no reason to see the address either.
   if (S.me && S.me.role !== 'owner') { location.hash = TASKS; return; }
   const state = ONB = {step: 0, steps: ONB_STEPS, providers: null, models: [], record: JSON.parse(JSON.stringify(ONB_BLANK)), catalog: catalogState([]),
                        revisions: {}, busy: false, completing: false, poll: null, org: obBlank(),
@@ -81,7 +81,7 @@ function onbAdopt(state, record) {
   if (!names.company_name) names.company_name = S.config.company_name || '';
   if (!names.app_name) names.app_name = appName();
   if (!names.owner_name) names.owner_name = onbOwnerGuess();
-  // Never the company's name: that was an earlier release's default, and it made the Review step list the assistant as the company.
+  // Never the team's name: that was an earlier release's default, and it made the Review step list the assistant as the team.
   if (!names.assistant_name || names.assistant_name.trim().toLowerCase() === (names.company_name || '').trim().toLowerCase()) names.assistant_name = assistantName();
   onbSeedPicks(state);
 }
@@ -117,9 +117,8 @@ function onbRender(state) {
 
   const done = state.step >= state.steps.length, key = done ? 'done' : state.steps[state.step];
   host.classList.toggle('onb-org', key === 'org');
-  const heading = done ? `Setting up ${state.record.names.company_name || companyName()}` : ONB_TITLES[key];
-  host.innerHTML = `<div class="onb-head"><div class="onb-brand">${brandLogo()}</div><div class="mono muted">FIRST RUN</div>
-      <h1>${esc(heading)}</h1>${ONB_BLURB[key] ? `<p data-onb-hint>${esc(ONB_BLURB[key])}</p>` : ''}</div>
+  const heading = done ? 'Finish setup' : ONB_TITLES[key];
+  host.innerHTML = `<div class="onb-head"><div class="onb-brand">${brandLogo()}</div><h1>${esc(heading)}</h1>${ONB_BLURB[key] ? `<p data-onb-hint>${esc(ONB_BLURB[key])}</p>` : ''}</div>
     ${done ? '' : `<ol class="onb-progress" aria-label="Setup steps">${state.steps.map((step, i) =>
       `<li class="${i < state.step ? 'done' : i === state.step ? 'cur' : ''}"${i === state.step ? ' aria-current="step"' : ''}>${esc(ONB_TITLES[step])}</li>`).join('')}</ol>
       <p class="onb-count" id="onb-count">Step ${state.step + 1} of ${state.steps.length}</p>`}
@@ -134,7 +133,7 @@ function onbStepHTML(state, key) {
   if (key === 'providers') return `${providersFormHTML(state.providers, state.models, 'onb-prov')}
     ${actions('Next')}`;
   if (key === 'names') return `
-    <label class="onb-field"><span class="k">Company name</span>
+    <label class="onb-field"><span class="k">Team/Company name</span>
       <input type="text" id="onb-company" maxlength="120" value="${esc(names.company_name)}" autocomplete="organization"></label>
     <label class="onb-field"><span class="k">App name</span>
       <input type="text" id="onb-app" maxlength="60" value="${esc(names.app_name)}"></label>
@@ -155,13 +154,13 @@ function onbStepHTML(state, key) {
     <label class="onb-field"><span class="k">Team size</span>
       <select id="onb-size"><option value="">Not saying</option>${ONB_SIZES.map(size =>
         `<option value="${esc(size)}" ${a.team_size === size ? 'selected' : ''}>${esc(size)}</option>`).join('')}</select></label>
-    <div class="onb-field"><span class="k">What must never happen without a person</span>
+    <div class="onb-field"><span class="k">What must never happen without a human</span>
       <div class="onb-choices">${ONB_NEVER.map(([value, label]) =>
         `<label><input type="checkbox" data-onb-never value="${value}" ${(a.never_without_person || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
     ${actions('Next')}`;
   if (key === 'org') return obStepHTML(state);
   if (key === 'machine') {
-    // A runner that is already online (the server's own, installed with the hub) needs no setup: the step is one line.
+    // A runner that is already online (the server's own, installed with Tico) needs no setup: the step is one line.
     const online = (state.record.machine?.runners || []).find(runner => runner && runner.online);
     const linux = state.kind === 'linux';
     const setup = `
@@ -181,8 +180,8 @@ function onbStepHTML(state, key) {
     ${actions('Next')}`;
   }
   if (key === 'agent') return `
-    <p class="onb-field"><span class="k">Your own agent</span>
-      <button class="primary" type="button" id="onb-connect">Connect an agent</button></p>
+    <p class="onb-field"><span class="k">Your external agent</span>
+      <button class="primary" type="button" id="onb-connect">Connect an external agent</button></p>
     ${actions('Next')}`;
   if (key === 'review') return `${onbSummaryHTML(state)}
     <div class="onb-actions">${back}<button class="primary" type="button" id="onb-finish">Create my team</button>
@@ -199,7 +198,7 @@ function onbCommands(state) {
   }
   const file = state.enrollment || '<setup-file>.json';
   return [
-    ['2 · Register this Mac for the company',
+    ['2 · Register this Mac for the team',
      `scripts/tico -e <slug> enroll --code-file "$HOME/Downloads/${file}" --label "${onbMachineLabel(state)}"`],
     ['3 · Add the subscription the bots run on',
      `scripts/tico -e <slug> profile add default\nscripts/tico -e <slug> profile login default ${state.providers?.default?.runtime || '<runtime>'}`],
@@ -224,12 +223,12 @@ function onbSummaryHTML(state) {
   const label = (key, value) => `<div><span class="k">${esc(key)}</span><span>${esc(value || '—')}</span></div>`;
   const choice = (list, values) => list.filter(([value]) => (values || []).includes(value)).map(([, name]) => name).join(', ');
   return `<div class="onb-summary">
-    ${label('Company', r.names.company_name)}${label('App', r.names.app_name)}
+    ${label('Team', r.names.company_name)}${label('App', r.names.app_name)}
     ${label('What you do', a.what_we_do)}
     ${label('Sells to', ONB_CUSTOMERS.find(([value]) => value === a.customers)?.[1] || '')}
     ${label('Software is the product', a.software_product ? (a.software_product === 'yes' ? 'Yes' : 'No') : '')}
     ${label('Team size', a.team_size)}
-    ${label('Never without a person', choice(ONB_NEVER, a.never_without_person))}
+    ${label('Never without a human', choice(ONB_NEVER, a.never_without_person))}
     ${label('Computers', onbMachineStatus(r))}
     ${frSummaryTeamHTML(state)}
   </div>`;

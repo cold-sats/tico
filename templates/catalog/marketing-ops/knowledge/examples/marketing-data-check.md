@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme marketing data check, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Nothing in the CRM or analytics has been
+Sample output for Acme, a fictional studio-software team. Nothing in the CRM or analytics has been
 changed. First draft, not yet reviewed.
 
 **Headline: 84% of campaign traffic tagged to the convention (last week 71%); 91% of new leads have a

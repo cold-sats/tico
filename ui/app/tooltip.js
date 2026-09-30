@@ -23,18 +23,18 @@ function tipHTML(slug) {
     if (s.last_result) rows.push(['Last result', esc(String(s.last_result).slice(0, 160))]);
     rows.push(['Next run', s.next_due ? `${esc(until(s.next_due))} <span class="muted">${esc(fmt(s.next_due))}</span>` : '—']);
     rows.push(['Open tasks', esc(String(s.open_tasks ?? 0))]);
-    rows.push(['Needs human', esc(String(s.needs_human ?? 0))]);
+    rows.push(['Needs humans', esc(String(s.needs_human ?? 0))]);
   } else {
     rows.push(['State', botStatePill(slug)]);
-    rows.push(['Open', esc(`${openCount(slug)} issue${openCount(slug) === 1 ? '' : 's'}`)]);
+    rows.push(['Open', esc(`${openCount(slug)} task${openCount(slug) === 1 ? '' : 's'}`)]);
   }
   if (S.me?.cloud && e && e.agent) {
     rows.push(['Run by', esc(`${agentKind(e.agent)}${e.agent.profile ? ` · ${e.agent.profile}` : ''}`)]);
-    rows.push(['Connection', !e.agent.credential ? 'No credential yet' : e.online ? 'Reporting in' : 'Not reporting']);
+    rows.push(['Status', !e.agent.credential ? 'No credential yet' : e.online ? 'Reporting in' : 'Not reporting']);
     if (e.agent.last_seen) rows.push(['Last seen', esc(ago(e.agent.last_seen))]);
   } else if (S.me?.cloud && e) {
-    rows.push(['Machine', esc(e.machine?.label || 'Not registered')]);
-    rows.push(['Connection', e.online ? (e.ready ? 'Online · ready' : 'Online · setup needed') : 'Offline']);
+    rows.push(['Computer', esc(e.machine?.label || 'Not registered')]);
+    rows.push(['Status', e.online ? (e.ready ? 'Online · ready' : 'Online · setup needed') : 'Offline']);
     if (e.machine?.last_seen) rows.push(['Last seen', esc(ago(e.machine.last_seen))]);
   }
   return `<div class="tip-head">${avatar(slug, 18, stateOf(slug))}<strong>${empName(slug)}</strong></div>

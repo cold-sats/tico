@@ -279,7 +279,7 @@ class StarterBots(unittest.TestCase):
         agent = (folder / "AGENT.md").read_text()
         self.assertLessEqual(len(agent.splitlines()), 150, where)
         self.assertTrue(agent.startswith("# {{bot_name}}"), where)
-        for heading in ("## Owns", "## Never without approval", "## First message: onboarding"):
+        for heading in ("## Owns", "## Never without approval", "## First message: setup"):
             self.assertIn(heading, agent, where)
         playbooks = [p for p in (folder / "playbooks").glob("*.md") if p.name != "README.md"]
         self.assertGreaterEqual(len(playbooks), 3, where)

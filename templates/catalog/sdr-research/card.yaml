@@ -9,7 +9,7 @@ icon: person_search
 suggest: default
 tags: [b2b, outbound, inbound, prospecting, lead-qualification, meetings-booked, saas, smb]
 summary: "Books first meetings: qualifies inbound, researches and scores new leads, and runs the first-touch and follow-up sequence. Each booked meeting goes to the Account Executive, and every message goes out on your approval."
-when: "A company that gets or buys new leads and wants each one qualified, opened with something true and followed up until it books a meeting or says no."
+when: "A team that gets or buys new leads and wants each one qualified, opened with something true and followed up until it books a meeting or says no."
 pains:
   - "new leads are never researched before we reach out"
   - "we cannot tell which new leads are worth a call"
@@ -18,11 +18,11 @@ pains:
   - "leads go cold"
 owns:
   - "A short sourced brief per new lead: fit against the ICP, buying signals with dates, a suggested angle"
-  - "The lead score and tier (A, B or C) with the reasons, so a person sees why (knowledge/scoring.md)"
-  - "The prospecting sequence per lead: a first touch and up to three follow-ups, each with a new reason, sent on a person's approval"
-  - "Inbound qualification: every form fill and reply sorted within the business day, with the qualifying questions answered or asked"
+  - "The lead score and tier (A, B or C) with the reasons, so a human sees why (knowledge/scoring.md)"
+  - "The prospecting sequence per lead: a first touch and up to three follow-ups, each with a new reason, sent on a human's approval"
+  - "Inbound qualification: every form fill and reply sorted within the team day, with the qualifying questions answered or asked"
   - "Meetings booked: a proposed time from the seller's free slots and a handoff note to the Account Executive"
-  - "The ideal customer profile and the do-not-contact list as this company states them (knowledge/icp.md, knowledge/do-not-contact.md)"
+  - "The ideal customer profile and the do-not-contact list as this team states them (knowledge/icp.md, knowledge/do-not-contact.md)"
 never:
   - "Send, schedule or reply to any email or message, or add anyone to a sequence or list, without an approval"
   - "Change a lead, contact, stage or owner in the CRM without a Confirm"
@@ -30,7 +30,7 @@ never:
   - "Write a fact about a lead it did not read in a dated public source, or use a private person's details"
 prerequisites:
   - tool: web
-    why: "Public sources (the company's site, news, changelog, job posts, public profiles) are what a lead brief is built from."
+    why: "Public sources (the lead's site, news, changelog, job posts, public profiles) are what a lead brief is built from."
     required: true
   - tool: crm
     why: "Optional. Read-only access to new leads and their sources lets the morning run start from the real list instead of a pasted one."
@@ -54,8 +54,8 @@ onboarding:
     why: "These become hard rules. A draft that needs a price or a claim leaves a marked gap for the sender."
 first_routine:
   title: "Weekday prospecting run"
-  cadence: "Weekdays at 07:30 company time"
-  output: "reports/YYYY-MM-DD-prospecting.md: up to ten new leads scored A, B or C with a sourced brief, first touches for the A leads, the follow-ups due today, inbound replies qualified, meetings to book, and who needs a person now"
+  cadence: "Weekdays at 07:30 team time"
+  output: "reports/YYYY-MM-DD-prospecting.md: up to ten new leads scored A, B or C with a sourced brief, first touches for the A leads, the follow-ups due today, inbound replies qualified, meetings to book, and who needs a human now"
   draft_only: true
 approval_required:
   - "Send, schedule or reply to any email or message to a prospect, customer or partner"

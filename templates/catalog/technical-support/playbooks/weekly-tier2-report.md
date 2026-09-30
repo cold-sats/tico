@@ -1,6 +1,6 @@
 # Weekly tier 2 queue report
 
-Schedule: Thursdays at 09:00 company time (routine `weekly-tier2-report`), once a person has approved
+Schedule: Thursdays at 09:00 team time (routine `weekly-tier2-report`), once a human has approved
 the first report. Budget 30 minutes. The outcome is one page on the technical queue: what is open,
 what engineering is holding, what was solved, and what keeps coming back.
 

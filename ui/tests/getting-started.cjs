@@ -36,7 +36,7 @@ const checklist = () => [
   item('github', 'GitHub is connected', false, {optional: true, why: 'Lets bots keep their work in your GitHub.', href: '#/settings', tab: 'cloud'}),
   item('botops', 'BotOps is active', true),
   item('first_bot', 'Create your first bot', false, {why: 'Say what it should do and BotOps builds it.', action: 'create-bot'}),
-  item('next_bot', 'Set up Support Triage', false, {why: 'Press Start setup on its page and answer its questions; it drafts a first result for you to approve.', href: '#/bot/support'}),
+  item('next_bot', 'Set up Support Triage', false, {why: 'Press Set up on its page and answer its questions; it drafts a first result for you to approve.', href: '#/bot/support'}),
   item('first_output', 'First approved output', false, {why: 'Set up a starter bot and approve the first thing it drafts. That is the point of the team.', href: '#/bot/support'}),
   item('first_update', 'Your first update arrived', false, {why: 'Each active bot posts a short update every day.', href: '#/updates'}),
 ];
@@ -127,9 +127,9 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
     await ready(page);
     const box = page.locator('#market-shell [data-market-research]');
     await box.waitFor();
-    assert.equal(await box.locator('h1').textContent(), 'Research your market');
+    assert.equal(await box.locator('h1').textContent(), 'Market');
     assert.equal(await box.locator('label').textContent(), 'Your website, a description, or links to anything about your market');
-    assert.equal(await box.locator('textarea').getAttribute('placeholder'), 'https://yourcompany.com');
+    assert.equal(await box.locator('textarea').getAttribute('placeholder'), 'https://example.com');
     assert.equal(await box.locator('textarea').count(), 1);
     assert.equal(await box.locator('input').count(), 0);                 // not four questions
     assert.equal(await box.locator('[type=submit]').textContent(), 'Start research');
@@ -260,7 +260,7 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
       await tour.locator('[data-tour-next]').click();
       titles.push(await tour.locator('#gs-tour-title').textContent());
     }
-    assert.deepEqual(titles, ['Tasks', 'Your bots', 'Docs', 'Market', 'Meetings']);
+    assert.deepEqual(titles, ['Tasks', 'Team', 'Docs', 'Market', 'Meetings']);
     assert.equal(await tour.locator('[data-tour-next]').textContent(), 'Done');
     await page.keyboard.press('Escape');
     await tour.waitFor({state: 'detached'});

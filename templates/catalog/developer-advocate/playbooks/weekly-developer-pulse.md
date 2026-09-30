@@ -1,6 +1,6 @@
 # Weekly developer pulse
 
-Schedule: Thursdays at 10:00 company time (routine `weekly-developer-pulse`), once a person has approved the
+Schedule: Thursdays at 10:00 team time (routine `weekly-developer-pulse`), once a human has approved the
 first pulse. Also run by hand. Budget 50 minutes. The outcome is one page: every open public question with a
 ready answer, the friction themes, and one sample worth writing. Nothing is posted.
 
@@ -16,7 +16,7 @@ Check which approved answers were posted and whether the asker replied.
 ## 2. Sweep the channels
 
 Each channel in `knowledge/channels.md` since the last pulse: new questions, and older ones still without an
-answer from the company. For each: link, date, the question in one line, the language and SDK version if
+answer from the team. For each: link, date, the question in one line, the language and SDK version if
 given.
 
 ## 3. Prepare the answers

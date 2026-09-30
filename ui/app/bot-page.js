@@ -138,11 +138,11 @@ function botRecurringHTML(e, slug) {
     : !r.active ? '<span class="pill">not armed</span>'
     : r.on ? '<span class="muted">on event</span>'
     : r.next ? `<span class="tnum" title="${esc(fmt(r.next))}">${esc(until(r.next))}</span>` : '<span class="muted">—</span>';
-  return `<header><h2>Recurring</h2><a class="linkish" href="#/bot/${encodeURIComponent(slug)}/more">Manage</a></header>
+  return `<header><h2>Routines</h2><a class="linkish" href="#/bot/${encodeURIComponent(slug)}/more">Manage</a></header>
     ${rows.length ? `<ul class="bot-recurring-list">${rows.map(r => `<li class="${paused(r) ? 'paused' : ''}" data-routine="${esc(r.id || r.title)}">
         <span class="bot-recurring-what"><span class="ttl">${esc(r.title)}</span><span class="when">${esc(words(r))}</span></span>
         <span class="bot-recurring-next">${next(r)}</span></li>`).join('')}</ul>`
-      : '<div class="empty">No recurring work.</div>'}`;
+      : '<div class="empty">No routines.</div>'}`;
 }
 // Beside the bot's name only when something is wrong (#514): crashed, quarantined, rate limited,
 // blocked, a failed last run, or an agent that is offline while work waits for it. Idle says nothing.
@@ -157,7 +157,7 @@ function botAlertHTML(slug) {
   return word ? `<span class="bot-alert" role="status"${why ? ` title="${esc(why)}"` : ''}><span aria-hidden="true">⚠</span> ${esc(word)}</span>` : '';
 }
 // On a phone the top line says what this bot is doing. Something blocked on the
-// person stays put ("! Needs you: …", tap to open); otherwise the bot's active tasks cycle one at a
+// human stays put ("! Needs you: …", tap to open); otherwise the bot's active tasks cycle one at a
 // time, ticker-style. Nothing active, nothing shown.
 let BOT_TICKER = {slug: '', needs: [], active: [], i: 0, timer: 0};
 async function botTickerLoad(slug) {
@@ -232,7 +232,7 @@ function bindChatSwipe(thread) {
 }
 async function pageBot(slug, tab) {
   const e = S.emps.find(x => x.name === slug);
-  if (!e) { BOT = null; $('#main').innerHTML = `<div class="empty">Unknown employee "${esc(slug)}".</div>`; return; }
+  if (!e) { BOT = null; $('#main').innerHTML = `<div class="empty">Unknown bot "${esc(slug)}".</div>`; return; }
   if (BOT?.slug === slug && $('#btabs')) { showBotTab(tab); return; }   // same bot, another tab
   const keeper = isKeeper(slug);        // hosted by the keeper: hub.db is its record (docs/history/hub-v2.md)
   const boss = S.emps.find(x => x.name === e.reports_to);
@@ -286,7 +286,6 @@ async function pageBot(slug, tab) {
     <section class="card tasks" id="bot-assigned" hidden><header><h2>Assigned to others</h2></header>
       <div id="t-assigned" class="tpane"></div></section>
     <details class="bot-done"><summary>Done <span class="cnt" id="cnt-done"></span></summary><div id="t-done" class="tpane">Loading…</div></details>
-    ${limited ? '' : `<section class="card bot-recurring" id="bot-recurring" aria-label="Recurring work">${botRecurringHTML(e, slug)}</section>`}
   </div>
   </div>
 
@@ -299,7 +298,7 @@ async function pageBot(slug, tab) {
     ${limited ? `    <section class="card"><header><h2>About</h2></header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
-        <dt>Run by</dt><dd>${esc(botPersonName(e.operator))}</dd>
+        <dt>Owner</dt><dd>${esc(botPersonName(e.operator))}</dd>
         <dt>Works for</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>`
           : String(e.reports_to || '').startsWith('human:') ? `<dt>Reports to</dt><dd>${esc(botPersonName(e.reports_to.slice(6)))}</dd>` : ''}
@@ -308,7 +307,7 @@ async function pageBot(slug, tab) {
 ` : `    <section class="card"><header><h2>Setup</h2>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
-        <dt>People</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
+        <dt>Humans</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
         ${e.agent ? `<dt>Run by</dt><dd>${esc(agentKind(e.agent))}${e.agent.profile ? ` · profile <code>${esc(e.agent.profile)}</code>` : ''}${e.agent.version ? ` · ${esc(e.agent.version)}` : ''}${e.agent.platform ? ` · ${esc(e.agent.platform)}` : ''}<span class="muted"> · ${!e.agent.credential ? 'no credential yet' : e.online ? 'reporting in' : 'not reporting'}${e.agent.last_seen ? `, last seen ${esc(ago(e.agent.last_seen))}` : ''}</span>${settingsCanManageBot(e) ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${e.agent.credential ? 'Rotate credential' : 'Create credential'}</button>${e.agent.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</dd>
         <dt>Model</dt><dd>${e.agent.model ? `${esc(e.agent.model)}${e.agent.provider ? `<span class="muted"> · ${esc(e.agent.provider)}</span>` : ''}` : "<span class=\"muted\">the profile's own</span>"}</dd>`
         : `<dt>Model</dt><dd>${esc(e.model ? settingsChoiceLabel(e.harness || e.runtime, e.model, e.reasoning_effort || e.effort) : settingsDefaultLabel(e))}${e.fallback ? `<span class="muted"> · fallback ${esc(settingsChoiceLabel(e.fallback.harness, e.fallback.model, e.fallback.reasoning_effort || e.fallback.effort))}</span>` : ''}</dd>`}
@@ -418,7 +417,7 @@ async function pageBot(slug, tab) {
   }
 
   // task tabs (inside the Tasks pane)
-  // Active, then Assigned to others, Done folded away, and Recurring last;
+  // Active, then Assigned to others, Done folded away, and Routines last;
   const showTab = t => { if (t === 'done') $('#pane-tasks .bot-done').open = true; };
   // A click opens Done without focusing it, so its ring shows only for the keyboard.
   $('#pane-tasks .bot-done>summary')?.addEventListener('mousedown', ev => ev.preventDefault());

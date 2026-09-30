@@ -9,12 +9,12 @@ summary. Budget 10 minutes. The outcome is one proposal on the task: who should 
 
     hub task show <id>
 
-Note who has touched it, how long it has waited and what it is waiting on (a customer, a person, a fix).
+Note who has touched it, how long it has waited and what it is waiting on (a customer, a human, a fix).
 Read `knowledge/team.md` for who owns what and who is covering today.
 
 ## 2. Pick the owner by what the work is
 
-- Answering a customer: the Support Agent (`support`) prepares the reply, a person approves it.
+- Answering a customer: the Support Agent (`support`) prepares the reply, a human approves it.
 - A repeated question the docs do not answer: the Librarian (`librarian`), as a task naming the question and the tickets.
 - A reply that already went out and may be wrong: the Support Quality Analyst (`support-qa`).
 - A technical problem that needs reproducing: the Technical Support Engineer (`technical-support`).
@@ -25,11 +25,11 @@ Read `knowledge/team.md` for who owns what and who is covering today.
 - Account health or adoption: the Customer Success Manager (`customer-success`); price or renewal terms:
   the Account Manager (`account-manager`) or a seller.
 - Tickets landing in the wrong queue, or a macro quoting old policy: `support-ops`.
-- A theme or feature request: the Customer Insights Analyst (`feedback-analyst`), or a person in product.
-- A refund decision beyond policy, legal, security or an outage: a named person in `knowledge/team.md`, now.
+- A theme or feature request: the Customer Insights Analyst (`feedback-analyst`), or a human in product.
+- A refund decision beyond policy, legal, security or an outage: a named human in `knowledge/team.md`, now.
 - A defect: the head of engineering or the product-issue owner, with the ticket count.
 
-If two owners fit, say which you would choose and why. If the person in `team.md` is away, name their cover.
+If two owners fit, say which you would choose and why. If the human in `team.md` is away, name their cover.
 
 ## 3. Write the proposal
 

@@ -2,7 +2,7 @@
 
 Triggered by a task naming one pull request, and used for each pull request in
 `playbooks/weekday-review-queue.md`. Budget 15 minutes. The outcome is one draft review on the task that a
-person can post with one edit.
+human can post with one edit.
 
 ---
 
@@ -22,7 +22,7 @@ person can post with one edit.
 
 Walk `knowledge/standards.md` item by item. Note each item as met, not met, or not checkable from the diff.
 Look for a pattern from `knowledge/patterns.md`. A secret, a removed check or a removed test is blocking, and
-is reported to a person at once by task.
+is reported to a human at once by task.
 
 ## 3. Size
 
@@ -31,7 +31,7 @@ it, naming a suggested seam. Review what you can regardless.
 
 ## 4. Draft the review
 
-On the task, in the comment style chosen at onboarding (default labelled):
+On the task, in the comment style chosen during setup (default labelled):
 - **Summary**, two lines: what the change does and whether anything blocks it.
 - `issue (blocking):` each thing that must change before merge, with file, line, the quoted code and why.
 - `question:` what you could not tell from the diff.
@@ -45,7 +45,7 @@ Every comment is polite, about the code, and specific. Never "this is wrong": sa
 ## 5. Finish
 
 You post nothing. Commit, then `hub task update <id> --status done --note`: the pull request, the number of
-blocking issues, and what you did not check. If a person wants a comment posted, request
+blocking issues, and what you did not check. If a human wants a comment posted, request
 `hub approval request --kind publish` with the exact text and the pull request, and they post it.
 
 ## When you cannot tell

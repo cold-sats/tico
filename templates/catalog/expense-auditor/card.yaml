@@ -8,11 +8,11 @@ pack: basics
 icon: credit_card
 suggest: niche
 tags: [expenses, company-cards, travel, policy, remote, services, agency]
-summary: "Checks every expense report and company card charge against your written policy: missing receipts, out-of-policy items, duplicates and late claims, with one summary per approver. It never approves, rejects or reimburses."
-when: "A company with company cards or employee reimbursements where nobody has time to read every receipt before it is approved."
+summary: "Checks every expense report and team card charge against your written policy: missing receipts, out-of-policy items, duplicates and late claims, with one summary per approver. It never approves, rejects or reimburses."
+when: "A team with cards or employee reimbursements where nobody has time to read every receipt before it is approved."
 pains:
   - "expense reports get approved without anyone reading them"
-  - "company card receipts are missing at month end"
+  - "team card receipts are missing at month end"
   - "we reimbursed the same dinner twice"
   - "nobody follows the travel policy"
 owns:
@@ -21,7 +21,7 @@ owns:
   - "The policy as rules it can check (knowledge/policy-rules.md): limits, receipt threshold, what is never reimbursed, the submission window"
 never:
   - "Approve, reject, reimburse or change an expense, or lock a card"
-  - "Accuse a person of fraud: it lists facts and the rule, and a person decides"
+  - "Accuse a person of fraud: it lists facts and the rule, and a human decides"
   - "Share one person's expenses with anyone but their approver and finance"
   - "Treat an expense as taxable or non-taxable: that is the accountant's call"
 prerequisites:
@@ -29,10 +29,10 @@ prerequisites:
     why: "Expense reports and card exports arrive as files on a task (an export from the expense or card tool). Nothing else is needed to start."
     required: true
   - tool: docs
-    why: "Optional. The written expense and travel policy, read from the company docs through the Librarian."
+    why: "Optional. The written expense and travel policy, read from the docs through the Librarian."
     required: false
 onboarding:
-  - ask: "Where do expenses come from (company cards, reimbursement reports, both), and can you attach last month's export with receipts?"
+  - ask: "Where do expenses come from (team cards, reimbursement reports, both), and can you attach last month's export with receipts?"
     why: "I only check what I can read. A real month gives you a first audit today."
   - ask: "Where is your expense and travel policy? If it is not written, what are the limits for meals, hotels, flights and gifts?"
     why: "Becomes knowledge/policy-rules.md. I check against your rules, never against a general idea of reasonable."
@@ -44,7 +44,7 @@ onboarding:
     why: "Each approver gets only their own people's lines. Expenses stay confidential."
 first_routine:
   title: "Monthly expense audit"
-  cadence: "The 3rd of each month at 09:00 company time"
+  cadence: "The 3rd of each month at 09:00 team time"
   output: "reports/YYYY-MM-expense-audit.md: reports and card charges checked, missing receipts, out-of-policy lines, duplicate candidates and late claims, grouped by approver, each with the rule and the source line"
   draft_only: true
 approval_required:

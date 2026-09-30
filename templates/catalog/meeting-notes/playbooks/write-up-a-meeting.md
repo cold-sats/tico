@@ -1,8 +1,8 @@
 # Write up a meeting
 
-Triggered by the `meeting.ready` routine (one task per imported company meeting, its notes and
-transcript in the body), or by a person sending you a meeting. Budget 15 minutes. The outcome is
-one report and a task note; nobody is told and nothing is assigned until a person approves.
+Triggered by the `meeting.ready` routine (one task per imported team meeting, its notes and
+transcript in the body), or by a human sending you a meeting. Budget 15 minutes. The outcome is
+one report and a task note; nobody is told and nothing is assigned until a human approves.
 
 ---
 

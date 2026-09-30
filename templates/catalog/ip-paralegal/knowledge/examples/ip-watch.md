@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme IP watch, 2026-10-01
 
-Sample output for Acme, a fictional studio-software company whose product is called "Acme Flow". Every mark,
+Sample output for Acme, a fictional studio-software team whose product is called "Acme Flow". Every mark,
 owner, number and date is invented. Nothing has been filed, renewed or sent.
 
 **Headline: 1 declaration window open now; 1 domain expires in 41 days with auto-renew off; 2 look-alikes worth
@@ -33,7 +33,7 @@ Counted, not listed: 14 "Flow" marks in unrelated classes (beverages, plumbing, 
 ## Could not search
 The EU register returned errors for two searches; they are repeated next month.
 
-**Summary for a person, not legal advice.**
+**Summary for a human, not legal advice.**
 
 ## Sources
 - USPTO public search, 2026-10-01; registrar lookup, 2026-10-01; `knowledge/assignments.md` 2026-09-14

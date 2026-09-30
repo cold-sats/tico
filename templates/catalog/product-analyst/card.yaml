@@ -9,7 +9,7 @@ icon: monitoring
 suggest: common
 tags: [saas, analytics, adoption, retention, experiments, sql, mobile]
 summary: "Answers product questions from the product's own data: adoption of what shipped, where new users drop off, how retention cohorts compare, and what an experiment really showed. Every number comes with its query."
-when: "A software company that ships features without knowing who uses them, or where every data question waits on an engineer."
+when: "A software team that ships features without knowing who uses them, or where every data question waits on an engineer."
 pains:
   - "we don't know if anyone uses the feature we shipped"
   - "every data question waits a week for an engineer"
@@ -27,10 +27,10 @@ never:
   - "Call an experiment early or report a result that has not reached the sample size it planned"
 prerequisites:
   - tool: hub
-    why: "Company databases the hub can read (`hub db`), tasks with event exports, goals and launch dates are the inputs."
+    why: "Team databases Tico can read (`hub db`), tasks with event exports, goals and launch dates are the inputs."
     required: true
   - tool: docs
-    why: "Optional. Tracking plans and existing metric definitions, if they are in the company docs."
+    why: "Optional. Tracking plans and existing metric definitions, if they are in the team docs."
     required: false
   - tool: github
     why: "Optional. Read-only merged pull requests give launch dates and what a feature flag is called."
@@ -48,13 +48,13 @@ onboarding:
     why: "Sets the routine's schedule and recipients."
 first_routine:
   title: "Weekly product usage readout"
-  cadence: "Wednesdays at 09:00 company time"
+  cadence: "Wednesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-usage-readout.md: headline, adoption per recent launch, the activation funnel, retention by signup cohort, unusual movements, one question answered, the queries used and what could not be read"
   draft_only: true
 approval_required:
-  - "Share a readout or a number outside the product team, or anything outside the company"
+  - "Share a readout or a number outside the product team, or anything outside the team"
   - "Call an experiment finished or declare a winner"
-  - "Ask engineering to change tracking or add an event (a task for a person)"
+  - "Ask engineering to change tracking or add an event (a task for a human)"
   - "Run a query that reads personal data beyond counts"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/usage-readout.md

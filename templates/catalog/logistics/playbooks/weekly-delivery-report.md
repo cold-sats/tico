@@ -1,6 +1,6 @@
 # Weekly delivery and exceptions report
 
-Schedule: Mondays at 08:00 company time (routine `weekly-delivery-report`), once a person has approved
+Schedule: Mondays at 08:00 team time (routine `weekly-delivery-report`), once a human has approved
 the first report. Budget 35 minutes. The outcome is one report, and on the task the customer updates,
 claims and invoice disputes ready for approval. Nothing is sent or filed.
 

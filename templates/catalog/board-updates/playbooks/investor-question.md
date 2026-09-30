@@ -20,7 +20,7 @@ Answer only from the record: `hub goals --all`, `hub kpi readings <kpi id>`, `hu
 
 ## 3. Draft
 
-Two to six sentences, the answer first, the number with its date, and one sentence on what the company
+Two to six sentences, the answer first, the number with its date, and one sentence on what the team
 is doing about it if the news is bad. Write it in the owner's voice, plain, no spin. If the question is
 about a legal, tax or valuation matter, say so and draft only a holding reply for the owner to decide.
 

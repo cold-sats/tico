@@ -8,8 +8,8 @@ pack: marketing
 icon: filter_alt
 suggest: niche
 tags: [marketing-ops, attribution, utm, lead-handoff, crm, b2b, saas]
-summary: "Keeps marketing's data trustworthy: one tracking convention for every campaign link, leads with a source, a clean handoff of qualified leads to sales, and a weekly check of all three. Fixes are listed; a person applies them."
-when: "A company running several campaigns into a CRM that cannot say where its customers came from, or whose marketing leads wait for sales."
+summary: "Keeps marketing's data trustworthy: one tracking convention for every campaign link, leads with a source, a clean handoff of qualified leads to sales, and a weekly check of all three. Fixes are listed; a human applies them."
+when: "A team running several campaigns into a CRM that cannot say where its customers came from, or whose marketing leads wait for sales."
 pains:
   - "our campaign links are tagged inconsistently"
   - "marketing leads wait days before sales touches them"
@@ -23,8 +23,8 @@ owns:
 never:
   - "Change a CRM field, lifecycle stage, owner, scoring rule, form or workflow"
   - "Put a person's name or email address in a tracking parameter"
-  - "Own or restate company KPIs; targets live with the Goal Manager"
-  - "Blame a person for a handoff delay; the report is about the process"
+  - "Own or restate team KPIs; targets live with the Goal Manager"
+  - "Blame a human for a handoff delay; the report is about the process"
 prerequisites:
   - tool: hub
     why: "Campaign requests, exports and fix lists travel as tasks."
@@ -48,13 +48,13 @@ onboarding:
     why: "Sets the routine's input. I never ask for a login."
 first_routine:
   title: "Weekly marketing data check"
-  cadence: "Mondays at 10:00 company time"
+  cadence: "Mondays at 10:00 team time"
   output: "reports/YYYY-MM-DD-marketing-data.md: tagging errors by campaign, leads without a source, handoff delays against the agreed time, and each fix with its owner"
   draft_only: true
 approval_required:
   - "Change a CRM field, stage, owner, scoring rule, form or workflow, or any analytics setting"
   - "Change the tracking convention or the lead handoff rules"
-  - "Create fix tasks for people or bots from the check"
+  - "Create fix tasks for humans or bots from the check"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/marketing-data-check.md
 reasoning_effort: medium

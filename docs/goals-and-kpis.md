@@ -1,15 +1,15 @@
 # Goals and KPIs
 
-A goal says what a person, a bot or the company is going for. A KPI is a number that says how it is going. Tico keeps the
+A goal says what a human, a bot or the team is going for. A KPI is a number that says how it is going. Tico keeps the
 two apart: a KPI is a record of its own, a goal links to the KPIs that measure it, and the goal's colour is worked out from
-them. A built-in bot, the **Goal Manager**, keeps the KPIs and sets the colours. A person can always override a colour.
+them. A built-in bot, the **Goal Manager**, keeps the KPIs and sets the colours. A human can always override a colour.
 
 This page is the model, the colours, the override rule, the Goal Manager, the automatic bot KPIs and the API.
 
 ## The model
 
 **Goal.** A title, an owner (`company`, `human:x` or `bot:x`; the owner decides the level), an optional goal it supports, a
-colour and a note. Company goals are visible to everyone; a bot's own goals are visible to whoever may Read the bot
+colour and a note. Team goals are visible to everyone; a bot's own goals are visible to whoever may Read the bot
 ([permissions](permissions.md)).
 
 **KPI.** A standalone record. A goal links to zero or more KPIs, one KPI can serve several goals, and not every goal has one.
@@ -20,7 +20,7 @@ colour and a note. Company goals are visible to everyone; a bot's own goals are 
 | `unit` | `%`, `$`, `demos` and so on |
 | `direction` | `up`, `down` or `range`: which way is good |
 | `cadence` | `daily`, `weekly` or `monthly`: how often a reading is due |
-| `owner` | the one accountable: `company`, a person or a bot |
+| `owner` | the one accountable: `company`, a human or a bot |
 | `source_note` | where the number comes from |
 | `definition_version` | starts at 1 and goes up whenever the definition, unit, direction, cadence or source note changes; a rename or a new owner does not change it |
 
@@ -29,7 +29,7 @@ colour and a note. Company goals are visible to everyone; a bot's own goals are 
 | Field | Meaning |
 |---|---|
 | `value` | the number |
-| `period_start`, `period_end` | the business time the value describes (the week ending Sunday), never when it was written |
+| `period_start`, `period_end` | the time the value describes (the week ending Sunday), never when it was written |
 | `collected_at` | when it was collected |
 | `evidence` | a link or a note saying where it came from |
 | `quality` | `measured`, `estimate` or `partial` (half a period is not a value to judge) |
@@ -85,22 +85,22 @@ A goal's colour is set automatically:
 The automatic colour is worked out again whenever a reading, a target, a link or a check-in changes, whenever the Goal
 Manager runs its status pass, and once an hour, because data goes stale as time passes.
 
-### A person can override
+### A human can override
 
-A colour a person sets (`hub goal status`, or the colour control on the Goals page) is theirs. It carries their name and
-their one-sentence note ("set by Ana"), and it **stays until a person hands it back**: **Let Goal Manager set it**
+A colour a human sets (`hub goal status`, or the colour control on the Goals page) is theirs. It carries their name and
+their one-sentence note ("set by Ana"), and it **stays until a human hands it back**: **Let Goal Manager set it**
 (`hub goal auto`, `POST /api/v2/goals/{id}/status/auto`) ends the override and the colour is worked out at once.
 
 While a goal is overridden the Goal Manager may *suggest* a different colour. The suggestion is shown on the goal and never
-applied. Done and dropped are always set by a person.
+applied. Done and dropped are always set by a human.
 
 Every colour is stored with who set it: `status_by`, and `status_source` (`auto` or `person`), in the goal and in every
 `goal_events` row.
 
 ## The Goal Manager
 
-The Goal Manager (`goal-manager`) is a built-in bot, created for every company like the Librarian. It appears in **Settings**
-and on the org chart marked **Built in**; nobody archives it, and only the company owner edits it. A company from before it
+The Goal Manager (`goal-manager`) is a built-in bot, created for every team like the Librarian. It appears in **Settings**
+and on the team chart marked **Built-in**; nobody archives it, and only the team owner edits it. A team from before it
 existed gets it on update once a computer and a model exist. Its template is `templates/catalog/goal-manager/`; its
 playbooks are the product.
 
@@ -109,24 +109,24 @@ It does five things:
 1. **Goals make sense.** It flags vague, duplicate or unmeasured goals and suggests a KPI or clearer wording, as proposals on
    the goal.
 2. **KPIs.** It is the steward of every KPI. Each has a folder in its repository, `kpis/<slug>/`, with `definition.md`,
-   `sources.md`, the query or script (`hub sql`, PostHog or another API through a tool the company declared), a
-   known-values check it runs before trusting a number, and a changelog. It computes each KPI on its cadence in one scheduled
+   `sources.md`, the query or script (`hub sql`, PostHog or another API through a tool the team declared), a
+   known-values check it runs before trusting a number, and a changelog. It computes each KPI on its cadence in one routine
    pass with a time budget per KPI, posts readings with evidence, marks stale or missing data, and skips a failing KPI and
    reports it.
-3. **Status.** After the readings it runs the status pass, which sets the automatic colours and never overwrites a person's.
+3. **Status.** After the readings it runs the status pass, which sets the automatic colours and never overwrites a human's.
 4. **Check-ins.** When a KPI slips it asks the goal's owner what is happening and records the answer as a check-in on the goal.
    The readings are facts and the check-in is the owner's interpretation; they are kept apart.
 5. **Guardrails.** A change to a definition or a target is a *proposal* that the goal's or KPI's owner confirms. It cannot
-   change a target it is judged against: the API answers `403`. A short weekly goals review goes to the company owner (and
+   change a target it is judged against: the API answers `403`. A short weekly goals review goes to the team owner (and
    the Chief of Staff, if there is one).
 
 Its routines start paused, like a starter bot's first routine. Because it is built in, Tico starts its daily KPI pass once
-the first KPI exists, once: a person who pauses it afterwards is not overruled.
+the first KPI exists, once: a human who pauses it afterwards is not overruled.
 
 ### Proposals
 
-A proposal is what a caller makes when they may not make the change themselves. The owner confirms it (and only a person, on
-their own click) or rejects it; confirming makes the change as that person.
+A proposal is what a caller makes when they may not make the change themselves. The owner confirms it (and only a human, on
+their own click) or rejects it; confirming makes the change as that human.
 
 | Kind | Payload | Confirmed by |
 |---|---|---|
@@ -136,7 +136,7 @@ their own click) or rejects it; confirming makes the change as that person.
 | `kpi_target` | the target fields, with `goal_id` | the goal's owner or the KPI's |
 | `flag` | `issue`: `vague`, `duplicate` or `unmeasured`, and a `note` | the goal's owner |
 
-Pending proposals appear under **Needs you** on the Goals page for the person who decides them.
+Pending proposals appear under **Needs you** on the Goals page for the human who decides them.
 
 ## Automatic bot KPIs
 
@@ -147,7 +147,7 @@ and the value is worked out when it is read. Each has an id, `auto:<bot>:<metric
 |---|---|
 | `tasks_done_7d` | tasks the bot owns that were marked done in the last 7 days |
 | `first_response_min` | median minutes from a message to the bot to its first reply in that conversation, over 7 days |
-| `approval_rate_30d` | the share of its approval requests a person approved, of those decided in 30 days |
+| `approval_rate_30d` | the share of its approval requests a human approved, of those decided in 30 days |
 | `failed_runs_7d` | runs that ended failed in the last 7 days |
 | `cost_7d` | what its runs cost in 7 days at list price, from their tokens ([usage](usage.md)); subscription runs are left out |
 
@@ -158,29 +158,29 @@ edited or logged to.
 
 ## The Goals page
 
-One tree, built like the org chart: the company on top, then every person and every bot that is not archived, indented
+One tree, built like the team chart: the team on top, then every human and every bot that is not archived, indented
 under whoever they report to, whether or not they have a goal. Each is one line: the avatar and name, then the goal's
 colour dot and its title (cut short; the whole title is in the tooltip) and its KPIs as small chips, a dot and the latest
-value each (a count when there is no room). More goals follow on lines of their own under the first. The helpers (the
-assistant, BotOps, the Librarian, the Goal Manager and the Inbox Manager) are not roles, so they sit apart under **Helpers**.
+value each (a count when there is no room). More goals follow on lines of their own under the first. The built-in bots (the
+Assistant, BotOps, the Librarian and the Goal Manager) are not roles, so they sit apart under **Built-in**.
 
 Tapping any line opens that owner's panel (a sheet at the bottom on a phone). It lists their goals: tap one to edit its
 words, what it supports and its colour (or **Let Goal Manager set it**). Under each goal are its KPIs, its latest
 check-in and **Add KPI**; tapping a KPI shows its history (a chart and the readings with their evidence), its definition
 and version, its owner, its targets and the Goal Manager's latest check-in, with a way back. **Add goal** and **Add KPI**
 (a KPI no goal uses yet) are at the bottom, owned by whoever was tapped, and the KPIs no goal uses are listed there too.
-Someone with no goal opens on a new one; the company line opens the company goal. **Needs you** is a short strip at the
+Someone with no goal opens on a new one; the team line opens the team goal. **Needs you** is a short strip at the
 top, shown only when something waits: red KPIs on goals you own, stale data on KPIs you own, and definitions and targets
 waiting for your confirmation. The page is two requests, the tree and Needs you.
 
 ## Permissions
 
-- Company goals and company KPIs are visible to everyone signed in. A bot's goals and KPIs, and its automatic KPIs, are
+- Team goals and team KPIs are visible to everyone signed in. A bot's goals and KPIs, and its automatic KPIs, are
   visible to whoever may Read the bot.
-- A goal's owner, the owner of the goal it supports and anyone above the owner on the org chart set its colour, edit it and
-  choose its KPIs and targets. The company owner may do all of it.
-- A KPI's owner (or anyone above them; the company owner for a company KPI) edits the KPI. Its readings are logged by that
-  person, by the Goal Manager, or by the owner of a goal that uses it.
+- A goal's owner, the owner of the goal it supports and anyone above the owner on the team chart set its colour, edit it and
+  choose its KPIs and targets. The team owner may do all of it.
+- A KPI's owner (or anyone above them; the team owner for a team KPI) edits the KPI. Its readings are logged by that
+  human, by the Goal Manager, or by the owner of a goal that uses it.
 - The Goal Manager reads every goal and KPI, writes readings and the automatic colours, records check-ins, and proposes. It
   cannot set a colour by hand, edit a goal, create or link a KPI, or change a definition or a target.
 
@@ -212,7 +212,7 @@ The stable v2 routes are in [openapi/v2.json](openapi/v2.json):
 | `POST /api/v2/goals/{id}/status/auto` | hand the colour back to the Goal Manager |
 | `POST /api/v2/goals/refresh` | the status pass (the Goal Manager or the owner) |
 | `GET/POST /api/v2/goals/{id}/checkins` | the owner's words on how it is going |
-| `GET /api/v2/goals/needs-you` | red KPIs, stale KPIs and proposals waiting on the caller |
+| `GET /api/v2/goals/needs-you` | red KPIs, stale KPIs and proposals that need the caller |
 | `POST /api/v2/goals/{id}/kpis` | link a KPI (`kpi_id`) or make one and link it (`name`), with the target |
 | `POST /api/v2/goals/{id}/kpis/{kpi}` and `/unlink` | change the target on a link; remove the link |
 | `GET/POST /api/v2/kpis`, `GET/POST /api/v2/kpis/{id}` | list, create, read (with its links, readings, definition history and check-ins) and edit |
@@ -228,4 +228,4 @@ A goal's KPI on any of these answers has `latest`, `freshness`, `spark`, and, un
 Nothing is deleted. Each old KPI keeps its readings and becomes a standalone KPI, owned by its goal's owner, monthly, with a
 link to its old goal; an old `target` becomes an improvement target on that link (with no deadline until someone sets one).
 An old reading's `ts` is now its `period_end`, and its `source` of `estimate` is its `quality`. A colour someone set is now a
-person's override: it stays as it is until it is handed back.
+human's override: it stays as it is until it is handed back.

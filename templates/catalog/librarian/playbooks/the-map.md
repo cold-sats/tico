@@ -22,9 +22,9 @@ One line per internal doc, grouped by folder, in path order:
 - Skip `_librarian/` itself and `FAQ.md`.
 - Add a `## Linked docs` section listing each linked doc: title, address, and its one-line description.
 
-## `_librarian/glossary.md`: the company's words
+## `_librarian/glossary.md`: the team's words
 
-A term, one line, and the doc that defines it. Terms the company uses that an outsider would not know
+A term, one line, and the doc that defines it. Terms the team uses that an outsider would not know
 (product and plan names, internal names, acronyms, people's roles) and the everyday words people use for
 them ("the CRM", "the portal"). Alphabetical.
 
@@ -47,7 +47,7 @@ Two parts.
 question can go straight to the right page:
 
     ### Help centre: https://help.example.com   (walked 2026-09-28)
-    - Sections: Getting started, Billing, Integrations, API, Troubleshooting.
+    - Sections: Getting started, Billing, Tools, API, Troubleshooting.
     - Has a sitemap: yes (240 pages). Most useful for: how-to steps, plan limits, error messages.
     - Not covered there: pricing (see `sales/pricing.md`), internal process.
     - Known: the page "/billing/refunds" is the one to read for refunds. Old /faq is out of date.

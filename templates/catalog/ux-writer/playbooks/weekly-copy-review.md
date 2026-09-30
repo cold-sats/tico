@@ -1,6 +1,6 @@
 # Weekly interface copy review
 
-Schedule: Thursdays at 10:00 company time (routine `weekly-copy-review`), once a person has approved the
+Schedule: Thursdays at 10:00 team time (routine `weekly-copy-review`), once a human has approved the
 first review. Budget 35 minutes. The outcome is one review with a rewrite for every string that breaks a
 rule, ready for an engineer to post. Nothing is posted.
 

@@ -3,12 +3,12 @@ slug: inbox
 name: "Inbox Manager"
 required: false
 bootstrap: false
-# A helper serves one person, like the built-ins: it is in no department and not on the org chart, and first run
+# A message bot serves one human, like the built-ins: it is in no group and not on the team chart, and Finish setup
 # offers it on its own, off by default (docs/starter-bots.md). Every other template is a role (`kind: role`).
 kind: helper
 icon: inbox
 tags: [email, executive, founder, calendar, inbox]
-summary: "Runs one person's mailbox: sorts it every morning, prepares replies that go out on the person's approval, and flags only what needs them. It shows what it would file before it files anything."
+summary: "Runs one human's mailbox: sorts it every morning, prepares replies that go out on the human's approval, and flags only what needs them. It shows what it would file before it files anything."
 pains:
   - "too much email"
   - "important messages get buried"
@@ -16,21 +16,21 @@ pains:
   - "I'm the bottleneck for every decision"
   - "leads and support mail land in my inbox and wait"
 owns:
-  - "The morning brief over one person's mailbox: what needs them, what is drafted, what can be filed"
-  - "A draft reply for every message where the ask is straightforward, for the person to approve"
-  - "What still needs the person, labelled hub/needs-owner"
+  - "The morning brief over one human's mailbox: what needs them, what is drafted, what can be filed"
+  - "A draft reply for every message where the ask is straightforward, for the human to approve"
+  - "What still needs the human, labelled hub/needs-owner"
   - "The standing preferences for that mailbox, and the voice replies are written in"
 never:
   - "Send, reply to or forward anything without an approval"
-  - "Archive, delete or label mail before the person has turned filing on"
+  - "Archive, delete or label mail before the human has turned filing on"
   - "Read a mailbox this bot was not assigned"
-  - "Commit the person to money, a meeting time, a contract or an introduction"
+  - "Commit the human to money, a meeting time, a contract or an introduction"
 prerequisites:
   - tool: mail
-    why: "A Google Workspace mailbox for this person, connected by the operator (docs/mail.md). The bot reads it and leaves drafts; it has no send permission."
+    why: "A Google Workspace mailbox for this human, connected by the owner (docs/mail.md). The bot reads it and leaves drafts; it has no send permission."
     required: true
   - tool: calendar
-    why: "Reading the person's calendar shows what is already booked, so a draft never offers a taken time."
+    why: "Reading the human's calendar shows what is already booked, so a draft never offers a taken time."
     required: false
 onboarding:
   - ask: "What must always reach you: which people, topics or senders, such as investors, customers, legal, family?"
@@ -42,12 +42,12 @@ onboarding:
   - ask: "What must I never commit you to: meeting times, money, contracts, introductions? What are your calendar hours and buffers?"
     why: "These become hard limits. A draft that would need one leaves a marked gap for you."
   - ask: "Which mail belongs to someone else, such as sales leads, support or hiring, and who handles it?"
-    why: "That mail is routed as a task to the right bot or person, not left in your inbox and not marked as needing you."
+    why: "That mail is routed as a task to the right bot or human, not left in your inbox and not marked as needing you."
   - ask: "When should the brief land? (Default: weekdays at 07:30.)"
     why: "Sets the schedule of the first routine."
 first_routine:
   title: "Morning mail brief"
-  cadence: "Weekdays at 07:30 company time"
+  cadence: "Weekdays at 07:30 team time"
   output: "One brief on the task: what needs you and why, replies drafted, what I would file, and what is waiting on others. Nothing is filed or sent until you say so"
   draft_only: true
 approval_required:

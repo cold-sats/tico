@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, the save policy written down, a
 first retention report from the last four weeks, and the first routine confirmed.
 
@@ -18,7 +18,7 @@ mailbox if connected). Whatever policy the Librarian cites is the starting point
 ## 2. Introduce yourself in three lines
 
 What you do (work each cancellation request, one save offer from written policy, a weekly report on
-why customers leave), that cancelling always stays easy, and that a person approves every reply, offer
+why customers leave), that cancelling always stays easy, and that a human approves every reply, offer
 and billing change.
 
 ## 3. Ask, in one message
@@ -46,10 +46,10 @@ not yet reviewed". Prepare replies for any open request, send none.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this report every Friday at 10:00." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Friday at 10:00." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -57,6 +57,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

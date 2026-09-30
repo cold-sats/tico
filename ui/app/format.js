@@ -42,8 +42,8 @@ function occurrenceLabel(o) {
 function inboxHowHTML(r) {
   const boxes = (r.inbox && r.inbox.mailboxes) || [];
   if (!boxes.length && !(r.inbox && r.inbox.org_read)) return '';
-  const title = boxes.join(', ') || 'org read';
-  return ` <span class="pill inbox" title="${esc(title)}">Inbox</span>`;
+  const title = boxes.join(', ') || 'team read';
+  return ` <span class="pill inbox" title="${esc(title)}">Message bot</span>`;
 }
 function routineHowHTML(r, hideBot) {
   const bits = [];

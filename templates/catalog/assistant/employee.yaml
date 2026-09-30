@@ -7,17 +7,17 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: high
 max_run_minutes: 60
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
 # the bot puts the draft on the task and asks for an approval.
 outbound_send: false
 
-# Recurring work this bot owns. The server runs the clock and turns each occurrence into a task.
-# Start with none. A routine earns its place after a person has read a week of the same work done
+# Routines this bot owns. The server runs the clock and turns each occurrence into a task.
+# Start with none. A routine earns its place after a human has read a week of the same work done
 # by hand. See docs/routines.md for the shape.
 schedules: []
 
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
-# arrives in, never the value; the value lives in the workspace secrets directory on the machine
+# arrives in, never the value; the value lives in the workspace `secrets/` directory on the computer
 # that runs the bot. Declaring access here does not create it.
 # access:
 #   - service: mail

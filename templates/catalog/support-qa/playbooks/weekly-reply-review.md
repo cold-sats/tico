@@ -1,6 +1,6 @@
 # Weekly reply review
 
-Schedule: Fridays at 10:00 company time (routine `weekly-reply-review`), once a person has approved the
+Schedule: Fridays at 10:00 team time (routine `weekly-reply-review`), once a human has approved the
 first review. Also run by hand on request. Budget 40 minutes. The outcome is one review for the owner:
 a scored sample, patterns and drafted coaching. Nothing changes in the support tool.
 
@@ -14,7 +14,7 @@ Then `knowledge/scorecard.md`, `knowledge/calibration.md` and `knowledge/pattern
 
 ## 2. Draw the sample
 
-List the replies sent in the last seven days from the source the onboarding named. Take the agreed
+List the replies sent in the last seven days from the source setup named. Take the agreed
 number (default 10, or about 5 percent, whichever is larger): about 70 percent at random, the rest on
 purpose (refunds, escalations, reopened tickets, a new hire, anything the owner named). Write down how the
 sample was drawn and the total it was drawn from. If fewer than 5 replies exist, review them all and say
@@ -33,9 +33,9 @@ that a standing answer or policy would fix is a task to the Librarian or the own
 
 ## 5. Draft the coaching
 
-For each person a note is warranted for, draft two or three sentences: one specific strength with its
+For each human a note is warranted for, draft two or three sentences: one specific strength with its
 quote, one specific change with an example of the better wording. Coaching notes are drafts for the owner,
-named by ticket reference in the shared report and by person only in the task.
+named by ticket reference in the shared report and by human only in the task.
 
 ## 6. Write the review and hand it over
 
@@ -48,7 +48,7 @@ coaching, unscored replies and why, sources. Then:
 ## 7. Finish
 
 Commit, then `hub task update <id> --status done --note`: replies reviewed, pass rate, the top pattern
-and any source you could not read. Always finish it: an open scheduled task absorbs the next.
+and any source you could not read. Always finish it: an open routine task absorbs the next.
 
 ## When a source fails
 

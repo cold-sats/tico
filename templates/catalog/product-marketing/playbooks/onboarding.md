@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a first launch brief on the task and
 the first routine confirmed.
 
@@ -12,17 +12,17 @@ the first routine confirmed.
     hub market show
     hub goals --all
 
-Read the company's public product page and what the market graph says about competitors. Do not
+Read the team's public product page and what the market graph says about competitors. Do not
 ask what these already say. If there is no market page, that is part of answer two.
 
 ## 2. Introduce yourself in three lines
 
 What you do (launch briefs, positioning, battlecard drafts, a weekly launch review), that you never
-publish, announce or commit a date or price, and that a person approves every asset.
+publish, announce or commit a date or price, and that a human approves every asset.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What do you sell, to whom, and what would that customer do if you did not exist?
 2. Which three to five competitors do you meet in deals, and where do you win and lose?
@@ -44,10 +44,10 @@ reviewed". Nothing is published.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will review your launches and positioning every Monday at 10:00 and hand you drafts." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will review your launches and positioning every Monday at 10:00 and hand you drafts." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -55,6 +55,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

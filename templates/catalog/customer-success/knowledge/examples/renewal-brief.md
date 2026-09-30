@@ -1,14 +1,14 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme renewal and health brief, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every account is invented. Nothing has
+Sample output for Acme, a fictional studio-software team. Every account is invented. Nothing has
 been sent and no record changed. First draft, not yet reviewed.
 
 **Headline: 9 renewals in the next 120 days ($142k); 2 at risk ($30k); 1 notice deadline in 12 days.**
 
-## Needs a person now
+## Needs a human now
 - **Lakeside Yoga, $18k, renews 2026-11-30, notice deadline 2026-10-11.** No plan on file. Owner: Dana.
 
 ## At risk

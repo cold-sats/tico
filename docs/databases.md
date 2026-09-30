@@ -1,6 +1,6 @@
-# Company databases
+# Databases
 
-Bots often need a number that lives in the company's own database: orders this week, signups by
+Bots often need a number that lives in your own database: orders this week, signups by
 region, tickets waiting. `hub db` lets a bot ask for it with one read-only statement, without the
 server or the bot ever holding a writable password. PostgreSQL, MySQL/MariaDB, MongoDB (Atlas) and
 SQLite files work out of the box; BigQuery and Snowflake are covered at the end.
@@ -16,11 +16,11 @@ hub db atlas find orders '{"status": "paid"}' --limit 20        # MongoDB: see "
 
 ## Where it runs, and why
 
-`hub db` runs on the computer that runs the bot, inside the turn, not on the Tico server. The
-connection string is a secret that lives on that computer (or is delivered to it for one run from the
+`hub db` runs on the computer that runs the bot, inside the run, not on the Tico server. The
+connection string is a credential that lives on that computer (or is delivered to it for one run from the
 credential vault); the server never sees it, so the server cannot leak it and a compromised server
 cannot query your database. The server still does two jobs: it authenticates the caller, and it
-keeps the audit trail and serves the named-query catalog. It cannot run the query for you, and
+keeps the audit trail and serves the named queries. It cannot run the query for you, and
 there is no `hub_db` tool on the server's MCP endpoint for that reason.
 
 Layers, in order of strength (MongoDB has its own list under [MongoDB Atlas](#mongodb-atlas)):
@@ -34,8 +34,8 @@ Layers, in order of strength (MongoDB has its own list under [MongoDB Atlas](#mo
 4. **Limits**: a row cap (default 500, ceiling 10,000) and a statement timeout (default 20 s,
    ceiling 120 s). A result that hit the cap says `truncated`.
 5. **The grant**: the bot must declare the database under `access:` in its `employee.yaml`.
-6. **The audit**: each query is recorded on the hub as a `db.query` event (statement, row count,
-   time, parameter names; never a value or a row) before the rows are shown. If the hub cannot
+6. **The audit**: each query is recorded in Tico as a `db.query` event (statement, row count,
+   time, parameter names; never a value or a row) before the rows are shown. If Tico cannot
    record it the result is withheld.
 7. **Redaction**: the connection string and its password are scrubbed from every error.
 
@@ -74,19 +74,19 @@ GRANT SELECT ON app.* TO 'tico_readonly'@'10.%';
 with `GRANT USAGE ON *.* TO ... WITH MAX_USER_CONNECTIONS 5`.) Restrict the host to the network
 your runner computers are on.
 
-SQLite: nothing to create; give the operator's user read access to the file. `hub db` opens it
+SQLite: nothing to create; give the owner's user read access to the file. `hub db` opens it
 `mode=ro`.
 
 ### 2. Put the connection string on the computer
 
 The name is `DB_<NAME>_URL` for a database you will call `<name>` (`warehouse` gives
-`DB_WAREHOUSE_URL`; a `-` becomes `_`). In the runner's secrets folder, mode 600, never in git:
+`DB_WAREHOUSE_URL`; a `-` becomes `_`). In the runner's credentials folder, mode 600, never in git:
 
 ```
 # <workspace>/secrets/_shared.env  (every bot on this computer can receive it; the grant in step 3 decides who may use it)
 DB_WAREHOUSE_URL=postgresql://tico_readonly:PASSWORD@replica.internal:5432/app?sslmode=require
 # <workspace>/secrets/<bot>.env   (only that bot)
-# DB_WAREHOUSE_URL=op://Company Bots/Warehouse read only/url          (a 1Password reference works too)
+# DB_WAREHOUSE_URL=op://Team Bots/Warehouse read only/url          (a 1Password reference works too)
 ```
 
 Formats: `postgresql://user:pass@host:5432/db?sslmode=require`, `mysql://user:pass@host:3306/db`
@@ -114,23 +114,23 @@ access:
     note: "revenue reporting only; counts, no customer rows"
 ```
 
-A bot without the entry is refused even when the credential sits in `_shared.env`. A person who
+A bot without the entry is refused even when the credential sits in `_shared.env`. A human who
 runs `hub db` from their own shell (with their personal API token, see
 [how-it-works.md](how-it-works.md)) is granted by having the connection string in their own
 environment.
 
 ### 4. Add the database's page and its named queries
 
-Named queries are a catalog of statements people already trust, so a bot picks `revenue-by-month`
-instead of inventing SQL. They belong to the company, not to Tico: put them in your
-[private company config](#a-private-company-config), not in this repository.
+Named queries are statements humans already trust, so a bot picks `revenue-by-month`
+instead of inventing SQL. They belong to your team, not to Tico: put them in your
+[private team config](#a-private-team-config), not in this repository.
 
 `integrations/warehouse.md` describes the database for bots (what it holds, which columns are
-personal data, gotchas) in the format every integration page has ([integrations/README.md](../integrations/README.md));
+personal data, gotchas) in the format every tool page has ([integrations/README.md](../integrations/README.md));
 `integrations/queries/warehouse.yaml` lists queries as `{id, title, description, category, tags,
 database, sql, params}`. Bind parameters as `:name`; `$1`, `$2` also work and mean the params in the
-order listed. A full example for a fictional company is in
-[templates/company-config/](../templates/company-config/). The page and catalog are named after the
+order listed. A full example for a fictional team is in
+[templates/company-config/](../templates/company-config/). The page and query file are named after the
 database (`warehouse`), so `hub queries warehouse revenue` searches and `hub db warehouse --query
 <id>` runs.
 
@@ -142,7 +142,7 @@ hub db doctor warehouse
 
 It checks the grant, that the credential is set, that it connects, that the session is read-only,
 and whether the role can write to any table (a warning names the fix). Run it as a bot by asking
-the bot to run it in a turn, or as yourself:
+the bot to run it in a run, or as yourself:
 
 ```bash
 export HUB_API_URL=https://tico.acme.example HUB_TOKEN=tico_pt_...      # a personal API token
@@ -252,7 +252,7 @@ access:
 
 ### 4. Named queries for MongoDB
 
-A catalog entry has `mongo:` where a SQL entry has `sql:`: an `op` (`find`, `aggregate`, `count`,
+A query entry has `mongo:` where a SQL entry has `sql:`: an `op` (`find`, `aggregate`, `count`,
 `distinct`), the `collection` and a `filter`, `pipeline` (or `field`, for `distinct`), plus the
 usual `params`. A value comes from a parameter as `{"$param": "name"}`:
 
@@ -277,7 +277,7 @@ The placeholder replaces a whole value in the parsed document with a typed value
 `number`, `bool`, `date`, `objectid`, `list`); it is never pasted into JSON text, so a value such as
 `{"$ne": null}` stays one string and cannot become an operator. A text value that starts with `$` is
 refused, since inside a pipeline it would be read as a field path. The server checks the entry when
-the catalog loads (op, collection, every `$param` declared). The full example is
+the query file loads (op, collection, every `$param` declared). The full example is
 [templates/company-config/integrations/queries/atlas.yaml](../templates/company-config/integrations/queries/atlas.yaml).
 
 ### 5. Test with the doctor
@@ -292,12 +292,12 @@ means the Atlas user is not the read-only one you meant to create; fix it in Atl
 
 ### What the audit records for MongoDB
 
-The hub gets the operation, the collection, the shape of the call and the number of documents:
+Tico gets the operation, the collection, the shape of the call and the number of documents:
 `find accounts {"filter":{"email":"<string>","age":{"$gt":"<number>"}}}`. Every value in a call the
 bot wrote is replaced by its type, so an email address, a name or an id someone looked up never lands
 in the audit, which anyone who can read events sees. Field names and operators are kept, since they
 are what a review needs ("who looked at `email`"), so do not put personal data in a field name. A
-named query is the exception on purpose: its entry is reviewed text in the company's catalog, so the
+named query is the exception on purpose: its entry is reviewed text in your team's queries, so the
 audit records the entry with `{"$param": ...}` left in and the parameter names, never their values.
 
 ### MongoDB troubleshooting
@@ -326,11 +326,11 @@ audit records the entry with `{"$param": ...}` left in and the parameter names, 
 - **Prompt injection**: text in the database (a customer note, a ticket body) is data, not
   instructions, and a bot that reads it can be told to do things. Keep the credential read-only
   so the worst outcome is a read the role allowed anyway, keep personal columns out of the role,
-  and keep the rule "counts and ids, not rows of people" on the database's page.
+  and keep the rule "counts and ids, not rows of humans" on the database's page.
 - **The statement checks are not a sandbox.** They catch the common mistake; a database
   function with side effects is only stopped by the role and the read-only session.
 - **Never share a writable URL** with a bot, and do not put the connection string in a repository,
-  a task or a chat. Rotate the password by changing it in step 1 and step 2; nothing on the hub
+  a task or a chat. Rotate the password by changing it in step 1 and step 2; nothing in Tico
   needs to change.
 
 ## Troubleshooting
@@ -343,7 +343,7 @@ audit records the entry with `{"$param": ...}` left in and the parameter names, 
 | `timeout` | add a date window or an index, or lower the work; the limit is 20 s unless the entry raises `timeout_seconds` (ceiling 120 s) |
 | `read_only` | the statement wrote, or used `INTO`. `hub db` never writes |
 | `refused: one statement per call` | remove the second statement; a trailing `;` is fine |
-| `audit: ... result is withheld` | the hub could not record the query; check the runner can reach the hub and retry |
+| `audit: ... result is withheld` | Tico could not record the query; check the runner can reach Tico and retry |
 | connection refused / timed out | the database's firewall or security group does not allow the runner computer, or a VPN is down |
 | `password authentication failed` | wrong password, or special characters not percent-encoded |
 | `SSL` errors | add `?sslmode=require` (PostgreSQL) or `?ssl=true` (MySQL); a private CA needs `ssl_ca` |
@@ -354,10 +354,10 @@ audit records the entry with `{"$param": ...}` left in and the parameter names, 
 | `tls: the TLS handshake failed` | MongoDB: a wrong system clock, an old or missing CA bundle, or a proxy that intercepts TLS |
 | result says `truncated` | more rows exist than the cap; add a `WHERE` or `LIMIT`, or aggregate |
 
-## A private company config
+## A private team config
 
-Tico's repository is the product. Your company's own material (roster, skills, integration pages,
-query catalogs, playbooks) stays in a repository of your own, layered over an upstream release:
+Tico's repository is the product. Your team's own material (roster, skills, tool pages,
+query files, playbooks) stays in a repository of your own, layered over an upstream release:
 
 ```
 company-config/                    # a private git repository
@@ -367,15 +367,15 @@ company-config/                    # a private git repository
       warehouse.md
       queries/warehouse.yaml
   emp-<slug>/                      # one repository per bot (employee.yaml `access:`, instructions)
-  skills/                          # company skills your bots read
+  skills/                          # team skills your bots read
 ```
 
-**How layering works.** The server reads the release's `integrations/` first, then the company's
+**How layering works.** The server reads the release's `integrations/` first, then your team's
 directory: `<TICO_REGISTRY_DIR>/integrations` by default, or the directory named by
-`TICO_INTEGRATIONS_DIR`. A company page replaces a release page of the same name (your `postgres.md`
-would replace the generic one); a company `queries/<service>.yaml` replaces that service's
-queries; a page with no catalog keeps the one it had. A catalog with no page, or a malformed file, is an error that
-surfaces on the Integrations page rather than being skipped silently. The catalog is read once per
+`TICO_INTEGRATIONS_DIR`. A team page replaces a release page of the same name (your `postgres.md`
+would replace the generic one); a team `queries/<service>.yaml` replaces that service's
+queries; a page with no queries keeps the one it had. Queries with no page, or a malformed file, are an error that
+surfaces on the Tools page rather than being skipped silently. The files are read once per
 process, so restart the server after a change.
 
 **Deploying to the server.**
@@ -392,25 +392,25 @@ process, so restart the server after a change.
 - Local environment on a Mac: the environment's `registry/` folder
   ([environments.md](environments.md)), then `scripts/tico -e <slug> server restart`.
 
-**Deploying to the runners.** A runner needs three things and no catalog:
+**Deploying to the runners.** A runner needs three things and no query files:
 
 1. The Tico release (`hub`, `clients/dbquery.py`), which is what the runner already runs.
 2. Each bot's repository with its `employee.yaml` `access:` entries: that is the grant.
 3. `secrets/` on the computer with the `DB_<NAME>_URL` values, kept out of git and out of the
    config repository.
 
-Named queries reach the runner over the hub's API at query time (`hub db <name> --query <id>` asks
-the server for the statement), so a catalog update is a server deploy only.
+Named queries reach the runner over Tico's API at query time (`hub db <name> --query <id>` asks
+the server for the statement), so a query update is a server deploy only.
 
-**What stays upstream.** Integration pages for the services Tico has built-in support for, `hub db`, the driver setup and this
-guide. What belongs in your config is anything with a company name, host, table or person in it.
+**What stays upstream.** Tool pages for the services Tico has built-in support for, `hub db`, the driver setup and this
+guide. What belongs in your config is anything with a team name, host, table or human in it.
 Do not send upstream pull requests that contain them.
 
 ## BigQuery, Snowflake and other warehouses
 
 `hub db` speaks PostgreSQL, MySQL/MariaDB, MongoDB and SQLite. For a warehouse with its own CLI, keep the
-same shape by hand: credentials in the runner's secrets, a read-only role or service account,
-a bot `access:` entry, and an integration page in your private config saying how to call the CLI.
+same shape by hand: credentials in the runner's credential files, a read-only role or service account,
+a bot `access:` entry, and a tool page in your private config saying how to call the CLI.
 Examples: `bq query --use_legacy_sql=false --maximum_bytes_billed=1000000000 --format=csv 'SELECT ...'`
 (a service account with only `roles/bigquery.dataViewer` and `roles/bigquery.jobUser`, and a
 billing cap) or `snowsql -o friendly=false -o output_format=csv -q 'SELECT ...'` (a role with only

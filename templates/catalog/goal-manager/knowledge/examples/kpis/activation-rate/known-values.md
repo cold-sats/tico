@@ -1,7 +1,7 @@
 # Known values
 
 Run `compute.sql` against these before every pass. A different answer means stop: the query, the table or the
-definition changed, and the reading waits for a person.
+definition changed, and the reading waits for a human.
 
 | period | accounts | expected value |
 |---|---|---|

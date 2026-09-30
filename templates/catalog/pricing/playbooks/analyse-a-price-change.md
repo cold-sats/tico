@@ -1,6 +1,6 @@
 # Analyse a price change
 
-Triggered by a task where a person is weighing a price or packaging change ("raise Pro by 15%", "move
+Triggered by a task where a human is weighing a price or packaging change ("raise Pro by 15%", "move
 SMS reminders to Pro"). Budget 60 minutes. The outcome is an impact note the owner can decide from.
 Nothing is changed and no customer is told.
 

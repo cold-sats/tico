@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme technical deal prep, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company. Every deal is invented. Nothing has been
+Sample output for Acme, a fictional studio-software team. Every deal is invented. Nothing has been
 sent to a prospect and no access was given. First draft, not yet reviewed.
 
 **Headline: 4 deals with a technical step in 2 weeks. 1 POC at risk (Pine & Stone, 2 of 4 criteria
@@ -31,5 +31,5 @@ met, ends Friday); 6 security answers wait on Omar.**
   v2, section 4, read 2026-09-30). Not possible without a custom job; said plainly in the note.
 
 ## Sources
-- POC log 2026-09-28; calls 2026-09-24 and 2026-09-29; company docs read 2026-09-30
+- POC log 2026-09-28; calls 2026-09-24 and 2026-09-29; team docs read 2026-09-30
 ```

@@ -1,6 +1,6 @@
 # Weekly win/loss notes
 
-Schedule: Fridays at 10:00 company time (routine `weekly-win-loss`), once a person has approved the first
+Schedule: Fridays at 10:00 team time (routine `weekly-win-loss`), once a human has approved the first
 notes. Also run by hand. Budget 45 minutes. The outcome is one page: why this week's deals were won or
 lost in buyers' words, what it adds to the pattern, and one thing to change. Nothing leaves the team.
 
@@ -15,7 +15,7 @@ Friday, with amount, segment, competitor and the recorded reason. Also deals mar
 
 ## 2. Read the evidence
 
-For each, `hub meetings search "<company>"` and read the last two or three calls, then the seller's notes.
+For each, `hub meetings search "<customer>"` and read the last two or three calls, then the seller's notes.
 Extract four to six decision drivers: what the buyer valued, feared, compared, and who decided. Each is a
 quote or close paraphrase with call and timestamp. Where the evidence and the recorded reason disagree,
 say so; the correction is for the deal's owner and `sales-ops`.

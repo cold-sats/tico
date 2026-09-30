@@ -1,16 +1,16 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme people summary, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company of 42 people. Only first names, roles and
+Sample output for Acme, a fictional studio-software team of 42 people. Only first names, roles and
 dates appear. Nothing has been assigned, published or sent. First draft, not yet reviewed.
 
 **Headline: 3 of 5 planned Q4 hires filled or in offer; 2 deadlines in the next 14 days, one without an owner.**
 
-## Needs a person now
+## Needs a human now
 - **Benefits enrollment opens 2026-10-12 and the plan comparison is not started.** Owner: none named.
-  Proposed: route to `benefits`, or to Marco if you prefer a person. Source: people calendar.
+  Proposed: route to `benefits`, or to Marco if you prefer a human. Source: people calendar.
 - **Probation review for Lena (Support Specialist) due 2026-10-06.** Manager Dana has no review
   meeting booked (calendar read 2026-09-28).
 
@@ -36,7 +36,7 @@ dates appear. Nothing has been assigned, published or sent. First draft, not yet
 ## What the people bots produced
 - `recruiting`: 18 applications screened; 2 replies waiting on approval since 2026-09-25.
 - `people-hr`: onboarding tracker for Dev; one handbook gap (equipment returns) sent to the Librarian.
-- Not in this company yet: benefits, offboarding (see proposals).
+- Not in this team yet: benefits, offboarding (see proposals).
 
 ## Routing and hiring proposals (nothing created)
 - Omar's offboarding to Ruth (office and IT today), as `people-ops` is not in the team.

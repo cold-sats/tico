@@ -34,7 +34,7 @@ or "skip", with the numbers.
 ## 4. Prepare the outbound
 
 Draft the promotion and follow-up emails and posts in `reports/<event>/`. Each goes out only via
-`hub approval request --kind publish` with its text and list, or a person sends it.
+`hub approval request --kind publish` with its text and list, or a human sends it.
 
 ## 5. Put it up for approval
 

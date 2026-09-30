@@ -27,12 +27,12 @@ one page, every sentence serving a win theme.
 Sort the questions (product, commercial, security, legal, compliance, references). For each, search
 `knowledge/library/` and `hub docs ask`. A match under twelve months old is **reused**; one needing change is
 **adapted**; no match is **new**, and a new security, legal or compliance answer is not drafted: it is
-`[owner: <name>]`. Technical depth goes to `sales-engineer` as a sub-task if the company has one.
+`[owner: <name>]`. Technical depth goes to `sales-engineer` as a sub-task if the team has one.
 
 ## 4. Gaps
 
 Every price, discount, term, date and service level is `[price: <owner>]`, `[start date: <owner>]`. Put the
-gap list at the top: the gap, the person, the day it is needed by.
+gap list at the top: the gap, the human, the day it is needed by.
 
 ## 5. Hand over
 

@@ -3,16 +3,16 @@
 'use strict';
 
 // ----------------------------------------------------------------- goals
-// The Goals page is one tree: the company, then every person and bot as the org chart nests them,
+// The Goals page is one tree: the team, then every human and bot as the team chart nests them,
 // one line each with their goal (ui/goals-kpis.js draws it and the panel a tap opens). A goal's level
-// comes from its owner: `company`, a person or a bot. Its parent is optional ("Supports"); a goal with
+// comes from its owner: `company`, a human or a bot. Its parent is optional ("Supports"); a goal with
 // none is simply not linked. A bot reads its own with `hub goals`; nothing here is pushed into a run.
 let GOALS_ST = null;
 const goalLive = g => !['done', 'dropped'].includes(g.status);
 const goalRank = (a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9);
 const GOAL_COMPANY = 'company';
 function goalOwnerInfo(actor) {
-  if (actor === GOAL_COMPANY) return {kind: 'company', id: GOAL_COMPANY, name: S.config?.company_name || 'Company', avatar: '', href: ''};
+  if (actor === GOAL_COMPANY) return {kind: 'company', id: GOAL_COMPANY, name: S.config?.company_name || 'Team', avatar: '', href: ''};
   const [kind, id] = String(actor || '').split(':');
   if (kind === 'bot') {
     const e = S.emps.find(x => x.name === id);
@@ -40,7 +40,7 @@ function goalMayEdit(g, goals = []) {
   const parent = goals.find(x => x.id === g.parent_id);
   return g.owner === actor || parent?.owner === actor || goalOrgPlace(g.owner).above.has('p:' + me.id);
 }
-// The options of a "Supports" select: Nothing first (a goal needs no parent), then company goals,
+// The options of a "Supports" select: Nothing first (a goal needs no parent), then team goals,
 // goals above the owner on the org chart, and goals alongside it. Never the goal itself or anything
 // under it (that would loop).
 function goalSupportOptions(g, owner, goals) {
@@ -61,7 +61,7 @@ function goalSupportOptions(g, owner, goals) {
   const option = x => `<option value="${esc(x.id)}"${x.id === g.parent_id ? ' selected' : ''}>${esc(x.title)}${x.owner === GOAL_COMPANY ? '' : ' · ' + esc(goalOwnerInfo(x.owner).name)}</option>`;
   const group = (label, list) => list.length ? `<optgroup label="${label}">${list.sort(goalRank).map(option).join('')}</optgroup>` : '';
   return `<option value=""${g.parent_id ? '' : ' selected'}>Nothing</option>`
-    + group('Company', rows.company) + group('Above on the org chart', rows.above) + group('Alongside', rows.alongside);
+    + group('Team', rows.company) + group('Above on the team chart', rows.above) + group('Alongside', rows.alongside);
 }
 const goalLinkOptions = (g, goals) => goalSupportOptions(g, g.owner, goals);
 // One goal, editable in place (the bot page's Goals card): the words, and what it supports.
@@ -156,7 +156,7 @@ function goalNoteHtml(g, may) {
   return (said ? `<div class="goal-note">${esc(said)}</div>` : '') + suggest;
 }
 function goalFormHtml(g, goals, {owner = '', company = false, fixed = false} = {}) {
-  company = company || g.owner === GOAL_COMPANY;      // a company goal supports nothing
+  company = company || g.owner === GOAL_COMPANY;      // a team goal supports nothing
   const may = !g.id || goalMayEdit(g, goals);
   const me = mePerson(), mine = me ? 'human:' + me.id : '';
   const choices = g.id || company || fixed ? [] : goalOwnerChoices(mine);   // fixed: the owner is whoever was tapped

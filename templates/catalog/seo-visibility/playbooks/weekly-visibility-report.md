@@ -1,8 +1,8 @@
 # Weekly search and AI visibility report
 
-Schedule: Mondays at 08:00 company time (routine `weekly-visibility-report`), once a person has
+Schedule: Mondays at 08:00 team time (routine `weekly-visibility-report`), once a human has
 approved the first report. Also run by hand on request. Budget 45 minutes. The outcome is one report:
-how the company shows up in search and AI answers, three fixes with drafted changes, and the gaps.
+how the team shows up in search and AI answers, three fixes with drafted changes, and the gaps.
 Nothing on the site changes.
 
 ---
@@ -33,8 +33,8 @@ For the two or three pages that matter most this week, follow `playbooks/page-au
 ## 5. Choose three fixes
 
 Rank what you found by likely effect on a buyer finding an answer. For each: the page, the problem,
-the drafted change (exact new title, description or paragraph, in the company's voice), and how a
-person applies it. Put drafts in `knowledge/drafts/`. A content gap is a proposed brief for the
+the drafted change (exact new title, description or paragraph, in the team's voice), and how a
+human applies it. Put drafts in `knowledge/drafts/`. A content gap is a proposed brief for the
 content bot, not a task you create.
 
 ## 6. Write the report and hand it over
@@ -44,7 +44,7 @@ content bot, not a task you create.
     hub files publish reports/YYYY-MM-DD-visibility.md
 
 Commit, then `hub task update <id> --status done --note`: the headline, the path, what you could not
-read. Always finish it: an open scheduled task absorbs the next.
+read. Always finish it: an open routine task absorbs the next.
 
 ## When a source fails
 

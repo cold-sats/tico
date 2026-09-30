@@ -1,7 +1,7 @@
 # Renewal review
 
 Triggered by a task asking "should we renew X?" or by a renewal inside 60 days in
-`knowledge/renewals.md`. Budget 25 minutes. The outcome is a one-page brief a person decides from.
+`knowledge/renewals.md`. Budget 25 minutes. The outcome is a one-page brief a human decides from.
 You recommend nothing you cannot source, and you never act on the renewal.
 
 ---
@@ -17,7 +17,7 @@ seats, notice period, auto-renewal clause) and the last two reports' mentions of
 
 - **Cost**: what was paid for the last 12 months (export rows), and the renewal price if stated,
   with the date and source. A price rise is the percent and the source line.
-- **Usage**: seats billed against seats active, with dated usage lines; features in use if a person
+- **Usage**: seats billed against seats active, with dated usage lines; features in use if a human
   gave them. No usage data means "not measured", with what would measure it.
 - **Owner and need**: who uses it and what breaks if it is gone; ask the owner through the task,
   never by messaging them.
@@ -29,11 +29,11 @@ seats, notice period, auto-renewal clause) and the last two reports' mentions of
 
 Decide-by date and cost first. Then keep, reduce or drop as a suggestion, labelled "suggestion, not a
 decision", with the two facts that support it. Then the questions only the owner can answer. Give
-negotiation angles only from sourced facts: vendor fiscal year end if the person told you, seats you can
+negotiation angles only from sourced facts: vendor fiscal year end if the human told you, seats you can
 show are idle, a multi-year offer already in the paper.
 
 ## 4. Finish
 
 Attach the brief, then `hub task update <id> --status done --note`: the decide-by date, the suggestion, and
-what you could not read. The person cancels, renegotiates or renews; you never contact the vendor.
+what you could not read. The human cancels, renegotiates or renews; you never contact the vendor.
 When the notice date has passed, say so in the first line.

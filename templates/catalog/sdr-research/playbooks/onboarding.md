@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a real pack for the first lead or two on the task, and the first routine confirmed.
@@ -18,11 +18,11 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (qualify inbound, research and score new leads, run the sequence, book first meetings), that every message goes out on a person's approval, and that you never change the CRM without a Confirm.
+What you do (qualify inbound, research and score new leads, run the sequence, book first meetings), that every message goes out on a human's approval, and that you never change the CRM without a Confirm.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Who is your ideal customer, and what rules a lead out? Give me the firmographics (size, industry, geography) and two customers you would clone. Becomes knowledge/icp.md and the fit half of the score. I judge every lead against it.
@@ -42,10 +42,10 @@ Take the first one or two leads and follow `playbooks/research-a-lead.md`, then 
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will run prospecting every weekday at 07:30: inbound qualified, leads scored, touches ready for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will run prospecting every weekday at 07:30: inbound qualified, leads scored, touches ready for your approval." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -53,6 +53,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

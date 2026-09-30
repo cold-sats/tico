@@ -1,9 +1,9 @@
-/* ui/app/org-fan.js — Mobile org switcher
+/* ui/app/org-fan.js — Mobile team switcher
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// ---- Org switcher (mobile): the bots you were just at, nearest the thumb, then the ones that need you
-// The bots from the shared history (the desktop Org history uses the same list), then any from this
+// ---- Team switcher (mobile): the bots you were just at, nearest the thumb, then the ones that need you
+// The bots from the shared history (the desktop Team history uses the same list), then any from this
 // phone's older list (tico.org.recent) that the shared one has not seen.
 function orgRecent() {
   let old = []; try { old = JSON.parse(localStorage.getItem('tico.org.recent') || '[]').filter(x => typeof x === 'string'); } catch {}
@@ -18,7 +18,7 @@ function orgFanBots() {
   const needs = [...shown].filter(slug => !recent.includes(slug))
     .map(slug => ({slug, n: needsMeCount(slug) + (stateOf(slug) === 'needs' ? 1 : 0)}))
     .filter(x => x.n > 0).sort((a, b) => b.n - a.n || botDisplayName(a.slug).localeCompare(botDisplayName(b.slug)));
-  // Ten at most: eight recent, the rest waiting on you. A short screen scrolls the list.
+  // Ten at most: eight recent, the rest needing you. A short screen scrolls the list.
   return [...recent.map(slug => ({slug, recent: true, n: needsMeCount(slug)})), ...needs].slice(0, 10);
 }
 let ORG_FAN_HIDE = 0;

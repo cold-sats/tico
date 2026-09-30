@@ -18,10 +18,10 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
 (async () => {
   try {
     const [st, emps, issues, me, people] = await Promise.all([get('/status').catch(() => null), get('/employees'), get('/issues').catch(() => []), get('/me').catch(() => null), get('/people').catch(() => ({people: []}))]);
-    applyConfig(me?.config);           // company-facing names before the first render
+    applyConfig(me?.config);           // team-facing names before the first render
     S.status = st; S.emps = namedRoster(emps); S.issues = issues; S.me = me; setPeople(people);
   } catch (e) {
-    $('#main').innerHTML = `<section class="card"><h2>Hub server not running</h2><p>Start it with <code>scripts/tico server start</code> in the Tico repo, or install it with <code>scripts/tico server install</code> so it runs at login.</p><p class="err">${esc(e.message)}</p></section>`;
+    $('#main').innerHTML = `<section class="card"><h2>Tico server not running</h2><p>Start it with <code>scripts/tico server start</code> in the Tico repo, or install it with <code>scripts/tico server install</code> so it runs at login.</p><p class="err">${esc(e.message)}</p></section>`;
     return;
   }
   if (S.me?.cloud) {
@@ -32,7 +32,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
   void orgHistorySync();
   window.gsBoot?.();
   window.hlBoot?.();
-  // A company that has never been set up opens on its first run, not on an empty Chat.
+  // A team that has never been set up opens on its first run, not on an empty Chat.
   if (BOOT_DEFAULT_ROUTE && S.config.onboarding_needed) history.replaceState(null, '', WELCOME);
   route(); renderHeartbeat(); renderAccount();
   if (S.me?.cloud) void updUnreadRefresh();

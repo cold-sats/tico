@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme retention report, week to Fri 2026-09-25
 
-Sample output for Acme, a fictional studio-software company. Every studio and figure is invented.
+Sample output for Acme, a fictional studio-software team. Every studio and figure is invented.
 No reply has been sent and no subscription changed. First draft, not yet reviewed.
 
 **Headline: 11 cancellation or downgrade requests, 4 saved, 6 lost, 1 open. "Not using it" doubled (5 against a 2.5 average).**

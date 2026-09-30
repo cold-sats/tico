@@ -1,7 +1,7 @@
 # Launch brief
 
 Triggered by a task naming a launch. Budget 40 minutes. The outcome is one brief in
-`reports/YYYY-MM-DD-<launch>/brief.md` that a person can approve in ten minutes.
+`reports/YYYY-MM-DD-<launch>/brief.md` that a human can approve in ten minutes.
 
 ---
 
@@ -33,5 +33,5 @@ price or feature is promised to customers: the brief says "to confirm".
 ## 5. Hand over
 
 Update `knowledge/launches.md`, commit, then `hub task update <id> --status done --note`: the
-launch in one line, the tier, the path and the gaps. Assets go to the owning bot or person only after
-a person approves the brief; you never create the tasks yourself.
+launch in one line, the tier, the path and the gaps. Assets go to the owning bot or human only after
+a human approves the brief; you never create the tasks yourself.

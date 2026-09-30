@@ -1,6 +1,6 @@
 # Weekly community digest
 
-Schedule: Fridays at 11:00 company time (routine `weekly-community-digest`), once a person has
+Schedule: Fridays at 11:00 team time (routine `weekly-community-digest`), once a human has
 approved the first digest. Also run by hand. Budget 35 minutes. The outcome is one page on the
 community's health and a batch of replies waiting for approval. Nothing is posted.
 
@@ -26,7 +26,7 @@ nobody). Count new members who posted for the first time and members who came ba
 - **Answered by members:** who answered, and whether the answer was right (check it with the
   Librarian). Correct answers earn a line in `knowledge/champions.md`.
 - **Feedback and bugs:** one line each with the thread link, grouped by theme.
-- **Guideline problems:** the post, the rule, the person who moderates. No action of your own.
+- **Guideline problems:** the post, the rule, the human who moderates. No action of your own.
 - **Top threads:** the two or three with the most replies or reactions, and why.
 
 ## 4. Route

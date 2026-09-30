@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is six recorded answers, a snapshot of the first one or two conversations you can read, and the first routine confirmed.
 
 ---
@@ -11,7 +11,7 @@ finished. Budget 30 minutes. The outcome is six recorded answers, a snapshot of 
     hub meetings search --since YYYY-MM-DD
     hub docs search "interview"
 
-Check what you can already reach: imported calls, research notes in the company docs, and the market graph (`hub market show`).
+Check what you can already reach: imported calls, research notes in the team docs, and the market graph (`hub market show`).
 Do not ask what these already say. If there is nothing to read, that is answer two, and the first result is a plan for what to collect.
 
 ## 2. Introduce yourself in three lines
@@ -20,13 +20,13 @@ What you do (turn interviews, calls and feedback into snapshots, opportunities a
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What outcome is the product team working toward this quarter, in one sentence? Why: Research is grouped under an outcome. Without one, I collect stories that answer nothing.
 2. Where do interviews and user conversations live: meeting recordings, a folder of notes, survey exports? Can I read them? Why: Sets the sources. I say what I could not read instead of guessing.
-3. Who are the users you most need to understand, and which decision is open right now? Why: The first brief is written for that decision, for that person.
+3. Who are the users you most need to understand, and which decision is open right now? Why: The first brief is written for that decision, for that human.
 4. Which competitors matter, and which of their features do people compare you to? Why: Sets the first comparison. Competitor facts go to the market graph, not to a file here.
-5. What may I never store or quote: names, companies, anything from a private meeting? Why: Quotes are anonymised until you say otherwise.
+5. What may I never store or quote: names, organizations, anything from a private meeting? Why: Quotes are anonymised until you say otherwise.
 6. When should the weekly research digest land, and who gets it? (Default: Thursdays at 10:00, to you.) Why: Sets the recipient and the first routine's schedule.
 
 ## 4. Record
@@ -40,10 +40,10 @@ Take the first one or two conversations you can read and follow `playbooks/write
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send you a research digest every Thursday at 10:00 with new snapshots and the opportunities they support, and I will contact no one." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a research digest every Thursday at 10:00 with new snapshots and the opportunities they support, and I will contact no one." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -51,6 +51,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

@@ -88,7 +88,7 @@ function convGroup(r, slug) {
     ${r.issue ? `<a class="mono" href="${esc(r.issue_url || `${GH}/issues/${r.issue}`)}" target="_blank" rel="noopener">#${esc(r.issue)}</a>` : '<span class="mono muted">chat</span>'}
     <span class="ttl">${esc(chat ? '' : (r.issue_title || 'Untitled task'))}</span>
     ${live ? '<span class="pill in-progress">running</span>' : r.exit !== 0 && r.exit != null ? `<span class="pill fail">failed · exit ${esc(r.exit)}</span>` : ''}
-    ${r.needs_human ? '<span class="pill needs">needs you</span>' : ''}
+    ${r.needs_human ? `<span class="pill needs">${!personHandle(r.issue_from) || personHandle(r.issue_from) === myHandle() ? 'Needs you' : 'Needs ' + esc(firstName(personDisplay(personHandle(r.issue_from))))}</span>` : ''}
     <span class="spacer" style="flex:1"></span>
     <span class="tnum" title="${esc(fmt(r.started))}">${r.finished ? ago(r.finished) : ago(r.started)}${r.duration_s != null ? ` · ${Math.round(r.duration_s / 60)}m` : ''}</span>
     ${r.local ? '' : `<a class="muted" href="${API}/runs/${esc(r.run)}/log" target="_blank" rel="noopener">log</a>`}</div>${
@@ -97,7 +97,7 @@ function convGroup(r, slug) {
       r.session_id ? ` · <a href="#" data-sess="${esc(r.session_id)}" data-sess-rt="${esc(CONV?.session?.runtime || S.emps.find(e => e.name === slug)?.runtime || '')}">open the session file</a>` : ''}</div>`}`;
   const ask = chat ? convChatAsk(r)
     : !r.issue_body ? ''
-    : isRecurring(r) ? `<div class="bubble sched"><span class="who">Schedule</span>${esc(r.issue_title || 'Routine')}
+    : isRecurring(r) ? `<div class="bubble sched"><span class="who">Routine</span>${esc(r.issue_title || 'Routine')}
         <details class="sched-body"><summary>show template</summary><div class="q">${esc(r.issue_body)}</div></details></div>`
     : `<div class="bubble you"><span class="who">${esc(personHandle(r.issue_from) || ownerHandle())}</span>${esc(unsigned(r.issue_body))}</div>`;
   const words = convActivityWords(counts);
@@ -234,17 +234,17 @@ function sessionHead(d, slug) {
       </div>
     </div>` : '';
   const pointerLine = pointer
-    ? `Hub pointer: <span class="mono">${esc(pointer.thread_id)}</span>`
+    ? `Tico pointer: <span class="mono">${esc(pointer.thread_id)}</span>`
       + (pointer.tokens_in != null ? ` · ${esc(String(pointer.tokens_in))} tokens in` : '')
       + (pointer.updated ? ` · saved ${esc(ago(pointer.updated))}` : '')
       + (pointer.runner_id ? ` · runner ${esc(pointer.runner_id)}` : '')
-    : 'Hub pointer: none yet';
+    : 'Tico pointer: none yet';
   return `${d.cloud ? 'Cloud session' : d.current ? 'Live session file' : 'Session file'}: <strong>${esc(d.runtime)}</strong>
     ${d.model ? `<span class="muted">${esc(d.model)}</span>` : ''}
     <span class="mono">${esc(d.session_id)}</span>
     ${pointerLine}
     ${resumeBox}
-    ${d.first_ts ? `started ${esc(fmt(d.first_ts))}` : ''} · ${esc(String(d.turn_count))} turns${
+    ${d.first_ts ? `started ${esc(fmt(d.first_ts))}` : ''} · ${esc(String(d.turn_count))} runs${
       d.shown < d.turn_count ? ` <span class="muted">(showing the last ${esc(String(d.shown))})</span>` : ''}
     ${runs.length ? ` · covers runs ${esc(runs.join(', '))}` : ' · unused'}
     ${d.last_ts ? ` · last written ${esc(ago(d.last_ts))}` : ''}
@@ -283,7 +283,7 @@ async function sessionLoad(slug, pick) {
   const back = head.querySelector('[data-sess-current]');
   if (back) back.onclick = ev => { ev.preventDefault(); sessionLoad(slug, null); };
   body.innerHTML = (d.turns || []).map(t => sessionTurn(t, slug)).join('')
-    || '<div class="empty">No turns yet.</div>';
+    || '<div class="empty">No runs yet.</div>';
   body.scrollTop = body.scrollHeight;                       // newest last, like the thread
 }
 
@@ -315,7 +315,7 @@ async function fillBotRuns(slug) {
 async function loadDocs(slug) {
   try {
     const f = await get(`/employees/${slug}/files`);
-    if ($('#agent')) $('#agent').innerHTML = f['AGENT.md'] ? md(f['AGENT.md'].replace(/^# .*\n/, '')) : '<div class="empty">No AGENT.md.</div>';
+    if ($('#agent')) $('#agent').innerHTML = f['AGENT.md'] ? md(f['AGENT.md'].replace(/^# .*\n/, '')) : '<div class="empty">No instructions.</div>';
     for (const [n, t] of Object.entries(f.playbooks || {})) { const el = document.getElementById('pb-' + n); if (el) el.innerHTML = md(t); }
     const tabs = [['Status note', f['state.md']], ['Learnings', f['memory/learnings.md']], ['Decisions', f['memory/decisions.md']]];
     for (const [n, t] of Object.entries(f.playbooks || {})) if (n !== 'README.md') tabs.push(['Playbook: ' + n.replace(/\.md$/, ''), t]);

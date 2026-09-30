@@ -76,8 +76,8 @@
       }
       if (state === 'waiting') {
         head = `<ol class="model-login-steps">
-          <li>${login.url ? `Open <a href="${text(login.url)}" target="_blank" rel="noopener noreferrer" data-link>${text(login.url.replace(/^https:\/\//, '').slice(0, 60))}</a> and sign in with the company's account.`
-                          : 'Open the sign-in page the computer printed (see below) and sign in with the company\'s account.'}</li>
+          <li>${login.url ? `Open <a href="${text(login.url)}" target="_blank" rel="noopener noreferrer" data-link>${text(login.url.replace(/^https:\/\//, '').slice(0, 60))}</a> and sign in with the team's account.`
+                          : 'Open the sign-in page the computer printed (see below) and sign in with the team\'s account.'}</li>
           ${login.code ? `<li>Enter this one-time code:<div class="model-login-code"><code data-code>${text(login.code)}</code>
               <button class="ghost" type="button" data-copy>Copy</button></div></li>` : ''}
           ${login.accepts_code ? `<li>${login.code_sent ? 'Code sent. Waiting for the computer to finish…' : 'The page then shows a code. Paste it here:'}

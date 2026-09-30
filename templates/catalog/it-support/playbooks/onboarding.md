@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the tools, devices and checklist
 files written, a first weekly IT page, and the first routine confirmed.
 
@@ -11,7 +11,7 @@ files written, a first weekly IT page, and the first routine confirmed.
     hub task show <id>
     hub org
     hub task list --status open
-    hub docs ask "Which tools does the company use, and how do people get access to them?"
+    hub docs ask "Which tools does the team use, and how do people get access to them?"
 
 Open tasks about laptops, passwords, access or Wi-Fi are your first requests. Log them with their
 original dates.
@@ -46,10 +46,10 @@ Follow `playbooks/weekly-it-page.md`. Attach it labelled "First draft, not yet r
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "you will get this page every Monday at 09:30, and I will work requests as they come in between." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "you will get this page every Monday at 09:30, and I will work requests as they come in between." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -57,6 +57,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

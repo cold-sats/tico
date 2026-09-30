@@ -1,6 +1,6 @@
 # Daily escalation digest
 
-Schedule: weekdays at 08:30 company time (routine `daily-escalation-digest`), once a person has
+Schedule: weekdays at 08:30 team time (routine `daily-escalation-digest`), once a human has
 approved the first digest. Budget 25 minutes. The outcome is one page for the people who own
 escalations, plus every customer update due today ready for approval.
 

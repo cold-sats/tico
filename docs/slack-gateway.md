@@ -2,9 +2,9 @@
 
 A DM to Tico, or an `@Tico` in a channel Tico has been invited to, wakes the bot the
 message is for. The reply comes back in the same thread or DM under that bot's name, with
-`(sent from <employee>)` as its last line. Everything else said in a channel Tico is in is
-stored, and the channel's readers get what they have not seen within the hour, the way an
-employee subscribed to the channel catches up on it. One Slack app, one process on the server,
+`(sent from <bot>)` as its last line. Everything else said in a channel Tico is in is
+stored, and the channel's readers get what they have not seen within the hour, the way a
+bot subscribed to the channel catches up on it. One Slack app, one process on the server,
 and the decision model deciding who a DM or a mention is for. The code is
 `backend/slack_gateway.py`.
 
@@ -12,19 +12,19 @@ and the decision model deciding who a DM or a mention is for. The code is
 
 | In Slack | What happens |
 |---|---|
-| A DM to Tico | Routed; the reply lands at the bottom of the DM, or in the reply thread the person wrote in. A DM is one hub conversation per bot for its life, however the person types: a follow-up at the bottom of the DM continues it. |
+| A DM to Tico | Routed; the reply lands at the bottom of the DM, or in the reply thread the human wrote in. A DM is one Tico conversation per bot for its life, however the human types: a follow-up at the bottom of the DM continues it. |
 | `@Tico` in a channel Tico is in | Routed; the reply goes under the message. Mentioning Tico again in that thread continues the same conversation. |
 | A reply in a thread a bot already talks in, no mention | Routed at once, like a mention: the decision model sees the thread's routing and the reply usually continues it. |
-| Any other message in a channel Tico is in, bots' posts included | Stored (Channels, below). The channel's readers get it on the hourly pass; nobody is woken now. A bot still reads a channel through `connectors/slack.py history` during its own turn. |
+| Any other message in a channel Tico is in, bots' posts included | Stored (Channels, below). The channel's readers get it on the hourly pass; nobody is woken now. A bot still reads a channel through `connectors/slack.py history` during its own run. |
 | An edit or a deletion in a channel | Applied to the stored message; a reader that had already seen it is told. |
 | A join, a reaction, a file with no text | Ignored. |
 | A Slack Connect or externally shared channel | Refused; nothing is written. |
 | A guest, a deactivated account, a sender whose verified email is not on `registry/people.yaml` or not admitted by `registry/hub-access.yaml` | Refused silently: no reply, the reason on the event. |
 
-A DM is a front door to whichever employee the message is for, never a person's private Tico
-room (`docs/conversation.md`); those rooms are untouched. The person's profile in the hub
+A DM is a front door to whichever bot the message is for, never a human's private Tico
+room (`docs/conversation.md`); those rooms are untouched. The human's profile in Tico
 (`#/person/<id>/slack`) shows those DMs, including their replies. A bot that messages a
-person in the hub (Legal saying something to Thomaz) is posted through the same Tico Slack
+human in Tico (Legal saying something to Thomaz) is posted through the same Tico Slack
 app into their DM, so it shows up there too.
 
 ## How a message is routed
@@ -33,13 +33,13 @@ Every accepted message is one decision call, through the same primitive every bo
 (`clients/judge.py`, `skills/decisions/SKILL.md`); the three fixed questions are the shared set
 `questions/slack-route.json` and the call is labelled `slack-route@1`. The state the decision model reads:
 
-- the message, the sender (roster person, team, `primary_for`) and the channel or DM with its
+- the message, the sender (roster human, group, `primary_for`) and the channel or DM with its
   purpose from `registry/slack-channels.yaml`;
 - the last twelve exchanges in this Slack thread, each with the bot it went to;
 - the thread's previous routing: bots, confidences, reason, and whether each bot is still waiting
   on a reply (the last line in its conversation is the bot's own `ask`, or ends with a question;
-  once the person has answered, it is not waiting);
-- the active roster: slug, display name, team, description, `reports_to`. Paused, planned and
+  once the human has answered, it is not waiting);
+- the active roster: slug, display name, group, description, `reports_to`. Paused, planned and
   quarantined bots are not offered.
 
 The questions, all in that one call: one `noul` "should this go to <bot>?" per active bot, plus
@@ -53,7 +53,7 @@ The decision model reading the previous routing and the open ask in its state, n
 |---|---|
 | asks-for-anything below `TICO_SLACK_ASK_THRESHOLD` (0.5) | records the message on the thread's conversations, wakes nobody |
 | one or more bots at or above `TICO_SLACK_ROUTE_THRESHOLD` (0.6) | routes to each, best `TICO_SLACK_MAX_RECIPIENTS` (3) by confidence, ties by slug |
-| no bot at threshold | routes to the assistant (`TICO_ASSISTANT_BOT`) with the top three candidates on the message, so it can ask the one clarifying question the write layer allows. A company that chose no assistant (it is optional) gets BotOps instead; with neither active, the message is recorded and nobody is woken |
+| no bot at threshold | routes to the assistant (`TICO_ASSISTANT_BOT`) with the top three candidates on the message, so it can ask the one clarifying question the write layer allows. A team that chose no assistant (it is optional) gets BotOps instead; with neither active, the message is recorded and nobody is woken |
 | a chosen bot the write layer refuses (paused or quarantined since the roster was read) | drops it with the reason; the assistant (or BotOps) if that empties the set |
 
 Without a decisions key every message goes to the assistant (or BotOps) and the message says so
@@ -78,8 +78,8 @@ Stored answer for one routed message, as the message's `refs.routing` carries it
 
 ## Identity and what the bot sees
 
-The hub message is written through `hubdb.say` as the verified person (`human:<id>`), never as
-Tico, into a `direct` conversation between that person and the bot, mapped to the Slack thread
+The Tico message is written through `hubdb.say` as the verified human (`human:<id>`), never as
+Tico, into a `direct` conversation between that human and the bot, mapped to the Slack thread
 in `slack_threads`. The guardrails in `docs/how-it-works.md` apply unchanged: an active bot only,
 the cap on bot-to-bot traffic, the unsolicited cap, the lint, the escape rule (a message that
 names a `secrets/` path is refused and recorded as such).
@@ -88,14 +88,14 @@ A follow-up in a thread is linked to the bot's last line (`in_reply_to`); when t
 unanswered `ask`, the follow-up is written as its `answer`, which is what `hub ask --wait`
 polls for, so the ask closes.
 
-The bot's turn gets the text, and in the message's `refs.slack` the channel or DM name, the
+The bot's run gets the text, and in the message's `refs.slack` the channel or DM name, the
 thread permalink, the sender's email, the last twelve exchanges of the thread and a note that
 its reply is posted back to Slack for it and that it must not post to Slack itself for that
 conversation. It gets no other channel and no private room history. A
 message routed to several bots opens or continues one conversation per bot, all mapped to the
 same thread; each reply lands in the thread under its own name.
 
-## Channels, read like an employee reads them
+## Channels, read like a bot reads them
 
 A bot in a channel is meant to have the channel's full context, the way a human subscribed to
 it does, and not in realtime: `@Tico` for a faster response, otherwise within the hour, if
@@ -103,7 +103,7 @@ there are changes. The store is the record of what is read:
 
 - **Stored.** Every message in a channel Tico is in (`message.channels`, `message.groups`) is
   written to `slack_events` as it arrives, before the envelope is acknowledged, unique on
-  `(channel, ts)`: people's messages, bots' and apps' posts (an alert feed is all bots), Tico's
+  `(channel, ts)`: humans' messages, bots' and apps' posts (an alert feed is all bots), Tico's
   own mirrored replies, with the author's kind and name. An edit (`message_changed`) replaces
   the stored text and marks the row edited; a deletion marks it deleted. Nothing is ever
   pruned; the history builds up in the database.
@@ -133,13 +133,13 @@ goes on), for each reader that is an active bot, in one transaction:
    a line saying how many more, and the cursor still moves to the end, so a storm is not
    replayed next hour.
 3. One message into the reader's `Slack channels` conversation (a `direct` conversation between
-   the keeper and the bot, opened once), written by the keeper because nobody said it; it
+   the owner and the bot, opened once), written by the owner because nobody said it; it
    carries the channels, the count and the event ids in `refs.slack.digest`, and queues one
-   turn for the bot. A reader with several channels gets one message covering all of them, so
-   an engineering bot's twenty alert channels are one turn an hour, not twenty.
-4. Nothing unread in any of its channels, nothing written, no turn.
+   run for the bot. A reader with several channels gets one message covering all of them, so
+   an engineering bot's twenty alert channels are one run an hour, not twenty.
+4. Nothing unread in any of its channels, nothing written, no run.
 5. A channel with `digest_hours: N` reaches its readers at most once in N hours; until then its
-   messages wait unread and the cursor stays. A high-volume channel is best read daily: otherwise every message would cost a short turn.
+   messages wait unread and the cursor stays. A high-volume channel is best read daily: otherwise every message would cost a short run.
 
 Readers are named per channel in `registry/slack-channels.yaml` (`readers: [cto]`); naming one
 is the owner's call, like `post: false`. Reading grants no posting right: a reader that wants to say
@@ -148,7 +148,7 @@ and its digest says so.
 
 ## Replies back to Slack
 
-When a routed bot's reply (`say`, `ask` or `answer` to the person) lands in a mapped
+When a routed bot's reply (`say`, `ask` or `answer` to the human) lands in a mapped
 conversation, the gateway posts it once in the thread with `chat.postMessage`: `username` is
 the bot's display name, `icon_emoji`/`icon_url` come from `slack_icon`/`slack_icon_url` in the
 bot's registry entry when set, and the last line is `(sent from <display name>)`. Slack still
@@ -158,10 +158,10 @@ footer alone, and the log says so once.
 The reply text is escaped as Slack requires (`&`, `<`, `>`), so a bot writing `<!channel>` shows
 those characters and pages nobody, and "x < y" survives the parser.
 
-One attempt per post. A confirmed rate limit waits Slack's `Retry-After` and tries again, ten
-attempts at most, then the post is `failed`. Any other Slack refusal (`channel_not_found`,
+One try per post. A confirmed rate limit waits Slack's `Retry-After` and tries again, ten
+tries at most, then the post is `failed`. Any other Slack refusal (`channel_not_found`,
 `missing_scope`) is `failed`. A network fault, an unreadable answer or a crash between send and
-record is `uncertain` and waits for a person.
+record is `uncertain` and waits for a human.
 Thread replies are solicited: they are not stopped by `post: false` in `registry/slack-channels.yaml` and
 grant no bot any posting right there; `connectors/slack.py` and its gates are unchanged.
 
@@ -170,7 +170,7 @@ grant no bot any posting right there; `connectors/slack.py` and its gates are un
 | Table | One row per | States |
 |---|---|---|
 | `slack_events` | Slack message, unique on `event_id` and on `(channel, ts)`; `author`, `author_name`, `edited`, `deleted` | `received`, `denied`, `recorded`, `routed`, `failed`; `stored` for a channel message the readers get |
-| `slack_threads` | Slack thread and bot: the hub conversation it continues | |
+| `slack_threads` | Slack thread and bot: the Tico conversation it continues | |
 | `slack_posts` | bot reply to mirror | `ready`, `sending`, `sent`, `rate_limited`, `failed`, `uncertain` |
 | `slack_reads` | channel and reader: the cursor (`last_ts`, `last_run`, `digests`) | |
 | `slack_digests` | digest written: the reader, its conversation and message, the channels, the event ids it covered | |
@@ -183,10 +183,10 @@ In the Docker install, see [slack.md](slack.md): the `slack` compose profile run
 
 Settings: `TICO_SLACK_GATEWAY_ENABLED` (the kill switch), `SLACK_TEAM_ID`
 (the one workspace whose events are accepted), `SLACK_APP_ID` (optional; the app `bots.info`
-must name), `TICO_SLACK_SECRET_ARN` (the JSON secret `{"bot_token","app_token","team_id","app_id"}`;
+must name), `TICO_SLACK_SECRET_ARN` (the JSON credential `{"bot_token","app_token","team_id","app_id"}`;
 `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` in the environment or `/etc/tico/slack` also work), and the
 three thresholds above, `TICO_SLACK_DIGEST_MINUTES` and `TICO_SLACK_DIGEST_CAP` (Channels,
-above). Only the gateway process reads the secret; the API never holds a Slack token. Change them in `.env` and run `docker compose up -d`, which restarts only the gateway.
+above). Only the gateway process reads it; the API never holds a Slack token. Change them in `.env` and run `docker compose up -d`, which restarts only the gateway.
 
 Start-up verifies `auth.test` (the workspace) and `bots.info` (the app) and refuses to run on a
 mismatch; it lists any missing scope in the log. `python -m backend.slack_gateway --check` runs
@@ -196,8 +196,8 @@ only that verification and prints it. A post that was mid-flight at the last sto
 Kill switch: `TICO_SLACK_GATEWAY_ENABLED=0` (through `configure`) stops ingress, egress and
 the readers' pass; the tables stay for audit. `TICO_SLACK_DIGEST_MINUTES=0` pauses only the
 readers' pass. Rollback beyond that is removing the `app_mention`, `message.im`,
-`message.channels` and `message.groups` subscriptions from the app manifest; nothing in the
-hub needs undoing.
+`message.channels` and `message.groups` subscriptions from the app manifest; nothing in
+Tico needs undoing.
 
 ## Installing or reinstalling the app
 
@@ -208,8 +208,8 @@ hub needs undoing.
 1. On <https://api.slack.com/apps>, open the Tico app, **App Manifest**, paste the manifest over
    the old one, save.
 2. **Install App**, reinstall to the Acme workspace (Slack shows the reinstall banner).
-3. If the Bot User OAuth Token changed, update `bot_token` in the `tico/slack` secret (and
-   `SLACK_BOT_TOKEN` in the runner Mac's `secrets/_shared.env`). The app-level token
+3. If the Bot User OAuth Token changed, update `bot_token` in the `tico/slack` credential (and
+   `SLACK_BOT_TOKEN` in the Mac computer's `secrets/_shared.env`). The app-level token
    (`xapp-`, `connections:write`, **Basic Information → App-Level Tokens**) is unchanged by a
    reinstall.
 4. Restart the gateway unit (`configure` with the same values does it) and check the log for
@@ -243,7 +243,7 @@ timestamp and close the row:
 UPDATE slack_posts SET state='sent', slack_ts='<ts from Slack>', error=NULL WHERE message_id='<id>';
 ```
 
-Only when its absence is confirmed may the one row go back for a single new attempt:
+Only when its absence is confirmed may the one row go back for a single new try:
 
 ```sql
 UPDATE slack_posts SET state='ready', error=NULL WHERE message_id='<id>';

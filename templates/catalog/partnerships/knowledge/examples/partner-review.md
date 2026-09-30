@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme partner review, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-software company. Every partner and deal is invented. Nothing
+Sample output for Acme, a fictional studio-software team. Every partner and deal is invented. Nothing
 has been decided, sent or paid. First draft, not yet reviewed.
 
 **Headline: 3 registrations waiting (oldest 3 days), 1 conflict; partner pipeline $58k in 7 deals;
@@ -31,5 +31,5 @@ fees due this month $1,840 for approval.**
 - Studio Growth Co: Harbour Pilates, $18,400 collected 2026-09-03, clause 6.1 at 10% = $1,840.
 
 ## Sources
-- Registrations inbox to 2026-10-01; partner agreements in company docs; CRM read 2026-10-01
+- Registrations mailbox to 2026-10-01; partner agreements in team docs; CRM read 2026-10-01
 ```

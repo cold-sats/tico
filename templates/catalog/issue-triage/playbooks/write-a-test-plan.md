@@ -2,7 +2,7 @@
 
 Triggered by a task naming a release, a milestone or a large pull request ("test plan for 2.15", "what should
 we test before the billing change ships"). Budget 40 minutes. The outcome is one test plan and a regression
-checklist a person can run in an afternoon. Nothing is run against production and nothing changes on GitHub.
+checklist a human can run in an afternoon. Nothing is run against production and nothing changes on GitHub.
 
 ---
 
@@ -24,7 +24,7 @@ more than one area. Say why each is ranked where it is, in one clause.
 
 ## 3. Write the cases
 
-For the top risks, cases a person can follow without asking: preconditions, steps, the expected result, and
+For the top risks, cases a human can follow without asking: preconditions, steps, the expected result, and
 the negative case (wrong input, expired session, a second click). Keep automated checks to what CI already
 runs; name gaps where a unit or integration test would catch the same thing earlier, as a suggestion for the
 author. Aim for 10 to 25 cases, not 100.
@@ -38,5 +38,5 @@ the product's core flows if it does not exist), plus any flow a recent bug broke
 
 Write `reports/test-plans/<release>.md`: headline (the three riskiest changes), the ranked table (change,
 risk, why, cases), the cases, the checklist, and what you could not read. `hub files publish` it, attach it
-to the task, commit, then `hub task update <id> --status done --note`. A person runs the plan and records
+to the task, commit, then `hub task update <id> --status done --note`. A human runs the plan and records
 the results; a failed case becomes a proposed issue in your next triage pass.

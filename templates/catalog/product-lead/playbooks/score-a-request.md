@@ -25,7 +25,7 @@ request is one possible answer, not the problem. If you cannot state the problem
 
 Use `knowledge/scoring.md`. Reach: people or accounts affected per quarter, from a named source. Impact:
 the agreed scale (3 massive, 2 high, 1 medium, 0.5 low, 0.25 minimal). Confidence: 100, 80 or 50
-percent, by how much of the above is measured rather than guessed. Effort: person-weeks from the person
+percent, by how much of the above is measured rather than guessed. Effort: person-weeks from the human
 who owns the estimate; ask on the task if you do not have it, and mark the score provisional.
 Score = reach × impact × confidence ÷ effort. Show all four numbers and every source.
 

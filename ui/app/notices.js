@@ -1,4 +1,4 @@
-/* ui/app/notices.js — New-version pill, usage notice, onboarding nav, native hooks
+/* ui/app/notices.js — New-version pill, usage notice, Finish setup nav, native hooks
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -35,7 +35,7 @@ document.addEventListener('click', ev => {
   S.config.usage_count_notice = false; renderUsageNotice();
   post('/v2/system/usage-count/notice', {state: 'dismissed'}).catch(() => {});
 });
-// "Finish setup" tops the nav while the owner has an unfinished first run, and disappears the
+// "Finish setup" tops the nav while the owner has not finished setup, and disappears the
 // moment the server stops asking for one. Everyone else never sees it.
 function renderOnboardingNav() {
   const link = $('#nav-welcome');
@@ -123,7 +123,7 @@ const refreshConfig = () => { if (!document.hidden && !nvBusy && S.me) get('/v2/
 setInterval(refreshConfig, 30000);  // with the app's poll: a release the server just learned of shows within a poll, not an hour
 document.addEventListener('visibilitychange', refreshConfig);   // a tab that was in the background asks the moment it is shown again
 // The main assistant is shown under the environment's assistant name, never its slug.
-// The built-in assistant reads as what it is. An assistant named after the company (the old default) is just "Assistant".
+// The built-in assistant reads as what it is. An assistant named after the team (the old default) is just "Assistant".
 const assistantShownName = () => {
   const name = String(assistantName() || '').trim(), company = String(S.config.company_name || '').trim().toLowerCase();
   return !name || name.toLowerCase() === company ? 'Assistant' : name;

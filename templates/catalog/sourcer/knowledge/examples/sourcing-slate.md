@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme sourcing slate, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every person is a reference with an
+Sample output for Acme, a fictional studio-software team. Every person is a reference with an
 invented public link. Only messages approved last week were sent. First draft, not yet reviewed.
 
 **Headline: Backend Engineer: 12 new profiles, 3 yeses from last week handed to the Recruiter;

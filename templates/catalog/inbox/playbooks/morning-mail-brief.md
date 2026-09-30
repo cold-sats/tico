@@ -1,8 +1,8 @@
 # Morning mail brief
 
-Schedule: weekdays at 07:30 company time (routine `morning-mail-brief`), once the person has approved the
+Schedule: weekdays at 07:30 team time (routine `morning-mail-brief`), once the human has approved the
 first brief. Also run by hand on request. Budget 20 minutes. The outcome is a short brief on the task:
-what needs the person, what is drafted, what you would file. Nothing is sent. Nothing is filed while
+what needs the human, what is drafted, what you would file. Nothing is sent. Nothing is filed while
 `Filing` is Off in `playbooks/inbox-preferences.md`.
 
 ---
@@ -35,15 +35,15 @@ Brief is id, date, from, subject, labels, a snippet, and a `decision:` word from
 
 | Decision | What it is | What you do |
 |---|---|---|
-| needs-owner | Only the person can act: legal, money, an investor, a regulator, a relationship only they hold | Top of the brief. Label `hub/needs-owner` only if Filing is On |
+| needs-owner | Only the human can act: legal, money, an investor, a regulator, a relationship only they hold | Top of the brief. Label `hub/needs-owner` only if Filing is On |
 | reply | A real person waits on an answer a careful assistant could draft | Draft it (step 5). Never send |
-| route | It belongs to another team: a lead, a customer, a candidate, a vendor | `hub task create --owner <slug> --parent <id>` per `## Routed to someone else`; do not flag it as needing the person |
+| route | It belongs to another team: a lead, a customer, a candidate, a vendor | `hub task create --owner <slug> --parent <id>` per `## Routed to someone else`; do not flag it as needing the human |
 | archive | Nothing is asked: a receipt, a notification, a cold pitch | List it as "would file". Archive only if Filing is `labels and archive` |
 | read, or unsure | The model was not sure enough | Open the thread and decide yourself |
 
 Anything on the always-reaches list is needs-owner whatever the word says. Legal or money words with an
 ask are needs-owner. A message from someone upset is needs-owner. `hub/needs-owner` is scarce; other
-teams' mail is not a need for this person.
+teams' mail is not a need for this human.
 
 ## 5. Draft replies
 

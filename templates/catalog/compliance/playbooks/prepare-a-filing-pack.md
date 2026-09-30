@@ -23,7 +23,7 @@ questionnaire items (revenue, headcount, locations, claims).
 ## 3. Fill from the record and mark changes
 
 For each item, last year's answer and its source, then whether anything changed since (a new office, a new
-officer, a moved registered agent, a headcount jump). `hub docs ask "<the fact>"` when the company docs should
+officer, a moved registered agent, a headcount jump). `hub docs ask "<the fact>"` when the docs should
 know. A value you cannot source is `[NEEDS: ...]` with who would know. Never guess an officer, an address or a
 number.
 
@@ -31,5 +31,5 @@ number.
 
 Save `reports/packs/<obligation>-<year>.md`: due date and rule, the owner, the fee, where to file (the official
 page), the filled items, changes, and gaps. `hub files publish` it and put it on the task: "Pack ready for
-<owner>. Summary for a person, not legal advice; a person files." When the owner files, ask them to attach the
+<owner>. Summary for a human, not legal advice; a human files." When the owner files, ask them to attach the
 confirmation, then record it in `knowledge/proof.md`.

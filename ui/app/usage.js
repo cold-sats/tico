@@ -54,7 +54,7 @@ function pageUsage() {
     <div class="use-bar-row">
       <div class="use-seg" role="tablist" aria-label="Range">${USE_RANGES.map(([k, label]) =>
         `<button type="button" role="tab" data-use-range="${k}" aria-selected="${k === state.range}">${label}</button>`).join('')}</div>
-      <select id="use-dept" aria-label="Department" hidden></select>
+      <select id="use-dept" aria-label="Group" hidden></select>
       <span class="use-custom" hidden><input type="date" id="use-from" aria-label="From"><input type="date" id="use-to" aria-label="To"></span>
       <button type="button" class="ghost use-default" id="use-default" hidden>Default limit</button>
     </div>
@@ -85,7 +85,7 @@ function pageUsage() {
   useLoad();
 }
 
-// The company default limit, and whether this person may change it.
+// The team default limit, and whether this human may change it.
 async function useLimits() {
   const state = USE;
   try { state.limits = await get('/v2/usage/limits'); } catch { state.limits = null; }
@@ -113,7 +113,7 @@ async function useLoad() {
   if (USE !== state || mine !== state.load) return;      // a newer switch is already loading
   state.data = data;
   const select = $('#use-dept');
-  select.innerHTML = `<option value="">All departments</option>` + (data.departments || []).map(d =>
+  select.innerHTML = `<option value="">All groups</option>` + (data.departments || []).map(d =>
     `<option value="${esc(d)}"${d === state.department ? ' selected' : ''}>${esc(d)}</option>`).join('');
   select.hidden = !(data.departments || []).length;
   usePaint();

@@ -1,14 +1,14 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme onboarding tracker, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Every person is a stand-in and only first
+Sample output for Acme, a fictional studio-software team. Every person is a stand-in and only first
 names, roles and dates are used. Nothing has been shared with anyone.
 
 **Headline: 2 people start in the next 30 days; Dev's laptop is 2 days late and blocks day one.**
 
-## Late, needs a person
+## Late, needs a human
 - **Dev (Support Specialist, starts 2026-10-05):** laptop order due 2026-09-26, no record it was placed.
   Owner: Ana Rivera (IT). Source: onboarding task T-311, read 2026-09-28.
 

@@ -22,11 +22,11 @@ Four buckets, and every ticket is in exactly one:
 |---|---|---|
 | Answered by the docs | The Librarian's answer to the question is `covered` | Draft the reply from that answer, adjusted to what they asked |
 | Known issue | `knowledge/known-issues.md` names it | Draft the agreed holding answer and add this ticket to the count |
-| Needs a person | A refund, a credit, an exception, an angry customer, anything in `knowledge/escalation.md` | One task on the person who owns it, with the ticket and one line on what they are deciding |
+| Needs a human | A refund, a credit, an exception, an angry customer, anything in `knowledge/escalation.md` | One task on the human who owns it, with the ticket and one line on what they are deciding |
 | New | None of the above, or the docs say "Not in the docs" | Draft what you can, name what you do not know, ask, and report the gap |
 
 A ticket that is two of these is the more serious one. Anything that mentions money, a deadline, a
-legal matter, or a person's safety goes to a person immediately, before you finish the pass.
+legal matter, or a human's safety goes to a human immediately, before you finish the pass.
 
 ## 3. Research the answer
 
@@ -41,17 +41,17 @@ write the missing doc yourself.
 
 One draft per ticket, on the task, never in the support tool. Each draft:
 
-- starts by naming what they asked, in one line, so the person approving it can check the match;
-- answers from a doc the Librarian cited or a person's word, not from a policy you assembled;
+- starts by naming what they asked, in one line, so the human approving it can check the match;
+- answers from a doc the Librarian cited or a human's word, not from a policy you assembled;
 - leaves a marked gap wherever it would need a refund, a credit, a discount, a fix, or a date, and
   says on the task what the gap needs;
-- carries no personal detail beyond what the person approving already has;
+- carries no personal detail beyond what the human approving already has;
 - matches `knowledge/voice.md`, is short enough to read on a phone, and ends with what happens next
   or what you need from them.
 
 ## 5. Route what is left
 
-    hub task create --owner <person> --parent <id>
+    hub task create --owner <human> --parent <id>
     hub task create --owner <slug> --parent <id>
 
 One task per thing, with the ticket reference, what the customer could not do, and what you need
@@ -63,7 +63,7 @@ already names. If the same problem has now arrived three times, that is one line
 
 Commit, then `hub task update <id> --status done --note`: the bucket, whether a draft is on the task,
 and who you routed it to. Add the ticket to `knowledge/follow-ups.md` with who it waits on (the customer, a colleague, a fix)
-and the next nudge date. A draft that rests on a person's word rather than a doc says so on the task.
+and the next nudge date. A draft that rests on a human's word rather than a doc says so on the task.
 
 ## When the source is unreadable
 

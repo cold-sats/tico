@@ -2,7 +2,7 @@
 
 Triggered by a new registration from a partner (a form, an email, a task), and for each waiting one in the
 weekly review. Budget 10 minutes. The outcome is a proposed decision with the rule that decides it.
-Nothing is approved or sent until a person says yes.
+Nothing is approved or sent until a human says yes.
 
 ---
 
@@ -10,7 +10,7 @@ Nothing is approved or sent until a person says yes.
 
     hub task show <id>
 
-Note the partner, the prospect company, the contact's role, the opportunity (what, how big, when), the
+Note the partner, the prospect organization, the contact's role, the opportunity (what, how big, when), the
 date and time received, and what the partner has done so far.
 
 ## 2. Check completeness

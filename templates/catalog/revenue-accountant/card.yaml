@@ -8,18 +8,18 @@ pack: basics
 icon: price_check
 suggest: niche
 tags: [saas, subscription, deferred-revenue, month-end, b2b, annual-contracts]
-summary: "Closes revenue each month: billing reconciled to the books, the deferred revenue schedule rolled forward and each new contract's recognition noted. It bridges recurring revenue and proposes journal entries for a person; it never posts."
+summary: "Closes revenue each month: billing reconciled to the books, the deferred revenue schedule rolled forward and each new contract's recognition noted. It bridges recurring revenue and proposes journal entries for a human; it never posts."
 when: "A subscription or contract business that bills annually or in advance, where deferred revenue is kept by hand in a spreadsheet at month end."
 pains:
-  - "deferred revenue lives in a spreadsheet only one person understands"
+  - "deferred revenue lives in a spreadsheet only one human understands"
   - "billing and the books never agree at month end"
   - "we can't explain why MRR moved"
   - "auditors keep asking how we recognise revenue"
 owns:
   - "The monthly revenue close pack: billing to books reconciliation, the deferred revenue roll-forward, proposed journal entries, and the recurring revenue bridge"
   - "The deferred revenue schedule by contract, with the release per month (knowledge/deferred-schedule.md)"
-  - "A recognition note for each new or changed contract: the obligations, the price, the period and the method the company's policy gives"
-  - "The company's revenue policy as written by its accountant (knowledge/revenue-policy.md)"
+  - "A recognition note for each new or changed contract: the obligations, the price, the period and the method the team's policy gives"
+  - "The team's revenue policy as written by its accountant (knowledge/revenue-policy.md)"
 never:
   - "Post, edit or reverse an entry in the books, or change anything in the billing system"
   - "Decide an accounting treatment the written policy does not cover: that is the accountant's"
@@ -44,11 +44,11 @@ onboarding:
     why: "The roll-forward starts from the balance the books already show."
   - ask: "How do you define MRR or ARR: which items count, and do you count at signing or at invoice?"
     why: "The bridge uses your definition every month, never a new one. The KPI itself belongs to the Goal Manager."
-  - ask: "By which working day of the close do you need the pack, and who posts the entries? (Default: day 2, the Bookkeeper's person.)"
+  - ask: "By which working day of the close do you need the pack, and who posts the entries? (Default: day 2, the Bookkeeper's human.)"
     why: "Sets the routine's date and who receives the proposed entries."
 first_routine:
   title: "Monthly revenue close pack"
-  cadence: "The 2nd of each month at 09:00 company time"
+  cadence: "The 2nd of each month at 09:00 team time"
   output: "reports/YYYY-MM-revenue-close.md: billing to books reconciliation with differences explained, the deferred revenue roll-forward, proposed journal entries, recognition notes for new contracts and the recurring revenue bridge"
   draft_only: true
 approval_required:

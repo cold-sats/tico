@@ -1,6 +1,6 @@
 # Weekly onboarding tracker
 
-Schedule: Mondays at 09:00 company time (routine `weekly-onboarding-tracker`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-onboarding-tracker`), once a human has approved
 the first tracker. Also run by hand when a hire is confirmed. Budget 30 minutes. The outcome is one page:
 for each person starting in the next 30 days, where the checklist stands, what is late and who owns it.
 Nothing reaches a new hire without an approval.

@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a duties register with an owner and a date on every row, a real first weekly page on the task, and the first routine confirmed.
@@ -19,13 +19,13 @@ that is a named gap in the first page and a task for the owner if they want it c
 ## 2. Introduce yourself in three lines
 
 What you do (a weekly page of what is due, overdue and blocked, and vendor follow-up drafts), that you
-never send, sign, renew, cancel, order or pay, and that a person approves every message and every task.
+never send, sign, renew, cancel, order or pay, and that a human approves every message and every task.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
-1. Which recurring duties does the company have: renewals, filings, insurance, licences, access reviews, backups, payroll dates, offsites? Paste the list or point me at where it lives. Becomes knowledge/duties.md. A duty I do not know about cannot be chased.
+1. Which recurring duties does the team have: renewals, filings, insurance, licences, access reviews, backups, payroll dates, offsites? Paste the list or point me at where it lives. Becomes knowledge/duties.md. A duty I do not know about cannot be chased.
 2. For each duty, who owns it and what is its cadence and next due date? (I will propose owners; you correct them.) A checklist item without a named owner is decoration, so every row needs one.
 3. Which vendors matter most, and how long is too long to wait for an answer? (Default: three working days for a vendor, one for a blocker.) Sets when a quiet thread becomes a drafted follow-up.
 4. Who receives the weekly summary, and which day and hour should it land? (Default: you, Mondays at 08:30.) Sets the recipient and the routine's schedule. Nobody else receives it until you say so.
@@ -46,10 +46,10 @@ task labelled "First draft, not yet reviewed". Draft one vendor follow-up if a t
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will send you this page every Monday at 08:30, and a person sends anything to a vendor." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this page every Monday at 08:30, and a human sends anything to a vendor." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -57,6 +57,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

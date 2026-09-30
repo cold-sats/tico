@@ -1,7 +1,7 @@
 # Renewal pack
 
 Triggered by a renewal reaching 60 days, or by a task that names an account and asks for renewal terms
-or an expansion quote. Budget 30 minutes. The outcome is one pack a person can price and approve in ten
+or an expansion quote. Budget 30 minutes. The outcome is one pack a human can price and approve in ten
 minutes. Every price is a gap; nothing is sent.
 
 ---
@@ -27,7 +27,7 @@ fits what the customer said. Every price, discount and uplift is `[price: <appro
 
 ## 4. Prepare the paperwork
 
-The order form or renewal quote in the company's template with gaps marked, and a cover note under 120
+The order form or renewal quote in the team's template with gaps marked, and a cover note under 120
 words in the owner's voice. Put both on the task.
 
 ## 5. Hand over

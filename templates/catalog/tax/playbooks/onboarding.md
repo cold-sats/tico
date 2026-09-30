@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, the next 90 days of the tax
@@ -20,7 +20,7 @@ document lists), that you never file, pay or register, and that nothing you writ
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Who prepares and files your taxes, and which taxes does each one file?
 2. Where are you registered for income, payroll and sales tax or VAT? Attach last year's returns list.
@@ -33,7 +33,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 Write each answer to `state.md` under `## Answers`, dated. Build `knowledge/tax-calendar.md` from the
 registrations and the official calendars (for US federal dates, the IRS tax calendar; for each state or
 country, its revenue department's page), each date with its source and the date you checked. Build
-`knowledge/thresholds.md` for each place the company sells into.
+`knowledge/thresholds.md` for each place the team sells into.
 
 ## 5. Produce the first result now
 
@@ -43,10 +43,10 @@ task and label it "First draft, not yet reviewed". Contact nobody.
 ## 6. Confirm the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the person in one line what it does: "I will refresh the calendar on the 1st of each month." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will refresh the calendar on the 1st of each month." They
 can change it or turn it off any time; there is nothing to approve.
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a
 different schedule or to leave it off, adjust `knowledge/` and the routine to match
 (`hub routine update <id>`, with `--disable` to turn it off).
 
@@ -54,6 +54,6 @@ Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+It tells {{app_name}} your setup is done. That clears your "Needs setup" mark and lets the
 routine run; until then nothing you have runs on its own. Run it once the answers and the first
 result are recorded, not before.

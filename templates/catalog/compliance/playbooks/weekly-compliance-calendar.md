@@ -1,8 +1,8 @@
 # Weekly compliance calendar
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-compliance-calendar`), once a person has approved the
+Schedule: Tuesdays at 09:00 team time (routine `weekly-compliance-calendar`), once a human has approved the
 first calendar. Also run by hand. Budget 25 minutes. The outcome is one page: what is overdue, what is due, who
-files it, and what still has no proof. A calendar for a person, not legal advice. Nothing is filed or paid.
+files it, and what still has no proof. A calendar for a human, not legal advice. Nothing is filed or paid.
 
 ---
 
