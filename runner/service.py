@@ -1106,7 +1106,7 @@ class Runner:
             if repository_present and manifest.is_file():
                 try:
                     declared = yaml.safe_load(manifest.read_text()) or {}
-                    access = tools_of(declared)
+                    access = tools_of(declared) or []
                     if access and time.monotonic() >= self._tools_after:
                         tools = declared_access.declared_tools(
                             access, self.credential_environment(bot, {**entry["config"], "access": access, "tools": access}),
