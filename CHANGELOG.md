@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-09-30
+
 ### Added
 - **Usage: estimated model spend per bot.** Account menu > Usage shows what the bots' runs cost, for Today, 7 days, 30 days, This month
   or a custom range, by department, one row per bot with its tokens, estimate and share; a bot opens to a daily chart, its top routines
@@ -1004,7 +1006,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.17...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.18...HEAD
+[0.2.18]: https://github.com/ticoteam/tico/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/ticoteam/tico/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/ticoteam/tico/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/ticoteam/tico/compare/v0.2.14...v0.2.15
