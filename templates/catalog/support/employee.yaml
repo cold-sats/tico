@@ -29,7 +29,7 @@ schedules:
 # for the owner rather than editing this file. Uncomment what the onboarding says is connected.
 # A support mailbox is read with the Google Workspace key. On a computer shared with other bots that
 # key is closed to them (docs/mail.md, "Who can read the key"), so route support mail to this bot as
-# tasks from the owner's Executive Assistant bot instead.
+# tasks from the owner's Inbox Manager bot instead.
 # access:
 #   - service: gmail
 #     identity: "support@example.com"

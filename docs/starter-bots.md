@@ -1,7 +1,7 @@
 # Starter bots
 
-The catalog holds 94 templates in nine departments (Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
-Product and Engineering) and a small Leadership extra, enough to staff a company of ten to two hundred people. **Every
+The catalog holds 94 templates: 91 in nine departments (Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
+Product and Engineering), a small Leadership extra and one helper, enough to staff a company of ten to two hundred people. **Every
 template is a real role that does the work; approvals gate what leaves the company.** Each is a job title a company would
 hire and put on its org chart (Sales Development Representative, Bookkeeper, Recruiter, Site Reliability Engineer), never a
 feature or a document: it does the research, keeps its records, prepares the finished work and carries it to the point of
@@ -31,13 +31,16 @@ Chief of Staff is no longer a default.
 | HR | `groups` | Head of People (`people-lead`) | 11 | Hire well, keep good people |
 | Product | `category` | Head of Product (`product-lead`) | 8 | Build what customers need |
 | Engineering | `code` | Head of Engineering (`engineering-lead`) | 10 | Ship reliable software, steadily |
-| Leadership | `star` | Chief of Staff (`chief-of-staff`) | 3 | Keep the leaders focused |
+| Leadership | `star` | Chief of Staff (`chief-of-staff`) | 2 | Keep the leaders focused |
 
 Every department has a head (`lead: true`): it writes the department's weekly summary from what its bots and people
 produced, proposes who should take a stuck or misrouted request, and **hires**: when recurring work in the department is not
 covered, it proposes a specific worker template from its `team_templates` with the reason and that template's first routine,
 and only after the owner confirms asks BotOps to set it up (`hub task create --owner botops`). Heads never create bots
 themselves and never do their team's work.
+
+Roles are real job titles on the org chart; helpers (Assistant, BotOps, Librarian, Goal Manager, Inbox Manager) have plain
+function names and live outside it.
 
 The built-ins are not in any department and no template duplicates them: the Librarian owns the docs, the FAQ and the answers
 built from them (Support Agent asks it with `hub docs ask` and reports a missing or wrong doc to it as a task; HR Generalist and
@@ -187,12 +190,20 @@ fill); `scripts/build-icon-font.py` adds every card's and department's icon to t
 | `podium` | `developer-advocate` | Developer Advocate | A weekly developer pulse: a ready answer for each public question (posted after approval), the friction log with counts, and runnable samples and tutorials | niche | Public web; GitHub and a community channel optional |
 | `architecture` | `software-architect` | Software Architect | Design doc and RFC review notes, proposed ADRs for decisions made without one, the system map and a ranked technical debt register | niche | GitHub connected; docs and meetings optional |
 
+### Helpers
+
+A helper serves one person rather than doing a department's job, so its card says `kind: helper` and has no department, pack,
+head or `suggest`. First run offers it on its own, off by default, beside the org chart rather than in it.
+
+| Icon | Template | Name | What it does | Needs |
+|---|---|---|---|---|
+| `inbox` | `inbox` | Inbox Manager | A morning brief over one person's mailbox, replies ready to send on their approval, what needs them | A Google Workspace mailbox for that person |
+
 ### Leadership (extra, not offered by the picker)
 
 | Icon | Template | Role | What it does | Suggest | Needs |
 |---|---|---|---|---|---|
 | `star` | `chief-of-staff` | Chief of Staff (head) | A weekly brief to the owner from goals, tasks, updates and meetings, stalled-goal follow-up, the Monday agenda, and hiring proposals for Leadership bots or a missing department head | niche | Tico only |
-| `inbox` | `inbox` | Executive Assistant | A morning brief over one person's mailbox, replies ready to send on their approval, what needs them | niche | A Google Workspace mailbox for that person |
 | `strategy` | `strategy-planning` | Strategy Analyst | A quarterly plan and OKR draft (three to five objectives, about three measurable key results each), last quarter graded 0 to 1, and a mid-quarter check-in | niche | Tico only |
 
 Every one of them is internal until a person says otherwise: it does the work and prepares the action, and a person
@@ -243,6 +254,7 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 | `department` | One of the ids in `templates/departments.yaml` (`sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`), or `leadership` for the extra. What the org builder groups by |
 | `lead` | `true` on exactly one template per department: its head, the template `departments.yaml` names as `head`. The catalog test requires exactly one and that they agree |
 | `team_templates` | Heads only: every other template in the department. What the head hires from |
+| `kind` | `helper` for a template that serves one person (the Inbox Manager): no department, pack, head or `suggest`, and never on the org chart. Every other template is a role and leaves it out |
 | `icon` | A Material Symbols name that fits the role; it must be in `ui/vendor/fonts/icons.txt` (run `scripts/build-icon-font.py` after adding a template) |
 | `suggest` | `default` (pre-checked for most companies), `common` or `niche` |
 | `tags` | Short lowercase keywords a briefing answer is matched against: `b2b`, `b2c`, `saas`, `ecommerce`, `retail`, `services`, `enterprise`, `smb`, `outbound`, `content`, `paid-ads`, `field-service` and the role's own words |
@@ -495,7 +507,7 @@ routine, and ask BotOps to set it up only after the owner says yes.
 - Chief of Staff: the weekly Monday and Friday rhythm and three to five priorities, from
   [First Round Review on the chief of staff role](https://review.firstround.com/how-to-be-an-exceptional-chief-of-staff-advice-for-scaling-impact-at-startups/)
   and [McKinsey on being a great chief of staff](https://www.mckinsey.com/capabilities/strategy-and-corporate-finance/our-insights/how-to-be-a-better-chief-of-staff).
-- Executive Assistant: the four Ds (do, delegate, defer, delete), a handful of labels, and set review times, from
+- Inbox Manager: the four Ds (do, delegate, defer, delete), a handful of labels, and set review times, from
   [Superhuman on executive email management](https://blog.superhuman.com/executive-email-management/).
 - Strategy Analyst: three to five objectives with about three measurable key results each, grading on a 0 to 1 scale with 0.6 to 0.7 as healthy for stretch goals, outcomes not activities, and mid-quarter check-ins, from [Google re:Work, Set goals with OKRs](https://rework.withgoogle.com/intl/en/guides/set-goals-with-okrs).
 

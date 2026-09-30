@@ -1,14 +1,14 @@
 template: inbox
 slug: inbox
-name: "Executive Assistant"
+name: "Inbox Manager"
 required: false
 bootstrap: false
-department: leadership
-pack: basics
+# A helper serves one person, like the built-ins: it is in no department and not on the org chart, and first run
+# offers it on its own, off by default (docs/starter-bots.md). Every other template is a role (`kind: role`).
+kind: helper
 icon: inbox
-suggest: niche
 tags: [email, executive, founder, calendar, inbox]
-summary: "Runs one executive's mailbox: sorts it every morning, prepares replies that go out on the person's approval, and flags only what needs them. It shows what it would file before it files anything."
+summary: "Runs one person's mailbox: sorts it every morning, prepares replies that go out on the person's approval, and flags only what needs them. It shows what it would file before it files anything."
 pains:
   - "too much email"
   - "important messages get buried"

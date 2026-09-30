@@ -96,7 +96,7 @@ departments:
 extras:
   - id: leadership
     name: Leadership
-    description: "Support for the founders and executives: a weekly brief across the company, an executive's mailbox and the quarterly plan."
+    description: "Support for the founders and executives: a weekly brief across the company and the quarterly plan."
     goal: "Keep the leaders focused"
     icon: star
     head: chief-of-staff

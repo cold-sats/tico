@@ -27,7 +27,7 @@ never:
   - "Copy a customer's personal details, or a token or key from a ticket, into a file"
 prerequisites:
   - tool: mail
-    why: "Support mail is the intake: a support mailbox this bot reads, or mail that a person's Executive Assistant bot or a colleague routes here as tasks. One of the two is needed."
+    why: "Support mail is the intake: a support mailbox this bot reads, or mail that a person's Inbox Manager bot or a colleague routes here as tasks. One of the two is needed."
     required: true
   - tool: chat
     why: "Optional. A read-only Slack support channel catches questions that never become email."

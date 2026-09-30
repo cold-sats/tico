@@ -140,6 +140,11 @@ def starters(directory):
     return sorted(name for name, card in read_catalog(directory).items() if not card.get("required") and not card.get("bootstrap"))
 
 
+def is_helper(card):
+    """A helper (`kind: helper`) serves a person, like the built-ins: no department, no head, not on the org chart."""
+    return card.get("kind") == "helper"
+
+
 class StarterBots(unittest.TestCase):
     """Every catalog template (docs/starter-bots.md) carries the fields a chooser and a first session depend on,
     and none of them starts a routine before a person has approved it or reaches outside the company on its own."""
@@ -157,6 +162,7 @@ class StarterBots(unittest.TestCase):
         """templates/departments.yaml names each department's head; that card is the department's only `lead: true`, and
         its `team_templates` are the rest of the department."""
         cards = [read_catalog(self.directory)[name] for name in starters(self.directory)]
+        cards = [card for card in cards if not is_helper(card)]
         document = yaml.safe_load((catalog.ROOT / "templates/departments.yaml").read_text())
         departments, extras = document["departments"], document.get("extras") or []
         self.assertEqual([row["id"] for row in departments], list(DEPARTMENTS))
@@ -185,12 +191,17 @@ class StarterBots(unittest.TestCase):
         folder, where = self.directory / name, f"template {name}"
         card = read_catalog(self.directory).get(name)
         self.assertTrue(card, where)
-        self.assertIn(card.get("pack"), PACKS, where)
-        # What the org builder groups, pictures and pre-checks by (templates/departments.yaml).
-        self.assertIn(card.get("department"), PACK_OF, f"{where}: department")
-        self.assertEqual(card["pack"], PACK_OF[card["department"]], f"{where}: pack follows the department")
+        self.assertIn(card.get("kind", "role"), ("role", "helper"), f"{where}: kind")
+        if is_helper(card):
+            for field in ("department", "pack", "lead", "team_templates", "suggest"):
+                self.assertNotIn(field, card, f"{where}: a helper is in no department")
+        else:
+            self.assertIn(card.get("pack"), PACKS, where)
+            # What the org builder groups, pictures and pre-checks by (templates/departments.yaml).
+            self.assertIn(card.get("department"), PACK_OF, f"{where}: department")
+            self.assertEqual(card["pack"], PACK_OF[card["department"]], f"{where}: pack follows the department")
+            self.assertIn(card.get("suggest"), SUGGEST, f"{where}: suggest")
         self.assertIn(card.get("icon"), ICONS, f"{where}: icon {card.get('icon')!r} is not in ui/vendor/fonts/icons.txt")
-        self.assertIn(card.get("suggest"), SUGGEST, f"{where}: suggest")
         self.assertTrue(card.get("tags") and all(isinstance(t, str) and t == t.lower() and len(t) <= 24 for t in card["tags"]),
                         f"{where}: tags")
         for field in ("pains", "owns", "never", "approval_required"):

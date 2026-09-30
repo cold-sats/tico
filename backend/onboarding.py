@@ -120,6 +120,8 @@ def _card(document, instructions):
             "department": str(document.get("department") or ""), "icon": str(document.get("icon") or ""),
             "tags": _strings(document.get("tags")), "suggest": str(document.get("suggest") or ""),
             "team_templates": _strings(document.get("team_templates")),
+            # A helper serves a person (the Inbox Manager), sits outside the org chart and is offered on its own.
+            "kind": "helper" if document.get("kind") == "helper" else "role",
             # Checked when the wizard first shows the card, and `when` says who wants it.
             "default": bool(document.get("default")), "when": str(document.get("when") or ""),
             "summary": str(document.get("summary") or ""),
