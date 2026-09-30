@@ -1,19 +1,27 @@
-# Connect a Hermes profile ("connect my Hermes profile", "my Hermes bot isn't reporting")
+# Connect a Hermes or OpenClaw profile ("connect my Hermes profile", "connect my OpenClaw profile", "my Hermes bot isn't reporting")
 
-Triggered when a human wants a Hermes profile to be a bot on the team, or says a Hermes bot has gone quiet. A profile
-is one Hermes agent on the human's own computer; it becomes one bot with its own chat, credential and heartbeat
-(docs/hermes-agents.md). Budget 5 minutes. The human never copies a token: the profile and Tico pair with a short code.
+Triggered when a human wants a Hermes or OpenClaw profile to be a bot on the team, or says such a bot has gone quiet. A
+profile is one agent on the human's own computer; it becomes one bot with its own chat, credential and heartbeat
+(docs/hermes-agents.md, docs/openclaw-agents.md). Budget 5 minutes. The human never copies a token: the profile and Tico
+pair with a short code. Everything below is for Hermes; for OpenClaw it is the same with `--harness openclaw` on the
+connector's commands, `--model openclaw` when you register the bot, and `--profile` optional (no `--profile` is the
+default profile in `~/.openclaw`). OpenClaw has no MCP client; its skill calls Tico through the connector, and that is
+already set up by `pair`.
 
-## 1. Ask two things
+## 1. Ask three things
 
-- **Which profile?** Its name, as Hermes calls it (`hermes profile list` on their computer).
+- **Which profile?** Its name, as Hermes calls it (`hermes profile list` on their computer; `openclaw --profile <name>`
+  for OpenClaw, or none for its default).
+- **How often should it check Tico for messages and tasks?** Offer `15m`, `1h` (the default, say it if they have no
+  preference), `daily`, or `off` if they will prompt it themselves. It is the profile's own schedule: Tico never starts
+  it, and a faster schedule means faster answers and more model use. They give it to the connector as `--sync <interval>`.
 - **The code.** On that computer they run, in a terminal, the two commands you give them, the second one after the first
   has downloaded the connector (use the runner address from `hub api GET agent-skill`, its `mcp_url` without the path):
 
       curl -fsSL https://<runner address>/api/v2/agents/setup-script -o hermes_agent.py
-      python3 hermes_agent.py pair --profile <name> --url https://<runner address>
+      python3 hermes_agent.py pair --profile <name> --url https://<runner address> --sync <interval>
 
-  It prints a line ending in a code like `K7QM-4F2P` and waits up to ten minutes. Ask them to paste that line.
+  (OpenClaw: `pair --harness openclaw [--profile <name>] --url ... --sync <interval>`.) It prints a line ending in a code like `K7QM-4F2P` and waits up to ten minutes. Ask them to paste that line.
   Read the code from their words; never ask for a token, and never expect one.
 
 ## 2. Register the bot if it is new
@@ -23,7 +31,7 @@ to (the human by default), then:
 
     hub bot create <slug> --record-only --model hermes --name "<Name>" --description "<what it does>" --reports-to <bot or human:id>
 
-`--model hermes` is what makes it a Hermes bot: it gets a credential, not a computer. Turn it on with `hub bot go-live <slug> --no-setup` (no computer, no setup chat);
+`--model hermes` (`--model openclaw` for an OpenClaw profile) is what makes it an external bot: it gets a credential, not a computer. Turn it on with `hub bot go-live <slug> --no-setup` (no computer, no setup chat);
 a bot that is only planned cannot report in.
 
 ## 3. Approve the code
@@ -48,14 +56,14 @@ If it is not online after five minutes, use the troubleshooting below.
 
 ## Using it day to day
 
-Nothing pushes to a Hermes profile; it reads its messages when its own schedule says so. The bot only needs a Hermes cron job.
-Give the human this, to paste into the profile's own chat (Hermes creates the job itself):
+Nothing pushes to the profile; it reads its messages when its own schedule says so, and `pair` already set that up: the
+`tico-sync` skill and one cron job at the interval they chose (on the profile's own computer, in Hermes's or OpenClaw's
+scheduler). Nothing for the human to paste. Hermes runs cron only while the profile's gateway runs, and OpenClaw's
+job lives in its Gateway; if they say it never answers, ask them to run `doctor --profile <name>` (add `--harness openclaw`
+for OpenClaw): it says whether the job exists and when it last ran.
 
-> Every 10 minutes, run `python3 ~/.config/tico/agents/hermes_agent.py status --profile <name>`. If `waiting` shows messages or tasks, list them
-> with `hub_message_list`, answer each with `hub_message_send` in the same conversation (or move the task with `hub_task_update`),
-> then `hub_message_mark_read`. If nothing is waiting, do nothing.
-
-Say that a faster schedule means faster answers and more model use.
+To change the interval later they run, on that computer, `python3 ~/.config/tico/agents/hermes_agent.py reinstall --profile <name> --sync <interval>`
+(`--sync off` removes the job). Once a week the skill also updates the connector by itself.
 
 ## Troubleshooting: a Hermes bot that is not reporting in
 

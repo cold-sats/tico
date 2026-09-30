@@ -76,6 +76,13 @@ token written into the file.
 `npx -y mcp-remote <URL> --header "Authorization:${TICO_AUTH}"` with `TICO_AUTH` set to `Bearer <token>`.
 Leave no space around that `:`.
 
+## An agent that is a bot, not you
+
+An agent that should be a bot on the team, with its own chat, credential and heartbeat, instead of acting as
+you, pairs with a code: [Hermes agents](hermes-agents.md) and [OpenClaw agents](openclaw-agents.md). Both install
+a "Tico sync" skill and one scheduled job on the agent, so it looks at its messages and tasks on its own schedule
+(`--sync 15m|1h|daily|off`). Tico never starts it.
+
 ## Behind Cloudflare Access or another sign-in proxy
 
 An outside agent cannot pass a sign-in page. When Access guards the hostname in the MCP URL, it

@@ -27,8 +27,9 @@ address of your Tico: the hostname in **Settings → Computers → Add computer*
 4. Test it: message the bot in Tico, then ask the profile to check its inbox. It should answer
    in the same chat.
 
-The `pair` command sets up the profile's config, saves the credential on the computer and
-starts a heartbeat timer, then prints what it did. It never prints the credential.
+The `pair` command sets up the profile's config, saves the credential on the computer, starts a
+heartbeat timer and schedules the sync job (hourly unless you add `--sync`, see
+[Keep it in sync](#keep-it-in-sync)), then prints what it did. It never prints the credential.
 
 The setup script downloads without a sign-in from the runner address (Tico 0.2.26 and later). If
 you get a sign-in page instead, you used the public address: use `runner.<domain>`.
@@ -52,31 +53,62 @@ Members can add Hermes bots too, and each one counts toward their bot limit
 
 ## Using it day to day
 
-Nothing pushes work to a Hermes bot. It reads its messages when its own cron job, or a person
-talking to it, makes it look. Give it a cron job. Run this once, for the profile:
-
-```bash
-hermes -p <name> cron create "every 10m" \
-  "Check your Tico inbox with hub_message_list. For each message or task waiting: read the
-conversation, answer in that conversation with hub_message_send, move your tasks forward with
-hub_task_update, then mark what you handled with hub_message_mark_read. If nothing is waiting,
-stop and reply 'idle'." \
-  --deliver local --name "Tico inbox"
-```
-
-Hermes's own cron docs describe the job options; the schedule and the prompt are all Tico needs.
-
-**Skip empty runs.** The heartbeat reply says what is waiting. Put this first in the prompt, and
-an empty check costs almost nothing:
-
-> First run `python3 ~/.config/tico/agents/hermes_agent.py status --profile <name>`. If
-> `last_reply.waiting` shows 0 messages and 0 tasks, reply 'idle' and stop.
-
-`status` prints the saved settings and the last heartbeat reply, including `waiting`.
+Nothing pushes work to a Hermes bot. It reads its messages when its own schedule, or a person
+talking to it, makes it look. `pair` and `install` set that schedule up for you: one Hermes cron job,
+`tico-sync`, that runs the Tico sync skill. You do not write a prompt or a job. Next section.
 
 What the profile can do is the same tool list every bot has (`clients/hubtools.py`): messages,
 tasks, questions, approvals, status, SQL and the rest. With a Tico checkout on the computer the
 `hub` CLI works too, with `HUB_API_URL` and `HUB_TOKEN`.
+
+## Keep it in sync
+
+`pair` and `install` take `--sync <interval>`, default `1h`:
+
+| `--sync` | The agent looks |
+|---|---|
+| `15m`, `30m`, `2h`, `1d` | every that long (5 minutes is the shortest) |
+| `1h` (default) | every hour |
+| `daily` | once a day at 09:00, the computer's time |
+| `'0 8-18 * * 1-5'` | on that cron expression, in quotes |
+| `off` | never on its own; the skill stays installed and you can run it by hand |
+
+```bash
+python3 hermes_agent.py pair --profile <name> --url https://<runner host> --sync 15m
+```
+
+What it installs, all inside the profile:
+
+- **The skill**, `skills/tico-sync/SKILL.md`, the same file for Hermes and [OpenClaw](openclaw-agents.md)
+  (it is `skills/tico-sync/SKILL.md` in the repository; `update` fetches the newest from Tico). Each run it reads who
+  it is and any quiet notes Tico holds for it, reads its waiting messages and its open tasks, answers every
+  person's message in that conversation with `hub_message_send` and marks it read, moves the tasks it owns
+  forward with `hub_task_update` (done with a short result note, or waiting with the reason), and stops. It keeps
+  answers short and never pastes a secret. Once a week it runs the connector's `update`.
+- **A pre-check script**, `scripts/tico-sync-check.py`. Hermes runs it before each job. It asks the saved
+  heartbeat reply what is waiting, and when nothing is (and no update is due) it ends with
+  `{"wakeAgent": false}`, so Hermes starts no agent and spends no model call. An empty run is one short
+  Python run. If the saved reply is older than five minutes it makes a fresh heartbeat first, so a stopped
+  timer cannot hide work.
+- **One cron job** named `tico-sync`, with the skill attached, delivering nowhere (`--deliver local`). Running
+  `pair`, `install` or `reinstall` again replaces it; it never touches your other jobs.
+
+Hermes runs cron jobs only while the profile's **gateway** runs (`hermes gateway install`;
+`hermes -p <name> cron status` says). `doctor` warns when it is not.
+
+**Change the interval** any time, on the computer:
+
+```bash
+python3 ~/.config/tico/agents/hermes_agent.py reinstall --profile <name> --sync 30m
+```
+
+`--sync off` removes the job. Without `--sync`, `reinstall` (and `update`) keep the saved interval.
+A profile connected before 0.3.0 has no sync job until you run `reinstall --sync 1h`. A faster schedule means
+faster answers and more model use, so only when something waits.
+
+`doctor` says whether the job exists, its schedule, and when it last ran (from Hermes's own job record).
+`status` prints the saved interval. `python3 hermes_agent.py check --profile <name>` prints what the pre-check
+sees, for trying it by hand.
 
 ## Keep it working
 
@@ -84,14 +116,16 @@ These commands run from the copy the connector installed, `~/.config/tico/agents
 downloaded `hermes_agent.py` in your current folder works the same while it is there.
 
 - **Update.** `python3 hermes_agent.py update --profile <name>` fetches the current script from Tico,
-  replaces the copy the timer runs and installs again. Run it after each Tico update. It also removes
-  older duplicate heartbeat jobs.
+  replaces the copy the timer runs and installs again (the skill and the sync job too). Run it after each Tico
+  update; with a sync job the skill also runs it once a week for you. It also removes older duplicate heartbeat
+  jobs.
 - **Reinstall.** `python3 hermes_agent.py reinstall --profile <name>` runs the install steps again with
-  the credential saved by `pair` or `install`: config entry, `.env`, timer. `update` ends by running it.
+  the credential saved by `pair` or `install`: config entry, `.env`, timer, skill, sync job. `update` ends by
+  running it. `--sync <interval>` changes how often the agent looks.
 - **Status.** `python3 hermes_agent.py status --profile <name>` prints the saved settings and the last
   heartbeat reply. It never prints the credential.
 - **Doctor.** `python3 hermes_agent.py doctor --profile <name>` checks the setup (config,
-  credential, reach to Tico, timer, last heartbeat) and scans the profile's `SOUL.md`, skills, cron
+  credential, reach to Tico, timer, last heartbeat, sync job and when it last ran) and scans the profile's `SOUL.md`, skills, cron
   jobs and memories for old tool names. It changes nothing and says what to fix.
 - **Move to another computer.** Run `pair` on the new computer with the same profile name and
   approve it. Approving replaces the credential, so the old computer stops with a 401. On the old
@@ -101,8 +135,8 @@ downloaded `hermes_agent.py` in your current folder works the same while it is t
   good. Revoke if the computer is lost. When you remove (archive) a Hermes bot in Settings → Bots, the
   dialog has a **Revoke its credential** box, on by default.
 - **Remove the connector.** `python3 hermes_agent.py uninstall --profile <name>` removes the timer, the
-  `.env` lines, the `mcp_servers.tico` entry and the credential file. It does not revoke the credential
-  in Tico.
+  `tico-sync` job, the skill and its pre-check script, the `.env` lines, the `mcp_servers.tico` entry and the
+  credential file. It does not revoke the credential in Tico.
 - **Renamed tools (0.2.21).** The `hub_*` tools were renamed: `hub_inbox` is now
   `hub_message_list`, `hub_say` is `hub_message_send`, `hub_ack` is `hub_message_mark_read`.
   Old names now answer "X was renamed Y". After updating, `/reload-mcp`, change any saved prompt
@@ -116,7 +150,7 @@ downloaded `hermes_agent.py` in your current folder works the same while it is t
 | **401** | The credential was revoked or replaced (archiving with the revoke box on does this). | Restore the bot if it is archived, then pair again (`pair`) and approve it. |
 | A login page instead of JSON, or `curl` gets HTML | You used the public address behind Cloudflare Access. | Use `runner.<domain>` ([connect-an-agent.md](connect-an-agent.md)). |
 | Two heartbeats a minute, or double answers | A duplicate heartbeat job from an older install. | Run `update`. It removes older jobs. `doctor` lists what it found. |
-| The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Check the profile has the cron job above (`hermes -p <name> cron list`) and that it runs. |
+| The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Run `doctor`: it says whether the `tico-sync` job exists and when it last ran. Hermes runs cron only while the profile's gateway runs. `reinstall --sync 1h` brings the job back. |
 | Tool not found | An old tool name. | See renamed tools above. |
 | The bot answers on Slack or Telegram with no Tico rules | A gateway on Slack or Telegram bypasses Tico's message limits and checks. | Turn the gateway off for a bot that should speak only through Tico. |
 
@@ -137,7 +171,7 @@ only active bots and humans, and is checked and capped like any bot when it writ
 
 | | A bot on a computer | A Hermes bot |
 |---|---|---|
-| Harness | `openai`, `claude`, `gemini`, `antigravity`, `grok`, `pi` | `hermes` |
+| Harness | `openai`, `claude`, `gemini`, `antigravity`, `grok`, `pi` | `hermes` (or `openclaw`, [the same](openclaw-agents.md)) |
 | Model and effort | chosen in Settings | the profile's own, reported by the heartbeat |
 | Where it runs | a computer, chosen in Settings | wherever the profile lives; not tracked |
 | Credential | a 90 s lease per run | one standing credential per bot, made in Settings and revocable there |

@@ -457,8 +457,8 @@ Levers set in **Settings → Bots**, not in the repository:
   the runtime refused). **None (fail)** is the default. The hop starts a fresh session. OpenRouter
   is not a bot harness.
 - **`max_run_minutes`**: the ceiling on one run. Set it from the longest real routine, not hope.
-- **`hermes`** is the one harness that is not a CLI on a registered computer: the bot is
-  a Hermes profile somewhere else, with its own model, reached through a credential minted in
+- **`hermes`** (and **`openclaw`**, [the same way](openclaw-agents.md)) is the one kind of harness that is not a
+  CLI on a registered computer: the bot is a Hermes profile somewhere else, with its own model, reached through a credential minted in
   Settings and never dispatched to. Model, effort, fallback and computer do not apply to it.
   [Hermes agents](hermes-agents.md) connects one in 2 minutes and covers the rest.
 

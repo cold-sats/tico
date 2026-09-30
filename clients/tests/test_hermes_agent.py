@@ -1,11 +1,13 @@
-"""The Hermes connector (clients/hermes_agent.py) against a fake hub: pair, update, doctor, old-label
-cleanup and the archived/revoked back-off. launchctl and systemctl are mocked; nothing touches the
-real home directory, launchd or systemd."""
+"""The Hermes and OpenClaw connector (clients/hermes_agent.py) against a fake hub: pair, update, doctor, old-label
+cleanup, the archived/revoked back-off and the scheduled tico-sync job. launchctl, systemctl, `hermes cron` and
+`openclaw cron` are mocked; nothing touches the real home directory, launchd, systemd, Hermes or OpenClaw."""
+import argparse
 import contextlib
 import io
 import json
 import os
 import plistlib
+import re
 import stat
 import subprocess
 import tempfile
@@ -17,6 +19,7 @@ from unittest import mock
 
 from clients import hermes_agent as H
 
+REPO = Path(__file__).resolve().parents[2]
 REAL_RUN = subprocess.run
 REAL_SLEEP = __import__("time").sleep
 TOKEN = "tico-agent-SECRET-0123456789abcdef"
@@ -34,6 +37,9 @@ class Hub:
         self.heartbeat = (200, {"server_time": "2026-09-30T10:00:00Z", "bot": "scout",
                                 "waiting": {"messages": 2, "tasks": 1}})
         self.script = ""
+        self.skill = (REPO / "skills" / "tico-sync" / "SKILL.md").read_text()
+        self.mcp = (200, {"jsonrpc": "2.0", "id": 1, "result": {
+            "content": [{"type": "text", "text": '{"messages": []}'}], "isError": False}})
         self.me = {"role": "bot", "actor": "bot:scout", "agent": "hermes"}
         hub = self
 
@@ -64,6 +70,9 @@ class Hub:
                 if self.path == "/api/v2/agents/heartbeat":
                     status, body = hub.heartbeat
                     return self.reply(status, body)
+                if self.path == "/api/v2/mcp":
+                    status, body = hub.mcp
+                    return self.reply(status, body)
                 self.reply(404, {"error": {"code": "not_found", "detail": "no"}})
 
             def do_GET(self):
@@ -82,6 +91,8 @@ class Hub:
                     return self.reply(200, hub.me)
                 if self.path == "/api/v2/agents/setup-script":
                     return self.reply(200, hub.script, text=True)
+                if self.path == "/api/v2/agents/sync-skill":
+                    return self.reply(200, hub.skill, text=True)
                 self.reply(404, {"error": {"code": "not_found", "detail": "no"}})
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
@@ -97,16 +108,23 @@ class Hub:
 
 
 class Fake:
-    """Records launchctl/systemctl calls instead of running them."""
+    """Records launchctl/systemctl calls instead of running them, and plays `hermes cron` and `openclaw cron`:
+    Hermes keeps its jobs in <profile>/cron/jobs.json, OpenClaw's live in its Gateway (here, `oc_jobs`)."""
 
     def __init__(self, loaded=True):
         self.calls = []
         self.loaded = loaded
+        self.oc_jobs = {}
+        self.broken = {}             # {"openclaw": "gateway closed"}: every call of that tool fails
+        self.counter = 0
 
     def run(self, command, *args, **kwargs):
         if len(command) > 1 and str(command[1]).endswith("hermes_agent.py"):
             return REAL_RUN(command, *args, **kwargs)        # the freshly downloaded connector really runs
         self.calls.append(list(command))
+        name = Path(str(command[0])).name
+        if name in ("hermes", "openclaw"):
+            return getattr(self, name)(list(command[1:]))
         code = 0
         out = ""
         if command[:2] == ["launchctl", "print"] and not self.loaded:
@@ -117,6 +135,81 @@ class Fake:
 
     def ran(self, *prefix):
         return [c for c in self.calls if c[:len(prefix)] == list(prefix)]
+
+    def done(self, command, out="", code=0, err=""):
+        return subprocess.CompletedProcess(command, code, stdout=out, stderr=err)
+
+    def hermes(self, args):
+        if self.broken.get("hermes"):
+            return self.done(args, code=1, err=self.broken["hermes"])
+        home = Path(os.environ["HERMES_HOME"])
+        directory = home
+        if args[:1] == ["-p"]:
+            directory, args = home / "profiles" / args[1], args[2:]
+        if args == ["--version"]:
+            return self.done(args, "Hermes Agent v0.19.0 (2026.7.20)\n")
+        jobs_file = directory / "cron" / "jobs.json"
+        try:
+            data = json.loads(jobs_file.read_text())
+        except (OSError, ValueError):
+            data = {}
+        jobs = data.setdefault("jobs", [])
+        if args[:2] == ["cron", "create"]:
+            ap = argparse.ArgumentParser()
+            ap.add_argument("schedule")
+            ap.add_argument("prompt", nargs="?")
+            ap.add_argument("--name")
+            ap.add_argument("--skill", action="append", dest="skills")
+            ap.add_argument("--script")
+            ap.add_argument("--deliver")
+            got = ap.parse_args(args[2:])
+            self.counter += 1
+            jobs.append({"id": "job%d" % self.counter, "name": got.name, "prompt": got.prompt, "skills": got.skills,
+                         "script": got.script, "deliver": got.deliver, "schedule_display": got.schedule,
+                         "enabled": True, "last_run_at": None, "last_status": None, "no_agent": False})
+        elif args[:2] == ["cron", "remove"]:
+            data["jobs"] = [j for j in jobs if j["id"] != args[2]]
+        else:
+            return self.done(args, code=2, err="unexpected hermes call")
+        jobs_file.parent.mkdir(parents=True, exist_ok=True)
+        jobs_file.write_text(json.dumps(data))
+        return self.done(args, "ok\n")
+
+    def openclaw(self, args):
+        if self.broken.get("openclaw"):
+            return self.done(args, code=1, err=self.broken["openclaw"])
+        profile = "default"
+        if args[:1] == ["--profile"]:
+            profile, args = args[1], args[2:]
+        jobs = self.oc_jobs.setdefault(profile, [])
+        banner = "OpenClaw 2026.3.13 (61d171a)\n| Doctor warnings: something harmless {not json}\n"
+        if args == ["--version"]:
+            return self.done(args, "OpenClaw 2026.3.13 (61d171a)\n")
+        if args[:2] == ["cron", "add"]:
+            ap = argparse.ArgumentParser()
+            ap.add_argument("--name")
+            ap.add_argument("--every")
+            ap.add_argument("--cron")
+            ap.add_argument("--session")
+            ap.add_argument("--message")
+            ap.add_argument("--no-deliver", action="store_true")
+            ap.add_argument("--timeout-seconds")
+            ap.add_argument("--json", action="store_true")
+            got = ap.parse_args(args[2:])
+            self.counter += 1
+            schedule = ({"kind": "every", "everyMs": int(got.every[:-1]) * (3600000 if got.every[-1] == "h" else 60000)}
+                        if got.every else {"kind": "cron", "expr": got.cron})
+            job = {"id": "oc-%d" % self.counter, "name": got.name, "enabled": True, "schedule": schedule,
+                   "sessionTarget": got.session, "payload": {"kind": "agentTurn", "message": got.message},
+                   "delivery": {"mode": "none" if got.no_deliver else "announce"}, "state": {}}
+            jobs.append(job)
+            return self.done(args, banner + json.dumps(job, indent=2))
+        if args[:2] == ["cron", "list"]:
+            return self.done(args, banner + json.dumps({"jobs": jobs, "total": len(jobs)}, indent=2))
+        if args[:2] == ["cron", "rm"]:
+            self.oc_jobs[profile] = [j for j in jobs if j["id"] != args[2]]
+            return self.done(args, json.dumps({"ok": True}))
+        return self.done(args, code=2, err="unexpected openclaw call")
 
 
 class Base(unittest.TestCase):
@@ -144,7 +237,8 @@ class Base(unittest.TestCase):
     def platform(self, name):
         for target in (mock.patch.object(H.sys, "platform", name),
                        mock.patch.object(H.subprocess, "run", self.fake.run),
-                       mock.patch.object(H.shutil, "which", lambda n: "/usr/bin/" + n if n == "systemctl" else None)):
+                       mock.patch.object(H.shutil, "which",
+                                         lambda n: "/usr/bin/" + n if n in ("systemctl", "hermes", "openclaw") else None)):
             target.start()
             self.addCleanup(target.stop)
 
@@ -264,8 +358,11 @@ class Doctor(Base):
         (self.profile / "SOUL.md").write_text("You are Scout.\nAlways use\nhub_say to reply.\n")
         (self.profile / "skills" / "triage").mkdir(parents=True)
         (self.profile / "skills" / "triage" / "SKILL.md").write_text("Call `hub_docs_search` then hub_message_send.\n")
-        (self.profile / "cron").mkdir()
-        (self.profile / "cron" / "jobs.json").write_text('{"prompt": "check hub_inbox and hub_fleet-check"}\n')
+        (self.profile / "cron").mkdir(exist_ok=True)
+        jobs = self.profile / "cron" / "jobs.json"        # the tico-sync job is in it already: keep it, on one line
+        data = json.loads(jobs.read_text()) if jobs.exists() else {}
+        data["prompt"] = "check hub_inbox and hub_fleet-check"
+        jobs.write_text(json.dumps(data) + "\n")
         (self.profile / "memories").mkdir()
         (self.profile / "memories" / "MEMORY.md").write_text("- a\n- mark with hub_ack, status via hub_status_set\n")
 
@@ -421,6 +518,404 @@ class Backoff(Base):
         before = self.hub.count("/api/v2/agents/heartbeat")
         self.assertEqual(self.beat()[0], 0)
         self.assertEqual(self.hub.count("/api/v2/agents/heartbeat"), before)
+
+
+class Sync(Base):
+    """The scheduled tico-sync job on a Hermes profile: the skill, the pre-check script and one `hermes cron` job."""
+
+    def jobs(self):
+        try:
+            return json.loads((self.profile / "cron" / "jobs.json").read_text())["jobs"]
+        except OSError:
+            return []
+
+    def cron_calls(self):
+        return [c for c in self.fake.calls if Path(c[0]).name == "hermes" and "cron" in c]
+
+    def test_install_makes_the_skill_the_pre_check_script_and_one_hourly_job(self):
+        out = self.install()
+        skill = self.profile / "skills" / "tico-sync" / "SKILL.md"
+        text = skill.read_text()
+        self.assertIn("name: tico-sync", text)
+        self.assertNotIn("{{", text)
+        self.assertIn(str(self.config_dir / "hermes_agent.py"), text)
+        self.assertIn("call --profile scout <tool name>", text)
+        self.assertNotIn(TOKEN, text)
+        script = self.profile / "scripts" / "tico-sync-check.py"
+        self.assertTrue(script.is_file())
+        self.assertNotIn(TOKEN, script.read_text())
+        (job,) = self.jobs()
+        self.assertEqual((job["name"], job["schedule_display"], job["skills"], job["script"], job["deliver"]),
+                         ("tico-sync", "every 1h", ["tico-sync"], "tico-sync-check.py", "local"))
+        self.assertIn("[SILENT]", job["prompt"])
+        create = self.cron_calls()[0]
+        self.assertEqual(create[1:4], ["-p", "scout", "cron"])
+        self.assertIn("every 1h", create)
+        self.assertIn("Hermes cron job tico-sync, every 1h, skill attached, pre-check tico-sync-check.py", out)
+        self.assertEqual(self.credential()["sync"], "1h")
+
+    def test_the_interval_takes_minutes_hours_daily_a_cron_expression_or_off(self):
+        for asked, schedule in (("15m", "every 15m"), ("90m", "every 90m"), ("2h", "every 2h"), ("every 3h", "every 3h"),
+                                ("1d", "every 24h"), ("daily", "0 9 * * *"), ("*/20 8-18 * * 1-5", "*/20 8-18 * * 1-5")):
+            self.install("--sync", asked, "--no-timer")
+            (job,) = self.jobs()
+            self.assertEqual(job["schedule_display"], schedule, asked)
+        self.install("--sync", "off", "--no-timer")
+        self.assertEqual(self.jobs(), [])
+        self.assertTrue((self.profile / "skills" / "tico-sync" / "SKILL.md").exists(), "the skill stays: a person can run it")
+        self.assertEqual(self.credential()["sync"], "off")
+
+    def test_a_bad_interval_is_refused_before_anything_changes(self):
+        for asked in ("soon", "1m", "0 9 * *", "every"):
+            before = len(self.hub.requests)
+            code, out, err = self.run_cli("install", "--profile", "scout", "--url", self.hub.url, "--bot", "scout",
+                                          "--token", TOKEN, "--sync", asked)
+            self.assertEqual(code, 1, asked)
+            self.assertIn("sync", err)
+            self.assertEqual(len(self.hub.requests), before)
+        self.assertFalse((self.profile / "skills" / "tico-sync").exists())
+
+    def test_pair_takes_the_same_option(self):
+        self.hub.pair_states = [{"state": "approved", "bot": "scout", "token": TOKEN}]
+        code, out, err = self.run_cli("pair", "--profile", "scout", "--url", self.hub.url, "--sync", "15m")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([j["schedule_display"] for j in self.jobs()], ["every 15m"])
+
+    def test_reinstall_replaces_the_job_and_leaves_an_unchanged_one_alone(self):
+        self.install()
+        self.fake.calls.clear()
+        self.assertEqual(self.run_cli("reinstall", "--profile", "scout")[0], 0)
+        self.assertEqual(self.cron_calls(), [], "same interval: the job is not touched")
+        code, out, err = self.run_cli("reinstall", "--profile", "scout", "--sync", "30m")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([j["schedule_display"] for j in self.jobs()], ["every 30m"])
+        self.assertEqual([c[4] for c in self.cron_calls()], ["remove", "create"])
+        self.assertEqual(self.credential()["sync"], "30m")
+        self.assertEqual(self.run_cli("reinstall", "--profile", "scout", "--sync", "off")[0], 0)
+        self.assertEqual(self.jobs(), [])
+
+    def test_other_jobs_are_never_touched(self):
+        (self.profile / "cron").mkdir()
+        (self.profile / "cron" / "jobs.json").write_text(json.dumps({"jobs": [
+            {"id": "mine", "name": "Morning brief", "schedule_display": "0 7 * * *"}]}))
+        self.install()
+        self.install("--sync", "2h")
+        self.run_cli("uninstall", "--profile", "scout")
+        self.assertEqual([j["id"] for j in self.jobs()], ["mine"])
+
+    def test_a_failing_hermes_does_not_undo_the_pairing(self):
+        self.fake.broken["hermes"] = "no scheduler"
+        code, out, err = self.run_cli("install", "--profile", "scout", "--url", self.hub.url, "--bot", "scout",
+                                      "--token", TOKEN)
+        self.assertEqual(code, 0, err)
+        self.assertIn("WARNING: the sync job is not in place", out)
+        self.assertIn("no scheduler", out)
+        self.assertEqual(self.credential()["bot"], "scout")
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertEqual(code, 1)
+        self.assertIn("the sync job was not created", out)
+
+    def test_doctor_says_when_the_job_last_ran(self):
+        self.install()
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertIn("sync job tico-sync (every 1h) is scheduled; has not run yet", out)
+        self.assertIn("gateway is not running", out)
+        data = json.loads((self.profile / "cron" / "jobs.json").read_text())
+        data["jobs"][0].update(last_run_at="2026-09-30T09:00:00-07:00", last_status="ok")
+        (self.profile / "cron" / "jobs.json").write_text(json.dumps(data))
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertIn("last ran 2026-09-30T09:00:00-07:00 (ok)", out)
+        (self.profile / "cron" / "jobs.json").write_text('{"jobs": []}')
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertEqual(code, 1)
+        self.assertIn("no scheduled job named tico-sync", out)
+
+    def test_uninstall_removes_the_job_and_the_skill(self):
+        self.install()
+        code, out, err = self.run_cli("uninstall", "--profile", "scout")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.jobs(), [])
+        self.assertFalse((self.profile / "skills" / "tico-sync").exists())
+        self.assertFalse((self.profile / "scripts" / "tico-sync-check.py").exists())
+        self.assertFalse((self.config_dir / "scout.json").exists())
+
+    def test_the_hub_serves_the_skill_and_an_old_hub_falls_back_to_a_checkout(self):
+        self.hub.skill = self.hub.skill.replace("# Tico sync", "# Tico sync (from the hub)")
+        self.install()
+        self.assertIn("(from the hub)", (self.profile / "skills" / "tico-sync" / "SKILL.md").read_text())
+        self.hub.skill = "<html>Sign in</html>"
+        self.assertEqual(self.run_cli("reinstall", "--profile", "scout")[0], 0)
+        self.assertNotIn("Sign in", (self.profile / "skills" / "tico-sync" / "SKILL.md").read_text())
+
+    def run_check_script(self):
+        script = self.profile / "scripts" / "tico-sync-check.py"
+        done = REAL_RUN(["python3", str(script)], capture_output=True, text=True, timeout=60,
+                        env={"PATH": "/usr/bin:/bin", "HOME": str(self.home)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout.strip().splitlines()
+
+    def test_the_pre_check_script_keeps_the_agent_asleep_when_nothing_waits(self):
+        self.install()
+        self.assertEqual(self.run_check_script(), ["Tico: 2 message(s) and 1 task(s) waiting for scout."])
+        self.hub.heartbeat = (200, {"server_time": "t", "bot": "scout", "waiting": {"messages": 0, "tasks": 0}})
+        self.assertEqual(self.run_cli("heartbeat", "--profile", "scout")[0], 0)
+        self.assertEqual(self.run_check_script(), ["Tico: nothing waiting for scout.", '{"wakeAgent": false}'])
+
+    def test_a_stale_reply_is_refreshed_so_a_stopped_timer_cannot_hide_work(self):
+        self.install("--no-timer")
+        config = self.credential()
+        config["last_ok"] = H.time.time() - 3600
+        config["last_reply"] = {"waiting": {"messages": 0, "tasks": 0}}
+        (self.config_dir / "scout.json").write_text(json.dumps(config))
+        beats = self.hub.count("/api/v2/agents/heartbeat")
+        code, out, err = self.run_cli("check", "--profile", "scout", "--gate")
+        self.assertEqual(self.hub.count("/api/v2/agents/heartbeat"), beats + 1)
+        self.assertIn("2 message(s) and 1 task(s) waiting", out)
+        self.assertNotIn("wakeAgent", out)
+
+    def test_an_unreachable_hub_is_said_in_one_line_and_does_not_wake_the_agent(self):
+        self.install("--no-timer")
+        config = self.credential()
+        config["last_ok"] = 0
+        (self.config_dir / "scout.json").write_text(json.dumps(config))
+        self.hub.heartbeat = (500, {"error": {"code": "boom", "detail": "down"}})
+        code, out, err = self.run_cli("check", "--profile", "scout", "--gate")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip().splitlines()[0][:18], "Tico check failed:")
+        self.assertEqual(out.strip().splitlines()[-1], '{"wakeAgent": false}')
+
+    def test_a_weekly_update_is_due_after_seven_days_and_wakes_the_agent(self):
+        self.install("--no-timer")
+        config = self.credential()
+        config["last_reply"] = {"waiting": {"messages": 0, "tasks": 0}}
+        config["last_ok"] = H.time.time()
+        config["updated_at"] = H.time.time() - 8 * 86400
+        (self.config_dir / "scout.json").write_text(json.dumps(config))
+        code, out, err = self.run_cli("check", "--profile", "scout", "--gate")
+        self.assertIn("Connector update due (last updated 8 days ago)", out)
+        self.assertNotIn("wakeAgent", out)
+        self.hub.script = Path(H.__file__).read_text()
+        self.assertEqual(self.run_cli("update", "--profile", "scout")[0], 0)
+        code, out, err = self.run_cli("check", "--profile", "scout")
+        self.assertNotIn("update due", out)
+
+    def test_a_reinstall_keeps_the_weekly_clock(self):
+        self.install("--no-timer")
+        config = self.credential()
+        config["updated_at"] = 1000.0
+        (self.config_dir / "scout.json").write_text(json.dumps(config))
+        self.assertEqual(self.run_cli("reinstall", "--profile", "scout")[0], 0)
+        self.assertEqual(self.credential()["updated_at"], 1000.0)
+
+
+class OpenClaw(Base):
+    """The same connector for an OpenClaw profile: no MCP client, so the credential goes in tico.env and the
+    skill calls Tico through `call`; the job is `openclaw cron`."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = self.home / ".openclaw-claw"
+        self.state.mkdir()
+        (self.state / "openclaw.json").write_text(json.dumps({
+            "gateway": {"mode": "remote", "port": 18789},
+            "agents": {"defaults": {"model": {"primary": "anthropic/claude-opus-4-6"}}}}))
+        self.hub.me = {"role": "bot", "actor": "bot:claw", "agent": "openclaw"}
+
+    def pair(self, *extra, profile=("--profile", "claw")):
+        self.hub.pair_states = [{"state": "approved", "bot": "claw", "token": TOKEN}]
+        return self.run_cli("pair", "--harness", "openclaw", *profile, "--url", self.hub.url, *extra)
+
+    def jobs(self, profile="claw"):
+        return self.fake.oc_jobs.get(profile, [])
+
+    def test_pair_wires_openclaw_without_mcp_and_makes_the_hourly_job(self):
+        code, out, err = self.pair()
+        self.assertEqual(code, 0, err)
+        self.assertIn("connect my OpenClaw profile claw, code " + CODE, out)
+        first = self.hub.requests[0]
+        self.assertEqual((first["path"], first["body"]["harness"], first["body"]["profile"]),
+                         ("/api/v2/agents/pairings", "openclaw", "claw"))
+        # The credential: our 600 file, and tico.env beside OpenClaw's config; no config.yaml, no MCP entry.
+        env = self.state / "tico.env"
+        self.assertIn("TICO_AGENT_TOKEN=" + TOKEN, env.read_text())
+        self.assertEqual(stat.S_IMODE(env.stat().st_mode), 0o600)
+        self.assertFalse((self.state / "config.yaml").exists())
+        self.assertIn("no MCP client", out)
+        saved = json.loads((self.config_dir / "openclaw-claw.json").read_text())
+        self.assertEqual((saved["bot"], saved["harness"], saved["sync"]), ("claw", "openclaw", "1h"))
+        self.assertEqual(stat.S_IMODE((self.config_dir / "openclaw-claw.json").stat().st_mode), 0o600)
+        # The skill, rendered for this profile, in OpenClaw's managed skills folder.
+        text = (self.state / "skills" / "tico-sync" / "SKILL.md").read_text()
+        self.assertIn("name: tico-sync", text)
+        self.assertIn("call --harness openclaw --profile claw <tool name>", text)
+        self.assertNotIn(TOKEN, text)
+        # The job: one, every hour, an isolated agent turn, nothing announced.
+        (job,) = self.jobs()
+        self.assertEqual((job["name"], job["schedule"], job["sessionTarget"], job["delivery"]["mode"]),
+                         ("tico-sync", {"kind": "every", "everyMs": 3600000}, "isolated", "none"))
+        self.assertIn(str(self.state / "skills" / "tico-sync" / "SKILL.md"), job["payload"]["message"])
+        add = self.fake.ran("/usr/bin/openclaw", "--profile", "claw", "cron", "add")[0]
+        self.assertIn("--no-deliver", add)
+        # The heartbeat timer runs the openclaw form, under its own label.
+        plist = plistlib.loads((self.home / "Library/LaunchAgents/team.tico-agent.openclaw-claw.plist").read_bytes())
+        self.assertEqual(plist["ProgramArguments"][2:], ["heartbeat", "--harness", "openclaw", "--profile", "claw"])
+        beat = [r for r in self.hub.requests if r["path"] == "/api/v2/agents/heartbeat"][0]["body"]
+        self.assertEqual((beat["version"], beat["model"], beat["provider"], beat["profile"]),
+                         ("2026.3.13", "anthropic/claude-opus-4-6", "anthropic", "claw"))
+        self.assertIn("gateway remote", beat["detail"])
+
+    def test_the_default_profile_is_the_plain_state_directory_and_a_hermes_profile_of_the_same_name_is_separate(self):
+        (self.home / ".openclaw").mkdir()
+        self.hub.pair_states = [{"state": "approved", "bot": "claw", "token": TOKEN}]
+        code, out, err = self.run_cli("pair", "--harness", "openclaw", "--url", self.hub.url)
+        self.assertEqual(code, 0, err)
+        self.assertTrue((self.home / ".openclaw" / "tico.env").exists())
+        self.assertTrue((self.config_dir / "openclaw-default.json").exists())
+        self.assertEqual(len(self.jobs("default")), 1)
+        self.assertTrue(self.fake.ran("/usr/bin/openclaw", "cron", "add"), "no --profile for the default one")
+        # A Hermes profile called `claw` and an OpenClaw profile called `claw` keep separate files.
+        self.hub.me = {"role": "bot", "actor": "bot:claw", "agent": "hermes"}
+        (self.home / ".hermes" / "profiles" / "claw").mkdir()
+        self.assertEqual(self.run_cli("install", "--profile", "claw", "--url", self.hub.url, "--bot", "claw",
+                                      "--token", TOKEN)[0], 0)
+        self.assertTrue((self.config_dir / "claw.json").exists())
+
+    def test_the_profile_directory_must_exist(self):
+        code, out, err = self.run_cli("pair", "--harness", "openclaw", "--profile", "nobody", "--url", self.hub.url)
+        self.assertEqual(code, 1)
+        self.assertIn("No OpenClaw state directory", err)
+        self.assertEqual(self.hub.requests, [])
+
+    def test_reinstall_changes_the_interval_and_off_removes_the_job(self):
+        self.assertEqual(self.pair("--sync", "daily")[0], 0)
+        self.assertEqual(self.jobs()[0]["schedule"], {"kind": "cron", "expr": "0 9 * * *"})
+        r = self.run_cli("reinstall", "--harness", "openclaw", "--profile", "claw", "--sync", "15m")
+        self.assertEqual(r[0], 0, r[2])
+        (job,) = self.jobs()
+        self.assertEqual(job["schedule"], {"kind": "every", "everyMs": 900000})
+        self.assertEqual(self.run_cli("reinstall", "--harness", "openclaw", "--profile", "claw", "--sync", "off")[0], 0)
+        self.assertEqual(self.jobs(), [])
+
+    def test_a_gateway_that_is_down_is_a_warning_not_a_failed_pairing(self):
+        self.fake.broken["openclaw"] = "gateway closed (1006)"
+        code, out, err = self.pair()
+        self.assertEqual(code, 0, err)
+        self.assertIn("WARNING: the sync job is not in place", out)
+        self.assertIn("gateway closed", out)
+        self.assertTrue((self.config_dir / "openclaw-claw.json").exists())
+        self.fake.broken.clear()
+        self.assertEqual(self.run_cli("reinstall", "--harness", "openclaw", "--profile", "claw")[0], 0)
+        self.assertEqual(len(self.jobs()), 1, "reinstall retries with the saved interval")
+
+    def test_doctor_reads_the_job_from_the_gateway(self):
+        self.pair()
+        code, out, err = self.run_cli("doctor", "--harness", "openclaw", "--profile", "claw")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("OpenClaw has no MCP client", out)
+        self.assertIn("TICO_AGENT_TOKEN is present in tico.env", out)
+        self.assertIn("sync job tico-sync (every 60m) is scheduled; has not run yet", out)
+        self.jobs()[0]["state"] = {"lastRunAtMs": 1790800256000, "lastStatus": "ok"}
+        code, out, err = self.run_cli("doctor", "--harness", "openclaw", "--profile", "claw")
+        self.assertIn("last ran 2026-", out)
+        self.assertIn("(ok)", out)
+
+    def test_uninstall_removes_the_job_the_skill_and_tico_env(self):
+        self.pair()
+        self.assertEqual(self.run_cli("uninstall", "--harness", "openclaw", "--profile", "claw")[0], 0)
+        self.assertEqual(self.jobs(), [])
+        self.assertFalse((self.state / "skills" / "tico-sync").exists())
+        self.assertFalse((self.state / "tico.env").exists())
+        self.assertFalse((self.config_dir / "openclaw-claw.json").exists())
+        self.assertTrue((self.state / "openclaw.json").exists(), "OpenClaw's own config is left alone")
+
+    def test_call_sends_one_tool_to_the_mcp_endpoint_with_the_bearer_token(self):
+        self.pair()
+        self.hub.mcp = (200, {"jsonrpc": "2.0", "id": 1, "result": {
+            "content": [{"type": "text", "text": '{"messages": [{"id": "m1"}]}'}], "isError": False}})
+        code, out, err = self.run_cli("call", "--harness", "openclaw", "--profile", "claw", "hub_message_list", "{}")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"messages": [{"id": "m1"}]})
+        sent = [r for r in self.hub.requests if r["path"] == "/api/v2/mcp"][0]
+        self.assertEqual(sent["headers"]["authorization"], "Bearer " + TOKEN)
+        self.assertEqual(sent["body"]["method"], "tools/call")
+        self.assertEqual(sent["body"]["params"], {"name": "hub_message_list", "arguments": {}})
+        self.assertTrue(sent["headers"]["user-agent"].startswith("tico-hermes-agent/"))
+        self.run_cli("call", "--harness", "openclaw", "--profile", "claw", "hub_message_send",
+                     '{"to": "human:ana", "text": "On it."}')
+        self.assertEqual([r for r in self.hub.requests if r["path"] == "/api/v2/mcp"][1]["body"]["params"]["arguments"],
+                         {"to": "human:ana", "text": "On it."})
+
+    def test_call_reports_a_refused_tool_and_bad_arguments(self):
+        self.pair()
+        self.hub.mcp = (200, {"jsonrpc": "2.0", "id": 1, "result": {
+            "content": [{"type": "text", "text": '{"error": "forbidden"}'}], "isError": True}})
+        code, out, err = self.run_cli("call", "--harness", "openclaw", "--profile", "claw", "hub_task_update", "{}")
+        self.assertEqual(code, 1)
+        self.assertIn("forbidden", err)
+        code, out, err = self.run_cli("call", "--harness", "openclaw", "--profile", "claw", "hub_whoami", "[1]")
+        self.assertEqual(code, 1)
+        self.assertIn("JSON object", err)
+        self.hub.mcp = (200, {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Unknown tool: hub_nope"}})
+        code, out, err = self.run_cli("call", "--harness", "openclaw", "--profile", "claw", "hub_nope")
+        self.assertEqual(code, 1)
+        self.assertIn("Unknown tool", err)
+
+    def test_a_hermes_command_still_needs_a_profile(self):
+        code, out, err = self.run_cli("status")
+        self.assertEqual(code, 1)
+        self.assertIn("--profile is required", err)
+
+
+class SkillFile(unittest.TestCase):
+    """skills/tico-sync/SKILL.md is what both agents load: lint it so a bad edit cannot ship."""
+    PATH = REPO / "skills" / "tico-sync" / "SKILL.md"
+
+    def front_matter(self):
+        text = self.PATH.read_text()
+        self.assertTrue(text.startswith("---\n"), "front matter must open the file")
+        head, _, body = text[4:].partition("\n---\n")
+        fields = {}
+        for line in head.splitlines():
+            # OpenClaw's parser reads single-line `key: value` pairs only.
+            self.assertRegex(line, r"^[a-z][a-z-]*: \S.*$", "front matter is single-line key: value pairs")
+            key, _, value = line.partition(": ")
+            fields[key] = value
+        return fields, body
+
+    def test_the_file_exists_with_valid_front_matter(self):
+        fields, body = self.front_matter()
+        self.assertEqual(set(fields), {"name", "description"})
+        self.assertEqual(fields["name"], "tico-sync")
+        self.assertEqual(fields["name"], self.PATH.parent.name)
+        self.assertTrue(20 <= len(fields["description"]) <= 1024)
+        self.assertTrue(body.strip())
+
+    def test_it_asks_for_the_steps_and_the_rules_the_owner_wants(self):
+        _, body = self.front_matter()
+        for needed in ("hub_whoami", "hub_note_list", "hub_message_list", "hub_message_send", "hub_message_mark_read",
+                       "hub_task_update", "status: done", "status: waiting", "idle", "{{connector}} update",
+                       "Never paste a secret", "{{connector}} call {{profile}}"):
+            self.assertIn(needed, body)
+
+    def test_every_tool_it_names_exists_and_every_placeholder_is_one_the_connector_fills(self):
+        from clients import hubtools
+        text = self.PATH.read_text()
+        names = set(re.findall(r"\bhub_[a-z_]+\b", text))
+        self.assertLessEqual(names, set(hubtools.BY_NAME), sorted(names - set(hubtools.BY_NAME)))
+        self.assertEqual(set(re.findall(r"\{\{(\w+)\}\}", text)), {"connector", "profile"})
+        rendered = H.render_skill(text, "openclaw", "claw", "/usr/bin/python3")
+        self.assertNotIn("{{", rendered)
+
+
+class Interval(unittest.TestCase):
+    def test_parse(self):
+        for asked, expected in (("15m", ("every", "15m")), ("1h", ("every", "1h")), ("Daily", ("cron", "0 9 * * *")),
+                                ("every 2h", ("every", "2h")), ("60m", ("every", "1h")), ("off", ("off", "")),
+                                ("0 */6 * * *", ("cron", "0 */6 * * *")), (None, ("every", "1h"))):
+            self.assertEqual(H.parse_sync(asked), expected, asked)
+        for bad in ("", "soon", "4m", "0 9 * *", "every", "1w"):
+            with self.assertRaises(H.Failure, msg=bad):
+                H.parse_sync(bad)
 
 
 if __name__ == "__main__":
