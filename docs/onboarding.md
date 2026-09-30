@@ -25,7 +25,7 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 
 | Screen | What it asks | What it stores |
 |---|---|---|
-| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use (at least one) | The company's providers, as Settings > Providers saves them |
+| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use. Optional: leave none ticked and Next moves on | The company's providers, as Settings > Providers saves them |
 | Names | Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the org chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the company's reads as `Assistant`) |
 | About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Whether software is the product decides which departments start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your org chart | The departments, then one question per department and the bots to recruit into it, with the chart growing beside it, and the helper switches under the finished chart ([The org builder](#the-org-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug). Nothing is created yet |
@@ -114,6 +114,10 @@ second). It reaches no machine.
 - BotOps, the assistant, the Librarian and the Goal Manager first, so they exist before anything is addressed to them, then everything picked, each `planned`
   with the card's summary as its description, `emp-<slug>` as its repository, the card's runtime, model and reasoning effort, the person
   it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default.
+- **No AI provider and no computer are needed.** The team is created first. With no provider chosen a bot names no runtime or model and
+  follows the company default, so it runs once a provider is added in Settings > AI providers. With no computer enrolled the bots stay
+  `planned`; when the owner's computer enrolls, the bots are placed on it and activated. Until then the after-Create screen says
+  "Waiting for a computer" or "Add an AI provider".
 - The template and the reviewed instructions are stored in the bot's server-side config, with the **template version** (the release whose
   catalog it came from: `template_version`).
 - A **starter** template (a card with a `first_routine` and an `onboarding` conversation) is created whole and parked:

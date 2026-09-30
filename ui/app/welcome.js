@@ -15,7 +15,7 @@ const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEP
 const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company',
                     org: 'Your org chart', machine: 'Add the computer that runs your bots', agent: 'Connect your agent', review: 'Review and create'};
 // At most one short hint line under a step's title; most steps have none.
-const ONB_BLURB = {agent: 'Optional.'};
+const ONB_BLURB = {providers: 'Optional.', agent: 'Optional.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
@@ -344,7 +344,8 @@ async function onbAdvance(state, key) {
   onbCollect(state, key);
   if (key === 'providers') {
     const chosen = providersCollect($('#onb-prov'));
-    if (!chosen.enabled.length) { onbBusy(state, false, '<span class="err">Tick at least one provider.</span>'); return; }
+    // Nothing ticked is fine: the team is created first and its bots run once a provider is added (Settings > AI providers).
+    if (!chosen.enabled.length) { state.step += 1; onbRender(state); return; }
     onbBusy(state, true, 'Saving…');
     try {
       state.providers = await providersSave(state.providers, chosen);

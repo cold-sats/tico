@@ -91,11 +91,14 @@ function frSummaryTeamHTML(state) {
 
 // ----------------------------------------------------------------- after Create
 // One screen: each bot's setup, an admin to invite, an owner for each bot, and where tools are connected.
+// What every bot is waiting on when the team was created first: bots are placed when a computer appears and run once there is a provider.
+const frWaiting = state => ((state.record.machine?.runners || []).length ? (S.config?.providers_configured === false ? 'Add an AI provider' : '') : 'Waiting for a computer');
 function frBotRowHTML(state, bot, botOps) {
   const card = state.catalog.cards.find(row => row.slug === bot.slug || row.template === bot.template);
   const bootstrap = bot.slug === assistantBot() || !!card?.bootstrap;
   const ready = !!bot.repository_present, active = bot.status === 'active', parked = bot.onboarding_state === 'needs_onboarding';
-  const where = bootstrap ? 'Set up automatically once a computer is online.'
+  const waiting = frWaiting(state);
+  const where = waiting ? waiting + '.' : bootstrap ? 'Set up automatically once a computer is online.'
     : parked ? (ready ? 'Repository ready.' : 'Setting up its repository…')
     : `${esc(botOps)} is setting this up.`;
   return `<div class="onb-bot" data-onb-bot="${esc(bot.slug)}">${avatar(bot.slug, 27)}

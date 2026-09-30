@@ -829,6 +829,22 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await created2.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     await shot(created2, 'phone-7-bot-page');
 
+    // A team created before any computer or AI provider says what its bots wait on, and nothing blocks Create.
+    const enrolled = machine;
+    machine = {runners: [], enrolled: false};
+    const waiting = await context.newPage();
+    waiting.on('pageerror', e => errors.push(e.message));
+    await waiting.goto('https://tico-ui.test/#/welcome');
+    await waiting.locator('[data-onb-bot=coo]').waitFor();
+    assert.match(await waiting.locator('[data-onb-bot=coo]').textContent(), /Waiting for a computer\./);
+    assert.match(await waiting.locator('[data-onb-bot=support]').textContent(), /Waiting for a computer\./);
+    machine = enrolled;
+    CONFIG.providers_configured = false;
+    await waiting.reload();
+    await waiting.locator('[data-onb-bot=coo]').waitFor();
+    assert.match(await waiting.locator('[data-onb-bot=coo]').textContent(), /Add an AI provider\./);
+    delete CONFIG.providers_configured;
+
     // A viewer has no setup entry and lands on Tasks if they type the address.
     me.role = 'human';
     const viewer = await context.newPage();

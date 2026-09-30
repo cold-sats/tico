@@ -4,6 +4,7 @@ The catalog is written per test, so these assertions never depend on the cards a
 happens to ship. The company is Acme, its app is Atlas, its assistant Morgan.
 """
 
+import json
 import uuid
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from backend import providers
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
@@ -216,6 +218,26 @@ def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(envir
     assert models["default"]["model"] == "claude-opus-5"
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM events WHERE action='providers.updated'").fetchone()[0] == 1
+
+
+def test_the_team_is_created_with_no_provider_and_no_computer_and_starts_once_they_exist(environment):
+    api = environment(seed={}, enabled_providers=())
+    draft(api, selected={"support": {"template": "support", "display_name": "Support", "instructions": ""}})
+    done = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    assert done.status_code == 200, done.text
+    assert {"botops", "support"} <= {row["slug"] for row in done.json()["bots"]}
+    with api.app.state.store.read() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='support'").fetchone()[0])
+        assert not c.execute("SELECT 1 FROM assignments").fetchone()
+    assert not {"model", "runtime"} & set(config)                # it follows the company default, once there is one
+    assert _states(api)["botops"] == "planned"                   # nothing is placed or running yet
+    machine(api)                                                 # a computer appears: the bots are placed
+    assert _states(api)["botops"] == "active"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT 1 FROM assignments WHERE bot='support'").fetchone()
+    api.put("/api/v2/providers", headers=signed_in(), json={"enabled": ["openai"], "expected_revision": 0})
+    with api.app.state.store.read() as c:                        # a provider is added: the bot resolves to it
+        assert providers.bot_choice(c, api.app.state.store.settings, config)[0] == "codex"
 
 
 def _states(api):

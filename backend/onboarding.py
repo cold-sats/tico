@@ -436,8 +436,6 @@ class Onboarding:
 
     def complete(self, c, who):
         self._owner(who)
-        if not providers.configured(providers.load(c, self.settings)):
-            raise providers.NoProvider("Setting up the company")
         record = load(c)
         names = display_names(self.settings, record)
         cards = {card["template"]: card for card in read_cards(self.settings)}
@@ -786,13 +784,17 @@ class Onboarding:
     def _runtime(self, c, card):
         """The model a bot built from this card runs on: the card's own pick when it names a
         current model of an enabled provider, else the company default, else the first enabled
-        provider's recommended model. With no provider chosen this is an error, never a vendor."""
+        provider's recommended model. With no provider chosen it is None, never a vendor: the
+        bot follows the company default and runs once one is chosen."""
         company = providers.load(c, self.settings)
         named = self.models.get(str(card.get("model") or ""))
         own = {}
         if (named and not named.get("deprecated") and named.get("provider") in company["enabled"]):
             own = {"model": named["id"], "runtime": named["runtime"]}
-        runtime, model = providers.resolve(company, own, what="Onboarding")
+        try:
+            runtime, model = providers.resolve(company, own, what="Onboarding")
+        except providers.NoProvider:
+            return None
         choice = self.models[model]
         effort = str(card.get("reasoning_effort") or "").strip().lower()
         return choice["id"], (effort if effort in tuple(choice.get("efforts") or ())
@@ -804,7 +806,11 @@ class Onboarding:
         summary = str(card.get("summary") or "")
         existing = c.execute("SELECT revision FROM bot_config WHERE bot=?", (slug,)).fetchone()
         if not existing:
-            model, effort = self._runtime(c, card)
+            picked = self._runtime(c, card)
+            # No provider yet: a stand-in model satisfies the definition, then the bot is left to follow the company default.
+            model, effort = picked or next(
+                (row["id"], row.get("default_effort") or "") for row in self.models.values()
+                if row.get("provider") and not row.get("deprecated"))
             self.admin.create_bot(c, who, M.BotDefinitionCreate(
                 slug=slug, display_name=choice["display_name"], description=summary,
                 status="planned", repo="emp-" + slug, thread_mode="personal",
@@ -838,3 +844,14 @@ class Onboarding:
         declared["setup_task_id"] = task["id"]
         self._write_config(c, slug, declared)
         return task["id"]
+            if not picked:
+                self._follow_default(c, slug)
+    def _follow_default(self, c, slug):
+        """Leave a bot's runtime and model unnamed, so it runs on the company's default once one is chosen
+        (providers.fill), the way a bot from the registry with none does."""
+        declared = self._declared(c, slug)
+        for key in ("runtime", "model", "harness", "reasoning_effort"):
+            declared.pop(key, None)
+        self._write_config(c, slug, declared)
+        c.execute("UPDATE bots SET runtime='',model='',effort='' WHERE slug=?", (slug,))
+
