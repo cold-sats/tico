@@ -137,7 +137,8 @@ Rust and the Tauri CLI (`cargo install tauri-cli`) are needed only for the deskt
 
 6. **Pick your bots.** The catalog in `templates/catalog/` is shown as cards: what each bot owns,
    what it will never do, what it runs on, and the `AGENT.md` it would be created with, which you
-   can edit before taking it. The assistant and BotOps are required; a starter team (or a full org chart) is proposed from what you said the company does.
+   can edit before taking it. The assistant and BotOps are required; the rest you pick department by department on your org chart, from
+   suggestions for what you said each department does.
 
 7. **Set up this Mac.** **Add computer** downloads a private 15 minute setup file, and the screen
    prints the three commands to run in this checkout. `enroll` creates the workspace (mode 700,

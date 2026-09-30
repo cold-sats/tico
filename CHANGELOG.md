@@ -7,18 +7,42 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **First run builds your org chart, department by department.** The "Your team" step (a starter team, a full org chart or just the
+  built-ins) is replaced by **Your org chart**. "What departments do you want?" offers nine tiles: Sales, Marketing, Customer Support,
+  Finance, Operations, Legal, HR, Product and Engineering (`templates/departments.yaml`; Product and Engineering start picked only when
+  software is the product). Then one department at a time: its icon, a one-line description and goal, one question ("What kind of sales
+  do you do today?") and a one-line answer; **Recruit bots** shows "Recruiting bots…" and then the suggested bots as checkable cards with
+  an icon, a summary and why each fits. The department head and the `default` cards start checked, `common` ones are shown, the rest are
+  under More, and Back and Skip department are always there. The org chart is drawn beside it and grows as bots are checked (a strip above
+  the card on a phone); the finished chart ("5 departments · 12 bots") lets you rename a bot or change who it reports to by clicking it.
+  Each department head reports to the owner and each other bot to its head. Create is unchanged: starters are parked "Needs onboarding"
+  and materialized in the background. The departments and answers are saved as `answers.departments` and `answers.briefings`, and the
+  answers reach BotOps's setup tasks.
+- **Suggestions from Tico HQ, with a local fallback.** `POST /api/v2/onboarding/recruit` answers one department's suggestions and
+  `GET /api/v2/onboarding/departments` serves the departments and cards. While the card's toggle "Suggestions from Tico HQ (sends this
+  answer)" is on, and unless demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` or the usage-count setting turn it off, the server sends
+  the department, the answer, three facts from About and the catalog version to `POST <TICO_HQ_URL>/v1/recruit`, waits at most 6 seconds
+  and keeps only its own template ids. Otherwise, or on any failure, `backend/recruit_rank.py` ranks locally. PRIVACY.md says what is
+  sent; HQ stores none of it. Tico HQ's `/v1/recruit` (`hq/recruit.py`) validates strictly, ranks with GPT-6 Luna under a JSON schema of
+  template ids, caps model calls per day (`HQ_RECRUIT_DAILY_CAP`), falls back to local ranking, caches answers in memory for an hour under
+  a hash, never logs a body, and rate-limits per address and install id. `scripts/build_catalog_json.py` builds HQ's `hq/catalog.json` and
+  its copy of the recommender ([Tico HQ](docs/tico-hq.md)).
+- Cards and departments carry a Material Symbols `icon`, and `scripts/build-icon-font.py` adds every one to the app's icon font. A card
+  also takes `department`, `tags`, `suggest` (`default`, `common` or `niche`) and `team_templates`.
+
 ### Changed
 - **First run has one step fewer: "What hurts, and what you use" is gone.** The pain chips grouped by team, "In your own words" and the
-  "What do you already use?" tool checkboxes are removed, so the wizard is seven steps (AI providers, Names, About the company, Your team,
-  Add the computer, Connect your agent, Review and create). The team is now chosen from "About the company" alone. The **starter team** is
-  Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when software is the product, and at most one more starter when the
-  "What you do" text obviously matches a card's `pains` or summary. The **full org chart** is every starter template grouped by team with each
-  pack's `lead: true` template as lead; Engineering is included only when software is the product, and a company that sells only to
-  consumers skips templates whose `recommend_when` names `sells_to_businesses` but not `sells_to_consumers`. Tools no longer gate anything at
-  onboarding: templates are never held back for a missing tool, the "Needs Mail" pills are gone, and each bot asks for what it needs in its own
-  Start setup. `answers.pains`, `pains_text` and `tools` are still accepted and ignored, `held_back` is always empty and `pain_options` is no
-  longer served. `FEATURED_PAINS`, the tool and signal tags (nothing sets `uses_github` or `uses_meetings` any more; cards may still list them) and the
-  pain chip CSS are removed, and the Getting started "next bot" hint no longer quotes a pain.
+  "What do you already use?" tool checkboxes are removed, so the wizard is seven steps (AI providers, Names, About the company, Your org
+  chart, Add the computer, Connect your agent, Review and create). Tools no longer gate anything at onboarding: templates are never held
+  back for a missing tool, the "Needs Mail" pills are gone, and each bot asks for what it needs in its own Start setup.
+  `answers.pains`, `pains_text` and `tools` are still accepted and ignored. `FEATURED_PAINS`, the tool and signal tags (nothing sets
+  `uses_github` or `uses_meetings` any more; cards may still list them) and the pain chip CSS are removed, and the Getting started "next
+  bot" hint no longer quotes a pain.
+
+### Removed
+- The fixed starter team and the full org chart: `choose()`, `full_chart()` and `recommend()` in `backend/onboarding.py`, and
+  `recommended`, `recommendations`, `full_chart`, `held_back` and `pain_options` in the onboarding record. The org builder replaces them.
 
 ## [0.2.14] - 2026-09-30
 

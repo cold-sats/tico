@@ -1,9 +1,9 @@
 # Starter bots
 
-The catalog holds 38 templates, enough to staff a company of ten to a hundred people, in six packs that become the six teams of the
-full org chart. A company starts from a team of three or four (Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when software is the product) and gets a first useful, reviewable result in its first session,
-or builds the whole org chart in one click and sets each bot up when its turn comes: every bot is created parked in "Needs
-onboarding" and costs nothing until someone sets it up. They run on what a company already has, and none of them acts outside the
+The catalog holds 38 templates, enough to staff a company of ten to a hundred people, grouped into the departments of the first-run
+org builder ([First run](onboarding.md#the-org-builder)). A company picks its departments, answers one question for each, checks the
+bots it wants, and gets a first useful, reviewable result in its first session from each one it sets up: every bot is created parked in
+"Needs onboarding" and costs nothing until someone sets it up. They run on what a company already has, and none of them acts outside the
 company on its own. The catalog format is in [First run](onboarding.md); how to write and tune a bot is in
 [Creating bots](creating-bots.md).
 
@@ -127,9 +127,9 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 
 | Field | What it holds |
 |---|---|
-| `pack` | `basics`, `sales`, `marketing`, `support`, `operations` or `engineering`: the team the template sits in on the full org chart (Leadership, Sales, Marketing, Support, Operations, Engineering), and how a chooser groups templates. Those are the only six teams the chooser has (`TEAMS` in `backend/onboarding.py`), so finance templates use `operations` and product research uses `engineering` |
-| `lead` | `true` on exactly one template per pack: the team's coordinator, and the person the rest of the team reports to on the full chart. Chief of Staff for Leadership. The catalog test requires exactly one. `full_chart` in `backend/onboarding.py` reads it: the lead sits first in its team and the rest report to it |
-| `pains` | Plain phrases a person might say ("too much email", "leads go cold", "meetings without follow-up"). The first-run wizard no longer shows them. The chooser matches a company's free-text "What you do" against them (and against the summary) to add at most one more starter, so write them as words a company would use |
+| `pack` | `basics`, `sales`, `marketing`, `support`, `operations` or `engineering`: the older grouping. A card with no `department` sits in its pack's department in the org builder (`basics` is Operations) |
+| `lead` | `true` on the template that heads its department: it is checked first in the org builder and the rest of the department reports to it (`head` in `templates/departments.yaml` names the same template) |
+| `pains` | Plain phrases a person might say ("too much email", "meetings without follow-up"). The first-run wizard does not show them; a card with no `tags` is matched on them, so write them as words a company would use |
 | `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. Onboarding no longer asks which tools a company uses and never holds a template back for one: the bot asks for what it needs in its own Start setup conversation, so list what it needs there. Keep `required` for what the bot cannot work at all without |
 | `onboarding` | Four to seven `{ask, why}` questions the bot asks on its first message |
 | `first_routine` | `{title, cadence, output, draft_only: true}`: the reviewable internal artifact the bot produces first |
@@ -137,11 +137,11 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 | `example_output` | Path, inside the template, to a short sample of excellent output under `knowledge/examples/` |
 | `when` | Optional, existing: one sentence saying who wants the template |
 
-`recommend_when` says who the template is for (see [First run](onboarding.md#the-chooser)). The chooser reads only two of its tags:
-`sells_to_businesses` without `sells_to_consumers` marks a template as business-only, and a company that sells only to consumers does not get
-it on the full org chart. Every other tag (`sells_software`, `uses_crm`, `uses_github`, `uses_meetings`, `has_support_inbox`, `always`) is
-descriptive and matched to nothing, so use the ones a reader would expect. Engineering templates (`pack: engineering`) are offered only
-to a company whose product is software, whatever they list.
+`recommend_when` says who the template is for (see [First run](onboarding.md#the-org-builder)). The org builder reads only two of its tags:
+`sells_to_businesses` without `sells_to_consumers` marks a template as business-only, and it is suggested last to a company that sells only
+to consumers. Every other tag (`sells_software`, `uses_crm`, `uses_github`, `uses_meetings`, `has_support_inbox`, `always`) is
+descriptive and matched to nothing, so use the ones a reader would expect. The Engineering and Product departments start picked only
+for a company whose product is software; anyone may pick them.
 
 ```yaml
 template: sales
