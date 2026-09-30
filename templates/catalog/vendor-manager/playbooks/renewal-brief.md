@@ -12,7 +12,7 @@ and, where useful, the message to the vendor ready for approval.
     hub docs read <id>
 
 Confirm end date, notice period, how notice must be given (email, letter, portal), price and any
-uplift clause, minimum term, and what happens to the company's data on exit. If the terms need a
+uplift clause, minimum term, and what happens to the team's data on exit. If the terms need a
 summary, ask the Contracts Manager: `hub task create --owner legal-review` after the owner's yes.
 
 ## 2. Gather the evidence

@@ -8,7 +8,7 @@ on the task: the role, why, and its first routine. Nothing is created until the 
 
 ## 1. Find the evidence
 
-List the recurring work nobody owns, from the last three to four weeks: tasks routed to a person because
+List the recurring work nobody owns, from the last three to four weeks: tasks routed to a human because
 no role fits (`hub task list`), leads that waited more than a day, proposals or questionnaires written by
 hand, renewals noticed late, a CRM report nobody writes. Count the occurrences and the hours if the tasks
 say. One-off work is not a reason to hire.
@@ -32,7 +32,7 @@ Ask once with `hub task ask <id>`: "Set up <name>?" and stop.
 
 ## 4. On a yes
 
-    hub task create --owner botops --title "Set up <template> from the catalog" --body "<why, first routine, reports to sales-lead, owner approved on task <id>>"
+    hub task create --owner botops --title "Set up <template>" --body "<why, first routine, reports to sales-lead, owner approved on task <id>>"
 
 Record the proposal, the evidence and the decision in `knowledge/hiring.md`. On a no, record the reason
 so the same proposal is not made again without new evidence.

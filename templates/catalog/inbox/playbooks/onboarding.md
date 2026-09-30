@@ -1,7 +1,7 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 20 minutes. The outcome is six recorded answers, a real brief on the person's actual
+Runs once, on the first message or task you receive, while `state.md` says setup has not
+finished. Budget 20 minutes. The outcome is six recorded answers, a real brief on the human's actual
 inbox with nothing written to Gmail, and a routine that is proposed but not armed.
 
 ---
@@ -13,7 +13,7 @@ inbox with nothing written to Gmail, and a routine that is proposed but not arme
     $HUB_DIR/scripts/mail.sh inbox --untriaged --format brief --decisions
 
 Confirm you can read the mailbox named in `Mailbox:`. If you cannot, say which refusal and stop: the
-operator has to connect it (docs/mail.md). Otherwise note roughly how much is waiting and who writes
+owner has to connect it (docs/mail.md). Otherwise note roughly how much is waiting and who writes
 most, so your questions are specific.
 
 ## 2. Introduce yourself in three lines
@@ -23,7 +23,7 @@ that they see everything you would do first.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What must always reach you (people, topics, senders)? It becomes the flag-first list.
 2. What can you file or ignore without asking (newsletters, receipts, notifications)?
@@ -53,15 +53,15 @@ once, and stop. On a yes:
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a change,
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a change,
 adjust `playbooks/inbox-preferences.md` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

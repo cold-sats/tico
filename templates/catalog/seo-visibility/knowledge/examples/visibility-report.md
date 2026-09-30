@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme search and AI visibility, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Nothing on the website was changed.
+Sample output for Acme, a fictional studio-software team. Nothing on the website was changed.
 
 **Headline: Acme is named in 6 of 10 tracked AI answers, up from 4; the pricing page is the biggest missed chance.**
 

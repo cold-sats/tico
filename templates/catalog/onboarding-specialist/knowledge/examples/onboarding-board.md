@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme onboarding board, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Every customer and name is invented.
+Sample output for Acme, a fictional studio-software team. Every customer and name is invented.
 Nothing has been sent to a customer. First draft, not yet reviewed.
 
 **Headline: 7 customers in onboarding; 4 on track, 2 behind, 1 stuck. One new customer needs a plan today.**

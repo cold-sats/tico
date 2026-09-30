@@ -7,30 +7,30 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: medium
 max_run_minutes: 60
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. This bot's
-# work stays inside the sales team; a win/loss interview is a person's conversation.
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. This bot's
+# work stays inside the sales team; a win/loss interview is a human's conversation.
 outbound_send: false
 
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
-# `hub routine update <id> --enable` after a person approves the first notes on the onboarding task.
-# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+# `hub routine update <id> --enable` after a human approves the first notes on the setup task.
+# `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
 schedules:
   - id: weekly-win-loss
     title: Weekly win/loss notes
     cron: "0 10 * * 5"
-    timezone: America/Los_Angeles     # set this to the company's own timezone
+    timezone: America/Los_Angeles     # set this to the team's own timezone
     template: playbooks/weekly-win-loss.md
     labels: [priority:p3]
     enabled: false
 
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Imported calls come through
-# the hub. Changing access is an owner decision, so the bot files a task for the owner rather than
+# Tico. Changing access is an owner decision, so the bot files a task for the owner rather than
 # editing this file.
 # Optional, uncomment when connected. Never write.
 # access:
 #   - service: close-crm
-#     identity: "the company's CRM account"
+#     identity: "the team's CRM account"
 #     can: [read]
 #     env: CLOSE_API_KEY
 #     note: "closed deals, loss reasons, amounts and competitors; read only"

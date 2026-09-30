@@ -1,6 +1,6 @@
 # Weekly CI health report
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-ci-health`), once a person has approved the first
+Schedule: Tuesdays at 09:00 team time (routine `weekly-ci-health`), once a human has approved the first
 report. Also run by hand. Budget 45 minutes. The outcome is one page: can people trust the merge check, what
 got slower, and the three fixes worth an afternoon. Nothing on GitHub changes.
 

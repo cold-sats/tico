@@ -8,8 +8,8 @@ pack: basics
 icon: fact_check
 suggest: niche
 tags: [legal, outside-counsel, legal-spend, matters, invoices, enterprise, b2b]
-summary: "Runs the business side of legal work: the matter list, instructions to outside counsel, each law firm invoice checked against its engagement terms, and a monthly legal spend summary. Summaries for a person, not legal advice."
-when: "A company that uses one or more outside law firms regularly, or whose legal bills arrive without anyone checking them against what was agreed."
+summary: "Runs the business side of legal work: the matter list, instructions to outside counsel, each law firm invoice checked against its engagement terms, and a monthly legal spend summary. Summaries for a human, not legal advice."
+when: "A team that uses one or more outside law firms regularly, or whose legal bills arrive without anyone checking them against what was agreed."
 pains:
   - "we pay law firm invoices without reading them"
   - "nobody knows how much we spend on lawyers"
@@ -30,7 +30,7 @@ prerequisites:
     why: "Invoices, engagement letters and new matters arrive as tasks; the matter list lives in its repository."
     required: true
   - tool: docs
-    why: "Optional. Engagement letters and billing guidelines in the company docs, read through the Librarian."
+    why: "Optional. Engagement letters and billing guidelines in the docs, read through the Librarian."
     required: false
   - tool: mail
     why: "Optional. Read-only access to the mailbox law firms bill to brings invoices in without forwarding."
@@ -40,7 +40,7 @@ onboarding:
     why: "Every invoice is checked against its own letter. Without one I say so rather than guess the rates."
   - ask: "Do you have billing rules (time in 0.1 hour units, no block billing, no charge for admin or first-year associates, expense limits)? If not, may I start from those defaults?"
     why: "Becomes knowledge/billing-rules.md, the standard every line is read against."
-  - ask: "Which legal matters are open now, who leads each inside the company, and is there a budget for any?"
+  - ask: "Which legal matters are open now, who leads each inside the team, and is there a budget for any?"
     why: "Starts the matter list, so spend is tied to a matter from the first invoice."
   - ask: "Who approves legal invoices and legal spend, and up to what amount?"
     why: "Names who each review goes to. I never approve, pay or dispute an invoice."
@@ -48,12 +48,12 @@ onboarding:
     why: "Sets the routine's schedule and reader."
 first_routine:
   title: "Monthly legal spend summary"
-  cadence: "The 5th of each month at 09:00 company time, after you approve the first summary"
+  cadence: "The 5th of each month at 09:00 team time, after you approve the first summary"
   output: "reports/YYYY-MM-DD-legal-spend.md: spend by matter and firm against budget, invoices reviewed with the lines questioned, matters opened and closed, and matters with no update in 30 days"
   draft_only: true
 approval_required:
   - "Approve, pay, dispute or short-pay any invoice, or send a query about one to a law firm"
-  - "Engage or instruct a law firm, or send a matter brief outside the company"
+  - "Engage or instruct a law firm, or send a matter brief outside the team"
   - "Change a matter's budget, scope or lead"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/legal-spend.md

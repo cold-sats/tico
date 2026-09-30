@@ -1,7 +1,7 @@
 # Write a policy
 
 Triggered by a task asking for a new policy or a change to one (remote work, time off, expenses, conduct,
-equipment). Budget 40 minutes. The outcome is a policy a person can approve with one edit, the reasons
+equipment). Budget 40 minutes. The outcome is a policy a human can approve with one edit, the reasons
 for each choice, and a note of what counsel should check. Nothing is published.
 
 ---
@@ -25,7 +25,7 @@ counsel: <question>" instead of stating the law. You are not a lawyer.
 
 Purpose in one sentence, who it covers, the rules as short numbered statements, who approves what, where
 to ask, the effective date and the review date (default: one year). Plain words, second person, under
-two pages. No rule the company cannot enforce the same way for everyone.
+two pages. No rule the team cannot enforce the same way for everyone.
 
 ## 4. Check it
 

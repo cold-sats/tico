@@ -1,6 +1,6 @@
 # Weekly renewal and expansion review
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-account-review`), once a person has approved the
+Schedule: Tuesdays at 09:00 team time (routine `weekly-account-review`), once a human has approved the
 first review. Also run by hand. Budget 40 minutes. The outcome is one page: every renewal in the next 120
 days at its stage, the packs ready or waiting, and expansion with evidence. Nothing is sent or changed.
 
@@ -18,7 +18,7 @@ proposed: done, slipped or dropped.
 Read renewal dates, notice periods and values from the contract or a CRM read; note the source and date.
 Place each renewal in its stage: **120 days** (account plan refreshed, usage against contract checked),
 **90 days** (business review held or booked with the Customer Success Manager, options shaped), **60 days**
-(renewal pack with a person for pricing), **30 days** (order form out for signature). A renewal behind its
+(renewal pack with a human for pricing), **30 days** (order form out for signature). A renewal behind its
 stage is flagged with the step it missed.
 
 ## 3. Check health before terms

@@ -1,11 +1,11 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme purchase request R-14: booking and reminders tool (draft, not yet reviewed)
 
 **Headline: of 4 vendors compared, 3 pass the must-haves; Kestrel Calendar scores highest (4.1 of 5) and is the cheapest over 24 months. This is a suggestion; the decision is yours by 2026-10-16.**
 
-Sample output for Acme, a fictional studio-software company. Every vendor is invented. Nothing has been sent, signed or committed.
+Sample output for Acme, a fictional studio-software team. Every vendor is invented. Nothing has been sent, signed or committed.
 
 ## Must-haves (from `knowledge/criteria.md`)
 Single sign-on, data stored in the EU or US, an export of all data, an annual contract at most.

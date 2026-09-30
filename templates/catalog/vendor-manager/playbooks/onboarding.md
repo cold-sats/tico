@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a vendor register with a tier and
@@ -18,15 +18,15 @@ Note which contracts you can already read and who the likely owners are. Do not 
 ## 2. Introduce yourself in three lines
 
 What you do (the vendor register, renewals opened 90 days before notice, reviews by tier), that you
-never renew, cancel or sign, and that nothing reaches a vendor without a person's approval.
+never renew, cancel or sign, and that nothing reaches a vendor without a human's approval.
 
 ## 3. Ask, in one message
 
 Numbered, each with its one-line why, each with a default so "fine" is an answer.
 
 1. Where is your list of vendors and contracts today: a spreadsheet, a contracts folder, the accounting system's supplier list? Paste or link it. Seeds the register; dates come from the contracts.
-2. Which vendors would stop the business if they failed or leaked data? Those are tier 1, reviewed quarterly.
-3. Who owns each vendor relationship inside the company? A brief goes to the owner; a vendor without one is flagged.
+2. Which vendors would stop the team if they failed or leaked data? Those are tier 1, reviewed quarterly.
+3. Who owns each vendor relationship inside the team? A brief goes to the owner; a vendor without one is flagged.
 4. How far ahead should a renewal be opened, and above what annual cost should it always come to you? (Default: 90 days before notice; above 5,000 a year.)
 5. Which day and hour should the weekly page land, and for whom? (Default: the Operations Manager, Tuesdays at 09:00.)
 
@@ -49,15 +49,15 @@ On a yes:
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a change,
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a change,
 adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

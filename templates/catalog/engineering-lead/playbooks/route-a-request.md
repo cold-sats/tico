@@ -2,7 +2,7 @@
 
 Triggered when a task or message asks engineering for something and does not say who should do it, and for
 each unowned or stuck item in the weekly summary. Budget 10 minutes. The outcome is one routing proposal a
-person approves in a single click. Nothing is assigned.
+human approves in a single click. Nothing is assigned.
 
 ---
 
@@ -20,7 +20,7 @@ Restate it in one sentence: what is wanted, by whom, by when, and what the reque
    release, its checklist or its notes is `release-notes` (Release Manager); an outage or an on-call handoff is
    `incident-scribe` (Site Reliability Engineer); an outdated README or API page is `docs-writer` (Technical
    Writer); an incoming bug or a test plan is `issue-triage` (QA Engineer); a vulnerable dependency or a leaked
-   secret is `security-engineer`; a red or slow pipeline is `devops-engineer`; a design doc or an architecture
+   credential is `security-engineer`; a red or slow pipeline is `devops-engineer`; a design doc or an architecture
    decision is `software-architect`; a developer's public question or a sample app is `developer-advocate`. What
    users need, a spec or a roadmap question belongs to Product: route it to `product-lead` (Head of Product).
 

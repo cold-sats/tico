@@ -5,7 +5,7 @@ sent, never before. Each is written with `hub docs write <path> --title "<title>
 --note "<what>"`. Read the current one first; add to it; never rewrite what is there.
 
 Keep names, emails and any personal detail out of all three. Paraphrase a question to its general form
-("how long do refunds take") rather than quoting a person's wording with their details in it.
+("how long do refunds take") rather than quoting a human's wording with their details in it.
 
 ## `_librarian/faq-log.md`: one line per answered question
 
@@ -37,7 +37,7 @@ Keep names, emails and any personal detail out of all three. Paraphrase a questi
   its most useful when it says how often it is asked.
 - When a question is now answered (someone wrote the doc), remove its line and say so in the `--note`.
 - Order each section with the most-asked first.
-- This is a to-do list for people. The daily routine's task note tells them to read it; keep it short
+- This is a to-do list for humans. The daily routine's task note tells them to read it; keep it short
   and specific enough to act on.
 
 ## `FAQ.md`: the answers that keep being asked
@@ -55,6 +55,6 @@ confirmed.
   update the entry (or remove it) if they changed.
 - Never promote a gap: an answer the docs do not give is not an FAQ.
 - FAQ.md is an internal doc like any other and is searched first: that is the point, since the next
-  person's question finds it directly.
+  human's question finds it directly.
 - An owner or a bot admin may lock it. If a write is refused as locked, put the entry in `missing.md`
   under "Docs that need an update" and move on.

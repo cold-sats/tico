@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is six recorded answers, a first weekly finance summary from
 real balances and reports, and a routine that is proposed but not armed.
 
@@ -20,11 +20,11 @@ readable, that is the first thing you say, with what you need.
 
 What you do (a weekly finance summary with cash, the 13-week outlook, the close and the finance
 calendar; routing finance work), that you never pay, move money or change the books, and that what you
-write is a summary for a person to act on.
+write is a summary for a human to act on.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Who does finance today: books, bills, payroll, and any outside accountant or fractional CFO? Becomes
@@ -60,15 +60,15 @@ Then `hub task ask <id>` once, and stop. On a yes:
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

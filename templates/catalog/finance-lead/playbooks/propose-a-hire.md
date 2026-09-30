@@ -18,10 +18,10 @@ Fewer than three occurrences, or one late week, is not a gap; note it in `memory
     hub org
 
 Choose the one template in `team_templates` whose card owns that work, and check it is not already in
-the company. Examples: invoices issued late or wrong goes to `billing`; bills paid twice or late to
+the team. Examples: invoices issued late or wrong goes to `billing`; bills paid twice or late to
 `accounts-payable`; expense reports sitting unreviewed to `expense-auditor`; payroll corrections after
 the run to `payroll`; a filing missed or nearly missed to `tax`; deferred revenue done by hand at close
-to `revenue-accountant`. Work outside finance goes to that department's head as a note, not a proposal.
+to `revenue-accountant`. Work outside finance goes to that group's head as a note, not a proposal.
 
 ## 3. Write the proposal
 
@@ -36,7 +36,7 @@ On the task, five lines:
 
 ## 4. On the owner's yes
 
-    hub task create --owner botops --title "Set up <template> from the catalog" --body "<the five lines>" --parent <id>
+    hub task create --owner botops --title "Set up <template>" --body "<the five lines>" --parent <id>
 
 Record the decision in `memory/decisions.md`, add the role to `knowledge/team.md` as "requested", and
 route its work to it once it appears in `hub org`. On a no, record the reason and do not propose the

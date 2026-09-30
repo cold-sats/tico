@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme benefits deadlines, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. People are references; no health detail
+Sample output for Acme, a fictional studio-software team. People are references; no health detail
 appears. Nothing has been submitted or sent. First draft, not yet reviewed.
 
 **Headline: 1 life-event window closes in 5 days with nothing submitted; enrollment opens in 13 days
@@ -34,5 +34,5 @@ and the plan comparison is ready for approval.**
   Sofia on T-421. Not answered here.
 
 ## Sources
-- Plan guides 2026 and 2027 (company docs), `hub org`, tasks T-418 to T-440, read 2026-09-29
+- Plan guides 2026 and 2027 (docs), `hub org`, tasks T-418 to T-440, read 2026-09-29
 ```

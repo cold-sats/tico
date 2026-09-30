@@ -7,14 +7,14 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: medium
 max_run_minutes: 45
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
 # the bot puts every draft on the task and asks for an approval.
 outbound_send: false
 
-# The first routine is declared but not armed (`enabled: false`). It runs on the hub's
-# `meeting.ready` event: one task per imported company meeting, carrying the notes and transcript.
-# The bot arms it with `hub routine update <id> --enable` after a person approves the first draft.
-# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+# The first routine is declared but not armed (`enabled: false`). It runs on Tico's
+# `meeting.ready` event: one task per imported team meeting, carrying the notes and transcript.
+# The bot arms it with `hub routine update <id> --enable` after a human approves the first draft.
+# `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
 schedules:
   - id: meeting-notes
     title: Meeting notes draft
@@ -23,12 +23,12 @@ schedules:
     labels: [priority:p3]
     enabled: false
 
-# The hub itself (meetings, tasks, goals, docs) needs no entry: every turn has it. Bots read company
-# meetings and never private ones. Add a Slack entry only when a person wants approved summaries
+# Tico itself (meetings, tasks, goals, docs) needs no entry: every run has it. Bots read team
+# meetings and never private ones. Add a Slack entry only when a human wants approved summaries
 # posted to an internal channel; posting is still gated by an approval.
 # access:
 #   - service: slack
-#     identity: the company workspace
+#     identity: the team workspace
 #     can: [read, post]
 #     channels: [team]
 #     dms: false

@@ -1,13 +1,13 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme support queue, Tue 2026-09-29, 09:00
 
-Sample output for Acme, a fictional company. Every ticket, name and address below is invented.
+Sample output for Acme, a fictional team. Every ticket, name and address below is invented.
 
-**Headline: 11 arrived since yesterday, 8 drafted from the docs, 2 need a person today, 3 follow-ups due, 1 doc gap sent to the Librarian.**
+**Headline: 11 arrived since yesterday, 8 drafted from the docs, 2 need a human today, 3 follow-ups due, 1 doc gap sent to the Librarian.**
 
-## Needs a person today
+## Needs a human today
 - **T-2041, refund request over the studio plan** (customer says they were charged twice). Task created
   for Ben Okafor: "Decide on a refund for a double charge". Draft has a marked gap where the refund would
   go. Not promised.
@@ -24,7 +24,7 @@ Sample output for Acme, a fictional company. Every ticket, name and address belo
 
 The other four are the same shape and are on the task.
 
-Draft for T-2038, for the person to approve (nothing has been sent):
+Draft for T-2038, for the human to approve (nothing has been sent):
 
 > Hi Priya, thanks for asking about resetting the calendar link. Open Settings, then Calendar, and choose
 > "Reset link". Your old link stops working straight away, so share the new one with your studio. If the
@@ -33,13 +33,13 @@ Draft for T-2038, for the person to approve (nothing has been sent):
 ## Follow-ups due (3)
 - **T-2031**, waiting on the customer since 2026-09-24 (5 days, rule is 3): nudge 1 drafted on the task.
 - **T-2027**, waiting on Dana Okoye for the sync fix since 2026-09-22: asked her again on the task.
-- **T-2019**, nudge 3 of 3 sent by a person on 2026-09-22, no answer: marked closed quiet.
+- **T-2019**, nudge 3 of 3 sent by a human on 2026-09-22, no answer: marked closed quiet.
 
 ## Patterns and doc gaps
 - **Calendar sync lag** reached 4 tickets in 10 days. One task for Dana Okoye with the ticket
   references and the count. Not escalated again.
 - **SMS reminders by plan** asked twice and the docs do not say. Task created for the Librarian with
-  both ticket references and the question, so a person who owns billing docs can answer it. I did not
+  both ticket references and the question, so a human who owns billing docs can answer it. I did not
   write an answer.
 
 ## Could not read

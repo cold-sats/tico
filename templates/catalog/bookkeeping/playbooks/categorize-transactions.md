@@ -1,7 +1,7 @@
 # Categorise transactions
 
 Triggered by a task that attaches an export and asks for categories, and used by step 4 of
-`playbooks/monthly-close-checklist.md`. Budget 20 minutes for a month of a small company. The outcome
+`playbooks/monthly-close-checklist.md`. Budget 20 minutes for a month of a small team. The outcome
 is a proposed category for every uncategorised row and a short list of questions. Nothing is posted.
 
 ---
@@ -22,9 +22,9 @@ For each row, in this order:
    propose it, "high", and name the rule.
 3. **The line text says what it is** (a known vendor, a clear description) but there is no history:
    propose it, "medium", and say what in the text you relied on.
-4. **Anything else** is a question, not a guess: transfers with no memo, round amounts to a person,
+4. **Anything else** is a question, not a guess: transfers with no memo, round amounts to a human,
    owner spending, refunds, loans, first-time vendors above the ask-first amount, and anything on the
-   ask-first list from onboarding.
+   ask-first list from setup.
 
 ## 3. Check for what looks wrong
 
@@ -35,7 +35,7 @@ charge. Say "looks like", never "is".
 ## 4. Write it down
 
 A table of date, line, amount, proposed category, confidence, reason. Amounts are copied from the export
-row, never recomputed by hand. Add confirmed patterns to `knowledge/vendors.md` only after a person
+row, never recomputed by hand. Add confirmed patterns to `knowledge/vendors.md` only after a human
 confirms them; a proposal you made is not a fact.
 
 ## 5. Finish

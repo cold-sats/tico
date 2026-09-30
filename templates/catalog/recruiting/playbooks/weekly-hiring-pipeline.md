@@ -1,8 +1,8 @@
 # Weekly hiring pipeline summary
 
-Schedule: Fridays at 10:00 company time (routine `weekly-hiring-pipeline`), once a person has approved the
+Schedule: Fridays at 10:00 team time (routine `weekly-hiring-pipeline`), once a human has approved the
 first summary. Also run by hand on request. Budget 30 minutes. The outcome is one page for the hiring
-managers: where each open role stands, who is waiting on a person, and which replies are ready to go. Nothing
+managers: where each open role stands, who is waiting on a human, and which replies are ready to go. Nothing
 leaves without an approval.
 
 ---
@@ -17,12 +17,12 @@ Then `knowledge/pipeline.md`, every `knowledge/roles/<role>.md` for open roles, 
 ## 2. Count by stage
 
 For each role: applications received, summarised, with the manager, in interviews, offer stage, closed.
-Use the stages a person set; never move a candidate yourself. A number with no source is left out.
+Use the stages a human set; never move a candidate yourself. A number with no source is left out.
 
 ## 3. Find who is waiting
 
-List every candidate waiting on a person longer than the agreed wait (default two working days), with the
-person and the days. This is the line managers read first.
+List every candidate waiting on a human longer than the agreed wait (default two working days), with the
+human and the days. This is the line managers read first.
 
 ## 4. Move candidates on
 

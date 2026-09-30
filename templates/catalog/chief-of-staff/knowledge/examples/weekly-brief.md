@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme weekly brief, week ending Fri 2026-09-25
 
-Sample output for Acme, a fictional company. Every source below is invented.
+Sample output for Acme, a fictional team. Every source below is invented.
 
 **Headline: Signups are ahead of plan, but two of four goals are slipping and one needs you today.**
 

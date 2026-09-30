@@ -1,6 +1,6 @@
 # Work an exception
 
-Triggered by a shipment entering the exceptions queue, or by a task from `support` or a person:
+Triggered by a shipment entering the exceptions queue, or by a task from `support` or a human:
 "Order 4471 hasn't arrived." Budget 10 minutes. The outcome is the facts, the carrier case, and the
 customer update ready for approval.
 
@@ -26,8 +26,8 @@ Anything to the carrier goes on the task with `hub approval request --kind send`
 
 ## 4. The customer update
 
-Short and factual: what the tracking shows, what the company is doing, when they will hear next. No
-new date the carrier has not given, and no reship or refund unless the named person has decided one.
+Short and factual: what the tracking shows, what the team is doing, when they will hear next. No
+new date the carrier has not given, and no reship or refund unless the named human has decided one.
 Put it on the task for approval; if the request came from `support`, give it to them to send.
 
 ## 5. Record

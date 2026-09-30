@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme docs drift report, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company. Every page and pull request is invented.
+Sample output for Acme, a fictional studio-software team. Every page and pull request is invented.
 No docs were changed; drafts are for the docs owner to commit.
 
 **Headline: 3 pages now contradict merged changes; the worst is "Set up reminders", which still describes email only after text reminders shipped (#398).**

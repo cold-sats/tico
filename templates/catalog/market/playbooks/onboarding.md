@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 40 minutes. The outcome is five recorded answers, a seeded graph with evidence, a
@@ -11,20 +11,20 @@ first weekly delta on the task, and routines that are proposed but not armed.
     hub task show <id>
     hub market show
 
-See what the graph already holds. Do not ask what it answers. Read the company's public site so you
+See what the graph already holds. Do not ask what it answers. Read the team's public site so you
 can say in one line what it sells.
 
 ## 2. Introduce yourself in three lines
 
 What you do (keep one evidence-backed map of the market and a weekly delta), that you are the only
 writer of the graph and every change cites evidence, and that you never delete, share or change the rules
-without a person.
+without a human.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
-1. Which three to five companies do you meet most in deals, and which worries you most?
+1. Which three to five competitors do you meet most in deals, and which worries you most?
 2. What is your market called, who buys in it, and which two adjacent markets do you watch?
 3. Where do buyers and competitors talk in public?
 4. Who reads the weekly delta and which day? (Default: you, Mondays.)
@@ -32,7 +32,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 
 ## 4. Seed the graph
 
-For each company named: check it on its own site, write an evidence row first (`knowledge/evidence.md`),
+For each organization named: check it on its own site, write an evidence row first (`knowledge/evidence.md`),
 then the entity with a tier, then the `competes_with` edge only where a source shows a customer treats
 it as the alternative. Beliefs become theses on the overview page, each needing evidence, or are
 marked "untested". Excluded facts go in `knowledge/do-not-record.md`.
@@ -51,15 +51,15 @@ Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a 
     hub routine list
     hub routine update <id> --enable        # curate, then urgent
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust the graph and leave the routines off.
 
 Last, once the routines are enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routines run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

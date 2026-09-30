@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme developer pulse, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-software company with a public booking API. Every thread,
+Sample output for Acme, a fictional studio-software team with a public booking API. Every thread,
 handle and name is invented. Nothing was posted. First draft, not yet reviewed.
 
 **Headline: 7 new questions, 2 unanswered for more than 2 days; webhook signature checks are the top

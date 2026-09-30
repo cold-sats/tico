@@ -33,8 +33,8 @@ evidence would change that (an export, a screen recording, a request id).
 - **Setup mistake**: the fix in steps the customer can follow, for the Support Agent's reply.
 - **Doc gap**: the answer, plus a task to the Librarian.
 - **Bug**: the report (title, steps, expected, actual, environment, frequency, customers affected,
-  evidence with secrets removed), a workaround if one exists and is tested, and the filing command for a
-  person.
+  evidence with credentials removed), a workaround if one exists and is tested, and the filing command for a
+  human.
 
 ## 6. Hand back
 

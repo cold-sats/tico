@@ -28,7 +28,7 @@ In the order of `knowledge/spec-format.md`:
 - **Scope** and **Non-goals**: bullets. Every non-goal is something someone might reasonably assume.
 - **Acceptance criteria**: Given/When/Then, one behaviour each, including the edge cases (empty, full,
   permission denied, offline, time zones).
-- **Open questions**: each with the person who owes the answer and a date.
+- **Open questions**: each with the human who owes the answer and a date.
 - **Risks**: what could make this the wrong bet, and the cheapest check.
 
 ## 4. Check it with the builders' eyes
@@ -39,5 +39,5 @@ there a dependency on another team? Fix those before handing over.
 ## 5. Hand over
 
 Publish with `hub files publish specs/<slug>.md --task <id>`. List the issues you would file (title and
-body) on the task for a person, and the questions for the owners. `hub task update <id> --status done
+body) on the task for a human, and the questions for the owners. `hub task update <id> --status done
 --note`: the problem in one line, the path, open questions and who owes them.

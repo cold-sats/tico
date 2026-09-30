@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme CRM report, Mon 2026-09-28 (CRM read 2026-09-28 06:31)
 
-Sample output for Acme, a fictional studio-software company. Every record is invented. The CRM was
+Sample output for Acme, a fictional studio-software team. Every record is invented. The CRM was
 only read; nothing was changed. First draft, not yet reviewed.
 
 **Headline: open pipeline $184k in 31 deals, up $12k; 11 deals cannot be trusted in the forecast.**
@@ -37,8 +37,8 @@ no signer named (rule 2 in `knowledge/forecast-rules.md`); Oak Row ($9k) closes 
 | 7 more deals | Dana, Priya | Next step "follow up" (not specific) | Replace with an action and a date | 5 of them first seen before 2026-08-29 |
 
 ## Duplicates (monthly check)
-2 sure groups, 1 maybe. Sure: "Harbour Pilates" lead and contact-company created 2026-09-12 share a domain.
-Proposed survivor: the older record, which holds 3 notes. A person merges.
+2 sure groups, 1 maybe. Sure: "Harbour Pilates" lead and account created 2026-09-12 share a domain.
+Proposed survivor: the older record, which holds 3 notes. A human merges.
 
 ## Trend
 Exceptions older than 30 days: Dana 4, Priya 3. That is a habit, not a typo: propose a Friday five-minute review.

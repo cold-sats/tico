@@ -1,6 +1,6 @@
 # Weekly engineering summary
 
-Schedule: Mondays at 09:00 company time (routine `weekly-engineering-summary`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-engineering-summary`), once a human has approved
 the first draft. Also run by hand on request. Budget 40 minutes. The outcome is one page for the engineering
 manager: what shipped, what is stuck, what broke and what is blocked, with the evidence. Nothing is sent to
 anyone else and nothing on GitHub changes.
@@ -32,7 +32,7 @@ Manager's notes, the Site Reliability Engineer's incident review, the Technical 
 Security Engineer's advisory report and the DevOps Engineer's CI health report. Take one line from each: the headline and the path. A bot that produced nothing
 is named as such, not omitted.
 
-## 4. Compute only the measures the person chose
+## 4. Compute only the measures the human chose
 
 From `knowledge/measures.md`: shipped count, review wait (median and longest), stuck pull requests, and, where
 releases or deploys can be read, lead time from first commit to release, deploy frequency, failed deploys and

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme interview logistics, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company. Candidates are references. Nothing has
+Sample output for Acme, a fictional studio-software team. Candidates are references. Nothing has
 been sent or booked without an approval. First draft, not yet reviewed.
 
 **Headline: 3 interviews today, all ready; 1 conflict tomorrow; 2 scorecards late; 1 debrief ready to book.**

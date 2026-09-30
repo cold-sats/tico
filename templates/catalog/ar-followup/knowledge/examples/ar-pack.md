@@ -1,11 +1,11 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme receivables pack, Mon 2026-09-28 (draft, not yet reviewed)
 
 **Headline: 9 open overdue invoices worth 14,620; 6 reminder drafts ready, 2 held back, 1 needs you.**
 
-Sample output for Acme, a fictional studio-software company. Every customer is invented and every address uses a reserved example domain. Nothing has been sent.
+Sample output for Acme, a fictional studio-software team. Every customer is invented and every address uses a reserved example domain. Nothing has been sent.
 
 ## Aging (as of 2026-09-28, `acme-aging-2026-09-28.csv`)
 | Bucket | Invoices | Amount | Change on last week |
@@ -16,7 +16,7 @@ Sample output for Acme, a fictional studio-software company. Every customer is i
 | 61+ days | 1 | 2,900 | 0 |
 
 ## Needs you now
-- **Invoice 2041, Elm Street Studio, 2,900, 61 days**: the last step of the ladder. Two reminders went unanswered (2026-08-10, 2026-08-24). A person should call; I have drafted no email.
+- **Invoice 2041, Elm Street Studio, 2,900, 61 days**: the last step of the ladder. Two reminders went unanswered (2026-08-10, 2026-08-24). A human should call; I have drafted no email.
 
 ## Drafts for approval
 ### Invoice 2057, Harbour Pilates, 1,150, 6 days overdue (step 2, friendly)

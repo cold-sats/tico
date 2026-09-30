@@ -1,17 +1,17 @@
-# Give a bot a login (Jira, GitHub, a mailbox, any tool)
+# Give a bot a credential (Jira, GitHub, a mailbox, any tool)
 
-Triggered when a bot you build or repair needs a key, token or password, or a person asks you to
-connect a tool. Budget 5 minutes. The person never leaves the chat, and the value never goes through you
+Triggered when a bot you build or repair needs a key, token or password, or a human asks you to
+connect a tool. Budget 5 minutes. The human never leaves the chat, and the value never goes through you
 unless they pasted it themselves.
 
 ## 1. Open the card
 
-    hub credential request <VARIABLE> --for-bot <bot> --label "<your Jira login>" \
+    hub credential request <VARIABLE> --for-bot <bot> --label "<your Jira credential>" \
         --format "<the exact shape>" --help-url <https page where they make one>
 
 - `VARIABLE` is the name the bot's `employee.yaml` `access:` entry declares in `env:`.
-- `--label` finishes the sentence "<Bot> needs ...": "your Jira login", "a GitHub token".
-- `--format` is the placeholder: `you@company.com:API token` for basic auth, `ghp_...` for a token.
+- `--label` finishes the sentence "<Bot> needs ...": "your Jira credential", "a GitHub token".
+- `--format` is the placeholder: `you@example.com:API token` for basic auth, `ghp_...` for a token.
 - `--help-url`, when you know it:
 
   | Tool | Where they make one |
@@ -32,7 +32,7 @@ connection (read one Jira project, list one repository), then report in plain wo
 ("Connected to Jira: project HTM loaded."). If it fails, say why in one line and open the card again
 (`hub credential request` with the same variable replaces the value).
 
-## 3. If they paste the secret in chat
+## 3. If they paste the credential in chat
 
 Store it and go on: `printf '%s' "$VALUE" | hub credential set <VARIABLE> --for-bot <bot>`. That keeps it in
 Credentials for that bot only and removes it from the conversation. Say in one line: it is saved and
@@ -44,6 +44,6 @@ write it in a file, a task or a commit, or copy it to another bot.
 - The server says only a credential admin can store it: say who (the message names them). They can fill
   the same card.
 - `hub credential list` says credential storage is not set up: use the bot's own secrets file on its
-  computer (`secrets/<bot>.env`, `NAME=value`, loaded for that bot only) for a value the person gave
-  you for that bot, and say that the company has not set up storage.
-- The bot does not need a login at all: do not open a card.
+  computer (`secrets/<bot>.env`, `NAME=value`, loaded for that bot only) for a value the human gave
+  you for that bot, and say that the team has not set up storage.
+- The bot does not need a credential at all: do not open a card.

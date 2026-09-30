@@ -1,6 +1,6 @@
 # Weekly marketing summary
 
-Schedule: Fridays at 14:00 company time (routine `weekly-marketing-summary`), once a person has
+Schedule: Fridays at 14:00 team time (routine `weekly-marketing-summary`), once a human has
 approved the first draft. Also run by hand on request. Budget 30 minutes. The outcome is one page for
 the marketing owner: how the week went, what is blocked, the next six weeks on the calendar and
 proposed priorities. Nothing is shared and no task is created.
@@ -18,7 +18,7 @@ summary in `reports/`.
 
 For each workstream in `knowledge/workstreams.md`, read what its owner produced since last Friday:
 `hub task list --status open --status doing --status waiting`, `hub updates --kind weekly --bot <slug>`,
-the owner's newest published report, and imported meetings that mention it. A bot or person with
+the owner's newest published report, and imported meetings that mention it. A bot or human with
 nothing this week is "no report", never "on track".
 
 ## 3. Give each workstream one line

@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is five recorded answers, an IP register checked against the public records, watch terms, a first assignment check and a first watch, and a routine that is
 proposed but not armed.
 
@@ -13,36 +13,36 @@ proposed but not armed.
     hub docs search "domain"
     hub docs search "contractor agreement"
 
-Certificates, registrar receipts and contractor agreements often sit in the company docs. Read them first, then
-look the company's name up in the public trademark database so question one becomes "is this list complete?".
+Certificates, registrar receipts and contractor agreements often sit in the docs. Read them first, then
+look the team's name up in the public trademark database so question one becomes "is this list complete?".
 
 ## 2. Introduce yourself in three lines
 
 What you do (a register of marks and domains with every deadline, a monthly look-alike watch, clearance notes
-for new names, and the IP assignment check), that it is a summary for a person and not legal advice, and that you
-never file, renew, pay or contact anyone: a person or counsel does.
+for new names, and the IP assignment check), that it is a summary for a human and not legal advice, and that you
+never file, renew, pay or contact anyone: a human or counsel does.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Which names, logos and slogans matter to you, and which are registered or applied for, in which countries? Attach certificates or application numbers if you have them. Becomes the IP register. Every deadline is computed from the registration dates on the record, not from memory.
 2. Which domains do you own, with which registrar, and who holds that account? Domains lapse on an expired card as easily as on a missed date. The register names the account holder for each.
 3. Which product and market words describe what you sell (the goods and services)? Which competitors or look-alikes worry you? Sets the classes and terms the monthly watch searches, so it finds conflicts and not noise.
 4. Who has created code, designs or content for you as a contractor or before joining, and where are their agreements? Starts the assignment check. A missing assignment is found now, not in a buyer's due diligence.
-5. Who is your trademark lawyer or firm, if any, and who decides on filings and disputes? Names the person every clearance note and watch hit goes to. I never act on a mark myself.
+5. Who is your trademark lawyer or firm, if any, and who decides on filings and disputes? Names the human every clearance note and watch hit goes to. I never act on a mark myself.
 
 ## 4. Record
 
 Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/register.md` with one row per mark and domain, each checked against the public record and
 dated; a row you could not confirm says so. Write `knowledge/watch-terms.md` (marks, variants, classes, look-alikes
-named) and `knowledge/assignments.md` (each person named, the agreement, and "assigns", "does not" or "not seen").
+named) and `knowledge/assignments.md` (each human named, the agreement, and "assigns", "does not" or "not seen").
 
 ## 5. Produce the first result now
 
 Follow `playbooks/monthly-ip-watch.md` on the register. Write the watch in the shape of
-`knowledge/examples/ip-watch.md`, attach it and label it "First draft, not yet reviewed. Summary for a person, not
+`knowledge/examples/ip-watch.md`, attach it and label it "First draft, not yet reviewed. Summary for a human, not
 legal advice." Contact nobody and file nothing.
 
 ## 6. Propose the routine and wait
@@ -52,15 +52,15 @@ Say: "If this is useful, I will run this IP watch on the 1st of every month and 
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

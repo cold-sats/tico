@@ -1,15 +1,15 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme events, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-software company. Nothing has been booked, sent or handed
+Sample output for Acme, a fictional studio-software team. Nothing has been booked, sent or handed
 to sales. First draft, not yet reviewed.
 
 **Headline: the regional studio expo is in 16 days and its lead capture is not set up; 22 webinar
 leads from 2026-09-24 are still not with sales.**
 
-## Needs a person
+## Needs a human
 - **Webinar "Fill your 6am classes", 2026-09-24: 22 attendees asked a question or stayed to the
   end; none handed to sales.** Deadline was 2026-09-28. List with each question is on the task.
   Proposed owner: Priya (inbound). Approve and I create her task.

@@ -1,8 +1,8 @@
 # Monthly entity and board calendar
 
-Schedule: the 3rd of each month at 09:00 company time (routine `monthly-entity-calendar`), once a person has
+Schedule: the 3rd of each month at 09:00 team time (routine `monthly-entity-calendar`), once a human has
 approved the first calendar. Also run by hand. Budget 25 minutes. The outcome is one page: what the board and the
-entities need in the next 90 days, what waits for a signature, and every record gap. A summary for a person, not
+entities need in the next 90 days, what waits for a signature, and every record gap. A summary for a human, not
 legal advice. Nothing is sent, signed or filed.
 
 ---

@@ -1,6 +1,6 @@
 # Weekly technical deal prep
 
-Schedule: Wednesdays at 09:00 company time (routine `weekly-technical-prep`), once a person has approved
+Schedule: Wednesdays at 09:00 team time (routine `weekly-technical-prep`), once a human has approved
 the first prep. Also run by hand. Budget 40 minutes. The outcome is one page: every deal with a technical
 step in the next two weeks, prepared. Nothing goes to a prospect.
 

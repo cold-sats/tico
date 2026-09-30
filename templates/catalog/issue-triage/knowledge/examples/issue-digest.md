@@ -1,14 +1,14 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme issue digest, week ending Sun 2026-09-27
 
-Sample output for Acme, a fictional company, and its fictional repository `acme/studio-app`. Every
+Sample output for Acme, a fictional team, and its fictional repository `acme/studio-app`. Every
 issue below is invented. Nothing has been changed on GitHub.
 
-**Headline: 14 new issues; 2 need a person today; calendar sync is now the top theme (4 issues).**
+**Headline: 14 new issues; 2 need a human today; calendar sync is now the top theme (4 issues).**
 
-## Needs a person today
+## Needs a human today
 - #1421 "Bookings disappear after a sync" reports lost data. Task created for Dana Okoye (area owner,
   calendar). Not labelled or commented on.
 - #1428 may be a security report. Not discussed here; task created for Ben Okafor.

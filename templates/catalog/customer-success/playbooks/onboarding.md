@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first brief on the task from the customers you can read, and a routine that is
 proposed but not armed.
 
@@ -19,16 +19,16 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly renewal and health brief, review packs, drafted next touches), that you never contact a customer or change a contract, and that a person sends everything.
+What you do (a weekly renewal and health brief, review packs, drafted next touches), that you never contact a customer or change a contract, and that a human sends everything.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine". If the person
+Numbered, each with its one-line why. Offer a default so a human can answer "fine". If the human
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. Who are your customers and how do they buy: subscription, annual contract, monthly? Paste or point me to the list with renewal dates and owners. Becomes knowledge/renewals.md, the calendar the whole brief runs on. Without dates there is nothing to prepare.
 2. What does a healthy customer look like for you: usage, tickets, meetings, payments? Which signals can I actually read? Becomes knowledge/health-rules.md. I score only from signals I can read, and name the ones I cannot.
-3. Who owns each account relationship, and who owns the contract and price? (Default: an account owner talks to the customer, the Account Manager owns price and renewal terms.) Health and the next touch are mine to draft; price and contract belong to a person. Every note names its owner.
+3. Who owns each account relationship, and who owns the contract and price? (Default: an account owner talks to the customer, the Account Manager owns price and renewal terms.) Health and the next touch are mine to draft; price and contract belong to a human. Every note names its owner.
 4. How far ahead should renewals be prepared, and which customers get a quarterly review? (Default: 120 days ahead; your top ten by value.) Sets the horizon of the brief and who gets a review pack.
 5. Which day should the brief land, and who reads it? (Default: Tuesdays 09:00, you.) Sets the routine's schedule and recipient. Nobody else gets it until you say so.
 
@@ -47,15 +47,15 @@ Say: "If this is useful, I will send you this every Tuesday at 09:00, with a dra
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

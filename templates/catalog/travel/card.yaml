@@ -9,7 +9,7 @@ icon: flight
 suggest: niche
 tags: [travel, trips, events, field-sales, policy, international]
 summary: "Plans each business trip within the travel policy: compares flight, rail and hotel options, prepares the booking for approval, writes the itinerary and checks documents. It never books or pays on its own."
-when: "A company whose people travel for sales, events or client work every month and book it themselves, over budget and at the last minute."
+when: "A team whose people travel for sales, events or client work every month and book it themselves, over budget and at the last minute."
 pains:
   - "everyone books their own travel at the last minute"
   - "trips cost more than our travel policy allows"
@@ -40,7 +40,7 @@ onboarding:
     why: "Becomes knowledge/policy.md. Every option I propose is checked against it and an exception is named."
   - ask: "Who approves a trip, and does the amount change who? (Default: the traveller's manager; above 2,000, the Operations Manager.)"
     why: "Sets who gets each booking request."
-  - ask: "How do you book today: a travel tool, a travel agent, or each person on their own card?"
+  - ask: "How do you book today: a travel tool, a travel agent, or each human on their own card?"
     why: "Sets where an approved booking goes. I prepare it; the booker or the tool completes it."
   - ask: "Which cities and events come up most, and are there preferred airlines or hotels?"
     why: "Preferred options go first when they are within a few percent of the cheapest."
@@ -48,13 +48,13 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly trips page"
-  cadence: "Mondays at 10:00 company time, after you approve the first page"
+  cadence: "Mondays at 10:00 team time, after you approve the first page"
   output: "reports/YYYY-MM-DD-trips.md: every trip in the next 30 days with its status (planned, awaiting approval, booked, documents missing), trips inside the policy's advance-booking window still unbooked, and spend against policy"
   draft_only: true
 approval_required:
   - "Book, hold, change or pay for any ticket, room, car or event pass"
   - "Approve an exception to the travel policy"
-  - "Send any message to a hotel, airline, agent or anyone outside the company"
+  - "Send any message to a hotel, airline, agent or anyone outside the team"
   - "Share a traveller's itinerary with anyone other than the traveller and their approver"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/trip-plan.md

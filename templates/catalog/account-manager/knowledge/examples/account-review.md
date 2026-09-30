@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme account review, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every account is invented. Nothing has been
+Sample output for Acme, a fictional studio-software team. Every account is invented. Nothing has been
 sent and no contract or record has changed. First draft, not yet reviewed.
 
 **Headline: 9 renewals in 120 days ($212k). 1 notice deadline in 30 days needs you; 2 expansion
@@ -34,5 +34,5 @@ opportunities with evidence.**
 Lantern Studio's order form is not in the docs; its notice period is unknown (asked on the task).
 
 ## Sources
-- CRM read 2026-09-29; contracts in company docs; usage export 2026-09-27; calls 2026-09-22
+- CRM read 2026-09-29; contracts in docs; usage export 2026-09-27; calls 2026-09-22
 ```

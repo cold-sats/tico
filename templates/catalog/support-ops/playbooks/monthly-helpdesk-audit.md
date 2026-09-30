@@ -1,8 +1,8 @@
 # Monthly help desk audit
 
-Schedule: the first Monday of each month at 09:00 company time (routine `monthly-helpdesk-audit`),
-once a person has approved the first audit. Budget 45 minutes. The outcome is one page of findings,
-each with evidence and a change request a person can approve or refuse on its own.
+Schedule: the first Monday of each month at 09:00 team time (routine `monthly-helpdesk-audit`),
+once a human has approved the first audit. Budget 45 minutes. The outcome is one page of findings,
+each with evidence and a change request a human can approve or refuse on its own.
 
 ---
 

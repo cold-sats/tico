@@ -1,11 +1,11 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme tax calendar, October to December 2026 (prepared 2026-10-01)
 
-Sample output for Acme, a fictional studio-software company. Every figure is invented, and the dates
+Sample output for Acme, a fictional studio-software team. Every figure is invented, and the dates
 are illustrative: check each against the authority's page. Nothing has been filed. A summary for a
-person and the accountant, not tax advice. First draft, not yet reviewed.
+human and the accountant, not tax advice. First draft, not yet reviewed.
 
 **Headline: next deadline 2026-10-15, the extended 2025 corporate income tax return (filer: Ruth,
 outside accountant); two inputs due to her 09-30 and not yet sent. One state at 91 percent of its sales tax threshold.**

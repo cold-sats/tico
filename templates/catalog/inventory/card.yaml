@@ -9,7 +9,7 @@ icon: inventory_2
 suggest: niche
 tags: [inventory, ecommerce, retail, manufacturing, hardware, purchasing, stock]
 summary: "Works out from sales and stock exports what to reorder, when and how much, using each item's reorder point and supplier lead time, and prepares the purchase orders for approval. It never places an order."
-when: "A company that sells physical products and runs out of best-sellers while cash sits in slow stock."
+when: "A team that sells physical products and runs out of best-sellers while cash sits in slow stock."
 pains:
   - "our best-sellers go out of stock every few weeks"
   - "cash is tied up in stock that doesn't sell"
@@ -30,7 +30,7 @@ prerequisites:
     why: "Sales and stock exports arrive as files on a task; the item plan lives in this bot's repository."
     required: true
   - tool: docs
-    why: "Optional. Supplier price lists and minimum order quantities kept in the company docs make the orders exact."
+    why: "Optional. Supplier price lists and minimum order quantities kept in the docs make the orders exact."
     required: false
   - tool: mail
     why: "Optional. Read-only access to the purchasing mailbox shows supplier confirmations and delay notices."
@@ -43,12 +43,12 @@ onboarding:
   - ask: "How much stock do you want as a buffer, and how many months of cover is too much? (Default: safety stock for the worst lead time seen; more than 4 months of cover is overstock.)"
     why: "Sets safety stock and the overstock line, so the list balances running out against cash."
   - ask: "Who approves purchase orders, and up to what amount? (Default: the Operations Manager.)"
-    why: "Every order goes to that person for a yes, with its total."
+    why: "Every order goes to that human for a yes, with its total."
   - ask: "Which day and hour should the reorder list land, and are any items seasonal or about to be discontinued? (Default: Mondays at 07:30.)"
     why: "Sets the routine's schedule, and keeps a discontinued item from being reordered."
 first_routine:
   title: "Weekly reorder list"
-  cadence: "Mondays at 07:30 company time, after you approve the first list"
+  cadence: "Mondays at 07:30 team time, after you approve the first list"
   output: "reports/YYYY-MM-DD-reorder.md: items at or below their reorder point with the quantity to order, one purchase order per supplier ready for approval, items at risk of a stock-out before an order can land, overstocked items, and supplier delays"
   draft_only: true
 approval_required:

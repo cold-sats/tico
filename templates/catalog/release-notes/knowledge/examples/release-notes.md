@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme release notes draft, week of Mon 2026-09-21
 
-Sample output for Acme, a fictional studio-software company. Every pull request is invented.
+Sample output for Acme, a fictional studio-software team. Every pull request is invented.
 Nothing has been published, tagged or committed.
 
 **Suggested version: 2.14.0 (a new feature, no breaking change). Range: 2026-09-14 to 2026-09-24, 14 changes. What users will notice most: waitlist reminders by text.**
@@ -24,7 +24,7 @@ Turn it on under Settings, then Reminders.
 **Reset your booking link.** If a link was shared by mistake, reset it in Settings. The old link stops working straight away.
 **Times stay right after the clocks change.** We fixed a bug that showed some classes an hour early.
 
-## Could not classify (a person decides)
+## Could not classify (a human decides)
 - [#417](https://github.example/acme/web/pull/417) "Update pricing constants": no description. Is this visible to customers, and is it a breaking change?
 
 ## Left out

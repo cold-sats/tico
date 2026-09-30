@@ -7,18 +7,18 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: medium
 max_run_minutes: 45
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
 # the bot puts every draft on the task and asks for an approval.
 outbound_send: false
 
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
-# `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
-# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+# `hub routine update <id> --enable` after a human approves the first draft on the setup task.
+# `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
 schedules:
   - id: weekly-support-summary
     title: Weekly support summary
     cron: "0 9 * * 1"
-    timezone: America/Los_Angeles     # set this to the company's own timezone
+    timezone: America/Los_Angeles     # set this to the team's own timezone
     template: playbooks/weekly-support-summary.md
     labels: [priority:p2]
     enabled: false
@@ -26,8 +26,8 @@ schedules:
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
-# The hub itself (tasks, updates, reports, the org) needs no entry: every turn has it. Optional, uncomment
-# what the onboarding says is connected. Neither entry may ever carry write or send.
+# Tico itself (tasks, updates, reports, the org) needs no entry: every run has it. Optional, uncomment
+# what setup says is connected. Neither entry may ever carry write or send.
 # access:
 #   - service: gmail
 #     identity: "support@example.com"
@@ -35,7 +35,7 @@ schedules:
 #     env: GOOGLE_SA_KEY
 #     note: "reads the support mailbox to count arrivals and first replies; never drafts, files or sends"
 #   - service: slack
-#     identity: the company workspace
+#     identity: the team workspace
 #     can: [read]
 #     channels: [support]
 #     dms: false

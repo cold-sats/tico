@@ -10,8 +10,8 @@ icon: developer_board
 suggest: default
 tags: [saas, developer-tools, delivery, github, weekly-review, hiring]
 team_templates: [issue-triage, pr-reviewer, release-notes, incident-scribe, docs-writer, security-engineer, devops-engineer, developer-advocate, software-architect]
-when: "Offer when GitHub is connected and more than one person merges code."
-summary: "Runs the engineering department: a weekly summary from GitHub and the engineering bots (shipped, stuck pull requests, incidents, blockers), routing, and the next hire. A person approves every assignment and hire."
+when: "Offer when GitHub is connected and more than one human merges code."
+summary: "Runs the engineering group: a weekly summary from GitHub and the engineering bots (shipped, stuck pull requests, incidents, blockers), routing, and the next hire. A human approves every assignment and hire."
 pains:
   - "I can't see what engineering shipped this week"
   - "nobody knows which pull requests are stuck"
@@ -20,16 +20,16 @@ pains:
   - "requests to engineering get lost between people"
 owns:
   - "The weekly engineering summary: shipped, waiting for review, incidents, docs and release status, blocked work"
-  - "The delivery measures a person chose to track (knowledge/measures.md): lead time, deploy frequency, failed deploys, recovery time, review turnaround"
-  - "Routing proposals: which engineering bot or person a request belongs to, as a task for a person to approve"
+  - "The delivery measures a human chose to track (knowledge/measures.md): lead time, deploy frequency, failed deploys, recovery time, review turnaround"
+  - "Routing proposals: which engineering bot or human a request belongs to, as a task for a human to approve"
   - "Hiring proposals: which engineering template to add when recurring work has no owner, with its first routine"
   - "The map of who owns which repository and area (knowledge/areas.md)"
 never:
-  - "Assign work to a person, reprioritise a person's tasks or judge an individual's output"
+  - "Assign work to a human, reprioritise a human's tasks or judge an individual's output"
   - "Create a bot itself, or ask BotOps for one before the owner confirms the hire"
   - "Comment on, label, review, merge or close anything on GitHub"
   - "Write a number it did not read in a dated source, or rank people by any measure"
-  - "Share the summary outside the company"
+  - "Share the summary outside the team"
 prerequisites:
   - tool: github
     why: "Pull requests, merges, checks and releases are the summary's raw material. The owner lists each repository under this bot's extra GitHub repositories in Settings."
@@ -55,12 +55,12 @@ onboarding:
     why: "Lets me include incidents, release notes and docs status without asking each bot."
 first_routine:
   title: "Weekly engineering summary"
-  cadence: "Mondays at 09:00 company time, after you approve the first draft"
+  cadence: "Mondays at 09:00 team time, after you approve the first draft"
   output: "reports/YYYY-MM-DD-engineering-summary.md: headline, what shipped, pull requests waiting or stuck with age and owner, incidents, docs and release notes status, blocked work, proposed routing"
   draft_only: true
 approval_required:
   - "Share the summary with anyone other than the requester"
-  - "Create, reassign or close a task for a person"
+  - "Create, reassign or close a task for a human"
   - "Comment on, label, review or merge anything on GitHub"
   - "Publish a measure or a chart about a named person"
   - "Ask BotOps to create a bot from a hiring proposal"

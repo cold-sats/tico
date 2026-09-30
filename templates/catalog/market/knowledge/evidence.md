@@ -12,8 +12,8 @@ No evidence, no write. A report without a source you can point at is `rejected` 
 
 These words come from the listening watchlist. Use them as the entity's `tier`.
 
-- **core** — a company a customer would hire instead of your company. `competes_with` your company.
-- **lookalike** — same job, smaller or adjacent. `competes_with` your company until you verify otherwise.
+- **core** — an organization a customer would hire instead of your team. `competes_with` your team.
+- **lookalike** — same job, smaller or adjacent. `competes_with` your team until you verify otherwise.
 - **phrase-stealer** — the name collides with something else (a ticker, a game, a common word). Not a competitor until a source shows the competing product. Do not draw `competes_with` from the name alone.
 - **secondary** — real, but not the comparison set. No `competes_with` edge until a source says a customer treats them as the alternative.
 

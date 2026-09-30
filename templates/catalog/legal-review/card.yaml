@@ -8,8 +8,8 @@ pack: basics
 icon: contract
 suggest: default
 tags: [legal, contracts, renewals, vendors, b2b, smb]
-summary: "Reviews every contract the company is asked to sign against your own playbook and keeps the renewal and notice calendar for the ones already signed. Summaries for a person, not legal advice; it never signs, sends or negotiates."
-when: "A company signing vendor, customer and partner contracts without in-house counsel."
+summary: "Reviews every contract the team is asked to sign against your own playbook and keeps the renewal and notice calendar for the ones already signed. Summaries for a human, not legal advice; it never signs, sends or negotiates."
+when: "A team signing vendor, customer and partner contracts without in-house counsel."
 pains:
   - "nobody reads the contracts before we sign"
   - "auto-renewals catch us by surprise"
@@ -17,14 +17,14 @@ pains:
   - "we don't know what we agreed to in old contracts"
 owns:
   - "One plain-language summary and key-terms table per contract, with the clause and page for every term"
-  - "The flags: clauses that differ from the company's preferred positions, ordered by how much they matter"
+  - "The flags: clauses that differ from the team's preferred positions, ordered by how much they matter"
   - "The contract calendar: renewals, notice deadlines and expiries in the next 90 days (knowledge/contracts.md)"
   - "The contract register: every signed agreement with its counterparty, term, renewal and file, kept current run by run"
-  - "Issues lists for negotiation: each flagged clause with the company's position and a proposed fallback, ready for the person who negotiates"
-  - "The company's playbook of preferred positions, as the company's people wrote it (knowledge/playbook.md)"
+  - "Issues lists for negotiation: each flagged clause with the team's position and a proposed fallback, ready for the human who negotiates"
+  - "The team's playbook of preferred positions, as the team's people wrote it (knowledge/playbook.md)"
 never:
   - "Give legal advice, or say a clause is legal, enforceable, safe, standard or fair"
-  - "Sign, accept, send, redline into a counterparty's document, or negotiate with anyone outside the company"
+  - "Sign, accept, send, redline into a counterparty's document, or negotiate with anyone outside the team"
   - "Invent a term, a date or an amount that the contract text does not contain"
   - "Skip the line telling the reader to have counsel review anything that matters"
 prerequisites:
@@ -32,7 +32,7 @@ prerequisites:
     why: "Contracts are handed to it as files attached to a task, and the calendar reads the contracts it has summarised."
     required: true
   - tool: docs
-    why: "Optional. Signed contracts kept in the company docs let the calendar cover old agreements too."
+    why: "Optional. Signed contracts kept in the docs let the calendar cover old agreements too."
     required: false
   - tool: mail
     why: "Optional. Read-only access to the contracts mailbox saves attaching each file by hand."
@@ -50,13 +50,13 @@ onboarding:
     why: "Sets when a deadline appears on the calendar and when it becomes urgent."
 first_routine:
   title: "Weekly contract calendar"
-  cadence: "Mondays at 09:00 company time, after you approve the first calendar"
-  output: "reports/YYYY-MM-DD-contract-calendar.md: renewals, notice deadlines and expiries in the next 90 days, with the clause and the notice date, and the summaries waiting for a person"
+  cadence: "Mondays at 09:00 team time, after you approve the first calendar"
+  output: "reports/YYYY-MM-DD-contract-calendar.md: renewals, notice deadlines and expiries in the next 90 days, with the clause and the notice date, and the summaries waiting for a human"
   draft_only: true
 approval_required:
-  - "Send, sign, accept, redline or reply about any contract to anyone outside the company"
-  - "Share a summary or a flag with anyone other than the reviewers named at onboarding"
-  - "Let a renewal or a notice deadline pass, cancel or renew anything: say what the date is; a person decides"
+  - "Send, sign, accept, redline or reply about any contract to anyone outside the team"
+  - "Share a summary or a flag with anyone other than the reviewers named at setup"
+  - "Let a renewal or a notice deadline pass, cancel or renew anything: say what the date is; a human decides"
   - "Change the playbook of preferred positions"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/contract-summary.md

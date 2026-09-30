@@ -1,6 +1,6 @@
 # Weekly issue digest
 
-Schedule: Mondays at 09:00 company time (routine `weekly-issue-digest`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-issue-digest`), once a human has approved
 the first digest. Also run by hand on request. Budget 30 minutes. The outcome is one report for the
 recipient in `knowledge/areas.md`, and a batch of proposals waiting for a Confirm. Nothing on GitHub
 changes.
@@ -27,7 +27,7 @@ For each repository in `state.md`. Note any repository you could not read.
 Follow `playbooks/triage-an-issue.md` for every issue created or updated since the watermark. Unlabelled
 issues older than a day are listed first. For an issue already waiting on a reporter, note how many
 days it has waited. Suggest the maintainer close it only when it has waited longer than the repository's
-own stale rule, and say that a person must do it.
+own stale rule, and say that a human must do it.
 
 ## 4. Find the themes
 
@@ -38,7 +38,7 @@ count is the one thing to lead with.
 ## 5. Write and publish
 
 Write `reports/YYYY-MM-DD-issue-digest.md` in the shape of `knowledge/examples/issue-digest.md`:
-headline, needs a person today, proposed labels and duplicates by area, waiting on a reporter with the
+headline, needs a human today, proposed labels and duplicates by area, waiting on a reporter with the
 drafted question, themes, and what you could not read. Then:
 
     hub files publish reports/YYYY-MM-DD-issue-digest.md

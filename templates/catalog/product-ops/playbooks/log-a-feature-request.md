@@ -1,6 +1,6 @@
 # Log a feature request
 
-Triggered by a task from sales, support, the Customer Insights Analyst or a person that passes on a
+Triggered by a task from sales, support, the Customer Insights Analyst or a human that passes on a
 request, and used in the weekly review. Budget 10 minutes. The outcome is the request in the ledger once,
 with its account, and an answer the sender can pass on without promising anything.
 

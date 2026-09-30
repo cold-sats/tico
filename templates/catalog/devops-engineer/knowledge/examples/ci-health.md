@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme CI health, week to Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every workflow, test and name is invented.
+Sample output for Acme, a fictional studio-software team. Every workflow, test and name is invented.
 Nothing was rerun, cancelled or changed. First draft, not yet reviewed.
 
 **Headline: the merge check failed for flaky reasons on 9% of runs (last fortnight 4%); its median rose to

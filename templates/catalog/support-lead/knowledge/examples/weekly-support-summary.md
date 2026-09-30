@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme support summary, week of Mon 2026-09-21
 
-Sample output for Acme, a fictional company. Every figure, ticket and name below is invented.
+Sample output for Acme, a fictional team. Every figure, ticket and name below is invented.
 
 **Headline: replies were on target (median first reply 2h10m against 4h), but the backlog aged: 6 tickets are older than 7 days and 2 have no owner.**
 

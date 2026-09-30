@@ -7,14 +7,14 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: medium
 max_run_minutes: 60
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. The Goal Manager
-# sends nothing outside: it asks goal owners a question and sends the owner a weekly review inside the company.
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. The Goal Manager
+# sends nothing outside: it asks goal owners a question and sends the owner a weekly review inside the team.
 outbound_send: false
 
 # Both routines are declared and paused (`enabled: false`), like a starter bot's first routine. The server
 # arms `kpi-pass` itself once a KPI exists; the bot arms `goals-review` with `hub routine update <id> --enable`
 # after the owner has read its first review. The server seeds them once, when the Goal Manager is built in;
-# from then on the hub's rows are the routines (docs/routines.md). Set the timezone to the company's own.
+# from then on Tico's rows are the routines (docs/routines.md). Set the timezone to the team's own.
 schedules:
   - id: kpi-pass
     title: KPI pass
@@ -32,12 +32,12 @@ schedules:
     enabled: false
 
 # What this bot may touch. The KPI sources are tools the owner declares here (an analytics project, an API, a
-# read-only database) and gives a key for; `env:` names the variable, never the value. Without a declared tool a
-# KPI can only be computed from the hub itself (`hub sql`). The bot never edits this file: it files a task for
+# read-only database) and gives a credential for; `env:` names the variable, never the value. Without a declared tool a
+# KPI can only be computed from Tico itself (`hub sql`). The bot never edits this file: it files a task for
 # the owner to add a source.
 # access:
 #   - service: posthog
-#     identity: the company project
+#     identity: the team project
 #     can: [read]
 #     env: POSTHOG_API_KEY
 #     note: "reads events to compute activation and signup KPIs; never writes"

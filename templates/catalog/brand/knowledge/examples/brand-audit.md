@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme brand audit, September 2026
 
-Sample output for Acme, a fictional studio-software company. Nothing has been edited. First draft,
+Sample output for Acme, a fictional studio-software team. Nothing has been edited. First draft,
 not yet reviewed.
 
 **Verdict: 11 of 14 items on brand; the pricing page and two plan emails still say "Pro plan",

@@ -1,6 +1,6 @@
 # Weekly office page
 
-Schedule: Mondays at 08:00 company time (routine `weekly-office-page`), once a person has approved the
+Schedule: Mondays at 08:00 team time (routine `weekly-office-page`), once a human has approved the
 first page. Budget 20 minutes. The outcome is one page and, where stock is low, one combined order
 ready for approval. Nothing is ordered or booked.
 
@@ -15,7 +15,7 @@ first, whatever its age.
 
 ## 2. Supplies
 
-Ask the person who stocks the kitchen or supply cupboard for counts if nobody logged them (one
+Ask the human who stocks the kitchen or supply cupboard for counts if nobody logged them (one
 `hub task create` a week at most, after the first approval), or use the last counts and usage. List
 every item at or below par with the quantity to reach par plus two weeks' use. Group by supplier into
 one order each, with the price last seen and its date.

@@ -27,7 +27,7 @@ biggest rises and the two biggest falls go first. Small changes (within a few po
 Read every comment. Group them into four to seven themes, each with a count and the groups it came from
 (above threshold). Quote only comments that identify nobody; paraphrase the rest. A comment about
 harassment, safety, discrimination or someone at risk is not a theme: hand it, untouched, to the named
-person in `state.md` today.
+human in `state.md` today.
 
 ## 5. Actions
 

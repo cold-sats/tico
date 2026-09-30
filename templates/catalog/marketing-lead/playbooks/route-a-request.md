@@ -1,7 +1,7 @@
 # Route a request
 
 Triggered by a task or message asking marketing for something ("we need a case study", "can we
-announce this?"). Budget 10 minutes. The outcome is a routing proposal on the task that a person can
+announce this?"). Budget 10 minutes. The outcome is a routing proposal on the task that a human can
 approve with one word. You route; you never do the work and never create the task yourself.
 
 ---
@@ -21,7 +21,7 @@ search or AI-visibility question (`seo-visibility`), a social post or what peopl
 competitor facts (`market-analyst`), reviews (`reputation`), ads (`paid-media`), an event (`events`),
 press (`pr`), the community (`community`), brand and voice (`brand`), tracking and lead handoff
 (`marketing-ops`). If two owners could take it, say why one fits better. If none fits and the same
-kind of request keeps coming, propose a hire (`AGENT.md`, Hiring) instead of routing it to a person
+kind of request keeps coming, propose a hire (`AGENT.md`, Hiring) instead of routing it to a human
 again.
 
 ## 3. Check the load and the calendar
@@ -32,7 +32,7 @@ already planned, say what would slip.
 ## 4. Write the proposal
 
 On the task, in under 100 words: owner, one-line brief, deadline, what it displaces if anything,
-and the one thing the owner needs from the requester. Anything that leaves the company or changes a
+and the one thing the owner needs from the requester. Anything that leaves the team or changes a
 live page is marked "needs approval before it goes out".
 
 ## 5. Finish

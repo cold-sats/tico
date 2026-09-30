@@ -1,10 +1,10 @@
 # Weekday morning sweep
 
-Schedule: `0 8 * * 1-5` in the company's timezone, routine `weekday-morning-sweep`. Take the run's
+Schedule: `0 8 * * 1-5` in the team's timezone, routine `weekday-morning-sweep`. Take the run's
 label from the task title.
 
 Budget 20 minutes. The outcome is one digest saved in `reports/sweeps/` and attached to the task,
-plus a child task for anything that genuinely needs a person or another bot. Quiet is a normal
+plus a child task for anything that genuinely needs a human or another bot. Quiet is a normal
 result.
 
 ---
@@ -15,7 +15,7 @@ result.
 
 Then `knowledge/watchlist.md`, before the first query. It holds the names, the queries, the phrases
 that matter, and the sources this sweep reads. Anything not on it is not this sweep's work.
-`hub market show <id>` for each company this brief will name. The graph is what is true about them;
+`hub market show <id>` for each organization this brief will name. The graph is what is true about them;
 the watchlist is only what to search.
 
 ## 2. Run the queries
@@ -31,7 +31,7 @@ both lists in the digest and you will not remember them at the end.
 
 | Bucket | What it is |
 |---|---|
-| Worth a person's reply | A real customer or buyer asking the question {{company_name}} answers, in a live thread, where a plain honest reply would actually help |
+| Worth a human's reply | A real customer or buyer asking the question {{company_name}} answers, in a live thread, where a plain honest reply would actually help |
 | Worth writing about | A question people keep asking in different words, or a claim worth answering in public |
 | A real move | Funding, an acquisition, layoffs, a price change, a launch, a new market, a shutdown, a lawsuit, or a notable public complaint thread about a watchlist name |
 | Noise | Everything else. Drop it. Do not list it. |
@@ -46,7 +46,7 @@ cap, not the target.
 
 1. **Coverage**: which sources returned and which were blocked, named individually.
 2. **Worth a reply**: the link, one line on who they are, one line on why it matters. No draft
-   reply unless the owner has said sending is allowed, and even then a person sends it.
+   reply unless the owner has said sending is allowed, and even then a human sends it.
 3. **Worth writing about**: the link, one line on why, and the angle.
 4. **Real moves**: what happened with the link, why it matters for {{company_name}}, and what could
    be done about it. Three lines each.
@@ -60,7 +60,7 @@ A section with nothing in it is absent, not empty with a note apologising for it
 
 One child task per real item, never one to show the sweep happened. Something worth writing about
 goes to the content bot with the link, the reason, and the angle; you never write the piece. A real
-move or a thread a person should see goes to that person, under 200 words.
+move or a thread a human should see goes to that human, under 200 words.
 
 ## 6. Finish the task
 

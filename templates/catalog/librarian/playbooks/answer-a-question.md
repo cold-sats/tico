@@ -1,9 +1,9 @@
 # Answer a question
 
-Every question, from a person in Ask AI or from a bot or the Assistant through `hub docs ask`. The same
+Every question, from a human in Ask AI or from a bot or the Assistant through `hub docs ask`. The same
 steps and the same answer. Budget: most answers in a few minutes; at most about 25 `hub docs fetch` calls.
 
-The outcome is a short answer a person can act on, each claim tied to the doc it came from, or a plain
+The outcome is a short answer a human can act on, each claim tied to the doc it came from, or a plain
 "Not in the docs." that says what is closest and who might know. Nothing else counts as good.
 
 ---
@@ -15,14 +15,14 @@ If it is a follow-up in a conversation, fold in what was said. If the question i
 ("how does it work?"), answer the most likely reading and say which reading you took, in one clause.
 Do not ask a question back unless two readings would give opposite answers.
 
-Translate the person's words into the company's words with the map (`_librarian/glossary.md`): "invoice
+Translate the human's words into the team's words with the map (`_librarian/glossary.md`): "invoice
 terms" may be "net 30" in the docs, "the CRM" a product's name.
 
 ## 2. Search the internal docs first
 
     hub docs search "<keywords>"
 
-Try two or three different phrasings, including the company's own term from the glossary and any synonym
+Try two or three different phrasings, including the team's own term from the glossary and any synonym
 (refund / return / chargeback; pricing / plans / rates). A hit's excerpt is not the doc: **read the top
 hits in full**, up to five:
 
@@ -43,7 +43,7 @@ If the search found nothing or only part of the answer, or the question is about
 
 `where-things-live.md` says which doc or which linked source holds which topic, and how each linked
 source is laid out. `index.md` has a line summarising every doc. Pick the docs the map points to and read
-them. If the map is missing (a new company), skip it and work from `hub docs list` and `hub docs links`.
+them. If the map is missing (a new team), skip it and work from `hub docs list` and `hub docs links`.
 If the map turns out to be wrong or stale, note it for step 7.
 
 ## 4. Follow the linked docs
@@ -74,7 +74,7 @@ Work like a person who has never seen the site:
 
 Shape, always:
 
-1. **The answer, first.** One or two sentences a person can act on. If it is a number, a date, a name or a
+1. **The answer, first.** One or two sentences a human can act on. If it is a number, a date, a name or a
    yes/no, it is right there, in the doc's own figures.
 2. **A few bullets only if they help**: the steps, the exceptions, the two conflicting sources. No
    preamble, no restating the question, no account of your search, no "I found".
@@ -85,7 +85,7 @@ Shape, always:
      you actually read, and the host or the linked doc's title as its label.
    - a manual page (a search result labelled "Tico manual"): `[Tico manual · Backups](https://...)`, the `url`
      the result carried, and name its file (`docs/backups.md`) if asked where it is from.
-   Nothing else is a citation. Never cite a doc you did not read this turn. Never invent an id or an address.
+   Nothing else is a citation. Never cite a doc you did not read this run. Never invent an id or an address.
 4. **Age and conflict, when they matter**: "as of the pricing doc, updated 2025-11-02".
 5. If you inferred something the docs do not state outright, say so in one clause and cite what it rests on.
 
@@ -104,14 +104,14 @@ Example:
 Say it in the first words, then help:
 
 > Not in the docs. The refund policy covers plans and dates but not gift cards. [Internal doc · Refund policy](doc:d7f3)
-> The finance lead owns billing, so that is the person to ask.
+> The finance lead owns billing, so that is the human to ask.
 
 Rules:
 - Begin exactly with `Not in the docs.` This is how a bot that asked knows the question is not covered.
-- Then the closest thing that *is* there, cited, so the person sees what you did find. Skip this if
+- Then the closest thing that *is* there, cited, so the human sees what you did find. Skip this if
   nothing is close.
 - Name who might know only if a doc says who owns the topic.
-- Do not guess, do not answer "generally", do not offer what other companies do.
+- Do not guess, do not answer "generally", do not offer what other organizations do.
 - If part of the question is covered and part is not, answer the covered part with citations, then say
   "Not in the docs:" for the rest.
 - If a linked doc could not be read (not public, an error), say which one and why: it may hold the answer.
@@ -130,7 +130,7 @@ If a write fails, it is still a good answer: finish, and note it in `state.md`.
 
 ## Do not
 
-- Do not answer from memory of an earlier turn: read again, the doc may have changed.
+- Do not answer from memory of an earlier run: read again, the doc may have changed.
 - Do not paste a doc. Quote the line that matters and cite it.
-- Do not tell the person about tools, budgets or your process.
+- Do not tell the human about tools, budgets or your process.
 - Do not use a citation as decoration: each one must actually support the sentence before it.

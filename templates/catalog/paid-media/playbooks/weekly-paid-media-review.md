@@ -1,6 +1,6 @@
 # Weekly paid media review
 
-Schedule: Mondays at 09:00 company time (routine `weekly-paid-media-review`), once a person has
+Schedule: Mondays at 09:00 team time (routine `weekly-paid-media-review`), once a human has
 approved the first review. Also run by hand. Budget 40 minutes. The outcome is one page: how the money
 did, where it was wasted, and three changes prepared for approval. Nothing is changed.
 
@@ -23,9 +23,9 @@ there is one. A campaign with no conversion tracked is marked "unmeasured" and j
 
 - Campaigns over their target cost per result for two weeks running.
 - In the search-terms report, sorted by cost: terms that spent more than one target cost per result
-  with no conversion, and terms plainly unrelated to what the company sells. Propose each as an
+  with no conversion, and terms plainly unrelated to what the team sells. Propose each as an
   exclusion (exact match unless a whole theme is wrong), with its spend. Check none of them is a
-  brand term or a product the company does sell.
+  brand term or a product the team does sell.
 - Placements or audiences that spend and never convert.
 - Ads unchanged for 60 days with falling click-through: creative fatigue.
 - Terms that convert well but are not keywords yet: propose them too.
@@ -35,7 +35,7 @@ there is one. A campaign with no conversion tracked is marked "unmeasured" and j
 Rank by money at stake. For each: the exact edit (campaign, setting, from, to), the evidence, the
 expected effect, and how you will check it in two weeks. Anything that adds spend is a
 `hub approval request --kind spend` payload; new ad copy is `--kind publish` with the text. Everything
-else is a task for the person who applies changes, created only after the owner's yes on this task.
+else is a task for the human who applies changes, created only after the owner's yes on this task.
 
 ## 5. Check last fortnight's changes
 

@@ -2,7 +2,7 @@
 
 Triggered by a task from anyone: "the meeting room screen is broken", "we need a desk for a new
 starter on Monday", "can we get oat milk". Budget 10 minutes. The outcome is the request logged with a
-fixer and a date, and the person who raised it told what happens next.
+fixer and a date, and the human who raised it told what happens next.
 
 ---
 

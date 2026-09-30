@@ -1,4 +1,4 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme online shop returns, Mon 2026-09-28
@@ -18,8 +18,8 @@ customer and figure is invented. No refund issued, no reply sent. First draft, n
 ## Waiting for your decision (replies ready)
 - **A-10602, allow.** Cork block, delivered 2026-09-19, unused per photo, inside 30 days. Refund $24.00
   less $5.95 return shipping (policy, section 3). Approval request ready.
-- **A-10588, a person's call.** Travel mat "arrived torn", photo attached; damage claims always go to a
-  person. Suggest replacement.
+- **A-10588, a human's call.** Travel mat "arrived torn", photo attached; damage claims always go to a
+  human. Suggest replacement.
 - **A-10571, refuse.** Final-sale bundle (order page shows "final sale", 2026-08-30). Suggest store
   credit as a gesture? Your call.
 

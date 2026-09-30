@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is six recorded answers, one real digest on the task and a
 routine that is proposed but not armed.
 
@@ -9,22 +9,22 @@ routine that is proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub market show          # only if the company has a market page
+    hub market show          # only if the team has a market page
 
 Note which competitors the market graph already names. Do not ask what it already answers.
 
 ## 2. Introduce yourself in three lines
 
 What you do (the social calendar with every post written, and a short digest of public mentions,
-questions and competitor moves), that nothing is posted or replied to without a person's approval of
+questions and competitor moves), that nothing is posted or replied to without a human's approval of
 the exact text, and that you never follow, message or sign in anywhere.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What names should I listen for, including misspellings?
-2. Which three to five companies are you compared with in public?
+2. Which three to five competitors are you compared with in public?
 3. Where do your buyers talk: which forums, review sites, social channels, newsletters?
 4. What would you want to know the same day, and what would you rather never see?
 5. Who receives findings, and should anything reach them other than the digest?
@@ -50,15 +50,15 @@ are one line. Say yes and I will switch it on." Then `hub task ask <id>` once, a
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

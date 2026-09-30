@@ -7,23 +7,23 @@ reads: []                        # other bot repositories this one may clone rea
 reasoning_effort: medium
 max_run_minutes: 60
 
-# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
-# the bot puts every plan on the task and a person acts on it.
+# Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
+# the bot puts every plan on the task and a human acts on it.
 outbound_send: false
 
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
-# `hub routine update <id> --enable` after a person approves the first report on the onboarding task.
-# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+# `hub routine update <id> --enable` after a human approves the first report on the setup task.
+# `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
 schedules:
   - id: weekly-ci-health
     title: Weekly CI health report
     cron: "0 9 * * 2"
-    timezone: America/Los_Angeles     # set this to the company's own timezone
+    timezone: America/Los_Angeles     # set this to the team's own timezone
     template: playbooks/weekly-ci-health.md
     labels: [priority:p2]
     enabled: false
 
-# What this bot may touch. Not listed is not allowed. The company's GitHub App gives the bot a short-lived
+# What this bot may touch. Not listed is not allowed. The team's GitHub App gives the bot a short-lived
 # token for the repositories the owner lists for it in Settings (docs/github-app.md).
 access:
   - service: github
@@ -31,4 +31,4 @@ access:
     can: [read]
     note: "reads workflow runs, job timings, logs and releases; never reruns, cancels, triggers or edits a workflow"
 # The token can trigger workflows, so the only thing between this bot and a rerun or a deploy is this entry and
-# .claude/settings.json, which denies every run, workflow, cache, secret and api command. Keep it read only.
+# .claude/settings.json, which denies every run, workflow, cache, credential and api command. Keep it read only.

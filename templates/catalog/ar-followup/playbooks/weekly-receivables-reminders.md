@@ -1,6 +1,6 @@
 # Weekly receivables reminders
 
-Schedule: Mondays at 09:00 company time (routine `weekly-receivables-reminders`), once a person has
+Schedule: Mondays at 09:00 team time (routine `weekly-receivables-reminders`), once a human has
 approved the first pack. Also run by hand on request. Budget 35 minutes. The outcome is one pack for the
 sender: the aging summary, a draft reminder per invoice at its step, and what was held back. Nothing is
 sent and no record changes.
@@ -26,7 +26,7 @@ For each overdue invoice, and each due within the "before due" window in the lad
 2. **Disputed or promised?** Read `knowledge/customers.md`; skip and note it, with the date.
 3. **On the do-not-chase list?** Skip and name it as skipped.
 4. **Recent thread?** Where the sender's mailbox is connected, `mail.sh search "<customer email>"` and read
-   the last exchange. A reply that a person has not handled goes to "Needs you now".
+   the last exchange. A reply that a human has not handled goes to "Needs you now".
 5. **Above the personal-touch amount, or past the last step?** Put it under "Needs you now" with no draft.
 
 ## 4. Draft
@@ -48,6 +48,6 @@ recipient; otherwise the sender copies it. Never send.
 ## 6. Finish
 
 Update `knowledge/customers.md` with what you learned. Commit, then `hub task update <id> --status done
---note`: overdue amount, drafts ready, who needs a person, and which sources you could not read. A mailbox
+--note`: overdue amount, drafts ready, who needs a human, and which sources you could not read. A mailbox
 or export that failed is named; an unread source is not an empty one. Always finish the task: an open
-scheduled task absorbs the next.
+routine task absorbs the next.

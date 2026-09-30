@@ -1,6 +1,6 @@
 # Invoice run check
 
-Schedule: the 25th of each month at 09:00 company time (routine `invoice-run-check`), once a person
+Schedule: the 25th of each month at 09:00 team time (routine `invoice-run-check`), once a human
 has approved the first run; run again on a billing day if inputs arrive late. Budget 40 minutes. The
 outcome is a run the approver can approve as a batch. Nothing is issued.
 
@@ -34,6 +34,6 @@ invoices. Add each finding to `knowledge/unbilled.md` and to the run as a propos
 ## 5. Write and hand over
 
 `reports/YYYY-MM-DD-invoice-run.md` in the shape of `knowledge/examples/invoice-run.md`, `hub files
-publish` it, and ask the approver on the task. On a yes, a person issues the batch from the billing
+publish` it, and ask the approver on the task. On a yes, a human issues the batch from the billing
 system (or it goes as `hub approval request --kind send`). Commit, and `hub task update <id> --status
 done --note` with ready, held, unbilled and the path.

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme shop reorder list, Mon 2026-09-28
 
-Sample output for Acme's online shop, the fictional company's store of branded studio gear. Every
+Sample output for Acme's online shop, the fictional team's store of branded studio gear. Every
 item, supplier and number is invented. Nothing has been ordered. First draft, not yet reviewed.
 
 **Headline: 3 items to order this week, 2 purchase orders totalling $6,337.50 wait for Marco's yes. The
@@ -12,7 +12,7 @@ travel mat will run out 5 days before any order can land.**
 ## At risk
 - **Travel mat, grey (TM-GRY).** 42 in stock, selling 3.1 a day (90 days to 2026-09-27), so zero on
   2026-10-11. Lead time 18 days observed (supplier states 14). An order today lands 2026-10-16: 5 days
-  short. Options for a person: order today and accept the gap, or ask Fernhill for part-shipment.
+  short. Options for a human: order today and accept the gap, or ask Fernhill for part-shipment.
 
 ## Order this week
 | Item | Stock | Daily sales | Lead time | Safety stock | Reorder point | Order |

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme plan for Q4 2026, draft, Mon 2026-09-01
 
-Sample output for Acme, a fictional studio-software company. Nothing has been changed in the hub.
+Sample output for Acme, a fictional studio-software team. Nothing has been changed in Tico.
 First draft, not yet reviewed.
 
 **Headline: Q3 landed at 0.62 on aspirational key results. The Q4 bet: reach 40 paying studios by

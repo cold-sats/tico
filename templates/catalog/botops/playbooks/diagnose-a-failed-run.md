@@ -2,7 +2,7 @@
 
 Triggered by a task that says a bot did not run, ran and produced nothing, or produced the wrong
 thing. Budget 30 minutes. The outcome is one sentence naming the cause, the evidence for it, and
-either the smallest fix or a clear statement of what a person has to do.
+either the smallest fix or a clear statement of what a human has to do.
 
 ---
 
@@ -18,8 +18,8 @@ not run" are one of four things, and they look nothing alike once you have the r
 | What you see | What it usually is |
 |---|---|
 | No task exists for the occurrence | The routine is not declared, is invalid, or the last one was left unfinished and absorbed it |
-| A task exists and is still `open` | Nothing claimed it: the machine, the runtime, or the readiness check |
-| A task ran and ended early | The turn hit its limit, or an instruction told it to stop |
+| A task exists and is still `open` | Nothing claimed it: the computer, the runtime, or the readiness check |
+| A task ran and ended early | The run hit its limit, or an instruction told it to stop |
 | A task ran and did the wrong thing | The instructions, not the machinery |
 
 Never write that a run happened if it is not in the record. Absence of a record is the finding.
@@ -28,9 +28,9 @@ Never write that a run happened if it is not in the record. Absence of a record 
 
     hub bot check <slug>
 
-This tells you whether the repository is in a state the runner will accept: instructions present
+This tells you whether the repository is in a state Tico will accept: instructions present
 and not the untouched template, a non-empty `## Owns`, `state.md` present, `employee.yaml` parsing
-with the right name, schedules the runner would accept, declared credentials resolving, and the
+with the right name, schedules Tico would accept, declared credentials resolving, and the
 runtime available. Read every failure line literally. A failing check explains most "it did not
 run" reports on its own.
 
@@ -52,8 +52,8 @@ In this order, and stop at the first one that works:
 1. **A sentence in the bot's instructions or its playbook.** Most failures are the bot not knowing
    something.
 2. **A check in that bot's `software/`.** Only when knowing is not enough and doing is the fix.
-3. **A change the owner has to make**: a credential on the machine, a runtime sign in, a setting on
-   the server, a decision about what the bot should do instead. That is a task for a person, with
+3. **A change the owner has to make**: a credential on the computer, a runtime sign in, a setting on
+   the server, a decision about what the bot should do instead. That is a task for a human, with
    the exact line of evidence.
 
 Never rewrite a bot's instructions wholesale to fix one failure. Never change a bot the task did not
@@ -68,15 +68,15 @@ Commit the repository you changed with a one line message. Add the check that wo
 to `knowledge/checks.md`, and add the failure and its cause to `knowledge/fleet.md` under that bot,
 so the next run starts from what you already learned. The note names the cause, quotes the one or
 two lines of evidence, says what you changed, and says what is still unverified: you cannot prove a
-scheduled run works until the next occurrence fires.
+routine works until the next occurrence fires.
 
 ## When you cannot tell
 
 Say so. A guessed cause with a confident fix costs the owner more than an honest "the record shows
-the task was never claimed, and the runner reports nothing for that hour; this needs someone at the
-machine". Put that on the task and finish it.
+the task was never claimed, and the computer reports nothing for that hour; this needs someone at the
+computer". Put that on the task and finish it.
 
 ## Evidence for the task
-Publish the write-up a person should read instead of pasting it into the note:
+Publish the write-up a human should read instead of pasting it into the note:
 `hub files publish reports/<date>-<bot>-diagnosis.md`, and put the file's title in the task note. A
 Google Doc you made for it goes on the page with `hub files add-link <url> --title "..."`.

@@ -1,6 +1,6 @@
 # Monthly tax calendar
 
-Schedule: the 1st of each month at 09:00 company time (routine `monthly-tax-calendar`), once a person
+Schedule: the 1st of each month at 09:00 team time (routine `monthly-tax-calendar`), once a human
 has approved the first calendar. Budget 40 minutes. The outcome is one page: what is due in the next
 90 days, who files it, whether its inputs are ready, and what is changing. Nothing is filed or sent.
 
@@ -21,16 +21,16 @@ ready, due now (inside the lead time), or late. Ask the owners of "due now" inpu
 ## 3. Threshold watch
 
 Update trailing twelve-month sales (and transaction counts where a place still counts them) for every
-place the company sells into and is not registered. Show amount against threshold and percent. Mark
+place the team sells into and is not registered. Show amount against threshold and percent. Mark
 anything over 80 percent, and anything whose threshold changed, with the official source.
 
 ## 4. Contractors (monthly, and weekly in December and January)
 
 Contractors paid over the reporting amount this year with no tax form on file; new contractors with no
-form collected at onboarding.
+form collected during setup.
 
 ## 5. Write and hand over
 
 `reports/YYYY-MM-tax-calendar.md` in the shape of `knowledge/examples/tax-calendar.md`, `hub files
 publish` it, commit, and `hub task update <id> --status done --note` with the next deadline and
-anything late. Questions for the accountant are prepared on the task for a person to send.
+anything late. Questions for the accountant are prepared on the task for a human to send.

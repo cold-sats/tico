@@ -15,14 +15,14 @@ generic note is worse than none.
 
 1. The specific work, in one line, and why it caught your eye.
 2. The role in one line: what the person would do first at {{company_name}}.
-3. The range and location or remote rule where the company allows it.
+3. The range and location or remote rule where the team allows it.
 4. One easy question ("Open to a 20 minute chat next week?").
 Sign as the sender named in `state.md`. No flattery, no "exciting opportunity", no pressure.
 
 ## 3. Touch two (day 5), under 60 words
 
 Something new: a line from the hiring manager on the problem, a detail about the team, or a link to
-something the company published. Not "just bumping this".
+something the team published. Not "just bumping this".
 
 ## 4. Touch three (day 12), under 40 words
 

@@ -1,9 +1,9 @@
 # Month-end close
 
 Triggered on the first working day of the month, or by a task asking "where is the close?". Budget 25
-minutes, repeated daily until the close is done. The outcome is a close that finishes by the company's
+minutes, repeated daily until the close is done. The outcome is a close that finishes by the team's
 deadline with every blocker named and owned. You coordinate; the Bookkeeper keeps the checklist and a
-person posts and locks the period.
+human posts and locks the period.
 
 ---
 
@@ -23,11 +23,11 @@ Each is done, open or blocked, with who owes it:
 3. Bills received entered, and accruals listed for bills not yet in (Accounts Payable Specialist).
 4. Expense reports submitted and reviewed (Expense Auditor).
 5. Payroll for the month matches the payroll register (Payroll Specialist).
-6. Deferred revenue schedule rolled (Revenue Accountant), when the company bills ahead.
-7. Uncategorised transactions cleared and missing receipts under the company's rule.
-8. Bank and card accounts reconciled by a person.
+6. Deferred revenue schedule rolled (Revenue Accountant), when the team bills ahead.
+7. Uncategorised transactions cleared and missing receipts under the team's rule.
+8. Bank and card accounts reconciled by a human.
 9. Statements compared with last month; the FP&A Analyst's variance review can start.
-10. The period locked by a person, after the accountant's review if they have one.
+10. The period locked by a human, after the accountant's review if they have one.
 
 ## 3. Unblock
 
@@ -37,6 +37,6 @@ a yes becomes `hub task create --owner <slug or person> --parent <id>`. Never do
 ## 4. Report
 
 Add a close section to the task: day N of the close against the deadline, lines done, the blockers
-with owners, and the one thing that would finish it soonest. When a person says the period is locked,
+with owners, and the one thing that would finish it soonest. When a human says the period is locked,
 record the date in `knowledge/finance-calendar.md` and tell the FP&A Analyst on its task that
 budget-against-actual can run. `hub task update <id> --status done --note` on the last day.

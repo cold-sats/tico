@@ -1,6 +1,6 @@
 # Weekly renewal and health brief
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-renewal-brief`), once a person has approved
+Schedule: Tuesdays at 09:00 team time (routine `weekly-renewal-brief`), once a human has approved
 the first brief. Also run by hand. Budget 40 minutes. The outcome is one page: what renews when, who is
 at risk and why, and a draft next touch. Nothing is sent and no record changes.
 
@@ -32,7 +32,7 @@ Apply `knowledge/health-rules.md`: green, yellow or red with the two facts behin
 
 ## 5. Draft the next touch for each yellow or red account
 
-One action for one person: who, what and by when; a message under 100 words in the account owner's voice,
+One action for one human: who, what and by when; a message under 100 words in the account owner's voice,
 with `[price: Account Manager]` or `[date: account owner]` gaps wherever it would need them. Never send.
 
 ## 6. Write and hand over

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme milestones and engagement actions, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-software company of 42 people. Nothing has been posted,
+Sample output for Acme, a fictional studio-software team of 42 people. Nothing has been posted,
 sent or booked. First draft, not yet reviewed.
 
 **Headline: 3 milestones in the next two weeks; 2 of 3 Q3 survey actions done, 1 late; next pulse

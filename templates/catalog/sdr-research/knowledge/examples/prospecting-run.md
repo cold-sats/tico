@@ -1,14 +1,14 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme prospecting run, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Every lead is invented and every address
+Sample output for Acme, a fictional studio-software team. Every lead is invented and every address
 uses a reserved example domain. Nothing has been sent and the CRM is untouched.
 
 **Headline: 1 meeting booked, 2 inbound qualified, 7 new leads (2 A, 3 B, 1 C); 5 touches await approval.**
 
-## Needs a person now
+## Needs a human now
 - **Cedar Barre** (inbound, 2026-09-28 18:40): asked whether multi-location pricing is per studio. Price is
   yours; I have not replied.
 

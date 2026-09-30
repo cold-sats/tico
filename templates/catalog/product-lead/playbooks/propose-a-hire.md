@@ -8,7 +8,7 @@ and a BotOps task only after the owner confirms.
 
 ## 1. Prove it recurs
 
-Name the work and count it: at least three occurrences in four weeks, or a weekly job a person is doing
+Name the work and count it: at least three occurrences in four weeks, or a weekly job a human is doing
 by hand. Link each occurrence (task ids, reports). One-off work is routed, not hired for.
 
 ## 2. Pick the template
@@ -30,7 +30,7 @@ you, and what it needs connected. Stop there.
 
 ## 4. Only on the owner's yes
 
-    hub task create --owner botops --title "Set up <template> from the catalog" --body "<why, first routine, reports to product-lead, what to connect>" --parent <id>
+    hub task create --owner botops --title "Set up <template>" --body "<why, first routine, reports to product-lead, what to connect>" --parent <id>
 
 Record the hire in `knowledge/team.md` and `memory/decisions.md`. On a no, record the reason so the same
 proposal is not made again without new evidence.

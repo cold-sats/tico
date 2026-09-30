@@ -11,19 +11,19 @@ the rules give, and any rule change as a proposal. Nothing is reassigned without
     hub task show <id>
 
 Read `knowledge/routing-rules.md` (territories, segments, round robin order, who covers whom, who is
-out) and, from the CRM, the leads in question with source, company size, region and created time.
+out) and, from the CRM, the leads in question with source, organization size, region and created time.
 
 ## 2. Apply the rules in order
 
 Existing account first (a lead from a customer goes to its account owner, not to round robin), then
-named-account lists, then territory or segment, then round robin among the people the rules list. Note
+named-account lists, then territory or segment, then round robin among the humans the rules list. Note
 which rule decided each lead. A lead that matches no rule, or two, is a rule gap.
 
 ## 3. Propose
 
 For each lead: the lead id, the owner the rule gives, the rule. Put the list on the task. On a yes, and
 only where the owner has turned CRM writing on, assign exactly those leads; otherwise
-`hub task create --owner <person>` with the list for the person who assigns.
+`hub task create --owner <human>` with the list for the human who assigns.
 
 ## 4. Fix the rules, not the leads
 
@@ -34,4 +34,4 @@ changes, with date and who approved, in `knowledge/routing-rules.md`.
 ## 5. Finish
 
 Commit and `hub task update <id> --status done --note`: leads routed or proposed, rule gaps found, what
-waits on a person.
+waits on a human.

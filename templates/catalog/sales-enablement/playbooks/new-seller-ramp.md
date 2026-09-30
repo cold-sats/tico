@@ -1,6 +1,6 @@
 # New seller ramp
 
-Triggered by a task naming a new seller and a start date, or by the onboarding answers. Budget 30
+Triggered by a task naming a new seller and a start date, or by the setup answers. Budget 30
 minutes. The outcome is a week-by-week plan for their first 90 days, built from this team's own calls and
 deals. It is guidance for them and their manager, never an assessment.
 

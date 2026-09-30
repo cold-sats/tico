@@ -11,7 +11,7 @@ and a drafted question if something is missing. Nothing is changed on GitHub.
     gh issue view <n> -R <repo> --comments
 
 Read the body, the comments and the linked issues. Never copy a token, key or personal detail out of
-it. A suspected security issue stops here: no comment, no label. Create a task for the person in
+it. A suspected security issue stops here: no comment, no label. Create a task for the human in
 `knowledge/areas.md` and move on.
 
 ## 2. Decide what it is
@@ -35,7 +35,7 @@ versus actual, logs). If something is missing, draft the request:
     Thanks for the report. To look into this we need: <the missing items only>. Could you add them
     here? Once we can reproduce it we will pick it up.
 
-Two to four lines, polite, no blame, no promise of a fix or a date, no request for secrets. Put it on
+Two to four lines, polite, no blame, no promise of a fix or a date, no request for credentials. Put it on
 the task; the label proposal is `needs-info` (the repository's own name for it).
 
 ## 4. Find duplicates and related issues
@@ -64,7 +64,7 @@ For labels, one request for the whole pass:
 
 The payload lists each issue and the exact labels to add or remove. For a comment, one request per
 comment with the issue number and the exact text. Put the exact `gh issue edit` or `gh issue comment`
-commands on the task. A person runs them: writing to GitHub is off until the owner turns it on in
+commands on the task. A human runs them: writing to GitHub is off until the owner turns it on in
 `employee.yaml` and `.claude/settings.json`, and the harness refuses the commands until then. Once it is
 on, apply exactly what was approved, nothing extra. Record the approval id on the task either way.
 

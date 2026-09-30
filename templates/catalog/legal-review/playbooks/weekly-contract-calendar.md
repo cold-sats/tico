@@ -1,8 +1,8 @@
 # Weekly contract calendar
 
-Schedule: Mondays at 09:00 company time (routine `weekly-contract-calendar`), once a person has approved the
+Schedule: Mondays at 09:00 team time (routine `weekly-contract-calendar`), once a human has approved the
 first calendar. Also run by hand. Budget 25 minutes. The outcome is one page of renewals, notice deadlines and
-expiries in the next 90 days, plus the summaries waiting for a person. A calendar for a person, not legal advice.
+expiries in the next 90 days, plus the summaries waiting for a human. A calendar for a human, not legal advice.
 
 ---
 
@@ -24,7 +24,7 @@ For each contract: end of the current term; whether it auto-renews; the notice p
 ## 3. Sort
 
 - **Urgent**: a notice deadline inside 14 days.
-- **Inside the window**: a deadline inside the notice the company asked for (default 60 days for a renewal,
+- **Inside the window**: a deadline inside the notice the team asked for (default 60 days for a renewal,
   30 for a notice deadline).
 - **Coming**: inside 90 days.
 Anything already past its notice deadline is listed first as "notice window has passed", with what the
@@ -32,17 +32,17 @@ contract says happens next, and no advice.
 
 ## 4. Summaries waiting
 
-List the summaries a person has not yet acknowledged, oldest first, and how long each has waited.
+List the summaries a human has not yet acknowledged, oldest first, and how long each has waited.
 
 ## 5. Write the page and hand it over
 
 Write `reports/YYYY-MM-DD-contract-calendar.md`: a headline, the urgent items with the clause, the table by
-date, the summaries waiting, and what you could not read. Close with the line "Summaries for a person, not
+date, the summaries waiting, and what you could not read. Close with the line "Summaries for a human, not
 legal advice; have counsel review anything that matters."
 
     hub files publish reports/YYYY-MM-DD-contract-calendar.md
 
-Only the reviewers named in `state.md` receive it. An urgent item is a task for the person who owns the
+Only the reviewers named in `state.md` receive it. An urgent item is a task for the human who owns the
 relationship, `hub task create --owner <person>`, only after approval. Nothing goes to a counterparty.
 
 ## 6. Finish

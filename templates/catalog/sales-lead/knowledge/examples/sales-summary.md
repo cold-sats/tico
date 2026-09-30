@@ -1,14 +1,14 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme sales summary, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Every deal is invented. Nothing has
+Sample output for Acme, a fictional studio-software team. Every deal is invented. Nothing has
 been changed in the CRM and nothing has been assigned. First draft, not yet reviewed.
 
-**Headline: open pipeline $184k, up $12k in a week; 3 deals need a person today.**
+**Headline: open pipeline $184k, up $12k in a week; 3 deals need a human today.**
 
-## Needs a person now
+## Needs a human now
 - **Harbour Pilates, $18k, proposal sent 2026-09-21, 7 days quiet.** Buyer asked about group pricing;
   price is yours to give. Next step: call on the pricing question. Owner: Dana.
 - **Lakeside Yoga, $9k, stalled 16 days** (threshold 14). Last touch 2026-09-12. Proposed: a

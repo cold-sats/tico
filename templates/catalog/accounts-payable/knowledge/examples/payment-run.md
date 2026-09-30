@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme payment run proposal, Thu 2026-10-01 (prepared Tue 2026-09-29)
 
-Sample output for Acme, a fictional studio-software company. Every vendor and amount is invented.
+Sample output for Acme, a fictional studio-software team. Every vendor and amount is invented.
 Nothing has been paid. First draft, not yet reviewed.
 
 **Headline: pay 13 bills, 58,420 from the operating account; hold 3 (5,980): one bank-detail change

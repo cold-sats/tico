@@ -28,10 +28,10 @@ Check the arithmetic of every line and the total.
 
 `reports/invoices/<firm>-<invoice>.md`: two lines first (billed, in question, the main reason), the lines to question
 in a table with the rule each breaks, budget position after this invoice, then a draft query to the firm in plain
-words for a person to send, then **Summary for a person, not legal advice.** `hub files publish` it.
+words for a human to send, then **Summary for a human, not legal advice.** `hub files publish` it.
 
 ## 4. Hand over
 
-Put it on the task for the approver named at onboarding, and ask once: "Approve as billed, or query the lines
-above?" The query to the firm is sent by a person, or through `hub approval request --kind send`. Update the
+Put it on the task for the approver named at setup, and ask once: "Approve as billed, or query the lines
+above?" The query to the firm is sent by a human, or through `hub approval request --kind send`. Update the
 matter's spend to date in `knowledge/matters.md`, commit, and `hub task update <id> --status done --note`.

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme performance cycle tracker, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-software company of 42 people. Counts and references only;
+Sample output for Acme, a fictional studio-software team of 42 people. Counts and references only;
 no ratings appear here. Nothing has been sent to managers. First draft, not yet reviewed.
 
 **Headline: manager reviews due 2026-10-09; 11 of 34 in; two managers have none in with 7 working days left.**

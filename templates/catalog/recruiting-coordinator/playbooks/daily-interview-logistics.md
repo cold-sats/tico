@@ -1,6 +1,6 @@
 # Daily interview logistics
 
-Schedule: weekdays at 08:00 company time (routine `daily-interview-logistics`), once a person has approved
+Schedule: weekdays at 08:00 team time (routine `daily-interview-logistics`), once a human has approved
 the first sheet. Budget 20 minutes. The outcome is one sheet: today and tomorrow ready, waiting candidates
 offered times, scorecards chased, debriefs ready to book. Nothing leaves without an approval.
 
@@ -27,7 +27,7 @@ message up for approval. A candidate waiting more than one working day for times
 ## 4. Scorecards
 
 For interviews that ended before today: who has submitted and who has not. Nudge each late interviewer
-once with `hub say <person> "Scorecard for <reference>, <role>, due <time>"`. Two working days late goes
+once with `hub say <human> "Scorecard for <reference>, <role>, due <time>"`. Two working days late goes
 to the hiring manager.
 
 ## 5. Debriefs

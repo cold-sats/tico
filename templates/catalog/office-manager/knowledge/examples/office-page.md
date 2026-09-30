@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme office, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company with a 30-desk office. Every person,
+Sample output for Acme, a fictional studio-software team with a 30-desk office. Every human,
 supplier and price is invented. Nothing has been ordered or booked. First draft, not yet reviewed.
 
 **Headline: 5 requests open, oldest 9 days (meeting room 2 screen); one supplies order of $186 needs

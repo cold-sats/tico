@@ -1,6 +1,6 @@
 # Weekly ops checklist and team summary
 
-Schedule: Mondays at 08:30 company time (routine `weekly-ops-checklist`), once a person has approved the
+Schedule: Mondays at 08:30 team time (routine `weekly-ops-checklist`), once a human has approved the
 first page. Also run by hand on request. Budget 35 minutes. The outcome is one page for the recipient:
 what is overdue, what is due, what is blocked, what the Operations bots produced, and what to route. Nothing
 is sent, assigned or changed.
@@ -20,13 +20,13 @@ Then `knowledge/rhythm.md`, `knowledge/duties.md`, `knowledge/vendors.md` and la
 
 Skim the reports the Operations bots published since last Monday (`meeting-notes`, `procurement`,
 `vendor-manager`, `office-manager`, `it-support`, `security-compliance`, `travel`, `inventory`,
-`logistics`, `dispatcher`: whichever `hub org` shows this company has).
+`logistics`, `dispatcher`: whichever `hub org` shows this team has).
 
 ## 2. Sort every duty
 
 For each row in the register decide one of: **overdue** (past its date with no proof of completion),
 **in its lead window** (notice period or lead time has opened), **due this week**, **blocked** (waiting on a
-named person or vendor for more than the agreed wait), **fine**. A duty you cannot date is "needs a date",
+named human or vendor for more than the agreed wait), **fine**. A duty you cannot date is "needs a date",
 and one with no owner is "needs an owner". Neither is ever guessed.
 
 ## 3. Choose the checklist items
@@ -44,9 +44,9 @@ the drafts to the task. Never more than three in one page; the rest are listed b
 ## 5. Summarise the Operations team
 
 One line per sibling bot: what it produced this week, with the report path, and what is waiting on a
-person. Bots with nothing to report say "quiet" once, not a paragraph. Route work as proposals only:
+human. Bots with nothing to report say "quiet" once, not a paragraph. Route work as proposals only:
 "Ask `vendor-manager` to review the cleaning contract before its renewal on 2026-10-31" is a line on the
-page, and becomes a task only after a person approves it. Work for another department goes to its head
+page, and becomes a task only after a human approves it. Work for another group goes to its head
 (`finance-lead`, `general-counsel`, `people-lead`) as a proposal, never to its workers directly.
 
 ## 6. Hiring check
@@ -57,7 +57,7 @@ at the end of the page, following `## Hiring` in `AGENT.md`. One at most per pag
 ## 7. Write the page and hand it over
 
 Write `reports/YYYY-MM-DD-ops-weekly.md` in the shape of `knowledge/examples/ops-weekly.md`: a headline,
-what needs a person, the checklist, vendor follow-ups, the team summary, routing proposals, and what you
+what needs a human, the checklist, vendor follow-ups, the team summary, routing proposals, and what you
 could not read. Then:
 
     hub files publish reports/YYYY-MM-DD-ops-weekly.md

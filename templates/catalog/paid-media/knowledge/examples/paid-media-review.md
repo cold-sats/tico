@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme paid media, week of 2026-09-21
 
-Sample output for Acme, a fictional studio-software company. Nothing has been changed in any ad
+Sample output for Acme, a fictional studio-software team. Nothing has been changed in any ad
 account. First draft, not yet reviewed.
 
 **Headline: $4,210 spent, 58 trials at $73 each (target $60); one campaign holds half the waste.**
@@ -32,7 +32,7 @@ account. First draft, not yet reviewed.
 ## Last fortnight's changes
 - 2026-09-08 exclusions on "studio scheduling": cost per trial $67 to $55. Kept.
 
-## Needs a person
+## Needs a human
 - The brand search conversion tag stopped on 2026-09-19. Routed to `marketing-ops` as a proposal.
 
 ## Could not read

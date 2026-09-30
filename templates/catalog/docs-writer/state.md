@@ -1,13 +1,13 @@
 # State
 
-## Onboarding
-Not started. The first message walks the person through `playbooks/onboarding.md`.
+## Setup
+Not started. The first message walks the human through `playbooks/onboarding.md`.
 
 ## Answers
-None yet. Record each onboarding answer here, one line each, dated. Record the docs location and the repositories to watch here.
+None yet. Record each setup answer here, one line each, dated. Record the docs location and the repositories to watch here.
 
 ## Routine
-`weekly-docs-drift`: declared, not armed. Arm it only after a person approves the first draft.
+`weekly-docs-drift`: declared, not armed. Arm it only after a human approves the first draft.
 
 ## Current focus
 None.
@@ -16,4 +16,4 @@ None.
 None.
 
 ## Next
-On the first message, start onboarding.
+On the first message, start setup.

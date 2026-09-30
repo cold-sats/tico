@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme engineering summary, week of Mon 2026-09-21
 
-Sample output for Acme, a fictional studio-software company. Every pull request and name is invented.
+Sample output for Acme, a fictional studio-software team. Every pull request and name is invented.
 Nothing was changed on GitHub and nothing has been shared.
 
 **Headline: 14 changes shipped, 1 release, no incidents; 3 pull requests are stuck in review, all in billing.**
@@ -29,7 +29,7 @@ Nothing was changed on GitHub and nothing has been shared.
 - Failed deploys: 0 of 3. Time to restore: not measurable, no failures.
 
 ## Team reports
-- QA Engineer: 22 new issues, 5 need a person (digest 2026-09-28). Release Manager: notes for 2.14.0 ready on
+- QA Engineer: 22 new issues, 5 need a human (digest 2026-09-28). Release Manager: notes for 2.14.0 ready on
   2026-09-24, unreviewed. Technical Writer: 2 pages drifted. Senior Software Engineer and Site Reliability
   Engineer: not running.
 

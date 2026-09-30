@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme product usage readout, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-scheduling software company. Every number is invented.
+Sample output for Acme, a fictional studio-scheduling software team. Every number is invented.
 Source: product database `app`, read 2026-09-30 06:10; queries in `queries/2026-09-30-usage-readout.sql`.
 First draft, not yet reviewed.
 
@@ -29,5 +29,5 @@ Mobile events after 2026-09-28 18:00 are missing from `app` (ingest lag); mobile
 
 ## Tracking gaps
 Waitlist interest cannot be measured: no event when a member sees a full class. Proposed event
-`class_full_viewed` (task for a person, not created).
+`class_full_viewed` (task for a human, not created).
 ```

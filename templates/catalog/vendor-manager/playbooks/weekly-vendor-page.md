@@ -1,6 +1,6 @@
 # Weekly vendor and renewals page
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-vendor-page`), once a person has approved
+Schedule: Tuesdays at 09:00 team time (routine `weekly-vendor-page`), once a human has approved
 the first page. Budget 30 minutes. The outcome is one page: which notice deadlines are coming, which
 reviews are due, and what is missing from the register. Nothing is sent, renewed or cancelled.
 
@@ -28,7 +28,7 @@ last issue on file (missed deliveries, outages, support tickets, invoice dispute
 
 ## 4. Gaps
 
-Vendors with no owner, no contract on file, no tier, or holding company data with no security review on
+Vendors with no owner, no contract on file, no tier, or holding team data with no security review on
 file (ask `security-compliance` if it exists). One line each.
 
 ## 5. Write the page

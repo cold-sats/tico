@@ -1,6 +1,6 @@
 # Weekly product usage readout
 
-Schedule: Wednesdays at 09:00 company time (routine `weekly-usage-readout`), once a person has approved
+Schedule: Wednesdays at 09:00 team time (routine `weekly-usage-readout`), once a human has approved
 the first readout. Budget 40 minutes. The outcome is one page the Head of Product reads in five minutes.
 Nothing is written to any data source.
 

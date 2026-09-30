@@ -2,7 +2,7 @@
 
 Triggered by a task that names one piece, or by an idea handed over by another bot that you have
 decided is worth writing. Budget 45 minutes. The outcome is one finished draft in `reports/`, its
-short versions, and a task note a person can approve from.
+short versions, and a task note a human can approve from.
 
 ---
 
@@ -18,7 +18,7 @@ on the task and add it to `knowledge/ideas.md` for later rather than writing it 
 ## 2. Read before you write
 
 - `knowledge/voice.md`, always, before the first sentence.
-- `knowledge/company.md`, for what is true about the company and what it must never claim.
+- `knowledge/company.md`, for what is true about the team and what it must never claim.
 - The last two pieces in `reports/`, so this one does not repeat them.
 - Whatever the idea's source actually said, in full. A summary of a summary produces a draft that
   says nothing.
@@ -29,25 +29,25 @@ One draft, in `reports/YYYY-MM-DD-<slug>/post.md`:
 
 - open with the concrete thing: the situation the reader recognises, or the result, not a wind up;
 - make one point, supported, and stop;
-- every claim carries its source in a notes section at the end, so a person can check it in a
+- every claim carries its source in a notes section at the end, so a human can check it in a
   minute;
 - no number, quote, testimonial, or result you did not read in a dated source;
 - no guarantee, no comparison you cannot source, no promise about an outcome.
 
-Then the short versions the company's channels need, in the same folder, one file each. They are
+Then the short versions the team's channels need, in the same folder, one file each. They are
 cuts of this piece, not new pieces.
 
 ## 4. Check it before you hand it over
 
 Read it once as a reader who has never heard of {{company_name}}: does it say something true and
-useful, or does it say that the company exists? Read it once against `knowledge/voice.md`: does it
-sound like the company or like a machine? If the second read fails twice in a row after rewriting,
-stop. Keep it as internal work and say so. Do not ask a person to rewrite it for you.
+useful, or does it say that the team exists? Read it once against `knowledge/voice.md`: does it
+sound like the team or like a machine? If the second read fails twice in a row after rewriting,
+stop. Keep it as internal work and say so. Do not ask a human to rewrite it for you.
 
 ## 5. Hand it over
 
 Commit, then `hub task update <id> --status done --note`: what the piece says in one line, the path
-to the folder, what is still missing, and one line on what you would do with it once a person
+to the folder, what is still missing, and one line on what you would do with it once a human
 approves. When the owner wants it out, that is `hub approval request` with the exact text and where
 it would go. You never publish it, schedule it, or post it.
 

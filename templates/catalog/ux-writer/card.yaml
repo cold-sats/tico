@@ -9,7 +9,7 @@ icon: text_fields
 suggest: niche
 tags: [saas, ux-copy, microcopy, error-messages, mobile, terminology]
 summary: "Writes the words in the product from each spec: button labels, error messages, empty states and onboarding copy. It reviews every pull request that changes user-facing text against the glossary, and an engineer posts the review."
-when: "A software company whose interface copy is written by whoever builds the screen, so the same thing has three names and errors blame the user."
+when: "A software team whose interface copy is written by whoever builds the screen, so the same thing has three names and errors blame the user."
 pains:
   - "error messages blame the user"
   - "the same thing has three names in our app"
@@ -33,7 +33,7 @@ prerequisites:
     why: "Specs, tasks and the product team's reports are where new screens come from."
     required: true
   - tool: docs
-    why: "Optional. An existing style guide or brand voice, if it lives in the company docs."
+    why: "Optional. An existing style guide or brand voice, if it lives in the team docs."
     required: false
 onboarding:
   - ask: "Which repositories hold the user-facing text, and where do strings live (translation files, inline in components)?"
@@ -48,14 +48,14 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly interface copy review"
-  cadence: "Thursdays at 10:00 company time, after you approve the first review"
+  cadence: "Thursdays at 10:00 team time, after you approve the first review"
   output: "reports/YYYY-MM-DD-copy-review.md: pull requests that changed user-facing text, each string that breaks the glossary or the error rules with a rewrite, new terms to add, and what could not be read"
   draft_only: true
 approval_required:
   - "Post a review or comment on a pull request, or open one"
   - "Change the product glossary's name for an existing object"
   - "Change legal, pricing or privacy text"
-  - "Share copy outside the company"
+  - "Share copy outside the team"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/copy-review.md
 reasoning_effort: medium

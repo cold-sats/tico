@@ -1,6 +1,6 @@
 # Weekly events review
 
-Schedule: Thursdays at 10:00 company time (routine `weekly-events-review`), once a person has
+Schedule: Thursdays at 10:00 team time (routine `weekly-events-review`), once a human has
 approved the first review. Also run by hand. Budget 30 minutes. The outcome is one page: what is
 coming, what is late, which follow-ups are due and what finished events returned. Nothing is booked
 or sent.
@@ -24,7 +24,7 @@ emails, staffing, lead capture set up). Anything past due is "late" with its own
 
 For each event that ended in the last 14 days: is the lead list on a task, were leads handed to sales,
 and how many were contacted inside the deadline in `knowledge/rules.md`? Missing follow-up is the
-first item under "Needs a person".
+first item under "Needs a human".
 
 ## 4. Count results
 

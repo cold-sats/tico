@@ -1,15 +1,15 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme hiring pipeline, Fri 2026-09-25
 
-Sample output for Acme, a fictional studio-software company. Every candidate is a reference and every
+Sample output for Acme, a fictional studio-software team. Every candidate is a reference and every
 address is invented. Nothing has been sent, posted or decided; two replies wait for approval.
 
 **Headline: 2 roles open, 14 applications in, 3 waiting on Ben Okafor for more than 2 days; the
 Support Specialist kit is missing a scoring guide.**
 
-## Waiting on a person
+## Waiting on a human
 - **SS-07** (Support Specialist): summary with Ben Okafor since 2026-09-21, 4 days. Agreed wait: 2.
 - **SS-09**, **SS-11**: same, since 2026-09-22.
 
@@ -37,5 +37,5 @@ role; which booking tools.
 
 ## Sources
 - `knowledge/pipeline.md`, `knowledge/roles/support-specialist.md`, read 2026-09-25
-- hub tasks, read 2026-09-25
+- Tico tasks, read 2026-09-25
 ```

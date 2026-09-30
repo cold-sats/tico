@@ -1,8 +1,8 @@
 # Weekly product summary
 
-Schedule: Mondays at 09:00 company time (routine `weekly-product-summary`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-product-summary`), once a human has approved
 the first summary. Also run by hand. Budget 40 minutes. The outcome is one page for the owner: where the
-committed roadmap stands, which decisions wait on a person, and what to build or route next. Nothing is
+committed roadmap stands, which decisions wait on a human, and what to build or route next. Nothing is
 changed in any tool.
 
 ---
@@ -26,7 +26,7 @@ more than a week behind) or slipped (target passed). One line each, with the evi
 For each product bot in `knowledge/team.md`: `hub updates --bot <slug>` and its newest file in
 `reports/`. Pull out only what changes a decision: a theme that rose, a finding with three or more
 sources, a usage number that moved, a request with many accounts behind it, a price change by a
-competitor. List tasks waiting more than five days on a person.
+competitor. List tasks waiting more than five days on a human.
 
 ## 4. Score what is asking for room
 

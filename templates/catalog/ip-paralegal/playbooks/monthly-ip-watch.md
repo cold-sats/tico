@@ -1,8 +1,8 @@
 # Monthly IP watch
 
-Schedule: the 1st of each month at 09:00 company time (routine `monthly-ip-watch`), once a person has approved
+Schedule: the 1st of each month at 09:00 team time (routine `monthly-ip-watch`), once a human has approved
 the first watch. Also run by hand. Budget 40 minutes. The outcome is one page: deadlines, expiring domains,
-look-alikes worth a lawyer's look, and missing assignments. A summary for a person, not legal advice. Nothing is
+look-alikes worth a lawyer's look, and missing assignments. A summary for a human, not legal advice. Nothing is
 filed, renewed or sent.
 
 ---
@@ -11,13 +11,13 @@ filed, renewed or sent.
 
 For each mark in `knowledge/register.md`, compute the next deadline and its window from the registration date
 and the office's rule (cite the office's page and the date read), and the end of any grace period. For each
-domain: expiry, auto-renew on or off, and whether the account holder named at onboarding is still at the
-company (`hub org`). Re-check each mark's status on the office's public record every six months.
+domain: expiry, auto-renew on or off, and whether the account holder named at setup is still at the
+team (`hub org`). Re-check each mark's status on the office's public record every six months.
 
 ## 2. Look-alikes
 
 For each term in `knowledge/watch-terms.md`, search the public trademark database for filings since the last
-watch, in the company's classes and the ones next to them, for identical, similar-sounding, similar-looking and
+watch, in the team's classes and the ones next to them, for identical, similar-sounding, similar-looking and
 same-meaning words. Then a public web search for the term with the product words, for uses by others. Keep a hit
 when both the mark and the goods are close; count the rest. For each kept hit: mark, owner, office, number,
 classes, status, filing date, the opposition window if it is published, and one line on why it may matter.

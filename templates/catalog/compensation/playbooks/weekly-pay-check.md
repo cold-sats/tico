@@ -1,6 +1,6 @@
 # Weekly offer and pay change check
 
-Schedule: Wednesdays at 11:00 company time (routine `weekly-pay-check`), once a person has approved the
+Schedule: Wednesdays at 11:00 team time (routine `weekly-pay-check`), once a human has approved the
 first check. Budget 30 minutes. The outcome is a counts-only page and a person-level attachment for the
 approvers: every proposed offer and pay change placed in its band, and open roles missing a range.
 

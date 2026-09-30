@@ -1,4 +1,4 @@
-# Onboarding
+# Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first PR review on the task from
@@ -12,17 +12,17 @@ real coverage, and a routine that is proposed but not armed.
     hub calendar upcoming
     hub updates --bot product-marketing
 
-Search the public web for the company's name and products in the last 90 days. Note launches already
+Search the public web for the team's name and products in the last 90 days. Note launches already
 planned. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
 What you do (the media list, the coverage log, releases and pitches prepared), that you never contact
-a journalist or promise anything, and that a person sends or approves every pitch.
+a journalist or promise anything, and that a human sends or approves every pitch.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. What news is coming in the next three months that might interest press?
 2. Which outlets and reporters matter most to your buyers, and who has covered you before?
@@ -49,15 +49,15 @@ it on." Then `hub task ask <id>` once, and stop. On a yes:
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

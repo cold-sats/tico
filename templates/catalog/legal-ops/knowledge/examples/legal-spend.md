@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme legal spend, September 2026 (written 2026-10-05)
 
-Sample output for Acme, a fictional studio-software company using two outside firms. Every firm, rate and amount
+Sample output for Acme, a fictional studio-software team using two outside firms. Every firm, rate and amount
 is invented. Nothing has been approved, paid or sent.
 
 **Headline: $21,475 billed in September (up $6,900 on August); $1,627.50 in question on 3 lines; 1 matter at 91% of budget.**
@@ -30,12 +30,12 @@ the letter's staffing plan of about a third.
 - Series A documents: 91% of budget with closing set for late October. No revised estimate. Lead: Omar.
 - No update in 30 days: none.
 
-## Draft query to Harbourline (a person sends)
+## Draft query to Harbourline (a human sends)
 "Could you split the 12 September entry by task, and apply the $250 associate rate from our January letter
 to the 19 September entry? The 22 September entry looks like file opening, which our guidelines treat as
 non-billable. Thanks."
 
-**Summary for a person, not legal advice.**
+**Summary for a human, not legal advice.**
 
 ## Sources
 - Invoices HL-2291, HL-2304, PSL-0817; `knowledge/firms.md` and `knowledge/billing-rules.md` 2026-09-14

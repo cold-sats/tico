@@ -1,12 +1,12 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # NDA check: Northwind Studios Group (inbound, mutual)
 
-Sample output for Acme, a fictional studio-software company. The party and every clause are invented.
+Sample output for Acme, a fictional studio-software team. The party and every clause are invented.
 Nothing has been sent or signed. Requested by Marco (sales), task 4127, 2026-09-28.
 
-**Status: needs changes (2). Summary for a person, not legal advice.**
+**Status: needs changes (2). Summary for a human, not legal advice.**
 
 **In three lines:** A mutual NDA to discuss a 30-studio rollout, on Northwind's paper. Two clauses are outside
 your variations list: a residuals clause and a 12-month non-solicit. Everything else matches your standard or

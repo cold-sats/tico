@@ -1,6 +1,6 @@
 # Weekly trips page
 
-Schedule: Mondays at 10:00 company time (routine `weekly-trips-page`), once a person has approved the
+Schedule: Mondays at 10:00 team time (routine `weekly-trips-page`), once a human has approved the
 first page. Budget 20 minutes. The outcome is one page of every trip in the next 30 days and what each
 still needs. Nothing is booked.
 
@@ -21,7 +21,7 @@ are left and what the fare was when last checked.
 ## 3. Spend against policy
 
 Booked trips this month: total, and any booked outside policy with the approved reason. Never a
-judgement of a person; a pattern (hotels in one city always over the limit) becomes a policy question.
+judgement of a human; a pattern (hotels in one city always over the limit) becomes a policy question.
 
 ## 4. Write and hand over
 

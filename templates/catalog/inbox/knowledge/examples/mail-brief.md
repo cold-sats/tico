@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme morning mail brief for Ana Rivera, Tue 2026-09-29
 
-Sample output for Acme, a fictional company. Every sender, subject and message id is invented. Filing is
+Sample output for Acme, a fictional team. Every sender, subject and message id is invented. Filing is
 Off, so nothing has been labelled, archived or sent, and drafts are dry runs.
 
 **Headline: 41 in the inbox, the rules would settle 29. 3 need you today, 4 drafts are ready, 2 were routed.**

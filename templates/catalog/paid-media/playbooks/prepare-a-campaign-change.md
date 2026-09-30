@@ -2,7 +2,7 @@
 
 Triggered by a task asking for a new campaign, a budget shift, new ads for a launch, or "why did
 cost per lead jump?". Budget 30 minutes. The outcome is one change, prepared completely, waiting for
-a person's approval. Nothing is applied here.
+a human's approval. Nothing is applied here.
 
 ---
 
@@ -37,6 +37,6 @@ Money goes as `hub approval request --kind spend --payload-file <f> --task <id>`
 
 ## 5. After the yes
 
-A person applies it (or the connected account does, if the owner turned that on). Record who applied
+A human applies it (or the connected account does, if the owner turned that on). Record who applied
 it and when in `knowledge/changes.md`, and add the two-week check to next review's list.
 `hub task update <id> --status done --note`.

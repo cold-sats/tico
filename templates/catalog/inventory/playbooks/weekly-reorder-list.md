@@ -1,6 +1,6 @@
 # Weekly reorder list
 
-Schedule: Mondays at 07:30 company time (routine `weekly-reorder-list`), once a person has approved the
+Schedule: Mondays at 07:30 team time (routine `weekly-reorder-list`), once a human has approved the
 first list. Budget 30 minutes. The outcome is a reorder list and one purchase order per supplier ready
 for approval. Nothing is ordered.
 
@@ -27,7 +27,7 @@ ending.
 ## 4. Overstock and slow movers
 
 Items with more than the agreed months of cover, and items with no sale in 60 days, with the value tied
-up where cost is in the export. A suggestion (pause reorders, a bundle, a markdown) is for a person.
+up where cost is in the export. A suggestion (pause reorders, a bundle, a markdown) is for a human.
 
 ## 5. Build the orders
 

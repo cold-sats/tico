@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme review sweep, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Nothing was posted, flagged or answered.
+Sample output for Acme, a fictional studio-software team. Nothing was posted, flagged or answered.
 
 **Headline: 3 new reviews, 1 batch for your approval (1 flag, 1 reply); the software review sites have 12 reviews, up 2.**
 

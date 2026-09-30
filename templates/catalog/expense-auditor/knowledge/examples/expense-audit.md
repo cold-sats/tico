@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme expense audit, September 2026 (draft, not yet reviewed)
 
-Sample output for Acme, a fictional studio-software company. Every person and amount is invented.
+Sample output for Acme, a fictional studio-software team. Every person and amount is invented.
 Nothing has been approved, rejected or sent. Finance only.
 
 **Headline: 214 lines checked (18,930); 17 exceptions (1,642). Two need a decision: a duplicate

@@ -1,6 +1,6 @@
 # Pre-payroll change summary
 
-Schedule: Mondays at 09:00 company time (routine `pre-payroll-change-summary`), once a person has
+Schedule: Mondays at 09:00 team time (routine `pre-payroll-change-summary`), once a human has
 approved the first summary. Budget 35 minutes in a cut-off week, 5 otherwise. The outcome is one
 summary the payroll owner can enter line by line. Nothing is entered.
 

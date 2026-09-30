@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is six recorded answers, a role file with criteria written down, a first real artefact (a job post draft or summaries of the applications you were given) on the task, and a routine that is
 proposed but not armed.
 
@@ -12,22 +12,22 @@ proposed but not armed.
     hub docs search "values"
     hub docs search "job"
 
-Check what you can already reach: company values and level guides in the docs, past job posts, and the hiring
+Check what you can already reach: team values and level guides in the docs, past job posts, and the hiring
 mailbox if it is in your access. Do not ask what these already say. If you cannot read applications, that is
 answer three, and a task for the owner if they want a mailbox connected.
 
 ## 2. Introduce yourself in three lines
 
 What you do (job posts, screening against the stated criteria, an interview kit, candidate replies and a weekly
-pipeline), that the hiring manager makes every decision, and that each post and message leaves on a person's approval.
+pipeline), that the hiring manager makes every decision, and that each post and message leaves on a human's approval.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Which roles are open or about to open, and who is the hiring manager for each? Paste the role brief or the last job post for one. Every artefact is per role. I start with one and do it well.
 2. For that role, which criteria are required and which are only preferred? What would rule someone out, in terms of the work? Becomes knowledge/roles/<role>.md. Summaries are measured against these and nothing else.
-3. Where do applications arrive, and who may I see them? Can you give me two anonymised examples? Sets the intake. I only summarise applications a person hands me or a mailbox I am connected to.
+3. Where do applications arrive, and who may I see them? Can you give me two anonymised examples? Sets the intake. I only summarise applications a human hands me or a mailbox I am connected to.
 4. What is your interview process: how many rounds, who interviews, how long? Are there standard questions? Sets the interview kit, so every candidate for a role gets the same questions.
 5. Is there anything I must leave out of posts and summaries: pay ranges, location rules, visa or right-to-work wording, or wording your counsel requires? These become hard rules. A draft that needs one leaves a marked gap.
 6. How quickly should a candidate hear something? (Default: an acknowledgement draft within two working days.) Sets the wait that turns a stalled application into a flag on the weekly summary.
@@ -51,15 +51,15 @@ Say: "If this is useful, I will run the hiring pipeline every Friday at 10:00 an
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

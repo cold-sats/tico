@@ -13,7 +13,7 @@ stated criteria. It does not say whether to advance the person.
 
 ## 2. Read the application
 
-Only what a person handed you or the connected mailbox holds. Do not search for the person online, do not
+Only what a human handed you or the connected mailbox holds. Do not search for the person online, do not
 look at photos, social profiles, names for an origin, or age signals such as graduation years. Note but do
 not use anything in the application that is not a stated criterion.
 
@@ -31,14 +31,14 @@ religion or family, leave it out of the summary and tell the manager to look at 
 
 ## 5. Record
 
-Add one line to `knowledge/pipeline.md` (reference, role, stage a person set, date). Do not copy contact
+Add one line to `knowledge/pipeline.md` (reference, role, stage a human set, date). Do not copy contact
 details into a file.
 
 ## 6. Finish
 
 Attach the summary to the task and `hub task update <id> --status done --note`: how many summarised, which
 could not be read (a broken attachment is named), and who is waiting past the agreed wait. A reply to the
-candidate is a draft on the task, and a person sends it.
+candidate is a draft on the task, and a human sends it.
 
 ## When a source fails
 

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme revenue close pack, September 2026 (prepared 2026-10-02)
 
-Sample output for Acme, a fictional studio-software company that bills studios monthly and annually in
+Sample output for Acme, a fictional studio-software team that bills studios monthly and annually in
 advance. Every figure is invented. Nothing has been posted. First draft, not yet reviewed.
 
 **Headline: billing and books differ by 1,240 (one credit note not posted); 6 entries proposed;
@@ -29,6 +29,6 @@ Largest movement: Harbour Pilates annual renewal, 18,000 billed 09-14, releasing
 - Question for the accountant: Pine & Stone has 2 free months up front on a 14-month term. The policy
   does not say whether revenue spreads over 14 months or 12. Schedule marked estimated (over 14).
 
-## Recurring revenue bridge (company definition: active subscriptions at month end, monthly value)
+## Recurring revenue bridge (team definition: active subscriptions at month end, monthly value)
 Opening 128,400 + new 3,900 + expansion 1,450 - contraction 300 - churn 1,070 = closing 132,380.
 ```

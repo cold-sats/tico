@@ -1,18 +1,18 @@
 # Compare vendors
 
 Triggered by a purchase request task, and used by `playbooks/weekly-purchase-digest.md`. Budget 40
-minutes for three to five vendors. The outcome is one comparison a person decides from and a draft
+minutes for three to five vendors. The outcome is one comparison a human decides from and a draft
 email for the questions still open. It follows public vendor-evaluation practice (see the sources in
 docs/starter-bots.md): must-haves first, weighted scores, total cost, then references.
 
 ---
 
-## 1. Read the request and what the company has
+## 1. Read the request and what the team has
 
     hub task show <id>
 
 Read `knowledge/criteria.md` and `knowledge/vendors.md`. Restate the need in one line: what job, for
-whom, how many seats or units, by when. If the company already owns a tool that does it, say that first
+whom, how many seats or units, by when. If the team already owns a tool that does it, say that first
 and compare it too. Ask the requester one question with `hub task ask <id>` only if the need is unclear.
 
 ## 2. Shortlist three to five
@@ -38,7 +38,7 @@ Security and compliance items are what the vendor claims (a trust page, a certif
 label them "claimed". The standing questions in `knowledge/security-questions.md` (starter list: data
 location, encryption at rest and in transit, single sign-on, access logs, breach notification time,
 sub-processors, data export and deletion, an independent audit report) go in the draft email for any vendor
-that will hold company data. Reviews are read as a signal, with the date, not as proof.
+that will hold team data. Reviews are read as a signal, with the date, not as proof.
 
 ## 6. Write it
 
@@ -51,4 +51,4 @@ labelled as one. For a contract's terms, `hub task create --owner legal-review`.
 
 `hub files publish reports/R-<id>-comparison.md`, attach the draft email, then `hub task update <id> --status
 done --note`: the suggestion, the decide-by date, and what you could not read. A page that failed to load
-makes that score provisional, and is said so. The person contacts vendors and decides; you never do.
+makes that score provisional, and is said so. The human contacts vendors and decides; you never do.

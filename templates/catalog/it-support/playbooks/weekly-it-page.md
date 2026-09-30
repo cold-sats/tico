@@ -1,6 +1,6 @@
 # Weekly IT page
 
-Schedule: Mondays at 09:30 company time (routine `weekly-it-page`), once a person has approved the
+Schedule: Mondays at 09:30 team time (routine `weekly-it-page`), once a human has approved the
 first page. Budget 25 minutes. The outcome is one page: what is open, what repeats, who is joining and
 leaving, what access waits, and which devices need attention. Nothing is changed.
 

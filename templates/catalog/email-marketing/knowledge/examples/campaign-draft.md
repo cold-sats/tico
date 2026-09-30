@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme email draft: October launch, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. Nothing has been sent, scheduled or loaded.
+Sample output for Acme, a fictional studio-software team. Nothing has been sent, scheduled or loaded.
 
 **For studio owners on the customer list: announces the new waitlist feature, one call to action (read the guide). Ready to load after two gaps are filled.**
 

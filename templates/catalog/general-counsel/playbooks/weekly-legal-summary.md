@@ -1,8 +1,8 @@
 # Weekly legal summary
 
-Schedule: Mondays at 08:30 company time (routine `weekly-legal-summary`), once a person has approved the
+Schedule: Mondays at 08:30 team time (routine `weekly-legal-summary`), once a human has approved the
 first summary. Also run by hand. Budget 30 minutes. The outcome is one page for the owner: what is open, what
-is due, which decisions are theirs, and who should take what next. A summary for a person, not legal advice.
+is due, which decisions are theirs, and who should take what next. A summary for a human, not legal advice.
 
 ---
 
@@ -22,7 +22,7 @@ with its kind, urgency (a date or "none"), risk in one line and proposed owner. 
 ## 3. Read the legal team
 
 For each legal bot in `hub org`: `hub updates --bot <slug>` and its newest `reports/` file. Take:
-- from `legal-review`: contracts waiting for a person and notice deadlines inside 30 days;
+- from `legal-review`: contracts waiting for a human and notice deadlines inside 30 days;
 - from `compliance`: filings and renewals inside 30 days, and anything overdue;
 - from `privacy`: open data subject requests and their response dates;
 - from `legal-ops`, `paralegal`, `ip-paralegal`, `corporate-secretary`: blocked work and deadlines.
@@ -31,7 +31,7 @@ Where a bot is absent, read the same from `knowledge/obligations.md` and the ope
 ## 4. Pick the owner's decisions
 
 Two or three at most, in this order: anything with a deadline inside 7 days; anything `knowledge/escalation.md`
-sends to a lawyer; a contract or policy that has waited on a person more than 10 days. For each: the decision in
+sends to a lawyer; a contract or policy that has waited on a human more than 10 days. For each: the decision in
 one line, the date, the options as the record states them, and the lawyer to call if it needs one.
 
 ## 5. Routing and hiring proposals

@@ -1,6 +1,6 @@
 # Find a decision
 
-Triggered by a person asking "what did we decide about X?", "what is still open from the pricing
+Triggered by a human asking "what did we decide about X?", "what is still open from the pricing
 call?" or "what did Dana commit to?". Budget 10 minutes. The outcome is a short answer with citations,
 or an honest "not found".
 
@@ -24,7 +24,7 @@ not decided".
 
 First line: the decision, or "no decision found". Then who confirmed it and when, with meeting title,
 date and timestamp. If two meetings disagree, give both with dates and say which is later; do not
-choose. If a person is asking about an open action item, check `hub task list --owner <person>` and
+choose. If a human is asking about an open action item, check `hub task list --owner <person>` and
 say whether it exists and its status.
 
 ## 4. Keep the log honest

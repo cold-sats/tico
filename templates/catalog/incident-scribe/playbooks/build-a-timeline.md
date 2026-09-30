@@ -10,7 +10,7 @@ responder can read at a glance. Nothing is posted.
 
     hub task show <id>
 
-Read the incident channel (if connected, read only) or the export a person attached, the tasks and updates
+Read the incident channel (if connected, read only) or the export a human attached, the tasks and updates
 around it, error spikes in an attached error-tracker export, and merged changes or deploys shortly before it.
 
 ## 2. Write one line per event

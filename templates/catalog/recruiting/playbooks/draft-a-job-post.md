@@ -5,7 +5,7 @@ words that the hiring manager can approve with one edit, and a role file. It is 
 
 ---
 
-## 1. Read the brief and the company
+## 1. Read the brief and the team
 
     hub task show <id>
     hub docs search "values"
@@ -24,7 +24,7 @@ cannot say why a requirement matters, mark it for a question, not a line in the 
 1. One sentence on what the person will do first and why it matters to {{company_name}}.
 2. Responsibilities: five or fewer, in plain verbs.
 3. Required, then "bonus points for" preferred, kept apart.
-4. Pay range, location or remote rule, and how to apply, only where the company has allowed them
+4. Pay range, location or remote rule, and how to apply, only where the team has allowed them
    (`knowledge/wording.md`). A missing item is a marked gap, never a guess.
 5. One honest sentence on how applications are handled and how long a reply takes.
 

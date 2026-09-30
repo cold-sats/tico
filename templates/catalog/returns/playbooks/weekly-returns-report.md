@@ -1,6 +1,6 @@
 # Weekly returns report
 
-Schedule: Mondays at 09:00 company time (routine `weekly-returns-report`), once a person has approved
+Schedule: Mondays at 09:00 team time (routine `weekly-returns-report`), once a human has approved
 the first report. Budget 30 minutes. The outcome is one page: what came back, what is waiting on a
 decision or a refund, and which products keep returning.
 

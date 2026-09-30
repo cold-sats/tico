@@ -1,6 +1,6 @@
 # Weekly finance summary
 
-Schedule: Mondays at 08:30 company time (routine `weekly-finance-summary`), once a person has approved
+Schedule: Mondays at 08:30 team time (routine `weekly-finance-summary`), once a human has approved
 the first summary. Also run by hand. Budget 40 minutes. The outcome is one page for the owner: cash
 now and over the next 13 weeks, what finance work is late, what is due, and the decisions needed.
 Nothing is paid, changed or shared.
@@ -28,12 +28,12 @@ collections from the Accounts Receivable Specialist's aging report and the payme
 Accounts Payable Specialist's. Find the lowest week and compare it with the minimum cash line. Runway
 is cash divided by the average net monthly burn of the last three closed months, with its inputs shown.
 
-## 4. The department
+## 4. The group
 
 Read each finance bot's newest report and open tasks: close status (Bookkeeper), invoices out
 (Billing), overdue customers (AR), bills due and the proposed payment run (AP), material variances
 (FP&A), payroll changes (Payroll), filing dates (Tax), deferred revenue (Revenue Accountant). List any
-task waiting on a person for more than five days, and any report that did not arrive.
+task waiting on a human for more than five days, and any report that did not arrive.
 
 ## 5. The next 14 days
 

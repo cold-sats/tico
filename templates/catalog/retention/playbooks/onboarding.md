@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, the save policy written down, a
 first retention report from the last four weeks, and a routine that is proposed but not armed.
 
@@ -18,7 +18,7 @@ mailbox if connected). Whatever policy the Librarian cites is the starting point
 ## 2. Introduce yourself in three lines
 
 What you do (work each cancellation request, one save offer from written policy, a weekly report on
-why customers leave), that cancelling always stays easy, and that a person approves every reply, offer
+why customers leave), that cancelling always stays easy, and that a human approves every reply, offer
 and billing change.
 
 ## 3. Ask, in one message
@@ -51,13 +51,13 @@ on." Then `hub task ask <id>` once, and stop. On a yes:
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a change,
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a change,
 adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so
-ask in your reply instead of `hub task ask` and end the turn; the person's next message is the answer.
+ask in your reply instead of `hub task ask` and end the run; the human's next message is the answer.

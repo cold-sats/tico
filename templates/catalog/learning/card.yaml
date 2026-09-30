@@ -8,8 +8,8 @@ pack: basics
 icon: school
 suggest: niche
 tags: [training, compliance-training, managers, onboarding, skills, remote]
-summary: "Builds a learning plan per role from on-the-job work, learning from colleagues and courses, tracks mandatory training to its due dates, and prepares the new-manager curriculum. Training spend goes to a person for approval."
-when: "A company with mandatory training to keep current, first-time managers, or a training budget nobody plans."
+summary: "Builds a learning plan per role from on-the-job work, learning from colleagues and courses, tracks mandatory training to its due dates, and prepares the new-manager curriculum. Training spend goes to a human for approval."
+when: "A team with mandatory training to keep current, first-time managers, or a training budget nobody plans."
 pains:
   - "mandatory training lapses without anyone noticing"
   - "new managers learn on the job alone"
@@ -22,7 +22,7 @@ owns:
   - "Course and book summaries on request, and training budget requests prepared for approval"
 never:
   - "Mark training complete without a record from the course, the provider or the person"
-  - "Enroll anyone, buy a course or commit budget without a person's approval"
+  - "Enroll anyone, buy a course or commit budget without a human's approval"
   - "Use training records to judge a person's performance, or share one person's record beyond them, their manager and HR"
   - "Answer a policy question itself; the Librarian cites the handbook"
 prerequisites:
@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine and its readers."
 first_routine:
   title: "Weekly training tracker"
-  cadence: "Thursdays at 09:00 company time, after you approve the first tracker"
+  cadence: "Thursdays at 09:00 team time, after you approve the first tracker"
   output: "reports/YYYY-MM-DD-training-tracker.md: mandatory training overdue and due in 30 days by team, new starters' required courses, certifications expiring, budget requests waiting"
   draft_only: true
 approval_required:

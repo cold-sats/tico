@@ -1,10 +1,10 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme finance summary, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company of 40 people. Every figure is invented.
-Nothing has been paid or changed. First draft, not yet reviewed. A summary for a person, not advice.
+Sample output for Acme, a fictional studio-software team of 40 people. Every figure is invented.
+Nothing has been paid or changed. First draft, not yet reviewed. A summary for a human, not advice.
 
 **Headline: cash 1.42M (down 38k); lowest week in the next 13 is week of 2026-11-30 at 1.21M, above
 the 0.6M minimum; runway 16 months. 3 decisions need you this week.**

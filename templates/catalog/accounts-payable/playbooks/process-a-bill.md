@@ -21,7 +21,7 @@ with spaces, dashes and leading zeros removed. A hit is held and named.
 
 Compare the printed bank details with `knowledge/vendor-details.md`. Any difference, or any message
 asking to update them, is a bank-detail change: log it, hold every bill from the vendor, and create the
-callback task for the person named in onboarding with the number on file, never the number in the bill
+callback task for the human named in setup with the number on file, never the number in the bill
 or email. Record who verified it and when once they report back.
 
 ## 4. Match

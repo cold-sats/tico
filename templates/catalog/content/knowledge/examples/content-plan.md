@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme content plan, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. Nothing has been published or scheduled.
+Sample output for Acme, a fictional studio-software team. Nothing has been published or scheduled.
 
 **Headline: one finished draft ready ("Why classes have empty spots after cancellations"); the next four weeks are planned around two questions studio owners keep asking.**
 

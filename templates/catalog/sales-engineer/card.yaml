@@ -9,7 +9,7 @@ icon: integration_instructions
 suggest: niche
 tags: [b2b, saas, technical-sales, demos, proof-of-concept, security-reviews, integrations, enterprise]
 summary: "Wins the technical side of deals: discovery on the buyer's systems, a demo script per prospect and proof-of-concept plans with agreed success criteria. Technical and security answers come from approved sources only."
-when: "A company selling a technical product whose deals wait on integration questions, security reviews or a proof of concept."
+when: "A team selling a technical product whose deals wait on integration questions, security reviews or a proof of concept."
 pains:
   - "prospects ask technical questions nobody in sales can answer"
   - "our demos show features instead of the buyer's workflow"
@@ -52,13 +52,13 @@ onboarding:
     why: "The first weekly prep needs real deals."
 first_routine:
   title: "Weekly technical deal prep"
-  cadence: "Wednesdays at 09:00 company time, after you approve the first prep"
+  cadence: "Wednesdays at 09:00 team time, after you approve the first prep"
   output: "reports/YYYY-MM-DD-technical-prep.md: each deal with a technical step this week, its discovery gaps, the demo script or POC status against its success criteria, questionnaire sections due, and the questions waiting on a named owner"
   draft_only: true
 approval_required:
   - "Send a demo script, POC plan, answer or any message to a prospect"
   - "Give a prospect access to a sandbox, a system or any data"
-  - "State a roadmap date, an unreleased feature or a service level in anything that leaves the company"
+  - "State a roadmap date, an unreleased feature or a service level in anything that leaves the team"
   - "Use a security or compliance answer that has no approved source"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/technical-prep.md

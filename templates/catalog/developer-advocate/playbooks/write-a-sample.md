@@ -21,7 +21,7 @@ log says people hit.
 
 ## 3. Run it
 
-Run it against the sandbox the docs describe, if the company gave you sandbox credentials on this machine;
+Run it against the sandbox the docs describe, if the team gave you sandbox credentials on the computer;
 otherwise say "not run" in the first line and why. Record the SDK version and the date.
 
 ## 4. Write the tutorial around it

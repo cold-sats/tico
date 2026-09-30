@@ -1,11 +1,11 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme close status, August 2026 (draft, not yet reviewed)
 
 **Headline: 6 of 9 checklist lines done; 14 transactions still need a category and 3 need your answer. Books are ready to close once those are settled.**
 
-Sample output for Acme, a fictional studio-software company. Nothing has been posted to the books.
+Sample output for Acme, a fictional studio-software team. Nothing has been posted to the books.
 
 ## Checklist
 - [x] Bank feed complete to 2026-08-31 (export `acme-bank-2026-08.csv`, 212 rows)

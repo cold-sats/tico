@@ -1,6 +1,6 @@
 # KPI pass
 
-The daily routine. One pass over every KPI that is due, then the status pass. Nothing here needs a person unless
+The daily routine. One pass over every KPI that is due, then the status pass. Nothing here needs a human unless
 a step says so.
 
 1. `hub kpi list` for every KPI. Skip any whose id starts with `auto:` (Tico computes those). Note each one's

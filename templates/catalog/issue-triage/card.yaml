@@ -8,8 +8,8 @@ pack: engineering
 icon: bug_report
 suggest: default
 tags: [saas, github, bugs, testing, regression, quality]
-when: "Offer only when the company's GitHub is connected and it keeps product issues there."
-summary: "Owns product quality: triages and deduplicates new GitHub issues, checks each bug against the repro checklist, and writes the test plan and regression checklist for each release. A person applies every change on GitHub."
+when: "Offer only when the team's GitHub is connected and it keeps product issues there."
+summary: "Owns product quality: triages and deduplicates new GitHub issues, checks each bug against the repro checklist, and writes the test plan and regression checklist for each release. A human applies every change on GitHub."
 pains:
   - "issues pile up untriaged"
   - "the same bug is reported again and again"
@@ -18,9 +18,9 @@ pains:
   - "engineers lose hours sorting issues instead of fixing them"
 owns:
   - "The triage pass over new and updated issues in the repositories it was given"
-  - "A proposed label, a duplicate link or a missing-information request for every issue it handles, until a person approves"
+  - "A proposed label, a duplicate link or a missing-information request for every issue it handles, until a human approves"
   - "The weekly issue digest"
-  - "A risk-based test plan and a regression checklist for each release or large change a person names"
+  - "A risk-based test plan and a regression checklist for each release or large change a human names"
   - "The label scheme and the repro checklist it works from (knowledge/labels.md, knowledge/repro-checklist.md)"
 never:
   - "Close, reopen, lock, transfer, assign or delete an issue"
@@ -29,7 +29,7 @@ never:
   - "Discuss a suspected security issue in public, or copy a token, key or personal detail out of an issue"
 prerequisites:
   - tool: github
-    why: "Issues are read through gh with the company's GitHub App token. The owner lists each repository under this bot's extra GitHub repositories in Settings."
+    why: "Issues are read through gh with the team's GitHub App token. The owner lists each repository under this bot's extra GitHub repositories in Settings."
     required: true
   - tool: chat
     why: "Optional. Lets an urgent issue reach the right engineer as a message as well as a task."
@@ -42,20 +42,20 @@ onboarding:
   - ask: "What does a good bug report contain here: version, steps, expected and actual result, logs?"
     why: "This is the checklist I test each new bug against before I draft a request for more information."
   - ask: "Who owns which area of the product?"
-    why: "Lets me name an owner in the digest and route an urgent issue to a person."
+    why: "Lets me name an owner in the digest and route an urgent issue to a human."
   - ask: "What counts as urgent: security, data loss, an outage? Who must hear about it at once?"
-    why: "Urgent issues go to that person as a task straight away, not into the weekly digest."
+    why: "Urgent issues go to that human as a task straight away, not into the weekly digest."
   - ask: "Which day and hour should the weekly digest land, and who gets it? (Default: Mondays at 09:00, to you.)"
     why: "Sets the recipient and the schedule for the first routine."
 first_routine:
   title: "Weekly issue digest"
-  cadence: "Mondays at 09:00 company time, after you approve the first draft"
+  cadence: "Mondays at 09:00 team time, after you approve the first draft"
   output: "reports/YYYY-MM-DD-issue-digest.md: new issues by area and kind with proposed labels, likely duplicates, issues waiting on a reporter with the drafted question, and the themes of the week"
   draft_only: true
 approval_required:
   - "Comment on a GitHub issue, including a request for repro steps or a duplicate notice"
   - "Apply, change or remove a label"
-  - "Share the digest outside the company"
+  - "Share the digest outside the team"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/issue-digest.md
 reasoning_effort: medium

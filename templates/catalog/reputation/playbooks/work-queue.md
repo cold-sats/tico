@@ -33,18 +33,18 @@ to be pruned by outcomes:
 - **Worker or contractor dispute** (pay holds, decertification, fines, "they never paid me"):
   Google prohibits reviews by current or former workers as conflict of interest; Yelp excludes
   employment and contractor grievances; BBB takes consumer complaints only.
-- **Wrong business**: the review describes a company that is not {{company_name}} (a similarly named business) or an address {{company_name}} never served.
+- **Wrong business**: the review describes a business that is not {{company_name}} (a similarly named business) or an address {{company_name}} never served.
 - **Duplicate or proxy**: a second review by the same person for the same event, or a review that
   only says to read the other reviews.
 - **Abuse**: threats, personal data, an accusation of a crime with no first-hand event, hate.
-- **Not a customer**: a competitor, a person who never booked (says so), a review of the company's
+- **Not a customer**: a competitor, a person who never booked (says so), a review of the team's
   hiring or an interview.
 
 ## 3. Draft the batch
 
 One payload per surface: `{surface, items: [{ledger_id, url, lever, ground, quoted, text}]}`.
 Order: newest first, then page one of the listing, then the rest. Cap a Yelp or Google batch at
-50 items so a person can read it in ten minutes; the rest waits for the next sweep.
+50 items so a human can read it in ten minutes; the rest waits for the next sweep.
 
     hub approval request --kind publish --task <id> --payload '<json>'
 
@@ -53,8 +53,8 @@ Set every row's `status` to `drafted` with the approval id.
 ## 4. Execute the approved batch
 
 Only after `hub approval show <id>` says approved, and only the items in it. Until the owner has
-enabled the browser `act` access, hand the approved payload to a person and stop here; a person
-executes it and you record the outcomes. Once it is enabled, through the browser connector with `act`:
+enabled the browser `act` access, hand the approved payload to a human and stop here; a human
+executes it and you record the outcomes. Once it is enabled, through the browser tool with `act`:
 
     $HUB_DIR/connectors/browser.py repl --as reputation "..."
 

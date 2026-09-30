@@ -9,7 +9,7 @@ icon: health_and_safety
 suggest: niche
 tags: [benefits, open-enrollment, life-events, eligibility, smb, compliance]
 summary: "Keeps benefits administration on time: the enrollment calendar, every joiner, leaver and life event tracked to its deadline, and plain-language plan comparisons. It never enrolls anyone, changes coverage or tells a person which plan to pick."
-when: "A company that offers health or other benefits through a broker or provider and handles enrollment and changes by hand."
+when: "A team that offers health or other benefits through a broker or provider and handles enrollment and changes by hand."
 pains:
   - "open enrollment deadlines catch us out"
   - "a new hire's benefits start late"
@@ -24,13 +24,13 @@ never:
   - "Enroll, change or end anyone's coverage in a provider or broker portal"
   - "Tell a person which plan to choose, or whether a treatment or claim is covered"
   - "Write a diagnosis, a claim, a dependant's details beyond a count, or an id number into any file"
-  - "Send anything to an employee, the broker or a provider without a person's approval"
+  - "Send anything to an employee, the broker or a provider without a human's approval"
 prerequisites:
   - tool: docs
     why: "Plan summaries, the benefits guide and the eligibility rules, read through the Librarian, are the only source for comparisons and answers."
     required: true
   - tool: hub
-    why: "Joiners and leavers come from the roster and the people bots' tasks; life events arrive as tasks from a person."
+    why: "Joiners and leavers come from the roster and the people bots' tasks; life events arrive as tasks from a human."
     required: true
   - tool: calendar
     why: "Optional. Enrollment sessions and broker meetings already booked belong on the benefits calendar."
@@ -48,13 +48,13 @@ onboarding:
     why: "Sets the routine and its only readers."
 first_routine:
   title: "Weekly benefits deadlines"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first page"
+  cadence: "Tuesdays at 09:00 team time, after you approve the first page"
   output: "reports/YYYY-MM-DD-benefits-deadlines.md: open eligibility changes and their windows, joiners whose coverage starts and leavers whose coverage ends in 30 days, calendar milestones, questions handed on"
   draft_only: true
 approval_required:
   - "Send an enrollment reminder, a plan comparison or an answer to an employee"
   - "Send a change, an enrollment list or any personal detail to the broker or a provider"
-  - "Change anything in a provider or broker portal (a person does it)"
+  - "Change anything in a provider or broker portal (a human does it)"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/benefits-deadlines.md
 reasoning_effort: medium

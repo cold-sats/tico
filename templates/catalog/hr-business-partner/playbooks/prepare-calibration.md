@@ -20,7 +20,7 @@ leave or health.
 
 ## 3. Find what to discuss
 
-- Spread per team and level against the company as a whole; a team far above or below is a question
+- Spread per team and level against the team as a whole; a team far above or below is a question
   for its manager, not a correction.
 - Ratings at either end of the scale with no evidence cited.
 - Two reviews with the same rating described very differently, or different ratings described alike.

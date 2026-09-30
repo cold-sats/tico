@@ -1,6 +1,6 @@
 # Weekday prospecting run
 
-Schedule: weekdays at 07:30 company time (routine `weekday-prospecting`), once a person has approved the
+Schedule: weekdays at 07:30 team time (routine `weekday-prospecting`), once a human has approved the
 first pack. Also run by hand. Budget 45 minutes. The outcome is one pack: inbound replies qualified, new
 leads scored and briefed, first touches and due follow-ups ready for approval, and meetings to book.
 Nothing leaves without a Confirm, and nothing in the CRM changes.
@@ -20,7 +20,7 @@ is skipped and named as skipped.
 New form fills and replies come before anything else: speed decides inbound. For each, sort it: wants a
 meeting, has a question, not a fit, or asked to stop. A stop goes on `knowledge/do-not-contact.md` at
 once. A meeting request gets a reply offering two times from `hub calendar upcoming` for the seller,
-prepared for approval. A price or terms question goes to a person under "Needs a person now".
+prepared for approval. A price or terms question goes to a human under "Needs a human now".
 
 ## 3. New leads: filter, research, score
 
@@ -43,11 +43,11 @@ Each touch carries recipient, subject, body and its source. Put them on the task
 
 A lead that accepted a time: write the handoff note (who, why now, what they said, the brief) and
 propose `hub task create --owner sales` for the Account Executive. The calendar invitation to the lead
-is a person's act.
+is a human's act.
 
 ## 6. Write the pack and finish
 
 Write `reports/YYYY-MM-DD-prospecting.md` in the shape of `knowledge/examples/prospecting-run.md`, update
 `knowledge/sequences.md`, `hub files publish` the pack, commit, and `hub task update <id> --status done
 --note`: inbound handled, leads worked, A/B/C, touches awaiting approval, meetings booked, sources not
-read. Always finish it: an open scheduled task absorbs tomorrow's.
+read. Always finish it: an open routine task absorbs tomorrow's.

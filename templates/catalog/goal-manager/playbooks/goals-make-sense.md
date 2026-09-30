@@ -4,7 +4,7 @@ Run this weekly before the review, and when asked. Read `hub goals --all` and `h
 
 For each live goal:
 - **Vague**: no way to tell whether it happened ("improve the customer experience"). Propose clearer words
-  (`goal_wording`) that a person can confirm with one click, keeping their meaning. If you cannot tell what they
+  (`goal_wording`) that a human can confirm with one click, keeping their meaning. If you cannot tell what they
   meant, flag it as `vague` instead.
 - **Duplicate**: two goals say the same thing under different owners or words. Flag it on the newer one as
   `duplicate`, and name the other goal in the note.

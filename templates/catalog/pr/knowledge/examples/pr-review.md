@@ -1,15 +1,15 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme PR, Tue 2026-09-29
 
-Sample output for Acme, a fictional studio-software company. No journalist has been contacted.
+Sample output for Acme, a fictional studio-software team. No journalist has been contacted.
 First draft, not yet reviewed.
 
 **Headline: 2 mentions this week, one with a wrong price; the waitlist launch needs press work to
 start by 2026-10-05.**
 
-## Needs a person
+## Needs a human
 - **Studio Business Weekly, 2026-09-24, "Booking tools for boutique studios": lists Acme at
   $49/month; the real entry price is $39.** Suggested correction note for Dana to send is on the task.
 - **Waitlist launch, 2026-10-27 (tier 1).** Press work starts 2026-10-05. Missing: a cleared

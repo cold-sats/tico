@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme legal summary, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company of about 40 people. Every party and date is
+Sample output for Acme, a fictional studio-software team of about 40 people. Every party and date is
 invented. Nothing has been sent, signed or filed. First draft, not yet reviewed.
 
 **Headline: 11 requests open (4 new, 3 closed); 2 decisions are yours this week; 1 deadline inside 7 days.**
@@ -27,20 +27,20 @@ invented. Nothing has been sent, signed or filed. First draft, not yet reviewed.
 - New: 2 NDAs (no Paralegal here, so both wait on Priya; one on the counterparty's paper), 1 DPA from a studio chain (to `privacy`),
   1 question on recording calls for training (answered from the approved call-recording position, 2026-06-02).
 - Closed: vendor MSA summary, trademark renewal note, board consent draft.
-- Waiting on a person over 10 days: the contractor policy above.
+- Waiting on a human over 10 days: the contractor policy above.
 
 ## Routing proposals (nothing created)
 - The question "can sales promise a 99.9% uptime credit?" to `legal-review`: it is a contract position,
   and the playbook has no line on it yet.
 
 ## Hiring proposal (asked on the task, nothing created)
-- **Add Paralegal from the catalog.** 9 NDAs in the last 30 days, 7 handled by Priya by hand, 2 signed on
+- **Add Paralegal from the templates.** 9 NDAs in the last 30 days, 7 handled by Priya by hand, 2 signed on
   the counterparty's paper with a residuals clause. First routine: "Weekday NDA desk". It reports to me.
 
 ## Could not read
 The outside firm's invoices were not in the docs, so legal spend is not in this summary.
 
-**Summary for a person, not legal advice. Have counsel review anything that matters.**
+**Summary for a human, not legal advice. Have counsel review anything that matters.**
 
 ## Sources
 - `hub task list` 2026-09-28; `legal-review`, `compliance`, `privacy` reports 2026-09-28; `knowledge/escalation.md` 2026-09-14

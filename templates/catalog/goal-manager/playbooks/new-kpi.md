@@ -1,6 +1,6 @@
 # A new KPI, or a wrong one
 
-A KPI exists in Tico (a person made it, or the owner confirmed your `goal_kpi` proposal). You build what computes
+A KPI exists in Tico (a human made it, or the owner confirmed your `goal_kpi` proposal). You build what computes
 it. You never create the KPI record yourself.
 
 1. `hub kpi show <id>`: name, definition, unit, direction, cadence, source note, owner, version.

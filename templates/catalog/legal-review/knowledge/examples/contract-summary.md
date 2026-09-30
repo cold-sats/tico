@@ -1,12 +1,12 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Summary: Brightpath Cleaning services agreement (vendor)
 
-Sample output for Acme, a fictional studio-software company. The counterparty and every term are invented.
+Sample output for Acme, a fictional studio-software team. The counterparty and every term are invented.
 Nothing has been sent or signed.
 
-**This is a summary for a person, not legal advice. Have counsel review anything that matters before you
+**This is a summary for a human, not legal advice. Have counsel review anything that matters before you
 sign or rely on it.**
 
 **In five lines:** A 12-month cleaning services agreement, renewing automatically each year. Either side may
@@ -33,11 +33,11 @@ month's fees, well below Acme's usual position. The renewal notice deadline is 2
 2. **Indemnity.** You prefer "caused by". This contract says "arising out of", which reaches further.
 3. **Auto-renewal.** You prefer 60 days' notice. Notice here is 30 days and the deadline is in 3 days.
 
-## Issues list for the person who negotiates
+## Issues list for the human who negotiates
 | # | Clause | Ask | Fallback (from your playbook) |
 |---|---|---|---|
 | 1 | 11.1 Liability cap | 12 months' fees | 6 months' fees, playbook line 3 |
-| 2 | 12.1 Indemnity | "caused by" Acme's negligence | No company position; ask counsel |
+| 2 | 12.1 Indemnity | "caused by" Acme's negligence | No team position; ask counsel |
 | 3 | 2.2 Renewal notice | 60 days | Decide by 2026-10-01 whether to renew at all |
 
 ## Could not read

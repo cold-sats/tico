@@ -1,6 +1,6 @@
 # Weekly launch and positioning review
 
-Schedule: Mondays at 10:00 company time (routine `weekly-launch-review`), once a person has approved
+Schedule: Mondays at 10:00 team time (routine `weekly-launch-review`), once a human has approved
 the first pack. Also run by hand. Budget 40 minutes. The outcome is one page: launches in the next
 90 days with brief status, positioning gaps found this week and one battlecard refreshed. Nothing is published.
 

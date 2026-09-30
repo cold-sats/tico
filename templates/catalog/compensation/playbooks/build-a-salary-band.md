@@ -12,14 +12,14 @@ scope, level, location rule. A band is for a role family and level, not for a pe
 
 ## 2. Gather market data
 
-In this order of trust: the salary survey the company buys (attached to the task), the payroll provider's
+In this order of trust: the salary survey the team buys (attached to the task), the payroll provider's
 benchmark, public ranges published for comparable roles in the same market (`hub docs fetch <url>`,
 at least three, with dates). Record each data point's source, date, location and level match.
 
 ## 3. Set the midpoint
 
 Apply `knowledge/philosophy.md`: the market median for "pay at market", a higher percentile for roles the
-company chose to lead on. Adjust for location only if the philosophy says so, and say by how much.
+team chose to lead on. Adjust for location only if the philosophy says so, and say by how much.
 
 ## 4. Set the spread
 

@@ -9,7 +9,7 @@ icon: computer
 suggest: common
 tags: [it, helpdesk, devices, access, onboarding, offboarding, remote]
 summary: "Works every IT help request to a fix, sorted by impact, and prepares each access change for its approver. It also keeps the device list and runs the joiner and leaver checklists."
-when: "A company of fifteen or more people with no IT person, where laptops, accounts and passwords land on whoever is nearest."
+when: "A team of fifteen or more people with no IT person, where laptops, accounts and passwords land on whoever is nearest."
 pains:
   - "IT questions go to whoever happens to be the most technical"
   - "a leaver still had access to our tools weeks later"
@@ -30,7 +30,7 @@ prerequisites:
     why: "IT requests arrive as tasks from anyone; the roster (`hub org`) says who is joining and leaving."
     required: true
   - tool: docs
-    why: "Optional. Existing setup guides and the tools list in the company docs are what fixes start from (asked of the Librarian)."
+    why: "Optional. Existing setup guides and the tools list in the docs are what fixes start from (asked of the Librarian)."
     required: false
   - tool: chat
     why: "Optional. Reading an IT help channel catches requests people post instead of filing."
@@ -38,7 +38,7 @@ prerequisites:
 onboarding:
   - ask: "Which tools does everyone use (mail, chat, docs, password manager, the product's own admin), and who is the admin of each?"
     why: "Becomes knowledge/tools.md. An access change goes to the admin of that tool for approval."
-  - ask: "Where is the list of company laptops and phones, if there is one? Are disks encrypted and is there device management?"
+  - ask: "Where is the list of team laptops and phones, if there is one? Are disks encrypted and is there device management?"
     why: "Seeds knowledge/devices.md. An unencrypted laptop is a finding on the first page."
   - ask: "Who approves access to what: the person's manager, the tool's owner, or you? Which tools are sensitive (finance, payroll, production)?"
     why: "Sets the approval route. Sensitive tools always need the owner as well as the manager."
@@ -48,13 +48,13 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly IT page"
-  cadence: "Mondays at 09:30 company time, after you approve the first page"
+  cadence: "Mondays at 09:30 team time, after you approve the first page"
   output: "reports/YYYY-MM-DD-it.md: open requests by priority and age, repeat problems, joiners and leavers this week with their checklist status, access waiting for approval, and device issues (unencrypted, out of warranty, unassigned)"
   draft_only: true
 approval_required:
   - "Create, change, suspend or remove any account, role, licence or group"
   - "Buy, reassign or wipe a device"
-  - "Send any message to a vendor or anyone outside the company"
+  - "Send any message to a vendor or anyone outside the team"
   - "Change a security setting such as MFA, sharing or password policy"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/it-page.md

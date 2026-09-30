@@ -1,6 +1,6 @@
-# Onboarding
+# Setup
 
-Runs once, on the first message or task you receive, while `state.md` says onboarding has not
+Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a real first report on the task, and
 a routine that is proposed but not armed.
 
@@ -19,11 +19,11 @@ read any feedback, that is answer one, and a task for the owner if they want a s
 ## 2. Introduce yourself in three lines
 
 What you do (a weekly report of feedback themes with counts and three suggested actions), that you never
-contact a customer or decide what to build, and that a person approves everything that leaves.
+contact a customer or decide what to build, and that a human approves everything that leaves.
 
 ## 3. Ask, in one message
 
-Numbered, each with its one-line why. Offer a default so a person can answer "fine".
+Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Where does customer feedback arrive today, and which can you read?
 2. Who reads the weekly report, who decides what to build or fix, and which day? (Default: you, Mondays at
@@ -34,7 +34,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 
 ## 4. Record
 
-Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/themes.md` (the person's
+Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/themes.md` (the human's
 themes first, then what the data adds, each with a definition and an example), `knowledge/segments.md`
 (weights and the exclusion list) and start `knowledge/trends.md`.
 
@@ -52,15 +52,15 @@ and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
     hub routine list
     hub routine update <id> --enable
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
+Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. On a no or a
 change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
+It tells {{app_name}} that a human approved your first routine. That clears your "Needs setup"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+yes. On a no, do not run it: you stay parked and answer humans only, until they say yes. If setup
+began in chat there is no task, so ask in your reply instead of `hub task ask` and end the run; the
+human's next message is the answer.

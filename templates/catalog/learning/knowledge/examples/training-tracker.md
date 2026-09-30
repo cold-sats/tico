@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme training tracker, Thu 2026-10-01
 
-Sample output for Acme, a fictional studio-software company of 42 people. Counts by team; names go to
+Sample output for Acme, a fictional studio-software team of 42 people. Counts by team; names go to
 each manager on the task. Nothing has been enrolled, bought or sent. First draft, not yet reviewed.
 
 **Headline: 4 people overdue on security awareness (due 2026-09-30); a customer-required data protection

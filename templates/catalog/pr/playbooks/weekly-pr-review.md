@@ -1,8 +1,8 @@
 # Weekly PR review
 
-Schedule: Tuesdays at 09:00 company time (routine `weekly-pr-review`), once a person has approved the
+Schedule: Tuesdays at 09:00 team time (routine `weekly-pr-review`), once a human has approved the
 first review. Also run by hand. Budget 30 minutes. The outcome is one page: what was covered, what is
-coming, and what is waiting on a person. Nothing is sent.
+coming, and what is waiting on a human. Nothing is sent.
 
 ---
 
@@ -12,18 +12,18 @@ coming, and what is waiting on a person. Nothing is sent.
     hub calendar upcoming
 
 Then `knowledge/stories.md`, `knowledge/rules.md` and last week's review. Check which pitches were
-approved and sent, and whether any reporter replied (a person tells you on the task).
+approved and sent, and whether any reporter replied (a human tells you on the task).
 
 ## 2. Find coverage
 
-Search the public web for the company, its products and its spokespeople since the last review. For
+Search the public web for the team, its products and its spokespeople since the last review. For
 each hit: outlet, date, headline, angle, tone (positive, neutral, negative), accurate or not, and
 whether it came from a pitch. Add it to `knowledge/coverage.md`. An inaccurate article is the first
-line of the review, with the correction a person could ask for.
+line of the review, with the correction a human could ask for.
 
 ## 3. Watch the beat
 
-Search for new articles on the company's topics and its competitors' news. A reporter who wrote two
+Search for new articles on the team's topics and its competitors' news. A reporter who wrote two
 relevant pieces this month is a candidate for `knowledge/media-list.md`, with both links.
 
 ## 4. Walk the story pipeline
@@ -35,4 +35,4 @@ launch, two for smaller news), what is missing (a customer, data, a spokesperson
 
 Write `reports/YYYY-MM-DD-pr.md` in the shape of `knowledge/examples/pr-review.md`, then
 `hub files publish reports/YYYY-MM-DD-pr.md`. Commit, and `hub task update <id> --status done
---note`: the headline, the path, what is waiting on a person.
+--note`: the headline, the path, what is waiting on a human.

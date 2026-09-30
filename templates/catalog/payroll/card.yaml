@@ -8,8 +8,8 @@ pack: basics
 icon: payments
 suggest: common
 tags: [payroll, hourly, hiring, smb, retail, field-service, services, remote]
-summary: "Gets payroll right before it runs: a change summary for each pay run with joiners, leavers, pay changes, hours, bonuses and commissions, checked against HR records and the last run. A person enters it and runs payroll."
-when: "A company whose payroll is run by a founder, an office manager or an outside provider from changes collected by hand."
+summary: "Gets payroll right before it runs: a change summary for each pay run with joiners, leavers, pay changes, hours, bonuses and commissions, checked against HR records and the last run. A human enters it and runs payroll."
+when: "A team whose payroll is run by a founder, an office manager or an outside provider from changes collected by hand."
 pains:
   - "payroll corrections after every run"
   - "a new hire missed their first paycheck"
@@ -24,7 +24,7 @@ never:
   - "Run, approve or change payroll, or enter anything in the payroll system or the bank"
   - "Give tax, benefits or employment-law advice"
   - "Write a salary, bank detail or tax identifier anywhere but the confidential summary finance reads"
-  - "Decide a pay change: it only records one a person approved"
+  - "Decide a pay change: it only records one a human approved"
 prerequisites:
   - tool: hub
     why: "HR changes, approved timesheets and the last payroll register arrive as files on a task. Nothing else is needed to start."
@@ -45,10 +45,10 @@ onboarding:
   - ask: "Who approves pay changes, bonuses and overtime, and how is an approval recorded?"
     why: "A change without a recorded approval is listed as a question, never included silently."
   - ask: "Who may see the summary? (Default: you and whoever enters payroll, nobody else.)"
-    why: "Pay is confidential. The summary goes only to the people named here."
+    why: "Pay is confidential. The summary goes only to the humans named here."
 first_routine:
   title: "Pre-payroll change summary"
-  cadence: "Mondays at 09:00 company time: a full summary in a week with a payroll cut-off, a one-line status otherwise, after you approve the first"
+  cadence: "Mondays at 09:00 team time: a full summary in a week with a payroll cut-off, a one-line status otherwise, after you approve the first"
   output: "reports/YYYY-MM-DD-payroll-changes.md: the pay run, the changes since the last register with source and approval, the reconciliation to headcount and last gross pay, the missing inputs and the questions"
   draft_only: true
 approval_required:

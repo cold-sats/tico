@@ -1,8 +1,8 @@
 # Weekly spend report
 
-Schedule: Mondays at 09:00 company time (routine `weekly-spend-report`), once a person has approved the
+Schedule: Mondays at 09:00 team time (routine `weekly-spend-report`), once a human has approved the
 first report. Also run by hand on request. Budget 35 minutes. The outcome is one page for the requester:
-what changed, what needs a person, and what renews soon. Nothing is cancelled, paid or sent.
+what changed, what needs a human, and what renews soon. Nothing is cancelled, paid or sent.
 
 ---
 
@@ -54,4 +54,4 @@ Sharing it beyond the requester is `hub approval request --kind send` with the e
 Update `knowledge/vendors.md` and `knowledge/renewals.md`. Commit, then `hub task update <id> --status done
 --note`: the total and its change, the count of anomalies and renewals, and which sources you could not
 read. A source that failed is named, and its spend is "unknown", not zero. Always finish the task: an open
-scheduled task absorbs the next.
+routine task absorbs the next.

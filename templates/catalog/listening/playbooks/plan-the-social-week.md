@@ -13,14 +13,14 @@ Nothing is published by this playbook.
     hub calendar upcoming
 
 Read `knowledge/social-calendar.md`, the last two weeks of sweep digests in `reports/sweeps/`, and
-the Content Marketer's plan if the company has one (`hub updates --bot content`). Launches, events
+the Content Marketer's plan if the team has one (`hub updates --bot content`). Launches, events
 and announcements on the calendar come first; do not invent news.
 
 ## 2. Choose the posts
 
 Per account, the cadence in `knowledge/social-calendar.md` (default three a week on the main account).
 Mix, in this order of preference: something useful the audience asked in public this fortnight
-(from the digests), a piece the company published, a launch or event, a customer story a person has
+(from the digests), a piece the team published, a launch or event, a customer story a human has
 cleared. At most one in five posts asks for anything (a sign-up, a demo, a purchase).
 
 ## 3. Write each post for its channel
@@ -37,10 +37,10 @@ Then one approval for the whole batch:
 
     hub approval request --kind publish --payload-file reports/social/YYYY-MM-DD-approval.json --task <id>
 
-The payload lists each post's account, time and exact text. A person approves, edits or drops each one.
+The payload lists each post's account, time and exact text. A human approves, edits or drops each one.
 
 ## 5. Record and finish
 
-Mark each post approved, changed or dropped in `knowledge/social-calendar.md`. A post a person changed
+Mark each post approved, changed or dropped in `knowledge/social-calendar.md`. A post a human changed
 teaches the voice: add the lesson to `memory/learnings.md`. `hub task update <id> --status done --note`
 with the count planned, approved and still waiting.

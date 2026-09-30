@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme investor update, August 2026, draft for the owner
 
-Sample output for Acme, a fictional studio-software company. Nothing has been sent.
+Sample output for Acme, a fictional studio-software team. Nothing has been sent.
 **INCOMPLETE: runway not supplied.** First draft, not yet reviewed.
 
 **Headline: August revenue grew 9% to $61k, but first replies to customers slowed to 5.1 hours.**

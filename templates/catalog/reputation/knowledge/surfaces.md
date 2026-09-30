@@ -9,7 +9,7 @@ with their dates.
 
 | Surface | Listing URL | Invite? | Reply? | Flag? | Graded on answered complaints? | Notes |
 |---|---|---|---|---|---|---|
-| Google Business Profile | | yes, every customer, no incentive, no gating | yes, once verified | yes, policy violations only | no | The one surface that lets a company invite every customer |
+| Google Business Profile | | yes, every customer, no incentive, no gating | yes, once verified | yes, policy violations only | no | The one surface that lets a team invite every customer |
 | Yelp | | no | yes, once the listing is claimed | yes, guideline violations | no | Yelp's filter buries solicited reviews and its guidelines exclude reviews that are not a first-hand consumer experience |
 | Better Business Bureau | | not applicable | yes, answer each complaint | no | yes | Unanswered complaints cost the grade; answered ones do not |
 | Capterra / G2 / GetApp | | yes, incentives allowed with the platform's disclosure | yes | yes | no | For software; the buyer of a software product looks here |
@@ -46,7 +46,7 @@ merge two when they cannot be told apart.
 - `product`: the software itself, a bug, a missing feature
 - `support`: response time or quality of help
 - `billing`: what a customer was charged
-- `legacy-product`: a product or service the company no longer offers
+- `legacy-product`: a product or service the team no longer offers
 - `other`
 
 ## The milestone for invitations

@@ -21,7 +21,7 @@ which one:
 - **Deprecated**: it still works and will stop; say when if the pull request says.
 - **Removed**: it no longer works.
 - **Fixed**: something that was wrong is now right; say what was wrong.
-- **Security**: a vulnerability fix. Say only that a fix is included; the detail waits for a person.
+- **Security**: a vulnerability fix. Say only that a fix is included; the detail waits for a human.
 
 ## 3. Is it breaking?
 

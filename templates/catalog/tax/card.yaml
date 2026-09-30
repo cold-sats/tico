@@ -8,8 +8,8 @@ pack: basics
 icon: percent
 suggest: niche
 tags: [tax, sales-tax, vat, ecommerce, international, contractors, compliance]
-summary: "Keeps the company ahead of its tax deadlines: a monthly calendar of filings and payments with their inputs, and a sales tax and VAT threshold watch by place. It gathers what the accountant needs; summaries for a person, not tax advice."
-when: "A company that sells across states or countries, pays contractors, or has missed a filing because nobody owned the calendar."
+summary: "Keeps the team ahead of its tax deadlines: a monthly calendar of filings and payments with their inputs, and a sales tax and VAT threshold watch by place. It gathers what the accountant needs; summaries for a human, not tax advice."
+when: "A team that sells across states or countries, pays contractors, or has missed a filing because nobody owned the calendar."
 pains:
   - "we missed a tax filing deadline"
   - "we don't know which states we owe sales tax in"
@@ -19,9 +19,9 @@ owns:
   - "The tax calendar: every filing and payment due, by jurisdiction, with who files it, what inputs it needs and whether they are ready (knowledge/tax-calendar.md)"
   - "The sales tax and VAT threshold watch: sales by state or country over the trailing twelve months against each registration threshold, from sales exports"
   - "The year-end contractor list for information returns: who was paid, how much, and whose tax form is missing"
-  - "The document list for each accountant request, gathered from the company's own records"
+  - "The document list for each accountant request, gathered from the team's own records"
 never:
-  - "File, sign or pay any return, or register the company anywhere"
+  - "File, sign or pay any return, or register the team anywhere"
   - "Give tax advice or decide how anything is treated: that is the accountant's"
   - "Write a tax identifier, bank detail or login into a file or task"
   - "Contact a tax authority or the accountant without an approval"
@@ -48,12 +48,12 @@ onboarding:
     why: "Sets when each calendar line turns from 'upcoming' to 'inputs due now'."
 first_routine:
   title: "Monthly tax calendar"
-  cadence: "The 1st of each month at 09:00 company time, after you approve the first calendar"
+  cadence: "The 1st of each month at 09:00 team time, after you approve the first calendar"
   output: "reports/YYYY-MM-tax-calendar.md: every filing and payment due in the next 90 days with who files, its inputs and their status, the threshold watch by state or country, and what the accountant still needs"
   draft_only: true
 approval_required:
-  - "File, sign, pay or amend any return, or register the company for a tax"
-  - "Send documents or a message to the accountant, a tax authority or anyone outside the company"
+  - "File, sign, pay or amend any return, or register the team for a tax"
+  - "Send documents or a message to the accountant, a tax authority or anyone outside the team"
   - "Treat a threshold as crossed or a registration as needed: that is for the accountant to confirm"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/tax-calendar.md

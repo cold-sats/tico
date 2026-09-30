@@ -13,7 +13,7 @@ tiers), prices and discounts, billing terms, renewal, cancellation and refund ri
 
 ## 2. Apply the policy
 
-Walk the five steps the standard uses, in the company's policy words: the contract; each separate
+Walk the five steps the standard uses, in the team's policy words: the contract; each separate
 promise; the total price, including discounts and anything variable; the split of that price across the
 promises by their standalone prices where the policy gives them; when each is delivered. Where the
 policy gives the answer, cite the section. Where it does not, stop at the question.
@@ -25,5 +25,5 @@ the recognition method for each, the policy section, and open questions. Add the
 
 ## 4. Hand over
 
-If there are open questions, put them on the task for the accountant, prepared for a person to send,
+If there are open questions, put them on the task for the accountant, prepared for a human to send,
 with the facts and the contract clause. Mark the contract's schedule lines "estimated" until answered.

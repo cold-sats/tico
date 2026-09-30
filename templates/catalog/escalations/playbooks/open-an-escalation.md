@@ -15,11 +15,11 @@ add to it; never open a second one.
 
 Match the impact to `knowledge/escalation-rules.md`: who is affected, can they work, is there a
 workaround, is a contractual time at risk. Write the reason in one line. When unsure, choose the higher
-severity and say so; a person may lower it.
+severity and say so; a human may lower it.
 
 ## 3. Propose one owner
 
-A named person from the rules, never a team. Put it on the task and ask the head of support to confirm
+A named human from the rules, never a team. Put it on the task and ask the head of support to confirm
 if the rules do not decide it.
 
 ## 4. Build the timeline
@@ -31,7 +31,7 @@ the customer waited without hearing from us.
 
 Title (what breaks, where), steps to reproduce from a known state, expected and actual result,
 environment (plan, browser or app version, region), how often, how many customers, evidence (ticket
-quotes, screenshots named, log lines with secrets removed). If you cannot reproduce it, ask the Technical
+quotes, screenshots named, log lines with credentials removed). If you cannot reproduce it, ask the Technical
 Support Engineer with `hub task create --owner technical-support` first.
 
 ## 6. Prepare the first update

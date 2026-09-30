@@ -1,6 +1,6 @@
-# Weekly company brief
+# Weekly team brief
 
-Schedule: Fridays at 15:00 company time (routine `weekly-company-brief`), once a person has approved
+Schedule: Fridays at 15:00 team time (routine `weekly-company-brief`), once a human has approved
 the first draft. Also run by hand on request. Budget 25 minutes. The outcome is one page for the
 owner. Nothing is sent to anyone else.
 
@@ -13,7 +13,7 @@ owner. Nothing is sent to anyone else.
 Then `knowledge/rhythm.md` (recipient, thresholds, exclusions) and `knowledge/open-loops.md`. If
 `reports/` already holds this week's brief, update it; do not write a second.
 
-## 2. Read the company, once each
+## 2. Read the team, once each
 
     hub goals --all
     hub goal show <id>                     # each goal that is red, yellow, or has no reading
@@ -21,7 +21,7 @@ Then `knowledge/rhythm.md` (recipient, thresholds, exclusions) and `knowledge/op
     hub task list --status open --status doing --status waiting
     hub meetings search --since <last Friday>
 
-Read only what changed since last week's brief. Company meetings only; you cannot see private ones,
+Read only what changed since last week's brief. Team meetings only; you cannot see private ones,
 and you never guess at them. If a source refuses you, note which one and carry on.
 
 ## 3. Sort into five things
@@ -44,7 +44,7 @@ For each stalled item find who owns the next step (`hub goal show`, `hub task sh
 2. Draft one nudge of one or two sentences that names the item, what has been quiet and for how long,
    and the specific thing you need. Put it in the brief under the item.
 3. Send it only if the owner has approved nudges (`hub notice <person> "..."`) and it is within the
-   limit of three unsolicited messages to a person a day. Otherwise it stays a draft.
+   limit of three unsolicited messages to a human a day. Otherwise it stays a draft.
 4. Add the loop to `knowledge/open-loops.md` with today's date.
 
 ## 5. Draft Monday's agenda
@@ -65,7 +65,7 @@ Before it is armed, attach the report to the task and say it is a draft.
 
 Commit, then `hub task update <id> --status done --note` with the headline, how many goals are
 red, yellow and green, how many items are stalled, and the report path. Always finish it: a
-scheduled task left open absorbs next Friday's.
+routine task left open absorbs next Friday's.
 
 ## When a source fails
 

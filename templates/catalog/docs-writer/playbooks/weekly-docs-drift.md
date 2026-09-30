@@ -1,6 +1,6 @@
 # Weekly docs drift report
 
-Schedule: Wednesdays at 10:00 company time (routine `weekly-docs-drift`), once a person has approved the first
+Schedule: Wednesdays at 10:00 team time (routine `weekly-docs-drift`), once a human has approved the first
 draft. Also run by hand. Budget 45 minutes. The outcome is one report: merged changes that make a page wrong,
 a draft fix for the top items, and pages you could not read. No docs are changed.
 
@@ -47,7 +47,7 @@ top drifts with page, wrong text, cause and draft path, the rest, pages you coul
 ## 7. Finish
 
 Commit, then `hub task update <id> --status done --note`: pages found, drafts made, unread sources. Always
-finish it. A person commits the drafts.
+finish it. A human commits the drafts.
 
 ## When a source fails
 

@@ -38,4 +38,4 @@ who answers personal questions (the broker contact). No "best for" labels; peopl
 ## 6. Hand over
 
 Attach it to the task and ask the HR owner to approve it with `hub task ask <id>`. Once approved,
-sharing it is `hub approval request --kind send` with the audience, or a person posts it.
+sharing it is `hub approval request --kind send` with the audience, or a human posts it.

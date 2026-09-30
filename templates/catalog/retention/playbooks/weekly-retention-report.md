@@ -1,6 +1,6 @@
 # Weekly retention report
 
-Schedule: Fridays at 10:00 company time (routine `weekly-retention-report`), once a person has approved
+Schedule: Fridays at 10:00 team time (routine `weekly-retention-report`), once a human has approved
 the first report. Budget 30 minutes. The outcome is one page on why customers left or stayed this week,
 the open requests with replies ready, and who may leave next.
 

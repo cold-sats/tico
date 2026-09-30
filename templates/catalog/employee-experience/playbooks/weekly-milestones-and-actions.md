@@ -1,6 +1,6 @@
 # Weekly milestones and engagement actions
 
-Schedule: Thursdays at 10:00 company time (routine `weekly-milestones-and-actions`), once a person has
+Schedule: Thursdays at 10:00 team time (routine `weekly-milestones-and-actions`), once a human has
 approved the first page. Budget 20 minutes. The outcome is one page: the next two weeks' milestones with
 a note ready for each manager, survey actions and their status, and what is coming. Nothing is posted.
 

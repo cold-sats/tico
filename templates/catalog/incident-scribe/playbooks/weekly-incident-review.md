@@ -1,6 +1,6 @@
 # Weekly incident review
 
-Schedule: Mondays at 10:00 company time (routine `weekly-incident-review`), once a person has approved the
+Schedule: Mondays at 10:00 team time (routine `weekly-incident-review`), once a human has approved the
 first draft. Also run by hand. Budget 45 minutes. The outcome is one page: incidents since last week, a draft
 postmortem for each that meets the trigger, open action items past due, and repeats. Nothing is posted.
 

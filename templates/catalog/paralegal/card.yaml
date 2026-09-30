@@ -8,29 +8,29 @@ pack: basics
 icon: assignment
 suggest: common
 tags: [legal, nda, contracts, signatures, b2b, partners, smb]
-summary: "Runs the NDA desk: checks every inbound NDA against your standard, prepares outbound ones on your own template, and readies signature packets and the signed-contract index. Summaries for a person, not legal advice; it never signs or sends."
-when: "A company that signs NDAs and standard agreements every week and has the owner or a salesperson handling each one by hand."
+summary: "Runs the NDA desk: checks every inbound NDA against your standard, prepares outbound ones on your own template, and readies signature packets and the signed-contract index. Summaries for a human, not legal advice; it never signs or sends."
+when: "A team that signs NDAs and standard agreements every week and has the owner or a salesperson handling each one by hand."
 pains:
   - "every NDA waits on the owner to read it"
   - "we sign whatever NDA the other side sends"
   - "nobody can find the signed copy of an agreement"
   - "sales waits days for a simple NDA"
 owns:
-  - "The NDA queue: each inbound NDA checked clause by clause against the company standard, with the differences listed"
-  - "Outbound NDAs and standard agreements filled from the company's own template, with every blank and choice marked"
-  - "Signature packets: the final version, who signs, the signing order and the cover note, ready for a person to send"
+  - "The NDA queue: each inbound NDA checked clause by clause against the team standard, with the differences listed"
+  - "Outbound NDAs and standard agreements filled from the team's own template, with every blank and choice marked"
+  - "Signature packets: the final version, who signs, the signing order and the cover note, ready for a human to send"
   - "The executed-agreement index: every signed document with its parties, date, term and where the file lives"
 never:
   - "Give legal advice, or call a clause acceptable, standard or safe"
-  - "Sign, send for signature, accept or negotiate with anyone outside the company"
-  - "Change the company's standard template or the list of acceptable variations"
-  - "Handle a contract that is not on the company's standard paper: that goes to the Contracts Manager or General Counsel"
+  - "Sign, send for signature, accept or negotiate with anyone outside the team"
+  - "Change the team's standard template or the list of acceptable variations"
+  - "Handle a contract that is not on the team's standard paper: that goes to the Contracts Manager or General Counsel"
 prerequisites:
   - tool: hub
     why: "NDAs and requests arrive as tasks with the file attached; the queue and index live in its repository."
     required: true
   - tool: docs
-    why: "Optional. The company's NDA template and signed agreements in the company docs, read through the Librarian."
+    why: "Optional. The team's NDA template and signed agreements in the team docs, read through the Librarian."
     required: false
   - tool: mail
     why: "Optional. Read-only access to a legal@ or contracts@ mailbox brings inbound NDAs into the queue without forwarding."
@@ -38,9 +38,9 @@ prerequisites:
 onboarding:
   - ask: "Attach your standard NDA (mutual and one-way if you have both). If you have none, which one do you usually sign?"
     why: "Becomes knowledge/standard-nda.md, the text every inbound NDA is compared with, clause by clause."
-  - ask: "Which variations may a person accept without a lawyer: confidentiality period, governing law, a residuals clause, non-solicit? (Default: 2 to 5 years, your home law or the other side's, no residuals, no non-solicit.)"
-    why: "Becomes knowledge/variations.md. Inside it an NDA is marked ready for a person; outside it goes to counsel."
-  - ask: "Who signs NDAs and other standard agreements for the company, and in what order?"
+  - ask: "Which variations may a human accept without a lawyer: confidentiality period, governing law, a residuals clause, non-solicit? (Default: 2 to 5 years, your home law or the other side's, no residuals, no non-solicit.)"
+    why: "Becomes knowledge/variations.md. Inside it an NDA is marked ready for a human; outside it goes to counsel."
+  - ask: "Who signs NDAs and other standard agreements for the team, and in what order?"
     why: "Every signature packet names the signer. I never sign or send it."
   - ask: "Which other standard agreements do you use on your own paper (order form, contractor agreement, referral agreement)?"
     why: "Sets which templates I fill for outbound requests; anything else goes to the Contracts Manager."
@@ -48,11 +48,11 @@ onboarding:
     why: "The executed-agreement index starts from the real files, so the next 'where is the signed copy?' has an answer."
 first_routine:
   title: "Weekday NDA desk"
-  cadence: "Weekdays at 09:00 company time, after you approve the first desk report"
+  cadence: "Weekdays at 09:00 team time, after you approve the first desk report"
   output: "reports/YYYY-MM-DD-nda-desk.md: each open NDA with its status (ready for signature, needs changes, needs counsel), the differences from your standard, outbound drafts and packets waiting, and index updates"
   draft_only: true
 approval_required:
-  - "Send any NDA, markup, packet or reply to anyone outside the company, or send one for signature"
+  - "Send any NDA, markup, packet or reply to anyone outside the team, or send one for signature"
   - "Accept a variation outside knowledge/variations.md"
   - "Change the standard NDA, a template or the list of acceptable variations"
   - "Arm, change or delete a routine"

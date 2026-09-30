@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme shop deliveries, week of 2026-09-21 (written Mon 2026-09-28)
 
-Sample output for Acme's online shop, the fictional company's store of branded studio gear. Every
+Sample output for Acme's online shop, the fictional team's store of branded studio gear. Every
 order, carrier and amount is invented. Nothing has been sent, filed or disputed. First draft, not yet
 reviewed.
 

@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme IT, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company of about 40 people. Every person and
+Sample output for Acme, a fictional studio-software team of about 40 people. Every person and
 device is invented. Nothing has been changed in any tool. First draft, not yet reviewed.
 
 **Headline: 1 P1: Tomas left on Friday and his chat and CRM accounts are still active. 7 requests
@@ -18,7 +18,7 @@ open, 2 access changes wait on approvers.**
 | Priority | Request | Who | Age | Waiting on |
 |---|---|---|---|---|
 | P2 | Cannot open the billing export | Lena | 2 d | fix sent 2026-09-27, no reply yet |
-| P2 | Laptop will not charge | Omar | 1 d | a person to look: two fixes failed |
+| P2 | Laptop will not charge | Omar | 1 d | a human to look: two fixes failed |
 | P3 | Second screen flickers | Sofia | 4 d | cable swap, office-manager |
 | P3 | 4 more, see requests.md | | | |
 

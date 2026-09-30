@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme payroll changes, pay date Fri 2026-10-09 (cut-off Mon 2026-10-05)
 
-Sample output for Acme, a fictional studio-software company. Every person and figure is invented.
+Sample output for Acme, a fictional studio-software team. Every person and figure is invented.
 Nothing has been entered in payroll. First draft, not yet reviewed. Confidential: Dana and Ruth only.
 
 **Headline: 7 changes for the 10-09 run; 1 question; 1 input missing (September commissions, due from

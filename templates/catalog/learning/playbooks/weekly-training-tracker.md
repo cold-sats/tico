@@ -1,6 +1,6 @@
 # Weekly training tracker
 
-Schedule: Thursdays at 09:00 company time (routine `weekly-training-tracker`), once a person has approved
+Schedule: Thursdays at 09:00 team time (routine `weekly-training-tracker`), once a human has approved
 the first tracker. Budget 25 minutes. The outcome is one page for the HR owner: what is overdue, what is
 due, what new starters need, what expires, and what is waiting for budget. Nothing is enrolled or sent.
 

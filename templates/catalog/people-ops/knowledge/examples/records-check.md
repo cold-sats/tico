@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme people records check, Mon 2026-09-28
 
-Sample output for Acme, a fictional studio-software company. References and first names only. Nothing
+Sample output for Acme, a fictional studio-software team. References and first names only. Nothing
 has been changed in any system or sent. First draft, not yet reviewed.
 
 **Headline: 1 leaver still has admin access to the billing tool 3 days after leaving; 4 record mismatches.**

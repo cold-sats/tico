@@ -1,9 +1,9 @@
-A sample of excellent output for a fictional company. Every name in it is a stand-in.
+A sample of excellent output for a fictional team. Every name in it is a stand-in.
 
 ```markdown
 # Acme product ops review, Wed 2026-09-30
 
-Sample output for Acme, a fictional studio-scheduling software company. Every account and person is
+Sample output for Acme, a fictional studio-scheduling software team. Every account and person is
 invented. Nothing was changed in the tracker and no customer was contacted. First draft, not yet reviewed.
 
 **Headline: 17 new requests (9 merged into existing rows); "Class waitlists" now 41 accounts; 2 weeks
@@ -28,7 +28,7 @@ in October have two launches each; 6 ship notices ready for Recurring bookings v
 - Week of 2026-10-12: Waitlists **and** Class packs. Class packs has no support briefing owner.
 - Week of 2026-11-09: Instructor app 2.0 and Payout report v2.
 
-## Ship notices ready for a person (nothing sent)
+## Ship notices ready for a human (nothing sent)
 Recurring bookings v2 shipped 2026-09-08: 6 accounts asked between 2026-03-02 and 2026-08-19 (list and
 a 60-word notice on the task).
 ```

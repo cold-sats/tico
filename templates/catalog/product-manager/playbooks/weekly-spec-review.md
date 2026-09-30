@@ -1,6 +1,6 @@
 # Weekly spec and launch review
 
-Schedule: Tuesdays at 10:00 company time (routine `weekly-spec-review`), once a person has approved the
+Schedule: Tuesdays at 10:00 team time (routine `weekly-spec-review`), once a human has approved the
 first review. Budget 30 minutes. The outcome is one page: which specs are blocked, on whom, and which
 launch lines are due. Nothing is filed or changed.
 

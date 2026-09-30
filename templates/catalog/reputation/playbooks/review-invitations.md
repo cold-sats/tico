@@ -1,7 +1,7 @@
 # Review invitations: the paid honest review program
 
 Not a schedule until the owner adds one. Runs when a task names it. The goal is a G2 page and a
-Capterra family page with enough the company's product reviews that Sales has somewhere to point. The
+Capterra family page with enough the team's product reviews that Sales has somewhere to point. The
 first target is twenty reviews on each within sixty days of the first invitation.
 
 ---
@@ -10,7 +10,7 @@ first target is twenty reviews on each within sixty days of the first invitation
 
 | Surface | Paid honest reviews | Who pays and discloses |
 |---|---|---|
-| G2 (the company's product) | yes | G2's review campaign: {{company_name}} funds a gift card, G2 pays the reviewer, verifies them and labels the review "Incentivized" |
+| G2 (the team's product) | yes | G2's review campaign: {{company_name}} funds a gift card, G2 pays the reviewer, verifies them and labels the review "Incentivized" |
 | Capterra, GetApp, Software Advice (one Gartner Digital Markets listing) | yes | Gartner's reviews program: same shape, their label |
 | TrustRadius | yes, later, if leads look there | its own program |
 | Google, Yelp, Trustpilot, App Store, Google Play | **never paid** | Google and the app stores allow an unpaid ask; Yelp allows no ask at all |
