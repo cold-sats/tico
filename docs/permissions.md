@@ -31,7 +31,7 @@ appear in the settings history, where the owner can undo them, like the people a
 
 Who may edit a bot's access: its owners (see [Bot owners](#bot-owners)): the company owner, the admins, the bot's creator
 and co-owners, and the people it reports up to on the org chart (the same people who may change the bot's other settings).
-The Assistant, BotOps and the Librarian can have their access edited too.
+The Assistant, BotOps, the Librarian and the Goal Manager can have their access edited too.
 
 ## Always full access
 
@@ -69,9 +69,9 @@ sign-in list, so they can actually sign in.
 **Credential administrators** are the owner and whoever `TICO_CREDENTIAL_ADMINS` names, nobody else: being an Admin does not
 let someone write shared credentials, whatever an earlier version did. Add a person to that list to give them the vault.
 
-**The built-in bots** (the Assistant, BotOps and the Librarian) act for the whole company, so only the owner changes their settings,
+**The built-in bots** (the Assistant, BotOps, the Librarian and the Goal Manager) act for the whole company, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
-`librarian` or `coo`; an Admin can, and manages every other bot.
+`librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
 
 A member may have at most **5 active bots** by default; owners and admins have no limit. An admin changes the number in
 Settings > People. Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
@@ -86,7 +86,7 @@ is the same people who always have full access to it. A bot owner can:
 
 - edit its configuration: instructions, model, routines, name and description, repository;
 - set its See, Read and Write access;
-- pause it, rename it, archive it (never the built-in Assistant, BotOps or Librarian);
+- pause it, rename it, archive it (never the built-in Assistant, BotOps, Librarian or Goal Manager);
 - add or remove co-owners (`POST /api/v2/bots/{bot}/co-owners`, Settings > Bots, **Owned by**);
 - give it a stored credential they hold themselves, and no one else's.
 

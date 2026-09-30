@@ -57,6 +57,7 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | [docs/updates.md](docs/updates.md) | Updating the server and its computers |
 | [docs/assistant.md](docs/assistant.md) | The built-in Assistant: what it does at once and what it proposes |
 | [docs/librarian.md](docs/librarian.md) | The built-in Librarian: answers from the company's docs, with citations |
+| [docs/goals-and-kpis.md](docs/goals-and-kpis.md) | Goals, KPIs and the built-in Goal Manager: automatic colours, a person's override, readings with evidence |
 
 ## Hosting modes
 

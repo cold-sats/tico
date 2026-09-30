@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
+from . import goals as G
 from .store import H, encode, sweep_idempotency, sweep_mail
 
 
@@ -24,6 +25,7 @@ class Scheduler:
         self.swept = None
         self.stranded = None
         self.stall_checked = None
+        self.goals_checked = None
 
     def tick(self, at=None):
         at = at or datetime.now(timezone.utc)
@@ -144,6 +146,15 @@ class Scheduler:
             self.swept = at
             sweep_idempotency(self.store, stamp(at))
             sweep_mail(self.store, stamp(at))
+        if self.goals_checked is None or at - self.goals_checked >= timedelta(hours=1):
+            # Data goes stale as time passes, so every goal's automatic colour is worked out again once an
+            # hour, whether or not a reading arrived (a person's colour is only ever suggested over).
+            self.goals_checked = at
+            try:
+                with self.store.transaction() as c:
+                    G.refresh(c)
+            except Exception as exc:
+                failures.append({"goals": type(exc).__name__})
         if self.stall_checked is None or at - self.stall_checked >= timedelta(minutes=1):
             # Every minute: bot tasks nothing is going to move (H.wake_stalled).
             self.stall_checked = at

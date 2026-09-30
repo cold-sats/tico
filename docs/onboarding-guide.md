@@ -16,7 +16,7 @@ Start from what hurts, not from what a bot could do.
    - **Full org chart**: every template that fits, grouped into teams (Leadership, Sales, Marketing, Support, Operations, Engineering)
      with a lead for each, so the chart looks like your company. A big chart is safe: a bot you have not set up yet is parked, does nothing
      on its own and costs nothing.
-   - **Just the built-ins**: the Assistant, BotOps and the Librarian, and add the rest as you go.
+   - **Just the built-ins**: the Assistant, BotOps, the Librarian and the Goal Manager, and add the rest as you go.
 4. **Edit before you create.** Rename a bot, choose who it reports to (a person or another bot on the chart; you by default), remove
    what you do not need, add what is missing. Nothing exists until **Create my team**.
 

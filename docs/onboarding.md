@@ -2,7 +2,7 @@
 
 The first time the owner opens a new environment, the app is a wizard at `#/welcome`: name the
 company, say what it does and what hurts, pick a starting team, add a computer (a Linux Docker runner or a Mac), optionally connect your own
-agent, and press **Create my team**. Every company gets the assistant, BotOps and the Librarian, and none of them can be archived.
+agent, and press **Create my team**. Every company gets the assistant, BotOps, the Librarian and the Goal Manager, and none of them can be archived.
 Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
 the moment it is placed, and BotOps sets up every other template.
 
@@ -92,7 +92,7 @@ The tags the answers imply, for a card's `recommend_when`:
 **Create my team** (`POST /api/v2/onboarding/complete`) writes to the server only, in one request (a chart of 25 bots takes a fraction of a
 second). It reaches no machine.
 
-- BotOps, the assistant and the Librarian first, so they exist before anything is addressed to them, then everything picked, each `planned`
+- BotOps, the assistant, the Librarian and the Goal Manager first, so they exist before anything is addressed to them, then everything picked, each `planned`
   with the card's summary as its description, `emp-<slug>` as its repository, the card's runtime, model and reasoning effort, the person
   it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default.
 - The template and the reviewed instructions are stored in the bot's server-side config, with the **template version** (the release whose
@@ -254,7 +254,7 @@ already exists.
 
 ## The assistant, BotOps and the Librarian are built in
 
-Every company gets all three, and none is a choice: their cards are `required: true` in the wizard, so the wizard
+Every company gets all of them, and none is a choice: their cards are `required: true` in the wizard, so the wizard
 builds them whatever else is ticked, and both become active once a computer is enrolled ([Activating](#activating)).
 The assistant is every person's private [Assistant](assistant.md) (a tab on their own page); it also works in the
 background: it routes Slack messages to the bot that owns them, takes meetings and tasks nobody was named for, reviews
@@ -268,6 +268,11 @@ whatever it says.
 
 The third, the [Librarian](librarian.md#built-in), answers questions from the company's docs. A company from before it existed gets it on
 update, without a click, once a model is chosen and a computer is enrolled; until then its owner gets **Turn on the Librarian** on Ask AI.
+
+The fourth, the [Goal Manager](goals-and-kpis.md#the-goal-manager), keeps the KPIs and sets goals' automatic colours. It is
+built the same way (a required, bootstrap card; a company from before it existed gets it on update once a model is chosen
+and a computer is enrolled). Its routines start paused: the server arms the daily KPI pass once the first KPI exists, and the
+weekly goals review stays paused until the Goal Manager arms it after the owner has read the first one.
 
 A company that set the assistant aside before it was built in (v0.2.1 to v0.2.9 let the wizard skip it) keeps it archived
 on update: nothing restores it automatically. Its owner sees "The Assistant is off" on the Assistant tab and at the top of

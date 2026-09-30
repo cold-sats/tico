@@ -13,7 +13,7 @@ Each pack is a team. Its first row is the pack's lead: a small coordinator that 
 bots reported and proposes who should take a stuck or misrouted request. The leads never do their team's work and never assign people.
 The Librarian, built into every company, owns the docs, the FAQ and the answers built from them, so no template writes or
 keeps docs: Support Agent asks it (`hub docs ask`) and reports a missing or wrong doc to it as a task, People & HR does the same for
-policy questions, and Docs Writer covers only READMEs and API docs that live in the product repositories. The chooser has six teams, so finance sits in Operations, and product research and the docs and release bots sit in Engineering.
+policy questions, and Docs Writer covers only READMEs and API docs that live in the product repositories. The Goal Manager, also built in, keeps every KPI's readings and sets goals' colours from them ([goals and KPIs](goals-and-kpis.md)), so no template does either. The chooser has six teams, so finance sits in Operations, and product research and the docs and release bots sit in Engineering.
 
 ### Leadership (`basics`)
 
