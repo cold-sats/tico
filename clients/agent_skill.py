@@ -1,8 +1,8 @@
-"""The skill an outside agent (Grok Bot, Meta Muse) follows to work the user's bots over the hub MCP.
+"""The skill an outside agent (Grok, Muse, Claude, ...) follows to work the user's bots over the hub MCP.
 
-One text, three readers: the MCP server returns it as its `initialize` instructions, the
-"Connect an agent" dialog puts it in the block a person pastes into their agent
-(`GET /api/v2/agent-skill`), and `skills/who-needs-me/SKILL.md` carries it for anyone reading
+One text, three readers: the MCP server returns it as its `initialize` instructions, so an agent
+connected through "Connect an agent" has it without pasting anything; `GET /api/v2/agent-skill`
+returns it beside the MCP address; and `skills/who-needs-me/SKILL.md` carries it for anyone reading
 the repo (a test keeps that file equal to this constant). Edit it here.
 
 Pure stdlib, like `clients/hubtools.py`, which imports it.
