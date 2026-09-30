@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-09-30
+
 ### Added
 - **KPIs are records of their own, and goals are coloured from them.** A KPI has a name, definition, unit, direction (`up`,
   `down`, `range`), cadence (`daily`, `weekly`, `monthly`), one accountable owner (the company, a person or a bot), a source note
@@ -763,7 +765,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.14...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.15...HEAD
+[0.2.15]: https://github.com/ticoteam/tico/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/ticoteam/tico/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/ticoteam/tico/compare/v0.2.12...v0.2.13
 [0.2.12]: https://github.com/ticoteam/tico/compare/v0.2.11...v0.2.12
