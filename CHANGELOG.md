@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The browser and Slack connectors find a bot's `bot.yaml` through `TICO_PROJECTS_DIR`, which the runner sets on every run,
+  as the mail connector already did. Run from an installed release or a Linux runner, where the bot repositories are not
+  beside the Tico checkout, they refused every bot with "no bot.yaml". Their audit and cache files follow to the same
+  workspace's `runtime/`.
+
 ## [0.2.25] - 2026-09-30
 
 ### Added

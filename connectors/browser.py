@@ -40,7 +40,9 @@ except ImportError:                                     # pragma: no cover
     yaml = None
 
 HUB = Path(__file__).resolve().parent.parent
-PROJECTS = HUB.parent
+# The workspace with the bot repositories. A source checkout sits beside them; an installed release or
+# a Linux runner does not, and the runner names the workspace in TICO_PROJECTS_DIR, as mail/ reads it.
+PROJECTS = Path(os.environ.get("TICO_PROJECTS_DIR") or HUB.parent).expanduser()
 AUDIT = PROJECTS / "runtime" / "browser-audit.jsonl"
 ASIDE = Path(os.environ.get("ASIDE_CLI") or Path.home() / ".local" / "bin" / "aside")
 REPL_TIMEOUT = 130                                      # the REPL's own limit is 120s
