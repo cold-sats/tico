@@ -871,6 +871,10 @@ class OwnerTransfer(Contract):
     confirm: Literal[True]
 
 
+# The org builder's departments (templates/departments.yaml, backend/recruit_rank.py DEPARTMENT_IDS).
+Department = Literal["sales", "marketing", "support", "finance", "operations", "legal", "hr", "product", "engineering"]
+
+
 class OnboardingNames(Contract):
     """What this company calls itself, its app, and the assistant people talk to."""
     company_name: str = Field(default="", max_length=100)
@@ -888,12 +892,15 @@ class OnboardingAnswers(Contract):
     never_without_person: list[Literal["send", "spend", "publish", "hire"]] = Field(
         default_factory=list, max_length=4)
     # The wizard no longer asks `pains`, `pains_text` or `tools`; they are still accepted, kept as sent
-    # and never read (backend/onboarding.py `choose` reads only the answers above).
+    # and never read.
     pains: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=8)
     pains_text: str = Field(default="", max_length=1000)
     tools: list[Literal["mail", "chat", "crm", "github", "meetings", "docs"]] = Field(
         default_factory=list, max_length=6)
     software_product: Literal["yes", "no", ""] = ""
+    # The org builder: the departments chosen, in order, and the one-line answer to each department's question.
+    departments: list[Department] = Field(default_factory=list, max_length=9)
+    briefings: dict[Department, Annotated[str, Field(max_length=500)]] = Field(default_factory=dict, max_length=9)
 
 
 class OnboardingSelection(Contract):
@@ -908,7 +915,15 @@ class OnboardingSelection(Contract):
 class OnboardingDraft(Contract):
     names: OnboardingNames = Field(default_factory=OnboardingNames)
     answers: OnboardingAnswers = Field(default_factory=OnboardingAnswers)
-    selected: dict[Slug, OnboardingSelection] = Field(default_factory=dict, max_length=50)
+    selected: dict[Slug, OnboardingSelection] = Field(default_factory=dict, max_length=150)
+
+
+class Recruit(Contract):
+    """One department's answer in the org builder, asking which bots to suggest. `share` is the person's own toggle on
+    the card ("Suggestions from Tico HQ"); the server sends the answer only when it is on and the install allows it."""
+    department: Department
+    briefing: str = Field(default="", max_length=500)
+    share: bool = False
 
 
 class Claim(Contract):

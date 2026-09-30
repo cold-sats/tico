@@ -27,6 +27,7 @@ from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
 from .execution import Execution
 from .onboarding import BOTOPS, Onboarding
+from .recruit import Recruiter
 from . import rooms
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
@@ -71,6 +72,7 @@ def create_app(settings=None):
     execution = Execution(store, auth)
     settings_admin = SettingsAdmin(store, auth, execution, MODEL_BY_ID, reset_bot_sessions)
     onboarding = Onboarding(store, auth, settings_admin, execution, MODEL_BY_ID)
+    recruiter = Recruiter(store, auth, settings)
     execution.runner_enrolled = onboarding.on_runner_enrolled
 
     @asynccontextmanager
@@ -975,6 +977,17 @@ def create_app(settings=None):
     def onboarding_save(request: Request, body: M.OnboardingDraft):
         who = request.state.identity
         return mutate(request, body, lambda c: onboarding.save(c, who, body))
+
+    @app.get("/api/v2/onboarding/departments")
+    def onboarding_departments(request: Request):
+        """The org builder's departments and cards, and whether this install may ask Tico HQ for suggestions."""
+        return recruiter.departments(request.state.identity)
+
+    @app.post("/api/v2/onboarding/recruit")
+    def onboarding_recruit(request: Request, body: M.Recruit):
+        """Suggested bots for one department. A sync handler, so the call to Tico HQ runs off the event loop; it
+        writes nothing, so it is not a `mutate`."""
+        return recruiter.recruit(request.state.identity, body)
 
     @app.post("/api/v2/onboarding/complete")
     def onboarding_complete(request: Request, body: M.Empty):

@@ -1,24 +1,22 @@
 # Onboarding guide: your first bots
 
 A practical guide to getting real work out of your first bots. The screens themselves are in [First run](onboarding.md); what each of
-the 38 starter templates does is in [Starter bots](starter-bots.md). BotOps and the Librarian can answer questions from this page.
+the 94 templates does is in [Starter bots](starter-bots.md). BotOps and the Librarian can answer questions from this page.
 
 ## Pick your first bots
 
 Start from what your company does, not from what a bot could do.
 
 1. **Say what you do** in "About the company": what the company does, who it sells to, whether software is its product and how big it is.
-   That is all the first-run questions ask. There is no list of pains to tick and no list of tools: the team is chosen from those answers.
-2. **Choose a starting point.**
-   - **Starter team**: Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage if software is your product, and at most one more
-     if your description obviously points at it. Three to five bots, and the easiest place to start.
-   - **Full org chart**: every starter template that fits, grouped into teams (Leadership, Sales, Marketing, Support, Operations,
-     Engineering) with a lead for each, so the chart looks like your company. Engineering appears only if software is your product, and a
-     company that sells only to consumers skips the templates written for business customers. A big chart is safe: a bot you have not set up
-     yet is parked, does nothing on its own and costs nothing.
-   - **Just the built-ins**: the Assistant, BotOps, the Librarian and the Goal Manager, and add the rest as you go.
-3. **Edit before you create.** Rename a bot, choose who it reports to (a person or another bot on the chart; you by default), remove
-   what you do not need, add what is missing. Nothing exists until **Create my team**.
+   There is no list of pains to tick and no list of tools.
+2. **Build your org chart.** Pick the departments you want, then answer one short question for each ("What kind of sales do you do
+   today?"). Tico recruits bots for that department: its head is checked, the usual ones are checked or shown, and the rest are under
+   **More**. Check what you want and watch the chart grow. Skip a department you do not need; Product and Engineering are suggested only
+   if software is your product. A big chart is safe: a bot you have not set up yet is parked, does nothing on its own and costs nothing.
+   The suggestions come from Tico HQ while the toggle on the card is on (it sends that one answer, and nothing is kept:
+   [PRIVACY.md](../PRIVACY.md)), otherwise from Tico itself.
+3. **Edit before you create.** On the finished chart, click a bot to rename it, choose who it reports to (each department's bots report
+   to its head, and the heads to you), or remove it. Nothing exists until **Create my team**.
 4. **Connect tools when a bot asks.** Onboarding does not ask which tools you use and no bot is held back for a missing one. When you press
    **Start setup** on a bot, it tells you what it needs (a mailbox, tickets, a repository, a CRM) and where to connect it.
 

@@ -256,10 +256,11 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 | `example_output` | Path, inside the template, to a short sample of excellent output under `knowledge/examples/` |
 | `when` | Optional, existing: one sentence saying who wants the template |
 
-`recommend_when` says who the template is for (see [First run](onboarding.md#the-chooser)). The chooser reads only two of its tags:
-`sells_to_businesses` without `sells_to_consumers` marks a template as business-only (every Sales template is), and a company
-that sells only to consumers does not get it on the full org chart. Every other tag is descriptive. Only the Chief of Staff
-carries `always`.
+`recommend_when` says who the template is for (see [First run](onboarding.md#the-org-builder)). The org builder reads only two of its tags:
+`sells_to_businesses` without `sells_to_consumers` marks a template as business-only, and it is suggested last to a company that sells only
+to consumers. Every other tag (`sells_software`, `uses_crm`, `uses_github`, `uses_meetings`, `has_support_inbox`, `always`) is
+descriptive and matched to nothing, so use the ones a reader would expect. The Engineering and Product departments start picked only
+for a company whose product is software; anyone may pick them.
 
 ```yaml
 template: sales

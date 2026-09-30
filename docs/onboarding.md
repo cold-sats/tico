@@ -1,7 +1,7 @@
 # First run
 
 The first time the owner opens a new environment, the app is a wizard at `#/welcome`: name the
-company, say what it does, pick a starting team, add a computer (a Linux Docker runner or a Mac), optionally connect your own
+company, say what it does, build its org chart department by department, add a computer (a Linux Docker runner or a Mac), optionally connect your own
 agent, and press **Create my team**. Every company gets the assistant, BotOps, the Librarian and the Goal Manager, and none of them can be archived.
 Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
 the moment it is placed, and BotOps sets up every other template.
@@ -13,8 +13,9 @@ the last three. To choose a first team and get the most from it, read the [onboa
 Nobody else sees the wizard. Only the owner may write onboarding, and the sidebar entry
 **Finish setup** appears only while it is unfinished.
 
-The implementation is `backend/onboarding.py` (the record, the chooser, creating the team), `ui/first-run.js` (the
-questions, the team screen and the screen after Create), `clients/catalog.py` (turning a template into a repository),
+The implementation is `backend/onboarding.py` (the record, creating the team), `backend/recruit.py` and `backend/recruit_rank.py`
+(the org builder's catalog and suggestions), `ui/org-builder.js` (the org chart screen), `ui/first-run.js` (who reports to whom, the review
+and the screen after Create), `hq/recruit.py` (Tico HQ's suggestions), `clients/catalog.py` (turning a template into a repository),
 `runner/service.py` (the bots the computer sets up itself) and `templates/catalog/` (the templates). The quick start in the
 [README](../README.md) is the same flow with the commands in it.
 
@@ -25,8 +26,8 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 | Screen | What it asks | What it stores |
 |---|---|---|
 | Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
-| About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. These answers, and only these, choose the team on the next screen. The description is also shown to a person and written into every bot's `knowledge/company.md` |
-| Your team | A starting point (a starter team, a full org chart or just the built-ins), then every bot: its name, who it reports to, remove, and add | `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug; the owner by default). Nothing is created yet |
+| About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Whether software is the product decides which departments start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
+| Your org chart | The departments, then one question per department and the bots to recruit into it, with the chart growing beside it ([The org builder](#the-org-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug). Nothing is created yet |
 | Set up a computer | Nothing if a runner is already online (the server's own); otherwise download a setup file, then run three commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
 | Connect your agent | Optional: **Connect an agent** makes a personal token and the MCP setup to paste into Grok Bot, Meta Muse or another agent | Nothing in onboarding; the token is the owner's own (`POST /api/v2/me/tokens`) |
 | Review and create | A summary of all of it, the team with each bot's reports-to | **Create my team** calls `POST /api/v2/onboarding/complete` |
@@ -39,41 +40,64 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 | `what_we_do` | Free text, up to 2000 characters |
 | `customers` | `businesses`, `consumers`, `both`, or empty |
 | `software_product` | `yes`, `no`, or empty: whether software is the product |
-| `team_size` | Free text, a choice from the wizard's list. Shown to a person; the chooser does not read it |
+| `team_size` | Free text, a choice from the wizard's list. Shown to a person; nothing reads it |
+| `departments` | The org builder's departments, in order: any of `sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`. A skipped one is left out |
+| `briefings` | The one-line answer for each department, at most 500 characters, keyed by department. BotOps's setup tasks carry them as "`<department>` today: …" |
 | `never_without_person` | Any of `send`, `spend`, `publish`, `hire`. All four start ticked |
 | `work_arrives`, `repetitive_work`, `pains`, `pains_text`, `tools` | Earlier questions. The wizard no longer asks them: "What hurts, and what you use" is gone, so there are no pain chips, no "in your own words" box and no tool checkboxes. An older record keeps them and a custom client may still send them; the hub accepts them and reads none |
 
-### The chooser
+### The org builder
 
-The hub chooses locally, from the answers and the catalog, with no network call. `GET` and `PUT /api/v2/onboarding` answer with two starting
-points, `recommendations` (the starter team) and `full_chart`. They depend only on "About the company": what you do, who you sell to, whether
-software is the product and, for nothing but display, the team size. **Tools decide nothing.** A bot that needs mail, GitHub or a CRM asks for
-it in its own **Start setup** conversation (its template's `onboarding` and `prerequisites`), so nothing is held back for a missing tool:
-`held_back` stays in the response, always empty, for clients that read it.
+The third screen builds the company's org chart one department at a time, with the chart drawn beside it and growing as bots are
+checked (on a phone the chart is a strip above the card that opens to the whole chart). It replaces the old starter team and full org
+chart: there is no fixed team any more.
 
-**Starter team** (`recommendations`, three or four bots, each with a one-line `why`):
+1. **Departments.** "What departments do you want?" as tiles: Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
+   Product and Engineering (`templates/departments.yaml`). Sales, Marketing, Customer Support, Finance and Operations start picked;
+   Product and Engineering (`software_only`) start picked only when software is the product. Pick any.
+2. **One department at a time.** A card with the department's icon, a one-line description and goal, its one question and a single-line
+   answer ("What kind of sales do you do today?"). **Recruit bots** (or Enter) shows "Recruiting bots…" for a moment, then the suggested
+   bots as checkable cards: icon, name, the card's summary and a "why" line. The department head is checked, so are the `default` cards
+   and anything the suggestion says to add; `common` cards are shown unchecked; the rest of the department's cards are under **More**.
+   **Back** and **Skip department** are always there. Each department answered or skipped saves the draft.
+3. **The chart.** The owner at the top (CEO), the built-ins beside them, each department hanging off one line and its bots under it,
+   the head first. A department not yet reached is dashed; a skipped one says so. A bot animates in once, when it is first checked.
+4. **Finish.** The finished chart, "5 departments · 12 bots". Click a bot to rename it, point it at another person or bot, remove it, or
+   (Mail Drafts) choose whose mailbox it reads; click a department to go back to it. **Next** continues to the computer.
 
-1. Chief of Staff (the lead), Support Agent (`support`) and Sales Drafter (`sales`).
-2. Issue Triage (`issue-triage`) as well when software is the product.
-3. If "What you do" has text, at most one more starter that it obviously fits: a card whose `pains` phrase has every one of its words in the
-   text (compared by stem, ignoring common words), or whose summary shares at least three words with it. The card with the highest score wins
-   and a tie goes to the first name. Lead templates, and templates that do not fit the company (below), are never added. With no text, or
-   no match, the team is just steps 1 and 2.
+Each department head reports to the owner, and every other bot to its department's head while the head is on the chart (to the owner
+otherwise). `selected` is sent in the order to set the bots up: the built-ins, then each department's head and its team. A worker the person
+re-points keeps its new manager; two bots that would report to each other are refused on the screen.
 
-**Full org chart** (`full_chart`): every starter template that fits, grouped into the teams of a company: Leadership, Sales, Marketing,
-Support, Operations and Engineering (the card's `pack`), each with a **lead** and the rest reporting to it. A team's lead is its pack's
-`lead: true` template (Ops Manager, Support Lead, ...); a team with none is led by its first member. The leads report to the company owner.
-A template fits unless:
+**Where a card sits.** A card's `department` (one of the nine ids); without one, the department whose `head` it is, or that lists it in its
+head's `team_templates`, or its `pack` (`basics` is Operations). `icon` is a Material Symbols name, drawn from the app's own icon font
+(`scripts/build-icon-font.py` reads every card's and department's `icon`); a card without one takes its department's. `suggest` is
+`default`, `common` (the default) or `niche`. `tags` are the words the recommender matches; a card without tags uses its `pains`.
 
-- it is an Engineering template and software is not the product (Engineering is included only when software is), or
-- the company sells only to consumers and the card's `recommend_when` names `sells_to_businesses` but not `sells_to_consumers`, which is how
-  a card marks itself business-only (the whole Sales team and a few templates in Leadership, Marketing and Operations, such as Strategy Planning, Market and AR Follow-up).
+### Suggestions: Tico HQ, or the local recommender
 
-Both are starting points and there is no limit: the person adds, removes, renames and re-points anything before Create. The starter team is
-set up in the order shown (`setup_rank`), in either mode.
+The browser only ever talks to its own server:
 
-A card's `recommend_when` tags are no longer matched to the answers, except the business and consumer ones above. `uses_github` and
-`uses_meetings` stay valid tags a card may list; nothing sets them.
+| Route | What it answers |
+|---|---|
+| `GET /api/v2/onboarding/departments` | `{version, departments: [{id, name, description, goal, question, placeholder, icon, head, software_only}], cards: [{template, name, department, icon, tags, suggest, summary, lead, business_only}], hq: {available, off_by}}` |
+| `POST /api/v2/onboarding/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], source: "hq" \| "local", shared, off_by}` |
+
+Both are for the owner and bot administrators, and neither is part of the stable v2 contract (like the rest of onboarding).
+
+The department card carries a toggle, **Suggestions from Tico HQ (sends this answer)**, on by default and off (and disabled, with the
+reason) when the install may not ask HQ. The server asks Tico HQ (`POST <TICO_HQ_URL>/v1/recruit`, [Tico HQ](tico-hq.md)) only when the
+toggle is on **and** none of these is true: demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` set, or the anonymous usage count switched off
+in Settings (`hq.off_by` says which). It sends the department, the answer, three facts from "About the company" (`what`, at most 500
+characters; `sells_to`; `software`), the catalog version and, while the usage count is on, its install id; it waits at most 6 seconds and
+keeps only template ids that are this department's in its own catalog. HQ answers template ids and a short why, never text a bot would
+follow. What is sent and kept is in [PRIVACY.md](../PRIVACY.md).
+
+Otherwise, or on any failure, the **local recommender** (`backend/recruit_rank.py`) answers, with no network: the head first, then the
+cards the answer matches (a tag, or two words of a longer tag phrase; a word of the name; two or more words of the summary; the answer
+counts double "What you do", and the department's own name counts for nothing), then `default` and `common` cards; a `niche` card only when the answer names it; a business-only card last for a company that sells
+only to consumers. The why is the words that matched ("Matches “resellers”"), else "Heads Sales and reports to you", "A starting point for
+Sales" or "Common in Sales". The same answer always gives the same list.
 
 ### What Create does
 
@@ -309,9 +333,10 @@ The catalog ships 38 starter templates in six packs, each with a card; [Starter 
 - `card.yaml` describes the template to whoever is choosing. It is never copied into a bot's
   repository. Fields: `template`, `slug` (the default bot slug), `name`, `required`, `bootstrap`,
   `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`, `pack` (its team: `basics`, `sales`,
-  `marketing`, `support`, `operations` or `engineering`), `lead` (one per pack: it leads its team on the full org chart), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`,
-  `approval_required` and `example_output`. The server serves all of them except `onboarding` and `example_output`, and the chooser reads
-  `pack`, `lead`, `pains`, `summary` and `recommend_when`; `prerequisites` are shown by the bot's own setup, not by onboarding ([Starter bots](starter-bots.md)). A card with a `first_routine` and an
+  `marketing`, `support`, `operations` or `engineering`), `lead` (on each department head), `department`, `icon`, `tags`, `suggest`,
+  `team_templates`, `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`, `approval_required` and `example_output`. The
+  server serves all of them except `onboarding` and `example_output`; the org builder reads `department`, `pack`, `lead`, `icon`, `tags`,
+  `suggest`, `pains`, `summary` and `recommend_when` ([The org builder](#the-org-builder)); `prerequisites` are shown by the bot's own setup, not by onboarding ([Starter bots](starter-bots.md)). After changing a card or `templates/departments.yaml`, run `python3 scripts/build_catalog_json.py` (Tico HQ's copy) and `python3 scripts/build-icon-font.py` (a new icon). A card with a `first_routine` and an
   `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot onboarded`.
 - Everything else in the folder is the repository the bot starts from: `AGENT.md`,
   `employee.yaml`, `playbooks/`, `knowledge/`, `memory/`, `state.md`, `.env.example`, `.gitignore`.
@@ -320,7 +345,7 @@ The catalog ships 38 starter templates in six packs, each with a card; [Starter 
 - `required: true` means the wizard always includes it. `bootstrap: true` means the machine
   materializes it itself and no BotOps task is filed for it. Both are true for the assistant and
   BotOps only.
-- `recommend_when` says who a card is for. The chooser reads only `sells_to_businesses` and `sells_to_consumers` (business-only cards, above); the rest
+- `recommend_when` says who a card is for. The org builder reads only `sells_to_businesses` and `sells_to_consumers` (a business-only card is suggested last to a company that sells only to consumers); the rest
   (`publishes_content`, `has_pipeline`, `uses_github`, ...) are descriptive and harmless. The `inbox` card needs a person's mailbox chosen
   alongside it whenever it is on the team.
 - The release ships `templates/catalog` as `.yaml` and `.md` files only, which is all the server

@@ -28,7 +28,8 @@ USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.3
 
 NAME = r"[a-z][a-z0-9_]*"
 # Classes whose text content is an icon name (each is styled with the icon font in ui/index.html).
-ICON_CLASSES = ("nav-icon", "mobile-nav-icon", "int-key", "agent-mark", "person-mail-link", "material-symbols-outlined")
+ICON_CLASSES = ("nav-icon", "mobile-nav-icon", "int-key", "agent-mark", "person-mail-link", "material-symbols-outlined",
+                "ob-ms")
 PATTERNS = [
     # 1. An element with an icon class whose only content is the name: <span class="nav-icon">check_circle</span>
     re.compile(r'class="[^"]*\b(?:%s)\b[^"]*"[^>]*>\s*(%s)\s*<' % ("|".join(ICON_CLASSES), NAME)),

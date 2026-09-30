@@ -6,6 +6,7 @@ alt_route
 analytics
 api
 architecture
+arrow_forward
 article
 assignment
 assignment_return
@@ -21,6 +22,7 @@ category
 celebration
 chair
 chat_bubble
+check
 check_circle
 checklist
 chevron_right
@@ -42,14 +44,17 @@ diversity_3
 docs
 download
 dynamic_feed
+edit
 edit_note
 error
 event
 event_note
 event_upcoming
+expand_more
 fact_check
 feedback
 filter_alt
+flag
 flight
 folder_shared
 forum
