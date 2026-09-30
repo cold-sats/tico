@@ -411,7 +411,7 @@ def scores_from(answers, questions):
 def judge_pending(store, engine, who, limit=MAX_JUDGE, item_ids=None):
     dests = destinations(store.settings)
     """Score posts that have no judgment from the current set and route them. One decision call a post,
-    each audited as a `judge.call` the way `/api/v2/judge` audits, so the caller's budget counts it."""
+    each audited as a `judge.call` the way `/api/v2/decisions` audits, so the caller's budget counts it."""
     from .judge import DAILY_CALLS, used_today
     qset = J.load_set(QUESTION_SET)
     questions = qset["questions"]

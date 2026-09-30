@@ -1,4 +1,4 @@
-name: brand                     # the slug: it matches the repository emp-brand and the label owner:brand
+name: brand                     # the slug: it matches the repository bot-brand and the label owner:brand
 display_name: "Brand Manager"
 labels: [owner:brand]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first result on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: monthly-brand-audit
     title: Monthly brand consistency audit
     cron: "0 10 1 * *"
@@ -27,4 +27,4 @@ schedules:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # Nothing to connect to start: public pages are read from the web and internal assets arrive on tasks.
-access: []
+tools: []

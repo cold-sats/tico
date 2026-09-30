@@ -3,7 +3,7 @@ slug: legal-ops
 name: "Legal Operations Manager"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: fact_check
 suggest: niche

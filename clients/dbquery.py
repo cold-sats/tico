@@ -9,7 +9,7 @@
 It runs beside the bot, never on the server, because the connection string lives on the runner
 computer (`secrets/*.env` or a vault credential delivered for the turn) and the server must never
 hold it. The rules are enforced here, in layers: the bot must declare the database under
-`access:` in `employee.yaml`; the statement must be one SELECT-like statement; the session is
+`tools:` in `bot.yaml` (older: `access:` in `employee.yaml`); the statement must be one SELECT-like statement; the session is
 opened read-only; a row cap and a timeout apply; credentials are scrubbed from every message;
 and each query is recorded on the hub (statement, row count, time, no result data) before its
 rows are shown. The database role's own permissions are still the first line of defence:
@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError
 
 DEFAULT_MAX_ROWS, MAX_ROWS_CEILING = 500, 10_000
@@ -471,8 +472,8 @@ def employee_manifest(slug, environ=None):
     environ = environ if environ is not None else os.environ
     candidates = []
     if environ.get("HUB_WORKSPACE"):
-        candidates.append(Path(environ["HUB_WORKSPACE"]) / f"emp-{slug}" / "employee.yaml")
-    candidates.append(Path.cwd() / "employee.yaml")
+        candidates.append(manifest_path(repo_dir(environ["HUB_WORKSPACE"], slug)))
+    candidates.append(manifest_path(Path.cwd()))
     for path in candidates:
         try:
             data = yaml.safe_load(path.read_text()) or {}
@@ -480,13 +481,13 @@ def employee_manifest(slug, environ=None):
             continue
         if isinstance(data, dict):
             return data
-    raise Refusal("grant", f"no employee.yaml found for {slug}; a bot declares its databases under `access:` there")
+    raise Refusal("grant", f"no bot.yaml found for {slug}; a bot declares its databases under `tools:` there")
 
 
 def declared(manifest):
-    """{name: access entry} for every database an employee.yaml declares."""
+    """{name: tool entry} for every database a bot.yaml declares (under `tools:`, older `access:`)."""
     found = {}
-    for entry in (manifest.get("access") or []):
+    for entry in (tools_of(manifest) or []):
         if isinstance(entry, dict) and str(entry.get("service", "")).lower() in SERVICES and entry.get("database"):
             found[str(entry["database"])] = entry
     return found
@@ -502,7 +503,7 @@ def limit(entry, key, default, ceiling):
 def open_database(name, actor, environ=None):
     """The Database `actor` may use under `name`, with its credential from the environment.
 
-    A bot needs a declared `access:` entry; a person running `hub db` on their own computer
+    A bot needs a declared `tools:` entry; a person running `hub db` on their own computer
     needs the credential in their own environment, which is their grant."""
     environ = environ if environ is not None else os.environ
     if not NAME.match(name) or name in RESERVED:
@@ -512,8 +513,8 @@ def open_database(name, actor, environ=None):
         entries = declared(employee_manifest(actor[4:], environ))
         if name not in entries:
             have = ", ".join(sorted(entries)) or "none"
-            raise Refusal("grant", f"{actor} does not declare database `{name}` (declared: {have}). Add an `access:` entry with "
-                                   f"`service: postgres|mysql|mongodb|sqlite`, `database: {name}` and `can: [read]` to its employee.yaml; "
+            raise Refusal("grant", f"{actor} does not declare database `{name}` (declared: {have}). Add a `tools:` entry with "
+                                   f"`service: postgres|mysql|mongodb|sqlite`, `database: {name}` and `can: [read]` to its bot.yaml; "
                                    "that is the owner's call.")
         entry = entries[name]
         if "read" not in [str(v) for v in (entry.get("can") or [])]:
@@ -622,7 +623,7 @@ def doctor(actor, names=(), environ=None):
     if not names:
         names = [row["database"] for row in listing(actor, environ)]
     if not names:
-        return {"ok": False, "databases": [], "text": "no databases: declare one under `access:` in employee.yaml (docs/databases.md)"}
+        return {"ok": False, "databases": [], "text": "no databases: declare one under `tools:` in bot.yaml (docs/databases.md)"}
     report, ok = [], True
     for name in names:
         checks = []
@@ -663,7 +664,7 @@ def named_query(client, name, query_id):
         if exc.status == 404:
             raise Refusal("catalog", f"no query `{query_id}` in the `{name}` catalog. Named queries live in the company's private "
                                      f"config as integrations/queries/{name}.yaml (docs/databases.md, step 5); "
-                                     f"`hub queries {name} <term>` searches them") from None
+                                     f"`hub tool query-search {name} <term>` searches them") from None
         raise
 
 

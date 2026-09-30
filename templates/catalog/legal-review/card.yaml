@@ -3,7 +3,7 @@ slug: legal-review
 name: "Contracts Manager"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: contract
 suggest: default

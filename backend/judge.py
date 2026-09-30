@@ -1,4 +1,4 @@
-"""Decisions as a hub tool: `POST /api/v2/judge`, the door behind `hub_decisions` and `hub decisions`
+"""Decisions as a hub tool: `POST /api/v2/decisions`, the door behind `hub_decision_ask` and `hub decision ask`
 (the route, the `judge.call` audit events and this module keep their old name, `judge`).
 
 The hub holds the one TypeSafe key (`TYPESAFE_API_KEY` or `TICO_TYPESAFE_SECRET_ARN`, the

@@ -15,7 +15,7 @@ business, and no bot, run log, or model ever sees a password. The skill that tea
 REPL is `skills/aside-browser/SKILL.md` in the hub (from `aside skills install`).
 
 Gated in code, not in prompts:
-  - the employee's emp-<slug>/employee.yaml must declare access: service aside
+  - the employee's bot.yaml (older: emp-<slug>/employee.yaml) must declare tools: service aside
   - `sites:` on that entry lists the hosts it may open; every URL literal in the code, and the
     task text, must stay on those hosts (a subdomain of a listed host counts)
   - `can: [read]` allows repl reads only: clicking, typing, submitting, and `task` are refused.
@@ -24,7 +24,7 @@ Gated in code, not in prompts:
   - every call is appended to <projects>/runtime/browser-audit.jsonl (who, what, sites, outcome)
   - The owner's social sessions (X, Reddit, LinkedIn, Facebook, Instagram, TikTok, YouTube, ...) are
     Listening's alone: any other employee naming one of those hosts, in its
-    `sites:` or in the code, is refused here, whatever its employee.yaml says. Other bots get
+    `sites:` or in the code, is refused here, whatever its bot.yaml says. Other bots get
     what Listening saved through their hub inbox, or ask Listening by task.
 
 Exit codes: 0 ok, 1 failure (CLI missing, Aside not running, timeout), 2 policy refusal.
@@ -51,7 +51,7 @@ ACTIONS = re.compile(r"\.(click|dblclick|fill|type|press|check|uncheck|selectOpt
                      r"dragTo|hover|tap|evaluate|evaluateHandle|route|goto)\s*\(|\bpage\.keyboard\b|\bpage\.mouse\b", re.I)
 URLS = re.compile(r"https?://([A-Za-z0-9.-]+)")
 # The one employee that reads the owner's social sessions, and the hosts that count as one. This is
-# in the hub, not in any employee.yaml, so a bot cannot grant itself a social site.
+# in the hub, not in any bot.yaml, so a bot cannot grant itself a social site.
 SESSION_OWNER = "listening"
 SOCIAL_HOSTS = ("x.com", "twitter.com", "t.co", "reddit.com", "redd.it", "linkedin.com", "lnkd.in",
                 "facebook.com", "fb.com", "instagram.com", "tiktok.com", "youtube.com", "youtu.be",
@@ -74,11 +74,13 @@ class Failed(Exception):
 
 
 def load_manifest(slug):
-    p = PROJECTS / f"emp-{slug}" / "employee.yaml"
+    folder = next((PROJECTS / (prefix + slug) for prefix in ("bot-", "emp-") if (PROJECTS / (prefix + slug)).exists()),
+                  PROJECTS / ("bot-" + slug))           # bot-<slug>, else an older emp-<slug> (this repeats clients/manifest.py)
+    p = next((folder / name for name in ("bot.yaml", "employee.yaml") if (folder / name).is_file()), folder / "bot.yaml")
     if yaml is None:
         raise Failed("PyYAML is not installed")
     if not p.exists():
-        raise Refused(f"no employee.yaml for {slug} at {p}")
+        raise Refused(f"no bot.yaml for {slug} at {p}")
     return yaml.safe_load(p.read_text()) or {}
 
 
@@ -99,13 +101,13 @@ def check_social(slug, sites=(), text=""):
 
 
 def aside_access(manifest, slug):
-    for entry in (manifest.get("access") or []):
+    for entry in ((manifest["tools"] if "tools" in manifest else manifest.get("access")) or []):
         if isinstance(entry, dict) and entry.get("service") == "aside":
             check_social(slug, [s for s in (entry.get("sites") or []) if isinstance(s, str)])
             return entry
     raise Refused(f"{slug} does not declare browser access.",
-                  "Add an `access:` entry with service: aside, `sites:` and `can:` to emp-%s/employee.yaml. "
-                  "Changing access: is the owner's call - open an Issue with owner:<owner handle> and type:decision." % slug)
+                  "Add a `tools:` entry with service: aside, `sites:` and `can:` to %s's bot.yaml. "
+                  "Changing tools: is the owner's call - open an Issue with owner:<owner handle> and type:decision." % slug)
 
 
 def on_sites(host, sites):
@@ -129,7 +131,7 @@ def check_verbs(entry, slug, code=None, task=False):
     can = [str(v) for v in (entry.get("can") or [])]
     if task and "act" not in can:
         raise Refused(f"{slug} may only read in the browser; `task` hands control to Aside's agent, which acts.",
-                      "Add `act` to the aside entry's `can:` in employee.yaml; that is the owner's call.")
+                      "Add `act` to the aside entry's `can:` in bot.yaml; that is the owner's call.")
     if code is not None and "act" not in can:
         m = ACTIONS.search(code)
         if m:

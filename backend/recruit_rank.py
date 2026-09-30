@@ -5,7 +5,7 @@ Tico HQ is off or unreachable) and Tico HQ (hq/recruit.py, the answer when its m
 `scripts/build_catalog_json.py` copies it to hq/recruit_rank.py and writes hq/catalog.json with `build()`; its `--check`
 fails when either copy is stale.
 
-`build(departments, cards)` turns templates/departments.yaml and the card.yaml files (already parsed) into
+`build(departments, cards)` turns templates/groups.yaml and the card.yaml files (already parsed) into
 {version, departments, cards}. `rank(catalog, department, briefing, about)` answers {bots: [{template_id, why}],
 suggested_default: [template_id]} with template ids from that department only, never free text a bot would follow.
 """
@@ -62,7 +62,7 @@ def _strings(value, limit=24):
 
 
 def _department_of(card, heads, teams):
-    wanted = str(card.get("department") or "").strip()
+    wanted = str(card.get("group") or card.get("department") or "").strip()
     if wanted:
         # A department the builder does not offer (the Leadership extra) keeps its cards out of every department.
         return wanted if wanted in DEPARTMENT_IDS else ""
@@ -84,10 +84,10 @@ def department(document):
 
 
 def build(departments, cards):
-    """The org builder's catalog from parsed departments.yaml and card.yaml documents. Built-in (`required`) cards,
+    """The org builder's catalog from parsed groups.yaml and card.yaml documents. Built-in (`required`) cards,
     helpers (`kind: helper`, which serve a person and sit outside the org chart) and cards in no offered department are
     left out. A card with no `icon` takes its department's; with no `suggest`, it is `common`; with no `tags`, its
-    `pains` phrases stand in. A department's head is its card with `lead: true`, else the `head` departments.yaml
+    `pains` phrases stand in. A department's head is its card with `lead: true`, else the `head` groups.yaml
     names; the served `head` and each card's `lead` say which."""
     rows = departments.get("departments") if isinstance(departments, dict) else departments
     known = [department(row) for row in (rows or []) if isinstance(row, dict)]
@@ -95,7 +95,7 @@ def build(departments, cards):
     heads = {row["head"]: row["id"] for row in known if row["head"]}
     teams = {}
     for card in cards:
-        home = heads.get(str(card.get("template") or "")) or str(card.get("department") or "")
+        home = heads.get(str(card.get("template") or "")) or str(card.get("group") or card.get("department") or "")
         for member in (card.get("team_templates") or []) if home else []:
             teams.setdefault(str(member), home)
     by_id = {row["id"]: row for row in known}

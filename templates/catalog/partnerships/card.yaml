@@ -3,7 +3,7 @@ slug: partnerships
 name: Partnerships Manager
 required: false
 bootstrap: false
-department: sales
+group: sales
 pack: sales
 icon: partner_exchange
 suggest: niche

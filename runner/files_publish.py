@@ -1,7 +1,7 @@
 """Publish a bot's reports and artifacts as Tico files after a completed turn (docs/files.md).
 
 The runner looks at the folders the bot writes deliverables to (`reports/` and `artifacts/` in its
-checkout, or `files: {publish: [...]}` in employee.yaml), and uploads each new or changed file. What
+checkout, or `files: {publish: [...]}` in bot.yaml, or the older employee.yaml), and uploads each new or changed file. What
 it sends is decided here, on the bot's own computer: allowed types, a size cap, no credential-like
 names, no symbolic links, nothing outside the checkout (clients/bot_files.py).
 
@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from clients import bot_files as BF
+from clients.manifest import manifest_path
 from clients.tico import APIError, Client
 from .outage import describe, log
 
@@ -50,7 +51,7 @@ def folders_for(config, root):
 def _employee_yaml(root):
     try:
         import yaml
-        return yaml.safe_load((Path(root) / "employee.yaml").read_text()) or {}
+        return yaml.safe_load(manifest_path(root).read_text()) or {}
     except Exception:
         return {}
 

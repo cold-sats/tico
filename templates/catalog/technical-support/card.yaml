@@ -3,7 +3,7 @@ slug: technical-support
 name: "Technical Support Engineer"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: troubleshoot
 suggest: niche

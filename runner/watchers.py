@@ -28,10 +28,11 @@ from pathlib import Path
 import yaml
 
 from clients import watchers as declared
+from clients.manifest import manifest_path
 from . import isolation, op
 from .outage import describe, log
 
-SCAN_EVERY = 30              # seconds between reading the bots' employee.yaml files
+SCAN_EVERY = 30              # seconds between reading the bots' bot.yaml files
 OUTPUT_CAP = 256 * 1024      # bytes of output kept; the program is still drained past it
 REPORT_CAP = 2000            # characters of log sent to the hub
 STATE_CAP = 1024 * 1024      # bytes of state saved for the rollback
@@ -126,7 +127,7 @@ class Watchers:
             if entry.get("state") != "active" or not self.runner.assigned_here(entry):
                 continue
             path = self.runner.local_path(bot)
-            manifest = path / "employee.yaml"
+            manifest = manifest_path(path)
             if not (path / "AGENT.md").is_file() or not manifest.is_file():
                 continue
             try:
@@ -193,7 +194,7 @@ class Watchers:
         saved = snapshot(state)
         env = self.environment(bot, entry)
         secrets = secret_values(env)        # before the runner's own, non-secret variables (the bot's name, paths)
-        env.update({"TICO_WATCHER": spec["name"], "TICO_WATCHER_STATE": str(state), "HUB_EMPLOYEE": bot,
+        env.update({"TICO_WATCHER": spec["name"], "TICO_WATCHER_STATE": str(state), "HUB_BOT": bot, "HUB_EMPLOYEE": bot,
                     "HUB_API_URL": self.runner.config["url"], "HUB_WORKSPACE": str(self.runner.config["projects_dir"]),
                     "PATH": os.pathsep.join([str(Path(sys.executable).parent), env.get("PATH", os.defpath)])})
         started = now()

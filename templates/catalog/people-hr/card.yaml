@@ -3,7 +3,7 @@ slug: people-hr
 name: HR Generalist
 required: false
 bootstrap: false
-department: hr
+group: hr
 pack: basics
 icon: contact_page
 suggest: default

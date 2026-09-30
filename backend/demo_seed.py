@@ -75,7 +75,7 @@ def write_registry(settings):
     for slug, template, reports_to in D.BOTS:
         card = onboarding.render(cards[template], names, cards[template]["name"]) if template in cards else {}
         employees.append({"name": slug, "display_name": settings.assistant_name if slug == "coo" else card.get("name", slug),
-                          "reports_to": reports_to, "status": "active", "repo": "emp-" + slug, "template": template,
+                          "reports_to": reports_to, "status": "active", "repo": "bot-" + slug, "template": template,
                           "description": card.get("summary", "")})
     (registry / "employees.yaml").write_text(yaml.safe_dump(
         {"defaults": {"reasoning_effort": "high", "max_run_minutes": 60}, "employees": employees}, sort_keys=False))

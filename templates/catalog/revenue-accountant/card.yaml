@@ -3,7 +3,7 @@ slug: revenue-accountant
 name: "Revenue Accountant"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: price_check
 suggest: niche

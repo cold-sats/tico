@@ -3,7 +3,7 @@ slug: office-manager
 name: "Office Manager"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: chair
 suggest: niche

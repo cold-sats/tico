@@ -1,4 +1,4 @@
-name: listening                     # the slug: it matches the repository emp-listening and the label owner:listening
+name: listening                     # the slug: it matches the repository bot-listening and the label owner:listening
 display_name: "Social Media Manager"
 labels: [owner:listening]
 reads: []                        # other bot repositories this one may clone read-only
@@ -15,7 +15,7 @@ outbound_send: false
 # `hub routine update <id> --enable` after a person approves the first digest on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 # One sweep to start with. A second earns its place once someone has read a week of the first.
-schedules:
+routines:
   - id: weekday-morning-sweep
     title: Weekday morning sweep
     cron: "0 8 * * 1-5"
@@ -28,10 +28,10 @@ schedules:
 # arrives in, never the value; the value lives in the workspace secrets directory on the machine
 # that runs the bot. Declaring access here does not create it. A browser access also names
 # `sites:`, so the connector can refuse every other host.
-# access:
+# tools:
 #   - service: browser
 #     identity: "the company browser profile"
 #     can: [read]
 #     sites: ["news.example.com"]
 #     note: "reads public search results; never clicks, types or submits"
-access: []
+tools: []

@@ -3,7 +3,7 @@ slug: product-marketing
 name: Product Marketing Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: rocket_launch
 suggest: common

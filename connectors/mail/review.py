@@ -29,7 +29,7 @@ Unreachable is not the same as bad. `draft` proceeds with review: "unavailable" 
 import json, os, re, shutil, subprocess, tempfile, urllib.error, urllib.request
 from pathlib import Path
 
-from . import Failure, HUB, PROJECTS, RUNTIME, stamp
+from . import Failure, HUB, PROJECTS, RUNTIME, repo_dir, stamp
 
 DEFAULT_BACKEND = "grok:grok-4.6"
 ENV_VAR = "MAIL_REVIEWER"
@@ -79,7 +79,7 @@ def backend_name(env=None):
 
 def purpose_of(slug, root=None):
     """The employee's Role paragraph from its AGENT.md, first 600 characters."""
-    p = (root or PROJECTS) / f"emp-{slug}" / "AGENT.md"
+    p = repo_dir(root or PROJECTS, slug) / "AGENT.md"
     if not p.exists():
         return ""
     m = re.search(r"^##\s+Role\s*$(.*?)(?=^##\s|\Z)", p.read_text(errors="replace"),

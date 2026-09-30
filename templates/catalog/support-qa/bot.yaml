@@ -1,4 +1,4 @@
-name: support-qa                     # the slug: it matches the repository emp-support-qa and the label owner:support-qa
+name: support-qa                     # the slug: it matches the repository bot-support-qa and the label owner:support-qa
 display_name: "Support Quality Analyst"
 labels: [owner:support-qa]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-reply-review
     title: Weekly reply review
     cron: "0 10 * * 5"
@@ -29,10 +29,10 @@ schedules:
 # Sent replies arrive as tasks (Support Agent's approved drafts, or exports a person attaches) until an
 # owner connects a source. Optional, uncomment what the onboarding says is connected. Read only, always:
 # reviewing a reply never touches the ticket it came from.
-# access:
+# tools:
 #   - service: gmail
 #     identity: "support@example.com"
 #     can: [read]
 #     env: GOOGLE_SA_KEY
 #     note: "reads sent support threads to sample replies; never drafts, files, labels or sends"
-access: []
+tools: []

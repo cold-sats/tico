@@ -3,7 +3,7 @@ slug: product-researcher
 name: "UX Researcher"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 icon: record_voice_over
 suggest: common

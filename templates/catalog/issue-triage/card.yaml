@@ -3,7 +3,7 @@ slug: issue-triage
 name: "QA Engineer"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 icon: bug_report
 suggest: default

@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS watcher_runs(
 STALE_AFTER = 3            # runs missed before Health says a watcher has stopped
 # A path into a secrets folder or another bot's repository is refused in a task or a message (hubdb rule 8), so text
 # from outside is written with the slash set apart rather than losing the whole event.
-PROTECTED = re.compile(r"\b(secrets|emp-[A-Za-z0-9-]+)/")
+PROTECTED = re.compile(r"\b(secrets|(?:emp|bot)-[A-Za-z0-9-]+)/")
 
 
 class WatcherEvent(Contract):

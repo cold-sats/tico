@@ -3,7 +3,7 @@ slug: returns
 name: "Returns and Refunds Specialist"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: assignment_return
 suggest: niche

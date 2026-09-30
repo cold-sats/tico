@@ -1,4 +1,4 @@
-name: bookkeeping                     # the slug: it matches the repository emp-bookkeeping and the label owner:bookkeeping
+name: bookkeeping                     # the slug: it matches the repository bot-bookkeeping and the label owner:bookkeeping
 display_name: "Bookkeeper"
 labels: [owner:bookkeeping]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: monthly-close-checklist
     title: Monthly close checklist
     cron: "0 9 1 * *"
@@ -29,4 +29,4 @@ schedules:
 # The transactions arrive as an export attached to a task, so no access is declared. There is no
 # shared accounting connector: a read-only accounting integration is added by the owner as its own
 # access entry with `can: [read]` only, and never a write, when the company chooses to connect one.
-access: []
+tools: []

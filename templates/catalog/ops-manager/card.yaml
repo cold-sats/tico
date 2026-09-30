@@ -3,7 +3,7 @@ slug: ops-manager
 name: "Operations Manager"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 lead: true
 icon: assignment_turned_in

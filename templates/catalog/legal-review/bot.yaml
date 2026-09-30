@@ -1,4 +1,4 @@
-name: legal-review                     # the slug: it matches the repository emp-legal-review and the label owner:legal-review
+name: legal-review                     # the slug: it matches the repository bot-legal-review and the label owner:legal-review
 display_name: "Contracts Manager"
 labels: [owner:legal-review]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-contract-calendar
     title: Weekly contract calendar
     cron: "0 9 * * 1"
@@ -26,10 +26,10 @@ schedules:
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
-access: []
+tools: []
 # Optional, uncomment when connected. Contracts arrive as files attached to a task; reading the shared mailbox
 # where counterparties send them saves a step. Nothing here ever reaches a counterparty.
-# access:
+# tools:
 #   - service: gmail
 #     identity: "contracts@example.com"
 #     can: [read, draft]          # never send: outbound_send stays false

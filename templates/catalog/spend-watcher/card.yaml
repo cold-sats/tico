@@ -3,7 +3,7 @@ slug: spend-watcher
 name: "FP&A Analyst"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: analytics
 suggest: common

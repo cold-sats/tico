@@ -803,7 +803,7 @@ class Gateway:
             try:
                 cid, opened = self.conversation_for(c, actor, bot, event)
                 # A follow-up answers the bot's last line: an unanswered `ask` is closed with an
-                # `answer` (what `hub ask --wait` polls for); any other bot line is linked.
+                # `answer` (what `hub question ask --wait` polls for); any other bot line is linked.
                 kind, reply_to = "say", None
                 last = c.execute("SELECT id,from_actor,kind FROM messages WHERE conversation_id=? "
                                  "ORDER BY created DESC LIMIT 1", (cid,)).fetchone()

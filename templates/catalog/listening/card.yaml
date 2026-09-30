@@ -3,7 +3,7 @@ slug: listening
 name: Social Media Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: tag
 suggest: common

@@ -3,7 +3,7 @@ slug: tax
 name: "Tax Specialist"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: percent
 suggest: niche

@@ -3,7 +3,7 @@ slug: pr-reviewer
 name: "Senior Software Engineer"
 required: false
 bootstrap: false
-department: engineering
+group: engineering
 pack: engineering
 icon: code_blocks
 suggest: common

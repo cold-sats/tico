@@ -3,7 +3,7 @@ slug: ux-writer
 name: "UX Writer"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 icon: text_fields
 suggest: niche

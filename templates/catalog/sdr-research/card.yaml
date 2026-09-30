@@ -3,7 +3,7 @@ slug: sdr-research
 name: Sales Development Representative
 required: false
 bootstrap: false
-department: sales
+group: sales
 pack: sales
 icon: person_search
 suggest: default

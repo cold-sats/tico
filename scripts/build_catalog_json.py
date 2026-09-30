@@ -3,7 +3,7 @@
 
 Tico HQ (hq/) is its own image with no templates in it, so it serves suggestions from two generated files:
 
-    hq/catalog.json       departments and card metadata (no instructions), from templates/departments.yaml and
+    hq/catalog.json       departments and card metadata (no instructions), from templates/groups.yaml and
                           templates/catalog/*/card.yaml, built with backend/recruit_rank.py `build()`, the same
                           function the Tico server uses for its own catalog
     hq/recruit_rank.py    a copy of backend/recruit_rank.py, the local recommender both sides fall back to
@@ -11,7 +11,7 @@ Tico HQ (hq/) is its own image with no templates in it, so it serves suggestions
     python3 scripts/build_catalog_json.py           # rewrite both
     python3 scripts/build_catalog_json.py --check   # exit 1 when either is stale (a test runs this)
 
-Run it after changing a card, departments.yaml or backend/recruit_rank.py.
+Run it after changing a card, groups.yaml or backend/recruit_rank.py.
 """
 import importlib.util
 import json
@@ -48,7 +48,8 @@ def cards(catalog_dir=TEMPLATES / "catalog"):
 
 
 def build():
-    departments = yaml.safe_load((TEMPLATES / "departments.yaml").read_text()) or {}
+    groups_file = TEMPLATES / "groups.yaml"
+    departments = yaml.safe_load((groups_file if groups_file.is_file() else TEMPLATES / "departments.yaml").read_text()) or {}
     catalog = _ranker().build(departments, cards())
     return json.dumps(catalog, indent=1, ensure_ascii=False, sort_keys=True) + "\n", HEADER + SOURCE.read_text()
 

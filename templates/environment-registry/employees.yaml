@@ -8,7 +8,7 @@
 # onboarding from the catalog and created by BotOps, so it never belongs in this seed.
 # Both start `planned`; activate them once their repositories exist in the workspace and a
 # subscription profile is signed in.
-# Fields: name (slug, matches the repo emp-<name>), display_name, reports_to (slug or null),
+# Fields: name (slug, matches the repo bot-<name>), display_name, reports_to (slug or null),
 # status (planned|active|paused), repo, description. Runtime and model come from the company's provider choice.
 
 # No runtime or model here on purpose: the owner chooses the AI providers and a default model
@@ -22,12 +22,12 @@ employees:
     display_name: "{{assistant_name}}"
     reports_to: null
     status: planned
-    repo: emp-coo
+    repo: bot-coo
     description: "The assistant {{company_name}} talks to in {{app_name}}: keeps the task list, routes work to the other bots, and asks for the decisions only a person can make."
 
   - name: botops
     display_name: "BotOps"
     reports_to: coo
     status: planned
-    repo: emp-botops
+    repo: bot-botops
     description: "The engineer that sets up every other bot from the catalog and keeps their repositories, instructions and readiness working."

@@ -280,8 +280,8 @@ def cmd_doctor(args):
     boxes = [args.mailbox.strip().lower()] if args.mailbox else sorted(holders)
     if not boxes:
         c.fail("mailboxes", "no employee declares a gmail identity",
-               "Add an `access:` entry with service: gmail and an identity to an "
-               "emp-<slug>/employee.yaml (hub policies/access.md).")
+               "Add a `tools:` entry with service: gmail and an identity to a "
+               "bot's bot.yaml (hub policies/access.md).")
 
     for box in boxes:
         slugs = holders.get(box) or []
@@ -2256,7 +2256,7 @@ def build_parser():
     def base(sp, mailbox=True, employee=True):
         if employee:
             sp.add_argument("--as", dest="as_slug", default=None,
-                            help="employee slug; defaults to HUB_EMPLOYEE from the runner")
+                            help="employee slug; defaults to HUB_BOT from the runner")
         if mailbox:
             sp.add_argument("--mailbox", default=None,
                             help="the address to act as; required when the employee holds several")

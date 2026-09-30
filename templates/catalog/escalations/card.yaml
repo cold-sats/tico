@@ -3,7 +3,7 @@ slug: escalations
 name: "Escalations Manager"
 required: false
 bootstrap: false
-department: support
+group: support
 pack: support
 icon: crisis_alert
 suggest: niche

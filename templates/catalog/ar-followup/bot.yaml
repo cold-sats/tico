@@ -1,4 +1,4 @@
-name: ar-followup                     # the slug: it matches the repository emp-ar-followup and the label owner:ar-followup
+name: ar-followup                     # the slug: it matches the repository bot-ar-followup and the label owner:ar-followup
 display_name: "Accounts Receivable Specialist"
 labels: [owner:ar-followup]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-receivables-reminders
     title: Weekly receivables reminders
     cron: "0 9 * * 1"
@@ -28,10 +28,10 @@ schedules:
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # The aging export arrives as a file on a task, so nothing is declared to start. Optional, uncomment
 # when connected (changing access is an owner decision). Read only: never a write, never send.
-# access:
+# tools:
 #   - service: gmail
 #     identity: "billing@example.com"
 #     can: [read, draft]          # never send: outbound_send stays false
 #     env: GOOGLE_SA_KEY
 #     note: "reads the sender's threads with a customer and leaves a draft; never files or sends"
-access: []
+tools: []

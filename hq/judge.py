@@ -8,7 +8,7 @@ was down or slow, or it was not sure). Only the verdict and a short reason are k
     HQ_JUDGE_URL   the decisions endpoint; the provider PRIVACY.md names by default
 
 It fails open: a judge that is down, slow (3 seconds) or answers something unexpected gives `unchecked`, and the ticket
-is filed as usual. The same question is the one `hub judge classify` asks on a Tico server (backend/judge.py), so a
+is filed as usual. The same question is the one `hub decision ask` puts to a Tico server (backend/judge.py), so a
 support ticket and an email get the same verdict. PRIVACY.md says what is sent.
 """
 import logging

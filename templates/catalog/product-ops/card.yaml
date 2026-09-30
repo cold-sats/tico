@@ -3,7 +3,7 @@ slug: product-ops
 name: "Product Operations Manager"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 icon: dashboard_customize
 suggest: niche

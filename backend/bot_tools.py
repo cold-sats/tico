@@ -3,13 +3,13 @@ see about a bot's tools").
 
 Three sources make the list, none of them a secret. The model and harness the bot runs on come from
 its stored config and the company's provider choice. Its repository comes from the bot's record. The
-rest are the `access:` entries of its employee.yaml, which the runner reads from the bot's checkout
+rest are the `tools:` entries (older: `access:`) of its bot.yaml (older: employee.yaml), which the runner reads from the bot's checkout
 and reports on every heartbeat with whether each credential is on its computer
 (runner/declared_access.py, `bots.<bot>.tools` in the readiness report). A runner from before that
 report yields the first two only. No value ever passes through here: env is a variable's name.
 
 A person who manages a bot (`Auth.bot_manager`) can also register or remove a tool. The server holds no bot repository,
-so it cannot edit employee.yaml: it checks the entry against the schema employee.yaml uses
+so it cannot edit bot.yaml: it checks the entry against the schema bot.yaml uses
 (clients/access_entry.py, which also refuses anything that looks like a credential), keeps it as a
 pending request, and opens a task for BotOps with the exact YAML. The Tools row shows the request as
 "pending" until the runner's report lists the entry (or, for a removal, stops listing it).
@@ -183,7 +183,7 @@ def _pending_tool(request):
             "logo_key": LOGO_KEYS.get(service), "identity": entry.get("identity") or "", "can": list(entry.get("can") or []),
             "scope": access_entry.scope_of(entry), "env": entry.get("env") or "", "note": entry.get("note") or "",
             "status": "pending", "pending": "add", "task_id": request["task_id"],
-            "detail": "Waiting for BotOps to add it to the bot's employee.yaml; it shows as ready once the computer reports it"}
+            "detail": "Waiting for BotOps to add it to the bot's bot.yaml; it shows as ready once the computer reports it"}
 
 
 def listing(c, settings, bot):
@@ -199,7 +199,7 @@ def listing(c, settings, bot):
             for tool, entry in zip(declared, state["raw"]):
                 if _same(entry, request["entry"]):
                     tool["pending"], tool["task_id"] = "remove", request["task_id"]
-                    tool["detail"] = "Removal requested; waiting for BotOps to take it out of employee.yaml"
+                    tool["detail"] = "Removal requested; waiting for BotOps to take it out of bot.yaml"
     adding = [_pending_tool(r) for r in requests if r["kind"] == "add"
               and not any(_same(entry, r["entry"]) for entry in state["raw"])]
     tools = [_model_tool(c, settings, bot, state["config"], state["readiness"], label)]
@@ -213,13 +213,14 @@ def listing(c, settings, bot):
 
 
 # ----------------------------------------------------------------------------- registering
-def _task_text(verb, bot, name, entry, computer):
-    where = "emp-" + bot + "/employee.yaml"
+def _task_text(verb, bot, name, entry, computer, repo=None):
+    # The bot's recorded repository (`emp-<slug>` for a bot made before `bot-<slug>`), and its manifest under either name.
+    where = str(repo or "bot-" + bot).rsplit("/", 1)[-1] + "/bot.yaml (employee.yaml in a repository not yet renamed)"
     if verb == "add":
-        do = (f"Add this entry to the `access:` list in {where}, keeping the entries already there, then commit and "
+        do = (f"Add this entry to the `tools:` list (older: `access:`) in {where}, keeping the entries already there, then commit and "
               "push it:")
     else:
-        do = f"Remove this entry from the `access:` list in {where} (match it by service and identity), then commit and push it:"
+        do = f"Remove this entry from the `tools:` list (older: `access:`) in {where} (match it by service and identity), then commit and push it:"
     return "\n".join([
         f"{'Add' if verb == 'add' else 'Remove'} {name} access {'to' if verb == 'add' else 'from'} {bot}.", "",
         do, "", "```yaml", access_entry.to_yaml(entry), "```", "",
@@ -230,13 +231,13 @@ def _task_text(verb, bot, name, entry, computer):
         + (f" The computer is {computer}." if computer else "")])
 
 
-def _request_task(c, auth, who, verb, bot, name, entry, computer, taken):
+def _request_task(c, auth, who, verb, bot, name, entry, computer, taken, repo=None):
     from . import getting_started as G
     G._botops(c)
     title = f"{'Add' if verb == 'add' else 'Remove'} {name} access {'to' if verb == 'add' else 'from'} {bot}"
     if taken:
         title += f" ({taken + 1})"        # the hub refuses a second live task with the same title
-    return G._task(c, auth, who, G.BOTOPS, title, _task_text(verb, bot, name, entry, computer))
+    return G._task(c, auth, who, G.BOTOPS, title, _task_text(verb, bot, name, entry, computer, repo))
 
 
 def register(c, auth, settings_admin, settings, who, bot, body):
@@ -255,7 +256,8 @@ def register(c, auth, settings_admin, settings, who, bot, body):
     taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='add' AND state='pending'",
                       (bot, entry["service"])).fetchone()[0]
     name = service_name(entry["service"])
-    task = _request_task(c, auth, who, "add", bot, name, entry, state["runner"] and state["label"], taken)
+    task = _request_task(c, auth, who, "add", bot, name, entry, state["runner"] and state["label"], taken,
+                         state["row"] and state["row"]["repo"])
     rid = H.new_id()
     c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
               "VALUES(?,?,?,?,?,?,?,?,?)", (rid, bot, "add", entry["service"], entry.get("identity", ""), encode(entry),
@@ -295,7 +297,8 @@ def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
     taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='remove' AND state='pending'",
                       (bot, entry["service"])).fetchone()[0]
     name = service_name(entry["service"])
-    task = _request_task(c, auth, who, "remove", bot, name, flat, state["label"], taken)
+    task = _request_task(c, auth, who, "remove", bot, name, flat, state["label"], taken,
+                         state["row"] and state["row"]["repo"])
     c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
               "VALUES(?,?,?,?,?,?,?,?,?)", (H.new_id(), bot, "remove", entry["service"], entry.get("identity", ""),
                                             encode(entry), task["id"], who.actor, H.now()))
@@ -334,7 +337,7 @@ def install(app, store, auth, mutate, settings_admin):
     @app.post("/api/v2/bots/{bot}/tools")
     def register_tool(request: Request, bot: str, body: M.ToolRegister):
         """Register a tool for a bot: checked, kept as a pending request, and handed to BotOps as a task
-        with the exact `access:` entry. A credential is never accepted; `env` is a variable's name."""
+        with the exact `tools:` entry. A credential is never accepted; `env` is a variable's name."""
         who = request.state.identity
         return mutate(request, body, lambda c: register(c, auth, settings_admin, store.settings, who, bot, body))
 

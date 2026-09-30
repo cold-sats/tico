@@ -3,7 +3,7 @@ slug: feedback-analyst
 name: "Customer Insights Analyst"
 required: false
 bootstrap: false
-department: product
+group: product
 pack: engineering
 icon: feedback
 suggest: default

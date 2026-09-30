@@ -3,7 +3,7 @@ slug: finance-lead
 name: "Head of Finance"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 lead: true
 icon: account_balance_wallet

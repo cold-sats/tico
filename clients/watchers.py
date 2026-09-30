@@ -1,6 +1,6 @@
 """Watchers: a program in a bot's repository that the runner runs on a schedule with no model (docs/watchers.md).
 
-`employee.yaml` declares them:
+`bot.yaml` (older: `employee.yaml`) declares them:
 
     watchers:
       - name: hq-tickets

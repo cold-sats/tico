@@ -9,6 +9,7 @@ takes it from there like any other task.
 import json
 from datetime import datetime, timezone
 
+from clients.manifest import tools_of
 from clients.routines import DEFAULT_ZONE, validate_schedules
 from . import people as P
 from .scheduler import next_due, stamp
@@ -21,7 +22,7 @@ DEFAULT_TEXT = "Run this scheduled routine."
 OPEN_TASKS_KEY = "open-tasks-daily"      # retired; the key finds the old rows
 SWEEP_KEY = "task-sweep"
 SWEEP_TEXT = ("Sweep stuck tasks across the fleet (follow playbooks/task-sweep.md if you have it). "
-              "`hub task stuck` lists every bot's open work that has not moved in a day and waits on "
+              "`hub task list --stuck` lists every bot's open work that has not moved in a day and waits on "
               "nobody. For each: start it with `hub task run <id>` when the bot can simply do it; "
               "fix the cause when something in the bot or Tico keeps it stuck; or tell the requester "
               "in one line why it cannot move. Nothing stuck: finish this task with one line.")
@@ -207,7 +208,7 @@ def inbox_of(bot, config, roster):
         org_read = True
         for addr in P.mailboxes_below(who["id"], roster):
             add(addr)
-    for entry in (config or {}).get("access") or []:
+    for entry in tools_of(config) or []:
         if not isinstance(entry, dict) or str(entry.get("service", "")).lower() != "gmail":
             continue
         add(entry.get("identity"))

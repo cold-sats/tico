@@ -3,7 +3,7 @@ slug: travel
 name: "Travel Coordinator"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: flight
 suggest: niche

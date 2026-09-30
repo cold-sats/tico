@@ -1,4 +1,4 @@
-name: support-ops                     # the slug: it matches the repository emp-support-ops and the label owner:support-ops
+name: support-ops                     # the slug: it matches the repository bot-support-ops and the label owner:support-ops
 display_name: "Support Operations Specialist"
 labels: [owner:support-ops]
 reads: []                        # other bot repositories this one may clone read-only
@@ -15,7 +15,7 @@ outbound_send: false
 # `hub routine update <id> --enable` after a person approves the first audit on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 # Cron runs Mondays 1-7 of the month; the playbook skips a run that is not the month's first Monday.
-schedules:
+routines:
   - id: monthly-helpdesk-audit
     title: Monthly help desk audit
     cron: "0 9 1-7 * 1"
@@ -28,10 +28,10 @@ schedules:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # Optional, uncomment when connected. No entry may ever carry write, modify or delete: a person applies changes.
-# access:
+# tools:
 #   - service: zendesk
 #     identity: "a read-only admin or an API token scoped to read"
 #     can: [read]
 #     env: ZENDESK_API_TOKEN
 #     note: "reads triggers, automations, SLA policies, macros, tags and a ticket sample; never a change"
-access: []
+tools: []

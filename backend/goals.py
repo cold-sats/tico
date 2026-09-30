@@ -3,7 +3,7 @@
 A goal has an owner (a person, a bot, or `company`; one field), the goal it serves (`parent_id`,
 optional: a goal with none is simply not linked), and a colour. What level a goal is at comes from
 its owner: `company` is a company goal, `human:x` a person's, `bot:x` a bot's. A company goal is
-optional. Bots read theirs with `hub goals`; nothing is pushed into a run.
+optional. Bots read theirs with `hub goal list`; nothing is pushed into a run.
 
 A goal links to KPIs (backend/kpis.py) and its colour is set automatically from them, by the Goal
 Manager, or from its owner's check-ins and its tasks when it has none. A person may override that:
@@ -137,7 +137,7 @@ def view(conn, row):
 
 
 def for_actor(conn, actor, roster=None, entries=None, archived=()):
-    """`hub goals`: the actor's own goals in rank order, the chain above each, and the goals of
+    """`hub goal list`: the actor's own goals in rank order, the chain above each, and the goals of
     whoever reports to it. That is the whole of what a bot needs to know what it is for."""
     mine = goals(conn, owner=actor, live_only=True)
     above, seen = [], {g["id"] for g in mine}
@@ -332,7 +332,7 @@ def update(conn, actor, goal_id, title=None, body=None, parent_id=None, owner=No
 
 
 def mark_read(conn, actor, goal_ids):
-    """`hub goals` and `hub goal show` from a bot: the signal that the mandate was read."""
+    """`hub goal list` and `hub goal show` from a bot: the signal that the mandate was read."""
     ts = H.now()
     for gid in goal_ids:
         conn.execute("UPDATE goals SET last_read_at=?, last_read_by=? WHERE id=?", (ts, actor, gid))

@@ -1,4 +1,4 @@
-name: inbox                     # the slug: it matches the repository emp-<id>-inbox and the label owner:<slug>
+name: inbox                     # the slug: it matches the repository bot-<id>-inbox and the label owner:<slug>
 display_name: "Inbox Manager"
 labels: [owner:inbox]
 reads: []                        # other bot repositories this one may clone read-only
@@ -15,7 +15,7 @@ outbound_send: false
 # `hub routine update <id> --enable` after the person approves the first brief on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 # A second or third pass a day is a routine the bot adds after a week of a brief the person reads.
-schedules:
+routines:
   - id: morning-mail-brief
     title: Morning mail brief
     cron: "30 7 * * 1-5"
@@ -29,7 +29,7 @@ schedules:
 # that runs the bot. Declaring access here does not create it. BotOps replaces {{mailbox}} from
 # the Mailbox: line in the reviewed instructions. Only the assigned mailbox is read: reading the
 # people who report to that person (`org_read: true`) is a separate decision for the owner.
-access:
+tools:
   - service: gmail
     identity: "{{mailbox}}"
     can: [read, draft]          # send only with outbound_send: true and an approval

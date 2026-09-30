@@ -1,4 +1,4 @@
-name: accounts-payable                     # the slug: it matches the repository emp-accounts-payable and the label owner:accounts-payable
+name: accounts-payable                     # the slug: it matches the repository bot-accounts-payable and the label owner:accounts-payable
 display_name: "Accounts Payable Specialist"
 labels: [owner:accounts-payable]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-payment-run
     title: Weekly payment run proposal
     cron: "0 9 * * 2"
@@ -29,10 +29,10 @@ schedules:
 # Exports arrive as files on a task. A read-only integration with the books, bank, billing or payroll
 # system is the owner's to add, with `can: [read]` only and never a write, pay or send.
 # Optional, uncomment when connected. Never send: outbound_send stays false.
-# access:
+# tools:
 #   - service: gmail
 #     identity: "the mailbox where vendors send bills"
 #     can: [read]
 #     env: GOOGLE_SA_KEY
 #     note: "reads what arrives; never replies, forwards, files or sends"
-access: []
+tools: []

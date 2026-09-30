@@ -1,6 +1,6 @@
 """Who may act as which mailbox, and with which verbs.
 
-The answer is `employee.yaml`, nothing else. `access:` entries with service `gmail` or
+The answer is `bot.yaml` (older: `employee.yaml`), nothing else. `tools:` entries (older: `access:`) with service `gmail` or
 `google-calendar` name an identity (the mailbox) and the verbs allowed on it
 (hub policies/access.md). Not listed means not allowed, and refusing is exit 2.
 
@@ -16,7 +16,7 @@ Two things beyond the declared verbs, both deliberate and documented in docs/mai
 
 import os
 
-from . import PROJECTS, Refused, load_yaml, owner_handle
+from . import PROJECTS, Refused, bot_folders, declared_tools, hub_bot, load_yaml, manifest_file, owner_handle, repo_dir
 
 OWNER = owner_handle()                    # the owner's roster handle; see connectors/mail/__init__.py
 MAIL_SERVICES = ("gmail", "google-calendar")
@@ -27,21 +27,27 @@ CALENDAR_ACTIONS = {"calendar_read": "read", "calendar_schedule": "schedule"}
 STATE_VERBS = {"label": "read", "archive": "read", "mark_read": "read", "star": "read",
                "triaged": "read", "rules": "read"}
 
-ASK_OWNER = ("Changing `access:` is the owner's call: open an Issue with owner:" + OWNER + " and "
+ASK_OWNER = ("Changing `tools:` is the owner's call: open an Issue with owner:" + OWNER + " and "
              "type:decision naming the mailbox and why (hub policies/access.md).")
 
 
 def manifest_path(slug):
-    return PROJECTS / f"emp-{slug}" / "employee.yaml"
+    return manifest_file(repo_dir(PROJECTS, slug))
+
+
+def where(slug):
+    """`<repo folder>/<manifest>` as a message names it: bot-<slug>/bot.yaml, or emp-<slug>/employee.yaml for an older bot."""
+    p = manifest_path(slug)
+    return f"{p.parent.name}/{p.name}"
 
 
 def employee(slug=None, env=None):
-    """The employee this run is. --as wins, then HUB_EMPLOYEE (set by the runner)."""
+    """The employee this run is. --as wins, then HUB_BOT or HUB_EMPLOYEE (both set by the runner)."""
     env = os.environ if env is None else env
-    s = (slug or env.get("HUB_EMPLOYEE") or "").strip().lower()
+    s = (slug or hub_bot(env)).strip().lower()
     if not s:
         raise Refused("no employee: pass --as <slug>.",
-                      "The runner sets HUB_EMPLOYEE for every turn; outside a turn, name the "
+                      "The runner sets HUB_BOT for every turn; outside a turn, name the "
                       "employee yourself. The owner uses --as " + OWNER + ".")
     return s
 
@@ -49,11 +55,11 @@ def employee(slug=None, env=None):
 def load(slug):
     if slug == OWNER:
         return {"name": OWNER, "access": []}
-    return load_yaml(manifest_path(slug), f"emp-{slug}/employee.yaml")
+    return load_yaml(manifest_path(slug), where(slug))
 
 
 def entries(manifest):
-    return [e for e in (manifest.get("access") or [])
+    return [e for e in declared_tools(manifest)
             if isinstance(e, dict) and str(e.get("service", "")).lower() in MAIL_SERVICES]
 
 
@@ -81,14 +87,14 @@ def inbox_bot_for(mailbox, roster=None):
 
 
 def bot_repo(slug):
-    """The bot's repository directory name: employees.yaml's `repo`, else emp-<slug>."""
+    """The bot's repository directory name: employees.yaml's `repo`, else the folder on disk (bot-<slug> or emp-<slug>)."""
     from . import REGISTRY
     try:
         rows = load_yaml(REGISTRY / "employees.yaml", "registry/employees.yaml").get("employees") or []
     except Exception:
         rows = []
     row = next((r for r in rows if isinstance(r, dict) and r.get("name") == slug), None)
-    return str((row or {}).get("repo") or f"emp-{slug}")
+    return str((row or {}).get("repo") or repo_dir(PROJECTS, slug).name)
 
 
 def bot_rules_file(mailbox, roster=None):
@@ -171,15 +177,15 @@ def known_mailboxes(projects=None):
     """Every gmail identity declared by any employee. Used by --all-mailboxes and by the owner."""
     root = projects or PROJECTS
     found = []
-    for d in sorted(root.glob("emp-*")):
-        f = d / "employee.yaml"
+    for slug, d in bot_folders(root):
+        f = manifest_file(d)
         if not f.exists():
             continue
         try:
             m = load_yaml(f, str(f))
         except Exception:
             continue
-        for addr, services in holdings(d.name[4:], m).items():
+        for addr, services in holdings(slug, m).items():
             if "gmail" in services and addr not in found:
                 found.append(addr)
     return found
@@ -273,8 +279,8 @@ def resolve(slug, mailbox=None, verb="read", manifest=None, roster=None):
     held = holdings(slug, manifest, roster)
     if not held:
         raise Refused(f"{slug} does not declare any mail access.",
-                      f"Add an `access:` entry with service: gmail and an identity to "
-                      f"emp-{slug}/employee.yaml. {ASK_OWNER}")
+                      f"Add a `tools:` entry with service: gmail and an identity to "
+                      f"{where(slug)}. {ASK_OWNER}")
     addr = (mailbox or manifest.get("default_mailbox") or "").strip().lower()
     if not addr:
         # The default is the identity the manifest declares, never an org-tree read: an inbox
@@ -309,7 +315,7 @@ def resolve(slug, mailbox=None, verb="read", manifest=None, roster=None):
                  if verb in STATE_VERBS and verb != need else "")
         raise Refused(
             f"{slug} may {', '.join(verbs)} on {addr}, not {need}{extra}.",
-            f"Add `{need}` to that gmail entry's `can:` in emp-{slug}/employee.yaml. {ASK_OWNER}")
+            f"Add `{need}` to that gmail entry's `can:` in {where(slug)}. {ASK_OWNER}")
     return addr, verbs
 
 
@@ -342,15 +348,15 @@ def mailbox_holders(projects=None):
     """{mailbox: [slug, ...]} - which employees declare gmail on each address."""
     root = projects or PROJECTS
     out = {}
-    for d in sorted(root.glob("emp-*")):
-        f = d / "employee.yaml"
+    for slug, d in bot_folders(root):
+        f = manifest_file(d)
         if not f.exists():
             continue
         try:
             m = load_yaml(f, str(f))
         except Exception:
             continue
-        for addr, services in holdings(d.name[4:], m).items():
+        for addr, services in holdings(slug, m).items():
             if "gmail" in services:
-                out.setdefault(addr, []).append(d.name[4:])
+                out.setdefault(addr, []).append(slug)
     return out

@@ -11,7 +11,7 @@ outbound_send: false
 # The routines are declared but not armed (`enabled: false`). The bot arms them with
 # `hub routine update <id> --enable` after a person approves the first weekly delta on the onboarding task.
 # `hub bot create` seeds them once; from then on the hub's rows are the routines (docs/routines.md).
-schedules:
+routines:
   - id: curate
     title: Curate the market
     cron: "0 * * * *"
@@ -27,4 +27,4 @@ schedules:
 
 # The market graph is in the hub and needs no entry. The bot reads no external source itself:
 # other bots (the Social Media Manager, sales) report what they found and it never reads social sites.
-access: []
+tools: []

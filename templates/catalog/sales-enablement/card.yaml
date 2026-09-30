@@ -3,7 +3,7 @@ slug: sales-enablement
 name: Sales Enablement Manager
 required: false
 bootstrap: false
-department: sales
+group: sales
 pack: sales
 icon: cast_for_education
 suggest: niche

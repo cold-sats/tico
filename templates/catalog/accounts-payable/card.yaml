@@ -3,7 +3,7 @@ slug: accounts-payable
 name: "Accounts Payable Specialist"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: receipt_long
 suggest: common

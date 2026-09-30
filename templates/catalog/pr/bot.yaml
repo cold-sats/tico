@@ -1,4 +1,4 @@
-name: pr                     # the slug: it matches the repository emp-pr and the label owner:pr
+name: pr                     # the slug: it matches the repository bot-pr and the label owner:pr
 display_name: "PR Manager"
 labels: [owner:pr]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first result on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-pr-review
     title: Weekly PR review
     cron: "0 9 * * 2"
@@ -28,4 +28,4 @@ schedules:
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # Nothing to connect to start: coverage is read from the public web and pitches are prepared on the
 # task. A person sends every pitch and release, or approves the exact text with `hub approval request`.
-access: []
+tools: []

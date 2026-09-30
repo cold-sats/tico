@@ -5,6 +5,7 @@ import secrets
 
 from . import inbox_isolation, providers, runner_versions, usage_limits
 from .harnesses import reports_tool_calls
+from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
 
 LIMIT_COOLDOWN = 1800        # seconds a bot waits after its runtime reported a usage limit
@@ -252,7 +253,7 @@ class Execution:
         runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL",
                            (body.runner_id,)).fetchone()
         if not runner:
-            raise Problem("not_found", "Runner is not registered", 404)
+            raise Problem("not_found", "Computer is not registered", 404)
         operator = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()[0]
         member_bot = self.auth.member_bot(c, bot)
         if (member_bot and not runner["accepts_member_bots"] and runner["operator"] != operator
@@ -357,10 +358,10 @@ class Execution:
                         "AND j.state='queued' AND (? IS NULL OR j.bot=?) "
                         "AND NOT EXISTS(SELECT 1 FROM attempts t WHERE t.bot=j.bot AND t.state IN ('leased','running')) "
                         "AND NOT EXISTS(SELECT 1 FROM bot_control bc WHERE bc.bot=j.bot AND bc.draining=1) "
-                        # A starter bot that still needs onboarding answers a person's message and nothing else:
+                        # A starter bot that still needs setup answers a person's message and nothing else:
                         # no routine, task notice, Slack route or bot request wakes it (backend/onboarding.py).
                         "AND (queued_message.from_actor LIKE 'human:%' OR NOT EXISTS("
-                        "SELECT 1 FROM bot_config pc WHERE pc.bot=j.bot AND pc.onboarding_state='needs_onboarding')) "
+                        "SELECT 1 FROM bot_config pc WHERE pc.bot=j.bot AND pc.onboarding_state IN " + PARKED_SQL + ")) "
                         "ORDER BY CASE WHEN queued_message.from_actor LIKE 'human:%' THEN 0 ELSE 1 END,j.created,j.id",
                         (who.runner_id, body.bot, body.bot)).fetchall()
         cooling, over = {}, {}
@@ -512,7 +513,7 @@ class Execution:
         config = providers.fill(providers.load(c, self.store.settings), json.loads(
             c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
         # The room's recent page. The runner forwards only what arrived since the bot last
-        # answered; the bot reads further back itself with `hub history` when it wants to. The
+        # answered; the bot reads further back itself with `hub conversation show` when it wants to. The
         # hub keeps no pointer to the bot's session and rebuilds nothing on its behalf.
         epoch = c.execute("SELECT updated FROM session_epochs WHERE conversation_id=?", (conv["id"],)).fetchone()
         history = message_page(c, conv["id"], limit=50, since=epoch["updated"] if epoch else None)["messages"]
@@ -555,7 +556,7 @@ class Execution:
         inbox = P.inbox_person(row["bot"], people)
         parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         return {"attempt": {"routine": routine, "id": aid,
-                            # A starter bot's chat while it is `needs_onboarding` is its setup (runner prompt).
+                            # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to.
                             "mailboxes": P.mailboxes_below(inbox["id"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],

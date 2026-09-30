@@ -3,7 +3,7 @@ slug: dispatcher
 name: "Dispatcher"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: route
 suggest: niche

@@ -3,7 +3,7 @@ slug: market-analyst
 name: Market Research Analyst
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: insights
 suggest: niche

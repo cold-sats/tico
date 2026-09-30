@@ -892,6 +892,12 @@ class Store:
                     from . import kpis as _kpis
                     _kpis.fill_slugs(c)
                     c.execute("INSERT INTO cloud_migrations VALUES(44,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=45").fetchone():
+                    # A starter bot's status `needs_onboarding` is now `needs_setup` (backend/statuses.py).
+                    # Readers accept both for one release.
+                    from . import statuses as _statuses
+                    _statuses.migrate(c)
+                    c.execute("INSERT INTO cloud_migrations VALUES(45,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,

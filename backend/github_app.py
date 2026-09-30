@@ -237,8 +237,8 @@ class GitHubApp:
             return problem
         if not absent:
             return problem
-        slugs = ", ".join(repo.split("/", 1)[1].removeprefix("emp-") for repo in absent)
-        create = (f"Create it with BotOps: `hub github create-bot-repo {slugs.split(', ')[0]}` "
+        slugs = ", ".join(re.sub(r"^(?:emp|bot)-", "", repo.split("/", 1)[1]) for repo in absent)   # a bot's repository may be either
+        create = (f"Create it with BotOps: `hub bot repo-create {slugs.split(', ')[0]}` "
                   "(add `--empty` for a bot built locally, whose history its runner then pushes)")
         if selection == "all":
             return Problem("github_repo_missing", f"The repository {', '.join(absent)} does not exist yet on GitHub. {create}.", 409)
@@ -250,7 +250,7 @@ class GitHubApp:
         row = self.row()
         if not row:
             raise Problem("github_not_connected", "GitHub is not connected. Connect it in Settings first.", 409)
-        name = "emp-" + slug.removeprefix("emp-")
+        name = "bot-" + slug.removeprefix("emp-")
         if not row["administration"]:
             how = ("as an empty private repository" if empty else
                    f"from the {template} template (https://github.com/{template} > Use this template)")
@@ -472,7 +472,7 @@ def install_github_app(app, settings, store):
         with store.transaction() as c:
             row, own = bot_repos(c, bot)
             if not row:
-                raise Problem("github_not_connected", "Connect GitHub first (Settings, Cloud services)", 409)
+                raise Problem("github_not_connected", "Connect GitHub first (Tools)", 409)
             wanted = []
             for value in body.repositories:
                 repo = repo_of(value, row["org"])
@@ -505,7 +505,7 @@ def install_github_app(app, settings, store):
             if not bot or bot.get("state") == "archived":
                 raise Problem("forbidden", f"{slug} is not a bot being set up or running, so no repository is created for it", 403)
             if body.slug != slug and body.slug != "emp-" + slug:
-                raise Problem("forbidden", "BotOps creates only emp-<slug> for a bot", 403)
+                raise Problem("forbidden", "BotOps creates only bot-<slug> for a bot", 403)
             if body.template and body.template != DEFAULT_TEMPLATE and body.template.split("/")[0].lower() != row["org"].lower():
                 raise Problem("forbidden", "BotOps generates from the default template or one in the connected organization", 403)
         template = body.template or DEFAULT_TEMPLATE

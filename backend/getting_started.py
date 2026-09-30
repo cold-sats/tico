@@ -10,6 +10,7 @@ Those live in the person's `preferences` row, so each person has their own.
 import json
 
 from . import model_login, providers
+from .statuses import PARKED_SQL
 from .store import H, Problem, encode, readiness_document
 
 PREFERENCE = "onboarding.progress"
@@ -101,10 +102,10 @@ def own_bots(c, settings):
 
 
 def _next_bot(c, settings):
-    """The starter bot to set up next: parked (`needs_onboarding`), in the order first run put them, which
+    """The starter bot to set up next: parked (`needs_setup`), in the order first run put them, which
     puts the team's first bot first. Returns (slug, name, why), or None when nothing is waiting."""
     rows = c.execute("SELECT bc.bot,b.display_name,bc.config_json FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
-                     "WHERE bc.onboarding_state='needs_onboarding' AND b.state!='archived'").fetchall()
+                     "WHERE bc.onboarding_state IN " + PARKED_SQL + " AND b.state!='archived'").fetchall()
     if not rows:
         return None
     ranked = sorted(((json.loads(row["config_json"] or "{}"), row) for row in rows),
@@ -116,7 +117,7 @@ def _next_bot(c, settings):
 
 def _first_output(c):
     """A starter bot has been onboarded: a person approved its first routine, which is its first
-    reviewed output. The bot says so itself (`hub bot onboarded`), so this is what the database records."""
+    reviewed output. The bot says so itself (`hub bot setup-done`), so this is what the database records."""
     return c.execute("SELECT bc.bot FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                      "WHERE bc.onboarding_state='onboarded' AND b.state!='archived' LIMIT 1").fetchone()
 

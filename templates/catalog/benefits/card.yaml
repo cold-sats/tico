@@ -3,7 +3,7 @@ slug: benefits
 name: Benefits Administrator
 required: false
 bootstrap: false
-department: hr
+group: hr
 pack: basics
 icon: health_and_safety
 suggest: niche

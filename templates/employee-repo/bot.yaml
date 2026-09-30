@@ -1,7 +1,7 @@
-name: CHANGE-ME              # slug, matches emp-<name> and owner:<name>
+name: CHANGE-ME              # slug, matches bot-<name> and owner:<name>
 display_name: "Change Me"
 labels: [owner:CHANGE-ME]
-reads: []                    # other emp-* repos to clone read-only
+reads: []                    # other bot-* repos to clone read-only
 slack_channel: "#agents"
 # Runtime and model come from the company's provider choice (Settings > AI providers).
 # Override here only if this employee needs something different:
@@ -15,7 +15,7 @@ outbound_send: false
 # Routines are rows in the hub, not lines here: `hub routine set <key> --title ... --cron ...`
 # from a turn, or Tasks -> Recurring on the site (docs/routines.md).
 # What this employee may touch. Shown in the hub app. Not listed = not allowed. See hub policies/access.md.
-# access:
+# tools:
 #   - service: gmail
 #     identity: "owner@example.com"
 #     can: [read, draft]          # send only with outbound_send: true
@@ -24,4 +24,4 @@ outbound_send: false
 # reports/ and artifacts/; `publish: []` turns it off.
 # files:
 #   publish: [reports/, artifacts/]
-access: []
+tools: []

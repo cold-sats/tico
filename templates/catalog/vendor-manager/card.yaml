@@ -3,7 +3,7 @@ slug: vendor-manager
 name: "Vendor Manager"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: store
 suggest: common

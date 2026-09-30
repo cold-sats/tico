@@ -18,7 +18,7 @@ outbound_send: false
 # `hub routine update <id> --enable` after a person approves the first digest on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 # One sweep to start with. A midweek pass earns its place once someone has read a month of these.
-schedules:
+routines:
   - id: weekly-review-sweep
     title: Weekly review sweep
     cron: "0 9 * * 1"
@@ -31,7 +31,7 @@ schedules:
 # arrives in, never the value; the value lives in the workspace secrets directory on the machine
 # that runs the bot. Declaring access here does not create it. A browser access also names
 # `sites:`, so the connector can refuse every other host.
-access:
+tools:
   - service: aside
     identity: "the company browser (Aside)"
     can: [read]

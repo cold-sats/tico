@@ -1,4 +1,4 @@
-name: product-analyst                     # the slug: it matches the repository emp-product-analyst and the label owner:product-analyst
+name: product-analyst                     # the slug: it matches the repository bot-product-analyst and the label owner:product-analyst
 display_name: "Product Analyst"
 labels: [owner:product-analyst]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-usage-readout
     title: Weekly product usage readout
     cron: "0 9 * * 3"
@@ -28,10 +28,10 @@ schedules:
 # owner decision, so the bot files a task for the owner rather than editing this file.
 # Company databases are read through the hub (`hub db`), with the rights the owner granted there.
 # Optional, uncomment when an analytics export or warehouse is connected. Read only, always.
-# access:
+# tools:
 #   - service: warehouse
 #     identity: "the analytics warehouse, read-only role"
 #     can: [read]
 #     env: WAREHOUSE_READONLY_URL
 #     note: "aggregated product events; never writes, never exports rows about one person"
-access: []
+tools: []

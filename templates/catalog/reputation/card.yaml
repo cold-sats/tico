@@ -3,7 +3,7 @@ slug: reputation
 name: Reputation Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: reviews
 suggest: common

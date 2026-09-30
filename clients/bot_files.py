@@ -1,4 +1,4 @@
-"""What a bot may publish as a file, checked the same way by the hub, the runner and `hub files`.
+"""What a bot may publish as a file, checked the same way by the hub, the runner and `hub file`.
 
 Pure stdlib. The server repeats every rule here (backend/files.py): this module is what lets the
 client refuse early, with a reason, before any bytes are sent. See docs/files.md.

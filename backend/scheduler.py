@@ -8,6 +8,7 @@ from croniter import croniter
 
 from . import goals as G
 from . import placement
+from .statuses import PARKED_SQL
 from .store import H, encode, sweep_idempotency, sweep_mail
 
 
@@ -47,7 +48,7 @@ class Scheduler:
                              "AND s.event_name IS NULL "
                              # a starter bot runs nothing on its own until a person has approved its first routine
                              "AND NOT EXISTS(SELECT 1 FROM bot_config pc WHERE pc.bot=s.bot "
-                             "AND pc.onboarding_state='needs_onboarding')").fetchall()   # `on:` routines fire from routines.emit
+                             "AND pc.onboarding_state IN " + PARKED_SQL + ")").fetchall()   # `on:` routines fire from routines.emit
             for row in rows:
                 c.execute("SAVEPOINT scheduled_work")
                 try:

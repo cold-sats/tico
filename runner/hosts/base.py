@@ -18,7 +18,7 @@ threads, starts turns, and drains events.
     model   str   runtime model id, None for the runtime's default
     effort  str   reasoning effort, None for the default
     env     dict  the environment the turn's shell commands get (`Runner.environment`: the
-                  bot's secrets plus HUB_API_URL / HUB_TOKEN / HUB_EMPLOYEE / HUB_DIR /
+                  bot's secrets plus HUB_API_URL / HUB_TOKEN / HUB_BOT / HUB_EMPLOYEE / HUB_DIR /
                   HUB_WORKSPACE)
     slug    str   the bot, for logging
 
@@ -44,7 +44,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HUB_MCP_SCRIPT = ROOT / "clients" / "hubmcp.py"
-HUB_MCP_ENV = ("HUB_API_URL", "HUB_TOKEN", "HUB_EMPLOYEE", "HUB_DIR")
+HUB_MCP_ENV = ("HUB_API_URL", "HUB_TOKEN", "HUB_BOT", "HUB_EMPLOYEE", "HUB_DIR")
 
 
 # One rule, kept here so every host classifies a usage limit the same way. A provider with no

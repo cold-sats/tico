@@ -175,8 +175,8 @@ def request_text(c, bot, kind, day):
     line = lambda rows, f: "\n".join("- " + f(r) for r in rows) or "- (none)"
     week = kind == "weekly"
     return "\n".join([
-        f"Time for your {'week in review' if week else 'daily update'} ({day}). Post it with hub_update_post "
-        "(or `hub update post`), in plain words, then carry on.",
+        f"Time for your {'week in review' if week else 'daily update'} ({day}). Post it with hub_update_create "
+        "(or `hub update create`), in plain words, then carry on.",
         "",
         "Write one to five bullets in plain English and nothing else: no title, no headings or sections, "
         "no task ids or internal codes. Each bullet is one line: what you did, what you do next, or what "
@@ -262,7 +262,7 @@ def lint(body, kind):
     if not problems:
         return None
     return ("Not an update yet: " + "; ".join(problems) + ". " + SHAPE
-            + " Rewrite it and post again with hub_update_post.")
+            + " Rewrite it and post again with hub_update_create.")
 
 
 def post(c, bot, body, kind=None, day=None):

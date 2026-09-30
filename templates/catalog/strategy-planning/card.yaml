@@ -3,7 +3,7 @@ slug: strategy-planning
 name: "Strategy Analyst"
 required: false
 bootstrap: false
-department: leadership
+group: leadership
 pack: basics
 icon: strategy
 suggest: niche

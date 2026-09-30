@@ -3,7 +3,7 @@ slug: ar-followup
 name: "Accounts Receivable Specialist"
 required: false
 bootstrap: false
-department: finance
+group: finance
 pack: basics
 icon: request_quote
 suggest: common

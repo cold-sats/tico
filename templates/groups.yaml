@@ -1,6 +1,6 @@
 # The departments a company builds its org chart from, in the order onboarding offers them.
 #
-# Each catalog card names its department (`department:` in templates/catalog/<id>/card.yaml), and exactly one card
+# Each catalog card names its department (`group:` in templates/catalog/<id>/card.yaml), and exactly one card
 # per department is its head (`lead: true`, the template named in `head:` below). The head's card lists the rest of
 # the department in `team_templates:`; a card's `suggest:` says whether it is pre-checked (default), offered (common)
 # or offered only when the briefing asks for it (niche). `icon` is a Material Symbols name in the font the UI ships

@@ -3,7 +3,7 @@ slug: events
 name: Event Marketing Manager
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: event
 suggest: niche

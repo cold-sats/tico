@@ -6,9 +6,9 @@ room: only they read it, the owner and administrators included (`Auth.conversati
 carries the instant search results, so the page shows matches at once, and the room id, so it can
 stream the Librarian's answer from `/api/v2/conversations/{id}/watch`.
 
-The Librarian acts as itself, never as the person. It only reads docs (`hub docs ...`) and fetches
-public links on its own computer (`hub docs fetch`), so nothing it does needs a person's identity and
-none is mapped to it. A bot that wants an answer sends the Librarian an `ask` message (`hub docs ask`),
+The Librarian acts as itself, never as the person. It only reads docs (`hub doc ...`) and fetches
+public links on its own computer (`hub doc fetch`), so nothing it does needs a person's identity and
+none is mapped to it. A bot that wants an answer sends the Librarian an `ask` message (`hub doc ask`),
 which is the ordinary ask and answer path and needs nothing here.
 """
 
@@ -57,7 +57,7 @@ def install(app, store, auth, mutate, onboarding):
     def person(request):
         who = request.state.identity
         if who.role not in ("owner", "human"):
-            raise Problem("identity", "Bots ask the " + NAME + " with `hub docs ask` (a message of kind ask); "
+            raise Problem("identity", "Bots ask the " + NAME + " with `hub doc ask` (a message of kind ask); "
                           "this route is for people", 403)
         return who
 

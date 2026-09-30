@@ -3,7 +3,7 @@ slug: logistics
 name: "Logistics Coordinator"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: local_shipping
 suggest: niche

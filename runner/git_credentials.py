@@ -74,7 +74,7 @@ def _same_repository(url, repository):
 def publish_history(path, repository, env=None, url=None, timeout=60):
     """Publish a bot's local history to its GitHub repository when the checkout has none yet.
 
-    `hub github create-bot-repo <slug> --empty` makes an empty repository for a bot built on a
+    `hub bot repo-create <slug> --empty` makes an empty repository for a bot built on a
     computer; nothing pushes into it, because a turn's token is scoped to the bot's own repository
     and BotOps cannot push another bot's. So the runner does it, with that bot's own token from
     `apply`: a checkout with commits and no upstream gets `origin` set to the resolved https URL and

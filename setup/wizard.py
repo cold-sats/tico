@@ -126,7 +126,7 @@ def gather_identity(io: IO, args, s: Settings, dry: bool) -> None:
         a.get("client_secret", f"{p.label} client secret (hidden)", secret=True, env="TICO_OIDC_CLIENT_SECRET")
         a.get("allowed_domain", "Only allow sign-in from this email domain (blank for anyone on the roster)", required=False,
               flag="--allowed-domain")
-    a.get("company", "Company name", default="Acme")
+    a.get("company", "Team/Company name", default="Acme")
     a.get("owner_email", "Owner email (must be the account you will sign in with)", validate=lambda v: bool(st.EMAIL_RE.match(v)))
     a.get("decisions_provider", "Model key for the server's own decisions (openai, anthropic, gemini; blank to skip)", required=False,
           choices=None, flag="--decisions-provider")

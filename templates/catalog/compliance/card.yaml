@@ -3,7 +3,7 @@ slug: compliance
 name: "Compliance Manager"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 icon: calendar_month
 suggest: common

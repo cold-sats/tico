@@ -204,7 +204,7 @@ class Catalog:
 
     def listing(self):
         pages, _ = self.loaded
-        # credentials and access belong on the index: MCP `hub_integrations` is what a bot
+        # credentials and access belong on the index: MCP `hub_tool_list` is what a bot
         # reads to learn every outside system and what it needs before opening a page.
         keys = ("service", "title", "kind", "summary", "access", "credentials", "declared_as",
                 "writes", "owner", "aliases")
@@ -292,7 +292,7 @@ def install_integrations(app, store, auth, mutate):
 
     @app.get("/api/v2/integrations/{service}/queries")
     def queries(request: Request, service: str, term: str = "", id: str | None = None):
-        """The catalog search `hub queries` does, served so every client reads alike."""
+        """The catalog search `hub tool query-search` does, served so every client reads alike."""
         from clients.hubtools import query_search
         page = catalog.resolve(service)
         if id:

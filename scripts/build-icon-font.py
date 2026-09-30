@@ -2,7 +2,7 @@
 """Rebuild the Material Symbols Outlined subset the UI ships.
 
 Scans ui/index.html, ui/*.js, ui/app/*.js and ui/styles/*.css for icon names, adds the `icon:` of every catalog card
-(templates/catalog/*/card.yaml) and department (templates/departments.yaml), writes them to
+(templates/catalog/*/card.yaml) and group (templates/groups.yaml), writes them to
 ui/vendor/fonts/icons.txt and downloads a woff2 that holds just those glyphs from Google Fonts. Run it
 after adding an icon or a template:
 
@@ -44,13 +44,13 @@ PATTERNS = [
 
 
 TEMPLATES = ROOT / "templates"
-# `icon: name` on its own line in a card or in templates/departments.yaml.
+# `icon: name` on its own line in a card or in templates/groups.yaml.
 YAML_ICON = re.compile(r"^\s*(?:-\s+)?icon:\s*['\"]?(%s)['\"]?\s*(?:#.*)?$" % NAME, re.M)
 
 
 def template_icons():
     """The icons the catalog and the departments name, which the UI shows next to each bot and department."""
-    files = sorted(TEMPLATES.glob("catalog/*/card.yaml")) + [TEMPLATES / "departments.yaml"]
+    files = sorted(TEMPLATES.glob("catalog/*/card.yaml")) + [TEMPLATES / "groups.yaml"]
     found = set()
     for path in files:
         if path.is_file():

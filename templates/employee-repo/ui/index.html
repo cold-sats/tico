@@ -25,7 +25,9 @@ pre{background:#f4f6f8;padding:12px;border-radius:4px;overflow-x:auto;white-spac
   const get = async (p) => { try { const r = await fetch('../' + p); return r.ok ? await r.text() : `(${p} not found)`; } catch { return `(could not load ${p}; serve via scripts/ui.sh in the hub)`; } };
   const put = async (id, p) => document.getElementById(id).textContent = await get(p);
   try {
-    const m = jsyaml.load(await get('employee.yaml'));
+    let manifest = await get('bot.yaml');
+    if (manifest.startsWith('(bot.yaml not found)')) manifest = await get('employee.yaml');   // a bot not yet renamed
+    const m = jsyaml.load(manifest);
     document.title = m.display_name; document.getElementById('name').textContent = m.display_name;
     // `repo` is a URL only once the company has published this bot; a local-only bot has none.
     const repo = String(m.repo || '').startsWith('http') ? `<a href="${m.repo}">Repo</a>` : '';

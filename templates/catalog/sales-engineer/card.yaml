@@ -3,7 +3,7 @@ slug: sales-engineer
 name: Sales Engineer
 required: false
 bootstrap: false
-department: sales
+group: sales
 pack: sales
 icon: integration_instructions
 suggest: niche

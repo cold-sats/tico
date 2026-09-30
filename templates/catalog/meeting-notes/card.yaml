@@ -3,7 +3,7 @@ slug: meeting-notes
 name: "Project Coordinator"
 required: false
 bootstrap: false
-department: operations
+group: operations
 pack: operations
 icon: event_note
 suggest: common

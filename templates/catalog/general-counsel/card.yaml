@@ -3,7 +3,7 @@ slug: general-counsel
 name: "General Counsel"
 required: false
 bootstrap: false
-department: legal
+group: legal
 pack: basics
 lead: true
 icon: balance

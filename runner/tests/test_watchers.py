@@ -197,7 +197,7 @@ class SupportTemplate(unittest.TestCase):
     def test_the_support_agent_declares_watchers_whose_programs_ship_with_it(self):
         import yaml
         folder = Path(__file__).resolve().parents[2] / "templates/catalog/support"
-        specs = declared.parse(yaml.safe_load((folder / "employee.yaml").read_text())["watchers"])
+        specs = declared.parse(yaml.safe_load((folder / "bot.yaml").read_text())["watchers"])
         self.assertEqual({s["name"] for s in specs}, {"hq-tickets", "gh-support"})
         for spec in specs:
             self.assertEqual(spec["every"], 300)

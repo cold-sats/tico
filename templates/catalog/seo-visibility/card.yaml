@@ -3,7 +3,7 @@ slug: seo-visibility
 name: SEO Specialist
 required: false
 bootstrap: false
-department: marketing
+group: marketing
 pack: marketing
 icon: travel_explore
 suggest: common

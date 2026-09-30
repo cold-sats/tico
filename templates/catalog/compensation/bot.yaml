@@ -1,4 +1,4 @@
-name: compensation                     # the slug: it matches the repository emp-compensation and the label owner:compensation
+name: compensation                     # the slug: it matches the repository bot-compensation and the label owner:compensation
 display_name: "Compensation Analyst"
 labels: [owner:compensation]
 reads: []                        # other bot repositories this one may clone read-only
@@ -14,7 +14,7 @@ outbound_send: false
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after a person approves the first result on the onboarding task.
 # `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
-schedules:
+routines:
   - id: weekly-pay-check
     title: Weekly offer and pay change check
     cron: "0 11 * * 3"
@@ -26,6 +26,6 @@ schedules:
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
-access: []
+tools: []
 # There is deliberately no payroll or HR-system entry: pay data arrives as exports on tasks, person-level results
 # go back as task attachments for the approvers, and nothing with a named person's pay is kept here.
