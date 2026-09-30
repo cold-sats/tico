@@ -49,7 +49,7 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | [docs/databases.md](docs/databases.md) | Letting bots read the company's own databases (PostgreSQL, MySQL, SQLite) read-only, and keeping your config private |
 | [docs/meetings.md](docs/meetings.md) | Meetings and call transcripts |
 | [docs/creating-bots.md](docs/creating-bots.md), [docs/onboarding.md](docs/onboarding.md) | Creating bots and the first-run flow |
-| [docs/starter-bots.md](docs/starter-bots.md) | The 38 starter bots, their card fields and what a good bot looks like |
+| [docs/starter-bots.md](docs/starter-bots.md) | The 94 bot templates by department, their card fields and what a good bot looks like |
 | [docs/onboarding-guide.md](docs/onboarding-guide.md) | Picking your first bots, writing a good brief, approval gates, and reviewing a bot's first week |
 | [docs/environments.md](docs/environments.md) | Sign-in options, environments, profiles, removal |
 | [docs/files.md](docs/files.md) | What bots publish, versions, who can see a file |

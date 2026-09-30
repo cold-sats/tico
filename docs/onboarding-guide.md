@@ -16,7 +16,8 @@ Start from what your company does, not from what a bot could do.
    The suggestions come from Tico HQ while the toggle on the card is on (it sends that one answer, and nothing is kept:
    [PRIVACY.md](../PRIVACY.md)), otherwise from Tico itself.
 3. **Edit before you create.** On the finished chart, click a bot to rename it, choose who it reports to (each department's bots report
-   to its head, and the heads to you), or remove it. Nothing exists until **Create my team**.
+   to its head, and the heads to you), or remove it. To have one person's mail sorted and replies drafted, switch on the Inbox Manager
+   under **Helpers** and choose whose mailbox it reads. Nothing exists until **Create my team**.
 4. **Connect tools when a bot asks.** Onboarding does not ask which tools you use and no bot is held back for a missing one. When you press
    **Start setup** on a bot, it tells you what it needs (a mailbox, tickets, a repository, a CRM) and where to connect it.
 
@@ -51,7 +52,7 @@ If a bot gets it wrong twice, change its instructions, not your brief: ask BotOp
 
 Every starter drafts and a person confirms anything that would send, post, pay, change a record or delete. Some of that is the platform,
 not the prompt: a mail send becomes a draft until it is approved, a Slack post needs the channel to allow posting, a bot may invite only
-people on the roster to a calendar event, and Issue Triage cannot comment or label on GitHub unless you turn that on. The list per template
+people on the roster to a calendar event, and the QA Engineer cannot comment or label on GitHub unless you turn that on. The list per template
 is in [Starter bots](starter-bots.md#what-stops-a-starter-sending-things-outside-the-company).
 
 When a bot asks for approval it shows the exact action. Read it as if you were sending it yourself. An approval is spent once: it covers

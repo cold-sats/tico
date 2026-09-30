@@ -25,9 +25,10 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 
 | Screen | What it asks | What it stores |
 |---|---|---|
+| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use (at least one) | The company's providers, as Settings > Providers saves them |
 | Names | Company name, app name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` keeps `TICO_ASSISTANT_NAME` unless a draft set it |
 | About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Whether software is the product decides which departments start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
-| Your org chart | The departments, then one question per department and the bots to recruit into it, with the chart growing beside it ([The org builder](#the-org-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug). Nothing is created yet |
+| Your org chart | The departments, then one question per department and the bots to recruit into it, with the chart growing beside it, and the helper switches under the finished chart ([The org builder](#the-org-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug). Nothing is created yet |
 | Set up a computer | Nothing if a runner is already online (the server's own); otherwise download a setup file, then run three commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
 | Connect your agent | Optional: **Connect an agent** makes a personal token and the MCP setup to paste into Grok Bot, Meta Muse or another agent | Nothing in onboarding; the token is the owner's own (`POST /api/v2/me/tokens`) |
 | Review and create | A summary of all of it, the team with each bot's reports-to | **Create my team** calls `POST /api/v2/onboarding/complete` |
@@ -60,17 +61,22 @@ chart: there is no fixed team any more.
    bots as checkable cards: icon, name, the card's summary and a "why" line. The department head is checked, so are the `default` cards
    and anything the suggestion says to add; `common` cards are shown unchecked; the rest of the department's cards are under **More**.
    **Back** and **Skip department** are always there. Each department answered or skipped saves the draft.
-3. **The chart.** The owner at the top (CEO), the built-ins beside them, each department hanging off one line and its bots under it,
-   the head first. A department not yet reached is dashed; a skipped one says so. A bot animates in once, when it is first checked.
-4. **Finish.** The finished chart, "5 departments · 12 bots". Click a bot to rename it, point it at another person or bot, remove it, or
-   (Mail Drafts) choose whose mailbox it reads; click a department to go back to it. **Next** continues to the computer.
+3. **The chart.** The owner at the top (CEO), each department hanging off one line and its bots under it, the head first. Each bot wears
+   the blob avatar it will have, with its template's icon. A department not yet reached is dashed; a skipped one says so. A bot animates
+   in once, when it is first checked. Helpers (the built-ins and the Inbox Manager) are not on the chart.
+4. **Finish.** The finished chart, "5 departments · 11 bots". Click a bot to rename it, point it at another person or bot, or remove it;
+   click a department to go back to it. Below it, **Helpers** has one switch per helper card (the Inbox Manager), off by default;
+   switched on, it asks whose mailbox the helper reads. **Next** continues to the computer.
 
 Each department head reports to the owner, and every other bot to its department's head while the head is on the chart (to the owner
-otherwise). `selected` is sent in the order to set the bots up: the built-ins, then each department's head and its team. A worker the person
-re-points keeps its new manager; two bots that would report to each other are refused on the screen.
+otherwise). A helper reports to the owner and is never offered as a manager. `selected` is sent in the order to set the bots up: the
+built-ins, each department's head and its team, then helpers. A worker the person re-points keeps its new manager; two bots that would
+report to each other are refused on the screen.
 
-**Where a card sits.** A card's `department` (one of the nine ids); without one, the department whose `head` it is, or that lists it in its
-head's `team_templates`, or its `pack` (`basics` is Operations). `icon` is a Material Symbols name, drawn from the app's own icon font
+**Where a card sits.** A card's `department` (one of the nine ids). A helper (`kind: helper`) and a card whose department the builder does
+not offer (the Leadership extra) are in none. A card with no `department` sits in the department whose `head` it is, or that lists it in its
+head's `team_templates`, or its `pack`'s (`basics` is Operations). A department's head is its card with `lead: true`, else the `head`
+`templates/departments.yaml` names. `icon` is a Material Symbols name, drawn from the app's own icon font
 (`scripts/build-icon-font.py` reads every card's and department's `icon`); a card without one takes its department's. `suggest` is
 `default`, `common` (the default) or `niche`. `tags` are the words the recommender matches; a card without tags uses its `pains`.
 
@@ -89,7 +95,7 @@ The department card carries a toggle, **Suggestions from Tico HQ (sends this ans
 reason) when the install may not ask HQ. The server asks Tico HQ (`POST <TICO_HQ_URL>/v1/recruit`, [Tico HQ](tico-hq.md)) only when the
 toggle is on **and** none of these is true: demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` set, or the anonymous usage count switched off
 in Settings (`hq.off_by` says which). It sends the department, the answer, three facts from "About the company" (`what`, at most 500
-characters; `sells_to`; `software`), the catalog version and, while the usage count is on, its install id; it waits at most 6 seconds and
+characters; `sells_to`; `software`), the catalog version and, while the usage count is on and its notice has been shown, its install id; it waits at most 6 seconds and
 keeps only template ids that are this department's in its own catalog. HQ answers template ids and a short why, never text a bot would
 follow. What is sent and kept is in [PRIVACY.md](../PRIVACY.md).
 
@@ -326,7 +332,7 @@ the same template is one of the two command line routes, with a slug of your own
 
 ## Adding a template to the catalog
 
-The catalog ships 38 starter templates in six packs, each with a card; [Starter bots](starter-bots.md) lists them all.
+The catalog ships 94 templates, by department, each with a card; [Starter bots](starter-bots.md) lists them all.
 
 `templates/catalog/<template>/` is one template. The folder name is what `--template` takes.
 
@@ -334,8 +340,8 @@ The catalog ships 38 starter templates in six packs, each with a card; [Starter 
   repository. Fields: `template`, `slug` (the default bot slug), `name`, `required`, `bootstrap`,
   `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`, `pack` (its team: `basics`, `sales`,
   `marketing`, `support`, `operations` or `engineering`), `lead` (on each department head), `department`, `icon`, `tags`, `suggest`,
-  `team_templates`, `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`, `approval_required` and `example_output`. The
-  server serves all of them except `onboarding` and `example_output`; the org builder reads `department`, `pack`, `lead`, `icon`, `tags`,
+  `team_templates`, `kind` (`helper` on a card that serves one person and sits outside the org chart), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`, `approval_required` and `example_output`. The
+  server serves all of them except `onboarding` and `example_output`; the org builder reads `department`, `pack`, `lead`, `kind`, `icon`, `tags`,
   `suggest`, `pains`, `summary` and `recommend_when` ([The org builder](#the-org-builder)); `prerequisites` are shown by the bot's own setup, not by onboarding ([Starter bots](starter-bots.md)). After changing a card or `templates/departments.yaml`, run `python3 scripts/build_catalog_json.py` (Tico HQ's copy) and `python3 scripts/build-icon-font.py` (a new icon). A card with a `first_routine` and an
   `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot onboarded`.
 - Everything else in the folder is the repository the bot starts from: `AGENT.md`,
@@ -346,8 +352,8 @@ The catalog ships 38 starter templates in six packs, each with a card; [Starter 
   materializes it itself and no BotOps task is filed for it. Both are true for the assistant and
   BotOps only.
 - `recommend_when` says who a card is for. The org builder reads only `sells_to_businesses` and `sells_to_consumers` (a business-only card is suggested last to a company that sells only to consumers); the rest
-  (`publishes_content`, `has_pipeline`, `uses_github`, ...) are descriptive and harmless. The `inbox` card needs a person's mailbox chosen
-  alongside it whenever it is on the team.
+  (`publishes_content`, `has_pipeline`, `uses_github`, ...) are descriptive and harmless. The `inbox` card (the Inbox Manager helper) needs a
+  person's mailbox chosen whenever it is switched on.
 - The release ships `templates/catalog` as `.yaml` and `.md` files only, which is all the server
   reads. The full folder is materialized from the checkout on the Mac, so a template only works
   for real once that Mac has pulled it. `TICO_CATALOG_DIR` points either side at another catalog.
