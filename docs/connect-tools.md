@@ -4,6 +4,20 @@ A bot owns its tools and its skills. To give one a service such as Jira or Linea
 MCP server to anything we write: the vendor keeps it current, and Tico passes it to the bot's harness. Ask
 BotOps ("connect Linear to Atlas") and it does the steps below; this page says what they are.
 
+**A bot needs a long-lived API token.** OAuth access expires within hours and needs a person to sign in again, which a bot
+running on a schedule cannot do. So a vendor's MCP server is for a bot only when it takes an API token or key in a header. If it
+is OAuth only, use the vendor's REST API with an API token from a skill. Tico does not do OAuth flows for bots, and BotOps never
+sets a bot up on OAuth that needs re-signing.
+
+| Service | Vendor MCP server | API token or key in a header? | For a bot |
+|---|---|---|---|
+| Jira, Confluence | `https://mcp.atlassian.com/v2/mcp` | Yes, if an org admin enables it: Basic `email:token`, or a service-account key as Bearer | MCP with the token |
+| Linear | `https://mcp.linear.app/mcp` | Yes: API key as Bearer | MCP with the key |
+| PostHog | `https://mcp.posthog.com/mcp` | Yes: a personal API key with the MCP Server preset, as Bearer | MCP with the key |
+| Sentry | `https://mcp.sentry.dev/mcp` | Documented in the server's README only: a user auth token as `Sentry-Bearer` (its docs page says OAuth) | MCP with the token, if it works for you; else the REST API |
+| Trello | `https://mcp.trello.com/v1` | No: OAuth only | REST API with key and token |
+| GitHub | none needed | The GitHub App gives each run a short-lived token | Built in |
+
 ## How a tool is connected
 
 1. **The vendor's MCP server, if there is one.** Declare it in the bot's `tools:` in `bot.yaml`:
@@ -46,15 +60,16 @@ The operator's own MCP servers never reach a bot through Tico. The bot's own `.m
 
 ### When the vendor's server needs OAuth
 
-An OAuth consent screen needs a person and a browser, which a bot on a schedule does not have. Where a vendor
-offers an API token or service-account key for its MCP server, use that (Jira, Linear below). Where it does not (Trello),
-use the REST API from a skill.
+An OAuth consent screen needs a person and a browser, and its tokens expire, so a bot on a schedule cannot keep one. Where a vendor
+offers an API token or key for its MCP server, use that (the table above). Where it does not, do not use the MCP server for a
+bot: call the vendor's REST API with an API token from a skill (Trello below is the example).
 
 ## Jira and Confluence
 
 Atlassian's remote MCP server (Jira, Confluence, Bitbucket Cloud and more) is `https://mcp.atlassian.com/v2/mcp`, over
 HTTP. The older `/v1/sse` address still exists; Atlassian says v1 will expose the v2 tools from 1 March 2027. Its main
-sign-in is OAuth 2.1. An API token also works **if an organization admin has turned it on**, without a consent screen:
+sign-in is OAuth 2.1, which a bot cannot keep. An **API token works instead, if an organization admin has turned it on**, with no
+consent screen:
 
 ```yaml
 - service: jira
@@ -63,7 +78,7 @@ sign-in is OAuth 2.1. An API token also works **if an organization admin has tur
   env: JIRA_BASIC_AUTH
 ```
 
-- **Personal API token**: the header is `Basic` and the base64 of `you@example.com:API_TOKEN`, so store that encoded text as
+- **Personal API token** (email and token, basic auth): the header is `Basic` and the base64 of `you@example.com:API_TOKEN`, so store that encoded text as
   `JIRA_BASIC_AUTH`. Make the token at id.atlassian.com/manage-profile/security/api-tokens.
 - **Service account key** (better for a bot, made by an admin): `Authorization: "Bearer ${JIRA_SERVICE_KEY}"`.
 - A token is not bound to one site, so the bot passes the site's `cloudId` in its calls. Some tools may be missing compared with OAuth.
@@ -75,7 +90,7 @@ Ask BotOps: "Connect Jira to `<bot>` with a service account key." / "Give `<bot>
 ## Linear
 
 Linear's official MCP server is `https://mcp.linear.app/mcp` (streamable HTTP; SSE is its older fallback). It signs in with OAuth
-or, for a script, an API key or OAuth token sent as `Authorization: Bearer <token>`. Make a personal API key in Linear under
+or, for a script, takes an API key as `Authorization: Bearer <key>`: use the key, which does not expire on its own. Make a personal API key in Linear under
 Settings, Security & access. `https://mcp.linear.app/mcp/readonly` is a read-only endpoint; use it for a `can: [read]` bot.
 
 ```yaml
@@ -87,9 +102,41 @@ Settings, Security & access. `https://mcp.linear.app/mcp/readonly` is a read-onl
 
 Ask BotOps: "Connect Linear to `<bot>`; it may only read."
 
+## PostHog
+
+PostHog's MCP server is `https://mcp.posthog.com/mcp`. OAuth is its recommended sign-in, and its docs say that a client without OAuth
+can use a **personal API key** instead, created with the **MCP Server** preset (which limits it to one project), sent as
+`Authorization: Bearer <key>`. That is the bot's way.
+
+```yaml
+- service: posthog
+  mcp: {url: "https://mcp.posthog.com/mcp", transport: http, headers: {Authorization: "Bearer ${POSTHOG_PERSONAL_API_KEY}"}}
+  can: [read]
+  env: POSTHOG_PERSONAL_API_KEY
+```
+
+Not verified: the EU cloud address for a key. PostHog's page says the server routes by the account you sign in with; a search
+result named `mcp-eu.posthog.com`. If the Tools tab says auth failed on an EU project, try that address.
+
+## Sentry
+
+Sentry's hosted MCP server is `https://mcp.sentry.dev/mcp`. Its docs page says every connection uses OAuth, which is wrong for a bot. Its
+GitHub README (getsentry/sentry-mcp) describes a header for clients that can send one: `Authorization: Sentry-Bearer <user auth token>`
+(plain `Bearer` is reserved for OAuth tokens), with a user auth token that has `org:read`, `project:read`, `project:write`,
+`team:read`, `team:write` and `event:write`. We have not tried it. Whether an internal-integration token works is not stated.
+
+```yaml
+- service: sentry
+  mcp: {url: "https://mcp.sentry.dev/mcp", transport: http, headers: {Authorization: "Sentry-Bearer ${SENTRY_ACCESS_TOKEN}"}}
+  can: [read]
+  env: SENTRY_ACCESS_TOKEN
+```
+
+If it is refused (auth failed on the Tools tab), use Sentry's REST API with the same token from a skill.
+
 ## Trello
 
-Trello has an official MCP server (`https://mcp.trello.com/v1`), but it signs in with OAuth only and says API tokens are not
+Trello has an official MCP server (`https://mcp.trello.com/v1`), but it signs in with OAuth only and Trello says API tokens are not
 supported for it, so a bot cannot use it. Use the REST API with an API key and a token, made in the Trello Power-Up admin
 (trello.com/power-ups/admin): store them as `TRELLO_API_KEY` and `TRELLO_TOKEN`. The token gives the whole account's access
 at the scope chosen (`read` or `read,write`); make it `never` expiring only if you accept that, and revoke it if it leaks.
@@ -136,8 +183,8 @@ with a token is the way.
 ## Other services
 
 Look for the vendor's own MCP server first: search "`<vendor>` MCP server", open the vendor's docs, and check for an
-address and whether it takes an API token (not only OAuth). The MCP registry and each vendor's developer docs list them. If the vendor has
-none, or it is OAuth-only, write a skill like Trello's. Either way, say in the tool's `note:` who approved it and what is out of bounds.
+address and whether it takes an API token or key in a header (not only OAuth). If the vendor has
+none, or it is OAuth-only, write a skill like Trello's that calls its REST API with an API token. Either way, say in the tool's `note:` who approved it and what is out of bounds.
 
 *Facts on this page were read from the vendors' own documentation on 2026-09-30; vendors change these, so when a tool shows "auth failed" or
 "unreachable", check the vendor's current page first.*

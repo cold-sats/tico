@@ -6,16 +6,16 @@ unless they pasted it themselves.
 
 ## 0. Choose the route: the vendor's MCP server first
 
-Bots own their tools and skills, and we prefer the vendor's own MCP server to anything we build. In order:
+Bots own their tools and skills, and we prefer the vendor's own MCP server to anything we build. **A bot needs a long-lived API
+token**: OAuth expires within hours and needs a person to sign in again, so never set a bot up on OAuth that needs re-signing. In order:
 
-1. **The vendor's official MCP server, if it exists.** Find it: search "<vendor> MCP server", open the vendor's own docs (not a
-   blog or a third-party wrapper) and read the address, the transport (`http` = streamable HTTP, or `sse`) and how it signs in.
-   `docs/connect-tools.md` has Jira and Confluence, Linear, Trello and GitHub already checked; say when you could not confirm a fact.
-   It must accept a token or key in a header. If it is OAuth-only (an interactive consent screen), a bot on a schedule cannot use it:
-   go to 2 and say why in one line.
-2. **Otherwise a small client or skill in the bot's own repository** (`skills/<service>/SKILL.md`, or a script under `software/`)
-   that calls the vendor's REST API with the key from `env`. Keep it read-only first. The skill reads the variable; it never
-   prints it or writes it to a file.
+1. **The vendor's official MCP server, if it accepts an API token or key in a header.** Find it: search "<vendor> MCP server", open
+   the vendor's own docs (not a blog or a third-party wrapper) and read the address, the transport (`http` = streamable HTTP, or
+   `sse`) and how it signs in. `docs/connect-tools.md` has Jira and Confluence (basic auth, `email:token`), Linear (API key),
+   PostHog (personal API key), Sentry (auth token) and Trello already checked; say when you could not confirm a fact.
+2. **Otherwise a small REST client with an API token**, in the bot's own repository (`skills/<service>/SKILL.md`, or a script under
+   `software/`) that calls the vendor's REST API with the token from `env`. This is the route when the MCP server is OAuth only
+   (Trello's is), and say why in one line. Keep it read-only first. The skill reads the variable; it never prints it or writes it to a file.
 
 For route 1 declare the server when you add the tool (the same request as any tool, plus three flags):
 
