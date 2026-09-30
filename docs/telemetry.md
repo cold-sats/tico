@@ -51,7 +51,9 @@ more characters), so it cannot be turned on by accident. The key is an enable sw
 not gate the public endpoints.
 
 **Storage** (`installs`): `install_id`, `first_seen`, `last_seen`, `last_version`, `last_people`, `last_bots`. Dates are UTC
-days. Nothing else is stored, and rows older than 13 months (by `last_seen`) are deleted daily.
+days. Nothing else is stored for the count, and rows older than 13 months (by `last_seen`) are deleted daily. Support tickets, which
+a person sends on purpose, are in two other tables (`tickets`, `ticket_replies`; `hq/support.py`) and are kept until deleted: see
+[Support tickets](#support-tickets).
 
 **Endpoints**
 
@@ -70,6 +72,28 @@ forgets it. The server runs with `access_log=False`, so no address or query stri
 the proxy in front must not log query strings either (Caddy does not by default). Do not put Cloudflare Access in front:
 installs call HQ without signing in.
 
+### Support tickets
+
+`hq/support.py`. A person files a ticket from the app (Help > Contact support; [support.md](support.md)); the team works it with a
+staff key. Bodies are JSON, at most 16 KB (48 KB for staff), with strict fields; a refusal names the field, never echoes a value
+(`422 {"error": "invalid", "field": "message"}`). Nothing here logs a request, a body or an address.
+
+| Route | Auth | |
+|---|---|---|
+| `POST /v1/support` | none | `{message, email?, install_id?, version?}` (no other field). `201 {ticket_id, secret, status}`. The secret is shown once and HQ keeps its SHA-256. 5 an hour per address, 10 a day per install ID, 1000 a day in all: `429`. |
+| `GET /v1/support/{id}` | ticket secret | Header `X-Ticket-Secret` (or `?secret=`). `{ticket_id, status, created, updated, messages: [{id, created, from: "staff"\|"person", body}]}`. An unknown ticket and a wrong secret are the same `404`. 600 an hour per address. |
+| `POST /v1/support/{id}/messages` | ticket secret | `{message}` from the person; reopens an answered ticket; `409` when closed or at 60 messages. |
+| `DELETE /v1/support/{id}` | ticket secret | The person deletes their ticket. |
+| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the person writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending` and `messages`. |
+| `GET /v1/staff/tickets/{id}` | staff key | One ticket. |
+| `POST /v1/staff/tickets/{id}/reply` | staff key | `{body}` (up to 8000 characters). Sets the ticket to `answered`; with an email on the ticket it is marked `email_pending`. HQ sends no email. `409` when closed. |
+| `POST /v1/staff/tickets/{id}/status` | staff key | `{status: "open"\|"answered"\|"closed", email_sent?: true}`. |
+| `DELETE /v1/staff/tickets/{id}` | staff key | Delete on request. The rows are overwritten in the file. |
+
+The staff key is `HQ_STAFF_KEY` (24+ characters; unset turns every staff route into `404`), sent as `Authorization: Bearer ...` and
+compared in constant time. 20 wrong keys an hour from an address are answered `429`. Ticket ids look like `TK-AB12CD34`. Statuses
+are `open`, `answered` and `closed`. Tickets are never deleted by HQ itself.
+
 ### Deploy HQ
 
 On the server (next to an existing Tico is fine: HQ has its own compose project, volume and hostname). This is the Tico
@@ -78,7 +102,8 @@ team's `hq.tico.team`; anyone can run their own the same way.
 ```
 git clone https://github.com/ticoteam/tico && cd tico
 cp hq/.env.example hq/.env
-$EDITOR hq/.env          # TICO_HQ_KEY=$(openssl rand -hex 24); HQ_DOMAIN; pick a front door; optional backup
+$EDITOR hq/.env          # TICO_HQ_KEY=$(openssl rand -hex 24); HQ_DOMAIN; pick a front door; optional backup;
+                         # HQ_STAFF_KEY=$(openssl rand -hex 24) if you will work support tickets
 docker compose -f hq/compose.yaml --env-file hq/.env up -d --build
 curl -fsS http://127.0.0.1:8770/healthz
 ```
@@ -112,6 +137,8 @@ restoring is the command at the top of `hq/litestream.yml`. Update HQ with `git 
 `backend/tests/test_usage_count.py` (the payload has exactly the four fields; nothing is sent when off by
 `TICO_TELEMETRY`, `DO_NOT_TRACK`, the toggle, demo mode or before the notice; HQ down falls back to GitHub; debug sends
 nothing; owner-only controls), `hq/tests/test_hq.py` (no address stored or logged; bad input refused; the stats math,
-suppression and retention; no start without the key) and `hq/tests/test_tunnel.py` (the tunnel's route names `HQ_DOMAIN`,
+suppression and retention; no start without the key), `hq/tests/test_support.py` (tickets: strict input, per-ticket secrets, staff
+routes need the key, replies reach the install, nothing logged, nothing deleted by itself), `hq/tests/test_support_bot.py` (the Support
+Agent's `hq-tickets` against the real routes) and `hq/tests/test_tunnel.py` (the tunnel's route names `HQ_DOMAIN`,
 ends in a 404, is world-readable, and refuses a domain that is not a plain hostname). They add about ten seconds to the
 suite.

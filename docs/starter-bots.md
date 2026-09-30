@@ -54,7 +54,7 @@ policy questions, and Docs Writer covers only READMEs and API docs that live in 
 |---|---|---|---|
 | `support-lead` | Support Lead (lead) | A weekly support summary: volume, response and resolution times against target, the oldest waiting tickets, repeats and the decisions needed, plus routing proposals | Tico only |
 | `feedback-analyst` | Feedback Analyst | A weekly report of customer feedback themes with counts, anonymised quotes, the trend and three suggested actions | Feedback routed as tasks; mail, meetings and chat are optional |
-| `support` | Support Agent | Works each ticket end to end as drafts: a bucket and a draft reply per ticket with the docs it rests on (asked of the Librarian), follow-ups, product issues from repeats, and doc gaps reported to the Librarian | Support mail or tickets routed as tasks |
+| `support` | Support Agent | Works each ticket end to end as drafts: a bucket and a draft reply per ticket with the docs it rests on (asked of the Librarian), follow-ups, product issues from repeats, and doc gaps reported to the Librarian | Support mail or tickets routed as tasks. The project's own Support Agent also watches Tico HQ tickets and GitHub issues and Discussions with no model, through two [watchers](watchers.md) ([support.md](support.md)) |
 | `support-qa` | Support QA | A weekly scored sample of sent replies with patterns and coaching drafts for a person | Sent replies routed as tasks or a support mailbox |
 
 ### Operations and finance (`operations`)

@@ -7,6 +7,25 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Contact support, from the app.** Help > Contact support sends the Tico team a message: up to 4000 characters, an email for a
+  reply (prefilled, removable) and "Include version and install ID" (on by default). The form shows in one line exactly what it will
+  send. **Your requests** lists each ticket with its status and thread; a small notice and a dot on the Help `?` appear when the team
+  replies, and you can write back or delete a request. It is only ever sent when you press Send, never in demo mode, and the anonymous
+  count switch does not turn it off, because it is a message you chose to send (`TICO_SUPPORT=off` removes it). Tickets are kept at HQ
+  until deleted; PRIVACY.md and docs/support.md say what is sent and kept.
+- **HQ takes tickets.** `POST /v1/support` (a per-ticket secret comes back), `GET /v1/support/{id}` for status and replies, and staff
+  routes behind `HQ_STAFF_KEY` to list, reply, set the status and delete. Strict input, rate limits in memory, no body or address
+  logged, plain text throughout (docs/telemetry.md).
+- **Watchers: a bot can be woken by a program instead of a model.** A `watchers:` entry in `employee.yaml` names a program in the
+  bot's repository; the runner runs it as the bot on a schedule (1 minute to 24 hours, a timeout, never overlapping, no hub token,
+  secrets removed from what it reports) and the hub opens a task, or wakes the bot on the task it has, only when the program prints
+  something new. Failed or stopped watchers show in Settings > Health. BotOps has `set-up-a-watcher` (docs/watchers.md).
+- **The Support Agent works HQ tickets and GitHub threads.** Its two watchers run every 5 minutes with no model: `hq-tickets` opens a
+  task per ticket and adds a note when the person writes again; `gh-support` does the same for a repository's issues and Discussions,
+  read-only. Replies are drafted, approved by a person, then posted by `software/hq-tickets reply` only for the exact approved text.
+  Both do nothing until configured (docs/support.md).
+
 ## [0.2.15] - 2026-09-30
 
 ### Added
