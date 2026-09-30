@@ -5,6 +5,7 @@ import re
 from types import SimpleNamespace
 
 from . import access as Access
+from . import message_bots as MessageBots
 from . import bot_access as BA
 from . import models as M
 from . import placement
@@ -280,6 +281,7 @@ class SettingsAdmin:
             declared = _json(row["config_json"], {}) or {}
             declared["template"] = body.template
             c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(declared), body.slug))
+            MessageBots.link(c, who.actor, body.slug, who.actor)      # BotOps built it for them: it is their message bot
         return {**result, "created": True}
 
     def co_owners(self, c, who, bot, add=(), remove=()):

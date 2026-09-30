@@ -383,10 +383,14 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
   socket, a Gmail or Calendar access token that lasts an hour for one mailbox at a time. The mailboxes it may ask for are the
   one the bot declares (its human's own email only if it declares none), then those of the humans below that human in the
   team chart. Any other bot, and any other mailbox, is refused.
-  A bot is a message bot to the server when an owner or admin names it as its person's `inbox_bot`, which is what the server
-  checks before it names any mailbox for a run. Creating the bot does not do it, so a bot made from the `inbox` template needs one call
-  (owner or admin; the address is only for a Workspace on another domain than the person's sign-in email):
-  `hub api POST access/people/<person> '{"inbox_bot": "<bot>", "mailbox": "ana@acme.example"}'`. Until then the runner holds the key
+  A bot is a message bot to the server when it is its person's `inbox_bot`, which is what the server checks before it names any
+  mailbox for a run. Making a bot from the `inbox` template does that itself: adding it in Settings, in the team builder, or
+  through BotOps records the bot as the `inbox_bot` of the person the `Mailbox:` line names (by their roster email; for a bot
+  BotOps registers in chat, the person who asked), and writes that address as its `gmail` identity, or the person's own email when
+  there is no line. A bot made before this is linked when the server starts, if it is unambiguous: a message-bot template, a
+  mailbox in its instructions or its `gmail` identity, and the person whose email it is (or the only person on the roster).
+  Changing it later is an owner's or admin's call, or BotOps's as the requester (a card for their click):
+  `hub api POST access/people/<person> '{"inbox_bot": "<bot>", "mailbox": "ana@acme.example"}'`. Without the link the runner holds the key
   but gives the bot no token, and the mail tool says "this bot has no mailbox" (the bot's Tools row shows a problem; it is not "ready").
   Because the key is not in the bot's environment, the Tools row shows `GOOGLE_SA_KEY` as "present (held by the computer)" when the
   computer has the key and runs the `connectors` job, and as missing only when the computer has no key. The `mail.db` and

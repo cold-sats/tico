@@ -27,6 +27,7 @@ from .config import ASSISTANT_NAME
 from . import rooms, routines, statuses
 from . import access as Access
 from . import groups as Groups
+from . import message_bots as MessageBots
 from .store import H, Problem, encode, readiness_document
 
 KEY = "onboarding"
@@ -458,6 +459,7 @@ class Onboarding:
             reports_to = str(choice.get("reports_to") or "") or (home if starter else "")
             now = reports_to if reports_to.startswith("human:") or (reports_to and H.bot(c, reports_to)) else ""
             self._define(c, who, slug, choice, card, reports_to=now)
+            MessageBots.link(c, who.actor, slug, who.actor)
             if reports_to != now:
                 parents[slug] = reports_to          # it reports to a bot that is created later in this plan
             if starter:
@@ -536,9 +538,11 @@ class Onboarding:
         self._write_config(c, slug, declared)
         if card.get("starter") and not card.get("bootstrap"):
             self._make_starter(c, who, slug, template)
+            MessageBots.link(c, who.actor, slug, who.actor)
             return {"template": template, "setup_task_id": None, "onboarding_state": NEEDS_SETUP}
         declared["template_version"] = releases.version()
         self._write_config(c, slug, declared)
+        MessageBots.link(c, who.actor, slug, who.actor)          # a message bot is its person's from the start
         return {"template": template,
                 "setup_task_id": self._setup_task(c, who, slug, choice, card, record["answers"])}
 

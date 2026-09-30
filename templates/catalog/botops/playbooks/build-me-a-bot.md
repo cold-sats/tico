@@ -60,6 +60,10 @@ off) happen at once, and each can be undone from Settings > Bots history.
   access, not a narrower credential, unless they gave it a separate read-only token.
 - "Turn off the Monday routine": `hub routine update <key> --disable --bot <bot>`.
 - "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub health check`, then fix or explain.
+- "Read a different mailbox" or "that's not Ana's address" on a message bot: as them,
+  `hub api POST access/people/<person id> '{"inbox_bot": "<bot>", "mailbox": "<address>"}'`. It comes back as a card
+  for their click, because it decides which mailbox the bot may open. Change the `Mailbox:` line in its `AGENT.md`
+  and its `gmail` identity in `bot.yaml` to match.
 - Anything else in the app: `hub api <METHOD> <path> ['{json}']`, as them, with their rights.
 
 ## When it goes sideways

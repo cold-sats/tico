@@ -106,6 +106,13 @@ def create_app(settings=None):
                 onboarding.name_default_assistant(c)
         except Exception as exc:
             telemetry.capture("assistant_name", exc)
+        # A message bot made before the server linked it to its person is linked now, when there is no doubt whose it is.
+        try:
+            from . import message_bots
+            with store.transaction() as c:
+                message_bots.backfill(c)
+        except Exception as exc:
+            telemetry.capture("message_bots", exc)
         # This release may ship merged product tasks that waited for it (backend/github.py).
         try:
             from .github import ship_deployed

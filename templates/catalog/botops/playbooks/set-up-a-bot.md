@@ -58,6 +58,13 @@ and a schedule only if the owner asked for one.
 If the instructions include a `Mailbox: <email>` line (message bots), replace every `{{mailbox}}` in
 `bot.yaml` with that address. That is the mailbox this bot is assigned; do not invent one.
 
+The server has already named the bot as that person's message bot and recorded the mailbox when the bot was
+added (the person is the one whose email on the roster is that address). If `hub health check` still says the
+bot's Gmail tool has no message bot, name it yourself as the person who asked:
+`hub api POST access/people/<person id> '{"inbox_bot": "<slug>", "mailbox": "<the Mailbox: address>"}'`
+(a card for their click). That link is the one thing that lets its runs on a Docker computer read the mailbox.
+Changing a message bot's mailbox later is the same call with the new address.
+
 The instructions a new bot starts with already say how it publishes what it makes (the "Publishing
 your work" section that comes with every template): reports and exports in `reports/` or
 `artifacts/` are listed on its page after a run, `hub file publish <path>` lists one at once,
