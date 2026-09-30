@@ -209,7 +209,7 @@ def test_teams_org_groups_and_person_teams_become_groups_and_no_bot_changes_grou
 
 
 def test_a_team_with_no_groups_gets_one_per_template_group_with_its_lead_in_it(api):
-    """Tico Team: no org groups, and bots made by the team builder from templates in four groups."""
+    """A team with no org groups and bots the team builder made from templates in four groups: four groups, each with its lead."""
     homes = recruit.template_groups(api.app.state.store.settings)
     lead = {"marketing": "marketing-lead", "engineering": "engineering-lead", "product": "product-lead",
             "support": "support-lead"}
