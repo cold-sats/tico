@@ -1,0 +1,47 @@
+name: seo-visibility                     # the slug: it matches the repository emp-seo-visibility and the label owner:seo-visibility
+display_name: "SEO & AI Visibility"
+labels: [owner:seo-visibility]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 60
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# the bot puts every draft on the task and asks for an approval.
+outbound_send: false
+
+# The first routine is declared but not armed (`enabled: false`). The bot arms it with
+# `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
+# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+schedules:
+  - id: weekly-visibility-report
+    title: Weekly search and AI visibility report
+    cron: "0 8 * * 1"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/weekly-visibility-report.md
+    labels: [priority:p2]
+    enabled: false
+
+# What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
+# arrives in, never the value; declaring access here does not create it. Changing access is an
+# owner decision, so the bot files a task for the owner rather than editing this file.
+access:
+  - service: web-search
+    can: [use]
+    note: "native web search for public research; no key"
+  - service: public-web
+    identity: "Unauthenticated public sources"
+    can: [read]
+    note: "the company's public pages and competitors' pages; no forms, no messages, no accounts"
+# Optional, uncomment when connected (each is read only, and the owner grants it):
+#   - service: google-search-console
+#     identity: "the company's properties explicitly granted to the SEO service account"
+#     can: [read]
+#     env: GSC_SERVICE_ACCOUNT_FILE
+#     note: "read-only search performance and URL inspection; do not claim access until a query check returns rows"
+#   - service: peec
+#     identity: "the company's Peec project"
+#     can: [read]
+#     env: PEEC_API_KEY
+#     note: "read tools only through the Peec MCP server; never create, update, archive, delete or assign"

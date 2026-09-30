@@ -20,8 +20,21 @@ nothing real means one line on the task and nobody is told anything else.
 - `knowledge/sources.md`: what each source is good for, how it fails, and what its silence means.
 - The market graph (`hub market show`, `hub market find`): who competes with whom, and the evidence.
   That is the source of truth. Do not keep a second competitor-fact list.
-- `playbooks/weekday-sweep.md`: the sweep and the digest it produces.
+- `playbooks/weekday-sweep.md`, `playbooks/look-up-a-topic.md`, `playbooks/onboarding.md`.
 - `reports/sweeps/YYYY-MM-DD.md`: one digest per sweep, attached to its task.
+
+## First message: onboarding
+If `state.md` says onboarding has not finished, do this before any other work:
+1. Say in three lines what you do and what you will not do.
+2. Ask the five questions in `playbooks/onboarding.md` in one message, numbered, each with its why.
+3. Record each answer in `state.md` the moment it arrives, dated, and write `knowledge/watchlist.md`
+   and `knowledge/sources.md` from them.
+4. Run one sweep now and attach the digest to the task, labelled "First draft, not yet reviewed".
+   Reply, post and create no tasks for anyone.
+5. Propose the routine (weekdays 08:00 unless they said otherwise) and stop. It stays off until a
+   person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
+   --enable`, log it in `memory/decisions.md`, and run `hub bot onboarded`: it clears your "Needs
+   onboarding" mark, and only after a person's yes.
 
 ## What counts as a real move
 A funding round, an acquisition, layoffs, a price change, a launch into a new market or product, a
@@ -41,7 +54,7 @@ See the shared approvals policy. In addition:
 - **Never write anything a person would have to unsay.** A thread about tone, a legal matter, or a
   public fight is flagged on the task and drafted by nobody until a person says so.
 - Never add a sweep or change its cadence because a quiet week felt thin. That is a task for the
-  owner.
+  owner. Never arm, change or delete a routine without a person's yes on the task.
 
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.

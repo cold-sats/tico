@@ -2,23 +2,29 @@ name: market-analyst
 display_name: "Market Analyst"
 labels: [owner:market-analyst]
 reads: []
-reports_to: cmo
 
 reasoning_effort: high
 max_run_minutes: 60
 
 outbound_send: false
 
+# The routines are declared but not armed (`enabled: false`). The bot arms them with
+# `hub routine update <id> --enable` after a person approves the first weekly delta on the onboarding task.
+# `hub bot create` seeds them once; from then on the hub's rows are the routines (docs/routines.md).
 schedules:
   - id: curate
     title: Curate the market
     cron: "0 * * * *"
     timezone: America/Los_Angeles
     template: playbooks/curate.md
+    enabled: false
   - id: urgent
     title: Urgent market insight
     "on": market.insight.urgent    # quoted: YAML reads a bare `on` as true
     timezone: America/Los_Angeles
     template: playbooks/urgent.md
+    enabled: false
 
+# The market graph is in the hub and needs no entry. The bot reads no external source itself:
+# other bots (Listening, Sales) report what they found and it never reads social sites.
 access: []

@@ -37,7 +37,7 @@ edited, removed or answered. Never delete a row.
 ## 4. Work the queue
 
 Run `playbooks/work-queue.md` for each surface with rows that have no lever yet, newest and
-most visible first, capped per batch. Then execute any batch approved since the last sweep.
+most visible first, capped per batch. Then, when the owner has enabled execution (`act` access), execute any batch approved since the last sweep; otherwise a person carries it out from the approved payload.
 
 ## 5. Write the digest
 
@@ -50,8 +50,7 @@ most visible first, capped per batch. Then execute any batch approved since the 
 4. **Batches requested**: one line per approval, with the surface and the item count.
 5. **Claims and programs**: what is still unclaimed, what the invitation program did this week.
 
-A section with nothing in it is absent. Post coverage, counts and outcomes to the company channel
-in five lines or fewer, with the path to the digest.
+A section with nothing in it is absent. Put coverage, counts and outcomes in five lines or fewer at the top of the task note with the path to the digest. Posting them to the company channel needs the Slack `post` access, which the owner turns on.
 
 ## 6. Hand over what needs someone
 

@@ -14,8 +14,9 @@ max_run_minutes: 60
 # then: they are sent from the product's own email, or by a person, never by this bot.
 outbound_send: false
 
-# The routines this bot starts with; `hub bot create` seeds them into the hub, and from then on
-# the hub's rows are the routines (docs/routines.md).
+# The first routine is declared but not armed (`enabled: false`). The bot arms it with
+# `hub routine update <id> --enable` after a person approves the first digest on the onboarding task.
+# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 # One sweep to start with. A midweek pass earns its place once someone has read a month of these.
 schedules:
   - id: weekly-review-sweep
@@ -24,6 +25,7 @@ schedules:
     timezone: America/Los_Angeles     # set this to the company's own timezone
     template: playbooks/weekly-review-sweep.md
     labels: [priority:p2]
+    enabled: false
 
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; the value lives in the workspace secrets directory on the machine
@@ -32,10 +34,10 @@ schedules:
 access:
   - service: aside
     identity: "the company browser (Aside)"
-    can: [read, act]
+    can: [read]
     sites: [yelp.com, bbb.org, google.com, trustpilot.com, capterra.com, g2.com, getapp.com,
             softwareadvice.com, glassdoor.com, indeed.com, apps.apple.com, play.google.com, sitejabber.com]
-    note: "reads every listing; acts only to execute a batch a publish approval lists item by item (report/flag, owner reply, BBB answer, claim, category); never submits anything outside that payload; on a sign in wall or a challenge, record the surface as blocked"
+    note: "reads every listing; on a sign in wall or a challenge, record the surface as blocked. Until the owner turns execution on, a person carries out each approved batch"
   - service: web-search
     can: [use]
     note: "finding review pages and listings under the company's name and its old names"
@@ -45,7 +47,12 @@ access:
     note: "review pages and the platforms' own policy pages; no forms, messages, or account creation"
   - service: slack
     identity: "the company workspace"
-    can: [read, post]
+    can: [read]
     channels: [marketing]
     env: SLACK_BOT_TOKEN
-    note: "internal channels only: the weekly digest and a new-negative-review alert"
+    note: "reads the internal marketing channel; posting is off"
+# Owner's decision, after a person has approved the first batch and chosen to let the bot execute approved
+# batches item by item: change the Aside entry to `can: [read, act]` (act only to carry out a batch a publish
+# approval lists item by item: report/flag, owner reply, BBB answer, claim, category; never anything outside
+# that payload). To let it post the weekly digest to the marketing channel, change the Slack entry to
+# `can: [read, post]` (internal channels only).

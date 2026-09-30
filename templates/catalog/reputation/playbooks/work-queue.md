@@ -52,8 +52,9 @@ Set every row's `status` to `drafted` with the approval id.
 
 ## 4. Execute the approved batch
 
-Only after `hub approval show <id>` says approved, and only the items in it. Through the browser
-connector with `act`:
+Only after `hub approval show <id>` says approved, and only the items in it. Until the owner has
+enabled the browser `act` access, hand the approved payload to a person and stop here; a person
+executes it and you record the outcomes. Once it is enabled, through the browser connector with `act`:
 
     $HUB_DIR/connectors/browser.py repl --as reputation "..."
 
