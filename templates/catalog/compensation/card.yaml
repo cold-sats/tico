@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine."
 first_routine:
   title: "Weekly offer and pay change check"
-  cadence: "Wednesdays at 11:00 company time, after you approve the first check"
+  cadence: "Wednesdays at 11:00 company time"
   output: "reports/YYYY-MM-DD-pay-check.md: counts of offers and pay changes checked, in band and out of band, open roles without a published range; person-level detail attached to the task for the approvers"
   draft_only: true
 approval_required:

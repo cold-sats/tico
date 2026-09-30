@@ -54,7 +54,7 @@ onboarding:
     why: "These become hard rules. A draft that needs a price or a claim leaves a marked gap for the sender."
 first_routine:
   title: "Weekday prospecting run"
-  cadence: "Weekdays at 07:30 company time, after you approve the first pack"
+  cadence: "Weekdays at 07:30 company time"
   output: "reports/YYYY-MM-DD-prospecting.md: up to ten new leads scored A, B or C with a sourced brief, first touches for the A leads, the follow-ups due today, inbound replies qualified, meetings to book, and who needs a person now"
   draft_only: true
 approval_required:

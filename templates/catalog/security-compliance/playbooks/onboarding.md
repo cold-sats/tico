@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a controls register with an owner
-and a cadence on every control, a first monthly page, and a routine proposed but not armed.
+and a cadence on every control, a first monthly page, and the first routine confirmed.
 
 ---
 
@@ -42,25 +42,23 @@ given; a control with no owner or cadence is kept and marked, never filled in by
 Follow `playbooks/monthly-controls-page.md` for the current month. Attach it labelled "First draft,
 not yet reviewed". Request nothing from owners yet: the first page shows who would be asked for what.
 
-## 6. Propose the routine and wait
+## 6. Confirm the routine
 
-Say: "If this is useful, I will run this page on the first of every month and send each owner their
-evidence request once you approve the list. Say yes and I will switch it on." Then `hub task ask <id>`
-once, and stop. On a yes:
-
-    hub routine list
-    hub routine update <id> --enable
+Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
+`hub routine update <id> --enable`) and tell the person in one line what it does: "I will run this
+page on the first of every month and send each owner their evidence request once you approve the
+list." They can change it or turn it off any time. Evidence requests still go out only to the owners
+on the approved list.
 
 Record it in `memory/decisions.md`, including the approved list of owners who may get evidence
-requests, and set `state.md` to `Onboarding: finished`. On a no or a change, adjust `knowledge/` and
-leave the routine off.
+requests, and set `state.md` to `Onboarding: finished`. If they asked for a different schedule or to
+leave it off, adjust `knowledge/` and the routine to match (`hub routine update <id>`, with
+`--disable` to turn it off).
 
-Last, once the routine is enabled and recorded, run:
+Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
-mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+routine run; until then nothing you have runs on its own. Run it once the answers and the first
+result are recorded, not before.

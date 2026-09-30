@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Monthly pricing review"
-  cadence: "The 1st of each month at 09:00 company time, after you approve the first review"
+  cadence: "The 1st of each month at 09:00 company time"
   output: "reports/YYYY-MM-DD-pricing-review.md: headline, competitor price and packaging changes with the date read, discounts given last month by segment and size, plan mix and upgrades, one question worth answering, and what could not be read"
   draft_only: true
 approval_required:

@@ -54,7 +54,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient. Nobody else receives it until you say so."
 first_routine:
   title: "Weekly receivables reminders"
-  cadence: "Mondays at 09:00 company time, after you approve the first pack"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-ar-followup.md: the aging summary, then a draft reminder for each invoice at its step of the ladder, and the invoices held back with the reason"
   draft_only: true
 approval_required:

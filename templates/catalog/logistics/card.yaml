@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly delivery and exceptions report"
-  cadence: "Mondays at 08:00 company time, after you approve the first report"
+  cadence: "Mondays at 08:00 company time"
   output: "reports/YYYY-MM-DD-deliveries.md: on-time and in-full by carrier and lane, open exceptions with age and next step, claims filed and due, and carrier invoice overcharges found"
   draft_only: true
 approval_required:

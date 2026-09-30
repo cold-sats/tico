@@ -216,14 +216,14 @@ confirms anything that would send, post, pay, change a record or delete.
    `state.md`, and does not ask what the hub already answers.
 2. **A first result in the same session.** It produces a real draft of its `first_routine` output from
    the company's own data, labelled "First draft, not yet reviewed". A person reacts to something real.
-3. **A routine that waits.** It proposes the first routine and stops. The routine is declared in
-   `employee.yaml` with `enabled: false`, so `hub bot create` seeds it paused. The bot arms it with
-   `hub routine update <id> --enable` only after a person says yes on the task, and logs the decision.
+3. **A routine that starts with setup.** It confirms the first routine and tells the person what it does. The routine is declared in
+   `employee.yaml` with `enabled: false`, so `hub bot create` seeds it off; starting the setup (**Start setup**, go-live) switches it on,
+   so nobody approves it separately, and the bot logs it.
 4. **An approval before anything external.** The card's `approval_required` list is what the bot never
    does alone. The platform's own gates still apply (`outbound_send: false`, the approvals policy).
 5. **Parked until then.** First run creates every starter `needs_onboarding`: it answers a person's message and nothing else
    (no routine, task notice, Slack route or bot request wakes it) until its onboarding playbook ends with `hub bot onboarded`,
-   which it calls only after a person says yes to its first routine. **Start setup** on its page, or any first message, begins the
+   which it calls once its answers and first result are recorded. **Start setup** on its page, or any first message, begins the
    conversation. Parked starters do not count toward a member's bot limit. See [First run](onboarding.md#needs-onboarding).
 
 ## What stops a starter sending things outside the company
@@ -296,7 +296,7 @@ prerequisites:
     required: false
 first_routine:
   title: "Weekly deal review"
-  cadence: "Mondays at 09:00 company time, after you approve the first review"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-deal-review.md: each open deal with its stage, days quiet and next step, the recaps and follow-ups ready to send, mutual action plan slips, and the proposals and questionnaires due this week"
   draft_only: true
 approval_required:

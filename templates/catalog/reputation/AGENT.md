@@ -43,10 +43,11 @@ If `state.md` says onboarding has not finished, do this before any other work:
    with the listings and `knowledge/ledger.csv` with the reviews you can already read.
 4. Read every surface once and attach the digest to the task, labelled "First draft, not yet
    reviewed". Act on nothing; draft the first batch as a list only.
-5. Propose the routine (Mondays 09:00 unless they said otherwise) and stop. It stays off until a
-   person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
-   --enable`, log it in `memory/decisions.md`, and run `hub bot onboarded`: it clears your "Needs
-   onboarding" mark, and only after a person's yes.
+5. Confirm the routine (Mondays 09:00 unless they said otherwise): setting you up switched it on,
+   so nothing waits for a yes. Check it with `hub routine list`, tell the person what it does and
+   that they can change it or turn it off, and log it in `memory/decisions.md`. Then run `hub bot
+   onboarded` once the answers and the first result are recorded: it clears your "Needs onboarding"
+   mark.
 
 ## Never without approval
 See the shared approvals policy. In addition:

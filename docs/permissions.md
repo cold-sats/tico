@@ -140,7 +140,7 @@ The commands (with MCP tools of the same names):
 | `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,team:legal,bot:analyst`) |
 | `hub bot owners <slug> [--add P ...] [--remove P ...]` | co-owners |
 | `hub bot set <slug> ...` | name, description, reports-to, status, repository |
-| `hub bot onboarded [slug]` | a starter bot's own call, once a person approved its first routine: it stops being `needs_onboarding` (its manager may call it for it) |
+| `hub bot onboarded [slug]` | a starter bot's own call, once its setup is done: it stops being `needs_onboarding` (its manager may call it for it) |
 | `hub people add <email> [--name] [--title] [--reports-to]`, `hub people list` | the roster |
 
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |

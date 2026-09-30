@@ -36,8 +36,7 @@ An inbox bot is assigned to one person on the roster. **Settings → Bots → Ad
 the first-run cards) show a person picker when the template is `inbox`. The chosen address is
 appended to the instructions as `Mailbox: <email>`, and BotOps fills `{{mailbox}}` in
 `employee.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
-routine, the weekday 07:30 mail brief, declared but not armed until the person approves the first
-brief, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
+routine, the weekday 07:30 mail brief, declared off and switched on when its setup starts, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
 `org_read: true`, which also reads everyone who reports to the person, is added by the owner
 deliberately. It starts with filing off (no labels, no archive) and shows what it would do.
 
@@ -306,8 +305,8 @@ A catalog template may declare the same thing under `schedules:` in its `employe
 (`id`, `title`, `cron` or `on`, `timezone`, `template: playbooks/<file>.md`, and optionally
 `enabled: false`); `hub bot create` seeds the new bot's routines from it once, and from then on the
 hub's rows are the routines. The starter templates declare their first routine with `enabled: false`:
-it exists and is visible under Tasks, Recurring, but does not fire until the bot arms it
-(`hub routine update <id> --enable`) after a person approves the first draft. Quote `"on":` in the
+it exists and is visible under Tasks, Recurring, and is switched on when the bot's setup starts (**Start setup**, go-live),
+so nobody approves it separately. Quote `"on":` in the
 YAML; an unquoted `on` is read as a boolean.
 
 - **`key`** (the `id` in a template) is stable. Keep it when you change the title: setting the

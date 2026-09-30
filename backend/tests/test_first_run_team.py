@@ -49,7 +49,7 @@ def real_starters(api, *names):
         shutil.copytree(CATALOG / name, Path(api.app.state.store.settings.catalog_dir) / name, dirs_exist_ok=True)
 
 
-def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_a_person_approved(environment):
+def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_its_setup_is_done(environment):
     """Create, parked, woken only by a person, onboarded by the bot itself; and the member limit ignores parked bots."""
     api = environment(cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, "")])
     real_starters(api, "support", "chief-of-staff", "issue-triage")
@@ -66,7 +66,7 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_a_p
     assert rows["support"]["setup_task_id"] is None and rows["support"]["reports_to"] == "chief-of-staff"
     assert rows["chief-of-staff"]["reports_to"] == "human:morgan"                              # the owner, by default
 
-    # Exposed with the template and its version; placed on the computer and active, its routine paused.
+    # Exposed with the template and its version; placed on the computer and active, its routine seeded off.
     listed = {b["slug"]: b for b in api.get("/api/v2/bots", headers=who).json()}
     assert listed["support"]["onboarding_state"] == "needs_onboarding" and listed["coo"]["onboarding_state"] == ""
     detail = api.get("/api/v2/bots/support", headers=who).json()
@@ -82,6 +82,9 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_a_p
     api.post("/api/v2/tasks", json={"owner": "support", "title": "Look at the queue", "body": "x"}, headers=signed_in())
     assert claim(api, computer, "support") is None
     started = post(api, "chat/support", {"text": "Let's set you up."}, token="local-owner-secret-token-0123456789")
+    with api.app.state.store.read() as c:            # starting the setup switched its first routine on: nobody approves it separately
+        assert c.execute("SELECT enabled FROM schedule_config sc JOIN schedules s ON s.id=sc.schedule_id "
+                         "WHERE s.bot='support'").fetchone()[0] == 1
     attempt = claim(api, computer, "support")
     assert attempt and attempt["bot"] == "support"
     assert attempt["onboarding"] == "needs_onboarding"           # the runner's prompt follows the template's flow
@@ -129,3 +132,26 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_a_p
     assert api.post("/api/v2/bots/plain/archive", headers=quinn(), json={"expected_revision": plain["revision"]}).status_code == 200
     assert api.post("/api/v2/bots/help/onboarded", json={}, headers=quinn()).status_code == 200
     assert api.post("/api/v2/bots/closer/onboarded", json={}, headers=quinn()).status_code == 409
+
+
+def test_go_live_turns_the_first_routine_on_once_and_a_strangers_message_does_not(environment):
+    api = environment(cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, "")])
+    real_starters(api, "support")
+    machine(api)
+    selected = {"support": {"template": "support", "display_name": "Help desk", "instructions": ""}}
+    assert draft(api, selected=selected).status_code == 200
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+
+    def enabled():
+        with api.app.state.store.read() as c:
+            return c.execute("SELECT enabled FROM schedule_config sc JOIN schedules s ON s.id=sc.schedule_id "
+                             "WHERE s.bot='support'").fetchone()[0]
+    as_person(api, "quinn")                                          # a member who does not manage it
+    assert api.post("/api/v2/chat/support", json={"text": "hello"}, headers=signed_in("quinn")).status_code == 200
+    assert enabled() == 0
+    live = api.post("/api/v2/bots/support/go-live", json={}, headers=signed_in())
+    assert live.status_code == 200 and live.json()["routine_armed"] and enabled() == 1
+    with api.app.state.store.transaction() as c:                     # a person turns it off: going live again leaves it off
+        c.execute("UPDATE schedule_config SET enabled=0 WHERE schedule_id LIKE 'support:%'")
+    again = api.post("/api/v2/bots/support/go-live", json={}, headers=signed_in())
+    assert again.status_code == 200 and enabled() == 0

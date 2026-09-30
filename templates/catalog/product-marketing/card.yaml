@@ -52,7 +52,7 @@ onboarding:
     why: "I start from what you say today and what buyers said, and flag where they differ."
 first_routine:
   title: "Weekly launch and positioning review"
-  cadence: "Mondays at 10:00 company time, after you approve the first pack"
+  cadence: "Mondays at 10:00 company time"
   output: "reports/YYYY-MM-DD-launch-review.md: launches in the next 90 days with brief status and tier, positioning gaps found, one battlecard refreshed as a draft"
   draft_only: true
 approval_required:

@@ -56,7 +56,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient. Nobody else sees cash figures until you say so."
 first_routine:
   title: "Weekly finance summary"
-  cadence: "Mondays at 08:30 company time, after you approve the first summary"
+  cadence: "Mondays at 08:30 company time"
   output: "reports/YYYY-MM-DD-finance-summary.md: cash today and the 13-week outlook against the minimum, close status, receivables and payables due, material variances, the next 14 days of the finance calendar, what each finance bot produced, and the decisions needed"
   draft_only: true
 approval_required:

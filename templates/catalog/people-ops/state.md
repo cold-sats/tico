@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated.
 
 ## Routine
-`weekly-records-check`: declared, not armed. Arm it only after a person approves the first result.
+`weekly-records-check`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

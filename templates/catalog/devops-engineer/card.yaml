@@ -44,7 +44,7 @@ onboarding:
     why: "Sets the first routine's schedule and recipient."
 first_routine:
   title: "Weekly CI health report"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first report"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-ci-health.md: headline, flaky tests with failure rate and owner, slowest jobs and trend, red-main streaks with the first failing run, deploy frequency, and three fix plans"
   draft_only: true
 approval_required:

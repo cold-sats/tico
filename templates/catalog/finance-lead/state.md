@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated. Record the minimum cash line and the runway alert here.
 
 ## Routine
-`weekly-finance-summary`: declared, not armed. Arm it only after a person approves the first draft.
+`weekly-finance-summary`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

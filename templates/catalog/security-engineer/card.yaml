@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the first routine's schedule and recipient. Nobody else receives it until you say so."
 first_routine:
   title: "Weekly dependency and advisory report"
-  cadence: "Mondays at 08:00 company time, after you approve the first report"
+  cadence: "Mondays at 08:00 company time"
   output: "reports/YYYY-MM-DD-security-report.md: alerts by tier with the reason, the patch plan in merge order, alerts past their deadline, any exposed secret by location only, and what could not be read"
   draft_only: true
 approval_required:

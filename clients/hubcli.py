@@ -164,7 +164,7 @@ the server (`backend/hubdb.py`), never here.
                                            show or set who sees, reads, writes (V: everyone, or ben,team:legal,bot:x)
     hub bot owners <slug> [--add P ...] [--remove P ...]
                                            add or remove the people who own a bot, as the requester (BotOps)
-    hub bot onboarded [slug]               a starter bot marks itself onboarded once a person approved its first routine
+    hub bot onboarded [slug]               a starter bot marks itself onboarded once its setup is done
     hub people add <email> [--name N] [--title T] [--reports-to P]
                                            add a person to the roster and sign-in list (a Confirm card first)
                                            (`hub person add` is the same)
@@ -1070,7 +1070,7 @@ def parser():
     s.add_argument("--add", nargs="+", default=[], metavar="PERSON")
     s.add_argument("--remove", nargs="+", default=[], metavar="PERSON")
     s.set_defaults(fn="bot owners")
-    s = bot.add_parser("onboarded", help="a starter bot marks itself onboarded, after a person approved its first routine")
+    s = bot.add_parser("onboarded", help="a starter bot marks itself onboarded, once its setup is done")
     s.add_argument("slug", nargs="?", help="the bot; the one running this command by default")
     s.set_defaults(fn="bot onboarded")
     s = bot.add_parser("place", help="put a bot on a computer, as the person who asked (BotOps)")

@@ -58,7 +58,7 @@ onboarding:
     why: "Sets the routine's schedule. Nobody else receives it until you say so."
 first_routine:
   title: "Weekly legal summary"
-  cadence: "Mondays at 08:30 company time, after you approve the first summary"
+  cadence: "Mondays at 08:30 company time"
   output: "reports/YYYY-MM-DD-legal-summary.md: requests opened and closed, contracts waiting, deadlines inside 30 days, policies in draft, decisions needed from a person, and routing and hiring proposals"
   draft_only: true
 approval_required:

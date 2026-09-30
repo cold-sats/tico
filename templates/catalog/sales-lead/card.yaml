@@ -55,7 +55,7 @@ onboarding:
     why: "Routing starts from how leads arrive now, so the first proposals are ones you would have made."
 first_routine:
   title: "Weekly sales team summary"
-  cadence: "Mondays at 08:00 company time, after you approve the first summary"
+  cadence: "Mondays at 08:00 company time"
   output: "reports/YYYY-MM-DD-sales-summary.md: headline, deals needing a person now, pipeline movement, stalled deals, what each sales bot produced, blocked work, and routing proposals"
   draft_only: true
 approval_required:

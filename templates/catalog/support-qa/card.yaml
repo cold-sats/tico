@@ -48,7 +48,7 @@ onboarding:
     why: "I check facts against your written sources, and I flag a reply I cannot verify instead of guessing."
 first_routine:
   title: "Weekly reply review"
-  cadence: "Fridays at 10:00 company time, after you approve the first review"
+  cadence: "Fridays at 10:00 company time"
   output: "reports/YYYY-MM-DD-reply-review.md: the sample, a score with the reason and a quote for each reply, patterns across the team, coaching notes as drafts, and what the docs should say differently"
   draft_only: true
 approval_required:

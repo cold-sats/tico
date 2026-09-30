@@ -49,7 +49,7 @@ onboarding:
     why: "Sets the recipient and the schedule for the first routine."
 first_routine:
   title: "Weekly issue digest"
-  cadence: "Mondays at 09:00 company time, after you approve the first draft"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-issue-digest.md: new issues by area and kind with proposed labels, likely duplicates, issues waiting on a reporter with the drafted question, and the themes of the week"
   draft_only: true
 approval_required:

@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule."
 first_routine:
   title: "Tomorrow's dispatch plan"
-  cadence: "Weekdays at 15:00 company time, after you approve the first plan"
+  cadence: "Weekdays at 15:00 company time"
   output: "reports/YYYY-MM-DD-dispatch.md: tomorrow's jobs by crew in route order with times, the clash list, jobs with no qualified person, customer arrival notices ready for approval, and yesterday's jobs not closed out"
   draft_only: true
 approval_required:

@@ -48,7 +48,7 @@ onboarding:
     why: "Every key result needs one named owner. I propose them; you confirm them."
 first_routine:
   title: "Quarterly plan and OKR draft"
-  cadence: "The first of each month at 09:00 company time, after you approve the first draft"
+  cadence: "The first of each month at 09:00 company time"
   output: "reports/YYYY-MM-DD-quarterly-plan.md: in the last month of a quarter, last quarter graded and next quarter's objectives and key results drafted; in the other months, a mid-quarter check-in with a confidence score per key result"
   draft_only: true
 approval_required:

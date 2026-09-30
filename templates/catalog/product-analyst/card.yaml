@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipients."
 first_routine:
   title: "Weekly product usage readout"
-  cadence: "Wednesdays at 09:00 company time, after you approve the first readout"
+  cadence: "Wednesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-usage-readout.md: headline, adoption per recent launch, the activation funnel, retention by signup cohort, unusual movements, one question answered, the queries used and what could not be read"
   draft_only: true
 approval_required:

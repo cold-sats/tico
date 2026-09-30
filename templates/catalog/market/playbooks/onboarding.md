@@ -43,23 +43,21 @@ Write `reports/YYYY-MM-DD-market-delta.md` in the shape of `knowledge/examples/w
 change record you just made, and attach it to the task, labelled "First draft, not yet reviewed". Do
 not refresh the live Weekly delta page yet.
 
-## 6. Propose the routine and wait
+## 6. Confirm the routines
 
-Say: "If this is useful, I will curate the market hourly and refresh the weekly delta every Monday.
-Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
+Setting you up switched your first routine on. Check `hub routine list` and turn the others on
+(`hub routine update <id> --enable`, curate then urgent). Tell the person in one line what they do:
+"I will curate the market hourly and refresh the weekly delta every Monday." They can change them or
+turn them off any time; there is nothing to approve.
 
-    hub routine list
-    hub routine update <id> --enable        # curate, then urgent
+Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for
+something different, adjust the graph and the routines to match (`hub routine update <id>`, with
+`--disable` to turn one off).
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
-change, adjust the graph and leave the routines off.
-
-Last, once the routines are enabled and recorded, run:
+Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
-mark and lets the routines run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+routines run; until then nothing you have runs on its own. Run it once the answers and the first
+result are recorded, not before.

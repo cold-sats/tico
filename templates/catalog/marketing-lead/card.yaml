@@ -54,7 +54,7 @@ onboarding:
     why: "Sets the routing rules. Until you say otherwise, every routing is a proposal for your Confirm."
 first_routine:
   title: "Weekly marketing summary"
-  cadence: "Fridays at 14:00 company time, after you approve the first draft"
+  cadence: "Fridays at 14:00 company time"
   output: "reports/YYYY-MM-DD-marketing-week.md: headline, workstreams with status and owner, blockers, calendar for six weeks, proposed priorities for next week"
   draft_only: true
 approval_required:

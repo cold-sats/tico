@@ -51,7 +51,7 @@ onboarding:
     why: "Every draft goes to that person. Nothing I draft is signed as I wrote it without their review."
 first_routine:
   title: "Monthly entity and board calendar"
-  cadence: "The 3rd of each month at 09:00 company time, after you approve the first calendar"
+  cadence: "The 3rd of each month at 09:00 company time"
   output: "reports/YYYY-MM-DD-entity-board-calendar.md: board and shareholder meetings in the next 90 days with pack status, minutes and consents waiting for approval or signature, entity filings due, and cap table changes without a recorded approval"
   draft_only: true
 approval_required:

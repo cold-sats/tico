@@ -53,7 +53,7 @@ onboarding:
     why: "These go on an exclusion list and are reported to a person, not clustered."
 first_routine:
   title: "Weekly feedback report"
-  cadence: "Mondays at 08:00 company time, after you approve the first report"
+  cadence: "Mondays at 08:00 company time"
   output: "reports/YYYY-MM-DD-feedback-report.md: headline, themes ranked with counts and change since last week, anonymised quotes, segment weighting, what is new, three suggested actions and what could not be read"
   draft_only: true
 approval_required:

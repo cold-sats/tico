@@ -32,7 +32,7 @@ On the task, five lines:
 - **First routine**: its card's `first_routine` title and cadence, and what it would have produced last month.
 - **Reports to**: finance-lead.
 
-`hub task ask <id> "Set up the <role>? Its first routine stays off until someone approves its first draft."`
+`hub task ask <id> "Set up the <role>? Its first routine goes on when its setup starts."`
 
 ## 4. On the owner's yes
 

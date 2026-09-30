@@ -53,7 +53,7 @@ onboarding:
     why: "Becomes knowledge/routing-rules.md. I flag leads no rule covers and propose rule changes; you approve them."
 first_routine:
   title: "Weekly CRM hygiene and pipeline report"
-  cadence: "Mondays at 06:30 company time, after you approve the first report"
+  cadence: "Mondays at 06:30 company time"
   output: "reports/YYYY-MM-DD-crm-report.md: headline, pipeline by stage with movement, the forecast roll-up by category, close-date slippage, unassigned leads, the exceptions by owner with a proposed fix each, and the duplicates to review"
   draft_only: true
 approval_required:

@@ -1138,7 +1138,7 @@ def create_app(settings=None):
         row["team"] = config["team"] if config else None
         row["operator"] = config["operator"] if config else None
         row["revision"] = config["revision"] if config else None
-        # `needs_onboarding` for a starter bot until it says a person approved its first routine, then
+        # `needs_onboarding` for a starter bot until it says its setup is done, then
         # `onboarded`; empty for every other bot (backend/onboarding.py).
         row["onboarding_state"] = (config["onboarding_state"] or "") if config else ""
         if config:
@@ -1470,7 +1470,9 @@ def create_app(settings=None):
     @app.post("/api/v2/chat/{bot}")
     def chat(request: Request, bot: str, body: M.ChatCreate):
         def work(c):
-            message = send(c, request.state.identity, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs))
+            who = request.state.identity
+            message = send(c, who, M.MessageCreate(to="bot:" + bot, text=body.text, refs=body.refs))
+            onboarding.start_setup(c, who, bot)
             return {"conversation": H.conversation(c, message["conversation_id"]), "message": message}
         return mutate(request, body, work)
 
@@ -2098,8 +2100,8 @@ def create_app(settings=None):
 
     @app.post("/api/v2/bots/{bot}/onboarded")
     def bot_onboarded(request: Request, bot: str, body: M.Empty):
-        """A starter bot's own call (`hub bot onboarded`), or its manager's, once a person approved its first
-        routine: the bot stops being `needs_onboarding`. Repeating it changes nothing."""
+        """A starter bot's own call (`hub bot onboarded`), or its manager's, once its setup is done: the bot
+        stops being `needs_onboarding`. Repeating it changes nothing."""
         who = request.state.identity
         return mutate(request, body, lambda c: onboarding.onboarded(c, who, bot))
 
@@ -2619,8 +2621,10 @@ def create_app(settings=None):
             if body.setup and config and config["onboarding_state"] == "needs_onboarding" and who.role in ("owner", "human"):
                 send(c, who, M.MessageCreate(to="bot:" + bot, text="Let's set you up."))
                 setup = True
+            # Going live turns its first routine on too: nobody approves it separately.
+            armed = onboarding.arm_first_routine(c, who, bot)
             return {"bot": bot, "state": H.bot(c, bot)["state"], "computer": placed["computer"], "placed": placed["placed"],
-                    "activated": activated, "setup_started": setup}
+                    "activated": activated, "setup_started": setup, "routine_armed": armed}
         return mutate(request, body, work)
 
     @app.post("/api/v2/runners/{rid}/member-bots")

@@ -33,9 +33,11 @@ message asked. Follow `playbooks/onboarding.md`:
 3. Record every answer in `state.md` the moment it arrives, dated.
 4. Produce the first brief now, from real data, as a draft on the task. A first result the person
    can react to beats a second round of questions.
-5. Propose the routine (Fridays 15:00 unless they said otherwise) and stop. It stays off until a
-   person says yes on the task; then arm it, log the decision in `memory/decisions.md` and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+5. Confirm the routine (Fridays 15:00 unless they said otherwise): setting you up switched it on,
+   so nothing waits for a yes. Check it with `hub routine list`, tell the person what it does and
+   that they can change it or turn it off, and log it in `memory/decisions.md`. Then run `hub bot
+   onboarded` once the answers and the first result are recorded: it clears your "Needs onboarding"
+   mark.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:

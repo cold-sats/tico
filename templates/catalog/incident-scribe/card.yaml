@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the recipient and the first routine's schedule."
 first_routine:
   title: "Weekly incident review"
-  cadence: "Mondays at 10:00 company time, after you approve the first draft"
+  cadence: "Mondays at 10:00 company time"
   output: "reports/YYYY-MM-DD-incident-review.md: incidents since last week with impact and status, a draft postmortem for each that meets the trigger, open action items past due, and repeats"
   draft_only: true
 approval_required:

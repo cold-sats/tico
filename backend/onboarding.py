@@ -476,9 +476,10 @@ class Onboarding:
 
     def _make_starter(self, c, who, slug, template, rank=None):
         """A starter template's bot, as first run creates it: it records the template and its version,
-        waits for the computer to materialize its repository (`materialize`), keeps its first routine
-        paused, and is `needs_onboarding` until it says the person approved that routine. Nothing
-        claims work for it before then except a message from a person (execution.candidate)."""
+        waits for the computer to materialize its repository (`materialize`), seeds its first routine
+        off, and is `needs_onboarding` until it says its setup is done. Starting the setup turns that
+        routine on (`arm_first_routine`). Nothing claims work for it before then except a message from
+        a person (execution.candidate)."""
         declared = self._declared(c, slug)
         declared.update(template=template, template_version=releases.version(), materialize=True)
         if rank is not None:
@@ -490,7 +491,7 @@ class Onboarding:
         H.event(c, who.actor, "bot.needs_onboarding", slug, {"template": template})
 
     def onboarded(self, c, who, slug):
-        """The bot's own word, or its manager's, that a person approved its first routine: it stops being
+        """The bot's own word, or its manager's, that its setup is done: it stops being
         parked, its routines may run and its work is claimed. A member's bot counts toward their
         limit from here on, so the limit is checked now."""
         if not H.bot(c, slug):
@@ -661,20 +662,23 @@ class Onboarding:
         H.event(c, who.actor, event, slug, {"restored": restored, "placed": placed})
         return {"bot": slug, "state": H.bot(c, slug)["state"], "restored": restored, "placed": placed}
 
-    def _seed_routines(self, c, who, slug, template):
-        """The template's `schedules:` become the bot's first routines, once. A routine a person
-        changed or deleted is never put back: only a key the bot has never had is created. (A bot
-        BotOps builds gets these from `hub bot create`; a built-in one is made here.)"""
+    def _template_routines(self, c, template):
+        """The template's `schedules:` as validated routines, or [] when it declares none."""
         from clients.routines import validate_schedules
         folder = Path(self.settings.catalog_dir) / template
         try:
             declared = (yaml.safe_load((folder / "employee.yaml").read_text()) or {}).get("schedules")
             names = display_names(self.settings, load(c))
-            entries = validate_schedules(declared, lambda rel: fill((folder / rel).read_text(), names))
+            return validate_schedules(declared, lambda rel: fill((folder / rel).read_text(), names))
         except (OSError, ValueError, TypeError, yaml.YAMLError):
             return []
+
+    def _seed_routines(self, c, who, slug, template):
+        """The template's `schedules:` become the bot's first routines, once. A routine a person
+        changed or deleted is never put back: only a key the bot has never had is created. (A bot
+        BotOps builds gets these from `hub bot create`; a built-in one is made here.)"""
         made = []
-        for entry in entries:
+        for entry in self._template_routines(c, template):
             if c.execute("SELECT 1 FROM schedules WHERE bot=? AND routine_key=?", (slug, entry["id"])).fetchone():
                 continue
             routines.create(c, who.actor, slug, {"title": entry["title"], "text": entry["instructions"],
@@ -683,6 +687,36 @@ class Onboarding:
                                                  "enabled": entry["enabled"]}, key=entry["id"])
             made.append(entry["id"])
         return made
+
+    def start_setup(self, c, who, slug):
+        """A person who manages a parked starter says anything to it: its setup has begun, so its first routine
+        goes on (`arm_first_routine`). Anyone else's message to it changes nothing."""
+        row = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        if (row and row["onboarding_state"] == NEEDS_ONBOARDING and who.role in ("owner", "human")
+                and (self.auth.bot_manager(c, who, slug) or self.auth.operator(c, who, slug))):
+            return self.arm_first_routine(c, who, slug)
+        return None
+
+    def arm_first_routine(self, c, who, slug):
+        """Setting a bot up turns its first routine on: the template seeds it off, and starting the setup
+        (Start setup, go-live) is the go-ahead, so nobody approves it separately. Once only: a routine a
+        person turns off afterwards stays off. Returns the routine's key, or None."""
+        declared = self._declared(c, slug)
+        if declared.get("routine_armed") or not declared.get("template"):
+            return None
+        first = next(iter(self._template_routines(c, declared["template"])), None)
+        found = first and c.execute("SELECT s.id,coalesce(sc.enabled,1) AS enabled FROM schedules s "
+                                    "LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
+                                    "WHERE s.bot=? AND s.routine_key=? AND s.deleted_at IS NULL",
+                                    (slug, first["id"])).fetchone()
+        if not found:
+            return None
+        declared["routine_armed"] = first["id"]
+        self._write_config(c, slug, declared)
+        if not found["enabled"]:
+            routines.update(c, who.actor, found["id"], {"enabled": True})
+            H.event(c, who.actor, "bot.routine_armed", slug, {"routine": first["id"]})
+        return first["id"]
 
     def on_runner_enrolled(self, c, runner_id, operator):
         """Enrolling the owner's Mac after the wizard finishes wires it up too, so the order
@@ -816,6 +850,8 @@ class Onboarding:
                 status="planned", repo="emp-" + slug, thread_mode="personal",
                 reports_to=reports_to or None,
                 model=model, effort=effort, owners=[H.actor_id(who.actor)]))
+            if not picked:
+                self._follow_default(c, slug)
         else:
             before = self.admin.definition(c, slug)
             if (before["display_name"], before["description"]) != (choice["display_name"], summary):
@@ -826,6 +862,15 @@ class Onboarding:
         declared.update(template=choice["template"], instructions=choice["instructions"],
                         template_version=releases.version())
         self._write_config(c, slug, declared)
+
+    def _follow_default(self, c, slug):
+        """Leave a bot's runtime and model unnamed, so it runs on the company's default once one is chosen
+        (providers.fill), the way a bot from the registry with none does."""
+        declared = self._declared(c, slug)
+        for key in ("runtime", "model", "harness", "reasoning_effort"):
+            declared.pop(key, None)
+        self._write_config(c, slug, declared)
+        c.execute("UPDATE bots SET runtime='',model='',effort='' WHERE slug=?", (slug,))
 
     def _setup_task(self, c, who, slug, choice, card, answers):
         """BotOps builds every bot people picked. A bootstrap template (the assistant, BotOps
@@ -844,14 +889,3 @@ class Onboarding:
         declared["setup_task_id"] = task["id"]
         self._write_config(c, slug, declared)
         return task["id"]
-            if not picked:
-                self._follow_default(c, slug)
-    def _follow_default(self, c, slug):
-        """Leave a bot's runtime and model unnamed, so it runs on the company's default once one is chosen
-        (providers.fill), the way a bot from the registry with none does."""
-        declared = self._declared(c, slug)
-        for key in ("runtime", "model", "harness", "reasoning_effort"):
-            declared.pop(key, None)
-        self._write_config(c, slug, declared)
-        c.execute("UPDATE bots SET runtime='',model='',effort='' WHERE slug=?", (slug,))
-

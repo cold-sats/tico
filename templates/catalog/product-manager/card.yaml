@@ -52,7 +52,7 @@ onboarding:
     why: "Sets the routine's schedule and recipients."
 first_routine:
   title: "Weekly spec and launch review"
-  cadence: "Tuesdays at 10:00 company time, after you approve the first review"
+  cadence: "Tuesdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-spec-review.md: each spec in flight with status, the questions blocking engineering and who owes them, scope changes, launch checklist items due, and what could not be read"
   draft_only: true
 approval_required:

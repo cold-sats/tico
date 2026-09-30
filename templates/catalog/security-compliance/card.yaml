@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Monthly evidence and controls page"
-  cadence: "The first of each month at 10:00 company time, after you approve the first page"
+  cadence: "The first of each month at 10:00 company time"
   output: "reports/YYYY-MM-DD-controls.md: evidence due this month per control with its owner, what was collected last month and what is missing, access reviews due, policy acknowledgements outstanding, and vendors without a security review"
   draft_only: true
 approval_required:

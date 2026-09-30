@@ -53,7 +53,7 @@ onboarding:
     why: "Every customer message I prepare goes to that person for approval; the kickoff agenda goes to whoever runs the call."
 first_routine:
   title: "Weekly onboarding board"
-  cadence: "Mondays at 10:00 company time, after you approve the first board"
+  cadence: "Mondays at 10:00 company time"
   output: "reports/YYYY-MM-DD-onboarding-board.md: every customer in onboarding with milestone, target date and days since progress, the stuck ones with the reason and a next step, new customers needing a plan, and messages ready for approval"
   draft_only: true
 approval_required:

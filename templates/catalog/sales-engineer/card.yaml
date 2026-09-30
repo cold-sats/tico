@@ -52,7 +52,7 @@ onboarding:
     why: "The first weekly prep needs real deals."
 first_routine:
   title: "Weekly technical deal prep"
-  cadence: "Wednesdays at 09:00 company time, after you approve the first prep"
+  cadence: "Wednesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-technical-prep.md: each deal with a technical step this week, its discovery gaps, the demo script or POC status against its success criteria, questionnaire sections due, and the questions waiting on a named owner"
   draft_only: true
 approval_required:

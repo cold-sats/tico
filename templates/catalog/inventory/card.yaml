@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule, and keeps a discontinued item from being reordered."
 first_routine:
   title: "Weekly reorder list"
-  cadence: "Mondays at 07:30 company time, after you approve the first list"
+  cadence: "Mondays at 07:30 company time"
   output: "reports/YYYY-MM-DD-reorder.md: items at or below their reorder point with the quantity to order, one purchase order per supplier ready for approval, items at risk of a stock-out before an order can land, overstocked items, and supplier delays"
   draft_only: true
 approval_required:

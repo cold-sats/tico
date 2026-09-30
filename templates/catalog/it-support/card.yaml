@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly IT page"
-  cadence: "Mondays at 09:30 company time, after you approve the first page"
+  cadence: "Mondays at 09:30 company time"
   output: "reports/YYYY-MM-DD-it.md: open requests by priority and age, repeat problems, joiners and leavers this week with their checklist status, access waiting for approval, and device issues (unencrypted, out of warranty, unassigned)"
   draft_only: true
 approval_required:

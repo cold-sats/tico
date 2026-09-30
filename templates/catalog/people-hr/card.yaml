@@ -52,7 +52,7 @@ onboarding:
     why: "Builds the hand-off list before the first question arrives, and names who it goes to."
 first_routine:
   title: "Weekly onboarding tracker"
-  cadence: "Mondays at 09:00 company time, after you approve the first tracker"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-onboarding-tracker.md: for each person starting in the next 30 days the checklist status, what is late and who owns it, and any handbook gaps"
   draft_only: true
 approval_required:

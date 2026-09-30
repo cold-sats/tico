@@ -51,7 +51,7 @@ onboarding:
     why: "Sets what I can match and how long an open question waits before I chase it."
 first_routine:
   title: "Monthly close checklist"
-  cadence: "The 1st of each month at 09:00 company time, after you approve the first draft"
+  cadence: "The 1st of each month at 09:00 company time"
   output: "reports/YYYY-MM-close-status.md: the checklist with each line done, open or blocked, the uncategorised transactions with a proposed category, missing receipts, one batched list of owner questions and a list for the accountant"
   draft_only: true
 approval_required:

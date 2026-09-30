@@ -115,8 +115,8 @@ def _next_bot(c, settings):
 
 
 def _first_output(c):
-    """A starter bot has been onboarded: a person approved its first routine, which is its first
-    reviewed output. The bot says so itself (`hub bot onboarded`), so this is what the database records."""
+    """A starter bot has been onboarded: its setup is done and a person has seen its first
+    result. The bot says so itself (`hub bot onboarded`), so this is what the database records."""
     return c.execute("SELECT bc.bot FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
                      "WHERE bc.onboarding_state='onboarded' AND b.state!='archived' LIMIT 1").fetchone()
 

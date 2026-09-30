@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the lead times the calendar warns at and what counts as urgent."
 first_routine:
   title: "Weekly compliance calendar"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first calendar"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-compliance-calendar.md: overdue items first, then what is due inside 60 days with owner, lead time and filing pack status, then items waiting for proof and obligations not yet checked"
   draft_only: true
 approval_required:

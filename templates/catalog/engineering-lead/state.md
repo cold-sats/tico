@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated. Record the repositories to summarise here as owner/name.
 
 ## Routine
-`weekly-engineering-summary`: declared, not armed. Arm it only after a person approves the first draft.
+`weekly-engineering-summary`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

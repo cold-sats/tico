@@ -68,7 +68,7 @@ STABLE = [
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
      "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccess"),
     ("/api/v2/bots/{bot}/onboarded", "post", "Bots", "markBotOnboarded",
-     "A starter bot's own call, or its manager's, once a person approved its first routine: `onboarding_state` goes "
+     "A starter bot's own call, or its manager's, once its setup is done: `onboarding_state` goes "
      "from `needs_onboarding` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
      "BotOnboarded"),
     ("/api/v2/bots/{bot}/tools", "get", "Bots", "listBotTools",

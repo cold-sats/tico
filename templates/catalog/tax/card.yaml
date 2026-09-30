@@ -48,7 +48,7 @@ onboarding:
     why: "Sets when each calendar line turns from 'upcoming' to 'inputs due now'."
 first_routine:
   title: "Monthly tax calendar"
-  cadence: "The 1st of each month at 09:00 company time, after you approve the first calendar"
+  cadence: "The 1st of each month at 09:00 company time"
   output: "reports/YYYY-MM-tax-calendar.md: every filing and payment due in the next 90 days with who files, its inputs and their status, the threshold watch by state or country, and what the accountant still needs"
   draft_only: true
 approval_required:

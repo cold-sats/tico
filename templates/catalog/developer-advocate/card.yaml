@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the first routine's schedule and recipient."
 first_routine:
   title: "Weekly developer pulse"
-  cadence: "Thursdays at 10:00 company time, after you approve the first pulse"
+  cadence: "Thursdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-developer-pulse.md: new and unanswered public questions with a prepared answer each, friction themes with counts and links, and one sample or tutorial proposed"
   draft_only: true
 approval_required:

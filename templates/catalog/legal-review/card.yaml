@@ -50,7 +50,7 @@ onboarding:
     why: "Sets when a deadline appears on the calendar and when it becomes urgent."
 first_routine:
   title: "Weekly contract calendar"
-  cadence: "Mondays at 09:00 company time, after you approve the first calendar"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-contract-calendar.md: renewals, notice deadlines and expiries in the next 90 days, with the clause and the notice date, and the summaries waiting for a person"
   draft_only: true
 approval_required:

@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the routine's schedule and recipients inside the company."
 first_routine:
   title: "Daily escalation digest"
-  cadence: "Weekdays at 08:30 company time, after you approve the first digest"
+  cadence: "Weekdays at 08:30 company time"
   output: "reports/YYYY-MM-DD-escalations.md: open escalations by severity with owner, age and next update due, updates due today ready for approval, engineering status per case, and cases ready to close with their lesson"
   draft_only: true
 approval_required:

@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the routine's date. During a raise the update changes shape and I ask before drafting it."
 first_routine:
   title: "Monthly investor update draft"
-  cadence: "The third of each month at 09:00 company time, after you approve the first draft"
+  cadence: "The third of each month at 09:00 company time"
   output: "reports/YYYY-MM-DD-investor-update.md: metrics against plan, open asks, three to five highlights, one to three lowlights with what is being done, and a two-line recap; every figure with its source and date"
   draft_only: true
 approval_required:

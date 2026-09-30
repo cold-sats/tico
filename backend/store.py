@@ -518,7 +518,7 @@ class Store:
                 H.add_column(c, "bot_config", "bot_owners_json", "TEXT")
                 H.add_column(c, "bot_config", "created_by", "TEXT")
                 H.add_column(c, "runners", "accepts_member_bots", "INTEGER NOT NULL DEFAULT 0")
-                # A starter bot is `needs_onboarding` until it says a person approved its first routine, then
+                # A starter bot is `needs_onboarding` until it says its setup is done, then
                 # `onboarded`; NULL for every other bot (backend/onboarding.py).
                 H.add_column(c, "bot_config", "onboarding_state", "TEXT")
                 H.add_column(c, "settings_changes", "via", "TEXT")

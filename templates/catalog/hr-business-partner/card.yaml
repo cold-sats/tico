@@ -52,7 +52,7 @@ onboarding:
     why: "Sets the routine and its only readers."
 first_routine:
   title: "Weekly performance cycle tracker"
-  cadence: "Wednesdays at 09:00 company time, after you approve the first tracker"
+  cadence: "Wednesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-performance-tracker.md: the current or next cycle phase and its deadlines, submitted and missing counts per manager, probation reviews due in 30 days, calibration flags"
   draft_only: true
 approval_required:

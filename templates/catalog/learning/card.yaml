@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine and its readers."
 first_routine:
   title: "Weekly training tracker"
-  cadence: "Thursdays at 09:00 company time, after you approve the first tracker"
+  cadence: "Thursdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-training-tracker.md: mandatory training overdue and due in 30 days by team, new starters' required courses, certifications expiring, budget requests waiting"
   draft_only: true
 approval_required:

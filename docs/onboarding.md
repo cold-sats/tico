@@ -122,7 +122,7 @@ second). It reaches no machine.
   catalog it came from: `template_version`).
 - A **starter** template (a card with a `first_routine` and an `onboarding` conversation) is created whole and parked:
   - `onboarding_state: needs_onboarding`, exposed on `/api/v2/bots`, `/api/v2/bots/{bot}` and `/api/v2/org`;
-  - its first routine is seeded paused (the template declares `enabled: false`);
+  - its first routine is seeded off (the template declares `enabled: false`) and goes on when its setup starts (**Start setup**, a first message from someone who manages it, or go-live), so nobody approves it separately;
   - **no task is filed for BotOps**: the computer materializes its repository from the catalog as soon as the bot is placed on it
     (`materialize: true` in its config, which only onboarding writes), and the bot is activated as soon as it is placed;
   - the scheduler skips it, and only a person's chat message is claimed for it (a task notice, a Slack route, a bot's request or a routine
@@ -144,9 +144,9 @@ open or not when the button is pressed. It starts the onboarding conversation it
 does the same. While the bot is parked, the runner gives its chat turns one Setup instruction in place of the generic chat rules: follow
 the template's onboarding section and `playbooks/onboarding.md`, ask the questions and stop, and until the person has answered run no
 tool that reaches another system, file no task and edit no file, never `AGENT.md`. The bot introduces itself, asks the template's questions in one message, writes a first draft from the company's own
-data, and proposes its first routine. On the person's yes it arms the routine and calls `hub bot onboarded` (MCP `hub_bot_onboarded`,
-`POST /api/v2/bots/{bot}/onboarded`). That clears the mark, lets its routines run and counts it toward a member's limit. On a no it stays
-parked and answers people only.
+data, and tells the person what its first routine does; starting the setup already switched that routine on. When its answers and first
+result are recorded it calls `hub bot onboarded` (MCP `hub_bot_onboarded`, `POST /api/v2/bots/{bot}/onboarded`). That clears the mark,
+lets its routines run and counts it toward a member's limit. Until then it stays parked and answers people only.
 
 ### After Create: one screen
 
@@ -367,6 +367,6 @@ offer, and the bots screen says so. On a hosted server that means the release di
 
 **A starter does not answer, or a routine never runs.** While it is `needs_onboarding` it answers only a person's chat message: a task
 notice, a Slack route, a bot's request and its routines wait. Press **Start setup**, or say anything to it in its chat, and answer its
-questions. When you approve its first routine it calls `hub bot onboarded`. If it cannot (a member's bot at their limit answers
+questions. When its setup is done it calls `hub bot onboarded`. If it cannot (a member's bot at their limit answers
 `bot_limit`), archive a bot you no longer need or ask an admin to raise the limit in Settings > People. An owner or a bot's manager can
 also call `POST /api/v2/bots/{bot}/onboarded` to release a bot whose conversation went wrong.

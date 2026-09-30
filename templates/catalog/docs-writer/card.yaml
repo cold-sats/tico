@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the recipient and the first routine's schedule."
 first_routine:
   title: "Weekly docs drift report"
-  cadence: "Wednesdays at 10:00 company time, after you approve the first draft"
+  cadence: "Wednesdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-docs-drift.md: merged changes that affect a page, the page, what is now wrong, a draft fix for the top items, and pages it could not read"
   draft_only: true
 approval_required:

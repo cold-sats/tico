@@ -48,7 +48,7 @@ onboarding:
     why: "Every prepared reply goes to that person; the report goes to its readers only."
 first_routine:
   title: "Weekly retention report"
-  cadence: "Fridays at 10:00 company time, after you approve the first report"
+  cadence: "Fridays at 10:00 company time"
   output: "reports/YYYY-MM-DD-retention.md: requests this week by reason, saves and losses with the offer used, open requests with replies ready for approval, the at-risk watch list with its signals, and one change to suggest"
   draft_only: true
 approval_required:

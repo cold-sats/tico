@@ -290,7 +290,7 @@ class StarterBots(unittest.TestCase):
         routines = validate_schedules(manifest["schedules"], lambda rel: (folder / rel).read_text())
         self.assertTrue(routines and routines[0]["title"] == first["title"], f"{where}: the first routine is the card's")
         for routine in routines:
-            self.assertIs(routine["enabled"], False, f"{where}: a routine waits for a person's yes")
+            self.assertIs(routine["enabled"], False, f"{where}: a routine is declared off and setup switches it on")
         for access in manifest["access"]:
             # Nothing a starter can do reaches outside the company on its own: no send, and no write to a
             # service (a person applies what it proposes, until the owner turns writing on).

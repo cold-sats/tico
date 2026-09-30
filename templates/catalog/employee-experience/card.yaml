@@ -49,7 +49,7 @@ onboarding:
     why: "Event plans come with a cost line for that person's approval."
 first_routine:
   title: "Weekly milestones and engagement actions"
-  cadence: "Thursdays at 10:00 company time, after you approve the first page"
+  cadence: "Thursdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-milestones-and-actions.md: milestones in the next two weeks with a note ready for each manager, survey actions by status, the next pulse date, upcoming events"
   draft_only: true
 approval_required:

@@ -51,7 +51,7 @@ onboarding:
     why: "Routing proposals need to name the right owner. I read `hub org` first and only ask about what it does not show."
 first_routine:
   title: "Weekly support summary"
-  cadence: "Mondays at 09:00 company time, after you approve the first summary"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-support-summary.md: headline, decisions needed, volume and times against target, backlog by age with the oldest waiting, top repeated questions, QA and feedback highlights, coverage gaps, and routing proposals"
   draft_only: true
 approval_required:

@@ -26,8 +26,8 @@ There is no limit on how many bots to create, but set them up one at a time, in 
 ## Set one up, together
 
 A new starter shows **Needs onboarding**. Press **Start setup** on its page (or just say hello): it introduces itself, asks a handful of
-questions in one message, and writes a real first draft from your own data so you have something to react to. It then proposes its first
-routine and waits. Say yes and it switches the routine on and marks itself onboarded; say no or change it and nothing runs.
+questions in one message, and writes a real first draft from your own data so you have something to react to. Starting the setup switches
+its first routine on; ask it to change or turn off the routine and it does, and it marks itself onboarded once its setup is done.
 
 - Answer briefly and concretely. "Fine, the default" is a valid answer; so is pasting two examples of something done well.
 - Name the person who approves its drafts, and who covers when they are away. A draft with no owner waits.

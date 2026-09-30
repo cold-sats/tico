@@ -1221,9 +1221,9 @@ def bot_owners(api, args):
     return api.post(f"bots/{args['slug']}/co-owners", body, key=_key(args))
 
 
-@tool("hub_bot_onboarded", "A starter bot's own call, once a person has approved its first routine: it stops "
-      "being `needs_onboarding`, its routines may run and its work is claimed. Call it on yourself, after "
-      "`hub routine update <id> --enable`; a person who manages the bot may call it for the bot. Repeating it "
+@tool("hub_bot_onboarded", "A starter bot's own call, once its setup is done: it stops "
+      "being `needs_onboarding`, its routines may run and its work is claimed. Call it on yourself, once "
+      "your answers and first result are recorded; a person who manages the bot may call it for the bot. Repeating it "
       "changes nothing. A member's bot counts toward their limit of active bots from here on, so this can "
       "answer `bot_limit`: tell the person to archive a bot or ask an admin.",
       {"slug": _s("The bot; you, when you leave it out")}, writes=True)

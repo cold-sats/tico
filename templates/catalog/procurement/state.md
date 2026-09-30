@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated. Record the approval thresholds and must-haves here.
 
 ## Routine
-`weekly-purchase-digest`: declared, not armed. Arm it only after a person approves the first draft.
+`weekly-purchase-digest`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine and its only readers."
 first_routine:
   title: "Weekly benefits deadlines"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first page"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-benefits-deadlines.md: open eligibility changes and their windows, joiners whose coverage starts and leavers whose coverage ends in 30 days, calendar milestones, questions handed on"
   draft_only: true
 approval_required:

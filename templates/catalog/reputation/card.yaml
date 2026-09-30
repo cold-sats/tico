@@ -53,7 +53,7 @@ onboarding:
     why: "The invitation program invites everyone at the milestone or nobody, and the platforms' own labelled programs are the only place a reward is allowed."
 first_routine:
   title: "Weekly review sweep"
-  cadence: "Mondays at 09:00 company time, after you approve the first digest"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/sweeps/YYYY-MM-DD.md: coverage first, then counts per surface, outcomes of earlier batches, the batches requested for approval and unclaimed listings"
   draft_only: true
 approval_required:

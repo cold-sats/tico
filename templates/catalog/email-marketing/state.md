@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated. Record the email tool, audiences and the unsubscribe wording here.
 
 ## Routine
-`weekly-email-draft`: declared, not armed. Arm it only after a person approves the first draft.
+`weekly-email-draft`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated.
 
 ## Routine
-`weekly-onboarding-board`: declared, not armed. Arm it only after a person approves the first board.
+`weekly-onboarding-board`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

@@ -47,7 +47,7 @@ onboarding:
     why: "Every prepared reply goes to that person; the report sets the routine."
 first_routine:
   title: "Weekly tier 2 queue report"
-  cadence: "Thursdays at 09:00 company time, after you approve the first report"
+  cadence: "Thursdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-tier2.md: open tier 2 tickets with status and age, bugs reported with their engineering status, workarounds found this week, repeat problems, and replies ready for approval"
   draft_only: true
 approval_required:

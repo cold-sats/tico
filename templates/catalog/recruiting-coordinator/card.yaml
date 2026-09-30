@@ -49,7 +49,7 @@ onboarding:
     why: "Sets the window for slots and the daily sheet."
 first_routine:
   title: "Daily interview logistics"
-  cadence: "Weekdays at 08:00 company time, after you approve the first sheet"
+  cadence: "Weekdays at 08:00 company time"
   output: "reports/YYYY-MM-DD-interview-logistics.md: today's and tomorrow's interviews with kit status, candidates waiting for times, missing scorecards, debriefs ready to book"
   draft_only: true
 approval_required:

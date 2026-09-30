@@ -11,9 +11,8 @@ max_run_minutes: 60
 # contacts no one outside; every change it proposes is applied by a person.
 outbound_send: false
 
-# The first routine is declared but not armed (`enabled: false`). The bot arms it with
-# `hub routine update <id> --enable` after a person approves the first audit on the onboarding task.
-# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+# The first routine is declared off (`enabled: false`) and switched on when a person starts the bot's setup
+# (Start setup, go-live). `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
 # Cron runs Mondays 1-7 of the month; the playbook skips a run that is not the month's first Monday.
 schedules:
   - id: monthly-helpdesk-audit

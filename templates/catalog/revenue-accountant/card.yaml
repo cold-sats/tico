@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's date and who receives the proposed entries."
 first_routine:
   title: "Monthly revenue close pack"
-  cadence: "The 2nd of each month at 09:00 company time, after you approve the first pack"
+  cadence: "The 2nd of each month at 09:00 company time"
   output: "reports/YYYY-MM-revenue-close.md: billing to books reconciliation with differences explained, the deferred revenue roll-forward, proposed journal entries, recognition notes for new contracts and the recurring revenue bridge"
   draft_only: true
 approval_required:

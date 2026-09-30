@@ -48,7 +48,7 @@ onboarding:
     why: "Names the person every clearance note and watch hit goes to. I never act on a mark myself."
 first_routine:
   title: "Monthly IP watch"
-  cadence: "The 1st of each month at 09:00 company time, after you approve the first watch"
+  cadence: "The 1st of each month at 09:00 company time"
   output: "reports/YYYY-MM-DD-ip-watch.md: deadlines inside 12 months with their filing windows, domains expiring inside 90 days, new look-alike filings and uses with why each may matter, and unsigned IP assignments"
   draft_only: true
 approval_required:

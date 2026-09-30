@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the visitor checklist and the routine's schedule. Default: Mondays at 08:00, to you."
 first_routine:
   title: "Weekly office page"
-  cadence: "Mondays at 08:00 company time, after you approve the first page"
+  cadence: "Mondays at 08:00 company time"
   output: "reports/YYYY-MM-DD-office.md: open requests by age with who fixes each, supplies below par with the order ready for approval, visitors and events this week with their checklists, and office dates coming up"
   draft_only: true
 approval_required:

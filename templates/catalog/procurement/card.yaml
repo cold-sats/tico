@@ -54,7 +54,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient. Nobody else sees it until you say so."
 first_routine:
   title: "Weekly purchase requests digest"
-  cadence: "Mondays at 09:00 company time, after you approve the first digest"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-purchase-digest.md: each open request with its stage, what is blocking it, the decide-by date and the vendors compared so far, and the first comparison drafted"
   draft_only: true
 approval_required:

@@ -52,7 +52,7 @@ onboarding:
     why: "Sets who approves each pack and whose voice the cover note is written in. I never sign."
 first_routine:
   title: "Weekly renewal and expansion review"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first review"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-account-review.md: renewals in the next 120 days by stage with notice deadlines, renewal packs ready or waiting on a price, expansion opportunities with their evidence, and what needs a person this week"
   draft_only: true
 approval_required:

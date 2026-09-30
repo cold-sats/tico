@@ -47,7 +47,7 @@ onboarding:
     why: "Sets the schedule of the first routine."
 first_routine:
   title: "Morning mail brief"
-  cadence: "Weekdays at 07:30 company time, after you approve the first brief"
+  cadence: "Weekdays at 07:30 company time"
   output: "One brief on the task: what needs you and why, replies drafted, what I would file, and what is waiting on others. Nothing is filed or sent until you say so"
   draft_only: true
 approval_required:

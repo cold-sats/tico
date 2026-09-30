@@ -55,7 +55,7 @@ onboarding:
     why: "Lets me include incidents, release notes and docs status without asking each bot."
 first_routine:
   title: "Weekly engineering summary"
-  cadence: "Mondays at 09:00 company time, after you approve the first draft"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-engineering-summary.md: headline, what shipped, pull requests waiting or stuck with age and owner, incidents, docs and release notes status, blocked work, proposed routing"
   draft_only: true
 approval_required:

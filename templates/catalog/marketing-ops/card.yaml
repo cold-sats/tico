@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's input. I never ask for a login."
 first_routine:
   title: "Weekly marketing data check"
-  cadence: "Mondays at 10:00 company time, after you approve the first check"
+  cadence: "Mondays at 10:00 company time"
   output: "reports/YYYY-MM-DD-marketing-data.md: tagging errors by campaign, leads without a source, handoff delays against the agreed time, and each fix with its owner"
   draft_only: true
 approval_required:

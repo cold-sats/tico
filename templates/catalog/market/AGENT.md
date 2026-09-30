@@ -34,10 +34,11 @@ If `state.md` says onboarding has not finished, do this before any other work:
    entity with an evidence row, and start the overview page.
 4. Write the first weekly delta from what you seeded, as a draft on the task labelled "First draft,
    not yet reviewed". Do not refresh the live page yet.
-5. Propose the routine (hourly curation, delta refreshed Mondays) and stop. It stays off until a
-   person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
-   --enable` (the urgent routine too), log it in `memory/decisions.md`, and run `hub bot onboarded`: it
-   clears your "Needs onboarding" mark, and only after a person's yes.
+5. Confirm the routine (hourly curation, delta refreshed Mondays): setting you up switched it on,
+   so nothing waits for a yes. Check it with `hub routine list`, tell the person what it does and
+   that they can change it or turn it off, and log it in `memory/decisions.md`. Turn the urgent
+   routine on too (`hub routine update <id> --enable`). Then run `hub bot onboarded` once the answers
+   and the first result are recorded: it clears your "Needs onboarding" mark.
 
 ## Never without approval
 See the shared approvals policy. In addition:

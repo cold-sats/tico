@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a first digest on the task from
-the real community, and a routine that is proposed but not armed.
+the real community, and the first routine confirmed.
 
 ---
 
@@ -40,23 +40,20 @@ purpose, rules, response target, who answers, who moderates, where feedback goes
 Follow `playbooks/weekly-community-digest.md` over the last 14 days. Write
 `reports/YYYY-MM-DD-community.md`, attach it to the task and label it "First draft, not yet reviewed".
 
-## 6. Propose the routine and wait
+## 6. Confirm the routine
 
-Say: "If this is useful, I will write this digest every Friday at 11:00 and prepare replies for the
-waiting questions. Say yes and I will switch it on." Then `hub task ask <id>` once, and stop. On a yes:
+Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
+`hub routine update <id> --enable`) and tell the person in one line what it does: "I will write this digest every Friday at 11:00 and prepare replies for the waiting questions." They
+can change it or turn it off any time; there is nothing to approve.
 
-    hub routine list
-    hub routine update <id> --enable
+Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. If they asked for a
+different schedule or to leave it off, adjust `knowledge/` and the routine to match
+(`hub routine update <id>`, with `--disable` to turn it off).
 
-Record it in `memory/decisions.md` and set `state.md` to `Onboarding: finished`. On a no or a
-change, adjust `knowledge/` and leave the routine off.
-
-Last, once the routine is enabled and recorded, run:
+Last, run:
 
     hub bot onboarded
 
-It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
-mark and lets the routine run; until then nothing you have runs on its own. Never run it before a
-yes. On a no, do not run it: you stay parked and answer people only, until they say yes. If setup
-began in chat there is no task, so ask in your reply instead of `hub task ask` and end the turn; the
-person's next message is the answer.
+It tells {{app_name}} your setup is done. That clears your "Needs onboarding" mark and lets the
+routine run; until then nothing you have runs on its own. Run it once the answers and the first
+result are recorded, not before.

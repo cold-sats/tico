@@ -48,7 +48,7 @@ onboarding:
     why: "Sets who receives each batch. Nothing is sent until they approve it."
 first_routine:
   title: "Invoice run check"
-  cadence: "The 25th of each month at 09:00 company time, ahead of month-end invoicing, after you approve the first run"
+  cadence: "The 25th of each month at 09:00 company time, ahead of month-end invoicing"
   output: "reports/YYYY-MM-DD-invoice-run.md: every invoice due this cycle with its amount, source and checks, invoices held with the reason, unbilled work found, and credit notes proposed"
   draft_only: true
 approval_required:

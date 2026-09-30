@@ -49,7 +49,7 @@ onboarding:
     why: "Sets the routine and the volume the hiring manager can review."
 first_routine:
   title: "Weekly sourcing slate"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first slate"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-sourcing-slate.md: per open role up to 15 profiles matched to the criteria with public sources, a personal first message for each, and replies from last week's outreach"
   draft_only: true
 approval_required:

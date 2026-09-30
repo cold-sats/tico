@@ -55,7 +55,7 @@ onboarding:
     why: "People information is confidential. The routine goes to the readers you name and no one else."
 first_routine:
   title: "Weekly people summary"
-  cadence: "Mondays at 08:30 company time, after you approve the first summary"
+  cadence: "Mondays at 08:30 company time"
   output: "reports/YYYY-MM-DD-people-summary.md: hires against plan, starters and leavers, people deadlines in the next 30 days, what the people bots produced, blocked work, routing and hiring proposals"
   draft_only: true
 approval_required:

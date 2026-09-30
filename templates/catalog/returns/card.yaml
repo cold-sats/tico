@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly returns report"
-  cadence: "Mondays at 09:00 company time, after you approve the first report"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-returns.md: requests and refunds this week, open requests with a recommended decision and a reply ready for approval, refunds received but not issued with their age, top return reasons by product, and flagged patterns"
   draft_only: true
 approval_required:

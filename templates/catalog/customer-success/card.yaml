@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient. Nobody else gets it until you say so."
 first_routine:
   title: "Weekly renewal and health brief"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first brief"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-renewal-brief.md: headline, renewals by playbook stage with owner and notice deadline, accounts at risk with reasons, a drafted next touch for each at-risk account, and what could not be read"
   draft_only: true
 approval_required:

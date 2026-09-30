@@ -7,7 +7,7 @@ Not started. The first message walks the person through `playbooks/onboarding.md
 None yet. Record each onboarding answer here, one line each, dated. Record the docs location and the repositories to watch here.
 
 ## Routine
-`weekly-docs-drift`: declared, not armed. Arm it only after a person approves the first draft.
+`weekly-docs-drift`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

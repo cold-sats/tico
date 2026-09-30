@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly interface copy review"
-  cadence: "Thursdays at 10:00 company time, after you approve the first review"
+  cadence: "Thursdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-copy-review.md: pull requests that changed user-facing text, each string that breaks the glossary or the error rules with a rewrite, new terms to add, and what could not be read"
   draft_only: true
 approval_required:

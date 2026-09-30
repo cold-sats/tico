@@ -48,7 +48,7 @@ onboarding:
     why: "Feedback leaves as a task for this person or bot, with the thread link."
 first_routine:
   title: "Weekly community digest"
-  cadence: "Fridays at 11:00 company time, after you approve the first digest"
+  cadence: "Fridays at 11:00 company time"
   output: "reports/YYYY-MM-DD-community.md: response time and unanswered questions against target, top threads, new members, champions to thank, guideline flags and feedback routed"
   draft_only: true
 approval_required:

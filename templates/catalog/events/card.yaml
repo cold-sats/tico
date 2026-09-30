@@ -51,7 +51,7 @@ onboarding:
     why: "Sets where results are read from. I never ask for a login; exports on the task are enough."
 first_routine:
   title: "Weekly events review"
-  cadence: "Thursdays at 10:00 company time, after you approve the first review"
+  cadence: "Thursdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-events.md: the next 90 days of events with checklist status and deadlines, what is late, follow-ups due, and results for events that ended"
   draft_only: true
 approval_required:

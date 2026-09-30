@@ -48,7 +48,7 @@ onboarding:
     why: "I prepare a holding statement per risk for a person to approve in advance."
 first_routine:
   title: "Weekly PR review"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first review"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-pr.md: coverage since last week, the story pipeline with start dates, pitches waiting for approval, and reporters newly writing about the space"
   draft_only: true
 approval_required:

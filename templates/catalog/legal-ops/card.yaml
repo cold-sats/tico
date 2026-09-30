@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and reader."
 first_routine:
   title: "Monthly legal spend summary"
-  cadence: "The 5th of each month at 09:00 company time, after you approve the first summary"
+  cadence: "The 5th of each month at 09:00 company time"
   output: "reports/YYYY-MM-DD-legal-spend.md: spend by matter and firm against budget, invoices reviewed with the lines questioned, matters opened and closed, and matters with no update in 30 days"
   draft_only: true
 approval_required:

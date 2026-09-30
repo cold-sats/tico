@@ -48,7 +48,7 @@ onboarding:
     why: "The executed-agreement index starts from the real files, so the next 'where is the signed copy?' has an answer."
 first_routine:
   title: "Weekday NDA desk"
-  cadence: "Weekdays at 09:00 company time, after you approve the first desk report"
+  cadence: "Weekdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-nda-desk.md: each open NDA with its status (ready for signature, needs changes, needs counsel), the differences from your standard, outbound drafts and packets waiting, and index updates"
   draft_only: true
 approval_required:

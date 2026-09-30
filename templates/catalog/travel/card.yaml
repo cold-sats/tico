@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly trips page"
-  cadence: "Mondays at 10:00 company time, after you approve the first page"
+  cadence: "Mondays at 10:00 company time"
   output: "reports/YYYY-MM-DD-trips.md: every trip in the next 30 days with its status (planned, awaiting approval, booked, documents missing), trips inside the policy's advance-booking window still unbooked, and spend against policy"
   draft_only: true
 approval_required:

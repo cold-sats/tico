@@ -55,7 +55,7 @@ onboarding:
     why: "Builds the exclusion list before the first draft, not after."
 first_routine:
   title: "Weekly ops checklist and team summary"
-  cadence: "Mondays at 08:30 company time, after you approve the first draft"
+  cadence: "Mondays at 08:30 company time"
   output: "reports/YYYY-MM-DD-ops-weekly.md: what is overdue, due this week and blocked, vendor follow-up drafts, what each Operations bot produced, and routing proposals"
   draft_only: true
 approval_required:

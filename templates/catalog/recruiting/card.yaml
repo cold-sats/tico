@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the wait that turns a stalled application into a flag on the weekly summary."
 first_routine:
   title: "Weekly hiring pipeline summary"
-  cadence: "Fridays at 10:00 company time, after you approve the first summary"
+  cadence: "Fridays at 10:00 company time"
   output: "reports/YYYY-MM-DD-hiring-pipeline.md: per open role the stage counts, who is waiting on a person and for how long, replies ready to send, hand-offs to scheduling, and gaps in the interview kit"
   draft_only: true
 approval_required:

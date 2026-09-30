@@ -50,7 +50,7 @@ onboarding:
     why: "Sets knowledge/social-calendar.md and the approver for every post. Nothing is published without that yes."
 first_routine:
   title: "Weekday morning sweep"
-  cadence: "Weekdays at 08:00 company time, after you approve the first digest"
+  cadence: "Weekdays at 08:00 company time"
   output: "reports/sweeps/YYYY-MM-DD.md: coverage first (sources returned and blocked), then what is worth a reply, worth writing about, and real competitor moves"
   draft_only: true
 approval_required:

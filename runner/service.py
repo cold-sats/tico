@@ -52,7 +52,8 @@ HEADLESS_LOGIN = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), "c
 # is not tried again for this long (a heartbeat asks every few seconds), unless the key or the home changes.
 CODEX_LOGIN_RETRY_S = 600
 # What a person's chat with a parked starter bot is: its onboarding, not a request for work.
-SETUP_TURN = ("Setup: a person is setting you up, and you are parked until they approve your first routine. Follow the "
+SETUP_TURN = ("Setup: a person is setting you up, and you are parked until your setup is done. Your first routine is already "
+              "on, so nobody has to approve it. Follow the "
               "onboarding section of AGENT.md and playbooks/onboarding.md in order and do only the step the conversation has "
               "reached. On their first message that is: read them, introduce yourself, ask your questions in one message "
               "and end the turn. Until they have answered, run no tool that reaches mail, chat or another system, file no "

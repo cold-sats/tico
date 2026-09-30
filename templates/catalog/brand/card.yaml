@@ -48,7 +48,7 @@ onboarding:
     why: "Every proposed change goes to this person; visual fixes go to the file owner."
 first_routine:
   title: "Monthly brand consistency audit"
-  cadence: "The 1st of each month at 10:00 company time, after you approve the first audit"
+  cadence: "The 1st of each month at 10:00 company time"
   output: "reports/YYYY-MM-brand-audit.md: a sample of public pages, emails, posts and listings scored against the brand book, the three fixes that matter most, and brand book gaps"
   draft_only: true
 approval_required:

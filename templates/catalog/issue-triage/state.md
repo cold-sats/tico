@@ -8,7 +8,7 @@ None yet. Record each onboarding answer here, one line each, dated. Record the r
 here as `owner/name`.
 
 ## Routine
-`weekly-issue-digest`: declared, not armed. Arm it only after a person approves the first digest.
+`weekly-issue-digest`: declared off, and switched on when your setup starts.
 
 ## Current focus
 None.

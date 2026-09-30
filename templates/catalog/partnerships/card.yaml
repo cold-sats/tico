@@ -52,7 +52,7 @@ onboarding:
     why: "Sets what the weekly review reads and whom each approved deal goes to."
 first_routine:
   title: "Weekly partner pipeline review"
-  cadence: "Thursdays at 09:00 company time, after you approve the first review"
+  cadence: "Thursdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-partner-review.md: registrations waiting with a proposed decision, conflicts, partner-sourced deals by stage and those going quiet, partners with no deal in 90 days, and fees due this month"
   draft_only: true
 approval_required:

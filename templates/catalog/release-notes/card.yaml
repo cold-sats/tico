@@ -48,7 +48,7 @@ onboarding:
     why: "Sets the recipient and the first routine's schedule."
 first_routine:
   title: "Weekly release notes draft"
-  cadence: "Fridays at 14:00 company time, after you approve the first draft"
+  cadence: "Fridays at 14:00 company time"
   output: "reports/YYYY-MM-DD-release-notes.md: suggested version, a changelog entry grouped Added, Changed, Fixed, Security, customer-facing notes, and the changes it could not classify"
   draft_only: true
 approval_required:

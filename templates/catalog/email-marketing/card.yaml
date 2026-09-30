@@ -49,7 +49,7 @@ onboarding:
     why: "The first draft is a real one, and the checklist needs the legal footer text you already use."
 first_routine:
   title: "Weekly email campaign draft"
-  cadence: "Tuesdays at 09:00 company time, after you approve the first draft"
+  cadence: "Tuesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-<campaign>/email.md: the draft with three subject lines, a preview line, a plain-text version, the audience and a send checklist"
   draft_only: true
 approval_required:

@@ -53,7 +53,7 @@ onboarding:
     why: "Sets the routine's schedule and recipient."
 first_routine:
   title: "Weekly product ops review"
-  cadence: "Wednesdays at 09:00 company time, after you approve the first review"
+  cadence: "Wednesdays at 09:00 company time"
   output: "reports/YYYY-MM-DD-product-ops-review.md: new requests and merges, the top requests by accounts, roadmap hygiene exceptions, the beta roster, the next eight weeks of releases, and ship notices ready for a person"
   draft_only: true
 approval_required:

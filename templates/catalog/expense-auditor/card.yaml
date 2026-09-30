@@ -44,7 +44,7 @@ onboarding:
     why: "Each approver gets only their own people's lines. Expenses stay confidential."
 first_routine:
   title: "Monthly expense audit"
-  cadence: "The 3rd of each month at 09:00 company time, after you approve the first audit"
+  cadence: "The 3rd of each month at 09:00 company time"
   output: "reports/YYYY-MM-expense-audit.md: reports and card charges checked, missing receipts, out-of-policy lines, duplicate candidates and late claims, grouped by approver, each with the rule and the source line"
   draft_only: true
 approval_required:

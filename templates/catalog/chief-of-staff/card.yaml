@@ -53,7 +53,7 @@ onboarding:
     why: "Builds the exclusion list before the first draft, not after."
 first_routine:
   title: "Weekly company brief"
-  cadence: "Fridays at 15:00 company time, after you approve the first draft"
+  cadence: "Fridays at 15:00 company time"
   output: "reports/YYYY-MM-DD-weekly-brief.md: headline, what needs you, goals with colour and evidence, stalled items with a drafted nudge, what moved, and a draft Monday agenda"
   draft_only: true
 approval_required:

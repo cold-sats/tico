@@ -51,7 +51,7 @@ onboarding:
     why: "Sets the recipient and the first routine's schedule."
 first_routine:
   title: "Weekly research digest"
-  cadence: "Thursdays at 10:00 company time, after you approve the first draft"
+  cadence: "Thursdays at 10:00 company time"
   output: "reports/YYYY-MM-DD-research-digest.md: new interview snapshots, updated opportunities with how many sources each has, one open question worth testing, and sources it could not read"
   draft_only: true
 approval_required:

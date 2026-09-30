@@ -53,7 +53,7 @@ onboarding:
     why: "Sets the routine's schedule and the only recipient until you add one."
 first_routine:
   title: "Weekly product summary"
-  cadence: "Mondays at 09:00 company time, after you approve the first summary"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-product-summary.md: headline, decisions needed, roadmap status, evidence that changed, what each product bot produced, prioritisation and routing proposals, and any hiring proposal"
   draft_only: true
 approval_required:

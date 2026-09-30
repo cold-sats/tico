@@ -48,7 +48,7 @@ onboarding:
     why: "Recorded in knowledge/targets.md as rules every proposal respects."
 first_routine:
   title: "Weekly paid media review"
-  cadence: "Mondays at 09:00 company time, after you approve the first review"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-paid-media.md: spend and cost per result by campaign against target, wasted spend, proposed exclusions, and three changes prepared for approval"
   draft_only: true
 approval_required:

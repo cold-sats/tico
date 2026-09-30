@@ -52,7 +52,7 @@ onboarding:
     why: "These become hard rules before the first draft, not corrections after it."
 first_routine:
   title: "Weekly content plan"
-  cadence: "Mondays at 09:00 company time, after you approve the first plan"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-content-plan.md: the next four weeks, one full draft for the top item with its short versions and sources, and the ideas added or dropped"
   draft_only: true
 approval_required:

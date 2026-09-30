@@ -59,7 +59,7 @@ onboarding:
     why: "Sets the at-risk list and the routine's schedule."
 first_routine:
   title: "Weekly deal review"
-  cadence: "Mondays at 09:00 company time, after you approve the first review"
+  cadence: "Mondays at 09:00 company time"
   output: "reports/YYYY-MM-DD-deal-review.md: each open deal with its stage, days quiet and next step, the recaps and follow-ups ready to send, mutual action plan slips, and the proposals and questionnaires due this week"
   draft_only: true
 approval_required:

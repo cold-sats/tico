@@ -52,7 +52,7 @@ onboarding:
     why: "Sets the follow-up list. A nudge is a draft for your Confirm, never something I send."
 first_routine:
   title: "Daily support queue"
-  cadence: "Weekdays at 09:00 company time, after you approve the first digest"
+  cadence: "Weekdays at 09:00 company time"
   output: "A queue digest on the task, saved to reports/YYYY-MM-DD-support-queue.md when worth keeping: counts, a bucket and a draft reply per ticket with the docs it rests on, escalations, follow-ups due, and doc gaps reported to the Librarian"
   draft_only: true
 approval_required:
