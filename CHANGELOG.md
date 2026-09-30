@@ -14,6 +14,14 @@ All notable changes to Tico are recorded here. The format follows
   a per-model list-price table (`providers.PRICES`, dated `prices_as_of`). A model with no price shows its tokens and a dash. Runs on a
   ChatGPT or Claude sign-in are shown as "API-equivalent" and never added to spend. `GET /api/v2/usage` (owner and administrators see
   every bot, anyone else the bots they run) is in the v2 contract; the bot KPI `cost_7d` reads the same estimate (docs/usage.md).
+- **Spend limits per bot.** A daily and a monthly limit in estimated USD, on the Usage row or in Settings > Bots, with a company default
+  (Usage > Default limit; none until set). At 80% the bot's operator is told once; at 100% the bot takes no new job until the period
+  turns over or the limit is raised ("Paused: over its daily limit", shown on the bot and in Tasks), and a run in progress finishes.
+  Subscription runs count only if the company opts in. The person who runs a bot sets its limit within the company default.
+- **Support diagnostics.** Contact support has an "Attach diagnostics" box, on by default, with a Preview link that shows exactly
+  what will be sent: versions, containers, the last update, health check names, each computer's runtime readiness, counts and the recent
+  WARN/ERROR log lines, with emails, keys, addresses, hostnames and the names of bots and people redacted. HQ keeps it with the ticket, for
+  staff only, and `hq-tickets show` prints it for the Support Agent. PRIVACY.md lists every field.
 
 ## [0.2.17] - 2026-09-30
 
