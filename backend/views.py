@@ -772,6 +772,7 @@ def install_views(app, store, auth, mutate, task_view):
                     "config": config_view(c, store.settings, who),
                     "credential_admin": administrator(c, who, admins),
                     "proxy_session": who.via_proxy,
+                    "sign_in_name": auth.sign_in_name(request.headers) if who.via_proxy else "",
                     "credential_access": bool(can_open(c, who, admins)),
                     "mail_access": can_access(c, who),
                     # may move any task on the board

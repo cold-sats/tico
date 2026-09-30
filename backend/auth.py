@@ -190,6 +190,14 @@ class Auth:
             self._owner_id = row["id"] if row else ""
         return self._owner_id
 
+    def sign_in_name(self, headers):
+        """The display name the identity proxy vouched for on this request, or "" (a proxy that sends none)."""
+        name = getattr(self.proxy, "display_name", None)
+        try:
+            return name(headers) if name else ""
+        except Problem:
+            return ""
+
     def owner_identity(self, c):
         pid = self.owner_id(c)
         if not pid:

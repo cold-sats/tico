@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The upstream project's own name. Every environment renames itself through TICO_APP_NAME
 # and TICO_ASSISTANT_NAME; nothing below carries a company's name, domain or people.
 PRODUCT_NAME = "Tico"
+ASSISTANT_NAME = "Assistant"        # what the assistant is called until a company names it
 
 
 def _release_origin():
@@ -100,7 +101,7 @@ class Settings:
     environment_id: str = ""
     company_name: str = "Company"
     app_name: str = PRODUCT_NAME
-    assistant_name: str = PRODUCT_NAME
+    assistant_name: str = ASSISTANT_NAME
     assistant_bot: str = "coo"
     owner_email: str = ""
     github_owner: str = ""
@@ -263,7 +264,7 @@ class Settings:
             environment_id=environment_id,
             company_name=company or "Company",
             app_name=os.environ.get("TICO_APP_NAME", "").strip() or PRODUCT_NAME,
-            assistant_name=os.environ.get("TICO_ASSISTANT_NAME", "").strip() or PRODUCT_NAME,
+            assistant_name=os.environ.get("TICO_ASSISTANT_NAME", "").strip() or ASSISTANT_NAME,
             assistant_bot=os.environ.get("TICO_ASSISTANT_BOT", "").strip() or "coo",
             owner_email=os.environ.get("TICO_OWNER_EMAIL", ""),
             # TICO_ROUTINES_GITHUB_OWNER is the older name for the same organization.

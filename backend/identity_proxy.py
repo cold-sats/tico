@@ -36,6 +36,12 @@ def _segment(part):
     return value
 
 
+def _display_name(claims):
+    """A person's name from verified claims, kept short and on one line; never an address."""
+    name = " ".join(str((claims or {}).get("name") or "").split())[:100]
+    return "" if "@" in name else name
+
+
 def _invalid(exc=None):
     return Problem("identity", "Invalid or expired sign-in", 401)
 
@@ -95,7 +101,7 @@ class CloudflareAccess:
         if self.jwks:
             self.jwks.get_signing_keys()
 
-    def email(self, headers):
+    def _claims(self, headers):
         # Machine API paths bypass the edge login redirect; browsers still send their signed
         # session cookie, which gets the same checks as the header.
         assertion = headers.get("cf-access-jwt-assertion", "") or _cookies(headers).get("CF_Authorization", "")
@@ -105,13 +111,20 @@ class CloudflareAccess:
             raise Problem("identity", "Sign in to " + self.settings.app_name, 401)
         try:
             key = self.jwks.get_signing_key_from_jwt(assertion).key
-            claims = jwt.decode(assertion, key, algorithms=["RS256"],
-                                issuer=self.settings.access_issuer,
-                                audience=self.settings.access_audience,
-                                options={"require": ["exp", "iat", "iss", "aud", "sub"]})
+            return jwt.decode(assertion, key, algorithms=["RS256"],
+                              issuer=self.settings.access_issuer,
+                              audience=self.settings.access_audience,
+                              options={"require": ["exp", "iat", "iss", "aud", "sub"]})
         except jwt.PyJWTError as exc:
             raise _invalid() from exc
-        return str(claims.get("email", "")).lower()
+
+    def email(self, headers):
+        claims = self._claims(headers)
+        return None if claims is None else str(claims.get("email", "")).lower()
+
+    def display_name(self, headers):
+        """The name in the verified assertion, when the identity provider sends one (a `name` claim), else ""."""
+        return _display_name(self._claims(headers))
 
     def logout(self, headers):
         return "/cdn-cgi/access/logout", []
@@ -155,7 +168,20 @@ class AwsAlb:
             self._keys[kid] = key
         return key
 
+    def display_name(self, headers):
+        """The `name` claim of the verified ALB assertion, or ""."""
+        return _display_name(self._claims(headers))
+
     def email(self, headers):
+        claims = self._claims(headers)
+        if claims is None:
+            return None
+        email = str(claims.get("email") or "").strip().lower()
+        if not email or claims.get("email_verified") in (False, "false"):
+            raise _invalid()
+        return email
+
+    def _claims(self, headers):
         raw = headers.get("x-amzn-oidc-data", "").strip()
         if not raw:
             return None
@@ -181,10 +207,7 @@ class AwsAlb:
         expires = claims.get("exp", header.get("exp"))
         if not isinstance(expires, (int, float)) or expires <= time.time():
             raise _invalid()
-        email = str(claims.get("email") or "").strip().lower()
-        if not email or claims.get("email_verified") in (False, "false"):
-            raise _invalid()
-        return email
+        return claims
 
     def logout(self, headers):
         # The ALB keeps its own session in sharded cookies; expiring them ends the session.

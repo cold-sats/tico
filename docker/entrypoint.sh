@@ -17,7 +17,7 @@ server_environment() {
 
   export TICO_DB=$DATA/hub.sqlite TICO_REGISTRY_DIR=$DATA/registry
   [ -n "${TICO_BLOB_BUCKET:-}" ] || export TICO_BLOB_DIR=$DATA/blobs
-  export TICO_APP_NAME="${TICO_APP_NAME:-$TICO_COMPANY_NAME}" TICO_ASSISTANT_NAME="${TICO_ASSISTANT_NAME:-$TICO_COMPANY_NAME}"
+  export TICO_APP_NAME="${TICO_APP_NAME:-$TICO_COMPANY_NAME}" TICO_ASSISTANT_NAME="${TICO_ASSISTANT_NAME:-Assistant}"
   export TICO_SCHEDULER=1
 
   if [ -n "${TICO_UPDATER_URL:-}" ]; then

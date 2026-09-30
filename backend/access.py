@@ -383,6 +383,18 @@ def edit_person(c, actor, roster, pid, body, access, owner_email):
     return row, admins, changed
 
 
+def rename_person(c, roster, pid, name):
+    """A person's name on the roster, as they wrote it. Returns whether it changed."""
+    person = P.person(pid, roster)
+    name = " ".join(str(name or "").split())
+    if not person or not name or name == person["name"]:
+        return False
+    row = P._person({**person, "name": name})
+    _save_roster(c, {**roster, "people": [row if p["id"] == pid else p for p in roster["people"]]})
+    _sync_human(c, row)
+    return True
+
+
 _DOMAIN = re.compile(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}")
 
 

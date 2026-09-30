@@ -11,6 +11,7 @@ still a task for BotOps. Nothing here reaches a machine: it writes definitions a
 """
 
 import json
+import os
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from . import goals as G
 from . import models as M
 from . import providers
 from . import census, releases, replication, runner_versions
+from .config import ASSISTANT_NAME
 from . import rooms, routines
 from . import access as Access
 from .store import H, Problem, encode, readiness_document
@@ -38,7 +40,7 @@ INSTRUCTIONS_FILE = "AGENT.md"
 PLACEHOLDERS = ("company_name", "app_name", "assistant_name", "bot_name")
 NEEDS_ONBOARDING = "needs_onboarding"
 ONBOARDED = "onboarded"
-EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": ""}
+EMPTY_NAMES = {"company_name": "", "app_name": "", "assistant_name": "", "owner_name": ""}
 # `pains`, `pains_text` and `tools` are no longer asked. An older record keeps them and a client may still send them;
 # nothing reads them. `departments` are the org builder's chosen departments, in order, and `briefings` the one-line
 # answer given for each.
@@ -235,7 +237,11 @@ def display_names(settings, record):
     """The environment's configured names, with whatever onboarding saved on top."""
     configured = {"company_name": settings.company_name, "app_name": settings.app_name,
                   "assistant_name": settings.assistant_name}
-    return {key: str(record["names"].get(key) or "") or value for key, value in configured.items()}
+    names = {key: str(record["names"].get(key) or "") or value for key, value in configured.items()}
+    # An assistant named after the company was the default of an earlier release (name_default_assistant renames the bot).
+    if names["assistant_name"].strip().lower() == names["company_name"].strip().lower():
+        names["assistant_name"] = ASSISTANT_NAME
+    return names
 
 
 def needed(c, who, record):
@@ -251,6 +257,11 @@ def needed(c, who, record):
     return active is None
 
 
+def running_in_docker():
+    """Whether this server is a container (Docker or Podman), which is how nearly every install runs."""
+    return bool(os.environ.get("TICO_IN_DOCKER")) or any(Path(marker).exists() for marker in ("/.dockerenv", "/run/.containerenv"))
+
+
 def config_view(c, settings, who=None):
     """What every client needs to name this environment: the env settings, the names
     onboarding saved over them, and whether the owner still owes us the first-run wizard."""
@@ -262,6 +273,7 @@ def config_view(c, settings, who=None):
     if who is not None:
         # A runner installs only the harnesses these providers need (runner/harness_tools.py).
         value["enabled_providers"] = list(chosen["enabled"])
+    value["in_docker"] = running_in_docker()      # the first run offers a Linux computer first when the server is one
     value["version"] = releases.version()
     value["update"] = releases.notice()
     value["usage_count_notice"] = census.notice_due(c, settings, who)
@@ -403,6 +415,10 @@ class Onboarding:
             self._reports_to_valid(c, slug, choice.reports_to)
         record.update(names=body.names.model_dump(), answers=body.answers.model_dump(),
                       selected=selected)
+        # The owner's name goes on their roster entry (first run only knew their email).
+        owner = self.auth.owner_id(c)
+        if owner and body.names.owner_name.strip():
+            Access.rename_person(c, rooms.roster(c), owner, body.names.owner_name)
         self._store(c, record, who.actor)
         H.event(c, who.actor, "onboarding.saved", "", {"selected": sorted(selected)})
         return self.view(c, who)

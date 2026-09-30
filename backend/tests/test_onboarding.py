@@ -320,3 +320,46 @@ def test_a_company_from_before_gets_the_botops_goal_once_unless_botops_has_goals
     assert made.status_code == 200, made.text
     other.app.state.store.initialize(seed_market=False)
     assert [g["title"] for g in _botops_goals(other)] == ["Own goal"]
+
+
+def test_the_assistant_is_called_assistant_unless_someone_named_it_and_never_by_the_company_name(environment):
+    """The container used to default TICO_ASSISTANT_NAME to the company, so the Review step listed the assistant as
+    "Tico Team". Unset, it is "Assistant", and a draft that carries the company's name gets "Assistant" too."""
+    from backend.onboarding import display_names
+    assert Settings(db_path=Path("x.db")).assistant_name == "Assistant"
+    api = environment(company_name="Tico Team", assistant_name="Tico Team")
+    settings = api.app.state.store.settings
+    assert display_names(settings, {"names": {}})["assistant_name"] == "Assistant"
+    assert display_names(settings, {"names": {"assistant_name": "Ada"}})["assistant_name"] == "Ada"
+    assert api.get("/api/v2/config", headers=signed_in()).json()["assistant_name"] == "Assistant"
+    assert "Tico Team" not in [card["name"] for card in api.get("/api/v2/catalog", headers=signed_in()).json()["cards"]
+                               if card["template"] == "assistant"]
+
+
+def test_the_owners_name_from_the_names_step_lands_on_their_roster_entry(environment):
+    api = environment()
+    with api.app.state.store.transaction() as c:                 # first run knew only the owner's address
+        c.execute("UPDATE humans SET name=? WHERE id='morgan'", (OWNER_EMAIL,))
+    names = {"company_name": "Acme", "app_name": "Atlas", "assistant_name": "Morgan", "owner_name": "  Morgan  Reed-Ellis "}
+    saved = api.put("/api/v2/onboarding", json={"names": names}, headers=signed_in())
+    assert saved.status_code == 200 and saved.json()["names"]["owner_name"] == "Morgan  Reed-Ellis"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT name FROM humans WHERE id='morgan'").fetchone()[0] == "Morgan Reed-Ellis"
+    assert api.get("/api/people", headers=signed_in()).json()["people"][0]["name"] == "Morgan Reed-Ellis"
+    # Blank leaves the name alone; saving again changes nothing.
+    api.put("/api/v2/onboarding", json={"names": {**names, "owner_name": ""}}, headers=signed_in())
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT name FROM humans WHERE id='morgan'").fetchone()[0] == "Morgan Reed-Ellis"
+
+
+def test_the_config_says_when_the_server_is_a_container_so_first_run_offers_a_linux_computer_first(environment, monkeypatch):
+    from backend import onboarding
+    api = environment()
+    monkeypatch.setattr(onboarding, "running_in_docker", lambda: True)
+    assert api.get("/api/v2/config", headers=signed_in()).json()["in_docker"] is True
+    monkeypatch.undo()
+    monkeypatch.delenv("TICO_IN_DOCKER", raising=False)
+    monkeypatch.setattr(onboarding.Path, "exists", lambda self: False)
+    assert onboarding.running_in_docker() is False
+    monkeypatch.setenv("TICO_IN_DOCKER", "1")
+    assert onboarding.running_in_docker() is True

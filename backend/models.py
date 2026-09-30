@@ -866,6 +866,8 @@ class OnboardingNames(Contract):
     company_name: str = Field(default="", max_length=100)
     app_name: str = Field(default="", max_length=100)
     assistant_name: str = Field(default="", max_length=100)
+    # The owner's own name, saved on their roster entry; blank leaves it as it is.
+    owner_name: str = Field(default="", max_length=100)
 
 
 class OnboardingAnswers(Contract):

@@ -62,7 +62,7 @@ PROFILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # What a turn calls the company, the application, and the assistant when the server is older
 # than GET /api/v2/config. Tico is the product's own name, which is the honest fallback for an
 # installation that has not been given one.
-DEFAULT_NAMES = {"company_name": "the company", "app_name": "Tico", "assistant_name": "Tico",
+DEFAULT_NAMES = {"company_name": "the company", "app_name": "Tico", "assistant_name": "Assistant",
                  "assistant_bot": "coo"}
 # The two bots the runner sets up from the catalog itself, and the template each one comes from.
 # Everybody else is BotOps's to create in a turn (`hub bot create`); BotOps cannot create itself,

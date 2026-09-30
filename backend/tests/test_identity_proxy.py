@@ -149,3 +149,11 @@ def test_bearer_credentials_still_work_under_aws_alb(alb):
 def settings(tmp_path, **kw):
     return Settings(db_path=tmp_path / "h.db", **kw)
 
+
+
+def test_the_name_the_proxy_vouches_for_reaches_the_page_and_an_address_never_does(alb):
+    """First run prefills "Your name" from the sign-in's display name, when the identity provider sends one."""
+    me = lambda **claims: alb.api.get("/api/me", headers=hdr(alb.token(**claims))).json()
+    assert me(name="Ben  Cole")["sign_in_name"] == "Ben Cole"
+    assert me()["sign_in_name"] == ""                                  # no name claim: nothing to prefill
+    assert me(name="ben@acme.example")["sign_in_name"] == ""           # an address is not a name
