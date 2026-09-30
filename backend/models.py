@@ -502,6 +502,9 @@ class BotReadiness(Contract):
     model: str = Field(default="", max_length=200)
     repository_present: bool = False
     repository_revision: str = Field(default="", max_length=100)
+    # Whether GitHub holds this checkout's history (it has an upstream). False means the only copy is on that
+    # computer, so a move would strand the bot; None is a runner that does not say, or a bot with no checkout.
+    published: bool | None = None
     configuration_valid: bool = False
     problems: list[str] = Field(default_factory=list, max_length=20)
     # Soft guidance that does not block claiming work (for example a long AGENT.md).

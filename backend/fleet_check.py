@@ -7,6 +7,7 @@ report the rest.
 """
 from . import bot_tools, usage_limits
 from .getting_started import _online_runners
+from .health import missing_repositories
 from .statuses import is_parked
 from .store import H
 
@@ -25,6 +26,7 @@ def check(c, who, auth, settings):
         "SELECT bot, count(*) n FROM attempts WHERE state IN ('failed','expired') AND finished>? GROUP BY bot", (since,))}
     assigned = {r["bot"]: (r["runner_id"], r["label"]) for r in c.execute(
         "SELECT a.bot,a.runner_id,r.label FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE r.revoked_at IS NULL")}
+    lacking = {bot: (label, why) for bot, label, why in missing_repositories(c, online)}
     issues = []
 
     def add(bot, kind, severity, text, fix):
@@ -57,6 +59,12 @@ def check(c, who, auth, settings):
                 add(bot, "not_placed", HIGH, f"{name} is on, but no computer runs it.", f"hub bot place {slug}")
             elif where and where[0] not in online:
                 add(bot, "computer_offline", HIGH, f"{name} cannot run: its computer, {where[1]}, is offline.", "hub computer list")
+            if slug in lacking:
+                label, why = lacking[slug]
+                unpublished = "not on GitHub" in why or "does not exist" in why
+                add(bot, "repository_missing", HIGH, f"{name} cannot run on {label}: {why}",
+                    f"hub bot repo-create {slug} --empty (or `hub bot place {slug}` back on the computer that held its repository)"
+                    if unpublished else f"hub bot check {slug}")
             if is_parked(bot["onboarding_state"]) and (bot["created"] or "") < H.shift(H.now(), hours=-24):
                 add(bot, "needs_setup", MEDIUM, f"{name} is waiting for its first setup with its owner.", f"hub bot go-live {slug}")
         if state == "active":

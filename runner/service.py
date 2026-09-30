@@ -88,6 +88,8 @@ CURSOR_MODELS = sorted(CURSOR_HOST_MODELS)
 # a runner sees when neither exists.
 # Prefix of the readiness warning that says a bot's history did not reach GitHub; backend/health.py reads it.
 PUBLISH_WARNING = "GitHub history not published: "
+FETCH_RETRY_S = 120         # how long a repository that could not be cloned is left before the next try
+PUBLISH_RETRY_S = 3600      # the same for a checkout whose history GitHub has not taken yet
 NO_RUNTIME = ("No AI provider is chosen: the owner picks providers and a default model in "
               "Settings > AI providers")
 
@@ -705,6 +707,85 @@ class Runner:
             else:
                 self.publish_notes.pop(bot, None)
 
+    def github_access(self, bot):
+        """(environment, problem) for talking to this bot's GitHub repository. The environment carries the
+        bot's scoped token, or is the machine's own when no GitHub App is connected; the problem is a plain
+        sentence naming why the repository cannot be reached (the server's own words for a repository that is
+        not on GitHub yet) and then the environment is None."""
+        try:
+            granted = self.client.post("github/token", {"bot": bot})
+        except APIError as exc:
+            return None, str(exc.detail or exc.code)[:400]
+        except Exception as exc:
+            return None, f"the server did not answer ({type(exc).__name__})"
+        env = dict(os.environ)
+        if granted.get("configured") and granted.get("token"):
+            env.update(git_credentials.environment(granted["token"]))
+            if granted.get("repository"):
+                env[git_credentials.REPOSITORY_KEY] = str(granted["repository"])
+        return env, ""
+
+    def fetch_repository(self, bot, entry, path):
+        """Clone the bot's repository onto this computer when it is assigned here and has no checkout.
+
+        This is how a bot placed on a new computer, or moved to one, gets its repository: the server names
+        it on the assignment (`repository`) and the runner clones it with the bot's own token. Returns the
+        readiness problem to show, or "" when the checkout is now here (or the server named no repository,
+        which leaves the generic "Missing bot repository"). A failure is remembered for FETCH_RETRY_S so
+        every heartbeat is not a clone, and the cause is named rather than the repository called missing."""
+        repository = str(entry.get("repository") or "")
+        if not repository:
+            return ""
+        notes = self.__dict__.setdefault("fetch_notes", {})
+        key = (repository, entry.get("generation"))
+        last = notes.get(bot)
+        if last and last["key"] == key and time.monotonic() - last["at"] < FETCH_RETRY_S:
+            return last["problem"]
+        problem = ""
+        if (path / ".git").exists():
+            problem = f"{repository} is checked out here but has no AGENT.md"      # a clone of an empty repository
+        else:
+            env, problem = self.github_access(bot)
+            if env is not None:
+                state, detail = git_credentials.clone_repository(path, repository, env)
+                if state == "cloned":
+                    isolation.chown(path, recursive=True)      # cloned by the supervisor; the bot user works in it
+                    log(f"Tico runner: {bot} cloned from {repository} to {path}")
+                    self.__dict__.setdefault("publish_notes", {}).pop(bot, None)
+                    problem = "" if (path / "AGENT.md").is_file() else f"{repository} was cloned but has no AGENT.md"
+                else:
+                    problem = f"Could not clone {repository}: {detail}"
+            else:
+                problem = f"Cannot fetch {repository} onto this computer: {problem}"
+        problem = problem[:500]
+        if problem and (not last or last["problem"] != problem):
+            log(f"Tico runner: {bot}: {problem}")
+        notes[bot] = {"key": key, "at": time.monotonic(), "problem": problem}
+        return problem
+
+    def publish_unpublished(self, bot, entry, path):
+        """Give an assigned bot's checkout its GitHub home before anyone moves the bot: a checkout that
+        only exists here cannot be cloned by the computer that takes it over. Tried at most once per
+        PUBLISH_RETRY_S; the reason a repository could not be reached is the bot's warning (Health, Bot history)."""
+        repository = str(entry.get("repository") or "")
+        if not repository or (entry.get("state") or "active") != "active":
+            return
+        checked = self.__dict__.setdefault("publish_checked", {})
+        now = time.monotonic()
+        # One attempt every 20 seconds across all bots, so a computer holding many unpublished checkouts spreads
+        # its GitHub calls out instead of making them all in one readiness pass.
+        if now - checked.get(bot, -PUBLISH_RETRY_S) < PUBLISH_RETRY_S or now < self.__dict__.get("publish_next", 0):
+            return
+        checked[bot] = now
+        self.publish_next = now + 20
+        env, problem = self.github_access(bot)
+        if env is None:
+            self.__dict__.setdefault("publish_notes", {})[bot] = f"{repository}: {problem}"[:300]
+            return
+        if not env.get(git_credentials.REPOSITORY_KEY):
+            return                                  # no GitHub App: the machine's own git access is the person's
+        self.publish(bot, path, env)
+
     def push_backlog(self):
         """Once per start, push every assigned bot's checkout: a laptop that has been the only
         copy of a bot's memory catches up. Pushing is read-only for the tree, so a turn that
@@ -914,6 +995,8 @@ class Runner:
                 # from the catalog; every other bot is BotOps's, and stays missing until BotOps has.
                 if self.assigned_here(entry):
                     materialized, failure = self.bootstrap(bot, entry.get("config"), path)
+                    if not failure and not (path / "AGENT.md").is_file():
+                        failure = self.fetch_repository(bot, entry, path)
                 repository_present = (path / "AGENT.md").is_file()
                 if not repository_present:
                     problems.append(failure or "Missing bot repository or AGENT.md")
@@ -972,18 +1055,26 @@ class Runner:
                 if not configuration_valid:
                     problems.append("Configuration differs from server")
             revision = ""
+            published = None
             if repository_present and (path / ".git").exists():
                 try:
                     result = isolation.run(["git", "-C", str(path), "rev-parse", "--short=12", "HEAD"],
                                             capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
                         revision = result.stdout.strip()[:100]
+                    # Whether GitHub holds this checkout's history: a checkout with no upstream exists only here,
+                    # so no other computer could clone it if the bot moved.
+                    published = isolation.run(["git", "-C", str(path), "rev-parse", "--abbrev-ref", "@{u}"],
+                                              capture_output=True, text=True, timeout=5).returncode == 0
                 except (OSError, subprocess.SubprocessError):
                     pass
+                if published is False and self.assigned_here(entry):
+                    self.publish_unpublished(bot, entry, path)
             rows.append({"bot": bot, "repository": str(path), "runtime": runtime,
                          "profile": profile.name if profile else "", "sign_in": status.get("authenticated", "unknown"),
                          "model": model, "state": entry.get("state"), "ready": not problems,
                          "repository_present": repository_present, "repository_revision": revision,
+                         "published": published,
                          "configuration_valid": configuration_valid, "problems": problems,
                          "tools": tools,
                          # Local to `doctor` and `scripts/tico status`: the heartbeat's own
@@ -1231,6 +1322,8 @@ class Runner:
             bots[row["bot"]] = {k: row[k] for k in (
                 "ready", "runtime", "model", "repository_present", "repository_revision",
                 "configuration_valid", "problems") if k in row}
+            if row.get("published") is not None:
+                bots[row["bot"]]["published"] = row["published"]
             if row.get("tools"):
                 bots[row["bot"]]["tools"] = row["tools"]      # declared access, no values (runner/declared_access.py)
             bots[row["bot"]]["warnings"] = list(row.get("warnings") or [])

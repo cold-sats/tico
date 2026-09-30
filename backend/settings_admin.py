@@ -11,6 +11,7 @@ from . import placement
 from . import providers
 from . import rooms
 from .auth import Identity
+from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
 from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, encode, readiness_document, repo_url
@@ -422,6 +423,11 @@ class SettingsAdmin:
                    H.VIA.get() or None))
         return change_id
 
+    @staticmethod
+    def execution_assignment(c, bot):
+        row = c.execute("SELECT runner_id FROM assignments WHERE bot=?", (bot,)).fetchone()
+        return row["runner_id"] if row else ""
+
     def _target(self, c, who, bot, body):
         if body.kind == "model":
             choice = self.models.get(body.model)
@@ -469,6 +475,17 @@ class SettingsAdmin:
                 raise Problem("runner_not_ready",
                               "The destination configuration differs from the server; wait for its next heartbeat", 409)
             if detail.get("ready") is not True:
+                # A destination with no checkout has nothing to report ready until it is assigned: assigning is what
+                # makes its runner clone the repository. That is fine when GitHub holds the history, and a
+                # refusal that names the cause when it does not.
+                source = self.execution_assignment(c, bot)
+                other = [p for p in detail.get("problems") or [] if p != "Missing bot repository or AGENT.md"]
+                if source and detail.get("repository_present") is False and not other:
+                    blocked = stranded(c, self.store.settings, bot, source, runner["id"])
+                    if blocked:
+                        raise Problem("repository_unpublished", blocked, 409)
+                    if (_reported(c, source, bot)[1]).get("published") is True:
+                        return {"runner_id": runner["id"], "label": runner["label"], "operator": runner["operator"]}
                 raise Problem("runner_not_ready", (detail.get("problems") or
                               ["The destination computer is not ready for this bot"])[0], 409)
         return {"runner_id": runner["id"], "label": runner["label"], "operator": runner["operator"]}

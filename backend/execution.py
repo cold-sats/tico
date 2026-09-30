@@ -2,6 +2,7 @@
 
 import json
 import secrets
+import sqlite3
 
 from . import inbox_isolation, providers, routines, runner_versions, usage_limits
 from .harnesses import reports_tool_calls
@@ -48,6 +49,55 @@ def limit_streak(c, bot):
 def limit_cooldown(c, bot):
     """Seconds a limited bot waits before its next claim; longer once the limits keep coming."""
     return LIMIT_COOLDOWN_LONG if limit_streak(c, bot) >= LIMIT_STRIKES else LIMIT_COOLDOWN
+
+
+def bot_repository(c, settings, bot):
+    """`owner/name` of a bot's GitHub repository, resolved the way the token route resolves it, or "".
+    The runner clones and publishes this one (runner/service.py `fetch_repository`)."""
+    from .github_app import repo_of
+    config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    try:
+        app = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
+    except sqlite3.OperationalError:
+        app = None
+    return repo_of(config["repo"] if config else "", (app["org"] if app else "") or settings.github_owner) or ""
+
+
+def _reported(c, runner_id, bot):
+    row = c.execute("SELECT label,readiness_json FROM runners WHERE id=?", (runner_id,)).fetchone()
+    report = (readiness_document(row["readiness_json"]).get("bots") or {}).get(bot) if row else None
+    return (row["label"] if row else "a computer"), report if isinstance(report, dict) else {}
+
+
+def stranded(c, settings, bot, source_id, target_id):
+    """Why moving `bot` from one computer to another would leave it without its repository, or "".
+
+    The destination gets it by cloning from GitHub. That fails when the destination holds no copy and the
+    computer being left reports a checkout GitHub does not have (`published` false): its history exists
+    only there. A runner that does not report `published` is given the benefit of the doubt."""
+    _, there = _reported(c, target_id, bot)
+    if there.get("repository_present") is True:
+        return ""
+    source, here = _reported(c, source_id, bot)
+    if here.get("published") is not False:
+        return ""
+    target, _ = _reported(c, target_id, bot)
+    repository = bot_repository(c, settings, bot) or "its repository"
+    return (f"{bot}'s history exists only on {source}: {repository} is not on GitHub yet, so {target} could not fetch "
+            f"it and the bot would stop running. Create it as an empty private repository on GitHub "
+            f"(`hub bot repo-create {bot} --empty`, or by hand); {source} then publishes it, and the bot can move")
+
+
+def forget_report(c, runner_id, bot):
+    """Drop a computer's stored report on a bot it no longer hosts, so a move never leaves the old computer
+    claiming the bot is ready there until that computer's next heartbeat says what it holds now."""
+    row = c.execute("SELECT readiness_json FROM runners WHERE id=?", (runner_id,)).fetchone()
+    if not row:
+        return
+    document = readiness_document(row["readiness_json"])
+    if bot in (document.get("bots") or {}):
+        del document["bots"][bot]
+        c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (encode(document), runner_id))
 
 
 class Execution:
@@ -155,6 +205,8 @@ class Execution:
                 row.pop('profile', None)
             if row.get('sign_in') == 'unknown':
                 row.pop('sign_in', None)
+            if row.get('published') is None:
+                row.pop('published', None)
             if not row.get('tools'):
                 row.pop('tools', None)
         for row in readiness.get('runtimes', {}).values():
@@ -240,6 +292,7 @@ class Execution:
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
             result.append({**dict(row), 'config': providers.fill(company, json.loads(row['config_json'])),
+                           'repository': bot_repository(c, self.store.settings, row['bot']),
                            'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
 
@@ -278,12 +331,16 @@ class Execution:
         if not old or old["runner_id"] != body.runner_id:
             from .views import roster
             inbox_isolation.check(c, bot, body.runner_id, roster(c))
+            if old and (blocked := stranded(c, self.store.settings, bot, old["runner_id"], body.runner_id)):
+                raise Problem("repository_unpublished", blocked, 409)
         self.expire(c)
         c.execute("INSERT INTO assignments VALUES(?,?,?,?,?) ON CONFLICT(bot) DO UPDATE SET "
                   "runner_id=excluded.runner_id,generation=excluded.generation,updated=excluded.updated,"
                   "updated_by=excluded.updated_by",
                   (bot, body.runner_id, generation + 1, H.now(), who.actor))
         H.event(c, who.actor, "bot.assigned", bot, {"runner": body.runner_id, "generation": generation + 1})
+        if old and old["runner_id"] != body.runner_id:
+            forget_report(c, old["runner_id"], bot)
         return dict(c.execute("SELECT * FROM assignments WHERE bot=?", (bot,)).fetchone())
 
     def grace_leases(self):

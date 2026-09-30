@@ -138,6 +138,36 @@ def publish_history(path, repository, env=None, url=None, timeout=60):
         return "failed", type(exc).__name__
 
 
+def clone_repository(path, repository, env=None, url=None, timeout=180):
+    """Bring a bot's GitHub repository onto this computer: the other half of `publish_history`.
+
+    A bot placed on a computer that has never held it (added, or moved from another computer) has no
+    checkout there, and nothing else puts one there. `env` carries the bot's scoped token from `apply`
+    (or the machine's own git access). Only a missing or empty folder is cloned into; anything already
+    there is left as it is. Returns (state, detail), state `cloned` or `failed`; detail says why."""
+    path = Path(path)
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        return "failed", f"{path.name} already exists here and is not an empty folder; left as it is"
+    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    wanted = url or f"https://github.com/{repository}.git"
+    try:
+        done = isolation.run(["git", "clone", "--quiet", wanted, str(path)], capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "failed", "timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return "failed", type(exc).__name__
+    if done.returncode == 0:
+        return "cloned", ""
+    lines = (done.stderr or done.stdout or "").strip().splitlines()
+    text = (lines[-1] if lines else f"exit {done.returncode}")[:200]
+    if any(word in text for word in ("uthentication", "403", "Permission", "denied")):
+        return "failed", "GitHub refused the bot's token"
+    if "not found" in text.lower():
+        return "failed", f"GitHub has no repository {repository} that this token can see"
+    return "failed", text
+
+
 def credential(config_path, bot, socket_path=None):
     """The token to give git now: fresh from the hub (or, with a socket, from the supervisor, which
     is told only this turn's HUB_TOKEN), else the one this turn started with."""

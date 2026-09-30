@@ -70,12 +70,28 @@ def _mail_key_exposed(c):
 def _unpublished(c):
     """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
     out = []
-    for r in c.execute("SELECT readiness_json FROM runners WHERE revoked_at IS NULL"):
+    hosting = {(a["bot"], a["runner_id"]) for a in c.execute("SELECT bot,runner_id FROM assignments")}
+    for r in c.execute("SELECT id,readiness_json FROM runners WHERE revoked_at IS NULL"):
         for bot, row in ((readiness_document(r["readiness_json"]).get("bots")) or {}).items():
+            if (bot, r["id"]) not in hosting:
+                continue                  # a computer that no longer hosts the bot has nothing to publish for it
             for warning in (row or {}).get("warnings") or []:
                 if str(warning).startswith("GitHub history not published: "):
                     out.append((bot, str(warning).split(": ", 1)[1][:160]))
     return sorted(set(out))
+
+
+def missing_repositories(c, online_ids):
+    """(bot, computer, why) for the active bots whose online computer says it has no repository for them.
+    `why` is the runner's own sentence naming the cause (not on GitHub, GitHub refused, a clone failed)."""
+    out = []
+    for r in c.execute("SELECT a.bot,r.id,r.label,r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
+                       "JOIN bots b ON b.slug=a.bot WHERE b.state='active' AND r.revoked_at IS NULL ORDER BY a.bot"):
+        report = (readiness_document(r["readiness_json"]).get("bots") or {}).get(r["bot"])
+        if r["id"] in online_ids and isinstance(report, dict) and report.get("repository_present") is False:
+            why = next((p for p in report.get("problems") or [] if "repositor" in p.lower()), "Missing bot repository")
+            out.append((r["bot"], r["label"], why))
+    return out
 
 
 def _member_bots_beside_shared_keys(c):
@@ -260,6 +276,13 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("publish", "Bot history", "warn",
                              "Some bots' history is not on GitHub yet: " + "; ".join(f"{bot} ({why})" for bot, why in unpublished[:3])
                              + ("." if len(unpublished) <= 3 else f"; and {len(unpublished) - 3} more."),
+                             [_fix("Open bots", "#/settings", "bots")]))
+    lacking = missing_repositories(c, online_ids) if full else []
+    if lacking:
+        checks.append(_check("repositories", "Bot repositories", "bad",
+                             "Bots cannot run because their computer has no repository for them: "
+                             + "; ".join(f"{bot} on {label}: {why}" for bot, label, why in lacking[:3])
+                             + ("." if len(lacking) <= 3 else f"; and {len(lacking) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
     fixes = [_fix("Add a computer", "#/settings", "devices")] if full else []
     if not computers:
