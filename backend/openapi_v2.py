@@ -31,6 +31,10 @@ TAGS = {
     "Files": "What a bot creates, revises or delivers, listed on its page (docs/files.md).",
     "Docs": "The company's docs (docs/docs.md): internal docs written or imported in Tico, with history and locks; linked docs, which are links; and search across both.",
     "Assistant": "The signed-in person's own private Assistant chat (docs/assistant.md): ask, and confirm what it proposes.",
+    "Goals": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the Goal Manager works out from their KPIs, "
+             "unless a person set one; check-ins in the owner's words; proposals the owner confirms.",
+    "KPIs": "Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, "
+            "evidence and a quality, never edited; a correction supersedes the old one.",
     "Health": "Whether the installation is working.",
 }
 
@@ -183,6 +187,58 @@ STABLE = [
      "AssistantActionResult"),
     ("/api/v2/assistant/actions/{aid}/cancel", "post", "Assistant", "cancelAssistantAction",
      "Drop a proposal; it never runs", "AssistantActionResult"),
+    # Goals and KPIs (docs/goals-and-kpis.md)
+    ("/api/v2/goals", "get", "Goals", "listGoals",
+     "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read "
+     "(?status=red,gray filters); ?owner= names someone else", "GoalList"),
+    ("/api/v2/goals", "post", "Goals", "createGoal",
+     "Set a goal for yourself, under a goal you own, or for someone below you; the company owner sets company goals", "GoalResult"),
+    ("/api/v2/goals/tree", "get", "Goals", "getGoalTree",
+     "Every goal with its owner, its KPIs (each with its target and colour), the KPIs no goal uses and the pending proposals: "
+     "what the Goals page draws", "GoalTree"),
+    ("/api/v2/goals/needs-you", "get", "Goals", "getGoalsNeedsYou",
+     "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm", "GoalsNeedsYou"),
+    ("/api/v2/goals/refresh", "post", "Goals", "refreshGoalStatuses",
+     "The Goal Manager's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
+     "GoalRefresh"),
+    ("/api/v2/goals/{gid}", "get", "Goals", "getGoal",
+     "One goal with its KPIs, the goals under and above it, tasks, history, recent check-ins and pending proposals", "GoalResult"),
+    ("/api/v2/goals/{gid}", "post", "Goals", "updateGoal",
+     "Change a goal's title, body, parent, owner or place in its owner's order", "GoalResult"),
+    ("/api/v2/goals/{gid}/status", "post", "Goals", "setGoalStatus",
+     "Set the colour by hand with one sentence (red, yellow, green) or end the goal (done, dropped). It sticks, with the setter's "
+     "name, until a person hands it back", "GoalResult"),
+    ("/api/v2/goals/{gid}/status/auto", "post", "Goals", "handBackGoalStatus",
+     "\"Let Goal Manager set it\": end a colour set by hand; the automatic colour is worked out at once", "GoalResult"),
+    ("/api/v2/goals/{gid}/checkins", "get", "Goals", "listGoalCheckins", "A goal's check-ins, newest first", "GoalCheckins"),
+    ("/api/v2/goals/{gid}/checkins", "post", "Goals", "addGoalCheckin",
+     "The owner's own words on how it is going, with an optional signal; it colours a goal that has no KPI", "GoalCheckinResult"),
+    ("/api/v2/goals/{gid}/kpis", "post", "Goals", "linkGoalKpi",
+     "Link a goal to a KPI (kpi_id) or make a new one and link it (name), with the target on the link; linking again replaces the target",
+     "GoalKpiResult"),
+    ("/api/v2/goals/{gid}/kpis/{kid}", "post", "Goals", "setGoalKpiTarget",
+     "Change the target on a goal's link to a KPI: an improvement (baseline, target, deadline), a range (min, max) or none", "GoalKpiResult"),
+    ("/api/v2/goals/{gid}/kpis/{kid}/unlink", "post", "Goals", "unlinkGoalKpi", "Take a KPI off a goal; the KPI and its readings stay", "GoalResult"),
+    ("/api/v2/goal-proposals", "get", "Goals", "listGoalProposals",
+     "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it", "GoalProposalList"),
+    ("/api/v2/goal-proposals", "post", "Goals", "createGoalProposal",
+     "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag", "GoalProposalResult"),
+    ("/api/v2/goal-proposals/{pid}/decide", "post", "Goals", "decideGoalProposal",
+     "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it", "GoalProposalResult"),
+    ("/api/v2/kpis", "get", "KPIs", "listKpis",
+     "The KPIs the caller may see; goal_id, owner, unlinked=true narrow it; auto_for=<bot> is that bot's five automatic KPIs", "KpiList"),
+    ("/api/v2/kpis", "post", "KPIs", "createKpi",
+     "Make a KPI (definition, unit, direction, cadence, owner, source note); with goal_id it is linked, the target fields on the link", "KpiDetail"),
+    ("/api/v2/kpis/{kid}", "get", "KPIs", "getKpi",
+     "One KPI: definition and its versions, the goals using it with each target and colour, every reading, check-ins, pending proposals", "KpiDetail"),
+    ("/api/v2/kpis/{kid}", "post", "KPIs", "updateKpi",
+     "Change a KPI; a change to what it measures is a new definition version", "KpiDetail"),
+    ("/api/v2/kpis/{kid}/readings", "get", "KPIs", "listKpiReadings",
+     "Every reading oldest first, each with the reading that superseded it; effective=true leaves out the corrected ones", "KpiReadings"),
+    ("/api/v2/kpis/{kid}/readings", "post", "KPIs", "addKpiReading",
+     "Log a reading: a value with its period, evidence and quality. Never edited; supersedes names the reading it corrects", "KpiReadingResult"),
+    ("/api/v2/bots/{bot}/kpis", "get", "KPIs", "listBotKpis",
+     "A bot's five automatic KPIs, computed from Tico's own data (Read on the bot)", "BotKpis"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
 ]
@@ -199,6 +255,9 @@ def obj(fields, required=None, **arrays):
     props.update(arrays)
     return {"type": "object", "properties": props, "required": sorted(required if required is not None else props),
             "additionalProperties": True}
+
+
+NUM_N = {"type": ["number", "null"]}
 
 
 def items(schema):
@@ -370,9 +429,106 @@ SCHEMAS = {
     "AssistantActionResult": obj({"action": {"type": "object", "description": "id, summary, method, path, body, status "
                                             "(pending, running, done, failed, cancelled, expired), result"}, "message_id": "s"},
                                  required=["action"]),
+    # Goals and KPIs
+    "Goal": obj({"id": "s", "title": "s", "owner": "s", "parent_id": "n", "body": "s", "status": {"type": ["string", "null"], "description":
+                 "red, yellow, green, gray (no data), done, dropped; null while unscored or proposed"},
+                 "status_note": "s", "status_by": "n", "status_at": "n",
+                 "status_source": {"type": ["string", "null"], "description": "auto: worked out by the Goal Manager; person: set by hand and kept until handed back"},
+                 "suggest_status": {"type": ["string", "null"], "description": "On a colour set by hand: the colour the Goal Manager would choose, when it differs"},
+                 "suggest_note": "n", "suggest_at": "n", "rank": {"type": ["integer", "null"]}, "created": "s", "created_by": "s", "updated": "s"},
+                required=["id", "title", "owner", "parent_id", "body", "status", "status_note", "status_by", "status_at", "status_source",
+                          "rank", "created", "created_by", "updated"],
+                owner_name={"type": "string"}, status_by_name={"type": "string"}),
+    "KpiLink": obj({"id": "s", "goal_id": "s", "kind": {"enum": ["none", "improve", "maintain"]}, "baseline": NUM_N, "baseline_at": "n",
+                    "target": NUM_N, "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"}, "min": NUM_N, "max": NUM_N},
+                   required=["goal_id", "kind"]),
+    "KpiReading": obj({"id": "s", "value": "f", "period_start": "s", "period_end": "s", "collected_at": "s",
+                       "quality": {"enum": ["measured", "estimate", "partial"]}, "evidence": "s", "note": "s", "source": "s",
+                       "actor": "s", "definition_version": "i", "supersedes": "n"},
+                      required=["id", "value", "period_end", "quality", "definition_version"],
+                      kpi_id={"type": "string"}, ts={"type": "string"}, created={"type": "string"},
+                      superseded_by={"type": ["string", "null"], "description": "The reading that corrected this one, if any"},
+                      actor_name={"type": "string"}),
+    "Kpi": obj({"id": {"type": "string", "description": "A UUID, or auto:<bot>:<metric> for a bot's automatic KPI"}, "slug": "n",
+                "name": "s", "definition": "s", "unit": "s", "direction": {"enum": ["up", "down", "range"]},
+                "cadence": {"enum": ["daily", "weekly", "monthly"]}, "owner": "s", "source_note": "s", "definition_version": "i",
+                "created": "n", "created_by": "n", "updated": "n", "auto": "b",
+                "latest": {"oneOf": [ref("KpiReading"), {"type": "null"}]}, "readings": "i",
+                "freshness": {"enum": ["fresh", "stale", "missing"], "description": "stale: one period missed; missing: never read or two missed. Never zero"},
+                "spark": {"type": "array", "items": {"type": "number"}, "description": "The last values, oldest first"},
+                "status": {"enum": ["green", "yellow", "red", "gray", "none"], "description": "Against the target on the link (or a range); gray is stale or missing data; none is fresh with no target"},
+                "reason": "s"},
+               required=["id", "name", "unit", "direction", "cadence", "owner", "definition_version", "auto", "latest", "readings",
+                         "freshness", "spark", "status", "reason"],
+               link=ref("KpiLink"), target_label={"type": "string", "description": "'→ 65% by Dec 31' or 'range 40–60'"},
+               expected={"type": ["number", "null"], "description": "Where the straight line from baseline to target is now"},
+               owner_name={"type": "string"}),
+    "GoalCheckin": obj({"id": "s", "goal_id": "s", "kpi_id": "n", "ts": "s", "author": "s", "source_actor": "s", "body": "s",
+                        "signal": {"type": ["string", "null"], "enum": ["on_track", "at_risk", "off_track", None]}},
+                       required=["id", "goal_id", "ts", "author", "source_actor", "body", "signal"],
+                       author_name={"type": "string"}, source_actor_name={"type": "string"}),
+    "GoalProposal": obj({"id": "s", "kind": {"enum": ["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"]},
+                         "goal_id": "n", "kpi_id": "n", "payload": "o", "reason": "s", "proposed_by": "s", "proposed_at": "s",
+                         "status": {"enum": ["pending", "confirmed", "rejected"]}, "decided_by": "n", "decided_at": "n",
+                         "decision_note": "s", "result": {"type": ["object", "null"]}},
+                        required=["id", "kind", "goal_id", "kpi_id", "payload", "reason", "proposed_by", "proposed_at", "status"],
+                        goal_title={"type": ["string", "null"]}, kpi_name={"type": ["string", "null"]},
+                        may_decide={"type": "boolean", "description": "Whether the caller may confirm or reject it"}),
+    "GoalView": obj({}, required=["kpis", "children", "chain", "tasks", "events", "checkins", "proposals"],
+                    kpis=items(ref("Kpi")), children=items(ref("Goal")), chain=items(ref("Goal")), tasks=items({"type": "object"}),
+                    events=items({"type": "object"}), checkins=items(ref("GoalCheckin")), proposals=items(ref("GoalProposal"))),
+    "GoalResult": obj({"goal": {}}),
+    "GoalList": obj({"goals": items(ref("Goal"))}, required=["goals"], owner={"type": "string"},
+                    chain=items(ref("Goal")), reports=items(ref("Goal")), company=items(ref("Goal"))),
+    "GoalTreeRow": obj({}, required=["kpis", "open_tasks"], kpis=items(ref("Kpi")), open_tasks={"type": "integer"},
+                       checkin={"oneOf": [ref("GoalCheckin"), {"type": "null"}], "description": "The latest check-in"}),
+    "GoalTree": obj({"goals": {},
+                     "owners": {"type": "object", "description": "{actor: {kind: company|person|bot, id, name}} for every owner"},
+                     "unaligned": {"type": "object", "description": "{actor: open tasks that serve no goal}"},
+                     "other_kpis": items(ref("Kpi")), "proposals": items(ref("GoalProposal"))},
+                    required=["goals", "owners", "unaligned", "other_kpis", "proposals"]),
+    "GoalsNeedsYou": obj({"actor": "s", "items": items({
+        "type": "object", "required": ["kind"], "additionalProperties": True,
+        "properties": {"kind": {"enum": ["kpi_red", "kpi_stale", "proposal"]}, "goal_id": {"type": "string"},
+                       "goal_title": {"type": ["string", "null"]}, "kpi_id": {"type": "string"}, "kpi_name": {"type": ["string", "null"]},
+                       "reason": {"type": "string"}, "freshness": {"type": "string"}, "proposal": {"type": "object"}}})},
+                        required=["actor", "items"]),
+    "GoalRefresh": obj({"changed": "a", "suggested": "a", "checked": "i"}),
+    "GoalCheckins": obj({"goal_id": "s", "checkins": items(ref("GoalCheckin"))}),
+    "GoalCheckinResult": obj({"checkin": ref("GoalCheckin")}),
+    "GoalKpiResult": obj({"kpi": ref("Kpi")}),
+    "GoalProposalList": obj({"proposals": items(ref("GoalProposal"))}),
+    "GoalProposalResult": obj({"proposal": ref("GoalProposal")}),
+    "KpiList": obj({"kpis": items(ref("Kpi"))}, required=["kpis"]),
+    "KpiDetail": obj({"kpi": ref("Kpi"), "links": {},
+        "readings": items(ref("KpiReading")),
+        "definitions": items({"type": "object", "description": "version, ts, actor, name, definition, unit, direction, cadence, source_note; newest first"}),
+        "checkins": items(ref("GoalCheckin")), "proposals": items(ref("GoalProposal")), "may_edit": "b", "may_log": "b"},
+                    required=["kpi", "links", "readings", "definitions", "checkins", "proposals", "may_edit", "may_log"]),
+    "KpiReadings": obj({"kpi": {"type": "object", "description": "The KPI record"}, "readings": items(ref("KpiReading"))}),
+    "KpiReadingResult": obj({"reading": ref("KpiReading")}),
+    "BotKpis": obj({"bot": "s", "kpis": items(ref("Kpi"))}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),
 }
+
+
+def _merge(*schemas, **more):
+    """One object schema from several: the properties of each, and what each requires."""
+    props, required = {}, set()
+    for schema in schemas:
+        props.update(schema["properties"])
+        required.update(schema.get("required", []))
+    props.update(more)
+    return {"type": "object", "properties": props, "required": sorted(required), "additionalProperties": True}
+
+
+# A goal with what the page adds to it, a link with what says how it is doing: one object each, so a client sees every field.
+SCHEMAS["GoalResult"]["properties"]["goal"] = _merge(SCHEMAS["Goal"], SCHEMAS["GoalView"])
+SCHEMAS["GoalTree"]["properties"]["goals"] = items(_merge(SCHEMAS["Goal"], SCHEMAS["GoalTreeRow"]))
+SCHEMAS["KpiDetail"]["properties"]["links"] = items(_merge(SCHEMAS["KpiLink"], obj({
+    "goal_title": "s", "goal_owner": "s", "goal_status": "n", "target_label": "s", "status": "s", "reason": "s",
+    "expected": NUM_N}, required=["goal_title", "status"])))
 ANSWERS = SCHEMAS
 
 # Documentation for the two sign-in routes whose bodies the handlers read by hand.

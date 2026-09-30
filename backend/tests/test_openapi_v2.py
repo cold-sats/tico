@@ -126,4 +126,35 @@ def test_the_declared_answers_match_the_live_ones(api):
     call("listLinkedDocs", "get", "/api/v2/linked-docs")
     call("updateLinkedDoc", "patch", "/api/v2/linked-docs/" + link["id"], json={"description": "Public refunds page"})
     call("searchInternalAndLinkedDocs", "get", "/api/v2/docs/search", params={"q": "refund"})
+    goal = call("createGoal", "post", "/api/v2/goals", json={"title": "Raise activation", "owner": "me"})["goal"]
+    kpi = call("createKpi", "post", "/api/v2/kpis", json={
+        "name": "Activation", "unit": "%", "cadence": "daily", "goal_id": goal["id"], "kind": "improve",
+        "baseline": 40, "target": 70, "deadline": "2099-12-31"})["kpi"]
+    reading = call("addKpiReading", "post", "/api/v2/kpis/%s/readings" % kpi["id"], json={"value": 41, "evidence": "https://bi.example/q/1"})["reading"]
+    call("addKpiReading", "post", "/api/v2/kpis/%s/readings" % kpi["id"],
+         json={"value": 42, "supersedes": reading["id"], "note": "Double counted"})
+    call("listKpiReadings", "get", "/api/v2/kpis/%s/readings" % kpi["id"])
+    call("getKpi", "get", "/api/v2/kpis/" + kpi["id"])
+    call("listKpis", "get", "/api/v2/kpis")
+    call("updateKpi", "post", "/api/v2/kpis/" + kpi["id"], json={"definition": "Accounts that finish setup"})
+    other = call("createKpi", "post", "/api/v2/kpis", json={"name": "NPS", "direction": "range"})["kpi"]
+    call("linkGoalKpi", "post", "/api/v2/goals/%s/kpis" % goal["id"], json={"kpi_id": other["id"], "kind": "maintain", "min": 30})
+    call("setGoalKpiTarget", "post", "/api/v2/goals/%s/kpis/%s" % (goal["id"], other["id"]), json={"kind": "maintain", "min": 30, "max": 60})
+    call("unlinkGoalKpi", "post", "/api/v2/goals/%s/kpis/%s/unlink" % (goal["id"], other["id"]), json={})
+    call("listBotKpis", "get", "/api/v2/bots/ops/kpis")
+    call("addGoalCheckin", "post", "/api/v2/goals/%s/checkins" % goal["id"], json={"body": "On plan.", "signal": "on_track"})
+    call("listGoalCheckins", "get", "/api/v2/goals/%s/checkins" % goal["id"])
+    call("setGoalStatus", "post", "/api/v2/goals/%s/status" % goal["id"], json={"status": "yellow", "note": "The launch slipped."})
+    call("handBackGoalStatus", "post", "/api/v2/goals/%s/status/auto" % goal["id"], json={})
+    call("updateGoal", "post", "/api/v2/goals/" + goal["id"], json={"title": "Raise activation to 70%"})
+    call("getGoal", "get", "/api/v2/goals/" + goal["id"])
+    call("listGoals", "get", "/api/v2/goals")
+    call("listGoals", "get", "/api/v2/goals", params={"all": "true"})
+    call("getGoalTree", "get", "/api/v2/goals/tree")
+    call("refreshGoalStatuses", "post", "/api/v2/goals/refresh", json={})
+    proposal = call("createGoalProposal", "post", "/api/v2/goal-proposals", json={
+        "kind": "kpi_definition", "kpi_id": kpi["id"], "payload": {"unit": "pct"}, "reason": "Say it plainly"})["proposal"]
+    call("listGoalProposals", "get", "/api/v2/goal-proposals")
+    call("getGoalsNeedsYou", "get", "/api/v2/goals/needs-you")
+    call("decideGoalProposal", "post", "/api/v2/goal-proposals/%s/decide" % proposal["id"], json={"decision": "confirm"})
     call("getHealth", "get", "/api/v2/health")

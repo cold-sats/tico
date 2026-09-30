@@ -85,6 +85,24 @@ def run(args, who=None):
     def target(value):
         return actor if value in ("me", "self") else value
 
+    def tool(client, args):
+        """The goal, KPI and proposal commands run the MCP tool of the same name, so both say the same thing."""
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = key
+        if args.fn == "kpi log":
+            if fields.pop("estimate", False) and "quality" not in fields:
+                fields["quality"] = "estimate"
+        if args.fn == "proposal create":
+            file = fields.pop("payload_file", None)
+            text = Path(file).read_text() if file else fields.pop("payload", None)
+            fields.pop("payload", None)
+            try:
+                fields["payload"] = json.loads(text) if text else {}
+            except ValueError:
+                raise APIError("payload", "--payload must be JSON") from None
+        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
+
     def refs(values):
         out = {}
         for value in values or []:
@@ -212,20 +230,15 @@ def run(args, who=None):
                         "body": body or "", "top": bool(args.top)})["goal"]
         if sub == "status":
             return post(f"goals/{args.id}/status", {"status": args.status, "note": args.note or ""})["goal"]
-        body = {"title": args.title, "parent_id": args.parent, "owner": target(args.owner) if args.owner else None,
-                "rank": args.rank, "top": bool(args.top)}
-        if args.body_file or args.body is not None:
-            body["body"] = Path(args.body_file).read_text() if args.body_file else args.body
-        return post("goals/" + args.id, body)["goal"]
-    if cmd == "kpi":
-        if sub == "add":
-            return post(f"goals/{args.goal_id}/kpis", {"name": args.name, "unit": args.unit or "",
-                        "target": args.target})["kpi"]
-        if sub == "log":
-            source = "estimate" if args.estimate else (args.source or "measured")
-            return post(f"kpis/{args.kpi_id}/readings", {"value": args.value, "note": args.note or "",
-                        "source": source, "at": args.at})["reading"]
-        return client.get(f"kpis/{args.kpi_id}/readings")
+        if sub == "update":
+            body = {"title": args.title, "parent_id": args.parent, "owner": target(args.owner) if args.owner else None,
+                    "rank": args.rank, "top": bool(args.top)}
+            if args.body_file or args.body is not None:
+                body["body"] = Path(args.body_file).read_text() if args.body_file else args.body
+            return post("goals/" + args.id, body)["goal"]
+        return tool(client, args)
+    if cmd in ("kpi", "proposal"):
+        return tool(client, args)
     if cmd == "market":
         if sub == "show":
             return client.get("market/entities/" + args.id)

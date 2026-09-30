@@ -31,7 +31,9 @@ SERVER_INFO = {"name": "tico-hub", "title": "Tico hub", "version": "0.1"}
 ASK_WAIT_MAX = 300
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 APPROVAL_KINDS = ("send", "spend", "publish", "merge")
-GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")
+GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # what a person or bot sets by hand
+GOAL_FILTERS = GOAL_STATUSES + ("gray",)                        # gray is the automatic "no data"
+PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag")
 
 # What an agent reads on connect: the hub in one line, then the skill a person's own agent
 # follows to work their bots (clients/agent_skill.py). Bots ignore the skill; it is for people.
@@ -378,7 +380,7 @@ def task_link(api, args):
       "live goal in the company.",
       {"owner": _s("Someone else's: a bot slug or a person id; default is yourself"),
        "all": {"type": "boolean", "default": False},
-       "status": _s("With `all`: only these, comma-separated (red,yellow,green,done,dropped)")})
+       "status": _s("With `all`: only these, comma-separated (red,yellow,green,gray,done,dropped)")})
 def goals(api, args):
     if args.get("all"):
         return api.get("goals", all="1", status=args.get("status") or None)["goals"]
@@ -406,9 +408,10 @@ def goal_create(api, args):
                               "top": bool(args.get("top"))}, key=_key(args))["goal"]
 
 
-@tool("hub_goal_status", "Say how a goal is going: red, yellow or green with one honest sentence; "
-      "done when reached, dropped when it stops mattering. The goal's owner, the owner of the goal "
-      "it serves, or someone above them.",
+@tool("hub_goal_status", "Set a goal's colour by hand: red, yellow or green with one honest sentence; "
+      "done when reached, dropped when it stops mattering. A colour set by hand sticks, with your name and "
+      "note, until a person hands it back (hub_goal_auto); the Goal Manager only suggests a different one. "
+      "The goal's owner, the owner of the goal it serves, or someone above them.",
       {"id": _s("Goal id"),
        "status": {"type": "string", "enum": list(GOAL_STATUSES)},
        "note": _s("One sentence: why it is this colour")},
@@ -416,6 +419,48 @@ def goal_create(api, args):
 def goal_status(api, args):
     return api.post(f"goals/{args['id']}/status", {"status": args["status"], "note": args.get("note") or ""},
                     key=_key(args))["goal"]
+
+
+@tool("hub_goal_auto", "Let the Goal Manager set a goal's colour again: ends a colour set by hand and works "
+      "the automatic one out now, from the goal's KPIs, or its owner's check-ins and tasks. The goal's owner, "
+      "the owner of the goal it serves, or someone above them.",
+      {"id": _s("Goal id")}, required=("id",), writes=True)
+def goal_auto(api, args):
+    return api.post(f"goals/{args['id']}/status/auto", {}, key=_key(args))["goal"]
+
+
+@tool("hub_goal_refresh", "The Goal Manager's status pass: work the automatic colour of every live goal (or "
+      "the ones named) out again. A goal whose colour a person set only gets a visible suggestion. "
+      "Returns {changed, suggested, checked}. The Goal Manager or the company owner.",
+      {"goal_ids": {"type": "array", "items": {"type": "string"}, "description": "Only these goals; default all"}},
+      writes=True)
+def goal_refresh(api, args):
+    return api.post("goals/refresh", {"goal_ids": args.get("goal_ids") or None}, key=_key(args))
+
+
+@tool("hub_goal_checkin", "Record how the owner says a goal is going, in their words: interpretation, kept "
+      "apart from the readings (facts). It colours a goal that has no KPI. The goal's owner, someone above "
+      "them, or the Goal Manager recording an owner's answer (`from_actor`).",
+      {"id": _s("Goal id"), "body": _s("What is going on, in a sentence or two"),
+       "signal": {"type": "string", "enum": ["on_track", "at_risk", "off_track"]},
+       "from_actor": _s("Whose words these are, when you record them for someone else: a bot slug or a person id"),
+       "kpi_id": _s("The KPI that prompted it, if any")},
+      required=("id", "body"), writes=True)
+def goal_checkin(api, args):
+    body = {"body": args["body"], "signal": args.get("signal"), "kpi_id": args.get("kpi_id"),
+            "from_actor": _target(api, args["from_actor"]) if args.get("from_actor") else None}
+    return api.post(f"goals/{args['id']}/checkins", body, key=_key(args))["checkin"]
+
+
+@tool("hub_goal_checkins", "A goal's check-ins, newest first.", {"id": _s("Goal id")}, required=("id",))
+def goal_checkins(api, args):
+    return api.get(f"goals/{args['id']}/checkins")
+
+
+@tool("hub_goal_needs-you", "What waits on you among goals: red KPIs on goals you own, stale KPIs you own, "
+      "and definition or target changes you are asked to confirm.", {})
+def goal_needs_you(api, args):
+    return api.get("goals/needs-you")
 
 
 @tool("hub_goal_update", "Edit a goal: title, body, the goal it serves, its owner, or its place in "
@@ -433,32 +478,154 @@ def goal_update(api, args):
     return api.post("goals/" + args["id"], body, key=_key(args))["goal"]
 
 
-@tool("hub_kpi_add", "Add a measure to a goal: what is counted, per what, in which unit, and the "
-      "target if there is one. A goal may have none or many.",
-      {"goal_id": _s("Goal id"), "name": _s("'booked Calendly demos per two weeks'"),
-       "unit": _s("demos, $, %, days missed", default=""),
-       "target": {"type": "number", "description": "Optional target"}},
-      required=("goal_id", "name"), writes=True)
+# The target lives on the link between a goal and a KPI: an improvement (baseline, target, deadline) or a
+# range to stay inside (min, max).
+TARGET_PROPS = {
+    "baseline": {"type": "number", "description": "Improvement: where it starts; default the latest reading"},
+    "target": {"type": "number", "description": "Improvement: the value to reach (needs a deadline)"},
+    "deadline": _s("Improvement: the date the target is due, YYYY-MM-DD"),
+    "min": {"type": "number", "description": "Range to keep it in: the lowest acceptable value"},
+    "max": {"type": "number", "description": "Range to keep it in: the highest acceptable value"}}
+KPI_PROPS = {
+    "definition": _s("What exactly is counted, in a sentence"),
+    "unit": _s("demos, $, %, days", default=""),
+    "direction": {"type": "string", "enum": ["up", "down", "range"], "description": "Which way is good"},
+    "cadence": {"type": "string", "enum": ["daily", "weekly", "monthly"], "description": "How often it is read"},
+    "source_note": _s("Where the number comes from")}
+
+
+def _target_body(args):
+    """The link's target fields: a range when min or max is given, an improvement when a target is, else none."""
+    body = {k: args.get(k) for k in ("baseline", "target", "deadline", "min", "max") if args.get(k) is not None}
+    body["kind"] = ("maintain" if body.get("min") is not None or body.get("max") is not None
+                    else "improve" if body.get("target") is not None else "none")
+    return body
+
+
+@tool("hub_kpi_list", "The KPIs you may see, each with its latest reading, freshness and colour. `bot` is one "
+      "bot's five automatic KPIs (tasks done, time to first response, approval rate, failed runs, model cost; "
+      "Read on the bot).",
+      {"goal_id": _s("Only the KPIs this goal uses"), "owner": _s("Only this owner's: me, a bot slug or a person id"),
+       "unlinked": {"type": "boolean", "default": False, "description": "Only the KPIs no goal uses"},
+       "bot": _s("A bot slug: its automatic KPIs")})
+def kpi_list(api, args):
+    return api.get("kpis", goal_id=args.get("goal_id") or None,
+                   owner=_target(api, args["owner"]) if args.get("owner") else None,
+                   unlinked="1" if args.get("unlinked") else None, auto_for=args.get("bot") or None)
+
+
+@tool("hub_kpi_show", "One KPI: its definition and version history, owner, the goals that use it with each "
+      "target and colour, every reading (with what superseded what), and the latest check-ins.",
+      {"id": _s("KPI id")}, required=("id",))
+def kpi_show(api, args):
+    return api.get("kpis/" + args["id"])
+
+
+@tool("hub_kpi_add", "Make a KPI: a measure on its own that goals link to. Name what is counted, per what; "
+      "give a definition, the unit, which way is good, how often it is read and who is accountable (default you). "
+      "With `goal_id` it is linked to that goal, with the target fields on the link (an improvement: target and "
+      "deadline; or a range: min/max). The Goal Manager proposes instead (hub_proposal_create).",
+      {"name": _s("'booked Calendly demos per two weeks'"), "goal_id": _s("Link it to this goal"),
+       "owner": _s("`me` (default), `company` (the owner's), a bot slug or a person id"),
+       **KPI_PROPS, **TARGET_PROPS},
+      required=("name",), writes=True)
 def kpi_add(api, args):
-    return api.post(f"goals/{args['goal_id']}/kpis", {"name": args["name"], "unit": args.get("unit") or "",
-                    "target": args.get("target")}, key=_key(args))["kpi"]
+    body = {"name": args["name"], "goal_id": args.get("goal_id"),
+            "owner": _target(api, args["owner"]) if args.get("owner") else None,
+            **{k: args[k] for k in KPI_PROPS if args.get(k) is not None}, **_target_body(args)}
+    return api.post("kpis", body, key=_key(args))["kpi"]
 
 
-@tool("hub_kpi_log", "Log a reading on a KPI: a fact you measured, with when it was true. Anyone may "
-      "log one. Mark a guess `estimate`; it renders grey and never counts as measured.",
+@tool("hub_kpi_update", "Change a KPI. A change to what it measures (definition, unit, direction, cadence, "
+      "source note) is a new definition version; a rename or a new owner is not. The KPI's owner or someone above.",
+      {"id": _s("KPI id"), "name": _s("New name"),
+       "owner": _s("New owner: `me`, a bot slug or a person id"), **KPI_PROPS},
+      required=("id",), writes=True)
+def kpi_update(api, args):
+    body = {k: args.get(k) for k in ("name", *KPI_PROPS)}
+    body["owner"] = _target(api, args["owner"]) if args.get("owner") else None
+    return api.post("kpis/" + args["id"], body, key=_key(args))["kpi"]
+
+
+@tool("hub_kpi_link", "Link a goal to a KPI and set the target on that link, or change the target of an "
+      "existing link: an improvement (baseline, target, deadline) or a range (min, max); none is just "
+      "linked. The goal's owner or someone above them; the Goal Manager proposes instead.",
+      {"goal_id": _s("Goal id"), "kpi_id": _s("KPI id (auto:<bot>:<metric> for a bot's automatic KPI)"),
+       **TARGET_PROPS},
+      required=("goal_id", "kpi_id"), writes=True)
+def kpi_link(api, args):
+    body = {"kpi_id": args["kpi_id"], **_target_body(args)}
+    return api.post(f"goals/{args['goal_id']}/kpis", body, key=_key(args))["kpi"]
+
+
+@tool("hub_kpi_unlink", "Take a KPI off a goal. The KPI and its readings stay.",
+      {"goal_id": _s("Goal id"), "kpi_id": _s("KPI id")}, required=("goal_id", "kpi_id"), writes=True)
+def kpi_unlink(api, args):
+    return api.post(f"goals/{args['goal_id']}/kpis/{args['kpi_id']}/unlink", {}, key=_key(args))["goal"]
+
+
+@tool("hub_kpi_log", "Log a reading on a KPI: a fact, with the period it describes, where it came from and how "
+      "good it is. Never edited: to correct one, log a new reading that `supersedes` it. The KPI's owner, the "
+      "Goal Manager, or the owner of a goal that uses it.",
       {"kpi_id": _s("KPI id"), "value": {"type": "number"},
        "note": _s("Where the number came from", default=""),
-       "at": _s("When the value was true, ISO date or date-time; default now"),
-       "source": _s("`measured` (default), `estimate`, or a connector name", default="measured")},
+       "period_start": _s("Start of the period it describes, ISO date or date-time; default one cadence before the end"),
+       "period_end": _s("End of the period it describes (business time), ISO date or date-time; default now"),
+       "at": _s("The old name of period_end"),
+       "collected_at": _s("When it was collected, ISO date-time; default now"),
+       "evidence": _s("A link or a note that shows where the value came from"),
+       "quality": {"type": "string", "enum": ["measured", "estimate", "partial"],
+                   "description": "measured (default); estimate is a guess; partial is half a period, not judged"},
+       "source": _s("A connector or system name (posthog, close)"),
+       "definition_version": {"type": "integer", "description": "The definition version the value was computed under; default current"},
+       "supersedes": _s("The id of the reading this one corrects (say why in the note)")},
       required=("kpi_id", "value"), writes=True)
 def kpi_log(api, args):
-    return api.post(f"kpis/{args['kpi_id']}/readings", {"value": args["value"], "note": args.get("note") or "",
-                    "source": args.get("source") or "measured", "at": args.get("at")}, key=_key(args))["reading"]
+    body = {k: args[k] for k in ("period_start", "period_end", "at", "collected_at", "evidence", "quality", "source",
+                                 "definition_version", "supersedes") if args.get(k) is not None}
+    body.update(value=args["value"], note=args.get("note") or "")
+    return api.post(f"kpis/{args['kpi_id']}/readings", body, key=_key(args))["reading"]
 
 
-@tool("hub_kpi_readings", "Every reading on a KPI, oldest first.", {"kpi_id": _s("KPI id")}, required=("kpi_id",))
+@tool("hub_kpi_readings", "Every reading on a KPI, oldest first, each saying which reading superseded it, if "
+      "any. `effective` leaves out the ones a correction replaced.",
+      {"kpi_id": _s("KPI id"), "effective": {"type": "boolean", "default": False}}, required=("kpi_id",))
 def kpi_readings(api, args):
-    return api.get(f"kpis/{args['kpi_id']}/readings")
+    return api.get(f"kpis/{args['kpi_id']}/readings", effective="1" if args.get("effective") else None)
+
+
+# ----------------------------------------------------------------------------- proposals
+@tool("hub_proposal_create", "Propose a change you may not make yourself, for the owner to confirm: clearer "
+      "goal wording (goal_wording: payload title/body), a KPI for a goal (goal_kpi: payload kpi or kpi_id, and "
+      "target), a new definition (kpi_definition), a target (kpi_target: payload is the target fields), or a "
+      "flag (flag: payload issue vague|duplicate|unmeasured). The Goal Manager cannot change a definition "
+      "or a target it is judged against without one.",
+      {"kind": {"type": "string", "enum": list(PROPOSAL_KINDS)}, "goal_id": _s("The goal it is about"),
+       "kpi_id": _s("The KPI it is about"), "payload": {"type": "object", "description": "The proposed change"},
+       "reason": _s("One sentence: why")},
+      required=("kind",), writes=True)
+def proposal_create(api, args):
+    return api.post("goal-proposals", {"kind": args["kind"], "goal_id": args.get("goal_id"),
+                    "kpi_id": args.get("kpi_id"), "payload": args.get("payload") or {},
+                    "reason": args.get("reason") or ""}, key=_key(args))["proposal"]
+
+
+@tool("hub_proposal_list", "Proposals waiting for a decision (or `status`: confirmed, rejected, all).",
+      {"status": _s("pending (default), confirmed, rejected or all"), "goal_id": _s("Only this goal's"),
+       "kpi_id": _s("Only this KPI's")})
+def proposal_list(api, args):
+    return api.get("goal-proposals", status=args.get("status") or None, goal_id=args.get("goal_id") or None,
+                   kpi_id=args.get("kpi_id") or None)
+
+
+@tool("hub_proposal_decide", "Confirm or reject a proposal. A person's own decision, made by whoever owns "
+      "the goal or the KPI: a bot is refused. Confirming makes the change as that person.",
+      {"id": _s("Proposal id"), "decision": {"type": "string", "enum": ["confirm", "reject"]},
+       "note": _s("Why, optionally")},
+      required=("id", "decision"), writes=True)
+def proposal_decide(api, args):
+    return api.post(f"goal-proposals/{args['id']}/decide", {"decision": args["decision"], "note": args.get("note") or ""},
+                    key=_key(args))["proposal"]
 
 
 # ----------------------------------------------------------------------------- market

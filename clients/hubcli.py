@@ -43,16 +43,42 @@ the server (`backend/hubdb.py`), never here.
     hub task show <id>
     hub goals [--owner me|X] [--all]      what you are for: your goals in order, the chain above
                                            them, and your reports' goals; --all is every goal
-    hub goal show <id>                     the goal, its KPIs and readings, tasks naming it, history
+    hub goal show <id>                     the goal, its KPIs (target, colour), tasks, check-ins, history
     hub goal create --owner me|X --title "..." [--parent ID] [--body "..."|--body-file f] [--top]
                                            set a goal; a parent is optional. With one, whoever owns the parent gives its first colour
     hub goal status <id> red|yellow|green|done|dropped "<one sentence>"
+                                           set the colour by hand: it sticks (with your name) until handed back
+    hub goal auto <id>                     let the Goal Manager set the colour again (ends a colour set by hand)
+    hub goal refresh [--goal ID ...]       the Goal Manager's status pass: work automatic colours out again
+    hub goal checkin <id> "<words>" [--signal on_track|at_risk|off_track] [--from X] [--kpi ID]
+                                           how the owner says it is going, in their words (colours a goal with no KPI)
+    hub goal checkins <id>                 a goal's check-ins, newest first
+    hub goal needs-you                     red KPIs on your goals, stale KPIs you own, proposals to confirm
     hub goal update <id> [--title ...] [--body ...|--body-file f] [--parent ID|--parent ""] [--owner X]
                     [--rank N|--top]
-    hub kpi add <goal-id> "<name>" [--unit demos] [--target N]
-    hub kpi log <kpi-id> <value> ["<note>"] [--at 2026-09-01] [--estimate]
-                                           a reading: a fact you measured, or a guess labelled as such
-    hub kpi readings <kpi-id>              every reading, oldest first
+    hub kpi list [--goal ID] [--owner me|X] [--unlinked] [--bot SLUG]
+                                           KPIs with latest reading and colour; --bot: that bot's five automatic KPIs
+    hub kpi show <id>                      definition and versions, the goals using it, every reading, check-ins
+    hub kpi add "<name>" [--goal ID] [--definition "..."] [--unit %] [--direction up|down|range]
+                [--cadence daily|weekly|monthly] [--owner me|X|company] [--source-note "..."] [target flags]
+                                           a KPI of its own; with --goal it is linked, the target on the link
+    hub kpi update <id> [--name ...] [--definition ...] [--unit ...] [--direction ...] [--cadence ...]
+                    [--source-note ...] [--owner X]
+                                           a change to what it measures is a new definition version
+    hub kpi link <goal-id> <kpi-id> [target flags]   link a goal to a KPI, or change the target on the link
+    hub kpi unlink <goal-id> <kpi-id>      take a KPI off a goal
+        target flags: --baseline N --target N --deadline YYYY-MM-DD (improve; a deadline is required)
+                      or --min N --max N (a range to stay in); none: just linked
+    hub kpi log <kpi-id> <value> ["<note>"] [--period-start D] [--period-end D|--at D] [--collected-at T]
+                [--evidence "url or note"] [--quality measured|estimate|partial|--estimate] [--source posthog]
+                [--definition-version N] [--supersedes READING-ID]
+                                           a reading: a fact with its period; to correct one, supersede it
+    hub kpi readings <kpi-id> [--effective]   every reading, oldest first, with what superseded what
+    hub proposal create --kind goal_wording|goal_kpi|kpi_definition|kpi_target|flag [--goal ID] [--kpi ID]
+                        (--payload '{json}'|--payload-file f.json) [--reason "..."]
+                                           a change you may not make yourself, for the owner to confirm
+    hub proposal list [--status pending|confirmed|rejected|all] [--goal ID] [--kpi ID]
+    hub proposal decide <id> confirm|reject [--note "..."]   a person's own decision; a bot is refused
     hub approval request --kind send|spend|publish|merge --payload-file f.json [--task ID]
                                            if the owner already said send in Tico, skip this and
                                            `mail send --approve <their-message-id>`
@@ -162,7 +188,7 @@ if __package__ in (None, ""):                          # run as a script: python
 # before a request is made. The server is the authority when they disagree.
 TASK_STATUSES = ("open", "doing", "waiting", "review", "ready", "done", "closed", "declined")
 APPROVAL_KINDS = ("send", "spend", "publish", "merge")
-GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")
+GOAL_STATUSES = ("red", "yellow", "green", "done", "dropped")     # set by hand; gray is only ever automatic
 
 
 class CliError(Exception):
@@ -477,7 +503,7 @@ def parser():
     s = sub.add_parser("goals", help="what you are for: your goals, the chain above them, your reports' goals")
     s.add_argument("--owner", help="someone else's: a bot slug or a person id")
     s.add_argument("--all", action="store_true", help="every live goal in the company")
-    s.add_argument("--status", help="with --all: only these, comma-separated (red,yellow,green,done,dropped)")
+    s.add_argument("--status", help="with --all: only these, comma-separated (red,yellow,green,gray,done,dropped)")
     s.set_defaults(fn="goals")
     goal = sub.add_parser("goal", help="one goal: show it, propose one, set its colour, edit it").add_subparsers(dest="sub")
     s = goal.add_parser("show")
@@ -491,7 +517,8 @@ def parser():
     s.add_argument("--body-file", dest="body_file")
     s.add_argument("--top", action="store_true", help="put it first in the owner's order")
     s.set_defaults(fn="goal create")
-    s = goal.add_parser("status", help="red, yellow or green with one sentence; done or dropped when it ends")
+    s = goal.add_parser("status", help="set the colour by hand: red, yellow or green with one sentence, done or dropped "
+                                     "when it ends; it sticks until a person hands it back (hub goal auto)")
     s.add_argument("id")
     s.add_argument("status", choices=list(GOAL_STATUSES))
     s.add_argument("note", nargs="?", default="")
@@ -506,24 +533,109 @@ def parser():
     s.add_argument("--rank", type=int)
     s.add_argument("--top", action="store_true")
     s.set_defaults(fn="goal update")
-    kpi = sub.add_parser("kpi", help="a measure on a goal, and its readings").add_subparsers(dest="sub")
-    s = kpi.add_parser("add")
-    s.add_argument("goal_id")
+    s = goal.add_parser("auto", help="let the Goal Manager set the colour again (ends a colour set by hand)")
+    s.add_argument("id")
+    s.set_defaults(fn="goal auto")
+    s = goal.add_parser("refresh", help="the Goal Manager's status pass: work automatic colours out again")
+    s.add_argument("--goal", action="append", dest="goal_ids", help="only this goal; repeatable")
+    s.set_defaults(fn="goal refresh")
+    s = goal.add_parser("checkin", help="how the owner says the goal is going, in their words")
+    s.add_argument("id")
+    s.add_argument("body")
+    s.add_argument("--signal", choices=["on_track", "at_risk", "off_track"])
+    s.add_argument("--from", dest="from_actor", help="whose words these are, when you record them for someone")
+    s.add_argument("--kpi", dest="kpi_id", help="the KPI that prompted it")
+    s.set_defaults(fn="goal checkin")
+    s = goal.add_parser("checkins", help="a goal's check-ins, newest first")
+    s.add_argument("id")
+    s.set_defaults(fn="goal checkins")
+    s = goal.add_parser("needs-you", help="red KPIs on your goals, stale KPIs you own, proposals to confirm")
+    s.set_defaults(fn="goal needs-you")
+    def target_flags(s):
+        s.add_argument("--baseline", type=float, help="improvement: where it starts (default the latest reading)")
+        s.add_argument("--target", type=float, help="improvement: the value to reach; needs --deadline")
+        s.add_argument("--deadline", help="improvement: when the target is due, YYYY-MM-DD")
+        s.add_argument("--min", type=float, help="range: the lowest acceptable value")
+        s.add_argument("--max", type=float, help="range: the highest acceptable value")
+
+    def kpi_flags(s):
+        s.add_argument("--definition", help="what exactly is counted, in a sentence")
+        s.add_argument("--unit")
+        s.add_argument("--direction", choices=["up", "down", "range"], help="which way is good")
+        s.add_argument("--cadence", choices=["daily", "weekly", "monthly"], help="how often it is read")
+        s.add_argument("--source-note", dest="source_note", help="where the number comes from")
+
+    kpi = sub.add_parser("kpi", help="a measure on its own that goals link to, and its readings").add_subparsers(dest="sub")
+    s = kpi.add_parser("list", help="KPIs with latest reading and colour")
+    s.add_argument("--goal", dest="goal_id", help="only the KPIs this goal uses")
+    s.add_argument("--owner", help="only this owner's: me, a bot slug or a person id")
+    s.add_argument("--unlinked", action="store_true", help="only the KPIs no goal uses")
+    s.add_argument("--bot", help="a bot slug: its five automatic KPIs")
+    s.set_defaults(fn="kpi list")
+    s = kpi.add_parser("show", help="definition and versions, the goals using it, every reading, check-ins")
+    s.add_argument("id")
+    s.set_defaults(fn="kpi show")
+    s = kpi.add_parser("add", help="make a KPI; with --goal it is linked, the target on the link")
     s.add_argument("name", help="what is counted, per what: 'booked demos per two weeks'")
-    s.add_argument("--unit", default="")
-    s.add_argument("--target", type=float)
+    s.add_argument("--goal", dest="goal_id", help="link it to this goal")
+    s.add_argument("--owner", help="me (default), company, a bot slug or a person id")
+    kpi_flags(s)
+    target_flags(s)
     s.set_defaults(fn="kpi add")
-    s = kpi.add_parser("log", help="a reading: a fact you measured, or --estimate for a guess")
+    s = kpi.add_parser("update", help="a change to what it measures is a new definition version")
+    s.add_argument("id")
+    s.add_argument("--name")
+    s.add_argument("--owner")
+    kpi_flags(s)
+    s.set_defaults(fn="kpi update")
+    s = kpi.add_parser("link", help="link a goal to a KPI, or change the target on the link")
+    s.add_argument("goal_id")
+    s.add_argument("kpi_id")
+    target_flags(s)
+    s.set_defaults(fn="kpi link")
+    s = kpi.add_parser("unlink", help="take a KPI off a goal")
+    s.add_argument("goal_id")
+    s.add_argument("kpi_id")
+    s.set_defaults(fn="kpi unlink")
+    s = kpi.add_parser("log", help="a reading: a fact with its period; to correct one, supersede it")
     s.add_argument("kpi_id")
     s.add_argument("value", type=float)
     s.add_argument("note", nargs="?", default="")
-    s.add_argument("--at", help="when the value was true (ISO date or date-time); default now")
-    s.add_argument("--estimate", action="store_true")
-    s.add_argument("--source", help="a connector name when a system measured it (posthog, close)")
+    s.add_argument("--period-start", dest="period_start", help="start of the period it describes")
+    s.add_argument("--period-end", dest="period_end", help="end of the period it describes; default now")
+    s.add_argument("--at", help="the old name of --period-end")
+    s.add_argument("--collected-at", dest="collected_at", help="when it was collected; default now")
+    s.add_argument("--evidence", help="a link or a note that shows where the value came from")
+    s.add_argument("--quality", choices=["measured", "estimate", "partial"])
+    s.add_argument("--estimate", action="store_true", help="the same as --quality estimate")
+    s.add_argument("--source", help="a connector or system name (posthog, close)")
+    s.add_argument("--definition-version", dest="definition_version", type=int)
+    s.add_argument("--supersedes", help="the id of the reading this one corrects")
     s.set_defaults(fn="kpi log")
-    s = kpi.add_parser("readings")
+    s = kpi.add_parser("readings", help="every reading, oldest first, with what superseded what")
     s.add_argument("kpi_id")
+    s.add_argument("--effective", action="store_true", help="leave out readings a correction replaced")
     s.set_defaults(fn="kpi readings")
+
+    proposal = sub.add_parser("proposal", help="a change you may not make yourself, for the owner to confirm").add_subparsers(dest="sub")
+    s = proposal.add_parser("create")
+    s.add_argument("--kind", required=True, choices=["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"])
+    s.add_argument("--goal", dest="goal_id")
+    s.add_argument("--kpi", dest="kpi_id")
+    s.add_argument("--payload", help="the proposed change, as JSON")
+    s.add_argument("--payload-file", dest="payload_file")
+    s.add_argument("--reason", default="")
+    s.set_defaults(fn="proposal create")
+    s = proposal.add_parser("list")
+    s.add_argument("--status", choices=["pending", "confirmed", "rejected", "all"], default="pending")
+    s.add_argument("--goal", dest="goal_id")
+    s.add_argument("--kpi", dest="kpi_id")
+    s.set_defaults(fn="proposal list")
+    s = proposal.add_parser("decide", help="a person's own decision; a bot is refused")
+    s.add_argument("id")
+    s.add_argument("decision", choices=["confirm", "reject"])
+    s.add_argument("--note", default="")
+    s.set_defaults(fn="proposal decide")
 
     market = sub.add_parser("market", help="the shared market graph: read it, report into it, curate it").add_subparsers(dest="sub")
     s = market.add_parser("show", help="one entity, its edges both ways, the evidence, the last ten events")

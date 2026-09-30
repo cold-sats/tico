@@ -55,6 +55,14 @@
       "description": "The signed-in person's own private Assistant chat (docs/assistant.md): ask, and confirm what it proposes."
     },
     {
+      "name": "Goals",
+      "description": "What every person and bot is for (docs/goals-and-kpis.md): goals with a colour the Goal Manager works out from their KPIs, unless a person set one; check-ins in the owner's words; proposals the owner confirms."
+    },
+    {
+      "name": "KPIs",
+      "description": "Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, evidence and a quality, never edited; a correction supersedes the old one."
+    },
+    {
       "name": "Health",
       "description": "Whether the installation is working."
     }
@@ -806,6 +814,51 @@
         },
         "tags": [
           "Files"
+        ]
+      }
+    },
+    "/api/v2/bots/{bot}/kpis": {
+      "get": {
+        "summary": "A bot's five automatic KPIs, computed from Tico's own data (Read on the bot)",
+        "operationId": "listBotKpis",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotKpis"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
         ]
       }
     },
@@ -2908,6 +2961,1007 @@
         ]
       }
     },
+    "/api/v2/goal-proposals": {
+      "get": {
+        "summary": "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it",
+        "operationId": "listGoalProposals",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "pending",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "goal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "kpi_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kpi Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalProposalList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      },
+      "post": {
+        "summary": "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag",
+        "operationId": "createGoalProposal",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalProposal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalProposalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/goal-proposals/{pid}/decide": {
+      "post": {
+        "summary": "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it",
+        "operationId": "decideGoalProposal",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalProposalDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalProposalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals": {
+      "get": {
+        "summary": "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read (?status=red,gray filters); ?owner= names someone else",
+        "operationId": "listGoals",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "name": "all",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "All"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      },
+      "post": {
+        "summary": "Set a goal for yourself, under a goal you own, or for someone below you; the company owner sets company goals",
+        "operationId": "createGoal",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/goals/needs-you": {
+      "get": {
+        "summary": "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm",
+        "operationId": "getGoalsNeedsYou",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalsNeedsYou"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/refresh": {
+      "post": {
+        "summary": "The Goal Manager's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
+        "operationId": "refreshGoalStatuses",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalRefresh"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalRefresh"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/goals/tree": {
+      "get": {
+        "summary": "Every goal with its owner, its KPIs (each with its target and colour), the KPIs no goal uses and the pending proposals: what the Goals page draws",
+        "operationId": "getGoalTree",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalTree"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}": {
+      "get": {
+        "summary": "One goal with its KPIs, the goals under and above it, tasks, history, recent check-ins and pending proposals",
+        "operationId": "getGoal",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      },
+      "post": {
+        "summary": "Change a goal's title, body, parent, owner or place in its owner's order",
+        "operationId": "updateGoal",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}/checkins": {
+      "get": {
+        "summary": "A goal's check-ins, newest first",
+        "operationId": "listGoalCheckins",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalCheckins"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      },
+      "post": {
+        "summary": "The owner's own words on how it is going, with an optional signal; it colours a goal that has no KPI",
+        "operationId": "addGoalCheckin",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalCheckin"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalCheckinResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}/kpis": {
+      "post": {
+        "summary": "Link a goal to a KPI (kpi_id) or make a new one and link it (name), with the target on the link; linking again replaces the target",
+        "operationId": "linkGoalKpi",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalKpiLink"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalKpiResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}/kpis/{kid}": {
+      "post": {
+        "summary": "Change the target on a goal's link to a KPI: an improvement (baseline, target, deadline), a range (min, max) or none",
+        "operationId": "setGoalKpiTarget",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KpiTarget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalKpiResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}/kpis/{kid}/unlink": {
+      "post": {
+        "summary": "Take a KPI off a goal; the KPI and its readings stay",
+        "operationId": "unlinkGoalKpi",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}/status": {
+      "post": {
+        "summary": "Set the colour by hand with one sentence (red, yellow, green) or end the goal (done, dropped). It sticks, with the setter's name, until a person hands it back",
+        "operationId": "setGoalStatus",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalStatus"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
+    "/api/v2/goals/{gid}/status/auto": {
+      "post": {
+        "summary": "\"Let Goal Manager set it\": end a colour set by hand; the automatic colour is worked out at once",
+        "operationId": "handBackGoalStatus",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      }
+    },
     "/api/v2/health": {
       "get": {
         "summary": "Checks, computers and failures (people only)",
@@ -2939,6 +3993,377 @@
         },
         "tags": [
           "Health"
+        ]
+      }
+    },
+    "/api/v2/kpis": {
+      "get": {
+        "summary": "The KPIs the caller may see; goal_id, owner, unlinked=true narrow it; auto_for=<bot> is that bot's five automatic KPIs",
+        "operationId": "listKpis",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "name": "unlinked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Unlinked"
+            }
+          },
+          {
+            "name": "auto_for",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auto For"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
+        ]
+      },
+      "post": {
+        "summary": "Make a KPI (definition, unit, direction, cadence, owner, source note); with goal_id it is linked, the target fields on the link",
+        "operationId": "createKpi",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KpiCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/kpis/{kid}": {
+      "get": {
+        "summary": "One KPI: definition and its versions, the goals using it with each target and colour, every reading, check-ins, pending proposals",
+        "operationId": "getKpi",
+        "parameters": [
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
+        ]
+      },
+      "post": {
+        "summary": "Change a KPI; a change to what it measures is a new definition version",
+        "operationId": "updateKpi",
+        "parameters": [
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KpiUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
+        ]
+      }
+    },
+    "/api/v2/kpis/{kid}/readings": {
+      "get": {
+        "summary": "Every reading oldest first, each with the reading that superseded it; effective=true leaves out the corrected ones",
+        "operationId": "listKpiReadings",
+        "parameters": [
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kid"
+            }
+          },
+          {
+            "name": "effective",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Effective"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiReadings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
+        ]
+      },
+      "post": {
+        "summary": "Log a reading: a value with its period, evidence and quality. Never edited; supersedes names the reading it corrects",
+        "operationId": "addKpiReading",
+        "parameters": [
+          {
+            "name": "kid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KpiReading"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiReadingResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "KPIs"
         ]
       }
     },
@@ -5610,6 +7035,25 @@
         ],
         "additionalProperties": true
       },
+      "BotKpis": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Kpi"
+            }
+          }
+        },
+        "required": [
+          "bot",
+          "kpis"
+        ],
+        "additionalProperties": true
+      },
       "BotList": {
         "type": "array",
         "items": {
@@ -6475,6 +7919,1081 @@
         ],
         "additionalProperties": true
       },
+      "Goal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": "string"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "red, yellow, green, gray (no data), done, dropped; null while unscored or proposed"
+          },
+          "status_note": {
+            "type": "string"
+          },
+          "status_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "auto: worked out by the Goal Manager; person: set by hand and kept until handed back"
+          },
+          "suggest_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "On a colour set by hand: the colour the Goal Manager would choose, when it differs"
+          },
+          "suggest_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "suggest_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rank": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "created": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "updated": {
+            "type": "string"
+          },
+          "owner_name": {
+            "type": "string"
+          },
+          "status_by_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "body",
+          "created",
+          "created_by",
+          "id",
+          "owner",
+          "parent_id",
+          "rank",
+          "status",
+          "status_at",
+          "status_by",
+          "status_note",
+          "status_source",
+          "title",
+          "updated"
+        ],
+        "additionalProperties": true
+      },
+      "GoalCheckin": {
+        "properties": {
+          "body": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Body"
+          },
+          "signal": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "on_track",
+                  "at_risk",
+                  "off_track"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal"
+          },
+          "from_actor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Actor"
+          },
+          "kpi_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kpi Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "GoalCheckin"
+      },
+      "GoalCheckinResult": {
+        "type": "object",
+        "properties": {
+          "checkin": {
+            "$ref": "#/components/schemas/GoalCheckin"
+          }
+        },
+        "required": [
+          "checkin"
+        ],
+        "additionalProperties": true
+      },
+      "GoalCheckins": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string"
+          },
+          "checkins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalCheckin"
+            }
+          }
+        },
+        "required": [
+          "checkins",
+          "goal_id"
+        ],
+        "additionalProperties": true
+      },
+      "GoalCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "owner": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Owner"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 100000,
+            "title": "Body",
+            "default": ""
+          },
+          "top": {
+            "type": "boolean",
+            "title": "Top",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "owner"
+        ],
+        "title": "GoalCreate"
+      },
+      "GoalKpiLink": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "none",
+              "improve",
+              "maintain"
+            ],
+            "title": "Kind",
+            "default": "none"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline"
+          },
+          "baseline_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline At"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "kpi_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kpi Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "definition": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Definition",
+            "default": ""
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Unit",
+            "default": ""
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "range"
+            ],
+            "title": "Direction",
+            "default": "up"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Cadence",
+            "default": "weekly"
+          },
+          "source_note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Source Note",
+            "default": ""
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GoalKpiLink"
+      },
+      "GoalKpiResult": {
+        "type": "object",
+        "properties": {
+          "kpi": {
+            "$ref": "#/components/schemas/Kpi"
+          }
+        },
+        "required": [
+          "kpi"
+        ],
+        "additionalProperties": true
+      },
+      "GoalList": {
+        "type": "object",
+        "properties": {
+          "goals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Goal"
+            }
+          },
+          "owner": {
+            "type": "string"
+          },
+          "chain": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Goal"
+            }
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Goal"
+            }
+          },
+          "company": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Goal"
+            }
+          }
+        },
+        "required": [
+          "goals"
+        ],
+        "additionalProperties": true
+      },
+      "GoalProposal": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "goal_wording",
+              "goal_kpi",
+              "kpi_definition",
+              "kpi_target",
+              "flag"
+            ],
+            "title": "Kind"
+          },
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Id"
+          },
+          "kpi_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kpi Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "GoalProposal"
+      },
+      "GoalProposalDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "confirm",
+              "reject"
+            ],
+            "title": "Decision"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "GoalProposalDecision"
+      },
+      "GoalProposalList": {
+        "type": "object",
+        "properties": {
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalProposal"
+            }
+          }
+        },
+        "required": [
+          "proposals"
+        ],
+        "additionalProperties": true
+      },
+      "GoalProposalResult": {
+        "type": "object",
+        "properties": {
+          "proposal": {
+            "$ref": "#/components/schemas/GoalProposal"
+          }
+        },
+        "required": [
+          "proposal"
+        ],
+        "additionalProperties": true
+      },
+      "GoalRefresh": {
+        "properties": {
+          "goal_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "minLength": 1
+                },
+                "type": "array",
+                "maxItems": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GoalRefresh"
+      },
+      "GoalResult": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "parent_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "body": {
+                "type": "string"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "red, yellow, green, gray (no data), done, dropped; null while unscored or proposed"
+              },
+              "status_note": {
+                "type": "string"
+              },
+              "status_by": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status_source": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "auto: worked out by the Goal Manager; person: set by hand and kept until handed back"
+              },
+              "suggest_status": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "On a colour set by hand: the colour the Goal Manager would choose, when it differs"
+              },
+              "suggest_note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "suggest_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rank": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "created": {
+                "type": "string"
+              },
+              "created_by": {
+                "type": "string"
+              },
+              "updated": {
+                "type": "string"
+              },
+              "owner_name": {
+                "type": "string"
+              },
+              "status_by_name": {
+                "type": "string"
+              },
+              "kpis": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Kpi"
+                }
+              },
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Goal"
+                }
+              },
+              "chain": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Goal"
+                }
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "checkins": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GoalCheckin"
+                }
+              },
+              "proposals": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GoalProposal"
+                }
+              }
+            },
+            "required": [
+              "body",
+              "chain",
+              "checkins",
+              "children",
+              "created",
+              "created_by",
+              "events",
+              "id",
+              "kpis",
+              "owner",
+              "parent_id",
+              "proposals",
+              "rank",
+              "status",
+              "status_at",
+              "status_by",
+              "status_note",
+              "status_source",
+              "tasks",
+              "title",
+              "updated"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "goal"
+        ],
+        "additionalProperties": true
+      },
+      "GoalStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "red",
+              "yellow",
+              "green",
+              "done",
+              "dropped"
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "GoalStatus"
+      },
+      "GoalTree": {
+        "type": "object",
+        "properties": {
+          "goals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "owner": {
+                  "type": "string"
+                },
+                "parent_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "body": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "red, yellow, green, gray (no data), done, dropped; null while unscored or proposed"
+                },
+                "status_note": {
+                  "type": "string"
+                },
+                "status_by": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status_source": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "auto: worked out by the Goal Manager; person: set by hand and kept until handed back"
+                },
+                "suggest_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "On a colour set by hand: the colour the Goal Manager would choose, when it differs"
+                },
+                "suggest_note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "suggest_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rank": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "created": {
+                  "type": "string"
+                },
+                "created_by": {
+                  "type": "string"
+                },
+                "updated": {
+                  "type": "string"
+                },
+                "owner_name": {
+                  "type": "string"
+                },
+                "status_by_name": {
+                  "type": "string"
+                },
+                "kpis": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Kpi"
+                  }
+                },
+                "open_tasks": {
+                  "type": "integer"
+                },
+                "checkin": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/GoalCheckin"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The latest check-in"
+                }
+              },
+              "required": [
+                "body",
+                "created",
+                "created_by",
+                "id",
+                "kpis",
+                "open_tasks",
+                "owner",
+                "parent_id",
+                "rank",
+                "status",
+                "status_at",
+                "status_by",
+                "status_note",
+                "status_source",
+                "title",
+                "updated"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "owners": {
+            "type": "object",
+            "description": "{actor: {kind: company|person|bot, id, name}} for every owner"
+          },
+          "unaligned": {
+            "type": "object",
+            "description": "{actor: open tasks that serve no goal}"
+          },
+          "other_kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Kpi"
+            }
+          },
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalProposal"
+            }
+          }
+        },
+        "required": [
+          "goals",
+          "other_kpis",
+          "owners",
+          "proposals",
+          "unaligned"
+        ],
+        "additionalProperties": true
+      },
+      "GoalUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "top": {
+            "type": "boolean",
+            "title": "Top",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GoalUpdate"
+      },
+      "GoalsNeedsYou": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "kpi_red",
+                    "kpi_stale",
+                    "proposal"
+                  ]
+                },
+                "goal_id": {
+                  "type": "string"
+                },
+                "goal_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kpi_id": {
+                  "type": "string"
+                },
+                "kpi_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "freshness": {
+                  "type": "string"
+                },
+                "proposal": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "actor",
+          "items"
+        ],
+        "additionalProperties": true
+      },
       "Health": {
         "type": "object",
         "properties": {
@@ -6746,6 +9265,859 @@
           "versions"
         ],
         "additionalProperties": true
+      },
+      "Kpi": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A UUID, or auto:<bot>:<metric> for a bot's automatic KPI"
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "direction": {
+            "enum": [
+              "up",
+              "down",
+              "range"
+            ]
+          },
+          "cadence": {
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "source_note": {
+            "type": "string"
+          },
+          "definition_version": {
+            "type": "integer"
+          },
+          "created": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "auto": {
+            "type": "boolean"
+          },
+          "latest": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/KpiReading"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "readings": {
+            "type": "integer"
+          },
+          "freshness": {
+            "enum": [
+              "fresh",
+              "stale",
+              "missing"
+            ],
+            "description": "stale: one period missed; missing: never read or two missed. Never zero"
+          },
+          "spark": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "The last values, oldest first"
+          },
+          "status": {
+            "enum": [
+              "green",
+              "yellow",
+              "red",
+              "gray",
+              "none"
+            ],
+            "description": "Against the target on the link (or a range); gray is stale or missing data; none is fresh with no target"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "link": {
+            "$ref": "#/components/schemas/KpiLink"
+          },
+          "target_label": {
+            "type": "string",
+            "description": "'\u2192 65% by Dec 31' or 'range 40\u201360'"
+          },
+          "expected": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Where the straight line from baseline to target is now"
+          },
+          "owner_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "auto",
+          "cadence",
+          "definition_version",
+          "direction",
+          "freshness",
+          "id",
+          "latest",
+          "name",
+          "owner",
+          "readings",
+          "reason",
+          "spark",
+          "status",
+          "unit"
+        ],
+        "additionalProperties": true
+      },
+      "KpiCreate": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "none",
+              "improve",
+              "maintain"
+            ],
+            "title": "Kind",
+            "default": "none"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline"
+          },
+          "baseline_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline At"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "definition": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Definition",
+            "default": ""
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Unit",
+            "default": ""
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "range"
+            ],
+            "title": "Direction",
+            "default": "up"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ],
+            "title": "Cadence",
+            "default": "weekly"
+          },
+          "source_note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Source Note",
+            "default": ""
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "goal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "KpiCreate"
+      },
+      "KpiDetail": {
+        "type": "object",
+        "properties": {
+          "kpi": {
+            "$ref": "#/components/schemas/Kpi"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "goal_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "none",
+                    "improve",
+                    "maintain"
+                  ]
+                },
+                "baseline": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "baseline_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "target": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "deadline": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "YYYY-MM-DD"
+                },
+                "min": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "max": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "goal_title": {
+                  "type": "string"
+                },
+                "goal_owner": {
+                  "type": "string"
+                },
+                "goal_status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "target_label": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "expected": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "goal_id",
+                "goal_title",
+                "kind",
+                "status"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "readings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KpiReading"
+            }
+          },
+          "definitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "version, ts, actor, name, definition, unit, direction, cadence, source_note; newest first"
+            }
+          },
+          "checkins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalCheckin"
+            }
+          },
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoalProposal"
+            }
+          },
+          "may_edit": {
+            "type": "boolean"
+          },
+          "may_log": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checkins",
+          "definitions",
+          "kpi",
+          "links",
+          "may_edit",
+          "may_log",
+          "proposals",
+          "readings"
+        ],
+        "additionalProperties": true
+      },
+      "KpiLink": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "goal_id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "none",
+              "improve",
+              "maintain"
+            ]
+          },
+          "baseline": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "baseline_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "deadline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "YYYY-MM-DD"
+          },
+          "min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "goal_id",
+          "kind"
+        ],
+        "additionalProperties": true
+      },
+      "KpiList": {
+        "type": "object",
+        "properties": {
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Kpi"
+            }
+          }
+        },
+        "required": [
+          "kpis"
+        ],
+        "additionalProperties": true
+      },
+      "KpiReading": {
+        "properties": {
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          },
+          "collected_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collected At"
+          },
+          "evidence": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Evidence",
+            "default": ""
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "measured",
+                  "estimate",
+                  "partial"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 40,
+            "title": "Source",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          },
+          "definition_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition Version"
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "KpiReading"
+      },
+      "KpiReadingResult": {
+        "type": "object",
+        "properties": {
+          "reading": {
+            "$ref": "#/components/schemas/KpiReading"
+          }
+        },
+        "required": [
+          "reading"
+        ],
+        "additionalProperties": true
+      },
+      "KpiReadings": {
+        "type": "object",
+        "properties": {
+          "kpi": {
+            "type": "object",
+            "description": "The KPI record"
+          },
+          "readings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KpiReading"
+            }
+          }
+        },
+        "required": [
+          "kpi",
+          "readings"
+        ],
+        "additionalProperties": true
+      },
+      "KpiTarget": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "none",
+              "improve",
+              "maintain"
+            ],
+            "title": "Kind",
+            "default": "none"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline"
+          },
+          "baseline_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline At"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "KpiTarget"
+      },
+      "KpiUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "definition": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Definition"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down",
+                  "range"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "cadence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cadence"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "KpiUpdate"
       },
       "Librarian": {
         "type": "object",

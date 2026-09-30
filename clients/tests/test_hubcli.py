@@ -17,7 +17,7 @@ from threading import Thread
 from clients import hubcli
 
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
-SUBCOMMANDS = ["whoami", "say", "ask", "answer", "notice", "note", "notes", "unnote", "files", "docs", "assistant", "task", "goals", "goal", "kpi", "market", "listen", "intake", "history", "tools", "routine", "approval", "status", "turns",
+SUBCOMMANDS = ["whoami", "say", "ask", "answer", "notice", "note", "notes", "unnote", "files", "docs", "assistant", "task", "goals", "goal", "kpi", "proposal", "market", "listen", "intake", "history", "tools", "routine", "approval", "status", "turns",
                "inbox", "ack", "board", "org", "fleet", "update", "updates", "grokbot", "recent", "calendar", "sql", "db", "github", "integrations", "integration", "queries", "learn",
                "decisions", "judge", "catalog", "bot", "people"]
 SUBCOMMANDS[SUBCOMMANDS.index("approval") + 1:SUBCOMMANDS.index("approval") + 1] = ["live", "batch"]
@@ -93,8 +93,12 @@ class Stub(BaseHTTPRequestHandler):
             return self.reply(200, {"owner": "bot:coo", "goals": [{"id": "G1"}], "chain": [], "reports": [], "company": []})
         if self.path == "/api/v2/goals/G1":
             return self.reply(200, {"goal": {"id": "G1", "status": "green", "kpis": []}})
-        if self.path == "/api/v2/kpis/K1/readings":
-            return self.reply(200, {"kpi": {"id": "K1"}, "readings": [{"value": 17.0}]})
+        if self.path.startswith("/api/v2/kpis/K1/readings"):
+            return self.reply(200, {"kpi": {"id": "K1"}, "readings": [{"value": 17.0}], "query": self.path.partition("?")[2]})
+        if self.path.startswith("/api/v2/kpis?"):
+            return self.reply(200, {"kpis": [], "query": self.path.partition("?")[2]})
+        if self.path == "/api/v2/goals/G1/checkins":
+            return self.reply(200, {"goal_id": "G1", "checkins": []})
         if self.path == "/api/v2/integrations":
             return self.reply(200, {"integrations": [
                 {"service": "hub-sql", "title": "Hub database (SQL)", "kind": "sql", "summary": "Read-only SQL over the hub.",
@@ -125,12 +129,16 @@ class Stub(BaseHTTPRequestHandler):
             return self.reply(200, {"goal": {"id": "G1", "status": body["status"], "status_note": body["note"]}})
         if self.path == "/api/v2/goals/G1":
             return self.reply(200, {"goal": {"id": "G1", **{k: v for k, v in body.items() if v is not None}}})
-        if self.path == "/api/v2/goals/G1/kpis":
-            return self.reply(200, {"kpi": {"id": "K1", "goal_id": "G1", "name": body["name"], "unit": body["unit"],
-                                            "target": body.get("target")}})
-        if self.path == "/api/v2/kpis/K1/readings":
-            return self.reply(200, {"reading": {"id": "R1", "kpi_id": "K1", "value": body["value"],
-                                                "source": body["source"], "at": body.get("at")}})
+        if self.path == "/api/v2/goals/G1/status/auto":
+            return self.reply(200, {"goal": {"id": "G1", "status_source": "auto"}})
+        if self.path == "/api/v2/goals/G1/checkins":
+            return self.reply(200, {"checkin": {"id": "C1", **body}})
+        if self.path in ("/api/v2/goals/G1/kpis", "/api/v2/goals/G1/kpis/K1/unlink", "/api/v2/kpis", "/api/v2/kpis/K1",
+                         "/api/v2/goal-proposals", "/api/v2/goal-proposals/P1/decide", "/api/v2/kpis/K1/readings"):
+            # Echo what was sent, under the key the real route answers with.
+            key = {"/api/v2/goal-proposals": "proposal", "/api/v2/goal-proposals/P1/decide": "proposal",
+                   "/api/v2/kpis/K1/readings": "reading", "/api/v2/goals/G1/kpis/K1/unlink": "goal"}.get(self.path, "kpi")
+            return self.reply(200, {key: {"id": "X1", "path": self.path, **body}})
         if self.path == "/api/v2/bots/coo/routines":
             return self.reply(200, {"routine": {"id": "coo:" + body["key"], "title": body["title"], "cron": body["cron"]}})
         if self.path == "/api/v2/routines/coo:audit":
@@ -188,6 +196,40 @@ class AgainstAStub(unittest.TestCase):
         self.assertEqual(out["status"], "done")
         posted = next(b for m, p, _, b in Stub.seen if m == "POST")
         self.assertEqual((posted["version"], posted["status"], posted["note"]), (3, "done", "shipped"))
+
+    def test_goal_and_kpi_commands_send_what_the_routes_take(self):
+        def sent(*args):
+            Stub.seen.clear()
+            code, out = run_hub(*args, env=self.env)
+            self.assertEqual(code, 0, out)
+            return out, [b for m, p, _, b in Stub.seen if m == "POST"][-1]
+        _, body = sent("kpi", "add", "Activation", "--goal", "G1", "--unit", "%", "--cadence", "daily", "--baseline", "40",
+                       "--target", "65", "--deadline", "2026-12-31")
+        self.assertEqual((body["name"], body["goal_id"], body["kind"], body["target"], body["deadline"], body["cadence"]),
+                         ("Activation", "G1", "improve", 65, "2026-12-31", "daily"))
+        _, body = sent("kpi", "link", "G1", "K1", "--min", "40", "--max", "60")
+        self.assertEqual((body["kpi_id"], body["kind"], body["min"], body["max"]), ("K1", "maintain", 40, 60))
+        out, body = sent("kpi", "log", "K1", "52", "pulled from the warehouse", "--period-end", "2026-09-27",
+                         "--evidence", "https://bi.example/q/9", "--estimate", "--supersedes", "R0")
+        self.assertEqual((body["value"], body["quality"], body["period_end"], body["evidence"], body["supersedes"]),
+                         (52, "estimate", "2026-09-27", "https://bi.example/q/9", "R0"))
+        out, body = sent("kpi", "unlink", "G1", "K1")
+        self.assertEqual(out["path"], "/api/v2/goals/G1/kpis/K1/unlink")
+        out, body = sent("goal", "checkin", "G1", "Waiting on legal", "--signal", "at_risk", "--from", "ben")
+        self.assertEqual((body["body"], body["signal"], body["from_actor"]), ("Waiting on legal", "at_risk", "ben"))
+        out, body = sent("goal", "auto", "G1")
+        self.assertEqual(out["status_source"], "auto")
+        out, body = sent("proposal", "create", "--kind", "kpi_target", "--goal", "G1", "--kpi", "K1",
+                         "--payload", '{"kind": "maintain", "min": 30}', "--reason", "too hard")
+        self.assertEqual((body["kind"], body["payload"], body["reason"]), ("kpi_target", {"kind": "maintain", "min": 30}, "too hard"))
+        out, body = sent("proposal", "decide", "P1", "confirm", "--note", "agreed")
+        self.assertEqual((body["decision"], body["note"]), ("confirm", "agreed"))
+        code, out = run_hub("kpi", "list", "--unlinked", "--bot", "ops", env=self.env)
+        self.assertEqual(code, 0)
+        self.assertIn("unlinked=1", out["query"])
+        self.assertIn("auto_for=ops", out["query"])
+        code, out = run_hub("kpi", "readings", "K1", "--effective", env=self.env)
+        self.assertEqual(out["query"], "effective=1")
 
     def test_a_refusal_from_the_api_exits_two(self):
         code, out = run_hub("say", "nobody", "hello", env=self.env)
