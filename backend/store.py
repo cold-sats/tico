@@ -502,6 +502,8 @@ class Store:
             c.executescript(_bot_tools.SCHEMA)
             from . import support as _support
             c.executescript(_support.SCHEMA)
+            from . import watchers as _watchers
+            c.executescript(_watchers.SCHEMA)
             _updates.purge_rejected(c)
             c.execute("BEGIN IMMEDIATE")
             try:
