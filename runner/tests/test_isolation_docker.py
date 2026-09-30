@@ -95,3 +95,24 @@ def test_the_runner_starts_again_after_a_turn_took_the_secrets_folder(volume):
                      "stat -c '%u %a' /home/runner/workspace/secrets; cat /home/runner/workspace/secrets/_shared.env")
     assert started.returncode == 0, started.stdout + started.stderr
     assert started.stdout.split() == ["10003", "770", "A=1"], started.stdout
+
+
+def test_the_codex_home_is_the_bot_users_and_group_writable_so_both_users_can_use_a_login(volume):
+    # An older volume: ~/.codex made by the supervisor, mode 755, holding a login only its owner could write.
+    seeded = docker("run", "--rm", "-u", "10002", "-v", f"{volume}:/home/runner", "--entrypoint", "sh", IMAGE, "-c",
+                    "mkdir -m 755 /home/runner/.codex && echo '{}' > /home/runner/.codex/config.toml")
+    assert seeded.returncode == 0, seeded.stderr
+    started = docker("run", "--rm", "--user", "0", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", *CAPS,
+                     "-v", f"{volume}:/home/runner", IMAGE, "sh", "-c", """
+        stat -c '%u:%g %a' /home/runner/.codex /home/runner/.codex/config.toml
+        # what `codex login` does as the bot user, then what the supervisor sees of it
+        setpriv --reuid=10003 --regid=10002 --clear-groups --inh-caps=-all --ambient-caps=-all sh -c \\
+          'umask 002; echo key > /home/runner/.codex/auth.json && chmod g+rw /home/runner/.codex/auth.json'
+        cat /home/runner/.codex/auth.json
+        stat -c '%g' /home/runner/.codex/auth.json
+        # the mail tool's venv goes under the workspace, which the bot user can write
+        setpriv --reuid=10003 --regid=10002 --clear-groups --inh-caps=-all --ambient-caps=-all \\
+          sh -c 'TICO_PROJECTS_DIR=/home/runner/workspace; mkdir -p "$TICO_PROJECTS_DIR/runtime/mail/venv" && echo mail-ok'
+    """)
+    assert started.returncode == 0, started.stdout + started.stderr
+    assert started.stdout.split()[-7:] == ["10003:10002", "2770", "10003:10002", "664", "key", "10002", "mail-ok"], started.stdout

@@ -3,6 +3,8 @@
 Each CLI is a stub script on PATH, so this checks what the runner does with the answers real
 CLIs give, not the CLIs themselves.
 """
+import contextlib
+import io
 import os
 import stat
 import sys
@@ -17,6 +19,19 @@ CODEX = """#!/bin/sh
 # Signed in only when CODEX_HOME holds auth.json, as `codex login --device-auth` leaves it.
 [ "$1" = login ] && [ "$2" = status ] || { echo "codex-cli 9.9.9"; exit 0; }
 if [ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]; then echo "Logged in using $(cat "${CODEX_HOME:-$HOME/.codex}/auth.json")"; exit 0; fi
+echo "Not logged in" >&2; exit 1
+"""
+# Signs in from a key on stdin, like `codex login --with-api-key`, and records every argument it was given.
+CODEX_KEY = """#!/bin/sh
+echo "$*" >> "$STUB_ARGS"
+home="${CODEX_HOME:-$HOME/.codex}"
+if [ "$1 $2" = "login --with-api-key" ]; then
+  read key
+  [ "$key" = "sk-good" ] || { echo "Error: invalid key $key" >&2; exit 1; }
+  mkdir -p "$home" && echo "API key sk-..." > "$home/auth.json"; exit 0
+fi
+[ "$1 $2" = "login status" ] || { echo "codex-cli 9.9.9"; exit 0; }
+if [ -f "$home/auth.json" ]; then echo "Logged in using an API key"; exit 0; fi
 echo "Not logged in" >&2; exit 1
 """
 CLAUDE = """#!/bin/sh
@@ -62,6 +77,41 @@ class HeadlessLogin(unittest.TestCase):
         self.assertEqual((row["authenticated"], row["detail"]), ("ready", "Signed in with CLAUDE_CODE_OAUTH_TOKEN"))
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-x"}):
             self.assertEqual(self.readiness("claude")["authenticated"], "ready")
+
+    def codex_key(self, key, bots=("ana",)):
+        """Readiness with `key` as OPENAI_API_KEY in secrets/_shared.env; (row, what the runner printed, argv log)."""
+        args = self.root / "args.log"
+        args.write_text("")
+        self.stub("codex", CODEX_KEY)
+        (self.root / "secrets" / "_shared.env").write_text(f"OPENAI_API_KEY={key}\n")
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"STUB_ARGS": str(args)}), contextlib.redirect_stdout(out):
+            row = self.readiness("codex", bots)
+            again = self.readiness("codex", bots)
+        return row, again, out.getvalue(), args.read_text()
+
+    def test_codex_signs_in_by_itself_with_an_api_key_that_never_reaches_a_command_line_or_a_log(self):
+        row, again, printed, argv = self.codex_key("sk-good")
+        self.assertEqual((row["authenticated"], row["detail"]), ("ready", "Signed in with an API key"))
+        self.assertEqual(again["authenticated"], "ready")
+        self.assertEqual(argv.count("login --with-api-key"), 1)              # once, not on every heartbeat
+        self.assertNotIn("sk-good", argv + printed)
+        self.assertTrue((self.root / "home" / ".codex" / "auth.json").exists())
+
+    def test_a_key_codex_refuses_is_tried_once_and_leaves_the_key_out_of_the_log(self):
+        row, again, printed, argv = self.codex_key("sk-bad")
+        self.assertEqual((row["authenticated"], row["detail"]), ("missing", "Codex login required"))
+        self.assertEqual(argv.count("login --with-api-key"), 1)
+        self.assertIn("failed", printed)
+        self.assertNotIn("sk-bad", argv + printed)
+
+    def test_codex_is_not_signed_in_without_a_codex_bot_or_without_a_key(self):
+        row, _, _, argv = self.codex_key("sk-good", bots=())
+        self.assertEqual(row["authenticated"], "missing")
+        self.assertNotIn("--with-api-key", argv)
+        (self.root / "secrets" / "_shared.env").write_text("")
+        self.assertEqual(self.readiness("codex", ("ana",))["authenticated"], "missing")
+
 
 if __name__ == "__main__":
     unittest.main()

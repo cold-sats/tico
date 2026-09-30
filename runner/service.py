@@ -45,7 +45,11 @@ GEMINI_MODELS = ["gemini-3.8-flash"]
 CLAUDE_AUTH_TIMEOUT_SECONDS = 30
 # Environment variables that sign a CLI in without a browser, checked in this order.
 REJECT_RECHECK_S = 300      # how long a refused key or sign-in is trusted before one turn tries again
-HEADLESS_LOGIN = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), "cursor": ("CURSOR_API_KEY",)}
+HEADLESS_LOGIN = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), "cursor": ("CURSOR_API_KEY",),
+                  "codex": ("OPENAI_API_KEY",)}
+# Codex reads its key from a login, not the environment, so the runner makes the login. A key it could not log in with
+# is not tried again for this long (a heartbeat asks every few seconds), unless the key or the home changes.
+CODEX_LOGIN_RETRY_S = 600
 PROFILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # What a turn calls the company, the application, and the assistant when the server is older
 # than GET /api/v2/config. Tico is the product's own name, which is the honest fallback for an
@@ -929,11 +933,53 @@ class Runner:
         except (OSError, ValueError, TypeError):
             return []
 
-    def headless_login(self, runtime):
-        """The API key or long-lived token that signs `runtime` in without a browser, or "".
+    def headless_secret(self, runtime):
+        """(name, value) of the API key or token that signs `runtime` in without a browser, or ("", "").
         The runner's own environment counts, and so does `secrets/_shared.env`, where bots get it."""
         env = {**os.environ, **self._read_env(Path(self.config["projects_dir"]) / "secrets" / "_shared.env")}
-        return next((name for name in HEADLESS_LOGIN.get(runtime, ()) if env.get(name)), "")
+        for name in HEADLESS_LOGIN.get(runtime, ()):
+            if env.get(name):
+                return name, env[name].strip("\"'")
+        return "", ""
+
+    def headless_login(self, runtime):
+        """The name of the API key or long-lived token that signs `runtime` in without a browser, or ""."""
+        return self.headless_secret(runtime)[0]
+
+    def codex_key_login(self, executable, env):
+        """Sign Codex in with OPENAI_API_KEY (`codex login --with-api-key`), as the user that runs turns.
+        The key goes in on stdin, never in the arguments, and nothing Codex prints is logged with it. Returns
+        whether a login was made; a key that failed is left alone for CODEX_LOGIN_RETRY_S."""
+        name, key = self.headless_secret("codex")
+        if not key:
+            return False
+        home = Path((env or os.environ).get("CODEX_HOME") or Path.home() / ".codex")
+        attempt = (str(home), hashlib.sha256(key.encode()).hexdigest())
+        tried = self.__dict__.setdefault("_codex_key_logins", {})
+        if time.monotonic() - tried.get(attempt, -CODEX_LOGIN_RETRY_S) < CODEX_LOGIN_RETRY_S:
+            return False
+        tried[attempt] = time.monotonic()
+        try:
+            # The bot user owns the login and the supervisor reads it: setgid and group-writable, and the
+            # files Codex writes 0600 are opened up to the group afterwards.
+            isolation.mkdir(home, mode=0o770)
+            if isolation.enabled():
+                isolation.run(["chmod", "2770", str(home)], capture_output=True, timeout=10)
+            done = isolation.run([executable, "login", "--with-api-key"], input=key + "\n", capture_output=True,
+                                 text=True, timeout=30, env=env)
+            if isolation.enabled():
+                files = [str(home / f) for f in ("auth.json", "config.toml") if (home / f).exists()]
+                if files:
+                    isolation.run(["chmod", "g+rw", *files], capture_output=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log(f"Codex sign-in with {name} did not run: {type(exc).__name__}")
+            return False
+        if done.returncode != 0:
+            reason = ((done.stderr or done.stdout or "").strip().splitlines() or [""])[0].replace(key, "***")[:200]
+            log(f"Codex sign-in with {name} failed (exit {done.returncode}): {reason}")
+            return False
+        log(f"Codex signed in with {name}")
+        return True
 
     def runtime_readiness(self, runtime, assignments, profile=None):
         executable = shutil.which(harness_tools.executable_for(runtime)) if runtime in RUNTIMES else None
@@ -944,10 +990,19 @@ class Runner:
             authenticated, detail = "missing", "Runtime executable is not on PATH"
         elif runtime == "codex":
             try:
-                result = isolation.run([executable, "login", "status"], capture_output=True,
-                                        text=True, timeout=8, env=env)
-                output = (result.stdout + "\n" + result.stderr).strip()
-                authenticated = "ready" if result.returncode == 0 and "logged in" in output.lower() else "missing"
+                def status():
+                    result = isolation.run([executable, "login", "status"], capture_output=True,
+                                           text=True, timeout=8, env=env)
+                    output = (result.stdout + "\n" + result.stderr).strip()
+                    return result.returncode == 0 and "logged in" in output.lower(), output
+
+                signed, output = status()
+                # A box with an API key and no browser: sign in once, for the bots that use Codex.
+                if (not signed and profile is None and self.headless_login("codex")
+                        and any((row.get("config") or {}).get("runtime") == "codex" for row in assignments)
+                        and self.codex_key_login(executable, env)):
+                    signed, output = status()
+                authenticated = "ready" if signed else "missing"
                 if authenticated == "ready":
                     # `codex login --device-auth` and `--with-api-key` both leave auth.json in CODEX_HOME.
                     detail = "Signed in with an API key" if "api key" in output.lower() else "Signed in with ChatGPT"

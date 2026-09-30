@@ -57,6 +57,14 @@ separate_users() {
   # The supervisor hands the secrets folder to the bot user before a turn (runner/isolation.py adopt), so after
   # the first turn it is not ticorun's to chmod: give it to the bot user and set its mode as that user.
   chown "$BOT_UID:$SUPERVISOR_GID" "$HOME/workspace/secrets" && as_bot chmod 0770 "$HOME/workspace/secrets"
+  # The Codex login lives in the bot user's setgid, group-writable home, so `codex login` as `bot` works and the
+  # supervisor can still read the 0600 files Codex leaves there (`codex login status`, the model list).
+  local codex_home="${CODEX_HOME:-$HOME/.codex}"
+  if [ ! -L "$codex_home" ]; then
+    # Root has no CAP_FOWNER here, so the modes are set as the owner, after the chown.
+    mkdir -p "$codex_home" && chown -R -h "$BOT_UID:$SUPERVISOR_GID" "$codex_home" \
+      && as_bot chmod -R g+rwX "$codex_home" && as_bot chmod 2770 "$codex_home"
+  fi
   mkdir -p /run/tico-runner && chown "$SUPERVISOR_UID:$SUPERVISOR_GID" /run/tico-runner && as_supervisor chmod 0755 /run/tico-runner
   export TICO_RUNNER_BOT_UID="$BOT_UID" TICO_RUNNER_BOT_GID="$SUPERVISOR_GID"
   exec setpriv --reuid="$SUPERVISOR_UID" --regid="$SUPERVISOR_GID" --clear-groups --inh-caps="$CAPS" --ambient-caps="$CAPS" \
