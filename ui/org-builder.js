@@ -53,7 +53,7 @@ function obCounts(state, finished) {
   const org = state.org, sizes = org.chosen.filter(id => !org.skipped.has(id)).map(id => obPicked(state, id).length);
   return {depts: finished ? sizes.filter(Boolean).length : sizes.length, bots: sizes.reduce((a, b) => a + b, 0)};
 }
-const obStats = (state, finished) => { const {depts, bots} = obCounts(state, finished); return `${obPlural(depts, 'department')} · ${obPlural(bots, 'bot')}`; };
+const obStats = (state, finished) => { const {depts, bots} = obCounts(state, finished); return `${obPlural(depts, 'group')} · ${obPlural(bots, 'bot')}`; };
 // A node animates in the first time it is drawn, never again.
 function obFresh(state, key) {
   if (state.org.seen.has(key)) return '';

@@ -98,7 +98,7 @@ function frBotRowHTML(state, bot, botOps) {
   const bootstrap = bot.slug === assistantBot() || !!card?.bootstrap;
   const ready = !!bot.repository_present, active = bot.status === 'active', parked = ['needs_setup', 'needs_onboarding'].includes(bot.onboarding_state);
   const waiting = frWaiting(state);
-  const where = waiting ? waiting + '.' : bootstrap ? 'Set up automatically once a computer is online.'
+  const where = waiting === 'Add an AI provider' ? '<a href="#/settings" data-fr-providers>Add an AI provider</a>.' : waiting ? waiting + '.' : bootstrap ? 'Set up automatically once a computer is online.'
     : parked ? (ready ? 'Repository ready.' : 'Setting up its repository…')
     : `${esc(botOps)} is setting this up.`;
   return `<div class="onb-bot" data-onb-bot="${esc(bot.slug)}">${avatar(bot.slug, 27)}
@@ -130,6 +130,8 @@ function frNextHTML(state) {
 }
 function frWireDone(state) {
   document.querySelectorAll('[data-fr-start]').forEach(button => button.onclick = () => void frStartSetup(button.dataset.frStart, button));
+  // The link lands on Settings > AI providers, not on whichever tab was open last.
+  document.querySelectorAll('[data-fr-providers]').forEach(link => link.onclick = () => { SETTINGS_TAB = 'providers'; });
 }
 async function frStartSetup(slug, button) {
   if (button) button.disabled = true;

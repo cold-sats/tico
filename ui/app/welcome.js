@@ -190,7 +190,8 @@ function onbStepHTML(state, key) {
 }
 // The UI never learns the environment slug the Mac was created with, so it stays literal here.
 // The label is the one the setup file was written with, so the command and the file agree.
-const onbMachineLabel = state => `${firstName(S.me?.name) || 'This'}'s ${state?.kind === 'linux' ? 'server' : 'Mac'}`;
+const onbMachineLabel = state => state?.kind === 'linux' && S.config?.local ? 'This computer'
+  : `${firstName(S.me?.name) || 'This'}'s ${state?.kind === 'linux' ? 'server' : 'Mac'}`;
 function onbCommands(state) {
   if (state.kind === 'linux') {
     const [run, login, plain] = dockerRunnerCommands(state.code || '<code>', onbMachineLabel(state), state.providers?.default?.runtime);
