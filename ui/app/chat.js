@@ -459,11 +459,18 @@ function v2ChatStream(state) {
       if (V2C !== state) return es.close();
       let d; try {d = JSON.parse(ev.data);} catch {return;}
       state.latestIds = new Set((d.messages || []).map(m => m.id));
-      state.messages = [...(state.older || []).filter(m => !state.latestIds.has(m.id)), ...(d.messages || [])];
+      // A snapshot the server built just before a message of mine landed does not list it yet (it can arrive
+      // after the send, from a stream that was connecting). What I sent stays on the page, and the run the
+      // send started stays live; the next snapshot lists it and this copy drops away.
+      const newest = String((d.messages || []).at(-1)?.created || '');
+      const late = state.mine.filter(m => !state.latestIds.has(m.id) && String(m.created || '') >= newest);
+      state.messages = [...(state.older || []).filter(m => !state.latestIds.has(m.id)), ...(d.messages || []), ...late];
       if (!state.older?.length) state.nextBefore = d.next_before;
       const wasRunning = !!state.live;
-      state.execution = d.execution;
-      state.live = d.execution && d.execution.state !== 'completed' ? {text: d.execution.text} : null;
+      if (!late.length) {
+        state.execution = d.execution;
+        state.live = d.execution && d.execution.state !== 'completed' ? {text: d.execution.text} : null;
+      }
       v2ChatRender(state);
       // A finished turn may have closed or created tasks: show them now, not at the next poll.
       if (wasRunning && !state.live && BOT?.slug === state.slug) {

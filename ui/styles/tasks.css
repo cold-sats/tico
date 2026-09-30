@@ -88,4 +88,4 @@ form.task .hint{font-size:12px}
 .md blockquote{border-left:3px solid var(--line);margin:8px 0;padding:2px 12px;color:var(--muted)}
 details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
 details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;background:var(--surface2);border-radius:6px;max-height:300px;overflow:auto}
-.toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:420px}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:420px;pointer-events:none}

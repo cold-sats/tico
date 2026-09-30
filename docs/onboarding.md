@@ -131,7 +131,7 @@ second). It reaches no computer.
     (`materialize: true` in its config, which only the wizard writes), and the bot is activated as soon as it is placed;
   - the scheduler skips it, and only a human's chat message is claimed for it (a task message, a Slack route, a bot's request or a routine
     waits), so nothing runs until it is set up;
-  - it does not count toward a human's bot limit while parked.
+  - it does not count toward a member's bot limit while parked.
   The built-ins and every other template are not parked.
 - Any other template is created `planned` and gets one task for BotOps, as before. Title: `Set up <Display> from the <template> template`.
   Body: the slug, the template, the display name, the reviewed instructions in a fenced block, and the answers.
@@ -150,7 +150,7 @@ the template's `onboarding` section and `playbooks/onboarding.md`, ask the quest
 tool that reaches another system, file no task and edit no file, never `AGENT.md`. The bot introduces itself, asks the template's questions in one message, writes a first draft from the team's own
 data, and tells the human what its first routine does; starting the setup already switched that routine on. When its answers and first
 result are recorded it calls `hub bot setup-done` (MCP `hub_bot_setup_done`, `POST /api/v2/bots/{bot}/onboarded`). That clears the mark,
-lets its routines run and counts it toward a human's limit. Until then it stays parked and answers humans only.
+lets its routines run and counts it toward a member's limit. Until then it stays parked and answers humans only.
 
 ### After Create: one screen
 
@@ -378,6 +378,6 @@ offer, and the bots screen says so. On a hosted server that means the release di
 
 **A starter does not answer, or a routine never runs.** While it is `needs_setup` it answers only a human's chat message: a task
 message, a Slack route, a bot's request and its routines wait. Press **Set up**, or say anything to it in its chat, and answer its
-questions. When its setup is done it calls `hub bot setup-done`. If it cannot (a human's bot at their limit answers
+questions. When its setup is done it calls `hub bot setup-done`. If it cannot (a member's bot at their limit answers
 `bot_limit`), archive a bot you no longer need or ask an admin to raise the limit in Settings > Humans. An owner or a bot's manager can
 also call `POST /api/v2/bots/{bot}/onboarded` to release a bot whose conversation went wrong.
