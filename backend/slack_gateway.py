@@ -652,7 +652,7 @@ class Gateway:
                 continue
             config = configs.get(row["slug"]) or {}
             out.append({"slug": row["slug"], "name": row["display_name"] or row["slug"],
-                        "team": P.team_of(row["slug"], configs, people.get("teams")),
+                        "team": P.team_of(row["slug"], configs, people),
                         "description": str(config.get("description") or "")[:400],
                         "reports_to": config.get("reports_to")})
         return out

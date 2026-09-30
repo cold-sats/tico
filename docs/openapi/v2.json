@@ -3782,6 +3782,207 @@
         ]
       }
     },
+    "/api/v2/groups": {
+      "get": {
+        "summary": "The groups, nested by `parent`, each with its humans and the bots the caller can see",
+        "operationId": "listGroups",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      },
+      "post": {
+        "summary": "Add a group: a name, an optional parent group and teammates to start with (owners and admins)",
+        "operationId": "createGroup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Group"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Team chart"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/groups/{gid}": {
+      "patch": {
+        "summary": "Rename a group, move it under another (`parent`, empty for the top) and add or remove teammates (owners and admins)",
+        "operationId": "updateGroup",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Group"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      },
+      "delete": {
+        "summary": "Remove a group; the groups and teammates in it move up to its parent (owners and admins)",
+        "operationId": "deleteGroup",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Team chart"
+        ]
+      }
+    },
     "/api/v2/health": {
       "get": {
         "summary": "Checks, computers and failures (people only)",
@@ -9233,6 +9434,150 @@
           "items"
         ],
         "additionalProperties": true
+      },
+      "Group": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "order": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bots",
+          "id",
+          "name",
+          "order",
+          "parent",
+          "people"
+        ],
+        "additionalProperties": true
+      },
+      "GroupCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "add": {
+            "$ref": "#/components/schemas/GroupMembers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "GroupCreate",
+        "description": "A new group: a name, where it nests (a group id; none = top level) and who is in it from the start."
+      },
+      "GroupList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/Group"
+        }
+      },
+      "GroupMembers": {
+        "properties": {
+          "people": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "People"
+          },
+          "bots": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Bots"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GroupMembers",
+        "description": "Teammates of a group: humans by id, bots by slug."
+      },
+      "GroupUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 60,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "add": {
+            "$ref": "#/components/schemas/GroupMembers"
+          },
+          "remove": {
+            "$ref": "#/components/schemas/GroupMembers"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GroupUpdate",
+        "description": "Rename a group, move it under another (`parent`; \"\" = top level), and add or remove teammates. A teammate\nadded to a group leaves the one it was in."
       },
       "Health": {
         "type": "object",

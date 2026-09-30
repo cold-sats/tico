@@ -196,7 +196,7 @@ def install(app, store, auth, mutate, settings):
         with store.read() as c:
             allowed = own_bots(c, who)
             people, configs = views.roster(c), views.entries(c, settings.github_owner)
-            depts = {slug: P.team_of(slug, configs, people["teams"]) or "" for slug in allowed}
+            depts = {slug: P.team_of(slug, configs, people) or "" for slug in allowed}
             names = {row["slug"]: row["display_name"] or row["slug"] for row in H.bots(c)}
             base = {"from": first.isoformat(), "to": last.isoformat(), "prices_as_of": providers.PRICES_AS_OF}
             if bot:

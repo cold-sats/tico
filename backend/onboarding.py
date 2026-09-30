@@ -26,6 +26,7 @@ from . import census, releases, replication, runner_versions, ui_bundle
 from .config import ASSISTANT_NAME
 from . import rooms, routines, statuses
 from . import access as Access
+from . import groups as Groups
 from .store import H, Problem, encode, readiness_document
 
 KEY = "onboarding"
@@ -472,6 +473,9 @@ class Onboarding:
             if row["reports_to"] != parent:
                 self.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(
                     reports_to=parent, expected_revision=row["revision"]))
+        # The team builder builds the chart by group: each bot goes in the group of its template, made if the team
+        # has none yet (backend/groups.py).
+        Groups.place(c, self.settings, list(plan))
         # Completing twice keeps the moment the company actually finished.
         record.update(selected=plan, completed=record["completed"] or H.now())
         self._wire(c, record, who.actor)
@@ -703,7 +707,7 @@ class Onboarding:
         """A person who manages a parked starter says anything to it: its setup has begun, so its first routine
         goes on (`arm_first_routine`). Anyone else's message to it changes nothing."""
         row = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (slug,)).fetchone()
-        if (row and row["onboarding_state"] == NEEDS_ONBOARDING and who.role in ("owner", "human")
+        if (row and row["onboarding_state"] in statuses.PARKED and who.role in ("owner", "human")
                 and (self.auth.bot_manager(c, who, slug) or self.auth.operator(c, who, slug))):
             return self.arm_first_routine(c, who, slug)
         return None

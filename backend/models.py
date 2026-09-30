@@ -643,6 +643,28 @@ class BotCoOwners(Contract):
         return self
 
 
+class GroupMembers(Contract):
+    """Teammates of a group: humans by id, bots by slug."""
+    people: list[ID] = Field(default_factory=list, max_length=200)
+    bots: list[ID] = Field(default_factory=list, max_length=200)
+
+
+class GroupCreate(Contract):
+    """A new group: a name, where it nests (a group id; none = top level) and who is in it from the start."""
+    name: str = Field(min_length=1, max_length=60)
+    parent: ID | None = None
+    add: GroupMembers = Field(default_factory=GroupMembers)
+
+
+class GroupUpdate(Contract):
+    """Rename a group, move it under another (`parent`; "" = top level), and add or remove teammates. A teammate
+    added to a group leaves the one it was in."""
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    parent: str | None = Field(default=None, max_length=200)
+    add: GroupMembers = Field(default_factory=GroupMembers)
+    remove: GroupMembers = Field(default_factory=GroupMembers)
+
+
 class BotDefinitionCreate(Contract):
     slug: Slug
     display_name: str = Field(min_length=1, max_length=100)

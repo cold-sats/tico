@@ -471,7 +471,8 @@ class Auth:
                     parents={r["bot"]: r["reports_to"] or "" for r in c.execute("SELECT bot,reports_to FROM bot_config")})
                 pid = H.actor_id(who.actor)
                 shared["person"] = pid
-                shared["team"] = (P.person(pid, roster) or {}).get("team") or ""
+                own = (P.person(pid, roster) or {}).get("team") or ""
+                shared["team"] = P.group_chain(own, roster) or ([own] if own else [])
             return shared
 
         for slug in (wanted if wanted is not None else rows):
