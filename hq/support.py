@@ -1,17 +1,21 @@
 """Support tickets: what a person writes to the Tico team from their app, and what the team writes back.
 
-    POST /v1/support                       a person files a ticket; the answer is {ticket_id, secret}
-    GET  /v1/support/{ticket_id}           that person's app asks for its status and replies (the ticket's secret)
-    GET  /v1/staff/tickets                 the team lists tickets              (HQ_STAFF_KEY)
-    GET  /v1/staff/tickets/{id}            one ticket with its replies         (HQ_STAFF_KEY)
-    POST /v1/staff/tickets/{id}/reply      a reply the person's app will fetch (HQ_STAFF_KEY)
-    POST /v1/staff/tickets/{id}/status     open, answered or closed            (HQ_STAFF_KEY)
+    POST   /v1/support                     a person files a ticket; the answer is {ticket_id, secret}
+    GET    /v1/support/{ticket_id}         that person's app asks for its status and messages (the ticket's secret)
+    POST   /v1/support/{ticket_id}/messages   the person adds a message to a ticket that is not closed (the secret)
+    DELETE /v1/support/{ticket_id}         the person deletes their ticket (the secret)
+    GET    /v1/staff/tickets               the team lists tickets              (HQ_STAFF_KEY)
+    GET    /v1/staff/tickets/{id}          one ticket with its messages        (HQ_STAFF_KEY)
+    POST   /v1/staff/tickets/{id}/reply    a reply the person's app will fetch (HQ_STAFF_KEY)
+    POST   /v1/staff/tickets/{id}/status   open, answered or closed            (HQ_STAFF_KEY)
+    DELETE /v1/staff/tickets/{id}          delete a ticket on request          (HQ_STAFF_KEY)
 
 A ticket is untrusted text from anyone on the internet. It is validated strictly, stored as plain text and never
 interpreted, and it is never logged. The address of a request is used for rate limiting in memory (limits.py) and
 nowhere else. The ticket's secret is shown once, in the answer to POST; HQ keeps only its SHA-256, so the database
-cannot be used to read another person's replies. Closed tickets are deleted after 90 days and any ticket after 13
-months (`Tickets.purge`). PRIVACY.md is the statement of it; docs/support.md is how the team works the queue.
+cannot be used to read another person's replies. Nothing deletes a ticket by itself: it is kept until the person who
+filed it, or the team on their request, deletes it. PRIVACY.md is the statement of it; docs/support.md is how the team
+works the queue.
 """
 import hashlib
 import hmac
@@ -19,15 +23,14 @@ import json
 import re
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from .limits import Limiter
 
-CLOSED_DAYS = 90
-TICKET_DAYS = 395                 # 13 months, as the install rows
+MAX_MESSAGES = 60                 # a ticket's thread, both sides
 MAX_MESSAGE = 4000
 MAX_REPLY = 8000
 MAX_REQUEST = 16 * 1024           # bytes of a ticket request; a full message is well under this
@@ -52,7 +55,8 @@ CREATE TABLE IF NOT EXISTS tickets(
  email_pending INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
 CREATE TABLE IF NOT EXISTS ticket_replies(
- id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, created TEXT NOT NULL, body TEXT NOT NULL);
+ id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, created TEXT NOT NULL, body TEXT NOT NULL,
+ author TEXT NOT NULL DEFAULT 'staff');
 CREATE INDEX IF NOT EXISTS ticket_replies_ticket ON ticket_replies(ticket_id, id);
 """
 
@@ -117,6 +121,7 @@ class Tickets:
         self.per_install = Limiter(limit=10, window=86400, clock=clock)       # tickets a day from one install id
         self.overall = Limiter(limit=1000, window=86400, clock=clock)         # tickets a day in all: a flood cap
         self.reads = Limiter(limit=600, window=3600, clock=clock)             # a person's app asking for replies
+        self.follow_ups = Limiter(limit=30, window=3600, clock=clock)         # messages added to tickets, per address
         self.staff = Limiter(limit=1200, window=3600, clock=clock)
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
 
@@ -136,31 +141,66 @@ class Tickets:
                 (ticket_id, digest(secret), moment, moment, message, email, install_id, version))
         return ticket_id, secret
 
+    def _owned(self, ticket_id, secret):
+        """The ticket row when `secret` is its secret, else None: the same for an unknown ticket and a wrong secret.
+        Caller holds the lock."""
+        row = self.db.conn.execute("SELECT * FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone()
+        expected = row["key_hash"] if row else digest("no such ticket")
+        return row if hmac.compare_digest(digest(secret), expected) and row else None
+
     def for_person(self, ticket_id, secret):
-        """What the person's app may see: the status and the replies. None for an unknown ticket or a wrong secret,
-        the same answer for both."""
+        """What the person's app may see: the status and the messages. None for an unknown ticket or a wrong secret."""
         with self.db.lock:
-            row = self.db.conn.execute("SELECT * FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone()
-            expected = row["key_hash"] if row else digest("no such ticket")
-            if not hmac.compare_digest(digest(secret), expected) or not row:
+            row = self._owned(ticket_id, secret)
+            if not row:
                 return None
-            replies = self._replies(ticket_id)
+            messages = self._messages(ticket_id)
         return {"ticket_id": ticket_id, "status": row["status"], "created": row["created"],
-                "updated": row["updated"], "replies": replies}
+                "updated": row["updated"], "messages": messages}
+
+    def add_message(self, ticket_id, secret, body):
+        """The person writes again. The ticket reopens if it was answered. Returns the new state, None for an unknown
+        ticket or wrong secret, False for a closed or full one."""
+        moment = stamp(self.now())
+        with self.db.lock:
+            row = self._owned(ticket_id, secret)
+            if not row:
+                return None
+            count = self.db.conn.execute("SELECT count(*) FROM ticket_replies WHERE ticket_id=?", (ticket_id,)).fetchone()[0]
+            if row["status"] == "closed" or count >= MAX_MESSAGES:
+                return False
+            message = self.db.conn.execute("INSERT INTO ticket_replies(ticket_id,created,body,author) VALUES(?,?,?,'person')",
+                                           (ticket_id, moment, body)).lastrowid
+            self.db.conn.execute("UPDATE tickets SET status='open', updated=? WHERE ticket_id=?", (moment, ticket_id))
+        return {"ticket_id": ticket_id, "status": "open", "message_id": message}
+
+    def delete(self, ticket_id, secret=None):
+        """Remove a ticket and its messages, overwritten in the file. With `secret`, only if it is the person's own.
+        Returns whether there was one."""
+        with self.db.lock:
+            if secret is not None and not self._owned(ticket_id, secret):
+                return False
+            self.db.conn.execute("DELETE FROM ticket_replies WHERE ticket_id=?", (ticket_id,))
+            found = self.db.conn.execute("DELETE FROM tickets WHERE ticket_id=?", (ticket_id,)).rowcount
+            if found:
+                self.db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return bool(found)
 
     # ------------------------------------------------------------------ staff
-    def _replies(self, ticket_id):
-        return [{"id": r["id"], "created": r["created"], "body": r["body"]} for r in self.db.conn.execute(
-            "SELECT id,created,body FROM ticket_replies WHERE ticket_id=? ORDER BY id", (ticket_id,))]
+    def _messages(self, ticket_id):
+        return [{"id": r["id"], "created": r["created"], "from": r["author"], "body": r["body"]}
+                for r in self.db.conn.execute(
+                    "SELECT id,created,body,author FROM ticket_replies WHERE ticket_id=? ORDER BY id", (ticket_id,))]
 
     def _staff_view(self, row):
         return {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
                 "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
-                "replies": self._replies(row["ticket_id"])}
+                "messages": self._messages(row["ticket_id"])}
 
     def listing(self, status="", since="", limit=50):
-        """Oldest first, so a caller that remembers the last `updated` it saw misses nothing."""
+        """Oldest activity first, so a caller that remembers the last `updated` it saw misses nothing. A ticket appears
+        again whenever its person writes or the team replies."""
         where, args = [], []
         if status and status != "all":
             where.append("status=?")
@@ -189,7 +229,7 @@ class Tickets:
                 return None
             if row["status"] == "closed":
                 return False
-            reply = self.db.conn.execute("INSERT INTO ticket_replies(ticket_id,created,body) VALUES(?,?,?)",
+            reply = self.db.conn.execute("INSERT INTO ticket_replies(ticket_id,created,body,author) VALUES(?,?,?,'staff')",
                                          (ticket_id, moment, body)).lastrowid
             pending = 1 if row["email"] else 0
             self.db.conn.execute("UPDATE tickets SET status='answered', updated=?, email_pending=? WHERE ticket_id=?",
@@ -208,24 +248,6 @@ class Tickets:
             self.db.conn.execute("UPDATE tickets SET status=?, closed=?, email_pending=?, updated=? WHERE ticket_id=?",
                                  (status, closed, pending, moment, ticket_id))
         return {"ticket_id": ticket_id, "status": status, "email_pending": bool(pending)}
-
-    # ------------------------------------------------------------------ retention
-    def purge(self):
-        """Closed tickets after 90 days, any ticket after 13 months, with their replies. Returns how many tickets."""
-        now = self.now()
-        closed_cutoff = stamp(now - timedelta(days=CLOSED_DAYS))
-        old_cutoff = stamp(now - timedelta(days=TICKET_DAYS))
-        with self.db.lock:
-            ids = [r[0] for r in self.db.conn.execute(
-                "SELECT ticket_id FROM tickets WHERE created<? OR (status='closed' AND closed<?)",
-                (old_cutoff, closed_cutoff))]
-            for ticket_id in ids:
-                self.db.conn.execute("DELETE FROM ticket_replies WHERE ticket_id=?", (ticket_id,))
-                self.db.conn.execute("DELETE FROM tickets WHERE ticket_id=?", (ticket_id,))
-            # Free the deleted text from the file, not only from the table.
-            if ids:
-                self.db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        return len(ids)
 
 
 # ---------------------------------------------------------------------- the routes
@@ -254,7 +276,7 @@ async def read_json(request, limit):
 
 
 def install(app, tickets, address, staff_key=""):
-    """Add the six routes. `address(request)` is who is asking, for the rate limits only."""
+    """Add the routes. `address(request)` is who is asking, for the rate limits only."""
     key_digest = digest(staff_key) if staff_key else ""
 
     @app.post("/v1/support")
@@ -283,6 +305,36 @@ def install(app, tickets, address, staff_key=""):
         if TICKET_ID.fullmatch(ticket_id) and SECRET.fullmatch(secret):
             found = tickets.for_person(ticket_id, secret)
         return no_store(found) if found else refuse("not_found", 404)
+
+    def secret_of(request, ticket_id):
+        secret = request.headers.get("x-ticket-secret") or request.query_params.get("secret") or ""
+        return secret if TICKET_ID.fullmatch(ticket_id) and SECRET.fullmatch(secret) else ""
+
+    @app.post("/v1/support/{ticket_id}/messages")
+    async def person_writes(request: Request, ticket_id: str):
+        if not tickets.follow_ups.allow(address(request)):
+            return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
+        status, data = await read_json(request, MAX_REQUEST)
+        if status != 200:
+            return refuse(data, status)
+        try:
+            if not isinstance(data, dict) or set(data) != {"message"}:
+                raise Invalid("fields")
+            body = text(data["message"], "message", MAX_MESSAGE)
+        except Invalid as bad:
+            return refuse("invalid", 422, field=bad.field)
+        secret = secret_of(request, ticket_id)
+        done = tickets.add_message(ticket_id, secret, body) if secret else None
+        if done is None:
+            return refuse("not_found", 404)
+        return no_store(done, 201) if done else refuse("closed", 409)
+
+    @app.delete("/v1/support/{ticket_id}")
+    def person_deletes(request: Request, ticket_id: str):
+        if not tickets.reads.allow(address(request)):
+            return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
+        secret = secret_of(request, ticket_id)
+        return no_store({"deleted": True}) if secret and tickets.delete(ticket_id, secret) else refuse("not_found", 404)
 
     def staff_only(request):
         """None when the caller holds the staff key, else the refusal. With no key configured the routes do not exist."""
@@ -322,6 +374,13 @@ def install(app, tickets, address, staff_key=""):
             return denied
         found = tickets.show(ticket_id) if known(ticket_id) else None
         return no_store(found) if found else refuse("not_found", 404)
+
+    @app.delete("/v1/staff/tickets/{ticket_id}")
+    def staff_delete(request: Request, ticket_id: str):
+        denied = staff_only(request)
+        if denied:
+            return denied
+        return no_store({"deleted": True}) if known(ticket_id) and tickets.delete(ticket_id) else refuse("not_found", 404)
 
     @app.post("/v1/staff/tickets/{ticket_id}/reply")
     async def staff_reply(request: Request, ticket_id: str):

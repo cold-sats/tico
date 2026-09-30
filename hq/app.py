@@ -57,7 +57,6 @@ def create_app(db, latest, limiter=None, client_ip_header="", staff_key="", tick
     async def purge_daily():
         while True:
             await asyncio.to_thread(db.purge)
-            await asyncio.to_thread(tickets.purge)
             await asyncio.sleep(PURGE_EVERY)
 
     @asynccontextmanager

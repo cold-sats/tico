@@ -1,5 +1,5 @@
-"""HQ support tickets: strict input, per-ticket secrets, staff-only routes, replies the install can fetch, no body in a
-log, and retention."""
+"""HQ support tickets: strict input, per-ticket secrets, staff-only routes, replies the install can fetch, messages from
+the person, no body in a log, and no automatic deletion."""
 
 import logging
 import uuid
@@ -111,8 +111,8 @@ def test_the_person_reads_status_and_replies_with_the_right_secret_only(client):
     made = file(client).json()
     url = "/v1/support/" + made["ticket_id"]
     ok = client.get(url, headers={"X-Ticket-Secret": made["secret"]})
-    assert ok.status_code == 200 and ok.json()["status"] == "open" and ok.json()["replies"] == []
-    assert set(ok.json()) == {"ticket_id", "status", "created", "updated", "replies"}    # no message, email or install id
+    assert ok.status_code == 200 and ok.json()["status"] == "open" and ok.json()["messages"] == []
+    assert set(ok.json()) == {"ticket_id", "status", "created", "updated", "messages"}    # no email or install id
     assert client.get(url + "?secret=" + made["secret"]).status_code == 200
     other = file(client).json()
     for wrong in ({"X-Ticket-Secret": "w" * 32}, {"X-Ticket-Secret": other["secret"]}, {"X-Ticket-Secret": "short"}, {}):
@@ -164,11 +164,11 @@ def test_staff_list_filters_and_a_reply_reaches_the_install(client, moment):
     assert reply.json() == {"ticket_id": first["ticket_id"], "status": "answered", "reply_id": 1, "email_pending": True}
     assert client.get("/v1/staff/tickets?status=open", headers=staff()).json()["tickets"][0]["ticket_id"] == second["ticket_id"]
     shown = client.get("/v1/staff/tickets/" + first["ticket_id"], headers=staff()).json()
-    assert shown["status"] == "answered" and shown["email_pending"] is True and len(shown["replies"]) == 1
+    assert shown["status"] == "answered" and shown["email_pending"] is True and len(shown["messages"]) == 1
 
     seen = client.get("/v1/support/" + first["ticket_id"], headers={"X-Ticket-Secret": first["secret"]}).json()
-    assert seen["status"] == "answered" and seen["replies"][0]["body"] == "Try the latest release.\n<b>not html</b>"
-    assert seen["replies"][0]["created"] == "2026-11-01T12:15:00Z"
+    assert seen["status"] == "answered" and seen["messages"][0]["body"] == "Try the latest release.\n<b>not html</b>"
+    assert seen["messages"][0]["created"] == "2026-11-01T12:15:00Z" and seen["messages"][0]["from"] == "staff"
     # A ticket with no email address is never "email pending".
     quiet = client.post("/v1/staff/tickets/%s/reply" % second["ticket_id"], headers=staff(), json={"body": "ok"})
     assert quiet.json()["email_pending"] is False
@@ -201,29 +201,50 @@ def test_no_ticket_text_or_address_reaches_a_log(client, caplog, tmp_path):
         assert needle not in logged
 
 
-def test_closed_tickets_go_after_90_days_and_any_after_13_months(db, tickets, moment):
-    def make(days_ago, status="open", closed_days_ago=None):
-        moment[0] = NOW - timedelta(days=days_ago)
-        ticket_id, _ = tickets.create("text", None, None, None)
-        tickets.reply(ticket_id, "answer")
-        if status == "closed":
-            moment[0] = NOW - timedelta(days=closed_days_ago)
-            tickets.set_status(ticket_id, "closed")
-        return ticket_id
-    fresh = make(5)
-    old_open = make(200)
-    closed_recent = make(120, "closed", 30)
-    closed_stale = make(120, "closed", 91)
-    ancient = make(396)
-    moment[0] = NOW
-    assert tickets.purge() == 2
-    left = {r[0] for r in db.conn.execute("SELECT ticket_id FROM tickets")}
-    assert left == {fresh, old_open, closed_recent}
-    assert {r[0] for r in db.conn.execute("SELECT DISTINCT ticket_id FROM ticket_replies")} == left
-    assert closed_stale not in left and ancient not in left
-    # Reopening a closed ticket forgets the day it was closed.
-    tickets.set_status(closed_recent, "open")
-    assert db.conn.execute("SELECT closed FROM tickets WHERE ticket_id=?", (closed_recent,)).fetchone()[0] is None
+def test_the_person_can_write_again_until_it_is_closed_and_the_team_sees_it(client, moment):
+    made = file(client, "first", email="ana@acme.example").json()
+    url, mine = "/v1/support/" + made["ticket_id"], {"X-Ticket-Secret": made["secret"]}
+    client.post("/v1/staff/tickets/%s/reply" % made["ticket_id"], headers=staff(), json={"body": "Did you restart?"})
+    moment[0] += timedelta(minutes=3)
+    r = client.post(url + "/messages", headers=mine, json={"message": "Yes, and it still fails."})
+    assert r.status_code == 201 and r.json()["status"] == "open"
+    seen = client.get(url, headers=mine).json()
+    assert seen["status"] == "open" and [(m["from"], m["body"]) for m in seen["messages"]] == [
+        ("staff", "Did you restart?"), ("person", "Yes, and it still fails.")]
+    # The team's list shows it again, later than before, so a poller with a cursor sees the new message.
+    again = client.get("/v1/staff/tickets?since=2026-11-01T12:00:30Z", headers=staff()).json()["tickets"]
+    assert again[0]["ticket_id"] == made["ticket_id"] and again[0]["messages"][1]["from"] == "person"
+    for bad in ({}, {"message": ""}, {"message": "x" * 4001}, {"message": "a", "extra": 1}, {"message": "\x00"}):
+        assert client.post(url + "/messages", headers=mine, json=bad).status_code == 422
+    assert client.post(url + "/messages", headers={"X-Ticket-Secret": "w" * 32}, json={"message": "hi"}).status_code == 404
+    assert client.post(url + "/messages", json={"message": "hi"}).status_code == 404
+    client.post("/v1/staff/tickets/%s/status" % made["ticket_id"], headers=staff(), json={"status": "closed"})
+    assert client.post(url + "/messages", headers=mine, json={"message": "one more"}).status_code == 409
+
+
+def test_nothing_deletes_a_ticket_by_itself_and_the_person_or_the_team_can(db, client, moment, tmp_path):
+    old = file(client, "old").json()
+    client.post("/v1/staff/tickets/%s/reply" % old["ticket_id"], headers=staff(), json={"body": "answer"})
+    client.post("/v1/staff/tickets/%s/status" % old["ticket_id"], headers=staff(), json={"status": "closed"})
+    moment[0] += timedelta(days=800)                    # long past 90 days, and past 13 months
+    assert db.purge() == 0                              # the install rows' 13 months do not touch tickets
+    assert len(client.get("/v1/staff/tickets?status=closed", headers=staff()).json()["tickets"]) == 1
+    assert client.get("/v1/support/" + old["ticket_id"], headers={"X-Ticket-Secret": old["secret"]}).status_code == 200
+
+    mine, theirs = file(client, SECRET_TEXT).json(), file(client, "someone else").json()
+    url = "/v1/support/" + mine["ticket_id"]
+    assert client.delete(url, headers={"X-Ticket-Secret": theirs["secret"]}).status_code == 404     # not with another's secret
+    assert client.delete(url).status_code == 404
+    assert client.delete(url, headers={"X-Ticket-Secret": mine["secret"]}).json() == {"deleted": True}
+    assert client.get(url, headers={"X-Ticket-Secret": mine["secret"]}).status_code == 404
+    assert not any(SECRET_TEXT.encode() in f.read_bytes() for f in tmp_path.glob("hq.db*"))    # overwritten, not unlinked
+
+    assert client.delete("/v1/staff/tickets/" + theirs["ticket_id"]).status_code == 401
+    assert client.delete("/v1/staff/tickets/" + theirs["ticket_id"], headers=staff()).json() == {"deleted": True}
+    assert client.delete("/v1/staff/tickets/" + theirs["ticket_id"], headers=staff()).status_code == 404
+    assert db.conn.execute("SELECT count(*) FROM tickets").fetchone()[0] == 1
+    assert db.conn.execute("SELECT count(*) FROM ticket_replies WHERE ticket_id IN (?,?)",
+                           (mine["ticket_id"], theirs["ticket_id"])).fetchone()[0] == 0
 
 
 def test_the_existing_request_limit_does_not_apply_to_polling_and_still_holds_elsewhere(db, tickets):
