@@ -75,7 +75,8 @@ def test_botops_borrows_only_the_rights_of_the_request_it_is_working_on(api):
     body = {"name": "Borrowed", "kind": "password", "secret": "synthetic-borrowed-1"}
     post(api, "credentials", {**body, "on_behalf_of": other["id"]}, botops["token"], expected=403)
     here = post(api, "chat/botops", {"text": "Add to credentials"})
-    post(api, "credentials", {**body, "on_behalf_of": here["id"]}, botops["token"], expected=503)
+    # The request it is working on is its to cite: the owner's own rights allow it (the vault is ready with no setup).
+    post(api, "credentials", {**body, "on_behalf_of": here["id"]}, botops["token"])
 
 
 def test_a_server_runner_credential_does_not_read_as_its_operator(api):

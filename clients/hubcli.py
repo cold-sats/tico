@@ -210,6 +210,11 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub credential set <ENV> --for-bot B [--name N] [--kind K] [--username U] [--no-redact]
                                            store a secret a person gave you (read from stdin, never the command line)
     hub credential list                    names, variables and which bots have each; never a value
+    hub credential grant <name> --to <bot>       give a bot a stored credential (a credential admin; a bot has only what is granted)
+    hub credential revoke <name> --from <bot>    take it away again
+    hub credential import <VAR> --from-bot <bot> [--name N] [--wait S]
+                                           move one variable from that bot's own secrets file into Credentials, granted to
+                                           that bot: its computer sends the value itself, it is never shown
     hub support file "<message>"           tell the Tico team about a gap or fault (a Confirm card first)
     hub grokbot sync --file f.json         sync your Grok Bots into Tico
 
@@ -1135,6 +1140,21 @@ def parser():
     s.add_argument("--no-redact", dest="no_redact", action="store_true", help="leave the pasted words in the chat")
     s.set_defaults(fn="credential set")
     cred.add_parser("list", help="names, variables and which bots have each; never a value").set_defaults(fn="credential list")
+    s = cred.add_parser("grant", help="give a bot a stored credential")
+    s.add_argument("credential", help="its name in Credentials (or its variable's name)")
+    s.add_argument("--to", dest="to_bot", required=True, metavar="BOT")
+    s.set_defaults(fn="credential grant")
+    s = cred.add_parser("revoke", help="take a stored credential away from a bot")
+    s.add_argument("credential")
+    s.add_argument("--from", dest="from_bot", required=True, metavar="BOT")
+    s.set_defaults(fn="credential revoke")
+    s = cred.add_parser("import", help="move one variable from a bot's own secrets file into Credentials, granted to that bot")
+    s.add_argument("env", metavar="VAR", help="the variable's name, like JIRA_BASIC_AUTH")
+    s.add_argument("--from-bot", dest="from_bot", required=True, metavar="BOT")
+    s.add_argument("--name", help="what to call it in Credentials; the variable's name by default")
+    s.add_argument("--kind", choices=["api_key", "token", "password", "connection"])
+    s.add_argument("--wait", type=int, help="seconds to wait for the computer to answer (30; at most 60)")
+    s.set_defaults(fn="credential import")
     support = sub.add_parser("support", help="tell the Tico team about a gap or a fault").add_subparsers(dest="sub")
     s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
     s.add_argument("message")

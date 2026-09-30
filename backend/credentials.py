@@ -3,6 +3,8 @@ import hashlib
 import hmac
 import json
 import os
+import threading
+from pathlib import Path
 from typing import Literal
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -32,7 +34,18 @@ def administrator(c, who, admins):
 
 def require_admin(c, who, admins):
     if not administrator(c, who, admins):
-        raise Problem('forbidden', 'Only a credential administrator may authorize this change', 403)
+        raise Problem('forbidden', ask_admin_detail(c, admins, 'authorize this change'), 403)
+
+
+def admin_names(c, admins):
+    """Who to ask: the credential administrators' names."""
+    rows = c.execute('SELECT name,email FROM humans').fetchall()
+    return [r['name'] or r['email'] for r in rows if (r['email'] or '').lower() in set(admins)]
+
+
+def ask_admin_detail(c, admins, what):
+    names = admin_names(c, admins)
+    return f'Only a credential administrator can {what}' + ('. Ask ' + ', '.join(names[:3]) if names else '')
 
 
 def effective_grant(c, credential, subject):
@@ -74,33 +87,89 @@ class CredentialGrant(Contract):
     on_behalf_of: ID | None = None
 
 
+LOCAL = 'local'                                   # `credential_keys.kms_key` for a data key kept in a file
+KEY_CHECK = b'tico-credential-key-check:v1'       # what the row keeps of a local key: proof of it, never the key
+KEY_FILE = 'credential.key'
+_key_file_lock = threading.Lock()
+
+
 class CredentialCipher:
-    def __init__(self, key_id, kms=None):
-        self.key_id, self.kms = key_id, kms
+    """One AES-256 data key encrypts every credential. With `key_id` (TICO_CREDENTIAL_KMS_KEY) it is an AWS KMS data key and
+    only its wrapped form is in the database. Without one it is 32 random bytes in `key_file` (mode 0600, beside the database
+    on the server's data volume), generated on first use: the database alone then cannot decrypt a credential."""
+
+    def __init__(self, key_id, kms=None, key_file=None):
+        self.key_id, self.kms, self.key_file = key_id, kms, Path(key_file) if key_file else None
         self.cached = None
 
+    @property
+    def configured(self):
+        return bool(self.key_id or self.key_file)
+
+    @property
+    def storage(self):
+        return 'kms' if self.key_id else 'local' if self.key_file else ''
+
+    def file_key(self, create):
+        """The local data key; made (once, never overwritten) only when `create` says nothing was ever encrypted with one."""
+        path = self.key_file
+        with _key_file_lock:
+            try:
+                data = path.read_bytes()
+            except FileNotFoundError:
+                if not create:
+                    raise Problem('vault_unavailable', f'The credential key file ({path.name}) is missing from the data volume: '
+                                  'restore it from the backup that was made with this database', 503) from None
+                path.parent.mkdir(parents=True, exist_ok=True)
+                data = os.urandom(32)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, 'wb') as out:
+                    out.write(data)
+            if len(data) != 32:
+                raise Problem('vault_unavailable', f'The credential key file ({path.name}) is not a valid key', 503)
+            if path.stat().st_mode & 0o077:
+                path.chmod(0o600)
+        return data
+
+    def local_key(self, c, row):
+        if row and row['kms_key'] != LOCAL:
+            raise Problem('vault_unavailable', 'Credentials here were stored under an AWS KMS key: set TICO_CREDENTIAL_KMS_KEY again', 503)
+        key = self.file_key(create=not row)
+        check = hmac.new(key, KEY_CHECK, hashlib.sha256).digest()
+        if row and not hmac.compare_digest(bytes(row['wrapped_key']), check):
+            raise Problem('vault_unavailable', 'The credential key file does not belong to this database', 503)
+        if not row:
+            c.execute('INSERT INTO credential_keys VALUES(?,?,?)', ('v1', LOCAL, check))
+        return key
+
+    def kms_key(self, c, row):
+        if self.kms is None:
+            import boto3
+            self.kms = boto3.client('kms')
+        if row and row['kms_key'] == LOCAL:
+            # Credentials saved before a KMS key was set: wrap the same key with KMS, so nothing is re-encrypted.
+            key = self.local_key(c, row)
+            wrapped = self.kms.encrypt(KeyId=self.key_id, Plaintext=key, EncryptionContext=CONTEXT)['CiphertextBlob']
+            c.execute("UPDATE credential_keys SET kms_key=?,wrapped_key=? WHERE id='v1'", (self.key_id, wrapped))
+            return key
+        if row:
+            if row['kms_key'] != self.key_id:
+                raise ValueError('Unexpected wrapping key')
+            return self.kms.decrypt(KeyId=self.key_id, CiphertextBlob=row['wrapped_key'], EncryptionContext=CONTEXT)['Plaintext']
+        generated = self.kms.generate_data_key(KeyId=self.key_id, KeySpec='AES_256', EncryptionContext=CONTEXT)
+        c.execute('INSERT INTO credential_keys VALUES(?,?,?)', ('v1', self.key_id, generated['CiphertextBlob']))
+        return generated['Plaintext']
+
     def key(self, c):
-        if not self.key_id:
+        if not self.configured:
             raise Problem('vault_unavailable', 'Credential encryption is not configured', 503)
         if self.cached is not None:
             return self.cached
         try:
-            if self.kms is None:
-                import boto3
-                self.kms = boto3.client('kms')
             row = c.execute("SELECT * FROM credential_keys WHERE id='v1'").fetchone()
-            if row:
-                if row['kms_key'] != self.key_id:
-                    raise ValueError('Unexpected wrapping key')
-                key = self.kms.decrypt(KeyId=self.key_id, CiphertextBlob=row['wrapped_key'],
-                                       EncryptionContext=CONTEXT)['Plaintext']
-            else:
-                generated = self.kms.generate_data_key(KeyId=self.key_id, KeySpec='AES_256', EncryptionContext=CONTEXT)
-                key = generated['Plaintext']
-                c.execute('INSERT INTO credential_keys VALUES(?,?,?)', ('v1', self.key_id, generated['CiphertextBlob']))
+            key = self.kms_key(c, row) if self.key_id else self.local_key(c, row)
             if len(key) != 32:
                 raise ValueError('Invalid data key')
-            # No secret or data key is persisted outside the KMS-encrypted DB record.
             # Cache only keys already persisted by a previous transaction. A new key must
             # not survive in memory if the surrounding creation transaction rolls back.
             if row:
@@ -128,7 +197,12 @@ class CredentialCipher:
 class Vault:
     def __init__(self, store, cipher=None):
         self.store = store
-        self.cipher = cipher or CredentialCipher(store.settings.credential_kms_key)
+        self.cipher = cipher or CredentialCipher(store.settings.credential_kms_key,
+                                                 key_file=Path(store.settings.db_path).parent / KEY_FILE)
+
+    @property
+    def configured(self):
+        return self.cipher.configured
 
     @property
     def admins(self):
@@ -209,7 +283,8 @@ class Vault:
         # A bot's owners (its creator and co-owners, and its operator) attach credentials they hold themselves.
         if not parent or not bot or (bot['operator'] != H.actor_id(who.actor)
                                      and H.actor_id(who.actor) not in owner_ids(bot['bot_owners_json'])):
-            raise Problem('forbidden', 'You may attach granted credentials only to bots you manage', 403)
+            raise Problem('forbidden', ask_admin_detail(c, self.admins, 'give a bot a credential')
+                          + (', or give a bot you manage a credential you were granted' if not parent else ''), 403)
         return parent['id']
 
     def grant(self, c, who, cid, subject):
@@ -230,7 +305,13 @@ class Vault:
             raise Problem('subject','Choose a registered person or bot',422)
         old=effective_grant(c,cid,subject)
         if old and (parent is not None or old['parent_id'] is None):
-            return {'id':old['id'],'subject':subject}
+            return {'id':old['id'],'subject':subject,'credential':row['name'],'env':row['env']}
+        if subject.startswith('bot:') and row['env']:
+            # A run gets one value per variable: a bot with another credential under the same name must give it up first.
+            for other in c.execute('SELECT id,name FROM credentials WHERE env=? AND id!=? AND ciphertext IS NOT NULL',(row['env'],cid)):
+                if effective_grant(c,other['id'],subject):
+                    raise Problem('env_in_use',f"{H.actor_id(subject)} already has {other['name']} for {row['env']}; take that away from it first "
+                                  'so a run has only one',409)
         # Replace expired delegated rows, or promote a delegated grant to direct admin authorization.
         c.execute('UPDATE credential_grants SET revoked=?,revoked_by=? WHERE credential_id=? AND subject=? AND revoked IS NULL',
                   (H.now(),who.actor,cid,subject))
@@ -238,7 +319,7 @@ class Vault:
         c.execute('INSERT INTO credential_grants(id,credential_id,subject,granted_by,parent_id,created) VALUES(?,?,?,?,?,?)',
                   (gid,cid,subject,who.actor,parent,H.now()))
         H.event(c,who.actor,'credential.granted',cid,{'grant':gid,'subject':subject,'parent':parent})
-        return {'id':gid,'subject':subject}
+        return {'id':gid,'subject':subject,'credential':row['name'],'env':row['env']}
 
     def reveal(self,c,who,cid):
         validate_identity(c,who)
@@ -277,7 +358,7 @@ def install_credentials(app,store,delegate=None,propose=None):
         who=acting(request,None,on_behalf_of) if on_behalf_of else request.state.identity
         with store.read() as c:
             if who.role not in ('human','owner') or not can_open(c,who,vault.admins):
-                raise Problem('forbidden','A credential administrator must grant you access',403)
+                raise Problem('forbidden',ask_admin_detail(c,vault.admins,'share credentials, or grant you access to one'),403)
             admin=administrator(c,who,vault.admins)
             rows=[]
             for row in c.execute('SELECT * FROM credentials ORDER BY lower(name),id'):
@@ -289,7 +370,7 @@ def install_credentials(app,store,delegate=None,propose=None):
             people=[dict(r) for r in c.execute('SELECT id,name,email FROM humans ORDER BY name')] if admin else []
             bots=[dict(r) for r in c.execute('SELECT b.slug AS id,b.display_name AS name,bc.operator FROM bots b JOIN bot_config bc ON bc.bot=b.slug ORDER BY b.display_name')
                   if admin or r['operator']==H.actor_id(who.actor)]
-            return {'credentials':rows,'can_manage':admin,'people':people,'bots':bots,'configured':bool(store.settings.credential_kms_key)}
+            return {'credentials':rows,'can_manage':admin,'people':people,'bots':bots,'configured':vault.configured,'key_storage':vault.cipher.storage}
 
     @app.post('/api/v2/credentials')
     def create(request:Request,body:CredentialWrite):
@@ -312,15 +393,18 @@ def install_credentials(app,store,delegate=None,propose=None):
     def grant(request:Request,cid:str,body:CredentialGrant):
         who=acting(request,body)
         if who.via=='botops' and not who.confirmed and propose:
-            # Giving a bot a stored credential is a tool registration on a shared or another bot's secret:
-            # through BotOps it is always the requester's own click.
+            # BotOps giving a bot a stored credential for a credential administrator who asked in chat runs at once, as
+            # them: their own rights allow it, and a bot only ever gets what is explicitly granted to it. Anyone else is
+            # refused here in plain words (`grant_authority`); a click stays for a person's access, every computer's, and
+            # a holder passing on what they were granted.
             with store.transaction() as c:
                 validate_identity(c,who)
                 vault.grant_authority(c,who,cid,body.subject)
-                name=vault.row(c,cid)['name']
-                return propose(c,who,'POST',request.url.path,{'subject':body.subject},
-                               f"Give every computer the stored credential {name}, to sign its model in" if body.subject==COMPUTERS
-                               else f"Give {body.subject} the stored credential {name}")
+                if not (body.subject.startswith('bot:') and administrator(c,who,vault.admins)):
+                    name=vault.row(c,cid)['name']
+                    return propose(c,who,'POST',request.url.path,{'subject':body.subject},
+                                   f"Give every computer the stored credential {name}, to sign its model in" if body.subject==COMPUTERS
+                                   else f"Give {body.subject} the stored credential {name}")
         return vault.change(who,request.url.path,request.headers.get('idempotency-key'),body,
                             lambda c,w:vault.grant_authority(c,w,cid,body.subject),lambda c:vault.grant(c,who,cid,body.subject))
 

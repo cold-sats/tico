@@ -28,8 +28,9 @@ def _routes(*rows):
 
 
 # Runs at once, as the person. Some of these keep their own "always a click" rule inside the route (adding someone
-# outside the team's domain, a role, a credential grant, a computer that does not take members' bots): the route
-# answers with the card.
+# outside the team's domain, a role, a computer that does not take members' bots): the route answers with the card.
+# A credential grant to a bot runs at once when the person is a credential administrator and is refused, with who to
+# ask, when they are not; only a grant to a person or to every computer is a card (backend/credentials.py).
 DO = _routes(
     ("POST", r"bots"), ("POST", r"bots/register"),
     ("POST", rf"bots/{_S}/(definition|assignment|placement|place|go-live|model|fallback|transitions|control|owners|co-owners|"

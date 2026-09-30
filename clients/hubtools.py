@@ -1445,6 +1445,89 @@ def credential_list(api, args):
                             for c in listing.get("credentials", [])]}
 
 
+def _credential_of(listing, ref):
+    """The one credential `ref` names (its name, its id or its variable) among the ones this person may see."""
+    want = str(ref or "").strip().lower()
+    rows = listing.get("credentials", [])
+    hits = ([r for r in rows if want in (str(r.get("id")).lower(), str(r.get("name")).lower())]
+            or [r for r in rows if str(r.get("env") or "").lower() == want])
+    if not hits:
+        raise APIError("not_found", f"No credential named {ref}. `hub credential list` shows the ones you may see; "
+                                    "to move one out of a bot's own secrets file first: `hub credential import <VARIABLE> --from-bot <bot>`")
+    if len(hits) > 1:
+        raise APIError("ambiguous", f"More than one credential matches {ref}: " + ", ".join(str(r.get("name")) for r in hits)
+                       + ". Name one of them.")
+    return hits[0]
+
+
+def _bot_of_credentials(listing, ref):
+    """A bot's slug from its slug or its name, among the bots this person may give credentials to."""
+    want = str(ref or "").strip().lower()
+    for bot in listing.get("bots", []):
+        if want in (str(bot.get("id")).lower(), str(bot.get("name")).lower()):
+            return bot["id"]
+    return str(ref or "").strip()
+
+
+@tool("hub_credential_grant", "Give a bot a stored credential, as the person who asked you (a credential administrator): from then "
+      "on every run of that bot has it as its variable. A bot never uses a credential that was not granted to it. Safe to repeat. "
+      "Never copy a value from one bot to another: if the credential is only in another bot's own secrets file, "
+      "hub_credential_import it first. Then run the bot's own read-only check of the connection. A member who is not a "
+      "credential administrator is refused, with who to ask.",
+      {"credential": _s("The credential's name (or its variable's name)"), "to_bot": _s("The bot's slug or name")},
+      required=("credential", "to_bot"), writes=True)
+def credential_grant(api, args):
+    person = _as_person(api)
+    listing = person.get("credentials")
+    row = _credential_of(listing, args["credential"])
+    bot = _bot_of_credentials(listing, args["to_bot"])
+    given = person.post(f"credentials/{row['id']}/grants", {"subject": "bot:" + bot}, key=_key(args))
+    return {"credential": row.get("name"), "env": row.get("env"), "bot": bot, **{k: v for k, v in given.items() if k != "subject"}}
+
+
+@tool("hub_credential_revoke", "Take a stored credential away from a bot, as the person who asked you (a credential administrator). "
+      "Its next run no longer has it. Safe to repeat.",
+      {"credential": _s("The credential's name (or its variable's name)"), "from_bot": _s("The bot's slug or name")},
+      required=("credential", "from_bot"), writes=True)
+def credential_revoke(api, args):
+    person = _as_person(api)
+    listing = person.get("credentials")
+    row = _credential_of(listing, args["credential"])
+    bot = _bot_of_credentials(listing, args["from_bot"])
+    grants = [g for g in row.get("grants", []) if g.get("subject") == "bot:" + bot]
+    for grant in grants:
+        person.post(f"credentials/{row['id']}/grants/{grant['id']}/revoke", {}, key=_key(args, ":" + str(grant["id"])))
+    return {"credential": row.get("name"), "env": row.get("env"), "bot": bot, "revoked": len(grants)}
+
+
+@tool("hub_credential_import", "Move one variable a bot keeps in its own secrets file (secrets/<bot>.env on its computer) into "
+      "Credentials, granted to that bot, as the person who asked you (a credential administrator). The bot's computer reads the "
+      "value and sends it to the server itself: you never see it, and the bot keeps working as before. Afterwards "
+      "hub_credential_grant can give it to other bots. Waits up to `wait` seconds for the computer to answer; run it again to keep waiting.",
+      {"env": _s("The variable's name in that bot's file, like JIRA_BASIC_AUTH"), "from_bot": _s("The bot whose file has it"),
+       "name": _s("What to call it in Credentials; the variable's name by default"),
+       "kind": _s("api_key, token, password or connection", enum=["api_key", "token", "password", "connection"]),
+       "wait": {"type": "integer", "default": 30, "description": "Seconds to wait for the computer (at most 60)"}},
+      required=("env", "from_bot"), writes=True)
+def credential_import(api, args):
+    import time
+    person = _as_person(api)
+    bot = _bot_of_credentials(person.get("credentials"), args["from_bot"])
+    asked = _for_person(api)
+    body = {"env": args["env"], "bot": bot, **{k: args[k] for k in ("name", "kind") if args.get(k)}, **asked}
+    row = api.post("credential-imports", body, key=_key(args))
+    deadline = time.monotonic() + max(0, min(int(args.get("wait") if args.get("wait") is not None else 30), 60))
+    while row.get("state") == "requested" and time.monotonic() < deadline:
+        time.sleep(2)
+        row = api.get(f"credential-imports/{row['id']}", **asked)
+    if row.get("state") == "failed":
+        raise APIError("import_failed", row.get("message") or "The computer could not read it")
+    done = row.get("state") == "done"
+    return {"state": row.get("state") if done else "waiting", "env": args["env"], "bot": bot, "credential_id": row.get("credential_id"),
+            "detail": ("Stored in Credentials and granted to " + bot + ". Its own file is unchanged." if done else
+                       "Its computer has not answered yet; run the same command again to keep waiting.")}
+
+
 @tool("hub_message_redact", "Take a secret out of a message the person sent, replacing it with a mark. Only the writer, or a "
       "credential admin. hub_credential_set already does this for the message you were woken with.",
       {"message_id": _s("The message's id"), "value": _s("The secret text to remove"), "label": _s("What it was saved as")},
@@ -1999,6 +2082,7 @@ AUDIENCE = {
     "hub_bot_update": BOTOPS, "hub_api": BOTOPS, "hub_credential_request": BOTOPS,
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
+    **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_remove")},
@@ -2119,7 +2203,7 @@ class Protocol:
                                           "retryable": False})
         try:
             result = entry["fn"](self.api, args)
-        except self.api_error as exc:
+        except (self.api_error, APIError) as exc:        # a refusal the tool itself raises reads like the API's
             return self._tool_error(rid, error_payload(exc))
         return self._result(rid, {"content": [{"type": "text", "text": json.dumps(result, default=str)}],
                                   "structuredContent": result if isinstance(result, dict) else {"result": result},

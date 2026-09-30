@@ -170,7 +170,7 @@ it out if the server host runs anything else you care about.
 Litestream replicates the SQLite database continuously to a bucket you choose, and the data volume can
 be snapshotted. A backup contains everything the server holds, including the encrypted credential store
 and sign-in credentials, so give the bucket a private policy, encrypt it, restrict who can read it, and keep
-the credential key separate from the backup. Bot repositories and computer workspaces are not part of the
+the credential key (`/data/credential.key`, or your KMS key) separate from the backup, and back that file up too: a restore without it cannot decrypt the credentials (docs/credential-vault.md). Bot repositories and computer workspaces are not part of the
 server backup; they live in Git and on the computers.
 
 Never put a credential in git, in a task, or in bot instructions.

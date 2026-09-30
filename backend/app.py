@@ -181,7 +181,7 @@ def create_app(settings=None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        if request.url.path.startswith('/api/v2/credentials'):
+        if request.url.path.startswith(('/api/v2/credential', '/api/v2/runner-credential')):
             # Default validation responses echo invalid input, which may contain a password.
             return JSONResponse({'error': {'code': 'validation', 'detail': 'Invalid credential input'}}, status_code=422)
         return await request_validation_exception_handler(request, exc)

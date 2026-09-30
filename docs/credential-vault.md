@@ -5,15 +5,60 @@ How a credential reaches a bot. A bot only ever sees the environment variable na
 granted values (as typed, URL-encoded or base64) with `••••` in everything it posts and logs, in the text
 files the run changed in the repository, and holds back a push whose commits contain one (`runner/redact.py`).
 
+## Who can use a credential
+
+Four words, used the same way everywhere:
+
+- A **human** signs in. The owner and the admins are the **credential administrators**: they store credentials and decide who has them
+  (`TICO_CREDENTIAL_ADMINS` names a different list; a member is never one).
+- A **bot** is a worker. It has the credentials it was given and nothing else. **A bot never uses a credential that was not
+  granted to it**, and never another bot's: having one in its own file on its computer does not make it anyone else's.
+- A **credential** is a stored secret with a name and, for a bot, the environment variable it arrives in (`JIRA_BASIC_AUTH`). Its value
+  is encrypted and is never shown in a message, a log, an event or to a model.
+- A **grant** is the explicit yes: "this credential, for this bot" (or for a person). A grant can be taken away (**revoked**) and the
+  bot's next run no longer has it.
+
 ## Tico's Credentials
 
 Settings → Credentials lists team credentials, usernames and masked previews. The owner and admins administer the vault. Each credential has its own grants. A granted human may reveal/copy it or attach it to bots they manage; a direct bot grant works on its assigned computer during an active run. Revoking the parent grant removes delegated bot access. Changing a bot owner invalidates delegation from its former owner.
 
-Credentials use AES-256-GCM with per-write random nonces and credential-bound authenticated data. The data key is wrapped by the dedicated rotating AWS KMS key. SQLite and backups contain ciphertext, not the plaintext data key. Reveal operations are audited; credential values are excluded from audit and idempotency receipts. Restoring a snapshot revokes restored grants to avoid resurrecting permissions.
+Credentials use AES-256-GCM with per-write random nonces and credential-bound authenticated data. Reveal operations are audited; credential values are excluded from audit and idempotency receipts. Restoring a snapshot revokes restored grants to avoid resurrecting permissions.
 
-The bot credential name becomes an environment variable only for a granted bot, during its run (`GET /api/v2/credential-runtime`). File credentials become mode-0600 temporary files during the run. Computer login entries describe existing CLI/browser sessions and must be connected separately on each computer. Existing runner-local credentials continue to work during migration; moving a credential to this list does not erase local copies or implicitly grant it to every bot.
+The bot credential name becomes an environment variable only for a granted bot, during its run (`GET /api/v2/credential-runtime`), on a Mac or Linux computer and in the Docker runner alike. File credentials become mode-0600 temporary files during the run. A bot with a credential of the same name in its own secrets file gets the granted value. A bot cannot be granted two credentials that use one variable name (the second grant is refused until the first is taken away). Computer login entries describe existing CLI/browser sessions and must be connected separately on each computer. Secrets already in a bot's own file keep working; storing one in Credentials does not erase the file and does not give it to any other bot.
 
-The initial migration inventories the existing bot credentials directory and resolves its configured 1Password references. Values are encrypted locally before upload. It adds no grants, preserves existing local files, and imports computer-login metadata without exporting browser sessions. All raw migration evidence remains outside Git.
+## The key: nothing to set up
+
+The vault works as soon as Tico starts. The AES-256 data key is 32 random bytes made once, the first time a credential is stored,
+and kept in `credential.key` (mode 0600, the server's user) in the data volume next to the database (`/data/credential.key` in the
+Docker install). The database holds only encrypted values and a fingerprint of the key, so a copy of the database alone cannot read them.
+The key is never logged or returned by any route.
+
+**Back `credential.key` up** with the database, to a different place than the database backup (a password manager, a private bucket):
+Litestream copies the database, not this file. A database restored without its key file cannot decrypt any credential: Credentials
+says the key file is missing, and Tico never makes a new key over an existing vault, so nothing is lost by putting the file back.
+Re-enter the credentials only if the key is truly gone.
+
+To use AWS KMS instead, set `TICO_CREDENTIAL_KMS_KEY` (a key id or alias). Then the data key is wrapped by that KMS key and only the wrapped form
+is in the database. Setting it on a server that has been using the key file wraps the same key with KMS on the next use, without
+re-encrypting anything, and the file can then be deleted. An install that began with KMS is unchanged, and taking the KMS key away
+again is refused rather than starting a second key.
+
+## Give a bot a credential another bot has
+
+Say it in the chat with BotOps: "Give Engineering Monitor the Jira access Jira Manager has." BotOps acts as you, so you must be a credential
+administrator; anyone else is told who to ask. It runs at once, with no Confirm card, and then tries the connection as the bot:
+
+1. If the credential is only in the first bot's own file (`secrets/<bot>.env` on its computer), BotOps moves it into Credentials first
+   (`hub credential import JIRA_BASIC_AUTH --from-bot jira-manager`). The computer that runs that bot reads the variable from
+   that one file and sends it to the server itself, over its own signed-in channel. The value is not printed, logged or put in a
+   message, and the file is not changed, so the first bot keeps working. Only a credential administrator can ask, and only for a
+   variable in that bot's own file (not `_shared.env`, not another bot's).
+2. It grants the stored credential to the second bot: `hub credential grant "JIRA_BASIC_AUTH" --to engineering-monitor`. (`--to` takes the
+   bot's name or slug; the credential is named by its name or its variable.) The second bot has it, as that variable, from its next run.
+3. To take it away: `hub credential revoke "JIRA_BASIC_AUTH" --from engineering-monitor`.
+
+The same three steps are the tools `hub_credential_import`, `hub_credential_grant` and `hub_credential_revoke`, and Settings → Credentials
+does the grant and revoke by hand. A grant to a person, or to every computer, still asks for the person's own click when it comes through BotOps.
 
 ## Credentials asked for in the chat
 

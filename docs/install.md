@@ -559,6 +559,11 @@ docker compose run --rm --no-deps server restore    # database and attachments
 docker compose up -d
 ```
 
+**Back up `credential.key` too.** Credentials are encrypted with a key kept in `/data/credential.key` (docs/credential-vault.md), which the
+database backup does not include: a restore without it brings every credential back but cannot decrypt any. Copy it once, somewhere
+private and different from the backup bucket (`docker compose exec server cat /data/credential.key | base64`), and copy it back to
+`/data/credential.key` (mode 0600, owner `tico`) before the first start on a new server. With `TICO_CREDENTIAL_KMS_KEY` set there is no file to keep.
+
 `restore` refuses a volume that already holds data. To roll an existing install back to the backup, add `--force`;
 the current database is kept beside it as `hub.sqlite.before-restore.<time>`. The install's permanent id
 (`TICO_ENVIRONMENT_ID`) is stored in the database, so it comes back with the restore and the Macs and runners

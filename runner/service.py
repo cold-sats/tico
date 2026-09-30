@@ -56,6 +56,7 @@ CODEX_LOGIN_RETRY_S = 600
 # not signed in asks for it, at most this often, and keeps it in `secrets/TEAM_KEYS_FILE`, apart from the hand-made
 # `_shared.env`. Codex is signed in once from its key and its turns never see the key; the others read theirs from the environment.
 TEAM_KEYS_FILE = "_team_model.env"
+CREDENTIAL_IMPORT_POLL_S = 5
 TEAM_KEY_RETRY_S = 300
 LOGIN_ONLY = ("OPENAI_API_KEY",)
 # A parked starter bot's status: `needs_setup`, or `needs_onboarding` from a hub that has not moved to the new word.
@@ -2054,6 +2055,7 @@ class Runner:
             self.last_heartbeat = time.monotonic()
         self.warm.prune()
         self.poll_logins()
+        self.poll_credential_imports()
         self.step_harnesses()
         self.step_watchers()
         if self.restart_due is not None:
@@ -2121,6 +2123,45 @@ class Runner:
             if getattr(self, "_login_poll_error", None) != describe(exc):
                 self._login_poll_error = describe(exc)
                 log(f"Tico runner: sign-in poll failed ({self._login_poll_error}); will retry")
+
+    def poll_credential_imports(self):
+        """A credential administrator asked for one variable of a bot's own secrets file to move into Credentials
+        (`hub credential import`). Best effort: a failed poll is tried again, never a runner outage."""
+        if time.monotonic() - getattr(self, "_imports_at", -CREDENTIAL_IMPORT_POLL_S) < CREDENTIAL_IMPORT_POLL_S:
+            return
+        self._imports_at = time.monotonic()
+        try:
+            for item in (self.client.get("runner-credential-imports") or {}).get("imports", []):
+                self.import_credential(item)
+        except Exception as exc:
+            if getattr(self, "_import_poll_error", None) != describe(exc):
+                self._import_poll_error = describe(exc)
+                log(f"Tico runner: credential import poll failed ({self._import_poll_error}); will retry")
+
+    def import_credential(self, item):
+        """Read one variable from that bot's own file, `secrets/<bot>.env` and no other, and hand it to the server over this
+        computer's authenticated channel. The value goes into that one request and nowhere else: not a log, not the state."""
+        iid, bot, key = str(item.get("id") or ""), str(item.get("bot") or ""), str(item.get("env") or "")
+        value, problem = "", ""
+        if not (iid and PROFILE_RE.fullmatch(bot) and re.fullmatch(r"[A-Z_][A-Z0-9_]*", key)):
+            problem = "That is not a variable or bot this computer can read"
+        else:
+            secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+            isolation.adopt(secrets_dir)
+            value = self._read_env(secrets_dir / (bot + ".env")).get(key, "")
+            if value.startswith(op.OP_REF):        # a 1Password reference: hand over what it resolves to, as a run would
+                env = {**self._read_env(secrets_dir / "_shared.env"), key: value}
+                op.resolve_op_refs(env)
+                value = env.get(key, "")
+                problem = "" if value else f"{key} in that bot's file is a 1Password reference that did not resolve"
+            elif not value:
+                problem = f"{key} is not in that bot's secrets file on this computer"
+        body = {"value": value} if value else {"error": problem}
+        try:
+            self.client.post(f"runner-credential-imports/{iid}/report", body)
+        finally:
+            value = body = None
+        log(f"Tico runner: credential import for {bot} {'sent' if not problem else 'could not be read'}")
 
     def run(self):
         try:

@@ -8,6 +8,11 @@ granted to that one bot. The bot is told it is saved; the value never enters a m
 `hub credential set` takes a value a person gave BotOps in chat instead: the same store, as the person, and the
 words they pasted are taken out of the conversation (`redact_value`). What the vault allows is unchanged: only a
 credential administrator stores a credential, and only for a bot they may manage.
+
+`hub credential import` moves a secret a bot already has in its own file on its computer (`secrets/<bot>.env`) into the vault,
+granted to that bot (`POST /api/v2/credential-imports`): the computer reads the one variable and hands it over its own
+authenticated channel (`runner-credential-imports`). Only a credential administrator asks, and the value is in no request
+the person or BotOps makes, no message, event, receipt or log.
 """
 import json
 import re
@@ -19,7 +24,7 @@ from fastapi import Request
 from pydantic import Field, SecretStr
 
 from .auth import validate_identity
-from .credentials import CredentialWrite, administrator
+from .credentials import CredentialWrite, administrator, admin_names as _admin_names, ask_admin_detail
 from .models import Contract, ID
 from .store import H, Problem
 
@@ -36,7 +41,18 @@ CREATE TABLE IF NOT EXISTS credential_requests(
  kind TEXT NOT NULL DEFAULT 'api_key', status TEXT NOT NULL DEFAULT 'pending', created TEXT NOT NULL,
  updated TEXT NOT NULL, credential_id TEXT, message_id TEXT);
 CREATE INDEX IF NOT EXISTS credential_requests_pending ON credential_requests(requester, status);
+CREATE TABLE IF NOT EXISTS credential_imports(
+ id TEXT PRIMARY KEY, requester TEXT NOT NULL, bot TEXT NOT NULL, env TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+ kind TEXT NOT NULL DEFAULT 'api_key', state TEXT NOT NULL DEFAULT 'requested', message TEXT NOT NULL DEFAULT '',
+ credential_id TEXT, created TEXT NOT NULL, updated TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS credential_imports_state ON credential_imports(state, bot);
 """
+# A variable the run never takes from the vault, or takes from the computer itself (runner/service.py `environment`).
+RESERVED_ENV_PREFIXES = ("TICO_", "HUB_", "DYLD_", "LD_")
+RESERVED_ENV = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "CODEX_HOME",
+                "OPENROUTER_API_KEY", "OP_SERVICE_ACCOUNT_TOKEN"}
+IMPORT_EXPIRES_S = 600
+ONLINE_S = 120
 
 
 class CredentialRequest(Contract):
@@ -62,6 +78,19 @@ class CredentialSet(Contract):
     username: str = Field(default="", max_length=250)
     redact: bool = True
     on_behalf_of: ID | None = None
+
+
+class CredentialImport(Contract):
+    env: str = Field(pattern=ENV)
+    bot: ID
+    name: str = Field(default="", max_length=150)
+    kind: Literal["api_key", "password", "token", "connection"] = "api_key"
+    on_behalf_of: ID | None = None
+
+
+class CredentialImportReport(Contract):
+    value: SecretStr | None = Field(default=None, max_length=MAX_VALUE)
+    error: str = Field(default="", max_length=200)
 
 
 class MessageRedact(Contract):
@@ -123,8 +152,7 @@ def clean_help_url(url):
 
 # ------------------------------------------------------------------ the store
 def admin_names(c, vault):
-    rows = c.execute("SELECT name,email FROM humans").fetchall()
-    return [r["name"] or r["email"] for r in rows if (r["email"] or "").lower() in set(vault.admins)]
+    return _admin_names(c, vault.admins)
 
 
 def store_for_bot(c, vault, who, env, bot, value, name="", kind="api_key", username=""):
@@ -357,3 +385,104 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
             c.execute("UPDATE messages SET body=? WHERE id=?", ((msg["body"] or "").replace(span, f"{MASK} {label}"), mid))
             H.event(c, person.actor, "message.redacted", mid, {"messages": 1, "label": label})
             return {"redacted": 1}
+
+    # ------------------------------------------------------------ a secret a bot already keeps in its own file
+    def import_view(row):
+        return {"id": row["id"], "bot": row["bot"], "env": row["env"], "state": row["state"], "message": row["message"],
+                "credential_id": row["credential_id"], "created": row["created"], "updated": row["updated"]}
+
+    def sweep_imports(c):
+        now = H.now()
+        c.execute("UPDATE credential_imports SET state='failed',message='The computer did not answer in time',updated=? "
+                  "WHERE state='requested' AND created<?", (now, H.shift(now, seconds=-IMPORT_EXPIRES_S)))
+        c.execute("DELETE FROM credential_imports WHERE created<?", (H.shift(now, days=-2),))
+
+    @app.post("/api/v2/credential-imports")
+    def request_import(request: Request, body: CredentialImport):
+        caller = request.state.identity
+        with store.transaction() as c:
+            validate_identity(c, caller)
+            person = acting(c, caller, body.on_behalf_of)
+            if not administrator(c, person, vault.admins):
+                raise Problem("forbidden", ask_admin_detail(c, vault.admins, "move a bot's secret into Credentials"), 403)
+            manager(c, person, body.bot)
+            if body.env in RESERVED_ENV or body.env.startswith(RESERVED_ENV_PREFIXES):
+                raise Problem("env", f"{body.env} is a setting of the computer or of Tico, not a credential a bot can be given", 422)
+            if not H.bot(c, body.bot):
+                raise Problem("not_found", "Bot not found", 404)
+            place = c.execute("SELECT r.last_seen,r.label FROM assignments a JOIN runners r ON r.id=a.runner_id "
+                              "WHERE a.bot=? AND r.revoked_at IS NULL", (body.bot,)).fetchone()
+            if not place:
+                raise Problem("no_computer", "That bot is not on a computer, so there is no secrets file to read", 409)
+            if not place["last_seen"] or place["last_seen"] < H.shift(H.now(), seconds=-ONLINE_S):
+                raise Problem("offline", f"{place['label']}, where that bot runs, is offline; try again when it is back", 409)
+            sweep_imports(c)
+            same = c.execute("SELECT * FROM credential_imports WHERE bot=? AND env=? AND state='requested'",
+                             (body.bot, body.env)).fetchone()
+            if same:
+                return import_view(same)
+            iid, now = H.new_id(), H.now()
+            c.execute("INSERT INTO credential_imports(id,requester,bot,env,name,kind,state,created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
+                      (iid, person.actor, body.bot, body.env, body.name.strip(), body.kind, "requested", now, now))
+            H.event(c, person.actor, "credential.import_requested", iid, {"env": body.env, "bot": body.bot})
+            return import_view(c.execute("SELECT * FROM credential_imports WHERE id=?", (iid,)).fetchone())
+
+    @app.get("/api/v2/credential-imports/{iid}")
+    def show_import(request: Request, iid: str, on_behalf_of: str = ""):
+        caller = request.state.identity
+        with store.transaction() as c:
+            validate_identity(c, caller)
+            person = acting(c, caller, on_behalf_of)
+            sweep_imports(c)
+            row = c.execute("SELECT * FROM credential_imports WHERE id=?", (iid,)).fetchone()
+            if not row or (row["requester"] != person.actor and not administrator(c, person, vault.admins)):
+                raise Problem("not_found", "No such import", 404)
+            return import_view(row)
+
+    @app.get("/api/v2/runner-credential-imports")
+    def runner_imports(request: Request):
+        who = request.state.identity
+        with store.transaction() as c:
+            if who.role != "runner" or not c.execute("SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL", (who.runner_id,)).fetchone():
+                raise Problem("forbidden", "Only a registered computer may ask for this", 403)
+            sweep_imports(c)
+            rows = c.execute("SELECT i.id,i.bot,i.env FROM credential_imports i JOIN assignments a ON a.bot=i.bot "
+                             "WHERE a.runner_id=? AND i.state='requested' ORDER BY i.created", (who.runner_id,)).fetchall()
+            return {"imports": [dict(r) for r in rows]}
+
+    @app.post("/api/v2/runner-credential-imports/{iid}/report")
+    def report_import(request: Request, iid: str, body: CredentialImportReport):
+        """The computer's answer: the one variable from that bot's own file, or why there is none. Only the computer the bot
+        is on may answer, and the person who asked must still be a credential administrator."""
+        who = request.state.identity
+        with store.transaction() as c:
+            if who.role != "runner" or not c.execute("SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL", (who.runner_id,)).fetchone():
+                raise Problem("forbidden", "Only a registered computer may answer this", 403)
+            row = c.execute("SELECT i.* FROM credential_imports i JOIN assignments a ON a.bot=i.bot "
+                            "WHERE i.id=? AND a.runner_id=?", (iid, who.runner_id)).fetchone()
+            if not row:
+                raise Problem("not_found", "No such import", 404)
+            if row["state"] != "requested":
+                return import_view(row)
+
+            def finish(state, message="", credential_id=None):
+                c.execute("UPDATE credential_imports SET state=?,message=?,credential_id=?,updated=? WHERE id=?",
+                          (state, message, credential_id, H.now(), iid))
+                return import_view(c.execute("SELECT * FROM credential_imports WHERE id=?", (iid,)).fetchone())
+
+            value = body.value.get_secret_value() if body.value is not None else ""
+            if not value:
+                return finish("failed", (body.error or f"{row['env']} is not in that bot's secrets file").strip()[:200])
+            try:
+                person = auth.identity_for_actor(c, row["requester"])
+            except Problem:
+                return finish("failed", "The person who asked is no longer on the team")
+            if not administrator(c, person, vault.admins):
+                return finish("failed", "The person who asked is no longer a credential administrator")
+            try:
+                value = check_format("", value)
+            except Problem:
+                return finish("failed", f"{row['env']} in that bot's secrets file is empty or has a line break in it")
+            stored = store_for_bot(c, vault, person, row["env"], row["bot"], value, row["name"], row["kind"])
+            H.event(c, who.actor, "credential.imported", stored["id"], {"env": row["env"], "bot": row["bot"], "by": person.actor})
+            return finish("done", "", stored["id"])
