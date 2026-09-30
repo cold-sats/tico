@@ -64,6 +64,23 @@ def test_the_colour_of_a_kpi_is_pace_or_range_and_no_fresh_data_is_gray():
     assert K.assess(ACTIVATION, CLIMB, [reading(56, 1), {**reading(48, 1), "id": "fix", "collected_at": stamp(0)}], NOW)["value"] == 48
 
 
+def test_a_reason_says_a_word_unit_once_and_rounds_counts_to_whole_numbers():
+    studios = {"name": "Paying studios", "unit": "studios", "direction": "up", "cadence": "weekly"}
+    # 121 -> 149, and the line is at 134.9 today: said once, as a whole number.
+    climb = {**CLIMB, "baseline": 121.0, "target": 149.0}
+    assert colour(climb, 130, kpi=studios)["reason"] == "Paying studios 130 vs 135 studios needed on pace"
+    assert colour(climb, 149, kpi=studios)["reason"] == "Paying studios 149 reached 149 studios"
+    assert (K.amount(134.5, "studios"), K.amount(2.25, "%"), K.amount(1200, "$")) == ("135 studios", "2.3%", "$1,200")
+    assert colour({"kind": "improve", "target": 150.0}, 140.4, kpi=studios)["reason"] == \
+        "Paying studios 140, target 150 studios has no deadline"
+    assert colour({"kind": "maintain", "min": 90.0, "max": None}, 85, kpi=studios)["reason"] == "Paying studios 85 below min 90 studios"
+    assert colour({"kind": "none"}, 12.5, kpi=studios)["reason"] == "Paying studios 13 studios"
+    # Months and percentages keep one decimal, rounded half up; a symbol stays on both sides.
+    runway = {"name": "Runway", "unit": "months", "direction": "up", "cadence": "monthly"}
+    assert colour({**CLIMB, "baseline": 6.0, "target": 12.25}, 7.25, kpi=runway)["reason"] == "Runway 7.3 vs 9.1 months needed on pace"
+    assert colour(CLIMB, 52.25)["reason"] == "Activation 52.3% vs 54.9% needed on pace"
+
+
 # ------------------------------------------------------------------ the API
 def goal_with_kpi(api, target=None, token="ana-test", owner="ana", cadence="daily"):
     goal = post(api, "goals", {"title": "Raise activation", "owner": owner}, token=token)["goal"]

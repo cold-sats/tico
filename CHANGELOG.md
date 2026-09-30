@@ -19,7 +19,8 @@ All notable changes to Tico are recorded here. The format follows
   pace or inside the range, yellow within 10% of the needed pace or near an edge, red further behind or outside, gray with no fresh
   data. See `docs/goals-and-kpis.md`.
 - **Goal colours are automatic, and a person can override.** A goal's colour is worked out from its KPIs (the worst of them, with a
-  one-line reason such as "Activation 52% vs 58% needed on pace"), or from its owner's check-ins and its tasks when it has none,
+  one-line reason such as "Activation 52% vs 58% needed on pace" or "Paying studios 148 vs 135 studios needed on pace": a word
+  unit said once, counts as whole numbers, percentages and months to one decimal), or from its owner's check-ins and its tasks when it has none,
   or gray "no data". A colour a person sets sticks: it shows "set by <name>" with their note until a person chooses **Let Goal
   Manager set it** (`hub goal auto`), and the automatic pass only ever *suggests* a different colour on such a goal. `goals` and
   every `goal_events` row now say who set a colour (`status_by`) and how (`status_source`, `auto` or `person`). Automatic colours

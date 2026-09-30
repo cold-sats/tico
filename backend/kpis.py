@@ -19,6 +19,7 @@ never a zero. Nothing in this module writes a goal's colour; that is backend/goa
 import math
 import re
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 
 from . import hubdb as H
 
@@ -68,19 +69,38 @@ def slugify(text):
     return slug or "kpi"
 
 
-def number(value):
-    """52 -> '52', 52.25 -> '52.3', 12000 -> '12,000'."""
+SYMBOLS = ("%", "pp", "$", "€", "£")    # written against the number: 52%, $1,200
+# A word unit that measures time or a score keeps one decimal (4.5 months); any other word unit counts things
+# (studios, demos, tickets), so its numbers are whole: 134.5 studios is 135.
+MEASURES = {"year", "years", "yr", "yrs", "month", "months", "mo", "mos", "week", "weeks", "wk", "wks", "day", "days",
+            "hour", "hours", "hr", "hrs", "h", "minute", "minutes", "min", "mins", "second", "seconds", "sec", "secs", "s",
+            "ms", "x", "point", "points", "pts", "score", "nps", "stars", "rating"}
+
+
+def counts(unit):
+    """True for a unit that counts things: a word that is not a symbol and not a measure of time or score."""
+    unit = str(unit or "").strip()
+    return bool(unit) and unit not in SYMBOLS and unit.lower() not in MEASURES
+
+
+def number(value, whole=False):
+    """One decimal, half up, and none when it is zero: 52 -> '52', 52.25 -> '52.3', 12000 -> '12,000'. `whole` rounds
+    to an integer (134.5 -> '135')."""
     if value is None:
         return ""
     value = float(value)
-    if value == int(value):
-        return f"{int(value):,}"
-    return f"{value:,.1f}".rstrip("0").rstrip(".")
+    if not math.isfinite(value):
+        return str(value)
+    rounded = Decimal(repr(value)).quantize(Decimal(1) if whole else Decimal("0.1"), rounding=ROUND_HALF_UP)
+    if rounded == rounded.to_integral_value():
+        return f"{int(rounded):,}"
+    return f"{rounded:,.1f}"
 
 
 def amount(value, unit=""):
-    text = number(value)
+    """A number with its unit: '52%', '$1,200', '148 studios' (whole, as a count), '4.5 months'."""
     unit = str(unit or "").strip()
+    text = number(value, counts(unit))
     if not unit:
         return text
     if unit in ("%", "pp"):
@@ -88,6 +108,15 @@ def amount(value, unit=""):
     if unit in ("$", "€", "£"):
         return unit + text
     return f"{text} {unit}"
+
+
+def versus(value, other, unit=""):
+    """Two amounts side by side with a word unit said once, on the second: ('148', '135 studios'). A symbol stays on
+    both ('52%', '58%'), as it reads."""
+    unit = str(unit or "").strip()
+    if unit and unit not in SYMBOLS:
+        return number(value, counts(unit)), amount(other, unit)
+    return amount(value, unit), amount(other, unit)
 
 
 def day(value):
@@ -221,15 +250,18 @@ def assess(kpi, link, readings, at=None):
         span = range_label(link.get("min"), link.get("max"), unit)
         low, high = link.get("min"), link.get("max")
         where = "below" if low is not None and value < low else "above" if high is not None and value > high else "in"
+        if span.startswith(("min ", "max ")):            # the bound carries the unit: say it once
+            current = versus(value, low if low is not None else high, unit)[0]
         out.update(status=colour, reason=f"{name} {current} {where} {span}{note}")
         return out
     target = link["target"]
     falling = (target < link["baseline"]) if link.get("baseline") is not None else kpi.get("direction") == "down"
     reached = (value <= target) if falling else (value >= target)
+    mine, goal = versus(value, target, unit)
     if not link.get("deadline"):
         out.update(status="green" if reached else "gray",
-                   reason=f"{name} {current} reached {amount(target, unit)}{note}" if reached
-                   else f"{name} {current}, target {amount(target, unit)} has no deadline{note}")
+                   reason=f"{name} {mine} reached {goal}{note}" if reached
+                   else f"{name} {mine}, target {goal} has no deadline{note}")
         return out
     start = link.get("baseline")
     started = _dt(link.get("baseline_at"))
@@ -243,11 +275,12 @@ def assess(kpi, link, readings, at=None):
     colour, expected = pace(start, started, target, deadline, value, _dt(used["period_end"]) or at, kpi.get("direction") or "up")
     out["expected"] = expected
     if reached:
-        reason = f"{name} {current} reached {amount(target, unit)}{note}"
+        reason = f"{name} {mine} reached {goal}{note}"
     elif at > deadline:
-        reason = f"{name} {current} missed {amount(target, unit)} by {day(link['deadline'])}{note}"
+        reason = f"{name} {mine} missed {goal} by {day(link['deadline'])}{note}"
     else:
-        reason = f"{name} {current} vs {amount(expected, unit)} needed on pace{note}"
+        mine, needed = versus(value, expected, unit)
+        reason = f"{name} {mine} vs {needed} needed on pace{note}"
     out.update(status=colour, reason=reason)
     return out
 

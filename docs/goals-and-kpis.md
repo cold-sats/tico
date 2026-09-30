@@ -66,8 +66,9 @@ A KPI's colour comes from its target on the goal it is shown under (or its range
 | gray | stale or missing data, or only partial data | stale or missing data |
 
 The pace is where the straight line from the baseline to the target is at the time of the reading. `Activation 52% vs 58%
-needed on pace` is red: the line says 58 today, and the reading is 52. A KPI with no target and fresh data has a number and
-no colour.
+needed on pace` is red: the line says 58 today, and the reading is 52. A word unit is said once and a count is a whole
+number (`Paying studios 148 vs 135 studios needed on pace`); percentages, money and time (`months`, `days`, `min`) keep one
+decimal. A KPI with no target and fresh data has a number and no colour.
 
 ### A goal
 
