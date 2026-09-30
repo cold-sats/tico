@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.16] - 2026-09-30
+
 ### Added
 - **First run builds your org chart, one department at a time.** Step 3 is now **Your org chart**, in place of the starter team
   and full org chart. "What departments do you want?" offers nine tiles: Sales, Marketing, Customer Support, Finance, Operations,
@@ -889,7 +891,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.15...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.16...HEAD
+[0.2.16]: https://github.com/ticoteam/tico/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/ticoteam/tico/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/ticoteam/tico/compare/v0.2.13...v0.2.14
 [0.2.13]: https://github.com/ticoteam/tico/compare/v0.2.12...v0.2.13
