@@ -32,6 +32,7 @@ from .execution import Execution, bot_repository
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter
 from . import rooms
+from . import shared_bots
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
 from .route_renames import old_paths as old_route_paths
@@ -1194,7 +1195,16 @@ def create_app(settings=None):
                         "template": declared.get("template") or "",
                         "template_version": declared.get("template_version") or "",
                         "temp": bool(declared.get("temp")),
+                        "shared": bool(declared.get("shared")),
+                        "shared_from": shared_bots.source_of(declared),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
+            if row.get("shared_from"):
+                # A copy runs on its original's model, whatever its own row last said.
+                followed = shared_bots.follow(c, bot["slug"], declared)
+                row.update({"model": followed.get("model") or row.get("model"),
+                            "runtime": followed.get("runtime") or row.get("runtime"),
+                            "effort": followed.get("reasoning_effort") or row.get("effort"),
+                            "bot_contact": followed.get("bot_contact") or "open"})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
         owner_rows = ([H.human(c, owner) for owner in configured] if configured is not None
                       else P.primary_users(bot["slug"], registry_roster, registry_entries))
@@ -2148,6 +2158,17 @@ def create_app(settings=None):
         who = request.state.identity
         return mutate(request, body, lambda c: onboarding.onboarded(c, who, bot))
 
+    @app.post("/api/v2/bots/{bot}/copies")
+    def add_shared_copy(request: Request, bot: str, body: M.SharedCopy):
+        """The caller's own copy of a shared bot they may read, on their own computer (backend/shared_bots.py)."""
+        who = request.state.identity
+        auth.domain(who)
+
+        def work(c):
+            auth.require_read(c, who, bot)
+            return shared_bots.add_copy(c, who, bot, body.runner_id, settings_admin, execution)
+        return mutate(request, body, work)
+
     @app.post("/api/v2/bots/{bot}/archive")
     def archive_bot(request: Request, bot: str, body: M.BotArchive):
         who = request.state.identity
@@ -2432,7 +2453,7 @@ def create_app(settings=None):
             company = Providers.load(c, settings)
             for row in rows:
                 value = dict(row)
-                value["config"] = Providers.fill(company, json.loads(value.pop("config_json")))
+                value["config"] = Providers.fill(company, shared_bots.follow(c, row["bot"], json.loads(value.pop("config_json"))))
                 value["repository"] = bot_repository(c, settings, row["bot"])
                 result.append(value)
             return result
@@ -2869,6 +2890,7 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             settings_admin._manager(c, who, bot)
+            shared_bots.refuse_copy(c, bot)
             choice = MODEL_BY_ID.get(body.model)
             if not choice:
                 raise Problem("model", "Choose one of the supported models", 422)

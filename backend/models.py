@@ -691,6 +691,10 @@ class BotDefinitionCreate(Contract):
     instructions: str = Field(default="", max_length=20_000)
 
 
+class SharedCopy(Contract):
+    runner_id: ID | None = None          # the caller's own computer to run the copy on
+
+
 class BotArchive(Contract):
     successor: ID | None = None          # a bot that takes its open tasks and any team it roots
     expected_revision: int = Field(ge=1)
@@ -708,6 +712,8 @@ class BotDefinitionUpdate(Contract):
     thread_mode: Literal["personal", "shared"] | None = None
     # Temporary work expected to end: a flag, not "Project"/"Temp" in the name.
     temp: bool | None = None
+    # Anyone who may read the bot may add their own copy, on their own computer (backend/shared_bots.py).
+    shared: bool | None = None
     expected_revision: int = Field(ge=1)
     # BotOps applying a person's own request: the id of that person's message to BotOps. The
     # change is checked as that person, never as BotOps (backend/app.py update_bot).

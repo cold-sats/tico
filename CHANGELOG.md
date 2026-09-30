@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Shared bots.** A bot marked shared (Settings, or `shared: true` on its definition) keeps one definition and one
+  repository, and anyone who may read it can add their own copy, `<bot>-<human>`, on their own computer with
+  `POST /api/v2/bots/{bot}/copies` `{"runner_id"}`. A copy follows the original's model, effort, harness and fallback,
+  cannot be redefined itself (only paused), and takes the tasks its human, or their bots, file on the original. Bot rows
+  carry `shared` and `shared_from`, and so does a copy's assignment `config` (with `repo`, the shared repository). The
+  runner rebases a shared bot's checkout before each turn (or tells the bot what to fix), rebases over another copy's
+  push after it, and runs Claude without the operator's own settings, plugins, MCP servers or auto-memory. See
+  docs/creating-bots.md, Shared bots.
+
 ## [0.2.24] - 2026-09-30
 
 ### Changed

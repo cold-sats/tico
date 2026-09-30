@@ -12,7 +12,7 @@ from . import access as Access
 from . import bot_access as A
 from . import models as M
 from . import providers, runner_versions
-from . import rooms, team_rules, turns
+from . import rooms, shared_bots, team_rules, turns
 from .execution import AWAKE_GAP, AWAKE_SETTLE, Execution
 from pathlib import Path
 
@@ -727,7 +727,8 @@ def install_views(app, store, auth, mutate, task_view):
                              "helper": helper(configs.get(slug, {}) or {}),
                              "can_chat": may_chat(c, auth, who, slug)})
                 continue
-            config = configs.get(slug, {})
+            # A copy of a shared bot runs on its original's model and behaviour (backend/shared_bots.py).
+            config = shared_bots.follow(c, slug, configs.get(slug, {}))
             # Configuration contains connector requirements, never connector credentials.
             config = {k: v for k, v in config.items() if k not in ("cwd", "env", "token", "secrets")}
             from .routines import listing

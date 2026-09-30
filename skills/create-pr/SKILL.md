@@ -98,7 +98,8 @@ hub task create --owner <reviewer> --title "Review: <PR title>" \
 ```
 
 `<reviewer>` is the reviewer bot the team assigned to that repo (for example `backend-reviewer` or
-`frontend-reviewer`). The reviewer fixes mechanical
+`frontend-reviewer`; when it is a shared bot and you have your own copy of it, the hub gives the
+task to your copy). The reviewer fixes mechanical
 things itself on your branch as a "Review fixes" commit and sends back only design-level changes,
 each with a one-line reason; address those, push, and update the review task with `--note`.
 Never mark the PR ready yourself; a human merges.

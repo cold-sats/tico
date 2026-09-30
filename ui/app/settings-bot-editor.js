@@ -51,6 +51,8 @@ function settingsEditBot(slug = '') {
         <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
+        ${editing && e?.shared_from ? `<p class="muted bot-editor-wide">A copy of the shared bot ${esc(e.shared_from)}: it follows that bot's definition, model and repository, so only its status changes here.</p>`
+          : editing ? `<label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Shared bot<small>Anyone who may read it can add their own copy, which runs on their own computer from this bot's repository and behaves the same.</small></label>` : ''}
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
@@ -171,13 +173,16 @@ function settingsEditBot(slug = '') {
     const submit = form.querySelector('[type=submit]'); submit.disabled = true; status.textContent = 'Saving…';
     let added = null;
     try {
-      if (editing) {
+      if (editing && e?.shared_from) {
+        await post(`/v2/bots/${encodeURIComponent(slug)}/definition`, {
+          status: form.elements.status.value, expected_revision: rev});
+      } else if (editing) {
         await post(`/v2/bots/${encodeURIComponent(slug)}/definition`, {
           display_name: form.elements.display_name.value, description: form.elements.description.value,
           reports_to: form.elements.reports_to.value || null, status: form.elements.status.value,
           bot_contact: form.elements.bot_contact.value,
           repo: form.elements.repo.value, thread_mode: form.elements.thread_mode.value,
-          temp: form.elements.temp.checked, expected_revision: rev});
+          temp: form.elements.temp.checked, shared: form.elements.shared.checked, expected_revision: rev});
         if (extraLoaded !== null && extraLines(form.elements.extra_repos.value).join('\n') !== extraLines(extraLoaded).join('\n'))
           await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {

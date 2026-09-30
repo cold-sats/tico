@@ -178,9 +178,13 @@ const userChips = e => (e?.users || []).map(u =>
 // older "Temp X" name. Either way the name shows with a flag instead of the word.
 const TEMP_RE = /^Temp\s+/;
 const isTempBot = e => !!e?.temp || TEMP_RE.test(e?.display_name || '');
-const shownName = e => isTempBot(e)
+// A shared bot: anyone who may read it can run their own copy of it from the same repository.
+const sharedMark = e => e?.shared_from
+  ? `<span class="proj" title="${esc(`a copy of the shared bot ${e.shared_from}`)}">\u21c4</span>`
+  : e?.shared ? '<span class="proj" title="shared: anyone may add their own copy">\u21c4</span>' : '';
+const shownName = e => sharedMark(e) + (isTempBot(e)
   ? `<span class="proj" title="temporary: expected to end">\u2691</span>${esc(e.display_name.replace(TEMP_RE, ''))}`
-  : esc(e.display_name || '');
+  : esc(e.display_name || ''));
 // The harness a bot runs on, as a small muted mark beside its name (ui/tool-icons.js). One rule: the
 // harness (runtime), never the provider or model; the model rides in the tooltip. No runtime, nothing shown.
 const RUNTIME_LABELS = {codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini', antigravity: 'Antigravity', grok: 'Grok',

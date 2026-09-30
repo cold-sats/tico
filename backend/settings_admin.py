@@ -11,6 +11,7 @@ from . import models as M
 from . import placement
 from . import providers
 from . import rooms
+from . import shared_bots
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
@@ -152,6 +153,8 @@ class SettingsAdmin:
                 "repo_url": repo_url(repo, self.settings.github_owner),
                 "thread_mode": config["thread_mode"] or "personal",
                 "temp": bool((_json(config["config_json"], {}) or {}).get("temp")),
+                "shared": bool((_json(config["config_json"], {}) or {}).get("shared")),
+                "shared_from": shared_bots.source_of(_json(config["config_json"], {})),
                 "operator": config["operator"], "revision": config["revision"],
                 "model": row["model"], "runtime": row["runtime"], "effort": row["effort"],
                 "harness": resolve_harness(_json(config["config_json"], {}), row.get("runtime")),
@@ -344,6 +347,8 @@ class SettingsAdmin:
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
+        if body.model_fields_set - {"expected_revision", "on_behalf_of", "status"}:
+            shared_bots.refuse_copy(c, bot)       # a copy may be paused, never redefined
         before = self.definition(c, bot)
         values = dict(before)
         for field in body.model_fields_set - {"expected_revision", "on_behalf_of"}:
@@ -368,7 +373,8 @@ class SettingsAdmin:
                          "description": values["description"], "reports_to": values.get("reports_to"),
                          "bot_contact": values.get("bot_contact") or "open",
                          "status": values["status"], "repo": values["repo"],
-                         "thread_mode": values["thread_mode"], "temp": bool(values.get("temp"))})
+                         "thread_mode": values["thread_mode"], "temp": bool(values.get("temp")),
+                         "shared": bool(values.get("shared"))})
         c.execute("UPDATE bots SET display_name=?,state=? WHERE slug=?",
                   (values["display_name"], values["status"], bot))
         c.execute(
@@ -494,6 +500,8 @@ class SettingsAdmin:
 
     def begin(self, c, who, bot, body, undo_change_id=None):
         self._manager(c, who, bot)
+        if body.kind == "model":
+            shared_bots.refuse_copy(c, bot)
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before preparing the change", 409)
@@ -754,6 +762,7 @@ class SettingsAdmin:
 
     def set_fallback(self, c, who, bot, body, undo_change_id=None):
         self._manager(c, who, bot)
+        shared_bots.refuse_copy(c, bot)
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)

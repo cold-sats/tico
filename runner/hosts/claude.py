@@ -55,6 +55,17 @@ def model_for(model):
     return m
 
 
+def repo_mcp_servers(cwd):
+    """The servers a repository's own `.mcp.json` declares, for a turn that skips every other
+    MCP configuration."""
+    try:
+        with open(os.path.join(str(cwd or ""), ".mcp.json"), encoding="utf-8") as f:
+            servers = (json.load(f) or {}).get("mcpServers") or {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return servers if isinstance(servers, dict) else {}
+
+
 def usage_tokens(usage):
     """(input, output, total) from a Claude usage object.
 
@@ -155,8 +166,15 @@ class ClaudeHost(Host):
         # The hub's MCP server for this turn. Not `--strict-mcp-config`: a bot repo's own
         # `.mcp.json` (an integration's read-only server, say) stays in force.
         hub = hub_mcp_server(t["settings"].get("env"))
-        if hub:
-            argv += ["--mcp-config", json.dumps({"mcpServers": {"hub": hub}})]
+        servers = {"hub": hub} if hub else {}
+        if t["settings"].get("shared"):
+            # A shared bot runs the same on every human's computer: nothing from the operator's
+            # own Claude setup (user settings, hooks, plugins, ~/.claude/CLAUDE.md, user MCP
+            # servers) reaches it. The repository's settings and .mcp.json still do.
+            argv += ["--setting-sources", "project,local", "--strict-mcp-config"]
+            servers = {**repo_mcp_servers(t["settings"].get("cwd")), **servers}
+        if servers:
+            argv += ["--mcp-config", json.dumps({"mcpServers": servers})]
         model = model_for(t["settings"].get("model"))
         if model:
             argv += ["--model", model]
@@ -174,9 +192,12 @@ class ClaudeHost(Host):
     @staticmethod
     def _env(settings):
         env = settings.get("env")
-        if not env:
+        if not env and not settings.get("shared"):
             return None
-        env = dict(env)
+        env = dict(env or os.environ)
+        if settings.get("shared"):
+            # A shared bot remembers in its repository, never in this computer's auto-memory.
+            env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         # The login and the session files live under HOME; a trimmed environment must keep it.
         if not env.get("HOME") and os.environ.get("HOME"):
             env["HOME"] = os.environ["HOME"]

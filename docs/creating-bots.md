@@ -523,7 +523,38 @@ Drawn from real bot reviews, stated generically.
 - **A dirty or unpushed checkout on the runner's computer.** The bot's commits and a human's edits
   collide, and what runs is not what you pushed. Keep the tree clean and do not edit it mid-run.
 
-## 9. More than one environment
+## 9. Shared bots
+
+A bot that starts every task fresh from its repository (a reviewer, an architect) can be
+**shared**: tick *Shared bot* in its settings, or send `shared: true` with
+`POST /api/v2/bots/<bot>/definition`. Anyone who may read it can then add their own copy with
+`POST /api/v2/bots/<bot>/copies` `{"runner_id": "<their own computer>"}` (without a computer the
+copy is added as planned, to place later):
+
+- The copy is its own bot, `<bot>-<human>`. The human is its operator, it runs on their computer
+  and model subscription, and it reports to them. Adding one counts as adding a bot, so the
+  company's rule for who may add bots, and the member limit, apply.
+- It works in the **same repository**. Its checkout is named after that repository, and its
+  computer fetches it the first time like any bot's. Every copy reads and writes the same
+  AGENT.md, knowledge and memory.
+- It **follows** the original. Model, effort, harness and fallback are read from the original
+  whenever a turn is claimed. Only a copy's status (pausing it) can be changed on the copy itself.
+- Routines stay with the original, so a weekly learning run happens once, not once per human.
+- A task anyone files on the original goes to **their own active copy** if they have one, and a
+  bot's task goes to its operator's copy. Instructions and skills keep naming the original.
+
+The runner treats a shared bot's repository as the only copy of the bot:
+
+- Before each turn it fetches and rebases onto the remote. If it can't (leftover changes, a
+  conflict), the turn is told to fix that first instead of running on a stale tree.
+- After each turn it pushes, rebasing over another copy's push if it has to.
+- Claude runs with `--setting-sources project,local`, `--strict-mcp-config` (the hub plus the
+  repository's own `.mcp.json`) and auto-memory off. Nothing from the operator's own Claude setup
+  reaches the bot.
+- Every turn is told the bot is shared, so it saves only lessons about the code and the work, never
+  who asked.
+
+## 10. More than one environment
 
 The same slug can exist in two environments, and they are different bots: separate repositories,
 separate tasks, separate credentials, separate history. `bot-sales` in one environment's workspace

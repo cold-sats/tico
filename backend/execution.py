@@ -4,7 +4,7 @@ import json
 import secrets
 import sqlite3
 
-from . import inbox_isolation, providers, routines, runner_versions, usage_limits
+from . import inbox_isolation, providers, routines, runner_versions, shared_bots, usage_limits
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
@@ -291,10 +291,18 @@ class Execution:
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'])
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'config': providers.fill(company, json.loads(row['config_json'])),
+            config = shared_bots.follow(c, row['bot'], json.loads(row['config_json']))
+            result.append({**dict(row), 'config': providers.fill(company, config),
                            'repository': bot_repository(c, self.store.settings, row['bot']),
                            'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
+
+    @staticmethod
+    def declared(c, bot):
+        """A bot's definition as its turns run it: a copy of a shared bot carries its original's model
+        and behaviour (backend/shared_bots.py)."""
+        row = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        return shared_bots.follow(c, bot, json.loads(row[0]) if row else {})
 
     def assign(self, c, who, bot, body):
         if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
@@ -567,8 +575,7 @@ class Execution:
         c.execute("INSERT INTO attempt_conversations VALUES(?,?)", (aid, conv["id"]))
         # A bot that names no runtime or model runs on the company default, resolved here the way
         # runners/assignments resolves it: the runner starts exactly what this says.
-        config = providers.fill(providers.load(c, self.store.settings), json.loads(
-            c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
+        config = providers.fill(providers.load(c, self.store.settings), self.declared(c, row["bot"]))
         # The room's recent page. The runner forwards only what arrived since the bot last
         # answered; the bot reads further back itself with `hub conversation show` when it wants to. The
         # hub keeps no pointer to the bot's session and rebuilds nothing on its behalf.
@@ -700,8 +707,7 @@ class Execution:
             return None
         runtime, model = used.runtime, used.model
         if not model or model == providers.DEFAULT:
-            config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
-            runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
+            runtime, model = providers.bot_choice(c, self.store.settings, self.declared(c, row["bot"]))
         catalog = providers.MODEL_BY_ID.get(model) or {}
         provider = catalog.get("provider") or providers.runtime_provider(runtime or catalog.get("runtime"))
         return {"input_tokens": used.input_tokens, "cached_tokens": used.cached_tokens,
@@ -738,8 +744,7 @@ class Execution:
                   (H.now(), body.thread_id, aid))
         c.execute("UPDATE turns SET thread_id=? WHERE id=?", (body.thread_id, aid))
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
-        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0])
-        runtime, model = providers.bot_choice(c, self.store.settings, config)
+        runtime, model = providers.bot_choice(c, self.store.settings, self.declared(c, row["bot"]))
         c.execute("INSERT INTO bot_sessions(bot,runtime,model,thread_id,runner_id,tokens_in,updated) "
                   "VALUES(?,?,?,?,?,0,?) ON CONFLICT(bot,runtime,model) DO UPDATE SET "
                   "thread_id=excluded.thread_id,runner_id=excluded.runner_id,updated=excluded.updated",
@@ -914,8 +919,7 @@ class Execution:
         H.turn_finish(c, H.KEEPER, aid, exit_code=body.outcome, tokens_in=body.tokens_in,
                       tokens_out=body.tokens_out, summary=body.text[:2000], usage=self.run_usage(c, row, body))
         usage_limits.after_run(c, row["bot"], self.store.settings.owner_email)
-        config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
-        runtime, model = providers.bot_choice(c, self.store.settings, json.loads(config[0]) if config else {})
+        runtime, model = providers.bot_choice(c, self.store.settings, self.declared(c, row["bot"]))
         if row["thread_id"] and body.tokens_in is not None:
             c.execute("UPDATE bot_sessions SET tokens_in=?,updated=? WHERE bot=? AND runtime=? AND model=? AND thread_id=?",
                       (int(body.tokens_in), H.now(), row["bot"], runtime, model, row["thread_id"]))

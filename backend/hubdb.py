@@ -981,14 +981,31 @@ def known_repos(conn):
     return names
 
 
+def own_repos(conn, actor):
+    """The repository folder a bot may name as its own besides `bot-<slug>`/`emp-<slug>`: the one its definition
+    records. A copy of a shared bot works in the shared bot's repository (backend/shared_bots.py)."""
+    if not is_bot(actor):
+        return ()
+    try:
+        row = _one(conn, "SELECT repo FROM bot_config WHERE bot=?", (actor_id(actor),))
+    except sqlite3.OperationalError:          # a hub database without bot definitions
+        return ()
+    name = str((row or {}).get("repo") or "").rstrip("/").split("/")[-1].lower()
+    return (name,) if name else ()
+
+
 def names_other_repo(text, actor, conn=None):
     """Whether `text` names another bot's repository folder. `emp-<anything>/` always counts (the older prefix). A
     `bot-<name>/` counts only when it is a real bot's folder (known bots and their recorded repositories), so ordinary
-    words such as "bot-driven/" are not an escape; with no `conn` to look them up, only the `emp-` form is checked."""
-    mine = (f"emp-{actor_id(actor)}/", f"bot-{actor_id(actor)}/") if actor else ()
-    known = None
+    words such as "bot-driven/" are not an escape; with no `conn` to look them up, only the `emp-` form is checked.
+    A bot's own recorded repository is its own, whatever its name."""
+    mine = {f"emp-{actor_id(actor)}/", f"bot-{actor_id(actor)}/"} if actor else set()
+    known, recorded = None, conn is None
     for match in OTHER_REPO.finditer(str(text or "")):
         name = match.group(0).lower()
+        if not recorded:
+            mine |= {repo + "/" for repo in own_repos(conn, actor)}
+            recorded = True
         if name in mine:
             continue
         if name.startswith("emp-"):
@@ -1212,6 +1229,37 @@ def resolve_actor(conn, value):
     if human(conn, raw):
         return human_actor(raw)
     return None
+
+
+def shared_copy_for(conn, actor, target):
+    """Where a task for `target` goes: the requester's own copy when `target` is a shared bot.
+
+    A human who has added their own copy of a shared bot (a reviewer, an architect) has it run their work, on their
+    own computer and subscription, while the team's instructions keep naming the shared bot; the hub makes the swap.
+    A bot asks on its operator's behalf; only an active copy takes work, and the original's own operator keeps it.
+    """
+    if not is_bot(target):
+        return target
+    try:
+        if is_human(actor):
+            person = actor_id(actor)
+        elif is_bot(actor):
+            row = _one(conn, "SELECT operator FROM bot_config WHERE bot=?", (actor_id(actor),))
+            person = (row or {}).get("operator") or ""
+        else:
+            return target
+        source = _one(conn, "SELECT operator,config_json FROM bot_config WHERE bot=?", (actor_id(target),))
+        if not person or not source or source["operator"] == person:
+            return target
+        if not (_json(source["config_json"], {}) or {}).get("shared"):
+            return target
+        for row in conn.execute("SELECT c.bot,c.config_json FROM bot_config c JOIN bots b ON b.slug=c.bot "
+                                "WHERE c.operator=? AND b.state='active'", (person,)).fetchall():
+            if (_json(row["config_json"], {}) or {}).get("shared_from") == actor_id(target):
+                return "bot:" + row["bot"]
+    except sqlite3.OperationalError:          # a hub database without bot definitions
+        pass
+    return target
 
 
 def _reach(conn, actor, target, allow_planned=False):
@@ -1735,7 +1783,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     joins the bottom of the owner's queue unless `top`.
     """
     _writer(conn, actor)
-    target = _reach(conn, actor, owner, allow_planned=allow_planned)
+    target = shared_copy_for(conn, actor, _reach(conn, actor, owner, allow_planned=allow_planned))
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
