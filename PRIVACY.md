@@ -161,8 +161,9 @@ browser (not a token, the Assistant or a bot). `TICO_SUPPORT=off` removes it fro
 | `message` | What you wrote, up to 4000 characters. Required. |
 | `email` | Only if you leave one in the field, so the team can reply by email. It is prefilled from your account and you can clear it. |
 | `version`, `install_id` | Only while "Include version and install ID" is ticked, which it is by default. The install ID is the same random ID as the count's; it is made for a ticket if the count never made one. |
+| `diagnostics` | Only while "Attach diagnostics" is ticked, which it is by default. The bundle below; **Preview** on the form shows exactly it. |
 
-**What HQ keeps**, per ticket: those fields, a hash of a secret that only your Tico holds (it lets your Tico read this ticket's replies
+**What HQ keeps**, per ticket: those fields (the diagnostics with the ticket, to a limit of 256 KB, shown to the Tico team only), a hash of a secret that only your Tico holds (it lets your Tico read this ticket's replies
 and no other), the status (open, answered, closed), the times, the team's replies and any message you write back. No IP address is
 stored or logged, and HQ's access log is off. The address is used in memory to rate limit (5 tickets an hour per address, 10 a day per
 install).
@@ -182,3 +183,34 @@ see your tickets; another person on the same install does not.
 **Email:** HQ sends no email. If you gave an address, the reply is also drafted for a person on the team to send from their own mail.
 
 How the team works tickets: [docs/support.md](docs/support.md).
+
+### Support diagnostics
+
+The bundle is a fixed list of facts, written out by name in `backend/diagnostics.py`. A field that is not on the list cannot be in
+it. It never contains a task, message, doc, meeting or ticket, or the text of one. Every string in it is redacted first: emails,
+keys and tokens (`sk-`, `ghp_`, `gho_`, `xox[abpr]-`, `AKIA`, bearer tokens, JWTs, long base64 or hex runs), IPv4 and IPv6
+addresses, URL query strings, your company's domain and every hostname that is not one of the product's own (`tico.team`, GitHub,
+the model providers), and the names and emails of your bots and people, which become labels (`bot-3`, `person-1`) that are the same
+all through one bundle and mean nothing outside it. It is built when you press **Preview** (or Send) and what you previewed is what
+is sent: Send names the preview by its SHA-256 and your Tico sends those exact bytes. Untick the box and none of it is built or sent.
+
+Every field:
+
+| Field | What | Redacted sample |
+|---|---|---|
+| `format`, `created` | The bundle's version and when it was made | `1`, `2026-10-01T09:30:00Z` |
+| `versions` | Tico, server, each computer's release, the updater's | `{"tico": "0.2.18", "runners": ["0.2.17"], "updater": "v0.2.18"}` |
+| `system` | The server's OS and architecture, Docker and compose versions if the updater is there, whether it runs in Docker | `{"os": "Linux", "arch": "x86_64", "docker": "27.1.2", "compose": "2.29.1", "in_docker": true}` |
+| `containers` | Each container's name, state, health and restart count, from the updater | `{"name": "server", "state": "running", "health": "healthy", "restarts": 0}` |
+| `update` | The last update's result: state, versions, the updater's message, whether the database was restored | `{"state": "rolled_back", "from": "0.2.17", "to": "0.2.18", "message": "Not updated: ..."}` |
+| `health` | Each Health check by name and status; no summary text | `{"name": "Computers", "status": "warn"}` |
+| `runners` | Per computer, numbered `runner-1`: online, platform, kind, release, update state and error, each installed runtime (name, version, ready or not, its sign-in state and detail), how many bots are ready, their problem lines, and the computer's last 50 warning or error log lines | `{"label": "runner-1", "online": true, "runtimes": [{"name": "codex", "ready": true, "detail": "Signed in with ChatGPT"}], "problems": ["bot-2: repository missing at /Users/person-1/work"]}` |
+| `database` | The migration level of the database | `{"migration": 12, "cloud_migration": 44}` |
+| `features` | Which of these are on, as true or false only: `demo`, `updater`, `update_check`, `usage_count`, `backups`, `github_app`, `slack`, `sign_in_proxy`, `blob_storage`, `scheduler`, `observability`, `assistant`, `librarian` | `{"slack": false, "backups": true}` |
+| `counts` | How many bots, people and routines | `{"bots": 12, "people": 5, "routines": 30}` |
+| `logs` | The server's last 200 WARNING and ERROR log lines (message only, never a traceback), and the updater's last failures | `"2026-10-01T09:29:58Z WARNING tico.support: HQ did not answer (ConnectTimeout)"` |
+
+A Tico from before this feature, or a server whose updater is not the Docker one, leaves out what it cannot see. Log lines come
+from the programs' own messages, which avoid task and message text, and go through the same redactor as everything else. The
+redactor is a filter, not a guarantee: read the preview, and untick the box if you would rather not send it. The Tico team's Support
+Agent reads the bundle before the ticket. It is kept with the ticket until the ticket is deleted; there is no separate expiry.

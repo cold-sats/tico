@@ -37,6 +37,10 @@
       .support-modal textarea,.support-modal input[type=email]{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
       .support-modal textarea{min-height:140px;resize:vertical}
       .support-modal .support-check{display:flex;align-items:center;gap:8px;color:var(--ink);font-size:13px}
+      .support-diag{display:flex;align-items:center;gap:10px;font-size:13px}
+      .support-diag label{display:flex;align-items:center;gap:8px;color:var(--ink)}
+      .support-diag button{border:0;background:none;color:var(--accent);padding:0;cursor:pointer;font:inherit;text-decoration:underline}
+      .support-json{margin:0;max-height:240px;overflow:auto;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface2);font:11.5px/1.4 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
       .support-sent{margin:0;font-size:12px;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
       .support-row{display:flex;gap:8px;align-items:center;justify-content:flex-end}
       .support-mine{max-width:960px;margin:20px auto 0}
@@ -115,12 +119,22 @@
         <label>Message<textarea name="message" maxlength="${Number(form.max) || 4000}" required autofocus></textarea></label>
         <label>Email for a reply<input type="email" name="email" autocomplete="email" value="${escape(form.email)}"></label>
         <label class="support-check"><input type="checkbox" name="ids" checked> Include version and install ID</label>
+        <div class="support-diag"><label><input type="checkbox" name="diag" checked> Attach diagnostics</label><button type="button" data-preview>Preview</button></div>
+        <pre class="support-json" data-json hidden></pre>
         <p class="support-sent" data-sent aria-live="polite"></p>
         <p class="err" data-error hidden></p>
         <div class="support-row"><button type="button" class="ghost" data-close>Cancel</button><button type="submit" class="primary">Send</button></div>
       </form>`;
     document.body.appendChild(dialog);
     const f = dialog.querySelector('form'), sent = dialog.querySelector('[data-sent]'), err = dialog.querySelector('[data-error]');
+    const json = dialog.querySelector('[data-json]');
+    let bundle = null;       // the diagnostics as previewed: what Send sends is this one, by its id (backend/diagnostics.py)
+    const fetchBundle = async () => { bundle = await call('GET', '/support/diagnostics'); json.textContent = bundle.text; line(); return bundle; };
+    dialog.querySelector('[data-preview]').onclick = async () => {
+      if (!json.hidden) { json.hidden = true; return; }
+      try { if (!bundle) await fetchBundle(); json.hidden = false; } catch (e) { say(e.message, true); }
+    };
+    f.diag.addEventListener('change', () => { if (!f.diag.checked) json.hidden = true; });
     const line = () => {
       const parts = ['message'];
       if (f.email.value.trim()) parts.push('email ' + f.email.value.trim());
@@ -128,6 +142,7 @@
         if (form.version) parts.push('version ' + form.version);
         parts.push('install ID ' + form.install_id);
       }
+      if (f.diag.checked) parts.push('diagnostics' + (bundle ? ' (' + Math.max(1, Math.round(bundle.bytes / 1024)) + ' KB)' : ''));
       sent.textContent = 'Sends to ' + form.to + ': ' + parts.join(', ') + '.';
     };
     line();
@@ -141,7 +156,16 @@
       const submit = f.querySelector('[type=submit]');
       submit.disabled = true;
       try {
-        const ticket = await call('POST', '/support/tickets', {message: f.message.value, email: f.email.value.trim(), include_ids: f.ids.checked});
+        const file = () => call('POST', '/support/tickets', {message: f.message.value, email: f.email.value.trim(), include_ids: f.ids.checked,
+                                                            diagnostics: f.diag.checked ? bundle.id : ''});
+        if (f.diag.checked && !bundle) await fetchBundle();
+        let ticket;
+        try { ticket = await file(); }
+        catch (e) {
+          if (e.status !== 409 || !f.diag.checked) throw e;
+          bundle = null; await fetchBundle(); json.hidden = false;          // the preview expired: show the new one, send nothing
+          throw new Error('Diagnostics updated. Check and send again.');
+        }
         dialog.close();
         say('Sent.');
         state.tickets = [ticket, ...state.tickets];
