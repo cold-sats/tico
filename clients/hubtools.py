@@ -1219,7 +1219,7 @@ def bot_owners(api, args):
 
 
 @tool("hub_bot_setup_done", "A starter bot's own call, once a person has approved its first routine: it stops "
-      "being `needs_onboarding`, its routines may run and its work is claimed. Call it on yourself, after "
+      "being `needs_setup`, its routines may run and its work is claimed. Call it on yourself, after "
       "`hub routine update <id> --enable`; a person who manages the bot may call it for the bot. Repeating it "
       "changes nothing. A member's bot counts toward their limit of active bots from here on, so this can "
       "answer `bot_limit`: tell the person to archive a bot or ask an admin.",

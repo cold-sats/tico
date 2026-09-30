@@ -69,7 +69,7 @@ STABLE = [
      "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccess"),
     ("/api/v2/bots/{bot}/onboarded", "post", "Bots", "markBotOnboarded",
      "A starter bot's own call, or its manager's, once a person approved its first routine: `onboarding_state` goes "
-     "from `needs_onboarding` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
+     "from `needs_setup` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
      "BotOnboarded"),
     ("/api/v2/bots/{bot}/tools", "get", "Bots", "listBotTools",
      "The tools a bot uses, for the row at the top of its page: its model and harness, its repository and each "

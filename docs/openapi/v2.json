@@ -868,7 +868,7 @@
     },
     "/api/v2/bots/{bot}/onboarded": {
       "post": {
-        "summary": "A starter bot's own call, or its manager's, once a person approved its first routine: `onboarding_state` goes from `needs_onboarding` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
+        "summary": "A starter bot's own call, or its manager's, once a person approved its first routine: `onboarding_state` goes from `needs_setup` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
         "operationId": "markBotOnboarded",
         "parameters": [
           {

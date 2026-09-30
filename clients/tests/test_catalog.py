@@ -299,7 +299,7 @@ class StarterBots(unittest.TestCase):
         for entry in allowed:
             self.assertNotRegex(entry, r"^Bash\(gh (issue|pr|api) (\*|comment|edit|create|close|review|merge)", f"{where}: {entry}")
         # The last step of onboarding tells the hub a person approved the first routine.
-        self.assertIn("hub bot onboarded", (folder / "playbooks/onboarding.md").read_text(), where)
+        self.assertIn("hub bot setup-done", (folder / "playbooks/onboarding.md").read_text(), where)
 
 
 if __name__ == "__main__":
