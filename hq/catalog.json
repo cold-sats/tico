@@ -153,24 +153,6 @@
   },
   {
    "business_only": false,
-   "department": "operations",
-   "icon": "star",
-   "lead": true,
-   "name": "Chief of Staff",
-   "suggest": "niche",
-   "summary": "Turns the goals, tasks, bot updates and meetings already in the hub into a weekly brief for the owner, chases stalled goals, and drafts Monday's agenda.",
-   "tags": [
-    "leadership",
-    "weekly-brief",
-    "goals",
-    "agenda",
-    "founder",
-    "smb"
-   ],
-   "template": "chief-of-staff"
-  },
-  {
-   "business_only": false,
    "department": "marketing",
    "icon": "diversity_3",
    "lead": false,
@@ -1826,5 +1808,5 @@
    "software_only": true
   }
  ],
- "version": "f5530ecdaf30"
+ "version": "64ac7d492f37"
 }

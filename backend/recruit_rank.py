@@ -63,8 +63,9 @@ def _strings(value, limit=24):
 
 def _department_of(card, heads, teams):
     wanted = str(card.get("department") or "").strip()
-    if wanted in DEPARTMENT_IDS:
-        return wanted
+    if wanted:
+        # A department the builder does not offer (the Leadership extra) keeps its cards out of every department.
+        return wanted if wanted in DEPARTMENT_IDS else ""
     template = str(card.get("template") or "")
     if template in heads:
         return heads[template]
@@ -83,9 +84,11 @@ def department(document):
 
 
 def build(departments, cards):
-    """The org builder's catalog from parsed departments.yaml and card.yaml documents. Built-in (`required`) cards and
-    cards in no known department are left out. A card with no `icon` takes its department's; with no `suggest`, it is
-    `common`; with no `tags`, its `pains` phrases stand in."""
+    """The org builder's catalog from parsed departments.yaml and card.yaml documents. Built-in (`required`) cards,
+    helpers (`kind: helper`, which serve a person and sit outside the org chart) and cards in no offered department are
+    left out. A card with no `icon` takes its department's; with no `suggest`, it is `common`; with no `tags`, its
+    `pains` phrases stand in. A department's head is its card with `lead: true`, else the `head` departments.yaml
+    names; the served `head` and each card's `lead` say which."""
     rows = departments.get("departments") if isinstance(departments, dict) else departments
     known = [department(row) for row in (rows or []) if isinstance(row, dict)]
     known = [row for row in known if row["id"] in DEPARTMENT_IDS]
@@ -99,7 +102,7 @@ def build(departments, cards):
     out = []
     for card in sorted(cards, key=lambda card: str(card.get("template") or "")):
         template = str(card.get("template") or "").strip()
-        if not template or card.get("required"):
+        if not template or card.get("required") or str(card.get("kind") or "") == "helper":
             continue
         home = _department_of(card, heads, teams)
         if home not in by_id:
@@ -111,20 +114,22 @@ def build(departments, cards):
                     "tags": _strings(card.get("tags")) or _strings(card.get("pains")),
                     "suggest": suggest if suggest in SUGGEST else "common",
                     "summary": _first_sentence(card.get("summary")),
-                    "lead": bool(card.get("lead")) or by_id[home]["head"] == template,
+                    "lead": bool(card.get("lead")),
                     "business_only": "sells_to_businesses" in when and "sells_to_consumers" not in when})
+    for row in known:
+        members = [card for card in out if card["department"] == row["id"]]
+        leads = [card["template"] for card in members if card["lead"]]
+        row["head"] = leads[0] if leads else row["head"] if any(card["template"] == row["head"] for card in members) else ""
+        for card in members:
+            card["lead"] = card["template"] == row["head"]
     body = {"departments": known, "cards": out}
     version = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]
     return {"version": version, **body}
 
 
 def head_of(catalog, department_id):
-    """The department's head: departments.yaml's `head` when that card is in it, else its first `lead` card."""
-    dept = next((row for row in catalog["departments"] if row["id"] == department_id), None)
-    cards = [card for card in catalog["cards"] if card["department"] == department_id]
-    if dept and any(card["template"] == dept["head"] for card in cards):
-        return dept["head"]
-    return next((card["template"] for card in cards if card["lead"]), "")
+    """The department's head: its `lead` card (build() settles it, and the department's `head` agrees)."""
+    return next((card["template"] for card in catalog["cards"] if card["department"] == department_id and card["lead"]), "")
 
 
 def _match(card, found):

@@ -13,48 +13,40 @@ answer and their "Suggestions from Tico HQ" toggle, and this module answers from
 Either way the answer is template ids and a short "why" per bot, never text a bot would follow.
 """
 import logging
-import os
 import re
 from pathlib import Path
 
 import httpx
 import yaml
 
+from . import census as C
 from . import onboarding as O
 from . import recruit_rank as R
 from .store import Problem
 
 log = logging.getLogger("tico.recruit")
 
-DEFAULT_HQ = "https://hq.tico.team"
 HQ_TIMEOUT = 6.0
-USAGE_COUNT_KEY = "usage-count"          # registry_metadata, the anonymous usage count's own setting
 BUNDLED_DEPARTMENTS = Path(__file__).resolve().parents[1] / "templates" / "departments.yaml"
-_OFF = ("off", "0", "false", "no", "disabled")
 # Tests swap in an httpx.MockTransport; a real install always uses the network.
 TRANSPORT = None
 
 
-def hq_url():
-    return os.environ.get("TICO_HQ_URL", "").strip().rstrip("/") or DEFAULT_HQ
-
-
-def _usage_count(c):
-    row = c.execute("SELECT value_json FROM registry_metadata WHERE key=?", (USAGE_COUNT_KEY,)).fetchone()
-    value = O._json(row[0], {}) if row else {}
-    return value if isinstance(value, dict) else {}
+hq_url = C.hq_url
 
 
 def off_reason(c, settings):
     """Why this install sends nothing to Tico HQ: "demo", "TICO_TELEMETRY", "DO_NOT_TRACK", "setting", or "" when it may.
-    The same switches as the anonymous usage count, so turning that off turns this off too."""
+    The same switches as the anonymous usage count (backend/census.py), so turning that off turns this off too."""
     if settings.demo:
         return "demo"
-    if os.environ.get("TICO_TELEMETRY", "").strip().lower() in _OFF:
-        return "TICO_TELEMETRY"
-    if os.environ.get("DO_NOT_TRACK", "").strip().lower() not in ("", "0", "false", "no"):
-        return "DO_NOT_TRACK"
-    return "" if _usage_count(c).get("enabled", True) else "setting"
+    return C.env_off() or ("" if C._load(c).get("enabled", True) else "setting")
+
+
+def _install_id(c):
+    """The usage count's random id, only once the owner has been shown its notice: nothing carries it before then."""
+    record = C._load(c)
+    return str(record.get("install_id") or "") if record.get("notice") else ""
 
 
 def departments_file(settings):
@@ -122,7 +114,7 @@ class Recruiter:
         with self.store.read() as c:
             answers = O.load(c)["answers"]
             off = off_reason(c, self.settings)
-            install_id = str(_usage_count(c).get("install_id") or "") if not off else ""
+            install_id = _install_id(c) if not off else ""
         value = catalog(self.settings)
         cards = {card["template"] for card in value["cards"] if card["department"] == body.department}
         about = _about(answers)

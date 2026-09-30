@@ -16,7 +16,6 @@ import yaml
 
 from backend import recruit
 from backend import recruit_rank as R
-from backend.store import encode
 from backend.tests.test_onboarding import (ASSISTANT_AGENT, ASSISTANT_CARD, BOTOPS_CARD, as_person,  # noqa: F401
                                            environment, signed_in)
 
@@ -182,8 +181,7 @@ def test_the_install_sends_an_answer_to_hq_only_when_the_toggle_is_on_and_keeps_
         assert api.get("/api/v2/onboarding/departments", headers=signed_in()).json()["hq"] == {
             "available": False, "off_by": reason}
         monkeypatch.delenv(name)
-    with api.app.state.store.transaction() as c:
-        c.execute("INSERT INTO registry_metadata VALUES('usage-count',?)", (encode({"enabled": False}),))
+    api.app.state.census.set_enabled(False, "human:owner")
     assert ask(api).json()["off_by"] == "setting"
     assert len(hq.seen) == sent
 
