@@ -47,7 +47,7 @@ def test_the_model_answer_is_cut_to_the_departments_template_ids_with_the_head_f
 
     def model(dept, cards, question):
         calls.append((dept["id"], sorted(card["template"] for card in cards), question))
-        return {"bots": [{"template_id": OTHER, "why": "Keeps the CRM\ntidy for resellers"},
+        return {"bots": [{"template_id": OTHER, "why": "Keeps the CRM\nclean for resellers"},
                          {"template_id": "support-lead", "why": "another department"},
                          {"template_id": "rm -rf /", "why": "not a template"},
                          {"template_id": OTHER, "why": "twice"}, "garbage"],
@@ -56,7 +56,7 @@ def test_the_model_answer_is_cut_to_the_departments_template_ids_with_the_head_f
     assert calls == [("sales", sorted(SALES), {"department": "sales", "briefing": BRIEFING, "install_id": "",
                                                "about": GOOD["about"]})]
     assert answer == {"bots": [{"template_id": HEAD, "why": "Heads Sales and reports to you"},
-                               {"template_id": OTHER, "why": "Keeps the CRM tidy for resellers"}],
+                               {"template_id": OTHER, "why": "Keeps the CRM clean for resellers"}],
                       "suggested_default": [HEAD, OTHER], "source": "model", "catalog_version": CATALOG["version"]}
     # An answer with no usable id at all is not an answer: HQ ranks locally instead.
     local = client(lambda *a: {"bots": [{"template_id": "nope", "why": "x"}]}).post("/v1/recruit", json=GOOD).json()
