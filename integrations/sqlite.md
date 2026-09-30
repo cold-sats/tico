@@ -64,7 +64,7 @@ in your environment; you never see or type it, and an error never shows it. The 
   `hub sql "SELECT ts, target, detail_json FROM events WHERE action = 'db.query'"` shows your own
   and the owner's view shows everyone's: "who looked at what". Put a lookup value in `--param`, not in the statement: the audit keeps the
   parameter names and not their values.
-- A database you did not declare is refused. Ask the owner to add the `access:` entry.
+- A database you did not declare is refused. Ask the owner to add the `tools:` entry.
 
 ## Recipes
 

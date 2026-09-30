@@ -24,8 +24,8 @@ aliases: [gmail, google-calendar]
 ## What it is
 
 One CLI, `mail`, in the hub at `connectors/mail/`, run as `$HUB_DIR/scripts/mail.sh`. One Google
-service account acts as every mailbox. Gmail authority comes from the `access:` block in
-`employee.yaml` (`policies/access.md`), never from a prompt. Company calendar access is the
+service account acts as every mailbox. Gmail authority comes from the `tools:` block in
+`bot.yaml` (`policies/access.md`), never from a prompt. Company calendar access is the
 standing fleet-wide exception: every bot may read and create events on every roster address with
 the Hub tools or the audited `mail calendar` commands, even when its Gmail access is read-only or
 absent. The Hub queues and audits provider actions; the connector on the runner computer performs them
@@ -38,7 +38,7 @@ the environment). Employee guide:
 
 ## What data it has
 
-The mailboxes declared in each bot's `employee.yaml` (for example `owner@example.com`, where an
+The mailboxes declared in each bot's `bot.yaml` (for example `owner@example.com`, where an
 inbox bot can read, draft, unsubscribe and schedule, and other bots read only).
 Messages, threads, labels, attachments (listed by name and size, downloadable with `read`),
 Gmail search, drafts the hub wrote, the sent log, and every calendar a mailbox can see (all of
@@ -50,7 +50,7 @@ copies of another system's notifications, so bots do not see them twice.
 
 ## How a bot uses it
 
-Inside a turn `HUB_EMPLOYEE` and `HUB_DIR` are set, so the tool knows who you are; `--as <slug>`
+Inside a turn `HUB_BOT` and `HUB_DIR` are set, so the tool knows who you are; `--as <slug>`
 is for running it by hand. Add `--mailbox <address>` when you hold more than one.
 
 For appointments, prefer the Hub tools. `hub_calendar_schedule` returns a durable action, not
@@ -98,13 +98,13 @@ policy refused you. Add `--json` for structured output.
   and downloading its attachments. `draft` is needed for `draft`, `reply` and `schedule`;
   `send` on top of that for anything to leave; `unsubscribe` and `schedule` are their own verbs.
 - Calendar read/create is available to every bot for every address in `registry/people.yaml`
-  without an `employee.yaml` mail grant. Hub scheduling is idempotent, connector-queued and
+  without an `bot.yaml` mail grant. Hub scheduling is idempotent, connector-queued and
   audited; the direct `mail calendar` commands are also audited and deterministic. Invitation
   delivery is part of that calendar action, not a grant to the generic mail send command.
 - A `read_only: true` entry (a review-only bot on `owner@example.com`) refuses filing, labels, rules,
   mark-read, star, drafts and sends whatever else is listed.
 - Every write goes through five gates in order: policy (`registry/mail-policy.yaml` plus your
-  `employee.yaml`), lint, a second model (a different vendor), execution, audit. A gate that
+  `bot.yaml`), lint, a second model (a different vendor), execution, audit. A gate that
   says no leaves a draft in Gmail with the reason. Read the reason; do not retry the same text
   or look for another route.
 - A send to anyone outside `@example.com` needs `outbound_send: true` and one of: a standing

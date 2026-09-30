@@ -180,7 +180,7 @@ def task_dry_run(c, auth, who, body):
             if not auth.bot_contact(c, who, H.actor_id(target)):
                 problems.append(f"{H.actor_id(target)} does not take tasks from other bots; ask its "
                                 "manager or a person to pass this on")
-        severity = H.classify(f"{title}\n{text}", to_actor=target, actor=who.actor) if H.is_bot(who.actor) else "normal"
+        severity = H.classify(f"{title}\n{text}", to_actor=target, actor=who.actor, conn=c) if H.is_bot(who.actor) else "normal"
         if severity == "escape":
             problems.append("the task reaches outside the hub (rule 8): a real create is refused and repeating it quarantines you")
         if H.is_human(target):

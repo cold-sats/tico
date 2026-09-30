@@ -41,7 +41,7 @@ These sit alongside `handoffs.md` and `approvals.md`.
   database. No parallel wiki. Secrets never go in chat, hub tasks, or git.
 
 ## Outbound sends
-Every employee has `outbound_send` in its `employee.yaml`. While it is `false` (the default),
+Every employee has `outbound_send` in its `bot.yaml`. While it is `false` (the default),
 nothing leaves the company: no email, DM, social post, or comment to anyone
 outside the company, even where an older instruction says to send as the owner. Produce the send-ready draft,
 attach it to the task, and stop. When the owner sets `outbound_send: true` for an employee, the
@@ -68,12 +68,12 @@ the bucket. A deliverable in the bucket or on a task is still internal; anything
 customer-facing goes through `approvals.md` and the outbound gate.
 
 ## Access
-What you may touch, and as whom, is declared under `access:` in your `employee.yaml` and shown in the
+What you may touch, and as whom, is declared under `tools:` in your `bot.yaml` and shown in the
 hub app. Not listed means not allowed, except the implicit access to your own bot repository,
 Hub tasks and S3 prefix. Rules and schema: `policies/access.md`.
 
 ## Self-improvement
-Every employee may improve its own `emp-<slug>` repository without human merge approval. It may
+Every employee may improve its own `bot-<slug>` repository without human merge approval. It may
 commit directly for a small internal change, or create a branch, test, open a pull request and
 merge it after any required checks pass. A bot that sees an improvement another bot should own
 files a Hub task for that bot with the evidence and desired outcome; the owner makes and merges

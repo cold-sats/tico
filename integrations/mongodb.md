@@ -71,7 +71,7 @@ type it, and an error never shows it.
 - Every call is recorded on the hub: operation, collection, the shape of the filter or pipeline with
   every value replaced by its type (`{"email": "<string>"}`), and the row count, never the values or
   documents. Put a lookup value in a named query's `--param` where one exists.
-- A database you did not declare is refused. Ask the owner to add the `access:` entry.
+- A database you did not declare is refused. Ask the owner to add the `tools:` entry.
 
 ## Recipes
 

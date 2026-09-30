@@ -2,7 +2,7 @@
 service: aside
 title: Aside (the company browser)
 kind: browser
-summary: Signed-in websites through the dedicated bot browser, Aside, with the sites and verbs a bot may use declared in its employee.yaml.
+summary: Signed-in websites through the dedicated bot browser, Aside, with the sites and verbs a bot may use declared in its bot.yaml.
 access: "`$HUB_DIR/connectors/browser.py` — nobody drives Chrome, the Orca browser or `aside` directly"
 credentials:
   - none in a bot's environment — the owner signs in to each site once, in Aside; sessions and re-logins are Aside's business
@@ -23,7 +23,7 @@ aliases: [browser]
 Aside (aside.com) is a Chromium browser with its own agent, password manager and CLI.
 `aside repl` runs Playwright-style JavaScript in the signed-in browser; `aside exec` hands a
 job to Aside's agent. The hub's connector, `connectors/browser.py`, is the only way a bot reaches
-either: it checks the bot's `access:` entry, refuses hosts outside `sites:`, refuses actions
+either: it checks the bot's `tools:` entry, refuses hosts outside `sites:`, refuses actions
 for a read-only bot, and appends every call to `<projects>/runtime/browser-audit.jsonl`. The
 skill that teaches a model the REPL is `skills/aside-browser/SKILL.md`; run `aside guide repl`
 before writing REPL code. The CLI installs with
@@ -34,7 +34,7 @@ before writing REPL code. The CLI installs with
 Whatever the signed-in sites show. Typical declarations: the company's own app (read only, for
 support-style bots); social sites and news (a listening bot, read); ad dashboards such as
 `ads.google.com` (read); a design tool (act). Each is a `sites:` entry in the bot's own
-`employee.yaml`.
+`bot.yaml`.
 
 **The owner's social sessions are the listening bot's alone**. The connector refuses
 any other employee that names a social site (X, Reddit, LinkedIn, Facebook, Instagram, TikTok,
@@ -58,7 +58,7 @@ refused it. The REPL stops after 120 s; a `task` after 900 s (`ASIDE_TASK_TIMEOU
 
 ## Rules
 
-- The bot's `employee.yaml` must declare `service: aside` with `sites:`. Every URL literal in
+- The bot's `bot.yaml` must declare `service: aside` with `sites:`. Every URL literal in
   the code, and the text of a `task`, must stay on those hosts; anything else is refused before
   the browser is touched.
 - `can: [read]` allows REPL reads only. The connector refuses `.click`, `.dblclick`, `.fill`,

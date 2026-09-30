@@ -1,4 +1,4 @@
-"""Team rules: what is open by default and the owner can tighten (Settings > People).
+"""Team rules: what is open by default and the owner can tighten (Settings > Humans).
 
 One record, `rules`, holds only what the owner changed. Each rule is on by default, the fast way; turning it off puts
 back the click or the limit the product had before. They are read wherever the decision is made: the Assistant's

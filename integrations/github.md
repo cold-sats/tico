@@ -2,13 +2,13 @@
 service: github
 title: GitHub
 kind: cli
-summary: The company's repositories and each bot's own emp-<slug> repository, reached with a per-bot token from the company's GitHub App, or with the computer's own git access when no app is connected.
+summary: The company's repositories and each bot's own bot-<slug> repository, reached with a per-bot token from the company's GitHub App, or with the computer's own git access when no app is connected.
 access: "`gh` and `git` in a turn; the runner's git credential helper supplies the bot's app token when the GitHub App is connected, otherwise the computer's own login is used"
 credentials:
   - none to manage — a short-lived GitHub App token per bot
   - without the app, the computer's own `gh` and `git` login
 declared_as: |
-  # Access to a bot's own emp-<slug> repository is implicit; no entry is needed.
+  # Access to a bot's own bot-<slug> repository is implicit; no entry is needed.
   - service: github
     identity: <org>/<repo>              # one entry per repository or group of repositories
     can: [read]                         # read | draft (branches and review PRs) | write
@@ -20,7 +20,7 @@ owner: owner
 ## What it is
 
 GitHub as the bots reach it: the `gh` CLI and `git` on the computer that runs them. When the
-owner has connected the company's GitHub App (Settings, Cloud services; `docs/github-app.md`),
+owner has connected the company's GitHub App (Tools, GitHub; `docs/github-app.md`),
 each bot gets a short-lived token for its own repository only, and commits and PRs are made
 by the app on that bot's behalf. With no app connected, the computer's own git access is used,
 and everything shows as whoever is signed in on that computer. Work does not live in GitHub
@@ -30,8 +30,8 @@ Issues; it lives in the hub (`hub task ...`).
 
 | Repository | What | Who, how |
 |---|---|---|
-| `<org>/emp-<slug>` | each bot's own repository | the owning bot may commit directly or open and merge a tested PR; the runner pushes commits from its checkout after each turn |
-| product and docs repositories | whatever the company keeps there | as the bot's `access:` entry says; review PRs unless it says `write` |
+| `<org>/bot-<slug>` | each bot's own repository | the owning bot may commit directly or open and merge a tested PR; the runner pushes commits from its checkout after each turn |
+| product and docs repositories | whatever the company keeps there | as the bot's `tools:` entry says; review PRs unless it says `write` |
 
 Extra repositories a bot may read are granted by the owner (Settings, the bot's GitHub
 repositories); they must be in the connected organization.
@@ -43,9 +43,9 @@ gh api repos/<org>/<repo>/contents/<path> --jq .content | base64 -d
 gh pr list -R <org>/<repo> --state open
 gh pr view 123 -R <org>/<repo> --json title,body,files
 gh pr create -R <org>/<repo> --draft --base main --head <branch> --title "..." --body "..."
-git -C ~/tico-work/emp-<slug> add -A && git commit -m "..."   # your own repo, at the end of a turn
-gh pr create -R <org>/emp-<slug> --base main --head <branch> --title "..." --body "..."
-gh pr merge -R <org>/emp-<slug> <number> --merge --delete-branch  # your own repo, checks passed
+git -C ~/tico-work/bot-<slug> add -A && git commit -m "..."   # your own repo, at the end of a turn
+gh pr create -R <org>/bot-<slug> --base main --head <branch> --title "..." --body "..."
+gh pr merge -R <org>/bot-<slug> <number> --merge --delete-branch  # your own repo, checks passed
 ```
 
 For a repository whose merge still needs human review, request that exact action:
@@ -56,13 +56,13 @@ For a repository whose merge still needs human review, request that exact action
 
 - GitHub Issues are disabled for work. Never `gh issue`; tasks, asks and approvals go through
   `hub`.
-- A bot may merge a PR into its own `emp-<slug>` repository after relevant tests and required
+- A bot may merge a PR into its own `bot-<slug>` repository after relevant tests and required
   checks pass, without human approval. Other repositories follow their scoped review and approval
   rules; never bypass branch protection. Deleting, archiving or changing repository visibility
   remains gated.
 - Never push to another repository's default branch. Changes go on a branch as a draft or review
-  PR, unless the bot's `access:` entry says `write`.
-- Your own `emp-<slug>` repository: commit directly to `main` for small internal changes, or use
+  PR, unless the bot's `tools:` entry says `write`.
+- Your own `bot-<slug>` repository: commit directly to `main` for small internal changes, or use
   a PR and merge it yourself. The runner pushes its current checkout after a turn and fast-forwards
   that checkout before the next one. Use a separate worktree for a PR branch, or return the runner
   checkout to an up-to-date `main` before ending the turn. Do not clone another bot's repository
@@ -70,7 +70,7 @@ For a repository whose merge still needs human review, request that exact action
 - Creating a bot repository (BotOps, or the owner): `hub bot repo-create <slug>` from a
   template, or `--empty` for a bot whose repository already exists on a computer
   (`docs/github-app.md`). It needs the app's administration permission, and the name is always
-  `emp-<slug>` in the connected organization, private.
+  `bot-<slug>` in the connected organization, private.
 
 ## Recipes
 
@@ -79,7 +79,7 @@ For a repository whose merge still needs human review, request that exact action
 - A review PR for a repository that still needs human review: branch from the default branch,
   commit, `gh pr create --draft`, put the PR URL on the Hub task, and stop for review.
 - A bot built locally with no repository on GitHub yet: `hub bot repo-create <slug>
-  --empty`, then set the bot's repository to `<org>/emp-<slug>` (`docs/github-app.md`). Do not push
+  --empty`, then set the bot's repository to `<org>/bot-<slug>` (`docs/github-app.md`). Do not push
   it yourself: the bot's next turn publishes its history with its own token.
 
 ## Gotchas

@@ -336,23 +336,46 @@ def push_repo(path, env=None, timeout=60):
 # bot's repository or into secrets/ is removed, as the refusal itself asks.
 LOCAL_LINK = re.compile(r"\[([^\]]*)\]\(file://[^)\s]*\)")
 FILE_URL = re.compile(r"file://[^\s)\]`'\"]+")
-REPO_URL = re.compile(r"https?://[^\s)\]`'\"]*?(?<!\w)(?:emp|bot)-([a-z0-9-]+)/[^\s)\]`'\"]*", re.I)
-REPO_PATH = re.compile(r"(?:(?<![\w:/])/[^\s`'\"()\[\]]*?/)?(?<!\w)(?:emp|bot)-([a-z0-9-]+)/[^\s`'\"()\[\]]*", re.I)
+REPO_URL = re.compile(r"https?://[^\s)\]`'\"]*?(?<!\w)(emp|bot)-([a-z0-9-]+)/[^\s)\]`'\"]*", re.I)
+REPO_PATH = re.compile(r"(?:(?<![\w:/])/[^\s`'\"()\[\]]*?/)?(?<!\w)(emp|bot)-([a-z0-9-]+)/[^\s`'\"()\[\]]*", re.I)
 SECRETS_REF = re.compile(r"(?:(?<=^)|(?<=[\s\"'(/]))(?:[^\s`'\"()\[\]]*/)?secrets/[^\s`'\"()\[\]]*", re.I | re.M)
 
 
-def scrub_reply(text, bot):
-    """The reply with the references the hub would refuse taken out; everything else as written."""
+def known_repo_names(workspace, assignments=()):
+    """The bot repository folders this computer knows: `bot-*` folders in the workspace, and `bot-<slug>` and the recorded
+    repository of each bot assigned here. Lower case, without a trailing slash."""
+    names = set()
+    try:
+        names |= {p.name.lower() for p in Path(workspace).iterdir() if p.is_dir() and p.name.lower().startswith("bot-")}
+    except (OSError, TypeError):
+        pass
+    for row in assignments or ():
+        slug = str((row or {}).get("bot") or "").lower()
+        if slug:
+            names.add("bot-" + slug)
+        repo = str(((row or {}).get("config") or {}).get("repo") or "").rstrip("/").rsplit("/", 1)[-1].lower()
+        if repo:
+            names.add(repo)
+    return names
+
+
+def scrub_reply(text, bot, known=None):
+    """The reply with the references the hub would refuse taken out; everything else as written. `emp-<name>/` is always
+    another bot's repository; `bot-<name>/` only when it is one of the `known` folders (known_repo_names), so an ordinary
+    word such as "bot-driven/" stays. With no `known`, only the `emp-` form goes."""
     if not text:
         return text
 
     def other(what):
         def swap(match):
-            if match.group(1).lower() == str(bot).lower():
+            prefix, slug = match.group(1).lower(), match.group(2)
+            if slug.lower() == str(bot).lower():
+                return match.group(0)
+            if prefix == "bot" and f"bot-{slug.lower()}" not in (known or ()):
                 return match.group(0)
             found = match.group(0)
             tail = found[len(found.rstrip(".,;:!?")):]      # a sentence's full stop is not the path
-            return f"({what} {match.group(1)}'s repository){tail}"
+            return f"({what} {slug}'s repository){tail}"
         return swap
     text = LOCAL_LINK.sub(lambda m: m.group(1), text)
     text = FILE_URL.sub("(a file on the runner's Mac)", text)
@@ -1635,7 +1658,7 @@ class Runner:
                         reply = (reply + "\n\n" if reply else "") + "not pushed: a commit made this turn contains a secret"
                         log(f"Tico runner: {bot}: a commit made this turn contains a granted secret; it was not pushed")
             if outcome == "completed":
-                scrubbed = scrub_reply(reply, bot)
+                scrubbed = scrub_reply(reply, bot, known_repo_names(self.config.get("projects_dir"), self.assignments_seen))
                 if scrubbed != reply:
                     log(f"Tico runner: {bot}: took local file links or other repositories' paths out of the reply")
                     reply = scrubbed

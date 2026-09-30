@@ -21,14 +21,14 @@ Every page starts with YAML frontmatter, then six sections in this order, then `
 
 ```yaml
 ---
-service: posthog            # the file name, lower-case, matches `service:` in employee.yaml
+service: posthog            # the file name, lower-case, matches `service:` in bot.yaml
 title: PostHog
 kind: api                   # api | sql | browser | mail | cli  (sql = any database read through `hub db`)
 summary: One line for the list.
 access: How a bot reaches it (the connector, CLI or API), one line.
 credentials:                # env var names and where the value lives; never values
   - POSTHOG_API_KEY — a read-only key, granted from Settings → Credentials or in the bot's secrets file
-declared_as: |              # the `access:` entry a bot carries in employee.yaml
+declared_as: |              # the `tools:` entry a bot carries in bot.yaml
   - service: posthog
     can: [read]
     env: POSTHOG_API_KEY
@@ -40,7 +40,7 @@ aliases: [ph]               # optional: other names `hub tool show <name>` resol
 
 `writes` means: `never` — no bot writes, there is no path for it; `approval` — a write needs a
 Tico approval (`policies/approvals.md`) or an explicit per-bot grant from the owner named on the
-page; `allowed` — a bot whose `access:` carries the verb may write within the page's rules.
+page; `allowed` — a bot whose `tools:` carries the verb may write within the page's rules.
 
 Sections: **What it is** · **What data it has** · **How a bot uses it** (exact commands) ·
 **Rules** · **Recipes** · **Gotchas**. Plain sentences, present tense, no history (that goes in

@@ -1,6 +1,6 @@
 # Access: what each employee may touch
 
-Every employee declares its access in `employee.yaml` under `access:`. The hub app shows this
+Every employee declares its access in `bot.yaml` under `tools:`. The hub app shows this
 list on the bot's page, so the owner can see at a glance whether a bot can read Slack, send email as
 owner@acme.example, spend on Google Ads, and so on. **Not listed means not allowed.**
 
@@ -18,7 +18,7 @@ Verbs: `read`, `draft` (prepare but never send or publish), `send`, `post`, `wri
 
 Rules:
 - Every employee implicitly has Tico Hub tasks, its own prefix in the S3 bucket, and read/write
-  access to its own `emp-<slug>` GitHub repository, including its branches and pull requests.
+  access to its own `bot-<slug>` GitHub repository, including its branches and pull requests.
   Do not list them. Access to another bot's or a product repository still needs a declaration.
 - `send`, `post`, `publish`, or any `spend` verb is only honoured while `outbound_send: true` and
   within `approvals.md`. Listing the verb records intent; the flag turns it on. For email only,
@@ -64,10 +64,10 @@ Rules:
   screenshots. `act` is clicking, typing, and handing a task to Aside's agent. Logins are never a
   bot's job: The owner signs in once in Aside, and a login page means stop and say so.
 - A Slack entry may set `channels: [channel-name, ...]`. When present, `history --as <slug>` (or a
-  hosted run carrying `HUB_EMPLOYEE`) refuses reads outside that allow-list before calling Slack.
+  hosted run carrying `HUB_BOT`) refuses reads outside that allow-list before calling Slack.
   Omit it only for existing roles that intentionally need every registered readable channel. A
   channel in this list still needs to exist in `registry/slack-channels.yaml` and the hub app must
   be a member. Set `dms: false` when the role must not read the shared app's DM inbox; `inbox`
-  enforces it from `--as <slug>` or `HUB_EMPLOYEE`.
-- Changing `access:` is a Tico-level decision: create a task for the owner rather than editing
+  enforces it from `--as <slug>` or `HUB_BOT`.
+- Changing `tools:` is a Tico-level decision: create a task for the owner rather than editing
   your own manifest.

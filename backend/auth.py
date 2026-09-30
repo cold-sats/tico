@@ -60,7 +60,7 @@ class Identity:
 
 def standing(c, pid):
     """"left" when marked as left on the roster (backend/app.py person_update, which also ended their tokens),
-    "off" when an owner or admin turned their sign-in off (Settings > People), else ""."""
+    "off" when an owner or admin turned their sign-in off (Settings > Humans), else ""."""
     row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
     if not row:
         return ""

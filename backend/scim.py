@@ -5,7 +5,7 @@ The subset those clients use: /Users (POST, GET by id, GET list with `filter=<at
 and startIndex/count, PUT, PATCH, DELETE), /ServiceProviderConfig, /ResourceTypes, /Schemas, and a
 /Groups that is always empty (turn group provisioning off in the IdP; people are what Tico needs).
 
-Auth is one bearer token the owner creates in Settings > People (only its hash is kept). The route
+Auth is one bearer token the owner creates in Settings > Humans (only its hash is kept). The route
 is exempt from the app's sign-in (backend/app.py) and carries no browser identity, so the audit
 actor is `scim`. Every write goes through the sync engine in backend/directory.py, so the same
 rules hold: the owner and people added by hand are never deactivated, and a burst of
@@ -261,7 +261,7 @@ def install_scim(app, settings, store):
                        "filter": {"supported": True, "maxResults": MAX_COUNT}, "changePassword": {"supported": False},
                        "sort": {"supported": False}, "etag": {"supported": False},
                        "authenticationSchemes": [{"type": "oauthbearertoken", "name": "Bearer token",
-                                                  "description": "A token created in Settings > People"}]})
+                                                  "description": "A token created in Settings > Humans"}]})
 
     @app.get("/scim/v2/ResourceTypes")
     @wrap

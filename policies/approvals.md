@@ -25,14 +25,14 @@ Bots request approval through `hub approval request --kind send|spend|publish|me
 specific action is gated by this policy or another current rule. The payload
 must identify the exact message, amount, public content, or pull request. Only a human decides it,
 and an approval can be consumed once. Drafts, analysis, internal reports, and changes to a bot's own
-repository need no approval. A bot may open and merge pull requests into its own `emp-<slug>`
+repository need no approval. A bot may open and merge pull requests into its own `bot-<slug>`
 repository after required checks pass; older blanket merge holds in bot instructions do not apply
 to that bot's own repository. Authorized maintainers may merge Tico repository pull requests after
 required checks pass; the normal automatic deployment needs no second approval. External
 documentation follows `documentation.md`: an employee may prepare one reusable review pull
 request, but only the owner reviews and merges it.
 
-Outbound sends are also gated by `outbound_send` in the employee's `employee.yaml`. With it false,
+Outbound sends are also gated by `outbound_send` in the employee's `bot.yaml`. With it false,
 approved material remains a draft unless the exact-message approval authorizes that one send: a
 matching GitHub Issue, a decided Tico `send` approval, or the owner telling the employee in Tico to
 send it (`--approval-issue` with that message id). See `docs/mail-service.md` for the connector

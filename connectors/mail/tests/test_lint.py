@@ -63,9 +63,10 @@ class Content(unittest.TestCase):
 
     def test_L040_internal_leakage(self):
         for bad in ("s3://acme-tico-hub/x", "runtime/mail/mail.db", "emp-influencer",
-                    "see AGENT.md"):
+                    "bot-influencer/knowledge/notes.md", "see AGENT.md"):
             self.assertIn("L040", ids(lint(CLEAN + f"\n{bad}\n\nAna\n")), bad)
         self.assertNotIn("L040", ids(lint(CLEAN)))
+        self.assertNotIn("L040", ids(lint(CLEAN + "\nA bot-driven approach.\n\nAna\n")))
 
 if __name__ == "__main__":
     unittest.main()

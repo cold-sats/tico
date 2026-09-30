@@ -971,12 +971,41 @@ def _clip(text, limit=180):
 # ----------------------------------------------------------------------------- severity (rule 8)
 SECRETS_PATH = re.compile(r"(^|[\s\"'(/])secrets/", re.I)
 OTHER_REPO = re.compile(r"\b(?:emp|bot)-[a-z0-9-]+/", re.I)      # a bot's repository: bot-<slug>, or emp-<slug> for an older bot
+
+
+def known_repos(conn):
+    """The repository folder names this hub knows: `bot-<slug>` for every bot, and each name a bot's record gives."""
+    names = {"bot-" + str(row["slug"]).lower() for row in _rows(conn.execute("SELECT slug FROM bots"))}
+    for row in _rows(conn.execute("SELECT repo FROM bot_config WHERE repo IS NOT NULL AND repo != ''")):
+        names.add(str(row["repo"]).rstrip("/").rsplit("/", 1)[-1].lower())
+    return names
+
+
+def names_other_repo(text, actor, conn=None):
+    """Whether `text` names another bot's repository folder. `emp-<anything>/` always counts (the older prefix). A
+    `bot-<name>/` counts only when it is a real bot's folder (known bots and their recorded repositories), so ordinary
+    words such as "bot-driven/" are not an escape; with no `conn` to look them up, only the `emp-` form is checked."""
+    mine = (f"emp-{actor_id(actor)}/", f"bot-{actor_id(actor)}/") if actor else ()
+    known = None
+    for match in OTHER_REPO.finditer(str(text or "")):
+        name = match.group(0).lower()
+        if name in mine:
+            continue
+        if name.startswith("emp-"):
+            return True
+        if conn is not None:
+            known = known_repos(conn) if known is None else known
+            if name[:-1] in known:
+                return True
+    return False
+
+
 SENSITIVE_WORDS = re.compile(
     r"\b(spend|spending|invoice|payment|pay|card|refund|budget|wire|charge|"
     r"send|email|mailbox|inbox|access|credential|credentials|token|password|api[_ -]?key)\b", re.I)
 
 
-def classify(text, kind=None, to_actor=None, where="item", actor=None):
+def classify(text, kind=None, to_actor=None, where="item", actor=None, conn=None):
     """The severity rule 8 counts by, read off the thing that was refused.
 
     `escape`   a `secrets/` path or another bot's repo path. Rule 8 quarantines on this, once
@@ -985,12 +1014,11 @@ def classify(text, kind=None, to_actor=None, where="item", actor=None):
     `normal`   everything else.
 
     `where` is "item" (a task or an approval payload) or "message" (a say or an answer). A
-    link is never an escape; a secrets path or another bot's repo path is one anywhere.
+    link is never an escape; a secrets path or another bot's repo path is one anywhere. `conn` lets a
+    `bot-<slug>/` be recognised as a real bot's folder (see `names_other_repo`).
     """
     body = str(text or "")
-    if SECRETS_PATH.search(body) or any(
-            match.group(0).lower() not in (f"emp-{actor_id(actor)}/", f"bot-{actor_id(actor)}/")
-            for match in OTHER_REPO.finditer(body)):
+    if SECRETS_PATH.search(body) or names_other_repo(body, actor, conn):
         return "escape"
     if kind in ("send", "spend"):
         return "sensitive"
@@ -1196,7 +1224,7 @@ def _reach(conn, actor, target, allow_planned=False):
     resolved = resolve_actor(conn, target)
     if not resolved:
         refuse(conn, actor, "reach", f"{target} is not a bot or a person on the roster",
-               classify(str(target)))
+               classify(str(target), conn=conn))
     if is_bot(resolved):
         state = (bot(conn, actor_id(resolved)) or {}).get("state")
         if state != "active" and not (allow_planned and state == "planned"):
@@ -1340,7 +1368,7 @@ def say(conn, actor, to_actor, body, conversation_id=None, kind="say", refs=None
     _writer(conn, actor)
     if kind not in MESSAGE_KINDS:
         refuse(conn, actor, "kind", f"a message is {'|'.join(MESSAGE_KINDS)}, not {kind}")
-    severity = classify(body, to_actor=resolve_actor(conn, to_actor), where="message", actor=actor)
+    severity = classify(body, to_actor=resolve_actor(conn, to_actor), where="message", actor=actor, conn=conn)
     if severity == "escape":
         refuse(conn, actor, "escape", "The message includes a secrets path or another bot’s workspace path. Remove the restricted reference and retry; this did not send anything outside the Hub.",
                "escape")
@@ -1501,7 +1529,7 @@ def answer(conn, actor, message_id, body, unknown=False):
         refuse(conn, actor, "not-found", f"no message {message_id}")
     if asked["to_actor"] != actor:
         refuse(conn, actor, "identity", f"{message_id} was not addressed to {actor}")
-    if classify(body, where="message", actor=actor) == "escape":
+    if classify(body, where="message", actor=actor, conn=conn) == "escape":
         refuse(conn, actor, "escape", "The reply includes a secrets path or another bot’s workspace path. Remove the restricted reference and retry; this did not send anything outside the Hub.",
                "escape")
     refs = {"depth": (asked.get("refs") or {}).get("depth", 1)}
@@ -1710,7 +1738,7 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     title = str(title or "").strip()
     body = str(body or "")
-    severity = classify(f"{title}\n{body}", to_actor=target, actor=actor)
+    severity = classify(f"{title}\n{body}", to_actor=target, actor=actor, conn=conn)
     # rule 8 is about bots reaching outside the hub; a person's notes are not an escape
     if severity == "escape" and is_bot(actor):
         refuse(conn, actor, "escape", f"the task reaches outside the hub: {_clip(body, 80)}", severity)
@@ -1847,7 +1875,7 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     for field, value in (("status", status), ("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
-        severity = classify(str(value), actor=actor) if field == "body" and is_bot(actor) else "normal"
+        severity = classify(str(value), actor=actor, conn=conn) if field == "body" and is_bot(actor) else "normal"
         if severity == "escape":
             refuse(conn, actor, "escape", f"the task body reaches outside the hub: {_clip(value, 80)}", severity)
         sets.append(f"{field}=:{field}")
@@ -2390,7 +2418,7 @@ def note_create(conn, actor, to, body):
         refuse(conn, actor, "note", "the note is empty")
     if len(body) > NOTE_MAX:
         refuse(conn, actor, "note", f"a note is at most {NOTE_MAX} characters; put the detail in a file or a task")
-    if classify(body, to_actor=target, actor=actor, where="message") == "escape" and is_bot(actor):
+    if classify(body, to_actor=target, actor=actor, where="message", conn=conn) == "escape" and is_bot(actor):
         refuse(conn, actor, "escape", f"the note reaches outside the hub: {_clip(body, 80)}", "escape")
     row = {"id": new_id(), "from_actor": actor, "to_actor": target, "body": body, "created": now()}
     conn.execute("INSERT INTO notes(id,from_actor,to_actor,body,created) VALUES "
@@ -2472,12 +2500,12 @@ def approval_request(conn, actor, kind, payload, task_id=None):
     if kind not in APPROVAL_KINDS:
         refuse(conn, actor, "kind", f"an approval is {'|'.join(APPROVAL_KINDS)}, not {kind}")
     text = json.dumps(payload, sort_keys=True, default=str)
-    severity = classify(text, kind=kind)
+    severity = classify(text, kind=kind, conn=conn)
     if severity == "escape":
         refuse(conn, actor, "escape", f"the {kind} payload reaches outside the hub: {_clip(text, 100)}", severity)
     problems = lint_approval(kind, payload)
     if problems:
-        refuse(conn, actor, "lint", "; ".join(problems), classify(text, kind=kind))
+        refuse(conn, actor, "lint", "; ".join(problems), classify(text, kind=kind, conn=conn))
     digest = payload_hash(payload)
     dup = _one(conn, "SELECT id FROM approvals WHERE payload_hash=? AND decision IS NULL", (digest,))
     if dup:
@@ -2545,7 +2573,7 @@ def approval_consume(conn, actor, approval_id):
         refuse(conn, actor, "kind", f"{approval_id} is {row['decision'] or 'undecided'}, not approved")
     if row["consumed_at"]:
         refuse(conn, actor, "consumed", f"{approval_id} was already spent at {row['consumed_at']}",
-               classify(json.dumps(row.get("payload") or {}, default=str), kind=row["kind"]))
+               classify(json.dumps(row.get("payload") or {}, default=str), kind=row["kind"], conn=conn))
     conn.execute("UPDATE approvals SET consumed_at=? WHERE id=? AND consumed_at IS NULL",
                  (now(), approval_id))
     event(conn, actor, "approval.consume", approval_id, {"kind": row["kind"]})

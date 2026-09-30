@@ -52,13 +52,13 @@ $HUB_DIR/connectors/slack.py dm --as <slug> --to person@example.com --text 'Pric
 $HUB_DIR/connectors/slack.py reply --as <slug> --to person@example.com --thread 1756742400.000100 --text 'On it.'
 ```
 
-Inside a hosted turn `HUB_EMPLOYEE` stands in for `--as`. Exit codes: `0` ok, `1` failure
+Inside a hosted turn `HUB_BOT` stands in for `--as`. Exit codes: `0` ok, `1` failure
 (token, network, Slack), `2` a hub policy refused it. `--json` gives errors as
 `{"ok": false, "error", "hint"}`.
 
 ## Rules
 
-- Reading needs `service: slack` with `read` in `access:`; a `channels:` list on that entry
+- Reading needs `service: slack` with `read` in `tools:`; a `channels:` list on that entry
   limits `history` to those channels before any call reaches Slack; `dms: false` refuses `inbox`.
 - Posting needs `post` in `can`, and the channel must be in `registry/slack-channels.yaml`
   with `post: true`. Externally shared (Slack Connect) channels are refused: posting there is an

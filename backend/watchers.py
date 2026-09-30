@@ -35,8 +35,10 @@ CREATE TABLE IF NOT EXISTS watcher_runs(
 """
 STALE_AFTER = 3            # runs missed before Health says a watcher has stopped
 # A path into a secrets folder or another bot's repository is refused in a task or a message (hubdb rule 8), so text
-# from outside is written with the slash set apart rather than losing the whole event.
-PROTECTED = re.compile(r"\b(secrets|(?:emp|bot)-[A-Za-z0-9-]+)/")
+# from outside is written with the slash set apart rather than losing the whole event. `emp-<anything>/` always counts;
+# `bot-<name>/` only when it is a real bot's folder, the same test the hub applies (H.known_repos).
+PROTECTED = re.compile(r"\b(secrets|emp-[A-Za-z0-9-]+)/")
+BOT_REPO = re.compile(r"\b(bot-[A-Za-z0-9-]+)/")
 
 
 class WatcherEvent(Contract):
@@ -61,8 +63,12 @@ class WatcherReport(Contract):
     events: list[WatcherEvent] = Field(default_factory=list, max_length=MAX_EVENTS)
 
 
-def defang(text):
-    return PROTECTED.sub("\\1\u200b/", str(text or ""))
+def defang(text, c=None):
+    text = PROTECTED.sub("\\1\u200b/", str(text or ""))
+    if c is None:
+        return text
+    known = H.known_repos(c)
+    return BOT_REPO.sub(lambda m: m.group(1) + "\u200b/" if m.group(1).lower() in known else m.group(0), text)
 
 
 def live(task):
@@ -72,12 +78,12 @@ def live(task):
 def _open(c, auth, bot, title, body):
     owner = "bot:" + bot
     conversation = rooms.task_conversation_id(c, auth, owner, H.KEEPER)
-    return H.task_create(c, H.KEEPER, defang(title).strip()[:300] or "From a watcher", defang(body), owner,
+    return H.task_create(c, H.KEEPER, defang(title, c).strip()[:300] or "From a watcher", defang(body, c), owner,
                          deduplicate=False, conversation_id=conversation)
 
 
 def _wake(c, bot, task, text, why):
-    H.say(c, H.KEEPER, "bot:" + bot, defang(text) or "Something changed.", kind="notice",
+    H.say(c, H.KEEPER, "bot:" + bot, defang(text, c) or "Something changed.", kind="notice",
           conversation_id=task["conversation_id"], refs={"task": task["id"], "wake": why})
 
 

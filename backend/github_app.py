@@ -162,7 +162,7 @@ class GitHubApp:
     def exchange(self, code):
         r = self._call("POST", f"/app-manifests/{quote(code, safe='')}/conversions")
         if r.status_code >= 300:
-            raise Problem("github_exchange", "GitHub did not accept that setup code; start again from Settings", 400)
+            raise Problem("github_exchange", "GitHub did not accept that setup code; start again from Tools", 400)
         data = r.json()
         if not all(data.get(k) for k in ("id", "slug", "client_id", "pem")):
             raise Problem("github_exchange", "GitHub's answer was missing the app's credentials", 502)
@@ -249,7 +249,7 @@ class GitHubApp:
     def create_repo(self, slug, template, empty=False):
         row = self.row()
         if not row:
-            raise Problem("github_not_connected", "GitHub is not connected. Connect it in Settings first.", 409)
+            raise Problem("github_not_connected", "GitHub is not connected. Connect it in Tools first.", 409)
         name = "bot-" + slug.removeprefix("emp-")
         if not row["administration"]:
             how = ("as an empty private repository" if empty else
@@ -397,7 +397,7 @@ def install_github_app(app, settings, store):
                 c.execute("DELETE FROM github_app_states WHERE nonce=?", (state,))
         if (not row or row["actor"] != who.actor or time.time() - row["created"] > STATE_TTL
                 or not secrets.compare_digest(row["nonce"], state)):
-            raise Problem("github_state", "This GitHub setup link is not valid or has expired; start again from Settings", 400)
+            raise Problem("github_state", "This GitHub setup link is not valid or has expired; start again from Tools", 400)
         if not code:
             raise Problem("github_exchange", "GitHub did not send a setup code", 400)
         conversion = service.exchange(code)

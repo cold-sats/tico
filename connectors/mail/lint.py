@@ -11,7 +11,7 @@ audit line. A rule id never changes meaning, because playbooks and Issues quote 
     L012  error     the body carries a link and none of them is the employee's required CTA
     L020  error     a placeholder survived ({{ }}, [NAME], TODO, XXX, lorem ipsum, <insert)
     L030  error     something shaped like a secret (xoxb-, AKIA, sk-, ghp_, -----BEGIN)
-    L040  error     internal leakage (s3://, runtime/, emp-, AGENT.md)
+    L040  error     internal leakage (s3://, runtime/, emp-, bot-<slug>/, AGENT.md)
     L041  warn      what looks like a hub Issue reference (#123)
     L050  error     no subject, and this is not a reply
     L051  error     the subject is over 120 characters
@@ -54,6 +54,9 @@ PRESIGNED = ("x-amz-signature", "x-amz-credential", "amazonaws.com", "s3.amazona
 PLACEHOLDERS = ("{{", "}}", "[NAME]", "[name]", "TODO", "XXX", "lorem ipsum", "<insert")
 SECRET_SHAPES = ("xoxb-", "AKIA", "sk-", "ghp_", "-----BEGIN")
 INTERNAL_MARKS = ("s3://", "runtime/", "emp-", "AGENT.md")
+# A bot's repository is `bot-<slug>` (older: `emp-<slug>`). `emp-` is flagged wherever it appears; `bot-` only where it names a
+# repository, a `bot-<slug>/` path or link, or this message's own bot's folder, so a word like "bot-driven" is not a leak.
+BOT_REPO = re.compile(r"(?<![\w-])bot-[a-z0-9][a-z0-9-]*/", re.I)
 ISSUE_REF = re.compile(r"(?<![\w/])#\d+\b")
 URL_RE = re.compile(r"https?://[^\s<>()\[\]\"'`]+", re.I)
 MAX_SUBJECT = 120
@@ -260,6 +263,11 @@ def run(body, subject="", to=(), cc=(), slug="", reply_to="", is_reply=None,
                          "Secrets never leave the machine, and never appear in mail, Issues or "
                          "chat (policies/shared-rules.md). Rotate it if it was real."))
     leaks = [p for p in INTERNAL_MARKS if p in body or p in subject]
+    bot_repos = {m.group(0).lower() for m in BOT_REPO.finditer(body + "\n" + subject)}
+    if slug and re.search(r"(?<![\w-])bot-" + re.escape(str(slug).lower()) + r"(?![\w-])", (body + "\n" + subject).lower()):
+        if not any(name.startswith("bot-" + str(slug).lower() + "/") for name in bot_repos):
+            bot_repos.add("bot-" + str(slug).lower())
+    leaks += sorted(bot_repos)
     if leaks:
         f.append(finding("L040", "error", "internal-only reference: " + ", ".join(leaks),
                          "The reader does not have the hub. Say the thing in plain words "

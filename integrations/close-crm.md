@@ -27,7 +27,7 @@ Close is a sales CRM. Tico reads it in two ways:
   summary into **Meetings**. It starts when `secrets/close-calls.env` holds `CLOSE_API_KEY` on a
   runner computer. It reads only and never downloads Close audio. Setup:
   [Meetings](../docs/meetings.md#close).
-- **A bot's own reads.** A bot that declares `close-crm` in its `access:` calls the API itself
+- **A bot's own reads.** A bot that declares `close-crm` in its `tools:` calls the API itself
   with the key in its environment. There is no shared connector: the bot's playbook and these
   rules keep it read-only.
 
@@ -52,7 +52,7 @@ said on a call, read Meetings (`hub meeting search "<company>"`), not the raw ac
 ## Rules
 
 - `GET` only. Never create, update or delete a lead, contact, opportunity or status; never
-  enrol anyone in a sequence, send an email or place a call. A write needs a new `access:`
+  enrol anyone in a sequence, send an email or place a call. A write needs a new `tools:`
   entry from the owner and a Tico approval for the change.
 - Tasks and reports carry ids and labels, not contact details.
 - Never print, log or write the key.
