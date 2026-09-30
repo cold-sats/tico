@@ -271,6 +271,30 @@ async function settingsBulkApplyOne(slug, choice) {
   }
   return {state: 'failed', note: 'Bot settings kept changing; refresh and try again'};
 }
+// Archived bots the person may bring back (Restore), listed under the bots table. One read is kept for a while.
+let SETTINGS_ARCHIVED = null;
+const settingsMayRestore = b => settingsIsAdmin() || b.operator === S.me?.id || (b.bot_owners || []).some(o => o.id === S.me?.id);
+async function settingsArchivedBots(el) {
+  if (!SETTINGS_ARCHIVED || Date.now() - SETTINGS_ARCHIVED.at > 30000) {
+    try { SETTINGS_ARCHIVED = {at: Date.now(), bots: (await get('/v2/bots?include_archived=1')).filter(b => b.state === 'archived' && settingsMayRestore(b))}; }
+    catch { return; }
+  }
+  if (!el.isConnected || !SETTINGS_ARCHIVED.bots.length) return;
+  el.querySelector('[data-archived-bots]')?.remove();
+  const box = document.createElement('div'); box.dataset.archivedBots = '';
+  box.innerHTML = `<h3>Archived</h3>${SETTINGS_ARCHIVED.bots.map(b => `<div class="row" data-archived-bot="${esc(b.slug)}"><strong>${esc(b.display_name || b.slug)}</strong>
+    <span class="spacer"></span><button class="ghost" type="button" data-bot-restore="${esc(b.slug)}">Restore</button></div>`).join('')}`;
+  el.appendChild(box);
+}
+async function settingsRestoreBot(slug, button) {
+  button.disabled = true;
+  try {
+    const done = await post(`/v2/bots/${encodeURIComponent(slug)}/restore`, {});
+    SETTINGS_ARCHIVED = null;
+    toast(`Restored ${slug}${done.agent && !done.agent.credential ? '; pair or create its credential' : ''}`);
+    await loadSettings();
+  } catch (error) { toast(error.message, true); button.disabled = false; }
+}
 function renderSettingsBots() {
   const el = $('#set-bots'); if (!el) return;
   const all = S.emps.slice().sort((a,b) => (a.team || '').localeCompare(b.team || '') || byBotOrder(a, b) || settingsBotName(a.name).localeCompare(settingsBotName(b.name)));
@@ -307,7 +331,10 @@ function renderSettingsBots() {
     ${rows.map(row).join('')}
     </tbody></table></div>` : '<div class="empty">No bots match these filters.</div>'}`;
   settingsBotsSyncSelection(el, rows);
+  void settingsArchivedBots(el);
   el.onclick = event => {
+    const restore = event.target.closest('[data-bot-restore]');
+    if (restore) { void settingsRestoreBot(restore.dataset.botRestore, restore); return; }
     if (event.target.closest('[data-bulk-model]')) { settingsBulkModelDialog(); return; }
     if (event.target.closest('[data-bulk-clear]')) { SETTINGS_BOTS_VIEW.selected.clear(); renderSettingsBots(); return; }
     const cap = event.target.closest('[data-use-limit]');
@@ -322,6 +349,8 @@ function renderSettingsBots() {
     const bot = event.target.closest('[data-edit-bot]');
     const credential = event.target.closest('[data-agent-credential]');
     const revoke = event.target.closest('[data-agent-revoke]');
+    const pairing = event.target.closest('[data-agent-pair]');
+    if (pairing) void settingsAgentPair(pairing.dataset.agentPair);
     if (bot) settingsEditBot(bot.dataset.editBot);
     if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
     if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);

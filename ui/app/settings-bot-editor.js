@@ -65,7 +65,7 @@ function settingsEditBot(slug = '') {
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
         <p class="bot-editor-wide muted">Everyone can use it. Change that under Access once it is added.</p>`}
       </div>
-      <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select><button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
+      <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select>${e.agent?.harness === 'hermes' ? `<label class="bot-editor-check" title="Its Hermes agent stops either way; revoking makes it stop reporting in"><input type="checkbox" name="revoke_agent" checked> Revoke its credential</label>` : ''}<button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-bot-status]');
   dialog.querySelectorAll('[data-bot-close]').forEach(button => button.onclick = () => dialog.close());
   // The rows for who owns it, its model and its computer: they save on their own, so keep them fresh, and
@@ -84,7 +84,8 @@ function settingsEditBot(slug = '') {
       if (access) void settingsEditAccess(access.dataset.editAccess);
       if (owners) settingsEditOwners(owners.dataset.editOwners);
       if (botOwners) void settingsEditBotOwners(botOwners.dataset.editBotOwners);
-      const credential = event.target.closest('[data-agent-credential]'), revoke = event.target.closest('[data-agent-revoke]');
+      const credential = event.target.closest('[data-agent-credential]'), revoke = event.target.closest('[data-agent-revoke]'), pairing = event.target.closest('[data-agent-pair]');
+      if (pairing) void settingsAgentPair(pairing.dataset.agentPair);
       if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
       if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);
     });
@@ -106,12 +107,15 @@ function settingsEditBot(slug = '') {
   if (remove) remove.onclick = async () => {
     // Remove = archive (#535): off the chart, no routines or new work; open tasks go to the picked heir.
     const successor = form.elements.successor.value;
-    if (!confirm(`Remove ${e.display_name}? It leaves the team chart and stops running; its open tasks go to ${form.elements.successor.selectedOptions[0].textContent.replace('Hand its work to ', '')}.`)) return;
+    const hermes = e.agent?.harness === 'hermes';
+    if (!confirm(`Remove ${e.display_name}? It leaves the team chart and stops running${hermes ? '; its Hermes agent will stop' : ''}; its open tasks go to ${form.elements.successor.selectedOptions[0].textContent.replace('Hand its work to ', '')}.`)) return;
     remove.disabled = true; status.textContent = 'Removing…';
     try {
-      await post(`/v2/bots/${encodeURIComponent(slug)}/archive`, {successor: successor || null, expected_revision: e.revision});
+      const done = await post(`/v2/bots/${encodeURIComponent(slug)}/archive`, {successor: successor || null, expected_revision: e.revision,
+        ...(hermes ? {revoke_agent: !!form.elements.revoke_agent?.checked} : {})});
+      SETTINGS_ARCHIVED = null;
       dialog.close(); await loadSettings(); settingsShow('bots');
-      toast(`Removed ${e.display_name}`);
+      toast(done.agent?.detail || `Removed ${e.display_name}`);
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; remove.disabled = false; }
   };
   if (!editing) {

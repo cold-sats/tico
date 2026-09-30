@@ -105,7 +105,7 @@ def test_a_secret_or_an_unlisted_route_never_goes_through_it(api, botops):
     assert leaked.status_code == 422 and leaked.json()["error"]["code"] == "secret_in_request"
     assert "sk-live" not in leaked.text
     for method, path in (("POST", "credentials"), ("POST", "credentials/x/reveal"), ("POST", "enrollments"), ("POST", "me/tokens"),
-                         ("POST", "approvals/x"), ("POST", "access/owner"), ("POST", "bots/ops/agent-credential"), ("GET", "credential-runtime")):
+                         ("POST", "approvals/x"), ("POST", "access/owner"), ("GET", "credential-runtime")):
         assert act(api, attempt, method, path, {} if method == "POST" else None).status_code == 403, path
     # Only BotOps, and only in a turn a person's own chat message started.
     other = runner(api, label="Other Mac")

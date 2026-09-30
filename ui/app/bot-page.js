@@ -309,7 +309,7 @@ async function pageBot(slug, tab) {
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>Humans</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
-        ${e.agent ? `<dt>Run by</dt><dd>${esc(agentKind(e.agent))}${e.agent.profile ? ` · profile <code>${esc(e.agent.profile)}</code>` : ''}${e.agent.version ? ` · ${esc(e.agent.version)}` : ''}${e.agent.platform ? ` · ${esc(e.agent.platform)}` : ''}<span class="muted"> · ${!e.agent.credential ? 'no credential yet' : e.online ? 'reporting in' : 'not reporting'}${e.agent.last_seen ? `, last seen ${esc(ago(e.agent.last_seen))}` : ''}</span>${settingsCanManageBot(e) ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${e.agent.credential ? 'Rotate credential' : 'Create credential'}</button>${e.agent.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</dd>
+        ${e.agent ? `<dt>Run by</dt><dd>${esc(agentKind(e.agent))}${e.agent.profile ? ` · profile <code>${esc(e.agent.profile)}</code>` : ''}${e.agent.version ? ` · ${esc(e.agent.version)}` : ''}${e.agent.platform ? ` · ${esc(e.agent.platform)}` : ''}<span class="muted"> · ${!e.agent.credential ? 'no credential yet' : e.online ? 'reporting in' : 'not reporting'}${e.agent.last_seen ? `, last seen ${esc(ago(e.agent.last_seen))}` : ''}</span>${settingsCanManageBot(e) ? `<span class="settings-agent-actions">${agentPairButton(e)}<button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${e.agent.credential ? 'Rotate credential' : 'Create credential'}</button>${e.agent.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</dd>
         <dt>Model</dt><dd>${e.agent.model ? `${esc(e.agent.model)}${e.agent.provider ? `<span class="muted"> · ${esc(e.agent.provider)}</span>` : ''}` : "<span class=\"muted\">the profile's own</span>"}</dd>`
         : `<dt>Model</dt><dd>${esc(e.model ? settingsChoiceLabel(e.harness || e.runtime, e.model, e.reasoning_effort || e.effort) : settingsDefaultLabel(e))}${e.fallback ? `<span class="muted"> · fallback ${esc(settingsChoiceLabel(e.fallback.harness, e.fallback.model, e.fallback.reasoning_effort || e.fallback.effort))}</span>` : ''}</dd>`}
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>` : ''}
@@ -405,9 +405,9 @@ async function pageBot(slug, tab) {
   };
   // An external agent's credential is issued here, on the bot it runs (the Settings bots
   // table that held these buttons is gone).
-  $('#pane-more')?.querySelectorAll('[data-agent-credential],[data-agent-revoke]').forEach(button => {
-    button.onclick = () => button.dataset.agentCredential
-      ? void settingsAgentCredential(button.dataset.agentCredential)
+  $('#pane-more')?.querySelectorAll('[data-agent-credential],[data-agent-revoke],[data-agent-pair]').forEach(button => {
+    button.onclick = () => button.dataset.agentPair ? void settingsAgentPair(button.dataset.agentPair)
+      : button.dataset.agentCredential ? void settingsAgentCredential(button.dataset.agentCredential)
       : void settingsAgentRevoke(button.dataset.agentRevoke);
   });
   if (!limited) {

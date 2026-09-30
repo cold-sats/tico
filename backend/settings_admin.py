@@ -265,9 +265,13 @@ class SettingsAdmin:
             if existing["state"] != "archived" and self.auth.bot_manager(c, who, body.slug):
                 return {**self.definition(c, body.slug), "created": False,
                         "bot_owners": BA.owner_ids(self._config(c, body.slug)["bot_owners_json"])}
-            raise Problem("duplicate", "That bot slug already exists", 409)
+            raise Problem("duplicate", "That bot slug already exists" + (
+                " and is archived; restore it (`hub bot restore " + body.slug + "`)" if existing["state"] == "archived" else ""), 409)
         company = providers.load(c, self.settings)
-        choice = self.models.get(body.model or company.get("model")) or next(
+        # `hermes` is the model a bot run by a Hermes profile takes (the profile's own); the record then has a
+        # credential instead of a computer (docs/hermes-agents.md).
+        wanted = "hermes-profile" if str(body.model or "").strip().lower() in ("hermes", "hermes-profile") else body.model
+        choice = self.models.get(wanted or company.get("model")) or next(
             (m for m in self.models.values() if not m.get("deprecated")), None)
         if not choice:
             raise Problem("model", "Choose the company's AI provider first (Settings > Providers)", 422)
@@ -337,7 +341,29 @@ class SettingsAdmin:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
         if body.successor:
             self._manager(c, who, body.successor)
-        return archive_bot(c, who.actor, bot, body.successor or "")
+        return archive_bot(c, who.actor, bot, body.successor or "", revoke_agent=getattr(body, "revoke_agent", True))
+
+    def restore(self, c, who, bot):
+        """Bring an archived bot back: to the status it had when it was archived (active, paused or planned),
+        else planned. Its routines and computer are not restored; an active bot is placed the way any is."""
+        row = H.bot(c, bot)
+        if not row:
+            raise Problem("not_found", "Bot not found", 404)
+        self._manager(c, who, bot)
+        if row["state"] != "archived":
+            raise Problem("not_archived", "This bot is not archived", 409)
+        previous = c.execute("SELECT detail_json FROM events WHERE action='bot.archived' AND target=? "
+                             "ORDER BY ts DESC LIMIT 1", (bot,)).fetchone()
+        status = (_json(previous["detail_json"], {}) or {}).get("previous") if previous else None
+        status = status if status in ("active", "paused", "planned") else "planned"
+        self.update_bot(c, who, bot, M.BotDefinitionUpdate(status=status, expected_revision=self._config(c, bot)["revision"]))
+        H.event(c, who.actor, "bot.restored", bot, {"status": status})
+        result = {"bot": bot, "status": status, "restored": True}
+        from .agents import external_harness, row as agent_row
+        if external_harness(c, bot):
+            record = agent_row(c, bot)
+            result["agent"] = {"harness": external_harness(c, bot), "credential": bool(record and not record["revoked_at"])}
+        return result
 
     def update_bot(self, c, who, bot, body):
         self._manager(c, who, bot)
@@ -796,7 +822,7 @@ class SettingsAdmin:
         return {"bot": bot, "fallback": after, "revision": config["revision"] + 1}
 
 
-def archive_bot(c, actor, bot, successor=""):
+def archive_bot(c, actor, bot, successor="", revoke_agent=True):
     """Take a bot off the org chart and out of work (#535). Its routines are deleted, queued
     turns cancelled and its computer released; open tasks it owns or requested go to `successor`
     (a bot slug) or else its operator; bots reporting to it move up to its own parent. A bot that
@@ -809,6 +835,7 @@ def archive_bot(c, actor, bot, successor=""):
                       or H.bot(c, successor).get("state") == "archived"):
         raise Problem("not_found", "Successor bot not found", 404)
     ts, parent = H.now(), config["reports_to"]
+    previous = H.bot(c, bot)["state"]
     declared = _json(config["config_json"], {}) or {}
     declared["status"] = "archived"
     c.execute("UPDATE bots SET state='archived' WHERE slug=?", (bot,))
@@ -859,8 +886,25 @@ def archive_bot(c, actor, bot, successor=""):
     loaded = P.load(roster or {"people": H.humans(c)})
     for slug in entries:
         c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, loaded), slug))
-    H.event(c, actor, "bot.archived", bot, {"successor": successor or None, "heir": heir})
-    return {"bot": bot, "status": "archived", "successor": successor or None}
+    H.event(c, actor, "bot.archived", bot, {"successor": successor or None, "heir": heir, "previous": previous})
+    result = {"bot": bot, "status": "archived", "successor": successor or None}
+    from .agents import external_harness, revoke_credential, row as agent_row
+    harness = external_harness(c, bot)
+    if harness:
+        # An external agent is not stopped by archiving: it keeps its credential and keeps reporting in to a
+        # bot that no longer answers. Say so, and revoke the credential unless the person chose not to.
+        record = agent_row(c, bot)
+        live = bool(record and not record["revoked_at"])
+        revoked = bool(live and revoke_agent)
+        if revoked:
+            revoke_credential(c, SimpleNamespace(actor=actor), bot)
+        name = (H.bot(c, bot) or {}).get("display_name") or bot
+        label = "Hermes" if harness == "hermes" else harness
+        result["agent"] = {
+            "harness": harness, "stopped": True, "credential_revoked": revoked,
+            "detail": (name + "'s " + label + " agent will stop" + (": its credential is revoked." if revoked else (
+                ", but its credential still works and it keeps reporting in until you revoke it." if live else ".")))}
+    return result
 
 
 def _set_parent(c, actor, bot, parent, ts):

@@ -44,7 +44,7 @@ def run(args, who=None):
               "update create", "update list", "update show", "update mark-read", "update reply", "update settings",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
               "brief", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "run list",
-              "message list", "message mark-read", "bot recent"):
+              "message list", "message mark-read", "bot recent", "agent pair approve", "agent pair decline"):
         if fn == "routine update":                  # --enable / --disable are the tool's `enabled`; a key or an id names it
             more = {"text": Path(args.text_file).read_text()} if args.text_file else {}
             if args.enable or args.disable:
@@ -410,7 +410,7 @@ def bots(client, args):
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
     if args.fn in ("bot access", "bot owners", "bot setup-done", "bot place", "bot go-live", "bot model", "bot pause",
-                   "bot resume") or (args.fn == "bot create" and args.record_only):
+                   "bot resume", "bot restore") or (args.fn == "bot create" and args.record_only):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}

@@ -31,6 +31,27 @@ What is different:
 | Runs, tokens, usage limits, fallback, interrupted review | yes | no: nothing is dispatched, so there is nothing to lease or review |
 | Repository | `bot-<slug>`, pushed by the runner after each run | `bot-<slug>` for backup; the profile directory minus credentials and sessions, pushed by the computer |
 
+## Connect one by pairing
+
+The short way, with nothing to copy: on the computer that runs the profile,
+
+```bash
+curl -fsSL https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py
+python3 hermes_agent.py pair --profile <name> --url https://<runner host>
+```
+
+It prints a code such as `K7QM-4F2P` and waits up to ten minutes. Tell BotOps "connect my Hermes profile <name>, code K7QM-4F2P"
+(it registers the bot if it is new, approves the code and checks the heartbeat; `playbooks/connect-a-hermes-profile.md`), or open
+**Settings → Bots → the bot → Pair** and type the code. Approving makes the bot's credential (the one **Create credential**
+makes; it replaces any earlier one) and hands it to the profile once, where the connector installs it as `install` does. The
+code is single use, lasts ten minutes, and only the bot's owner or an admin may approve it. `GET /api/v2/agents/setup-script`
+needs no sign-in: the connector is open source and holds no secret.
+
+The endpoints: `POST /api/v2/agents/pairings` (no sign-in; 10 an hour per address, 20 waiting at most),
+`GET /api/v2/agents/pairings/<id>` with `X-Pairing-Secret` (`pending`, `approved` once with the token, then `claimed`;
+`expired`, `declined`), and `POST /api/v2/agents/pairings/approve|decline` for a person or BotOps as them. `hub agent pair
+approve <code> --bot <slug>` and `hub agent pair decline <code>` do the same.
+
 ## Register one
 
 1. **Settings → Bots → Add bot.** Pick the model `hermes/profile's own model`. The computer
@@ -101,6 +122,10 @@ The heartbeat reply carries `waiting: {messages, tasks}`, so a Hermes cron job c
 - It stops working when the bot is paused or quarantined (`409`), and when it is revoked or
   rotated in Settings (`401`). Rotating replaces the token at once; install the new one on the
   computer.
+- It stops working when the bot is archived (`409`, code `bot_archived`). Archiving a Hermes bot revokes the credential
+  unless the box is unticked; if the credential is left in place and the profile keeps reporting in, Health says so until
+  the bot is restored (Settings → Bots → Archived → Restore, `hub bot restore <bot>`, `POST /api/v2/bots/<bot>/restore`)
+  or the credential is revoked.
 - It cannot heartbeat as a runner, claim jobs, or act as a human. A runner credential cannot
   heartbeat as an agent.
 - It is a standing credential on another computer, which is a departure from the per-run lease

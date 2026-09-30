@@ -164,6 +164,7 @@ def operation_issues(c, who, auth):
     Every issue says whether a person has to act (`needs_person`). The UI opens those in front of
     the person wherever they are; the rest stay in Settings for quieter diagnosis or review.
     """
+    from .agents import still_reporting
     issues, seen = [], set()
     def add(kind, title, detail, *, bot=None, machine=None, severity="error", since=None,
             needs_person=True, action=None, **extra):
@@ -181,6 +182,13 @@ def operation_issues(c, who, auth):
         if not readable.get(slug, auth.FULL)["read"]:
             continue
         if bot["state"] == "archived":
+            # An archived bot whose agent still holds a working credential goes on reporting in to nobody; it fails
+            # quietly on its own box, so Health says it.
+            if still_reporting(c, slug):
+                add("agent", bot["display_name"] + "'s Hermes agent is still reporting in, but the bot is archived",
+                    "Restore it, or revoke its credential.", bot=slug, severity="warning",
+                    needs_person=bool(auth.bot_manager(c, who, slug)),
+                    action="Restore it, or revoke its credential, in Settings → Bots.")
             continue
         location = machine(c, slug)
         mac_offline = bool(location.get("machine") and not location.get("online") and not location.get("agent"))
