@@ -7,6 +7,9 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Goals is one dense tree, like the org chart.** Every person and bot (goal or not) is one line, indented under whoever they report to, with the goal to the right (cut short, whole in the tooltip) and its KPIs as chips; helpers (the assistant, BotOps, the Librarian, the Goal Manager, the inbox) sit apart. The **+ Goal**, **+ Company goal** and **+ KPI** buttons are gone: tapping a line opens that owner's panel, where goals, colours, KPIs, targets, readings and check-ins are added and edited. Needs you is a short strip on top.
+
 ## [0.2.15] - 2026-09-30
 
 ### Added

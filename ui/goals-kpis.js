@@ -1,7 +1,8 @@
-/* Goals page: a goal's KPI lines, the KPI panel, "+ KPI", Needs you, and the bot page's automatic KPI row.
+/* Goals page: the tree (a line per owner), the owner's panel a tap opens, a goal's KPI lines, the KPI panel,
+   adding a KPI, Needs you, and the bot page's automatic KPI row.
    Everything shown is what the server computed (GET /api/v2/goals/tree, /kpis/{id}, /goals/needs-you,
    /bots/{bot}/kpis): a colour is never derived here, and a KPI with no fresh data says so instead of a number.
-   The page itself (the goal cards and their editor) is pageGoals in index.html. */
+   pageGoals and the goal editor (goalFormHtml, bindGoalForm) are in index.html. */
 
 const KPI_LABEL = {green: 'On track', yellow: 'At risk', red: 'Off track', gray: 'No fresh data', none: 'No target'};
 const KPI_QUALITY = {estimate: 'estimate', partial: 'partial'};
@@ -174,7 +175,7 @@ function kpiReadingRow(r, d) {
     <span class="muted kpi-by">${esc(goalActorName(r.actor))}</span>${d.may_log && !r.superseded_by && !k.auto ? `<button class="linkish" type="button" data-correct="${esc(r.id)}" data-correct-text="${esc(kpiNum(r.value, k.unit))} ${esc(kpiDay(r.period_end))}">Correct</button>` : ''}</li>`;
 }
 
-function kpiPanelHtml(d) {
+function kpiPanelHtml(d, {back = false} = {}) {
   const k = d.kpi, links = d.links || [], rows = d.readings || [];
   const state = links.find(l => l.kind !== 'none') || links[0] || {};
   const status = state.status || k.status;
@@ -185,7 +186,7 @@ function kpiPanelHtml(d) {
   const list = rows.slice().reverse();
   const shown = list.slice(0, 30);
   const editableGoals = links.filter(l => GOALS_ST && goalMayEdit({id: l.goal_id, owner: l.goal_owner, parent_id: GOALS_ST.goals.find(g => g.id === l.goal_id)?.parent_id}, GOALS_ST.goals));
-  return `<div class="tmodal-head"><span class="kpi-ptitle">${gdot(status, state.reason || k.reason)}<span class="who">${esc(k.name)}</span>${k.auto ? '' : `<span class="pill" title="Definition version">v${esc(k.definition_version)}</span>`}</span><span class="spacer"></span>
+  return `<div class="tmodal-head">${back ? '<button class="ghost tmodal-x gp-back" type="button" data-kpi-back aria-label="Back">‹</button>' : ''}<span class="kpi-ptitle">${gdot(status, state.reason || k.reason)}<span class="who">${esc(k.name)}</span>${k.auto ? '' : `<span class="pill" title="Definition version">v${esc(k.definition_version)}</span>`}</span><span class="spacer"></span>
       <button class="ghost tmodal-x" type="button" data-kpi-close aria-label="Close">✕</button></div>
     <div class="tmodal-body kpi-body" data-kpi-body="${esc(k.id)}">
       <div class="kpi-now">${now}${k.reason && !kpiFresh(k) ? `<div class="muted kpi-why">${esc(k.reason)}</div>` : state.reason ? `<div class="muted kpi-why">${esc(state.reason)}</div>` : ''}</div>
@@ -234,7 +235,14 @@ function kpiPanelBind(dlg, d) {
   const again = async () => { await kpiOpen(k.id); if (typeof goalsRefresh === 'function') { await goalsRefresh(); if (GOALS_ST && $('#goal-body')) goalsRender(GOALS_ST); } };
   dlg.querySelector('[data-kpi-close]').onclick = () => dlg.close();
   bindProposals(body, again);
-  for (const b of body.querySelectorAll('[data-kpi-goal-open]')) b.onclick = () => { dlg.close(); openGoal(b.dataset.kpiGoalOpen); };
+  const inPanel = dlg.id === 'goal-panel' && GOALS_ST;
+  for (const b of body.querySelectorAll('[data-kpi-goal-open]')) b.onclick = () => {
+    const g = inPanel && GOALS_ST.goals.find(x => x.id === b.dataset.kpiGoalOpen);
+    if (g) goalPanelOpen(GOALS_ST, g.owner, {goal: g.id});
+    else { dlg.close(); openGoal(b.dataset.kpiGoalOpen); }
+  };
+  const back = dlg.querySelector('[data-kpi-back]');
+  if (back) back.onclick = () => { if (GOALS_ST?.panel) { GOALS_ST.panel.kpi = ''; delete dlg.dataset.kpi; goalPanelRender(GOALS_ST); } };
   const all = body.querySelector('[data-kpi-all]');
   const correctable = () => { for (const b of body.querySelectorAll('[data-correct]')) b.onclick = () => body._mode?.(b.dataset.correct, b.dataset.correctText); };
   if (all) all.onclick = () => { body.querySelector('.kpi-readings').innerHTML = d.readings.slice().reverse().map(r => kpiReadingRow(r, d)).join(''); all.remove(); correctable(); };
@@ -302,8 +310,11 @@ function kpiPanelBind(dlg, d) {
   };
 }
 
+// On the Goals page a KPI opens inside the owner's panel, with a way back; anywhere else in a dialog of its own.
 async function kpiOpen(id) {
-  let dlg = document.getElementById('kpi-panel');
+  const inPage = !!(GOALS_ST && document.getElementById('goal-body'));
+  let dlg = inPage ? goalPanelDialog(GOALS_ST) : document.getElementById('kpi-panel');
+  if (inPage) (GOALS_ST.panel ||= {owner: '', goal: '', kpiAdd: ''}).kpi = id;
   if (!dlg) {
     dlg = document.createElement('dialog');
     dlg.id = 'kpi-panel'; dlg.className = 'tmodal kpi-panel'; dlg.setAttribute('aria-label', 'KPI');
@@ -315,15 +326,16 @@ async function kpiOpen(id) {
   const data = await v2Get('/v2/kpis/' + encodeURIComponent(id));
   if (dlg.dataset.kpi !== id || !dlg.open) return;
   if (!data) { dlg.innerHTML = '<div class="tmodal-body"><p class="err">Could not load the KPI.</p><div class="goal-actions"><button class="ghost" type="button" data-kpi-close>Close</button></div></div>'; dlg.querySelector('[data-kpi-close]').onclick = () => dlg.close(); return; }
-  dlg.innerHTML = kpiPanelHtml(data);
+  if (inPage && !GOALS_ST.panel.owner) GOALS_ST.panel.owner = data.kpi.owner;
+  dlg.innerHTML = kpiPanelHtml(data, {back: inPage});
   kpiPanelBind(dlg, data);
 }
 
-// ---------------------------------------------------------------- "+ KPI"
+// ---------------------------------------------------------------- adding a KPI
 // On a goal: pick a KPI that exists (or a bot's automatic ones) or make one, with the target on the link.
-// On the page: a KPI no goal uses yet.
-function kpiAddHtml(goal) {
-  const owner = goal ? goal.owner : (mePerson() ? 'human:' + mePerson().id : '');
+// On its own: a KPI no goal uses yet, owned by whoever's panel it is.
+function kpiAddHtml(goal, forOwner = '') {
+  const owner = goal ? goal.owner : forOwner || (mePerson() ? 'human:' + mePerson().id : '');
   const choices = kpiOwnerChoices(owner);
   const target = goal ? `<div data-target>${kpiTargetFields({goal_id: goal.id, kind: 'improve'})}</div>` : '';
   return `<form class="goal-form kpi-add" data-kpi-add="${esc(goal ? goal.id : '@page')}" novalidate>
@@ -381,6 +393,259 @@ async function kpiAddBind(form, goal, done) {
   (pick || form.elements.name).focus();
 }
 
+// ---------------------------------------------------------------- the page: one tree
+// The company, then every person and every bot that is not archived, nested the way the org chart nests them,
+// whether or not they have a goal. One line each: the owner, their first goal (cut short, the whole of it in the
+// tooltip) and its KPIs as small chips; more goals follow on lines of their own. The built-in bots and the inbox are
+// helpers, not roles: they sit apart, below. Tapping any line opens that owner's panel.
+const GOAL_HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'inbox'];
+function goalTreeShape() {
+  const people = (S.people || []).filter(p => !p.hidden);
+  const inboxBots = new Set((S.people || []).map(p => p.inbox_bot).filter(Boolean));
+  const bots = (S.emps || []).filter(e => !['archived', 'retired'].includes(e.status));
+  const helper = e => isBuiltInBot(e.name) || e.name === 'inbox' || inboxBots.has(e.name);
+  const placed = bots.filter(e => !helper(e));
+  const rank = e => e.name === assistantBot() ? -1 : GOAL_HELPER_ORDER.includes(e.name) ? GOAL_HELPER_ORDER.indexOf(e.name) : 99;
+  const helpers = bots.filter(helper).sort((a, b) => rank(a) - rank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
+  const keys = new Set([...(S.orgGroups || []).map(g => 'g:' + g.id), ...people.map(p => 'p:' + p.id), ...placed.map(e => 'b:' + e.name)]);
+  const byParent = {};
+  const put = (parent, node) => (byParent[keys.has(parent) ? parent : ''] ||= []).push(node);
+  for (const g of (S.orgGroups || [])) put(g.org_parent || '', {kind: 'group', id: g.id, name: g.name, order: g.order || 0});
+  for (const p of people) put(p.org_parent || '', {kind: 'person', id: p.id, person: p});
+  for (const e of placed) {
+    // A bot under a helper (or under a bot that is gone) hangs from the next one up, else its operator.
+    let parent = e.org_parent || '';
+    for (let hops = 0; parent.startsWith('b:') && !keys.has(parent) && hops < 5; hops++)
+      parent = S.emps.find(x => x.name === parent.slice(2))?.org_parent || '';
+    if (parent.startsWith('b:') && !keys.has(parent)) parent = e.operator || e.users?.[0]?.id ? 'p:' + (e.operator || e.users[0].id) : '';
+    put(parent, {kind: 'bot', ...e});
+  }
+  return {byParent, helpers};
+}
+// The org chart's order: departments lead at the root and follow under a person; people before bots; a bot's
+// `order`, then names.
+function goalTreeOrder(parent) {
+  const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : n.kind === 'group' ? n.name : (n.display_name || n.name || '').replace(TEMP_RE, '');
+  return (a, b) => {
+    if ((a.kind === 'group') !== (b.kind === 'group')) return a.kind === 'group' ? (parent ? 1 : -1) : (parent ? -1 : 1);
+    if (a.kind === 'group') return (a.order || 0) - (b.order || 0);
+    if ((a.kind === 'person') !== (b.kind === 'person')) return a.kind === 'person' ? -1 : 1;
+    if (a.kind === 'bot' && isTempBot(a) !== isTempBot(b)) return isTempBot(a) - isTempBot(b);
+    if (a.kind === 'bot' && byBotOrder(a, b)) return byBotOrder(a, b);
+    return nameOf(a).localeCompare(nameOf(b));
+  };
+}
+const GOAL_WORST = ['red', 'yellow', 'green', 'gray', 'none'];
+// A goal's KPIs as chips: the dot and the latest value. More than three: two and a count. A phone shows the count.
+function goalChips(kpis) {
+  if (!kpis?.length) return '';
+  const shown = kpis.length > 3 ? kpis.slice(0, 2) : kpis;
+  const chip = k => `<span class="gt-chip" data-kpi-chip="${esc(k.id)}" title="${esc(k.name + (k.reason ? ': ' + k.reason : ''))}">${gdot(k.status)}<span class="tnum">${kpiFresh(k) ? esc(kpiNum(k.latest.value, k.unit)) : '–'}</span></span>`;
+  const worst = GOAL_WORST.find(s => kpis.some(k => (k.status || 'gray') === s)) || 'gray';
+  return shown.map(chip).join('') + (kpis.length > shown.length ? `<span class="gt-kmore">+${kpis.length - shown.length}</span>` : '')
+    + `<span class="gt-kn" title="${kpis.length} KPI${kpis.length === 1 ? '' : 's'}">${gdot(worst)}${kpis.length}</span>`;
+}
+function goalStatusNote(g) {
+  const byHand = g.status_source === 'person' && ['red', 'yellow', 'green'].includes(g.status);
+  return byHand ? `Set by ${goalActorName(g.status_by)}${g.status_note ? ': ' + g.status_note : ''}` : g.status_note || '';
+}
+function goalTreeRows(actor, depth, goals, loose, standing = '') {
+  const info = goalOwnerInfo(actor);
+  const av = actor === GOAL_COMPANY ? `<span class="av gt-co-av" aria-hidden="true">${esc(String(info.name || 'C').trim()[0] || 'C').toUpperCase()}</span>` : info.avatar;
+  const goalCell = g => `<span class="gt-goal" title="${esc(g.title)}">${gdot(g.status, goalStatusNote(g))}<span class="gt-title">${esc(g.title)}</span></span>`;
+  const row = (cls, goal, inner) => `<li class="gt-row${cls}" data-owner="${esc(actor)}"${goal ? ` data-goal="${esc(goal.id)}"` : ''} style="--d:${depth}" tabindex="0" role="button">`
+    + `<span class="gt-ind" aria-hidden="true"></span>${inner}</li>`;
+  const first = goals[0], words = String(standing || '').trim();
+  const lead = first ? goalCell(first) + `<span class="gt-kpis">${goalChips(first.kpis)}</span>`
+    : (words ? `<span class="gt-goal gt-standing" title="${esc(words)}"><span class="gt-title">${esc(words)}</span></span>` : '')
+      + (loose.length ? `<span class="gt-kpis">${goalChips(loose)}</span>` : '');
+  return row(actor === GOAL_COMPANY ? ' gt-co' : '', first, `<span class="gt-av">${av}</span><span class="gt-name"><span>${esc(info.name)}</span></span>${lead}`)
+    + goals.slice(1).map(g => row(' gt-cont', g, goalCell(g) + `<span class="gt-kpis">${goalChips(g.kpis)}</span>`)).join('');
+}
+function goalsRender(state) {
+  const body = $('#goal-body');
+  if (!body || !state.loaded) return;
+  const owned = {}, loose = {};
+  for (const g of state.goals.filter(goalLive)) (owned[g.owner] ||= []).push(g);
+  for (const list of Object.values(owned)) list.sort(goalRank);
+  for (const k of state.other) (loose[k.owner] ||= []).push(k);
+  const {byParent, helpers} = goalTreeShape();
+  const seen = new Set([GOAL_COMPANY]);
+  const rows = (actor, depth, standing) => { seen.add(actor); return goalTreeRows(actor, depth, owned[actor] || [], loose[actor] || [], standing); };
+  const walk = (parent, depth, path) => (byParent[parent] || []).slice().sort(goalTreeOrder(parent)).map(n => {
+    const key = n.kind === 'group' ? 'g:' + n.id : n.kind === 'person' ? 'p:' + n.id : 'b:' + n.name;
+    if (path.has(key)) return '';
+    const below = walk(key, depth + 1, new Set([...path, key]));
+    if (n.kind === 'group') return below ? `<li class="gt-group" style="--d:${depth}"><span class="gt-ind" aria-hidden="true"></span><span class="gt-name"><span>${esc(n.name)}</span></span></li>${below}` : '';
+    return rows(n.kind === 'person' ? 'human:' + n.id : 'bot:' + n.name, depth, n.kind === 'person' ? n.person.goals : '') + below;
+  }).join('');
+  const tree = goalTreeRows(GOAL_COMPANY, 0, owned[GOAL_COMPANY] || [], loose[GOAL_COMPANY] || []) + walk('', 0, new Set());
+  const help = helpers.map(e => rows('bot:' + e.name, 0)).join('');
+  // Anyone else with goals (someone gone from the roster) still shows, at the end.
+  const rest = Object.keys(owned).filter(a => !seen.has(a)).map(a => rows(a, 0)).join('');
+  body.innerHTML = goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}`
+    + (help ? `<li class="gt-sep">Helpers</li>${help}` : '') + '</ul>';
+  for (const li of body.querySelectorAll('.gt-row')) {
+    const open = () => goalPanelOpen(state, li.dataset.owner, {tapped: li.dataset.goal || ''});
+    li.onclick = open;
+    li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } };
+  }
+  const needs = body.querySelector('#goal-needs');
+  if (needs) { bindKpiLines(needs); bindProposals(needs, () => goalsReload(state)); }
+}
+async function goalsReload(state) {
+  await goalsRefresh();
+  if (GOALS_ST !== state) return;
+  goalsRender(state);
+  goalPanelRender(state);
+}
+
+// ---------------------------------------------------------------- the owner's panel
+// Everything the owner has: each goal (tap to edit it, its colour and what it supports), its KPIs (tap one for its
+// history), adding a KPI to it, its check-ins; the KPIs no goal uses; and adding a goal or a KPI. The owner is fixed.
+function goalPanelDialog(state) {
+  let dlg = document.getElementById('goal-panel');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'goal-panel'; dlg.className = 'tmodal kpi-panel gpanel';
+    dlg.addEventListener('click', ev => { if (ev.target === dlg) dlg.close(); });
+    dlg.addEventListener('close', () => {
+      const st = dlg._state;
+      if (!st || dlg.open) return;   // the event comes late: the panel may be open again already
+      st.panel = null;
+      if (st === GOALS_ST && location.hash.startsWith(GOALS + '/')) history.replaceState(null, '', GOALS);
+    });
+    document.body.appendChild(dlg);
+  }
+  dlg._state = state;
+  return dlg;
+}
+window.addEventListener('hashchange', () => {
+  const dlg = document.getElementById('goal-panel');
+  if (dlg?.open && !location.hash.startsWith('#/goals')) dlg.close();
+});
+// goal: the goal to open for editing ('new' to add one). tapped: the goal on the line that was tapped. Someone with no
+// goal opens on a new one; the company line opens its goal when it has just one.
+function goalPanelOpen(state, owner, {goal = '', tapped = ''} = {}) {
+  const live = state.goals.filter(g => goalLive(g) && g.owner === owner);
+  if (!goal && !live.length && goalMayEdit({owner}, state.goals)) goal = 'new';
+  if (!goal && owner === GOAL_COMPANY && live.length === 1) goal = live[0].id;
+  state.panel = {owner, goal, kpiAdd: '', kpi: '', standing: false, tapped};
+  history.replaceState(null, '', goal && goal !== 'new' ? GOALS + '/' + encodeURIComponent(goal) : GOALS);
+  const dlg = goalPanelDialog(state);
+  delete dlg.dataset.kpi;
+  if (!dlg.open) dlg.showModal();
+  goalPanelRender(state);
+}
+function goalCheckinHtml(c) {
+  return `<blockquote class="kpi-check">${esc(c.body)}<footer class="muted">${esc(goalActorName(c.source_actor))}${c.signal ? ' · ' + esc(c.signal.replace('_', ' ')) : ''} · ${esc(ago(c.ts))}</footer></blockquote>`;
+}
+function goalPanelHtml(state) {
+  const P = state.panel, actor = P.owner, info = goalOwnerInfo(actor);
+  const goals = state.goals.filter(g => goalLive(g) && g.owner === actor).sort(goalRank);
+  const may = goalMayEdit({owner: actor}, state.goals);
+  const other = state.other.filter(k => k.owner === actor);
+  const person = actor.startsWith('human:') ? (S.people || []).find(p => p.id === actor.slice(6)) : null;
+  const standing = String(person?.goals || '').trim();
+  const av = actor === GOAL_COMPANY ? `<span class="av gt-co-av" aria-hidden="true">${esc((String(info.name || 'C').trim()[0] || 'C').toUpperCase())}</span>` : info.avatar;
+  const item = g => {
+    const mayG = goalMayEdit(g, state.goals);
+    const head = P.goal === g.id ? goalFormHtml(g, state.goals)
+      : `<button class="gp-gline" type="button" data-gp-edit="${esc(g.id)}" title="${esc(g.title)}">${gdot(g.status, goalStatusNote(g))}<span>${esc(g.title)}</span></button>${goalNoteHtml(g, mayG)}`;
+    const props = state.proposals.filter(p => p.goal_id === g.id);
+    return `<li class="gp-goal" data-gp-goal="${esc(g.id)}">${head}${kpiLinesHtml(g.kpis, {goal: g.id})}
+      ${props.length ? `<ul class="kpi-props">${props.map(p => proposalHtml(p)).join('')}</ul>` : ''}
+      ${g.checkin ? `<div data-gp-checkins="${esc(g.id)}">${goalCheckinHtml(g.checkin)}</div><button class="linkish" type="button" data-gp-more="${esc(g.id)}">Check-ins</button>` : ''}
+      ${mayG ? (P.kpiAdd === g.id ? `<div class="kpi-add-host">${kpiAddHtml(g)}</div>` : `<button class="linkish" type="button" data-gp-kpi-add="${esc(g.id)}">Add KPI</button>`) : ''}</li>`;
+  };
+  const profile = standing && !goals.some(g => g.title.trim() === standing)
+    ? `<li class="gp-goal">${P.standing ? `<form class="goal-form" data-standing-ed="${esc(person.id)}" novalidate>
+        <label class="goal-f"><span>Profile goal</span><input type="text" name="title" maxlength="2000" autocomplete="off" value="${esc(standing)}"${personCanEdit(person) ? '' : ' readonly'}></label>
+        <div class="goal-actions">${personCanEdit(person) ? '<button class="primary" type="submit">Save</button>' : ''}<button class="ghost" type="button" data-goal-cancel>Cancel</button></div></form>`
+      : `<button class="gp-gline gt-standing" type="button" data-gp-standing title="${esc(standing)}"><span>${esc(standing)}</span></button>`}</li>` : '';
+  const newGoal = P.goal === 'new' ? `<div class="gp-add">${goalFormHtml({}, state.goals, actor === GOAL_COMPANY ? {company: true} : {owner: actor, fixed: true})}</div>` : '';
+  const newKpi = P.kpiAdd === '@owner' ? `<div class="gp-add">${kpiAddHtml(null, actor)}</div>` : '';
+  const actions = may && !newGoal && !newKpi && !P.kpiAdd ? `<div class="gp-actions"><button class="ghost" type="button" data-gp-goal-new>Add goal</button><button class="ghost" type="button" data-gp-kpi-new>Add KPI</button></div>` : '';
+  return `<div class="tmodal-head"><span class="gp-who">${av}<span>${esc(info.name)}</span></span><span class="spacer"></span>
+      <button class="ghost tmodal-x" type="button" data-gp-close aria-label="Close">✕</button></div>
+    <div class="tmodal-body gp-body">
+      ${goals.length || profile ? `<ul class="gp-goals">${goals.map(item).join('')}${profile}</ul>` : ''}
+      ${newGoal}${other.length ? `<h3 class="kpi-h">Other KPIs</h3>${kpiLinesHtml(other)}` : ''}${newKpi}${actions}
+      ${!goals.length && !profile && !other.length && !newGoal && !newKpi && !actions ? '<p class="muted">No goals.</p>' : ''}
+    </div>`;
+}
+function goalPanelRender(state) {
+  const dlg = document.getElementById('goal-panel'), P = state.panel;
+  if (!dlg?.open || !P || P.kpi || dlg._state !== state) return;
+  dlg.setAttribute('aria-label', goalOwnerInfo(P.owner).name);
+  dlg.dataset.owner = P.owner;
+  const scroll = dlg.querySelector('.gp-body')?.scrollTop || 0;
+  dlg.innerHTML = goalPanelHtml(state);
+  const body = dlg.querySelector('.gp-body');
+  body.scrollTop = scroll;
+  const redraw = () => goalPanelRender(state), reload = () => goalsReload(state);
+  const setGoal = id => { P.goal = id; P.kpiAdd = ''; history.replaceState(null, '', id && id !== 'new' ? GOALS + '/' + encodeURIComponent(id) : GOALS); redraw(); };
+  dlg.querySelector('[data-gp-close]').onclick = () => dlg.close();
+  for (const b of body.querySelectorAll('[data-gp-edit]')) b.onclick = () => setGoal(b.dataset.gpEdit);
+  const form = body.querySelector('[data-goal-form]');
+  if (form) {
+    const id = form.dataset.goalForm, g = state.goals.find(x => x.id === id) || {};
+    bindGoalForm(form, g, state.goals, {company: id === 'company', owner: P.owner}, async ok => {
+      setGoal('');
+      if (ok && GOALS_ST === state) goalsRender(state);
+    });
+  }
+  for (const a of body.querySelectorAll('[data-goal-go]')) a.onclick = ev => {
+    if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+    ev.preventDefault();
+    const g = state.goals.find(x => x.id === a.dataset.goalGo);
+    if (g) goalPanelOpen(state, g.owner, {goal: g.id});
+  };
+  for (const b of body.querySelectorAll('button[data-goal-auto]')) if (b.dataset.goalAuto) b.onclick = async () => {
+    b.disabled = true;
+    try { await post('/v2/goals/' + encodeURIComponent(b.dataset.goalAuto) + '/status/auto', {}); await reload(); }
+    catch (e) { toast(e.message || 'Could not hand the colour back', true); b.disabled = false; }
+  };
+  bindKpiLines(body);
+  bindProposals(body, reload);
+  for (const b of body.querySelectorAll('[data-gp-kpi-add]')) b.onclick = () => { P.kpiAdd = b.dataset.gpKpiAdd; P.goal = ''; redraw(); };
+  const newGoal = body.querySelector('[data-gp-goal-new]'), newKpi = body.querySelector('[data-gp-kpi-new]');
+  if (newGoal) newGoal.onclick = () => setGoal('new');
+  if (newKpi) newKpi.onclick = () => { P.kpiAdd = '@owner'; P.goal = ''; redraw(); };
+  const kform = body.querySelector('[data-kpi-add]');
+  if (kform) {
+    kpiAddBind(kform, state.goals.find(g => g.id === kform.dataset.kpiAdd) || null, async ok => { P.kpiAdd = ''; if (ok) await reload(); else redraw(); });
+    kform.scrollIntoView({block: 'nearest'});
+  }
+  for (const b of body.querySelectorAll('[data-gp-more]')) b.onclick = async () => {
+    b.disabled = true;
+    const r = await v2Get(`/v2/goals/${encodeURIComponent(b.dataset.gpMore)}/checkins`);
+    const host = body.querySelector(`[data-gp-checkins="${CSS.escape(b.dataset.gpMore)}"]`);
+    if (r && host) { host.innerHTML = (r.checkins || []).slice().sort((x, y) => String(y.ts).localeCompare(String(x.ts))).map(goalCheckinHtml).join(''); b.remove(); }
+    else b.disabled = false;
+  };
+  const standingBtn = body.querySelector('[data-gp-standing]');
+  if (standingBtn) standingBtn.onclick = () => { P.standing = true; redraw(); };
+  const standing = body.querySelector('[data-standing-ed]');
+  if (standing) {
+    const person = (S.people || []).find(x => x.id === standing.dataset.standingEd), input = standing.elements.title;
+    const done = () => { P.standing = false; redraw(); };
+    standing.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
+    standing.querySelector('[data-goal-cancel]').onclick = done;
+    standing.onsubmit = async ev => {
+      ev.preventDefault();
+      const text = input.value.trim();
+      if (input.readOnly || !person) return;
+      if (text === String(person.goals || '').trim()) { done(); return; }
+      try { const row = await post(`/v2/people/${encodeURIComponent(person.id)}`, {goals: text}); person.goals = row.goals; done(); goalsRender(state); }
+      catch (e) { toast(e.message || 'Could not save the goal', true); }
+    };
+    input.focus();
+  }
+  const tapped = P.tapped && body.querySelector(`[data-gp-goal="${CSS.escape(P.tapped)}"]`);
+  if (tapped && !form && !kform) { tapped.scrollIntoView({block: 'nearest'}); P.tapped = ''; }
+}
+
 // ---------------------------------------------------------------- Needs you
 function goalNeedsHtml(items) {
   if (!items?.length) return '';
@@ -389,7 +654,7 @@ function goalNeedsHtml(items) {
     const red = it.kind === 'kpi_red';
     return `<li class="need-row" data-kpi="${esc(it.kpi_id)}" tabindex="0" role="button">${gdot(red ? 'red' : 'gray')}<span class="need-text"><b>${esc(it.kpi_name)}</b>${red ? ` on ${esc(it.goal_title)}` : ''}<span class="muted">: ${esc(it.reason)}</span></span></li>`;
   }).join('');
-  return `<section class="card goal-needs" id="goal-needs" aria-label="Needs you"><header><h2>Needs you</h2></header><ul class="goal-rows">${rows}</ul></section>`;
+  return `<section class="gt-needs" id="goal-needs" aria-label="Needs you"><div class="gt-needs-h">Needs you<span class="cnt tnum">${items.length}</span></div><ul>${rows}</ul></section>`;
 }
 
 // ---------------------------------------------------------------- a bot's automatic KPIs

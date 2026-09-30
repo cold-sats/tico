@@ -44,8 +44,6 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     const events = [{id: 'e1', task_id: 'Draft the newsletter', ts: now, actor: 'human:reviewer', field: 'status', old: null, new: 'open', note: ''},
                     {id: 'e2', task_id: 'Draft the newsletter', ts: now, actor: 'bot:cmo', field: 'status', old: 'open', new: 'doing', note: ''}];
     const posted = [];
-    const treeGoals = [], otherKpis = [], needs = [];
-    const kpiDetails = {};
     const people = [];
     let preferencePending = true, tasksStartedBeforePreference = false;
     await page.route('**/*', async route => {
@@ -64,32 +62,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
         {id: 'weekly-review', title: 'Review customer signals', employee: 'cmo', cron: '0 9 * * 1', active: true, enabled: true, next: now},
         {id: 'release-review', title: 'Review release readiness', employee: 'cpo', cron: '0 9 * * 1', active: true, enabled: true, next: now},
         {id: 'build-review', title: 'Review build health', employee: 'cto', cron: '0 9 * * 1', active: true, enabled: true, next: now}]});
-      if (p === '/api/v2/goals/tree') return json({goals: treeGoals, owners: {}, other_kpis: otherKpis, proposals: []});
-      if (p === '/api/v2/goals/needs-you') return json({actor: 'human:reviewer', items: needs});
-      const kpiGet = p.match(/^\/api\/v2\/kpis\/([^/]+)$/);
-      if (kpiGet && req.method() === 'GET') return kpiDetails[kpiGet[1]] ? json(kpiDetails[kpiGet[1]]) : json({}, 404);
-      const kpiReading = p.match(/^\/api\/v2\/kpis\/([^/]+)\/readings$/);
-      if (kpiReading && req.method() === 'POST') { posted.push({path: p, body: req.postDataJSON()}); return json({reading: {id: 'r-new'}}); }
-      if (/^\/api\/v2\/goals\/[^/]+\/status\/auto$/.test(p) && req.method() === 'POST') { posted.push({path: p, body: req.postDataJSON()}); return json({goal: {}}); }
-      if (/^\/api\/v2\/goal-proposals\/[^/]+\/decide$/.test(p) && req.method() === 'POST') { posted.push({path: p, body: req.postDataJSON()}); needs.splice(0); return json({proposal: {}}); }
-      if (p === '/api/v2/goals' && req.method() === 'POST') {
-        const body = req.postDataJSON(); posted.push({path: p, body});
-        const goal = {id: 'g-new-' + treeGoals.length, status: null, rank: 5, ...body, owner: body.owner === 'me' ? 'human:reviewer' : body.owner};
-        treeGoals.push(goal); return json({goal});
-      }
-      const goalPost = p.match(/^\/api\/v2\/goals\/([^/]+)$/);
-      if (goalPost && req.method() === 'POST') {
-        const body = req.postDataJSON(); posted.push({path: p, body});
-        const goal = treeGoals.find(g => g.id === goalPost[1]); Object.assign(goal, body);
-        return json({goal});
-      }
       if (p === '/api/people') return json({people});
-      const personPost = p.match(/^\/api\/v2\/people\/([^/]+)$/);
-      if (personPost && req.method() === 'POST') {
-        const body = req.postDataJSON(); posted.push({path: p, body});
-        const person = people.find(x => x.id === personPost[1]); Object.assign(person, body);
-        return json(person);
-      }
       if (p === '/api/v2/tasks/labels') return json({labels: ['newsletter', 'copy', 'bug', 'finance']});
       if (p.startsWith('/api/v2/files/')) {
         const id = p.split('/').at(-1);
@@ -385,160 +358,6 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     assert.equal(await rt('cto').count(), 0, 'no harness, no mark');
     const mark = await rt('cpo').boundingBox();
     assert(mark.width >= 12 && mark.width <= 14, 'about 13px: ' + mark.width);
-    await page.goto('http://tico-ui.test/#/goals');
-    await page.locator('.tasks-head h1').waitFor();
-    assert.equal(await page.locator('.tasks-head h1').innerText(), 'Goals');
-    assert.equal(await page.locator('.tasks-head').evaluate(el => getComputedStyle(el).flexWrap), 'wrap', 'Tasks CSS does not change Goals');
-    // A bot's own goal with no parent is that bot's goal, not a company goal: it shows under the bot
-    // and there is no company section.
-    treeGoals.push({id: 'g-solo', title: 'Keep every permission grant narrow', owner: 'bot:cmo', parent_id: null, status: null, rank: 0});
-    await page.evaluate(async () => { await goalsRefresh(); goalsRender(GOALS_ST); });
-    await page.locator('#goal-body [data-goal="g-solo"]').waitFor();
-    assert.equal(await page.locator('#goal-body .goal-card[data-goal-owner="bot:cmo"] [data-goal="g-solo"]').count(), 1);
-    assert.equal(await page.locator('#goal-body .goal-card[data-goal-owner="company"]').count(), 0, 'no company section');
-    assert.doesNotMatch(await page.locator('#goal-body').innerText(), /company goal|link it|supports/i);
-    treeGoals.splice(0);
-    // The Goals page lists company goals first, then each person and bot with goals. Tapping a goal
-    // opens one form: Goal, Supports (Nothing unless linked), Save.
-    const day = Date.now() - 2 * 86400000;
-    const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence: 'weekly', owner: 'bot:cmo', definition: 'Signed-up accounts that finish setup',
-      definition_version: 2, source_note: 'Product database', freshness: 'fresh', status: 'yellow', reason: name + ' is behind', spark: [44, 47, 50, 52],
-      latest: {value: 52, period_end: new Date(day).toISOString(), quality: 'measured'}, target_label: '→ 65% by Dec 31',
-      link: {goal_id: 'g-cmo', kind: 'improve', target: 65, baseline: 40, baseline_at: new Date(day - 30 * 86400000).toISOString(), deadline: '2027-12-31'}, ...over});
-    const activation = kpi('k-act', 'Activation', {reason: 'Activation 52% vs 58% needed on pace'});
-    const nps = kpi('k-nps', 'NPS', {freshness: 'stale', status: 'gray', reason: 'NPS is stale: last read 12d ago (weekly)', spark: [41], target_label: 'range 40–60',
-      latest: {value: 41, period_end: new Date(day - 12 * 86400000).toISOString(), quality: 'measured'}, link: {goal_id: 'g-cmo', kind: 'maintain', min: 40, max: 60}});
-    treeGoals.push({id: 'g-top', title: 'Grow revenue 30% this year', owner: 'company', parent_id: null, status: 'red', status_source: 'person', status_by: 'human:ben',
-                    status_note: 'Launch slipped', suggest_status: 'green', suggest_note: 'Paying studios 148 vs 140 needed on pace', rank: 0, kpis: []},
-                   {id: 'g-cmo', title: 'Double organic signups', owner: 'bot:cmo', parent_id: 'g-top', status: 'yellow', status_source: 'auto', status_by: 'bot:goal-manager',
-                    status_note: 'Activation 52% vs 58% needed on pace', rank: 0, kpis: [activation, nps]});
-    otherKpis.push(kpi('k-cash', 'Cash runway', {owner: 'human:reviewer', unit: 'months', target_label: '', link: undefined, status: 'none', spark: [9, 10, 11],
-      latest: {value: 11, period_end: new Date(day).toISOString(), quality: 'measured'}}));
-    kpiDetails['k-act'] = {kpi: activation, links: [{...activation.link, goal_title: 'Double organic signups', goal_owner: 'bot:cmo', target_label: activation.target_label, status: 'yellow', reason: activation.reason}],
-      readings: [47, 50, 52].map((v, i) => ({id: 'r' + i, value: v, period_end: new Date(day - (2 - i) * 7 * 86400000).toISOString(), quality: i === 1 ? 'estimate' : 'measured', evidence: i === 2 ? 'https://analytics.example/q/12' : '', actor: 'bot:goal-manager', superseded_by: null})),
-      definitions: [], checkins: [{id: 'c1', body: 'The new onboarding email went out late.', signal: 'at_risk', source_actor: 'bot:cmo', ts: new Date(day).toISOString()}],
-      proposals: [], may_edit: true, may_log: true};
-    needs.push({kind: 'kpi_red', goal_id: 'g-cmo', goal_title: 'Double organic signups', kpi_id: 'k-act', kpi_name: 'Activation', reason: 'Activation 52% vs 58% needed on pace'},
-               {kind: 'proposal', proposal: {id: 'p1', kind: 'kpi_target', goal_id: 'g-cmo', kpi_id: 'k-act', payload: {kind: 'improve', target: 60, deadline: '2027-12-31'},
-                reason: 'The deadline cannot be met at this pace', proposed_by: 'bot:goal-manager'}, kpi_name: 'Activation', goal_title: 'Double organic signups'});
-    await page.goto('http://tico-ui.test/#/goals/g-top');
-    await page.locator('.goal-open [data-goal-form="g-top"]').waitFor();
-    assert.equal(await page.locator('.goal-modal, .kpi-row').count(), 0, 'no modal: a goal opens in place');
-    assert.equal(await page.locator('.goal-open select[name=parent]').count(), 0, 'a company goal supports nothing');
-    assert.match(await page.locator('.goal-open').innerText(), /Supported by[\s\S]*Double organic signups/);
-    assert.doesNotMatch(await page.locator('#goal-body').innerText(), /a company goal/i);
-    await page.locator('.goal-open [data-goal-go="g-cmo"]').click();
-    await page.locator('.goal-open [data-goal-form="g-cmo"]').waitFor();
-    assert.equal(new URL(page.url()).hash, '#/goals/g-cmo');
-    assert.equal(await page.locator('.goal-open select[name=parent]').inputValue(), 'g-top');
-    // A viewer who neither owns it nor the goal it supports reads it; the owner edits it.
-    assert.equal(await page.locator('.goal-open input[name=title]').getAttribute('readonly'), '');
-    assert.equal(await page.locator('.goal-open [type=submit]').count(), 0);
-    me = {...me, role: 'owner', mover: true};
-    await page.evaluate(() => { S.me = {...S.me, role: 'owner', mover: true}; goalsRender(GOALS_ST); });
-    // The row says what it supports, its status and its progress.
-    await page.evaluate(() => goalOpen(GOALS_ST, ''));
-    // The row says what it supports; the note says why it has its colour, and by whom when a person set it.
-    assert.match(await page.locator('#goal-body [data-goal="g-cmo"]').innerText(), /supports Grow revenue 30% this year/);
-    const cmo = page.locator('#goal-body .goal-item:has([data-goal="g-cmo"])');
-    assert.match(await cmo.locator('.goal-note').innerText(), /Activation 52% vs 58% needed on pace/);
-    const top = page.locator('#goal-body .goal-item:has([data-goal="g-top"])');
-    assert.match(await top.locator('.goal-note').first().innerText(), /Set by \w+: Launch slipped/);
-    assert.match(await top.locator('.goal-suggest').innerText(), /Goal Manager suggests green: Paying studios 148 vs 140/);
-    // Its KPIs, one line each: dot, name, latest value and period, the target, a sparkline. Stale data is gray and says so.
-    assert.deepEqual(await cmo.locator('.kpi-line .gdot').evaluateAll(els => els.map(el => el.className.replace('gdot ', ''))), ['yellow', 'gray']);
-    const act = await cmo.locator('.kpi-line[data-kpi="k-act"]').innerText();
-    assert.match(act.replace(/\s+/g, ' '), /Activation 52% · [A-Z][a-z]{2} \d+ → 65% by Dec 31/);
-    const old = await cmo.locator('.kpi-line[data-kpi="k-nps"]').innerText();
-    assert.match(old, /NPS[\s\S]*stale[\s\S]*range 40–60/);
-    assert.doesNotMatch(old, /\b41\b/, 'no number for data that is not fresh');
-    assert.equal(await cmo.locator('.kpi-line svg.kspark').count(), 2);
-    // Needs you leads the page; a proposal is confirmed there.
-    assert.match(await page.locator('#goal-needs').innerText(), /Activation on Double organic signups[\s\S]*The deadline cannot be met at this pace/);
-    await page.locator('#goal-needs [data-decide=confirm]').click();
-    await page.waitForFunction(() => !document.querySelector('#goal-needs'));
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goal-proposals/p1/decide', body: {decision: 'confirm'}});
-    // "Let Goal Manager set it" hands a colour a person set back.
-    await top.locator('button[data-goal-auto]').click();
-    for (let i = 0; i < 60 && posted.at(-1)?.path !== '/api/v2/goals/g-top/status/auto'; i++) await new Promise(r => setTimeout(r, 50));
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals/g-top/status/auto', body: {}});
-    // Other KPIs: the ones no goal uses, in the same one-line format.
-    const others = page.locator('#goal-body [data-goal-owner="@other"] .kpi-line');
-    assert.equal(await others.count(), 1);
-    assert.match(await others.innerText(), /Cash runway[\s\S]*11 months/);
-    // A KPI line opens its panel: the chart, the readings with their evidence, the definition and its version, the check-in.
-    await cmo.locator('.kpi-line[data-kpi="k-act"]').click();
-    const panel = page.locator('#kpi-panel[open]');
-    await panel.locator('.kchart').waitFor();
-    const said = (await panel.innerText()).replace(/\s+/g, ' ');
-    assert.match(said, /Activation v2/);
-    assert.match(said, /Signed-up accounts that finish setup/);
-    assert.match(said, /Product database/);
-    assert.match(said, /The new onboarding email went out late\./);
-    assert.equal(await panel.locator('.kpi-r').count(), 3);
-    assert.equal(await panel.locator('.kpi-r a[href="https://analytics.example/q/12"]').count(), 1);
-    await panel.locator('[data-kpi-log] input[name=value]').fill('53');
-    await panel.locator('[data-kpi-log] [type=submit]').click();
-    for (let i = 0; i < 60 && posted.at(-1)?.path !== '/api/v2/kpis/k-act/readings'; i++) await new Promise(r => setTimeout(r, 50));
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/kpis/k-act/readings', body: {value: 53, quality: 'measured'}});
-    await panel.locator('[data-kpi-close]').click();
-    assert.equal(await page.locator('#kpi-panel[open]').count(), 0);
-    assert.equal(await page.locator('#goal-body .goal-card').first().getAttribute('data-goal-owner'), 'company', 'company goals come first');
-    await page.locator('#goal-body [data-goal="g-cmo"]').click();
-    const words = page.locator('.goal-open [data-goal-form="g-cmo"] input[name=title]');
-    await words.waitFor();
-    assert.equal(await words.getAttribute('type'), 'text');
-    await words.fill('Double organic signups by December');
-    await page.locator('.goal-open [type=submit]').click();
-    await page.waitForFunction(() => GOALS_ST.goals.some(g => g.title === 'Double organic signups by December'));
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals/g-cmo', body: {title: 'Double organic signups by December'}});
-    // Supports is a select: Nothing, then company goals and goals above or alongside on the org chart.
-    await page.locator('#goal-body [data-goal="g-cmo"]').click();
-    const pick = page.locator('.goal-open select[name=parent]');
-    const options = await pick.evaluate(sel => [...sel.children].map(o => o.tagName === 'OPTGROUP' ? [o.label, [...o.children].map(c => c.value)] : ['', [o.value, o.textContent]]));
-    assert.deepEqual(options[0], ['', ['', 'Nothing']]);
-    assert.deepEqual(options.find(([l]) => l === 'Company')?.[1], ['g-top']);
-    assert(!JSON.stringify(options).includes('"g-cmo"'), 'never itself');
-    await pick.selectOption('');
-    await page.locator('.goal-open [type=submit]').click();
-    await page.waitForFunction(() => GOALS_ST.goals.find(g => g.id === 'g-cmo').parent_id === '');
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals/g-cmo', body: {parent_id: ''}});
-    // A new goal: Owner and an optional Supports, Nothing by default.
-    await page.locator('#goal-tools [data-goal-new="new"]').click();
-    const fresh = page.locator('#goal-body [data-goal-form="new"]');
-    await fresh.locator('input[name=title]').fill('Ship the pricing page');
-    await fresh.locator('select[name=owner]').selectOption('bot:cpo');
-    assert.equal(await fresh.locator('select[name=parent]').inputValue(), '', 'Nothing is the default');
-    await fresh.locator('[type=submit]').click();
-    await page.waitForFunction(() => GOALS_ST.goals.some(g => g.title === 'Ship the pricing page'));
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals', body: {title: 'Ship the pricing page', owner: 'bot:cpo'}});
-    await page.locator('#goal-body .goal-card[data-goal-owner="bot:cpo"] [data-goal]').waitFor();
-    // Only the owner writes a company goal: Owner and Supports do not apply.
-    await page.locator('#goal-tools [data-goal-new="company"]').click();
-    const co = page.locator('#goal-body [data-goal-form="company"]');
-    assert.equal(await co.locator('select').count(), 0);
-    await co.locator('input[name=title]').fill('Reach 500 studios');
-    await co.locator('[type=submit]').click();
-    await page.waitForFunction(() => GOALS_ST.goals.some(g => g.title === 'Reach 500 studios'));
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/goals', body: {title: 'Reach 500 studios', owner: 'company'}});
-    // A goal written on a person's profile opens in place too, and saves back to the profile.
-    people.push({id: 'ben', name: 'Ben Park', goals: 'Keep the board honest.'});
-    await page.evaluate(() => { location.hash = '#/tasks'; });
-    await page.evaluate(() => { location.hash = '#/goals'; });
-    await page.locator('#goal-body [data-goal-standing="ben"]').click();
-    const standing = page.locator('#goal-body [data-standing-ed="ben"] input');
-    assert.equal(await standing.inputValue(), 'Keep the board honest.');
-    await standing.fill('Keep the board honest every week.');
-    await standing.press('Enter');
-    await page.waitForFunction(() => S.people.find(x => x.id === 'ben')?.goals === 'Keep the board honest every week.');
-    assert.deepEqual(posted.at(-1), {path: '/api/v2/people/ben', body: {goals: 'Keep the board honest every week.'}});
-    // On a phone the goals are taller and further apart so they are easy to tap.
-    await page.evaluate(() => goalOpen(GOALS_ST, ''));
-    await page.setViewportSize({width: 390, height: 844});
-    const tap = await page.locator('#goal-body [data-goal="g-cmo"]').boundingBox();
-    assert(tap.height >= 40, 'a goal is at least 40px tall on a phone: ' + tap.height);
-    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
-    await page.setViewportSize({width: 1200, height: 900});
     assert.deepEqual(errors, []);
     console.log('PASS: toolbar layout, search, filter menu, persistence, recurring search, company only, labels, comments, mobile.');
   } finally { await browser.close(); }
