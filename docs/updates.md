@@ -74,7 +74,7 @@ After a successful update the updater replaces itself, so updater fixes reach ex
 image and starts a short-lived container (`tico-updater-swap`) from it, which recreates the `updater` service,
 checks that the new one stays running, and moves `TICO_UPDATER_TAG` in `.env` if the install pinned it. If the new
 updater does not stay up that container puts the old one back, so the install is never left without an updater; its log is
-`docker logs tico-updater-swap`. `TICO_UPDATER_SELF=never` turns this off. The same applies to the runner computer's updater
+`docker logs tico-updater-swap` (`tico-updater-swap-<project>` for a second computer added with `--name`). `TICO_UPDATER_SELF=never` turns this off. The same applies to the runner computer's updater
 sidecar. The last update's outcome is kept in `.updater-status.json` so the new updater still reports it.
 
 Settings still reach the server through the explicit `environment:` list in `compose.yaml`, not `env_file: .env`, which

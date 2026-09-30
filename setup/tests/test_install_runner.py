@@ -105,3 +105,43 @@ def test_a_new_code_url_or_label_replaces_only_those_keys_of_an_existing_env(box
     env.write_text("TICO_TAG=v0.2.0\n")
     assert install(box, "--runner", "--label", "Box 2").returncode == 0
     assert env.read_text().splitlines() == ["TICO_TAG=v0.2.0", 'TICO_RUNNER_LABEL="Box 2"']
+
+
+def test_a_named_runner_gets_its_own_project_container_volume_and_updater_next_to_the_default_one(box):
+    assert install(box, *JOIN).returncode == 0                                  # the default runner is not touched below
+    default_env = (box["dir"] / ".env").read_text()
+    mail = box["tmp"] / "runner-mail"
+    args = ["--runner", "--name", "Mail Bot", "--url", "http://server:8765", "--code", "code_456", "--server-network", "tico_default"]
+    box["log"].write_text("")
+    result = subprocess.run(["sh", str(box["rel"] / "download" / "v0.2.0" / "install.sh"), "--dir", str(mail), *args],
+                            env={"PATH": f"{box['stubs']}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(box["tmp"]),
+                                 "STUB_LOG": str(box["log"]), "TICO_INSTALL_RELEASES_URL": "file://" + str(box["rel"]),
+                                 "TICO_INSTALL_MEMINFO": str(box["tmp"] / "meminfo"), "STUB_VOLUME": "1", "STUB_BARE": "1"},
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (box["dir"] / ".env").read_text() == default_env
+    assert (mail / ".env").read_text().splitlines() == [
+        "TICO_URL=http://server:8765", "TICO_CODE=code_456", 'TICO_RUNNER_LABEL="Mail Bot"', "TICO_TAG=v0.2.0",
+        "TICO_UPDATER_TAG=v0.2.0", "TICO_RUNNER_HOME_VOLUME=tico-runner-mail-bot_runner-home"]     # never the first runner's volume
+    override = (mail / "runner.override.yaml").read_text()
+    assert override.startswith("name: tico-runner-mail-bot\n") and "container_name: tico-runner-mail-bot\n" in override
+    assert "aliases: [tico-runner-mail-bot-updater]" in override and "http://tico-runner-mail-bot-updater:8080" in override
+    assert "networks: [default, server]" in override and "name: tico_default" in override
+    calls = box["log"].read_text()
+    assert "docker rm -f" not in calls                                          # the default runner's container is not replaced
+    assert "docker compose -f runner.compose.yaml -f runner.override.yaml up -d" in calls
+    # Running it again without --server-network keeps the network and the names, and the label is not reset.
+    assert subprocess.run(["sh", str(box["rel"] / "download" / "v0.2.0" / "install.sh"), "--dir", str(mail), "--runner", "--name", "Mail Bot"],
+                          env={"PATH": f"{box['stubs']}:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin", "HOME": str(box["tmp"]),
+                               "STUB_LOG": str(box["log"]), "TICO_INSTALL_RELEASES_URL": "file://" + str(box["rel"]),
+                               "TICO_INSTALL_MEMINFO": str(box["tmp"] / "meminfo")}, capture_output=True, text=True).returncode == 0
+    assert (mail / "runner.override.yaml").read_text() == override
+    assert 'TICO_RUNNER_LABEL="Mail Bot"' in (mail / ".env").read_text()
+
+
+def test_name_needs_runner_and_a_usable_slug_and_the_default_is_unchanged(box):
+    for args, wanted in ((("--name", "mail"), "--name goes with --runner"), (("--runner", "--name", "!!!", "--url", "http://s:1", "--code", "c"), "--name needs letters")):
+        result = install(box, *args)
+        assert result.returncode == 2 and wanted in result.stderr, result.stderr
+    assert install(box, *JOIN).returncode == 0
+    assert not (box["dir"] / "runner.override.yaml").exists()

@@ -363,7 +363,7 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
   Health says so ("Mail key"). Keep such a computer for the message bot alone.
 - A message bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
-  for the message bot). Several message bots may share one only if the owner allows it with
+  for the message bot; it can be on the same host, see [Add a second computer](install.md#linux-or-cloud-server-docker)). Several message bots may share one only if the owner allows it with
   `POST /api/v2/computers/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway. Where one owner runs every
   computer and bot, the refusal offers this and BotOps turns it on as the human who asked; anywhere else an owner or an admin does it
   (a message bot still never shares a computer with another kind of bot).

@@ -449,12 +449,15 @@ def replace_updater(tag):
         pulled = subprocess.run(["docker", "pull", new_ref], capture_output=True, text=True, timeout=600)
         if pulled.returncode:
             return "The updater itself stayed on %s: could not pull %s." % (image_tag(ref), new_ref)
-        subprocess.run(["docker", "rm", "-f", SWAP_HELPER], capture_output=True, timeout=60)
+        # A second runner on the same host has its own updater; its helper must not remove this one's.
+        project = (me["Config"].get("Labels") or {}).get("com.docker.compose.project", "")
+        helper = SWAP_HELPER if project in ("", "tico", "tico-runner") else "%s-%s" % (SWAP_HELPER, project)
+        subprocess.run(["docker", "rm", "-f", helper], capture_output=True, timeout=60)
         env = {"TICO_UPDATER_MODE": MODE, "TICO_PROJECT_DIR": host_dir, "TICO_COMPOSE_FILE": COMPOSE_FILE,
                "TICO_SWAP_TAG": tag, "TICO_SWAP_OLD_ID": me["Image"], "TICO_SWAP_OLD_REF": ref,
                "TICO_SWAP_NAME": me["Name"].lstrip("/"), "DOCKER_CONFIG": "/tmp/.docker",
                "TICO_IMAGE": IMAGE, "TICO_UPDATER_PULL": "never", "TICO_UPDATER_BUNDLE": "never"}
-        argv = ["docker", "run", "-d", "--name", SWAP_HELPER, "--network", "none", "--read-only", "--tmpfs", "/tmp",
+        argv = ["docker", "run", "-d", "--name", helper, "--network", "none", "--read-only", "--tmpfs", "/tmp",
                 "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
                 "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", "%s:%s" % (host_dir, host_dir)]
         for key, value in env.items():
