@@ -40,7 +40,6 @@ function renderSettingsHistory() {
     const review = event.target.closest('[data-transition-review]');
     if (review) { settingsWatchTransition(review.dataset.transitionReview); return; }
     const undo = event.target.closest('[data-settings-undo]'); if (!undo) return;
-    if (!confirm(`Undo this ${settingsBotName(undo.dataset.bot)} settings change? Model and computer undo operations checkpoint current sessions before applying.`)) return;
     undo.disabled = true;
     try {
       const result = await post(`/v2/settings/history/${encodeURIComponent(undo.dataset.settingsUndo)}/undo`, {expected_revision:Number(undo.dataset.revision)});
