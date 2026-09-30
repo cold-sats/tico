@@ -93,8 +93,11 @@ What it installs, all inside the profile:
 - **One cron job** named `tico-sync`, with the skill attached, delivering nowhere (`--deliver local`). Running
   `pair`, `install` or `reinstall` again replaces it; it never touches your other jobs.
 
-Hermes runs cron jobs only while the profile's **gateway** runs (`hermes gateway install`;
-`hermes -p <name> cron status` says). `doctor` warns when it is not.
+Hermes runs cron jobs only while the profile's **gateway** runs, so without it the sync job never fires.
+`doctor` warns when the gateway is not running and gives the fix: `hermes -p <name> gateway install`
+(`hermes -p <name> gateway status` and `hermes -p <name> cron status` say how it is doing). `doctor` also warns
+when the profile's `.env` connects the gateway to Slack, Telegram, Discord or another chat service, because
+chats there bypass Tico's rules.
 
 **Change the interval** any time, on the computer:
 
@@ -150,7 +153,7 @@ downloaded `hermes_agent.py` in your current folder works the same while it is t
 | **401** | The credential was revoked or replaced (archiving with the revoke box on does this). | Restore the bot if it is archived, then pair again (`pair`) and approve it. |
 | A login page instead of JSON, or `curl` gets HTML | You used the public address behind Cloudflare Access. | Use `runner.<domain>` ([connect-an-agent.md](connect-an-agent.md)). |
 | Two heartbeats a minute, or double answers | A duplicate heartbeat job from an older install. | Run `update`. It removes older jobs. `doctor` lists what it found. |
-| The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Run `doctor`: it says whether the `tico-sync` job exists and when it last ran. Hermes runs cron only while the profile's gateway runs. `reinstall --sync 1h` brings the job back. |
+| The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Run `doctor`: it says whether the `tico-sync` job exists and when it last ran. Hermes runs cron only while the profile's gateway runs: `doctor` says so, and `hermes -p <name> gateway install` fixes it. `reinstall --sync 1h` brings the job back. |
 | Tool not found | An old tool name. | See renamed tools above. |
 | The bot answers on Slack or Telegram with no Tico rules | A gateway on Slack or Telegram bypasses Tico's message limits and checks. | Turn the gateway off for a bot that should speak only through Tico. |
 

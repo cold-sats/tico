@@ -630,6 +630,32 @@ class Sync(Base):
         self.assertEqual(code, 1)
         self.assertIn("no scheduled job named tico-sync", out)
 
+    def test_doctor_warns_when_the_gateway_is_down_and_says_the_fix(self):
+        self.install()
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertIn("WARN", out)
+        self.assertIn("gateway is not running", out)
+        self.assertIn("`hermes -p scout gateway install`", out)
+        self.assertNotIn("bypass Tico's rules", out)
+
+    def test_doctor_is_quiet_about_a_running_gateway_and_names_chat_channels(self):
+        self.install()
+        (self.profile / "gateway.pid").write_text(str(os.getpid()))
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertIn("the profile's gateway is running", out)
+        self.assertNotIn("gateway is not running", out)
+        env = self.profile / ".env"
+        env.write_text(env.read_text() + "SLACK_BOT_TOKEN=xoxb-1\nTELEGRAM_BOT_TOKEN=123:abc\n")
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertIn("set up for Slack, Telegram", out)
+        self.assertIn("bypass Tico's rules", out)
+        self.assertNotIn("xoxb-1", out)
+
+    def test_doctor_does_not_ask_for_a_gateway_when_sync_is_off(self):
+        self.install("--sync", "off")
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertNotIn("gateway is not running", out)
+
     def test_uninstall_removes_the_job_and_the_skill(self):
         self.install()
         code, out, err = self.run_cli("uninstall", "--profile", "scout")
