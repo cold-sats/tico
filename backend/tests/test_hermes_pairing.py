@@ -3,7 +3,7 @@
 import uuid
 
 from backend.store import H
-from backend.tests.test_agents import beat, hermes_bot, issues
+from backend.tests.test_agents import beat, credential, hermes_bot, issues
 from backend.tests.test_api import api, assign, claim, get, headers, post, ready, runner  # noqa: F401
 from backend.tests.test_mcp import call, rpc
 from backend.tests.test_member_bots import botops, finish, turn  # noqa: F401
@@ -11,9 +11,9 @@ from backend.tests.test_botops_parity import act
 from clients import hubtools
 
 
-def pair(api, profile="scout", ip=None):
+def pair(api, profile="scout", ip=None, harness="hermes"):
     extra = {"cf-connecting-ip": ip} if ip else {}
-    r = api.post("/api/v2/agents/pairings", json={"profile": profile, "harness": "hermes", "host": "mac-mini", "version": "1.0"},
+    r = api.post("/api/v2/agents/pairings", json={"profile": profile, "harness": harness, "host": "mac-mini", "version": "1.0"},
                  headers=extra)
     return r
 
@@ -236,3 +236,82 @@ def test_the_connector_is_served_without_a_sign_in_and_with_one(api):
     hermes_bot(api)
     token = post(api, "bots/scout/agent-credential", {})["token"]
     assert api.get("/api/v2/agents/setup-script", headers=headers(token)).text == plain.text
+
+
+def openclaw_bot(api, slug="claw"):
+    return hermes_bot(api, slug=slug, model="openclaw-own", harness="openclaw", display_name="Claw")
+
+
+def test_an_openclaw_bot_is_an_external_bot_with_a_credential_and_no_computer(api):
+    made = openclaw_bot(api)
+    assert made["harness"] == "openclaw"
+    token = credential(api, "claw")["token"]
+    assert beat(api, token, profile="claw")["bot"] == "claw"
+    failed, me = call(api, "hub_whoami", token=token)
+    assert not failed and me["agent"] == "openclaw"
+    # A message waits in its inbox: no job is queued for a runner to claim.
+    msg = post(api, "chat/claw", {"text": "Are you there?"})
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM jobs WHERE bot='claw'").fetchone()[0] == 0
+    failed, inbox = call(api, "hub_message_list", token=token)
+    assert not failed and [m["id"] for m in inbox["messages"]] == [msg["id"]]
+    # It can place no computer, like a Hermes bot.
+    assert api.post("/api/v2/bots/claw/computer", json={"runner_id": "x"}, headers=headers()).status_code in (404, 405, 422)
+    # The tools the sync skill calls are all offered to an agent.
+    for name in ("hub_whoami", "hub_note_list", "hub_message_list", "hub_task_list", "hub_message_send",
+                 "hub_message_mark_read", "hub_task_update", "hub_conversation_show", "hub_question_answer"):
+        assert "agent" in hubtools.offered_to(hubtools.BY_NAME[name]), name
+
+
+def test_an_openclaw_profile_pairs_only_with_an_openclaw_bot(api):
+    openclaw_bot(api)
+    hermes_bot(api)
+    code = pair(api, profile="claw", harness="openclaw").json()["code"]
+    # A Hermes bot cannot take an OpenClaw profile's code, and the code stays open.
+    refused = approve(api, code, bot="scout")
+    assert refused.status_code == 422 and "OpenClaw" in refused.json()["error"]["detail"]
+    done = approve(api, code, bot="claw")
+    assert done.status_code == 200 and done.json()["profile"] == "claw"
+    # And the other way round.
+    wrong = pair(api, harness="hermes").json()["code"]
+    refused = approve(api, wrong, bot="claw")
+    assert refused.status_code == 422 and "Hermes" in refused.json()["error"]["detail"]
+    # An unknown harness is not accepted at all.
+    assert pair(api, harness="other").status_code == 422
+    # The credential the profile collects is the OpenClaw bot's.
+    pairing = pair(api, profile="claw", harness="openclaw").json()
+    assert approve(api, pairing["code"], bot="claw").status_code == 200
+    token = poll(api, pairing).json()["token"]
+    assert get(api, "me", token=token)["agent"] == "openclaw"
+
+
+def test_botops_registers_an_openclaw_bot_with_the_model_openclaw(api, botops):
+    cara = turn(api, botops, person="cara-test", text="Connect my OpenClaw profile claw, code below")
+    made = act(api, cara, "POST", "bots/register", {"slug": "claw", "display_name": "Claw", "model": "openclaw",
+                                                    "description": "An OpenClaw profile."})
+    assert made.status_code == 200, made.text
+    assert made.json()["harness"] == "openclaw" and made.json()["status"] == "planned"
+    live = act(api, cara, "POST", "bots/claw/go-live", {"setup": False})
+    assert live.status_code == 200 and live.json()["computer"] is None
+    pairing = pair(api, profile="claw", harness="openclaw").json()
+    done = act(api, cara, "POST", "agents/pairings/approve", {"code": pairing["code"], "bot": "claw"})
+    assert done.status_code == 200, done.text
+
+
+def test_an_archived_openclaw_bot_says_so_in_its_own_words(api):
+    openclaw_bot(api)
+    token = credential(api, "claw")["token"]
+    beat(api, token, profile="claw")
+    archived = post(api, "bots/claw/archive", {"expected_revision": get(api, "bots/claw/access")["revision"],
+                                               "revoke_agent": False})
+    assert "OpenClaw agent will stop" in archived["agent"]["detail"]
+    assert api.post("/api/v2/agents/heartbeat", json={"version": "1"}, headers=headers(token)).status_code == 409
+    assert [i["title"] for i in issues(api, "claw")] == ["Claw's OpenClaw agent is still reporting in, but the bot is archived"]
+
+
+def test_the_sync_skill_is_served_without_a_sign_in_and_is_the_file_in_the_repository(api):
+    from pathlib import Path
+    plain = api.get("/api/v2/agents/sync-skill")
+    assert plain.status_code == 200
+    assert plain.text == (Path(hubtools.__file__).resolve().parents[1] / "skills" / "tico-sync" / "SKILL.md").read_text()
+    assert plain.text.startswith("---\nname: tico-sync\n")

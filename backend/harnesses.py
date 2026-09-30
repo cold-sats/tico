@@ -16,6 +16,9 @@ HARNESS_CATALOG = (
     # provider, and reaches the hub with a bot credential over MCP or the `hub` CLI. No
     # runner claims work for it; it reads its inbox on its own schedule (docs/hermes-agents.md).
     {"id": "hermes", "label": "hermes", "runtime": "hermes", "external": True},
+    # OpenClaw is the same kind of agent (docs/openclaw-agents.md): its own model, a standing credential,
+    # a heartbeat, no computer.
+    {"id": "openclaw", "label": "openclaw", "runtime": "openclaw", "external": True},
     # A Grok Bot (xAI's cloud agent): the person's own routine syncs it in with their token;
     # it never holds a credential of its own (backend/grokbot.py, docs/grok-bot-sync.md).
     {"id": "grokbot", "label": "grok bot", "runtime": "grokbot", "external": True},

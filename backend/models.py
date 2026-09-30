@@ -599,11 +599,11 @@ class Assignment(Contract):
 
 
 class AgentPairingCreate(Contract):
-    """A Hermes profile asking to be paired with a bot (backend/agents.py). No sign-in: what it says is only
+    """A Hermes or OpenClaw profile asking to be paired with a bot (backend/agents.py). No sign-in: what it says is only
     shown to the person who approves the code. A newer connector's extra fields are ignored."""
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
     profile: str = Field(default="", max_length=100)
-    harness: Literal["hermes"] = "hermes"
+    harness: Literal["hermes", "openclaw"] = "hermes"
     host: str = Field(default="", max_length=100)
     version: str = Field(default="", max_length=100)
 

@@ -270,7 +270,9 @@ class SettingsAdmin:
         company = providers.load(c, self.settings)
         # `hermes` is the model a bot run by a Hermes profile takes (the profile's own); the record then has a
         # credential instead of a computer (docs/hermes-agents.md).
-        wanted = "hermes-profile" if str(body.model or "").strip().lower() in ("hermes", "hermes-profile") else body.model
+        named = str(body.model or "").strip().lower()
+        wanted = ("hermes-profile" if named in ("hermes", "hermes-profile")
+                  else "openclaw-own" if named in ("openclaw", "openclaw-own") else body.model)
         choice = self.models.get(wanted or company.get("model")) or next(
             (m for m in self.models.values() if not m.get("deprecated")), None)
         if not choice:
@@ -899,7 +901,7 @@ def archive_bot(c, actor, bot, successor="", revoke_agent=True):
         if revoked:
             revoke_credential(c, SimpleNamespace(actor=actor), bot)
         name = (H.bot(c, bot) or {}).get("display_name") or bot
-        label = "Hermes" if harness == "hermes" else harness
+        label = {"hermes": "Hermes", "openclaw": "OpenClaw"}.get(harness, harness)
         result["agent"] = {
             "harness": harness, "stopped": True, "credential_revoked": revoked,
             "detail": (name + "'s " + label + " agent will stop" + (": its credential is revoked." if revoked else (

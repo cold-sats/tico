@@ -16,14 +16,14 @@ function settingsAgentCell(e) {
     ${manage ? `<span class="settings-agent-actions">${agentPairButton(e)}<button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${a.credential ? 'Rotate credential' : 'Create credential'}</button>${a.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</div>`;
 }
 // Pair: the code a Hermes profile printed, typed here; approving hands the profile its credential (backend/agents.py).
-const agentPairButton = e => e.agent?.harness === 'hermes' ? `<button class="ghost" type="button" data-agent-pair="${esc(e.name)}">Pair</button>` : '';
+const agentPairButton = e => ['hermes', 'openclaw'].includes(e.agent?.harness) ? `<button class="ghost" type="button" data-agent-pair="${esc(e.name)}">Pair</button>` : '';
 function settingsAgentPair(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
   dialog.innerHTML = `<form method="dialog"><header><h2>Pair ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
     <div class="agent-credential-body">
       <label>Code<input name="code" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7QM-4F2P"></label>
-      <p class="muted">Printed by <code>hermes_agent.py pair</code> on the profile's computer.</p>
+      <p class="muted">Printed by <code>hermes_agent.py pair</code> on the profile's computer (Hermes or OpenClaw).</p>
       <div class="row"><button class="primary" type="submit">Pair</button><span class="muted" data-pair-status></span></div>
     </div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-pair-status]');
@@ -53,8 +53,8 @@ async function settingsAgentCredential(slug) {
     <div class="agent-credential-body">
       <p>Shown once. It is this bot's identity; revoking it stops the bot at once.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
-      <label>On the computer that runs the Hermes profile, one command installs Tico as an MCP server in the profile and a heartbeat timer:
-        <div class="row"><code data-command>curl -fsSL -H "Authorization: Bearer ${esc(issued.token)}" ${esc(setup.url)}/api/v2/agents/setup-script -o hermes_agent.py &amp;&amp; python3 hermes_agent.py install --profile ${esc(e.agent?.profile || slug)} --url ${esc(setup.url)} --bot ${esc(slug)} --token ${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
+      <label>On the computer that runs the ${e.agent?.harness === 'openclaw' ? 'OpenClaw' : 'Hermes'} profile, one command installs Tico as an MCP server in the profile and a heartbeat timer:
+        <div class="row"><code data-command>curl -fsSL -H "Authorization: Bearer ${esc(issued.token)}" ${esc(setup.url)}/api/v2/agents/setup-script -o hermes_agent.py &amp;&amp; python3 hermes_agent.py install${e.agent?.harness === 'openclaw' ? ' --harness openclaw' : ''} --profile ${esc(e.agent?.profile || slug)} --url ${esc(setup.url)} --bot ${esc(slug)} --token ${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
       <details><summary>Or by hand: the profile's config.yaml and the heartbeat</summary>
         <pre data-yaml>${esc(yaml)}</pre>
         <p class="muted">Heartbeat: <code>POST ${esc(setup.url)}${esc(setup.heartbeat.path)}</code> with <code>Authorization: Bearer &lt;token&gt;</code> every ${setup.heartbeat.every_seconds} s; the bot shows offline after ${setup.heartbeat.offline_after_seconds} s without one.</p>

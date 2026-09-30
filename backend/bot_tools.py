@@ -41,7 +41,7 @@ CREDENTIALS_NOTE = ("Tico never takes a credential. The operator puts its value 
 ONLINE_WITHIN_S = 60
 
 HARNESS_NAMES = {"codex": "Codex", "claude": "Claude Code", "gemini": "Gemini CLI", "antigravity": "Antigravity",
-                 "grok": "Grok Build", "pi": "pi", "cursor": "Cursor", "hermes": "Hermes", "grokbot": "Grok Bot"}
+                 "grok": "Grok Build", "pi": "pi", "cursor": "Cursor", "hermes": "Hermes", "openclaw": "OpenClaw", "grokbot": "Grok Bot"}
 PROVIDER_LOGOS = {"openai": "openai", "anthropic": "anthropic", "google": "google"}
 
 SERVICE_NAMES = {

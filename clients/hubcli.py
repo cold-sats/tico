@@ -1037,7 +1037,7 @@ def parser():
     s.add_argument("--name", help="what people call this bot; the template card's name by default")
     s.add_argument("--description")
     s.add_argument("--reports-to", help="with --record-only: a bot slug, or human:<id>; the requester by default")
-    s.add_argument("--model", help="with --record-only: `hermes` for a bot run by a Hermes profile; the company's default otherwise")
+    s.add_argument("--model", help="with --record-only: `hermes` or `openclaw` for a bot run by a Hermes or OpenClaw profile; the company's default otherwise")
     s.set_defaults(fn="bot create")
     s = bot.add_parser("update", help="apply a person's bot-settings request as them (BotOps)")
     s.add_argument("slug")

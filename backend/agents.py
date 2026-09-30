@@ -1,4 +1,4 @@
-"""External agents: a bot run by a harness Tico does not operate, such as a Hermes profile.
+"""External agents: a bot run by a harness Tico does not operate, such as a Hermes or OpenClaw profile.
 
 Such a bot is a full bot record (org tree, chat, tasks, routines) with no computer. Nothing
 dispatches to it: a message addressed to it lands in its inbox and stays there until the agent
@@ -30,6 +30,8 @@ PAIRINGS_PENDING_MAX = 20
 CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"         # no 0/O/1/I/L
 # How long after an archived bot's agent last used its credential the issue stays on Health.
 ARCHIVED_WINDOW = 3600
+# The harnesses whose connector (clients/hermes_agent.py) can pair with a code.
+PAIRABLE = ("hermes", "openclaw")
 
 
 def external_harness(c, bot):
@@ -178,9 +180,11 @@ def approve_pairing(c, who, manager, code, bot):
         raise Problem("not_found", "Bot not found", 404)
     manager(c, who, bot)
     state = H.bot(c, bot)["state"]
-    if external_harness(c, bot) != "hermes":
-        raise Problem("harness", "Only a bot run by a Hermes profile can be paired; register it with the model "
-                      "hermes first", 422)
+    harness = external_harness(c, bot)
+    if harness not in PAIRABLE or harness != record["harness"]:
+        name = "OpenClaw" if record["harness"] == "openclaw" else "Hermes"
+        raise Problem("harness", f"Only a bot run by a {name} profile can be paired with this code; register "
+                      f"the bot with the model {record['harness']} first", 422)
     if state not in ("planned", "active"):
         raise Problem("bot_state", "This bot is " + state + "; make it planned or active first", 409)
     issued = issue_credential(c, who, bot)

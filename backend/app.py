@@ -285,7 +285,8 @@ def create_app(settings=None):
             # secret, and fetches the open-source connector it runs. The person's approval is the authenticated step.
             agent_door = (request.url.path == "/api/v2/agents/pairings" and request.method == "POST"
                           or request.url.path.startswith("/api/v2/agents/pairings/") and request.method == "GET"
-                          or request.url.path == "/api/v2/agents/setup-script" and request.method == "GET")
+                          or request.url.path in ("/api/v2/agents/setup-script", "/api/v2/agents/sync-skill")
+                          and request.method == "GET")
             if request.url.path != "/api/v2/runners/enroll" and not agent_door:
                 began = time.perf_counter()
                 who = await asyncio.get_running_loop().run_in_executor(AUTH_POOL, auth.authenticate, request.headers,
@@ -2774,6 +2775,12 @@ def create_app(settings=None):
         """The one-file connector the agent's box downloads (clients/hermes_agent.py). Open source, holds no
         secret, and needs no sign-in: a profile with no credential yet fetches it to pair."""
         return (Path(__file__).resolve().parents[1] / "clients" / "hermes_agent.py").read_text()
+
+    @app.get("/api/v2/agents/sync-skill", response_class=PlainTextResponse)
+    def agent_sync_skill():
+        """The "Tico sync" skill (skills/tico-sync/SKILL.md) the connector installs next to the agent and refreshes on
+        `update`. Open source, no secret, no sign-in: the same door as the connector."""
+        return (Path(__file__).resolve().parents[1] / "skills" / "tico-sync" / "SKILL.md").read_text()
 
     def client_address(request):
         """Who is asking, for the pairing rate limit: the address the front door saw, else the connection's."""
