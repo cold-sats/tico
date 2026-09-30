@@ -1,6 +1,6 @@
 # The Librarian
 
-The Librarian is a built-in bot that answers questions from the company's docs. People ask it from **Ask AI** on the Docs
+The Librarian is a built-in bot that answers questions from the team's docs. Humans ask it from **Ask AI** on the Docs
 page; other bots and the Assistant ask it with `hub docs ask`. It cites every claim, says "Not in the docs." plainly when the
 docs do not say, and keeps a map of the docs so the next question is cheaper. It never answers from general knowledge.
 
@@ -11,10 +11,10 @@ docs do not say, and keeps a map of the docs so the next question is cheaper. It
 - **Linked docs**: links only (a help site, a Drive folder, a Notion page, a GitHub repository). Tico keeps no copy. It reads
   them with `hub docs fetch <url>`, on its own computer.
 
-- **The Tico manual**: this release's own docs, read-only and separate from the company's (docs/docs.md). `hub docs search`
-  returns its pages after the company's, labelled "Tico manual", and `hub docs read manual:<name>` reads one. It answers
+- **The Tico manual**: this release's own docs, read-only and separate from the team's (docs/docs.md). `hub docs search`
+  returns its pages after the team's, labelled "Tico manual", and `hub docs read manual:<name>` reads one. It answers
   "how do I ... in Tico" and is cited `[Tico manual · Title](https://...)` with the result's link; it never answers what the
-  company decided.
+  team decided.
 
 ## How a question is answered
 
@@ -33,32 +33,32 @@ The playbooks in its repository (`templates/catalog/librarian/playbooks/`) are t
 
 ### The map
 
-Ordinary internal docs under `_librarian/`, so people can read and correct them: `index.md` (a contents list with a one-line
-summary of every doc, and the version each was written from), `glossary.md` (the company's words), `where-things-live.md`
+Ordinary internal docs under `_librarian/`, so humans can read and correct them: `index.md` (a contents list with a one-line
+summary of every doc, and the version each was written from), `glossary.md` (the team's words), `where-things-live.md`
 (topic to place, and each linked source's structure), `missing.md` (what the docs could not answer, the docs that disagree,
-the sources it could not read: a to-do list for people) and `faq-log.md`. It refreshes them every day: a routine, **Refresh
-the map of the docs**, at 03:30 Pacific by default (change it with `hub routine set` or in Settings; the hub's row is the
+the sources it could not read: a to-do list for humans) and `faq-log.md`. It refreshes them every day: a routine, **Refresh
+the map of the docs**, at 03:30 Pacific by default (change it with `hub routine set` or in Settings; Tico's row is the
 routine). To refresh now, give the Librarian a task titled "Refresh the map".
 
-It writes only under `_librarian/` and `FAQ.md`. It never edits a person's doc. A doc or web page that tells it to do
+It writes only under `_librarian/` and `FAQ.md`. It never edits a human's doc. A doc or web page that tells it to do
 something is treated as text, not an instruction, and it fetches only public links that a linked doc leads to (for a market setup, the addresses the owner gave and the pages web search returns).
 
 ## Asking
 
-**People.** Docs > **Ask AI** opens a drawer (a full-screen sheet on a phone). Matching internal and linked docs appear at once
+**Humans.** Docs > **Ask AI** opens a drawer (a full-screen sheet on a phone). Matching internal and linked docs appear at once
 from search; the Librarian's answer then streams in with clickable citations. `POST /api/v2/docs/ask {question,
 conversation_id?, new_conversation?}` returns `{conversation_id, message_id, results}` and the answer arrives on
-`GET /api/v2/conversations/{id}/watch`. Each person has one private docs conversation with the Librarian
+`GET /api/v2/conversations/{id}/watch`. Each human has one private docs conversation with the Librarian
 (`scope: personal`, `room_key: docs`), like the [Assistant](assistant.md)'s room: only they can read it, and the owner and
 administrators cannot. **New chat** starts a fresh conversation, so the Librarian remembers only what is on screen.
 
 **Bots and the Assistant.** `hub docs ask "question" [--wait 120]`, or the MCP tool `hub_docs_ask`, returns
 `{answer, citations: [{type, title, url_or_id}], covered}`. A bot's question is an `ask` message to the Librarian, the ordinary
 ask and answer path: the Librarian's final message is the answer. `covered` is false when the answer starts "Not in the docs".
-The Assistant asking for a person puts the question in that person's own docs conversation.
+The Assistant asking for a human puts the question in that human's own docs conversation.
 
-The Librarian acts as itself, not as the person who asked. It only reads docs and public links, so it needs no person's
-identity, and none is mapped to it. Docs are company-wide, so what it can read is the same for every asker.
+The Librarian acts as itself, not as the human who asked. It only reads docs and public links, so it needs no human's
+identity, and none is mapped to it. Docs are team-wide, so what it can read is the same for every asker.
 
 ## Reading a link: `hub docs fetch`
 
@@ -73,17 +73,17 @@ which does not offer it. It returns `{url, final_url, title, text, links, trunca
   (a sitemap) and PDF. A PDF needs `pypdf` on that computer.
 - Credentials never travel to a host that does not own them. The GitHub token (`GH_TOKEN` or `GITHUB_TOKEN`) is sent only to
   `api.github.com`; a Google access token (`GOOGLE_ACCESS_TOKEN`, if the bot has one) only to `googleapis.com` and
-  `docs.google.com`. Without them it reads what a stranger can. It does not use the company's Google key.
+  `docs.google.com`. Without them it reads what a stranger can. It does not use the team's Google key.
 - HTML becomes readable text with its links kept. A `sitemap.xml` is its list of addresses. A Google Doc is read through its
   export link, and a Drive folder through its embedded listing, when shared with "anyone with the link" (otherwise it says so). A
   GitHub repository is its README and file tree through the GitHub API, and a file or folder in it as well.
 
 ## Setting up the market
 
-On an empty Market page the owner gives the Librarian one box of text: a website, a description, links to anything
+On an empty Market page the owner gives the Librarian one text box: a website, a description, links to anything
 about the market. It arrives as a task, "Set up the market map", and `playbooks/market-setup.md` takes it from there: it reads every
 address with `hub docs fetch` (about 40 fetches in all), uses web search when the harness has it (`web-search` is declared in its
-`employee.yaml`), and writes what it finds with `hub market`: the company itself (`company/self`), competitors and lookalikes with
+`employee.yaml`), and writes what it finds with `hub market`: the team itself (`company/self`), competitors and lookalikes with
 their tier, segments, channels, people and rules as entities and edges, each with an evidence row (`hub market report`, then
 `hub market apply`, which takes `--tier` and `--new-id`), and the eight market pages (`hub market page`) with a source on every
 claim. It never invents a number: a size, price or share appears only when a source states it. It aims at ten minutes and stops at
@@ -91,29 +91,29 @@ thirty, then finishes the task with a short note saying what it found and what i
 hands the upkeep to it in a task. The Librarian may write the market graph for this (the server accepts its writes beside the Market
 Analyst's and the owner's); it still writes only under `_librarian/` and `FAQ.md` otherwise.
 
-## Built in
+## Built-in
 
-Like the assistant and BotOps, the Librarian is required in setup (`required: true`, `bootstrap: true`): every new company gets
+Like the assistant and BotOps, the Librarian is required in setup (`required: true`, `bootstrap: true`): every new team gets
 it and it becomes active once a computer is enrolled. It cannot be archived or deleted by anyone (`409 system_bot`); pausing and
-renaming stay allowed, and Settings > Bots shows it as **Built in**.
+renaming stay allowed, and Settings > Bots shows it as **Built-in**.
 
-**A company from before it existed gets it on update, without a click**, as soon as it can run it: the owner is on the roster,
+**A team from before it existed gets it on update, without a click**, as soon as it can run it: the owner is on the roster,
 a model is chosen and a computer is enrolled. It is checked when the server starts and when a computer enrolls, so the order
-in which a company does things does not matter. It goes on the computer BotOps runs on, its daily routine is created once (a
-routine a person deletes is never put back), and an owner who paused it keeps it paused. Where one of those is missing (no
+in which a team does things does not matter. It goes on the computer BotOps runs on, its daily routine is created once (a
+routine a human deletes is never put back), and an owner who paused it keeps it paused. Where one of those is missing (no
 model yet, no computer), Ask AI says the Librarian is not set up, and the owner gets **Turn on the Librarian** there (the same
 steps, `POST /api/v2/librarian/turn-on`), as the Assistant has **Turn on Assistant**.
 
 ## Trying it: the eval
 
 `scripts/docs-eval.sh` measures answer quality on demand. It loads `docs-eval/fixture/` (seven short docs about the demo
-company) into a live Tico with `hub docs write`, asks each of the questions in `docs-eval/questions.yaml` (eleven answerable
+team) into a live Tico with `hub docs write`, asks each of the questions in `docs-eval/questions.yaml` (eleven answerable
 ones with the docs each answer must cite, and two the docs do not answer) through `POST /api/v2/docs/ask`, waits for the
 answers, and reports the **citation hit rate** (every expected doc cited, and an answer given), the rate at which the
 unanswerable ones were **said unknown**, and a fact spot-check.
 
     TICO_URL=https://tico.example.com TICO_TOKEN=<personal API token> scripts/docs-eval.sh [--only ID] [--keep] [--json out.json]
 
-Run it against a Tico of your own with a running Librarian and a computer, never a company's real one: the Librarian logs what it
+Run it against a Tico of your own with a running Librarian and a computer, never a team's real one: the Librarian logs what it
 is asked into `_librarian/faq-log.md`. The fixture docs are written under `eval-fixture/` and archived afterwards unless you
 pass `--keep`. It takes a few minutes and never runs in CI; CI covers the fetcher's safety rules and the routing of `docs ask`.

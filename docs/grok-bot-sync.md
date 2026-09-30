@@ -1,22 +1,22 @@
 # Grok Bot sync
 
-A person's Grok Bots (xAI's cloud agents, grok.com/bot) as bots on the Org chart, with their
+A human's Grok Bots (xAI's cloud agents, grok.com/bot) as bots on the team chart, with their
 history and instructions kept in Tico in case the Grok account goes away.
 
-Grok Bot has no API, export or webhook for its Bots. One of the person's own Bots can list their
+Grok Bot has no API, export or webhook for its Bots. One of the human's own Bots can list their
 other Bots, read each one's full instructions and transcripts, call a custom MCP server, and do
-it on a routine. So the sync runs inside Grok, with the person's own personal token, and Tico
+it on a routine. So the sync runs inside Grok, with the human's own personal token, and Tico
 only receives (`backend/grokbot.py`).
 
 ## What Tico does with a sync
 
-- A Grok Bot it has not seen becomes a bot with the `grokbot` harness, **under the person who
-  synced it** (`reports_to: human:<them>`), active, with them as operator and owner. Move it
-  anywhere on the Org chart afterwards; a later sync never moves it back.
+- A Grok Bot it has not seen becomes a bot with the `grokbot` harness, **under the human who
+  synced it** (`reports_to: human:<them>`), active, with them as owner. Move it
+  anywhere on the team chart afterwards; a later sync never moves it back.
 - Name and description follow Grok. The full instructions are kept in the bot's
   `config_json.grok.instructions` (with when they last changed), so the bot can be rebuilt on
   another runtime.
-- The transcript is copied into the person's own chat with the bot, already read, with no job
+- The transcript is copied into the human's own chat with the bot, already read, with no job
   queued. A message's id comes from the Grok Bot's id and the message, so a resent message adds
   nothing. Each bot in the reply carries `synced_through`: send only newer messages next time.
 - Images in a message are fetched once (public https only, up to 10 MB each), stored like a
@@ -25,12 +25,12 @@ only receives (`backend/grokbot.py`).
   marks the Bot as one of ours; here it says where the bot runs. The Grok name is kept in
   `config_json.grok.name`.
 - Presence is the last sync: synced in the last 26 hours shows as synced, older as not synced
-  lately. Nothing is dispatched to these bots; a message written to one in Tico waits in its
-  inbox (relaying it back into Grok is not built yet).
+  lately. Nothing is dispatched to these bots; a message written to one in Tico waits
+  unread (relaying it back into Grok is not built yet).
 
-Only the owner and bot administrators may sync, the same people who may mint personal tokens.
+Only the owner and bot administrators may sync, the same humans who may mint personal tokens.
 
-## Connect it (once per person)
+## Connect it (once per human)
 
 1. In Tico, **Settings → API tokens**: create a token labelled "Grok Bot sync".
 2. In Grok, tell one of your Bots (for Ana: Groky) to add a custom MCP server:

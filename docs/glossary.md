@@ -1,8 +1,51 @@
 # Glossary
 
-- **Employee**: a persistent AI role with its own repo, memory, and software. Not a model session.
-- **Hub**: this repo. Shared knowledge and the single work queue.
-- **Run**: one dispatcher-launched session of an employee against one Issue.
-- **Handoff**: delegating work by opening a child Issue and setting the parent to waiting.
-- **Session**: the model conversation an employee is currently resuming. Disposable.
-- **state.md**: an employee's own note of what it is doing and what to pick up next.
+The words Tico uses, and what each replaces.
+
+## Who is on the team
+
+- **Tico**: the product.
+- **Team**: everyone, humans and bots. The sidebar section is **Team** and the chart is the team chart.
+- **Group**: part of the team. A group can hold groups.
+- **Teammate**: a human or a bot on the team.
+- **Human**: a human teammate. The **Humans** page lists them.
+- **Bot**: an AI teammate.
+- **Built-in**: a bot that comes with Tico, serves everyone and belongs to no group: Assistant, BotOps, Librarian, Goal Manager.
+- **Message bot**: a bot that works a human's email or a Slack channel.
+- **External agent**: an agent outside the team connected to Tico (Codex, Claude, Grok), run by a human or a bot.
+- **Owner**: the humans responsible for a bot, a goal or a computer.
+
+## What a bot is made of
+
+- **Instructions**: what a bot is told it does (`AGENT.md` in developer docs).
+- **Tools**: everything a bot uses: its model and harness, GitHub, Slack, Google, AWS.
+- **Model** and **Harness**: kinds of tool. The model (GPT-5.5, Opus) and the harness it runs in (Codex, Claude Code).
+- **AI provider**: the account a model comes from.
+- **Credential**: a stored secret a bot is granted. "API key" or "token" only names what a service gives you, or sign-in.
+- **Template**: what you create a bot from.
+- **Setup**: a new bot's first conversation with its owner. Status **Needs setup**, button **Set up**. **Finish setup** is installing Tico.
+
+## Where bots run
+
+- **Computer**: what you register and add (Settings > Computers).
+- **Runner**: the software installed on a computer (install docs only).
+- **Health**: what is wrong. Each problem is an **issue**.
+
+## Work
+
+- **Task**: work with a requester and an owner.
+- **Routine**: a task that repeats on a schedule.
+- **Needs you**: only when it needs the viewer. Otherwise **Needs <Name>**, as in "Needs Thomaz".
+- **Approval**: a yes or no on one exact action.
+- **Proposal**: a suggested change to a goal or KPI, for its owner to confirm.
+- **Run**: one time a bot works.
+- **Update**: a bot's daily or weekly post, and a new Tico version.
+- **Message**, **Comment**, **Note**: a message is chat. A comment is on a task. A note is quiet, for a bot's next run.
+- **Decision**: the typed-question model that classifies and decides.
+- **Handoff**: delegating work by opening a child task and setting the parent to waiting.
+- **Session**: the model conversation a bot is resuming. Disposable.
+- **state.md**: a bot's own note of what it is doing and what to pick up next.
+
+## Knowledge
+
+Docs (internal and linked), Files, Meetings, Market, Listening, Goals, KPIs, Check-ins, Usage.

@@ -64,7 +64,7 @@ creation/update, approval decisions, note saves, meeting import/edit/delete/send
 bot definition changes, and settings transition requests. JSON and supported multipart
 submissions use the same wrapper; individual network retry attempts do not duplicate events.
 Unknown endpoints, polling reads, credential checks, and the legacy unauthenticated local
-hub are untracked. Other dedicated UI modules and background workers are not comprehensively
+Tico are untracked. Other dedicated UI modules and background workers are not comprehensively
 instrumented yet. A submission success means the API accepted it, not that a bot finished its
 work or that a settings transition finished applying.
 
@@ -102,7 +102,7 @@ contracts, so cross-app person joins are unavailable; compare app-level workflow
 
 If the project is shared, always filter by `app` and `environment` first. Suggested dashboards:
 
-- Daily/weekly distinct authenticated users from `route_viewed` and workflow events, split
+- Daily/weekly distinct authenticated humans from `route_viewed` and workflow events, split
   by app; route popularity and summed active-time deltas show which areas see engagement.
 - `workflow_started` → `workflow_completed` funnels grouped by workflow/action, with failed
   event counts and failure rate. A missing completion may also mean tab closure or delivery
@@ -131,7 +131,7 @@ contained so analytics failures cannot fail an application operation.
 
 ## Deployment notes
 
-The UI's `SERVICE_NAMES.posthog` entry names an employee connector; it is not application
+The UI's `SERVICE_NAMES.posthog` entry names a bot tool; it is not application
 analytics. `TICO_RELEASE` is reused as the release label. The EC2 installer accepts the six
 documented observability settings in its JSON configuration and writes `/etc/tico/api.env` with
 mode 0600. For the identity secret, use 32-256 URL-safe letters, digits, underscores or hyphens

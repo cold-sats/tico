@@ -8,7 +8,7 @@ a linked document opens at its provider in a new tab.
 ## What gets listed
 
 A file is something the bot makes and hands over: a report, a draft, a spreadsheet, an export, a
-Google Doc it wrote. Attachments people send a bot are its inputs and are **not** listed unless the
+Google Doc it wrote. Attachments humans send a bot are its inputs and are **not** listed unless the
 bot itself publishes or changes them. A git checkout is a workspace, not a file store: only what the
 bot publishes appears.
 
@@ -36,15 +36,15 @@ its conversation, or bot-wide) and a canonical identity:
    fetches, proxies or copies the document and never holds a provider token. Each time the bot says
    it edited the document (`hub files touch <id|url>`, or add-link again) the row moves to the top.
 3. **S3 objects.** `hub files import s3://bucket/key [--title ...] [--task ...]` runs on the bot's
-   computer. It copies the object with the credentials that computer already has (the bot's secrets
+   computer. It copies the object with the credentials that computer already has (the bot's credentials
    or its AWS environment; boto3, or the aws CLI when boto3 is missing), refuses a type or size
    outside the limits, and uploads the bytes to Tico's store. The object's ETag (and version id) is
    recorded; importing again after the object changed adds a version, importing the same ETag adds
-   only an activity entry. The hub never reads a company bucket with its own credentials.
+   only an activity entry. Tico never reads a team bucket with its own credentials.
 
 ## Publishing
 
-**Explicitly**, from a turn (the same tools exist over MCP as `hub_files_*`):
+**Explicitly**, from a run (the same tools exist over MCP as `hub_files_*`):
 
 ```
 hub files publish reports/2026-09-29-pipeline.md [--title T] [--task ID] [--scope task|bot]
@@ -56,7 +56,7 @@ hub files list
 
 A bot can write only its own files: the authenticated bot decides, never a parameter.
 
-**Automatically**, at the end of a completed turn, the runner uploads new or changed files under
+**Automatically**, at the end of a completed run, the runner uploads new or changed files under
 the bot checkout's `reports/` and `artifacts/`, comparing against what it published before. Choose
 other folders (or none) per bot in `employee.yaml`:
 
@@ -82,8 +82,8 @@ A file inherits the visibility of where it came from:
 
 - made for a **task**: whoever can see the task;
 - made in a **conversation**: whoever can see the conversation. A direct chat's files are visible
-  to its participants and to the company owner, who can open direct chats. Personal Assistant rooms are the exception:
-  only their person sees them, the owner included. In a shared bot room, only its members do. Anyone else does not learn a file name, a count, a version or an
+  to its participants and to the team owner, who can open direct chats. Personal Assistant rooms are the exception:
+  only their human sees them, the owner included. In a shared bot room, only its members do. Anyone else does not learn a file name, a count, a version or an
   activity entry from it, on the bot's page or anywhere else;
 - **bot-wide**: anyone who can see the bot.
 

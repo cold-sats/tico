@@ -6,7 +6,7 @@ release. Running installations look for that release to show "New version" in th
 
 ## Before you tag
 
-Tests run on your machine, not in CI: nothing in GitHub Actions runs the suite on a push or a pull request. Before
+Tests run on your computer, not in CI: nothing in GitHub Actions runs the suite on a push or a pull request. Before
 tagging, run the whole thing from the repository root:
 
 ```
@@ -27,12 +27,12 @@ scripts/journey-test.sh                  # this checkout is the candidate; start
 scripts/journey-test.sh --tag vX.Y.Z     # a published candidate (its images and bundle must exist)
 ```
 
-It installs the previous release into a throwaway directory (auth none), enrolls a runner with a one-time code, runs one
-bot turn through a fake `codex` (`scripts/journey-fake-codex.py`), restarts the server, upgrades to the candidate with
+It installs the previous release into a throwaway directory (auth none), enrolls a computer with a one-time code, runs one
+bot run through a fake `codex` (`scripts/journey-fake-codex.py`), restarts the server, upgrades to the candidate with
 "Update now", rolls back an update that migrates the database and never turns healthy (checking the pre-update snapshot
 is restored, with the server's real entrypoint running Litestream), wipes the data volume and checks the server restores
-from its replica without the migration, restarts a runner started as `runner.compose.yaml` starts it after a turn and
-requires a second turn to work, and finishes with `docker/backup-test.sh` (MinIO and a file replica, wipe, restore). It prints a table of
+from its replica without the migration, restarts a runner started as `runner.compose.yaml` starts it after a run and
+requires a second run to work, and finishes with `docker/backup-test.sh` (MinIO and a file replica, wipe, restore). It prints a table of
 PASS, FAIL or SKIP per step and exits non-zero on a failure. `scripts/install.sh` itself needs Linux and root, so the
 script does what the installer does after its preflight (checksummed bundle, `.env`, `docker compose up -d`). For a
 release that adds updater or migration behavior, the upgrade step is done by the *previous* updater, so also read the

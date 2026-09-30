@@ -1,6 +1,6 @@
 # The anonymous usage count
 
-Tico's goal is 100 companies trying it and 100 still using it 30 days later. To know, it counts installs. This page is
+Tico's goal is 100 teams trying it and 100 still using it 30 days later. To know, it counts installs. This page is
 the design and its research; [PRIVACY.md](../PRIVACY.md) is what an owner reads.
 
 ## What other projects do
@@ -16,12 +16,12 @@ and Tico does all of them.
 | **Gatsby** | Opt out with `gatsby telemetry --disable` or `GATSBY_TELEMETRY_DISABLED=1`; a public page lists the data. | [gatsbyjs.com/docs/telemetry](https://www.gatsbyjs.com/docs/telemetry/) |
 | **VS Code** | One setting, `telemetry.telemetryLevel`, and `off` silences everything. Documents what is collected. | [code.visualstudio.com/docs/configure/telemetry](https://code.visualstudio.com/docs/configure/telemetry) |
 | **`DO_NOT_TRACK`** | A convention for command-line tools: one environment variable that turns off telemetry and other non-essential phone-home. Adopted by Homebrew and Syncthing, among others. | [consoledonottrack.com](https://consoledonottrack.com/) |
-| **Plausible** | Counts visitors without storing IP addresses or user agents: the address is hashed with a salt that is rotated and deleted every 24 hours, so nothing identifies a person and nothing is kept that could. | [plausible.io/data-policy](https://plausible.io/data-policy) |
+| **Plausible** | Counts visitors without storing IP addresses or user agents: the address is hashed with a salt that is rotated and deleted every 24 hours, so nothing identifies a human and nothing is kept that could. | [plausible.io/data-policy](https://plausible.io/data-policy) |
 
 The common practice: **opt-out and anonymous; a notice on first run; several ways to switch it off, including an
 environment variable and a standard one; a debug mode that shows the payload; a public statement of the fields; public or
 aggregate results; no IP address kept.** Tico follows each. Where it differs it is stricter: a random ID rather than a
-machine hash, four fields, two of them booleans, and the count is invisible to a company that turns it off (the update
+computer hash, four fields, two of them booleans, and the count is invisible to a team that turns it off (the update
 check goes straight to GitHub).
 
 ## How it works
@@ -36,11 +36,11 @@ Tico server ── GET /v1/latest?install_id&version&active_people&active_bots �
   makes the request. HQ answers with the same body GitHub does, so the update notice works the same either way.
   `TICO_HQ_URL` moves the base URL (default `https://updates.tico.team`); `TICO_RELEASES_URL` still replaces the whole check
   with a GitHub-shaped mirror and sends nothing extra.
-- **`active_people`** is set from the last time a person (not an API token, not the Assistant acting for someone) made a
-  request; it is written at most once an hour. **`active_bots`** is a query over finished bot turns.
+- **`active_people`** is set from the last time a human (not an API token, not the Assistant acting for someone) made a
+  request; it is written at most once an hour. **`active_bots`** is a query over finished bot runs.
 - **The ID** is `uuid4()`, stored in the `usage-count` row of `registry_metadata`. It is generated on first use, not derived
   from `TICO_ENVIRONMENT_ID` or anything else, and rotates on request.
-- **A note on flags:** they are yes/no over 7 days rather than counts, so HQ cannot learn how large a company is.
+- **A note on flags:** they are yes/no over 7 days rather than counts, so HQ cannot learn how large a team is.
 - **Demo mode** never sends.
 
 ## HQ, the collector
@@ -52,7 +52,7 @@ not gate the public endpoints.
 
 **Storage** (`installs`): `install_id`, `first_seen`, `last_seen`, `last_version`, `last_people`, `last_bots`. Dates are UTC
 days. Nothing else is stored for the count, and rows older than 13 months (by `last_seen`) are deleted daily. Support tickets, which
-a person sends on purpose, are in two other tables (`tickets`, `ticket_replies`; `hq/support.py`) and are kept until deleted: see
+a human sends on purpose, are in two other tables (`tickets`, `ticket_replies`; `hq/support.py`) and are kept until deleted: see
 [Support tickets](#support-tickets).
 
 **Endpoints**
@@ -74,7 +74,7 @@ installs call HQ without signing in.
 
 ### Support tickets
 
-`hq/support.py`. A person files a ticket from the app (Help > Contact support; [support.md](support.md)); the team works it with a
+`hq/support.py`. A human files a ticket from the app (Help > Contact support; [support.md](support.md)); the team works it with a
 staff key. Bodies are JSON, at most 16 KB (48 KB for staff), with strict fields; a refusal names the field, never echoes a value
 (`422 {"error": "invalid", "field": "message"}`). Nothing here logs a request, a body or an address.
 
@@ -82,10 +82,10 @@ staff key. Bodies are JSON, at most 16 KB (48 KB for staff), with strict fields;
 |---|---|---|
 | `POST /v1/support` | none | `{message, email?, install_id?, version?, diagnostics?}` (no other field; `diagnostics` is a JSON object with `format: 1`, up to 256 KB, and makes the request limit larger than a message's 16 KB). `201 {ticket_id, secret, status}`. The secret is shown once and HQ keeps its SHA-256. 5 an hour per address, 10 a day per install ID, 1000 a day in all: `429`. |
 | `GET /v1/support/{id}` | ticket secret | Header `X-Ticket-Secret` (or `?secret=`). `{ticket_id, status, created, updated, messages: [{id, created, from: "staff"\|"person", body}]}`. An unknown ticket and a wrong secret are the same `404`. 600 an hour per address. |
-| `POST /v1/support/{id}/messages` | ticket secret | `{message}` from the person; reopens an answered ticket; `409` when closed or at 60 messages. |
-| `DELETE /v1/support/{id}` | ticket secret | The person deletes their ticket. |
-| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the person writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending`, `has_diagnostics` and `messages`. |
-| `GET /v1/staff/tickets/{id}` | staff key | One ticket, with its `diagnostics` bundle when the person attached one (support.md, PRIVACY.md). No other route returns it. |
+| `POST /v1/support/{id}/messages` | ticket secret | `{message}` from the human; reopens an answered ticket; `409` when closed or at 60 messages. |
+| `DELETE /v1/support/{id}` | ticket secret | The human deletes their ticket. |
+| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the human writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending`, `has_diagnostics` and `messages`. |
+| `GET /v1/staff/tickets/{id}` | staff key | One ticket, with its `diagnostics` bundle when the human attached one (support.md, PRIVACY.md). No other route returns it. |
 | `POST /v1/staff/tickets/{id}/reply` | staff key | `{body}` (up to 8000 characters). Sets the ticket to `answered`; with an email on the ticket it is marked `email_pending`. HQ sends no email. `409` when closed. |
 | `POST /v1/staff/tickets/{id}/status` | staff key | `{status: "open"\|"answered"\|"closed", email_sent?: true}`. |
 | `DELETE /v1/staff/tickets/{id}` | staff key | Delete on request. The rows are overwritten in the file. |

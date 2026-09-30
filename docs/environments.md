@@ -1,9 +1,9 @@
 # Environments
 
-One environment is one company: its own server or its own account on a hosted server, its own
+One environment is one team: its own server or its own account on a hosted server, its own
 database, workspace, subscriptions, names and Mac app. Several can run on one Mac. `-e <slug>`
 (or `TICO_ENV`) picks one for every `scripts/tico` command; without it you get the original
-single-company setup described under [the legacy default](#the-legacy-default).
+single-team setup described under [the legacy default](#the-legacy-default).
 
 The reference implementation is `clients/environments.py` (create, list, show, remove),
 `scripts/tico` (services and lifecycle) and `runner/profiles.py` (subscriptions). Start from the
@@ -17,23 +17,23 @@ lowercase letters, digits and single hyphens.
 | Path | Mode | Written by | What it is |
 |---|---|---|---|
 | `environment.json` | inside the 0700 directory | `env create` | Identity and names. The only file `scripts/tico` reads to resolve `-e` |
-| `server.env` | 0600 | `env create --local` | `KEY=VALUE` lines the local backend runs with, including the provider choice (`TICO_ENABLED_PROVIDERS`, `TICO_DEFAULT_RUNTIME`, `TICO_DEFAULT_MODEL`), which seeds the database once. No secret is in it |
-| `local-owner.token` | 0600 | `env create --local` | 32 url-safe random bytes: the loopback owner session secret |
-| `hub.sqlite`, `-wal`, `-shm` | as SQLite writes them | `backend.manage initialize`, then the server | This company's database |
+| `server.env` | 0600 | `env create --local` | `KEY=VALUE` lines the local backend runs with, including the provider choice (`TICO_ENABLED_PROVIDERS`, `TICO_DEFAULT_RUNTIME`, `TICO_DEFAULT_MODEL`), which seeds the database once. No credential is in it |
+| `local-owner.token` | 0600 | `env create --local` | 32 url-safe random bytes: the loopback owner session credential |
+| `hub.sqlite`, `-wal`, `-shm` | as SQLite writes them | `backend.manage initialize`, then the server | This team's database |
 | `blobs/` | 0700 | `env create --local` | Attachments, meeting files and generated files |
-| `registry/` | 0700 | `env create --local` | Seed data: `employees.yaml`, `people.yaml`, `hub-access.yaml`, copied from `templates/environment-registry/` with this company's names filled in. The seed roster is two bots, `coo` (the assistant) and `botops`, both `planned`; every other bot is picked from the catalog during [first run](onboarding.md) |
+| `registry/` | 0700 | `env create --local` | Seed data: `employees.yaml`, `people.yaml`, `hub-access.yaml`, copied from `templates/environment-registry/` with this team's names filled in. The seed roster is two bots, `coo` (the assistant) and `botops`, both `planned`; every other bot is picked from the templates during [Finish setup](onboarding.md) |
 | `logs/` | 0700 | `env create --local` | `api.log` and `tico-<job>.log` |
-| `runner.json` | 0600 | `enroll` | This machine's registration for this environment |
+| `runner.json` | 0600 | `enroll` | This computer's registration for this environment |
 | `state-<runner_id>/` | 0700 | the runner | `runner.sqlite`, `heartbeat`, `runtimes.json`, `runner-revision`, locks, warm sessions, routine checkouts |
 | `profiles/<name>/` | 0700 | `profile add` | One subscription: a provider home per runtime, plus `profile.json` |
 | `icon.png` | any | you, optionally | The app icon `scripts/app.sh --env <slug>` builds with |
 
-The **workspace** is deliberately outside this directory, because it is the company's own material
+The **workspace** is deliberately outside this directory, because it is the team's own material
 rather than the product's state. It defaults to `~/Companies/<Company>`, is created mode 0700, and
 holds `emp-<slug>/` bot checkouts, their uncommitted `emp-<slug>.data/` siblings, and `secrets/`
 (mode 0700) with the `.env` files bots are given. `env remove` never deletes it.
 
-Every turn is given the workspace as `HUB_WORKSPACE`, alongside `HUB_API_URL`, `HUB_TOKEN`,
+Every run is given the workspace as `HUB_WORKSPACE`, alongside `HUB_API_URL`, `HUB_TOKEN`,
 `HUB_EMPLOYEE` and `HUB_DIR` (this checkout). It is how `hub bot create` knows where a new bot
 repository goes, and how a bot finds a sibling's work.
 
@@ -43,7 +43,7 @@ repository goes, and how a bot finds a sibling's work.
 |---|---|
 | `id` | 16 hex characters, generated once, permanent. Owns resources: the runner registration, the app's bundle identifier, the mismatch guard. Never a display name |
 | `slug` | The short name you type after `-e`. Appears in launchd labels and paths |
-| `company_name`, `app_name`, `assistant_name` | Display names. `app_name` defaults to the company, `assistant_name` to the app. All three may be changed later |
+| `company_name`, `app_name`, `assistant_name` | Display names. `app_name` defaults to the team, `assistant_name` to the app. All three may be changed later |
 | `url` | Where clients reach the server: `http://127.0.0.1:<port>` for a local server, the hosted address otherwise |
 | `server` | `local` or `remote`. `local` is what makes `scripts/tico -e <slug> server ...` legal |
 | `port` | Local only. The first free loopback port from 8770 that no other environment has claimed |
@@ -88,7 +88,7 @@ Without `-e`, `scripts/tico` uses `~/.config/tico/runner.json` (`TICO_RUNNER_CON
 logs under `<parent of the checkout>/runtime/`, labels `team.tico.tico-<job>`, and the hosted site
 URL compiled into the script. That is Acme's existing setup, unchanged: it has no environment
 directory, no `server` subcommand (its server is hosted), and no profiles, so every bot runs on the
-operator's own `~/.codex` and `$HOME`. `scripts/tico env list` shows it last, as
+owner's own `~/.codex` and `$HOME`. `scripts/tico env list` shows it last, as
 `acme (legacy default)`, next to whatever environments exist. Nothing has to be migrated: an
 environment can be created beside it and the two do not share a label, a log or a port.
 
@@ -98,14 +98,14 @@ launchd agents live in `~/Library/LaunchAgents`, mode 0600, in the `gui/<uid>` d
 
 | Job | Legacy label | Environment label | Log |
 |---|---|---|---|
-| bot turns | `team.tico.tico-bot` | `team.tico.tico.<slug>.bot` | `<env>/logs/tico-bot.log` |
-| connector snapshots | `team.tico.tico-connectors` | `team.tico.tico.<slug>.connectors` | `<env>/logs/tico-connectors.log` |
+| bot runs | `team.tico.tico-bot` | `team.tico.tico.<slug>.bot` | `<env>/logs/tico-bot.log` |
+| tool snapshots | `team.tico.tico-connectors` | `team.tico.tico.<slug>.connectors` | `<env>/logs/tico-connectors.log` |
 | local server | not applicable | `team.tico.tico.<slug>.api` | `<env>/logs/api.log` |
 
 Default-environment logs are `~/.config/tico/logs/tico-<job>.log` (older installations may still use `<parent of the checkout>/runtime/tico-<job>.log`). `scripts/tico -e <slug> logs`
 reads the path out of the installed plist, so a job installed with an older layout still tails
-correctly. `restart` and `update` wait for turns in flight before bouncing the bot job;
-`TICO_RESTART_NOW=1` skips the wait when a hung turn is the reason for restarting.
+correctly. `restart` and `update` wait for runs in flight before bouncing the bot job;
+`TICO_RESTART_NOW=1` skips the wait when a hung run is the reason for restarting.
 
 ## Subscription profiles
 
@@ -121,22 +121,22 @@ scripts/tico -e acme profile assign sales partner     # this bot runs on that su
 scripts/tico -e acme profile list
 ```
 
-`--share-operator` makes a profile that does not relocate anything: its bots use the operator's own
+`--share-operator` makes a profile that does not relocate anything: its bots use the owner's own
 `~/.codex` and `$HOME`, which is what every registration made before profiles existed already does.
 `profile login` refuses on such a profile, because there is nothing separate to sign in to.
 
-Selection order for a turn: the bot's entry in `bot_profiles`, then `default_profile`, then none at
-all (the operator's own logins).
+Selection order for a run: the bot's entry in `bot_profiles`, then `default_profile`, then none at
+all (the owner's own logins).
 
 | Runtime | How the profile moves its login |
 |---|---|
 | `codex` | `CODEX_HOME` points at `<profile>/codex` |
 | `claude` | `HOME` points at `<profile>/claude` |
 | `grok` | `HOME` points at `<profile>/grok`. Grok Build 1.0.30 also honours `GROK_HOME` (probed 2026-09-15), but one rule for both keeps a profile a single directory |
-| `gemini` | No variable in the turn's environment: the Gemini host is handed `<profile>/gemini` and sets `GEMINI_CLI_HOME` and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` itself |
+| `gemini` | No variable in the run's environment: the Gemini host is handed `<profile>/gemini` and sets `GEMINI_CLI_HOME` and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` itself |
 
 Because a relocated `HOME` is an empty home, `profile add` copies `~/.gitconfig` into the `claude`
-and `grok` homes, so a bot's commits still have an author. Edit them per company if that is wrong.
+and `grok` homes, so a bot's commits still have an author. Edit them per environment if that is wrong.
 
 **Gemini is an API key, not an interactive login.** `profile login <name> gemini` says so and
 exits: put `GEMINI_API_KEY` in `<workspace>/secrets/_shared.env` or `<workspace>/secrets/<bot>.env`.
@@ -145,7 +145,7 @@ The profile still owns that runtime's session directory.
 **Antigravity stays per macOS user.** A bot with `runtime: gemini` and `harness: antigravity` runs
 Google's `agy` CLI, whose Google account sign-in is per user account and is not moved by a profile.
 Its per-bot session files sit under the runner's state directory. Readiness only checks that `agy`
-is on `PATH`; the first real turn is what proves the sign-in. Two companies that both need
+is on `PATH`; the first real run is what proves the sign-in. Two environments that both need
 Antigravity therefore need isolated mode, not two profiles.
 
 `doctor` and `status` print one line per bot, `<bot>: subscription profile <name> (<state>)`, where
@@ -154,9 +154,9 @@ first, but a bot is only blocked by its own.
 
 ## Sign-in options
 
-`TICO_AUTH_PROXY` picks who vouches for browser users. Runner, bot and personal-token bearer
+`TICO_AUTH_PROXY` picks who vouches for humans in the browser. Runner, bot and personal-token bearer
 credentials work the same under every option and never depend on a browser session; a bad bearer is
-always a `401`. Whatever the option, the email must be on the people roster (otherwise `403`), the
+always a `401`. Whatever the option, the email must be on the human roster (otherwise `403`), the
 server refuses to start when the selected option is missing its settings, and writes are
 origin-checked against `TICO_PUBLIC_URL`.
 
@@ -188,7 +188,7 @@ The redirect URI to register with the provider is `https://<host>/auth/callback`
 
 **Google.**
 1. In the Google Cloud console pick or create a project, then open APIs & Services, OAuth consent
-   screen. Choose Internal if every user is in your Workspace (otherwise External), name the app,
+   screen. Choose Internal if every human is in your Workspace (otherwise External), name the app,
    and add the scopes `openid`, `email` and `profile`.
 2. Open Credentials, Create credentials, OAuth client ID, type Web application.
 3. Under Authorized redirect URIs add `https://<host>/auth/callback`.
@@ -217,7 +217,7 @@ client secret in the request body or HTTP Basic.
 Sessions. The browser holds a random id in a `__Host-tico_session` cookie (`Secure`, `HttpOnly`,
 `SameSite=Lax`, path `/`; on loopback `http` the prefix and `Secure` are dropped). Only its hash is
 stored, in `oidc_sessions`. A session ends after 12 hours idle or 7 days in all, is replaced on each
-sign-in, is deleted when the owner marks the person as left, and is deleted by
+sign-in, is deleted when the owner marks the human as left, and is deleted by
 `GET /api/v2/logout`, which then lands on a "signed out" page with a sign-in button. Tico ends its
 own session only, not the one at Google or Microsoft. `TICO_SESSION_SECRET` signs only the short
 login round trip, so changing it cancels sign-ins in progress; to end every session, delete the rows
@@ -226,11 +226,11 @@ in `oidc_sessions`. No provider token is stored or logged.
 A browser page request without a session is redirected to `/auth/login?next=<path>`; API calls get
 `401` with `error.sign_in` set, which the app follows to the login page. `next` must be a same-origin
 path. An email that passes the provider but is not on the roster sees a page saying it is not on the
-company's list.
+team's list.
 
 ### Cloudflare Access and AWS ALB + Cognito
 
-Here a proxy in front of the server authenticates the person and passes a signed JWT. A header from
+Here a proxy in front of the server authenticates the human and passes a signed JWT. A header from
 the other provider is ignored.
 
 - `cloudflare` (the default when `TICO_ACCESS_ISSUER` is set) verifies the Access JWT from
@@ -257,7 +257,7 @@ A loopback server has no identity proxy in front of it, so the owner signs in wi
   The same token also works as a `Bearer` credential for scripts.
 - `scripts/tico -e <slug> open` builds that link; the Mac app reads the token file itself, on every
   launch, from the path in its `Info.plist`.
-- The owner email must be on the people roster, or sign-in is refused with a roster error.
+- The owner email must be on the human roster, or sign-in is refused with a roster error.
 - **Loopback only.** The server refuses to start when a token file is configured and
   `TICO_PUBLIC_URL` is not `127.0.0.1`, `localhost` or `::1`. Do not put a local environment behind
   a tunnel and keep the token.
@@ -278,15 +278,15 @@ directory, launchd label, database and profile. It stops collisions and keeps su
 It is not a security boundary: a bot runs as you and can read anything you can read.
 
 **Isolated mode** is one dedicated macOS user per environment, which is the right answer for an
-unrelated company on shared hardware. macOS keys provider logins, browser sessions and desktop
-integrations to the user account, so a separate user gives each of them a clean home with no
+unrelated team on shared hardware. macOS keys provider logins, browser sessions and desktop
+tools to the user account, so a separate user gives each of them a clean home with no
 per-tool workaround. This is documented, not automated: there is no installer that creates the
 user, and each model CLI's first unattended login under a fresh account should be checked by hand.
 
 1. Create a standard (not administrator) account, for example `acme`, in **System Settings → Users
    & Groups**, or `sudo sysadminctl -addUser acme -fullName "Acme runner"`.
 2. Log in as that user at least once. A launchd *user agent* needs a login session, so keep the
-   session open with fast user switching, or enable automatic login for that account on a machine
+   session open with fast user switching, or enable automatic login for that account on a computer
    that reboots unattended.
 3. Give that user the code. Either clone this repository into its home, or share one read-only
    checkout (`chmod -R a+rX <checkout>`) and let the user keep its own venv:
@@ -306,7 +306,7 @@ The two accounts must not share a workspace, a profile directory or a token file
 
 For a local server, the durable state is `hub.sqlite` (with its `-wal` and `-shm` siblings) and
 `blobs/`, plus `environment.json`, `server.env`, `runner.json` and `profiles/` to rebuild the
-machine, and the workspace, which holds the bot repositories and their history.
+computer, and the workspace, which holds the bot repositories and their history.
 
 Stop the server and copy, which is the simplest correct thing:
 
@@ -324,14 +324,14 @@ sqlite3 ~/.config/tico/environments/acme/hub.sqlite ".backup '/Volumes/Backups/h
 
 `python -m backend.manage snapshot <source> <destination>` writes a verified copy, and
 `restore <source> <destination>` puts one back. Keep `local-owner.token` out of any shared backup
-target, or rotate it after a restore. To open a restored copy without it touching anything outside the machine (no
+target, or rotate it after a restore. To open a restored copy without it touching anything outside the computer (no
 scheduler, directory sync, release check or usage count, and no calls to GitHub, Slack or Tico HQ), add
 `TICO_REHEARSAL=1` to that environment's `server.env` first; the app then says "Rehearsal: nothing runs or leaves this server".
 
 ## Removing an environment
 
 ```bash
-scripts/tico -e acme uninstall            # the bot, connector and Close jobs
+scripts/tico -e acme uninstall            # the bot, tool and Close jobs
 scripts/tico -e acme server uninstall     # the local server job; the database and blobs stay
 scripts/tico env remove acme              # refuses while data is present
 scripts/tico env remove acme --delete-data
@@ -358,7 +358,7 @@ against the old URL.
 
 **`doctor` says NOT READY.** The problem strings are literal: *Missing bot repository or AGENT.md*
 (no `emp-<slug>/AGENT.md` in the workspace; the assistant and `botops` are the exception, since the
-runner materializes those two from the catalog on the machine they are assigned to),
+runner materializes those two from the templates on the computer they are assigned to),
 *Runtime executable is not on PATH*, *Antigravity CLI
 is not on PATH*, *`<profile>`: ...* (that subscription is signed out or its check failed),
 *Unsupported runtime*, and *Configuration differs from server* (`employee.yaml`'s `name`, `runtime`
@@ -367,6 +367,6 @@ or `model` disagrees with Settings; the simplest repository omits runtime and mo
 **"server: not answering at .../healthz"** means the api job is not running or is crash-looping:
 `scripts/tico -e <slug> server status`, then `server logs`. **"cloud: unreachable or registration
 rejected"** is the runner's view: the `url` in `runner.json` is wrong or unreachable, or the runner
-was revoked in Settings. A **stale heartbeat** over 60 seconds shows the Mac as offline in the
+was revoked in Settings. A **stale heartbeat** over 60 seconds shows the computer as offline in the
 interface. If `status` reports the runner started from a different revision than the checkout, the
 code changed under a running job: `scripts/tico -e <slug> restart`.

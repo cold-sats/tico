@@ -1,7 +1,7 @@
 # Install Tico
 
-Tico has two parts. The **server** holds the app, the company's data and the sign-in; it runs no bots. The
-**computers** run the bots: a Mac, or any Linux or cloud machine, each joined to the server with a one-time code.
+Tico has two parts. The **server** holds the app, the team's data and the sign-in; it runs no bots. The
+**computers** run the bots: a Mac, or any Linux or cloud computer, each joined to the server with a one-time code.
 Both parts are Docker images (linux/amd64 and linux/arm64):
 
 | Image | Holds | Size (pull / on disk) |
@@ -24,25 +24,25 @@ One command, run on the Linux server itself. It takes about 15 minutes, most of 
 
 - [ ] **A Linux server**, about 2 GB of memory and 20 GB of disk (1 GB of memory is the minimum; see [sizing](sizing.md)). Ubuntu 24.04 or Debian 12 on
       x86_64 or arm64 is what is tested. You need root or `sudo`. See "Where to get a server" below.
-- [ ] **A domain name** you can add a DNS record to, such as `tico.yourcompany.com`. The wizard tells you which
+- [ ] **A domain name** you can add a DNS record to, such as `tico.example.com`. The wizard tells you which
       provider serves it and the exact record to add.
 - [ ] **A way to sign in.** A Google or Microsoft account that can create an OAuth client (Google Workspace,
-      Microsoft Entra ID) for your people. If the server has no public IP address (an office or home machine),
+      Microsoft Entra ID) for your humans. If the server has no public IP address (an office or home computer),
       use a **Cloudflare Tunnel** instead: it needs the domain on Cloudflare and no open ports.
 - [ ] **A model subscription** for the bots (ChatGPT/Codex, Claude, Gemini and others). You sign the bots in after the
       install, on the computer that runs them; the server never holds it.
 
 ### Where to get a server
 
-Any Linux machine works. If you need one, these are the cheap always-on options (list prices as of September 2026;
+Any Linux computer works. If you need one, these are the cheap always-on options (list prices as of September 2026;
 check the provider before you commit):
 
 | | Size | Price, 24/7 | Notes |
 |---|---|---|---|
 | Hetzner Cloud | `cax11` (2 vCPU Arm, 4 GB, 40 GB) or `cx23` (2 vCPU x86, 4 GB) | about EUR 5.99 or EUR 5.49, plus the IPv4 | Lowest price. Arm sizes only in Germany and Finland (`nbg1`, `fsn1`, `hel1`); take `cx23` or `cx33` elsewhere. |
 | DigitalOcean | `s-1vcpu-2gb` (1 vCPU, 2 GB, 50 GB), Ubuntu 24.04 x64 | $12 | `s-2vcpu-2gb` is $18. A Reserved IP is free while assigned. |
-| AWS EC2 | `t4g.small` (2 GB, Arm), 30 GB gp3 | about $18 with disk and IPv4 | Ubuntu 24.04 or Amazon Linux 2023, in a public subnet (route to an internet gateway; a subnet whose 0.0.0.0/0 goes to a NAT gateway is unreachable from outside). The bot box (runner) may sit in a private subnet since it only connects outbound. Open 80 and 443 in the security group (nothing for a tunnel), and set the metadata hop limit to 1 so containers cannot read the instance role: `aws ec2 modify-instance-metadata-options --instance-id i-... --http-tokens required --http-put-response-hop-limit 1`. Backups from the container then need explicit keys limited to the backup bucket: the server has no AWS credentials that could create them, so run `python3 -m setup backup-storage --domain tico.example.com --aws-region us-west-2` from a clone on your laptop (with your AWS credentials) first; it creates the bucket and key and prints the two `export` lines and the `existing` answer to give the installer. |
-| Any Linux box | 2 GB or more | your own | Give it a stable public IP (Caddy) or no public IP at all (tunnel). |
+| AWS EC2 | `t4g.small` (2 GB, Arm), 30 GB gp3 | about $18 with disk and IPv4 | Ubuntu 24.04 or Amazon Linux 2023, in a public subnet (route to an internet gateway; a subnet whose 0.0.0.0/0 goes to a NAT gateway is unreachable from outside). The bot computer (runner) may sit in a private subnet since it only connects outbound. Open 80 and 443 in the security group (nothing for a tunnel), and set the metadata hop limit to 1 so containers cannot read the instance role: `aws ec2 modify-instance-metadata-options --instance-id i-... --http-tokens required --http-put-response-hop-limit 1`. Backups from the container then need explicit keys limited to the backup bucket: the server has no AWS credentials that could create them, so run `python3 -m setup backup-storage --domain tico.example.com --aws-region us-west-2` from a clone on your laptop (with your AWS credentials) first; it creates the bucket and key and prints the two `export` lines and the `existing` answer to give the installer. |
+| Any Linux computer | 2 GB or more | your own | Give it a stable public IP (Caddy) or no public IP at all (tunnel). |
 
 Whatever you pick, allow inbound 80 and 443 in the provider's firewall (not needed with a tunnel), and add an SSH
 key or console access so you can reach a shell. The installer does not touch the firewall.
@@ -64,7 +64,7 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
 
 It asks for `sudo` if you are not root, and it prints each step. In order it:
 
-1. **Checks the machine:** Linux on x86_64 or arm64, root or sudo, at least 1 GB of memory and 1 GB of free disk, and
+1. **Checks the computer:** Linux on x86_64 or arm64, root or sudo, at least 1 GB of memory and 1 GB of free disk, and
    ports 80 and 443 free (skipped with `--tunnel`).
 2. **Installs Docker** if it is missing or too old (Compose v2.20 or newer is needed): from Docker's own apt
    repository on Debian and Ubuntu, and with Docker's convenience script (`get.docker.com`) on other distributions.
@@ -80,10 +80,10 @@ Everything lives in `/opt/tico` (`compose.yaml`, `.env`, the wizard). Options, a
 | `--dir PATH` | Install somewhere other than `/opt/tico` |
 | `--yes` | Do not ask for confirmation |
 | `--tunnel` | Cloudflare Tunnel: no public ports, so 80 and 443 are not checked |
-| `--docker-only` | Only install Docker and Compose (runner boxes) |
+| `--docker-only` | Only install Docker and Compose (runner computers) |
 | `-- FLAGS` | Everything after `--` goes to `tico setup` (see Automation below) |
 
-Exit codes: 0 done, 2 bad usage, 3 the machine does not qualify, 4 download or checksum failed, 5 Docker or Python
+Exit codes: 0 done, 2 bad usage, 3 the computer does not qualify, 4 download or checksum failed, 5 Docker or Python
 could not be set up, 6 the wizard or the health check failed.
 
 **Running it again is safe.** With an existing `.env` it does not ask anything and never rewrites your settings: the
@@ -93,7 +93,7 @@ half way, running the command again resumes it.
 
 ### What the wizard asks
 
-1. **How do people reach it?** Caddy (automatic HTTPS, opens ports 80 and 443) or a Cloudflare tunnel (no open
+1. **How do humans reach it?** Caddy (automatic HTTPS, opens ports 80 and 443) or a Cloudflare tunnel (no open
    ports). With a scoped Cloudflare API token (Cloudflare Tunnel: Edit, and DNS: Edit on the one zone) it creates the
    tunnel, its route and the DNS record; without one it shows the exact dashboard steps and asks for the tunnel token.
 2. **Domain and DNS.** It looks up which nameservers the internet actually uses for your domain and names the provider
@@ -104,7 +104,7 @@ half way, running the command again resumes it.
 3. **Sign-in.** Google or Microsoft (OIDC), or Cloudflare Access. It opens the right console page, prints the redirect
    URI to paste (`https://<domain>/auth/callback`, character for character), and asks for the client ID and secret
    (hidden). Optionally limit sign-in to one email domain.
-4. **Company.** Name, owner email (it must be the account you will sign in with), and an optional model key for the
+4. **Team.** Name, owner email (it must be the account you will sign in with), and an optional model key for the
    server's own decision model.
 5. **Backups.** A bucket (an S3 or R2 bucket it can create, one `setup backup-storage` created from your laptop, or one you already have) or local only, with the warning
    that local copies do not survive losing the server. See [Backups and restore](#backups-and-restore).
@@ -131,7 +131,7 @@ Tico at https://tico.example.com: one server running the Tico server in Docker. 
   7. Verify: HTTPS certificate, /healthz, sign-in redirect, server container up
 ```
 
-Secrets never appear on the command line, in the plan, in logs or in the repository. They go to the server's `.env`
+Credentials never appear on the command line, in the plan, in logs or in the repository. They go to the server's `.env`
 (mode 0600) and to a private copy under `/opt/tico/.setup/` so a re-run can resume.
 
 ### What you will see after about 15 minutes
@@ -142,7 +142,7 @@ Secrets never appear on the command line, in the plan, in logs or in the reposit
 - Most of the time goes to DNS: seconds with Route 53 or Cloudflare and a token, and up to your DNS provider's
   propagation time (the wizard waits up to 20 minutes and can be resumed) when you add the record yourself.
 - Opening the URL shows Google or Microsoft sign-in, then the **setup wizard**: AI providers (when none are chosen yet),
-  then Names, About the company, Your org chart, Add a computer, Connect your agent and Review and create. Nothing runs
+  then Names, About the team, Your team chart, Add the computer that runs your bots, Connect an external agent and Review and create. Nothing runs
   bots until a computer is added: the next section is the step that does.
 
 ### When something fails
@@ -162,7 +162,7 @@ Secrets never appear on the command line, in the plan, in logs or in the reposit
 ### Automation
 
 Run the installer with no terminal (a provisioning script, cloud-init, CI) and the wizard never prompts: a missing
-value is an error that names the flag. Flags after `--` go to `tico setup`; secrets come from the environment only, so
+value is an error that names the flag. Flags after `--` go to `tico setup`; credentials come from the environment only, so
 they never appear in a process list:
 
 ```
@@ -174,12 +174,12 @@ TICO_OIDC_CLIENT_SECRET=... sh install.sh --yes --version v0.2.3 -- --domain tic
 Flags: `--domain`, `--front-door caddy|cloudflared`, `--server-ip`, `--tico-version`, `--auth google|microsoft|cloudflare`,
 `--tenant`, `--client-id`, `--allowed-domain`, `--company`, `--owner-email`, `--decisions-provider` (the old `--judge-provider` still works), `--backup`,
 `--backup-url`, `--backup-endpoint`, `--backup-region`, `--no-updater`, `--dns-timeout MINUTES`, `--skip-dns-wait`.
-Secrets: `TICO_OIDC_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_TUNNEL_TOKEN`, `OPENAI_API_KEY` (or
+Credentials: `TICO_OIDC_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_TUNNEL_TOKEN`, `OPENAI_API_KEY` (or
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`). `python3 -m setup --help` lists all of them.
 
 **cloud-init.** `infra/cloud-init/tico-server.yaml` and `tico-runner.yaml` are paste-ready user data for any Ubuntu 24.04
 cloud that accepts it (Hetzner, DigitalOcean, AWS, Vultr, Linode, OCI). Edit the block between the two `inputs` markers
-(release, domain, owner email, company, sign-in). They write `/opt/tico/.env` from it, turn on `ufw`, keep containers away
+(release, domain, owner email, team name, sign-in). They write `/opt/tico/.env` from it, turn on `ufw`, keep containers away
 from the provider's metadata service, and call this same `install.sh` for the pinned release, which sees the existing `.env`
 and installs and starts without asking. They are safe to run again and delete their inputs when done. Provider user data is
 stored by the provider and readable from the server through its metadata service, so the OIDC client secret sits there for the
@@ -193,7 +193,7 @@ life of the server: use a client secret you can rotate. Progress is in `/var/log
 | `cloudflare` | `TICO_ACCESS_ISSUER`, `TICO_ACCESS_AUDIENCE` | Cloudflare Access in front of the tunnel |
 | `none` | nothing; leave `TICO_DOMAIN` and `COMPOSE_PROFILES` empty | Local testing only. The server answers on `http://127.0.0.1:8765` and the owner signs in with the token from `docker compose exec server cat /data/local-owner.token` (`Authorization: Bearer <token>`, or `GET /api/v2/local-signin?token=...`). Never put this behind a public address. |
 
-The owner is the first person on the roster; add the others in the app. The wizard writes these settings; to change
+The owner is the first human on the roster; add the others in the app. The wizard writes these settings; to change
 one later, edit `/opt/tico/.env` and run `docker compose up -d` there. `.env.example` in the bundle lists every setting.
 
 ### Cloudflare Tunnel
@@ -204,7 +204,7 @@ No open ports, and Cloudflare Access can do the sign-in. The wizard creates the 
 2. Nothing to route by hand: the compose file runs cloudflared with a small config that sends `TICO_DOMAIN` to
    `http://server:8765` and answers anything else with a 404. The server writes it at every start. Only the DNS
    record is yours: a proxied CNAME for the hostname to `<tunnel id>.cfargotunnel.com` (the wizard creates it).
-3. Create an Access application for the hostname with your identity provider and a policy for your people.
+3. Create an Access application for the hostname with your identity provider and a policy for your humans.
    Note the team URL (`https://<team>.cloudflareaccess.com`) and the application's Audience tag.
 4. In `.env`: `COMPOSE_PROFILES=cloudflared,updater`, `TICO_DOMAIN=<hostname>`, `CLOUDFLARE_TUNNEL_TOKEN=<token>`,
    `TICO_AUTH_PROXY=cloudflare`, `TICO_ACCESS_ISSUER=<team URL>`, `TICO_ACCESS_AUDIENCE=<AUD tag>`.
@@ -220,14 +220,14 @@ line, and says what to run: `docker compose pull && docker compose up -d` in `/o
 
 Computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
 service token for `/api/v2/runners/*` (the runner authenticates itself with its own token), and give `/api/v2/mcp` a
-Bypass policy so people's own agents can connect with their tokens ([Connect an agent](connect-an-agent.md)).
+Bypass policy so humans' own external agents can connect with their tokens ([Connect an external agent](connect-an-agent.md)).
 
 Or run the bots' computer on the server itself and skip Access altogether: the runner joins the server's own Docker
-network and talks to it directly. With a one-time code from Settings > Devices > Add computer, on the server:
+network and talks to it directly. With a one-time code from Settings > Computers > Add computer, on the server:
 
 ```
 curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner \
-  --url http://server:8765 --server-network tico_default --code <code> --label "Server box"
+  --url http://server:8765 --server-network tico_default --code <code> --label "Server computer"
 ```
 
 `--server-network` writes `runner.override.yaml` in the runner's directory; updates keep it. Size the server for both
@@ -237,23 +237,23 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
 
 - **Server:** 1 to 2 GiB of memory and 10 GiB of disk is plenty (it is a web app and a SQLite database).
 - **Runners:** plan roughly 0.5 to 1 GiB of memory for each bot working at the same time, and disk for the bots'
-  repositories (20 GiB and up). When bots queue, add another runner box rather than a bigger one. More in
+  repositories (20 GiB and up). When bots queue, add another runner computer rather than a bigger one. More in
   [sizing](sizing.md).
 
 ## Add computers to run your bots
 
-In the app open **Settings > Devices > Add computer** (or step 4 of the first-run wizard, "Add the computer that
+In the app open **Settings > Computers > Add computer** (or step 4 of the Finish setup wizard, "Add the computer that
 runs your bots"), pick the kind of computer, and copy the commands it shows. The one-time code works once and
 expires after 15 minutes. Adding a computer never assigns bots to it: choose it for each bot afterwards.
 
 ### Linux or cloud server (Docker)
 
-On any Linux machine, run the line the app shows. It downloads the installer of the release your server runs, so the
+On any Linux computer, run the line the app shows. It downloads the installer of the release your server runs, so the
 runner and its updater start on that same release:
 
 ```
 curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | \
-  sh -s -- --runner --url https://tico.example.com --code <code> --label "Build box"
+  sh -s -- --runner --url https://tico.example.com --code <code> --label "Build computer"
 ```
 
 `vX.Y.Z` is your server's release (Settings and Settings > Health show it); `--runner` exists from v0.2.1.
@@ -269,7 +269,7 @@ The runner enrolls, starts, and comes back by itself after a reboot or a server 
 bots' repositories live in a Docker volume, so running the line again never enrolls a second runner. If the server no
 longer knows the runner (a wiped database), start it again with a new code.
 
-**Reinstalling a runner** (its volumes were wiped, or the server forgot it): make a new code in Settings > Devices > Add
+**Reinstalling a runner** (its volumes were wiped, or the server forgot it): make a new code in Settings > Computers > Add
 computer and run the installer again with it. `--code`, `--url` and `--label` given on that line replace their own keys in the
 existing `/opt/tico-runner/.env` (it says which), and every other setting stays; `--url` and `--code` are only required when there
 is no `.env` yet. Run with none of them, the installer keeps the `.env` as it is and only repairs and updates.
@@ -278,7 +278,7 @@ is no `.env` yet. Run with none of them, the installer keeps the `.env` as it is
 curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner --code <new code>
 ```
 
-**Moving a runner that was started with a bare `docker run`.** Run the line above on the same machine. It finds the
+**Moving a runner that was started with a bare `docker run`.** Run the line above on the same computer. It finds the
 `tico-runner` volume, points the compose file at it (`TICO_RUNNER_HOME_VOLUME=tico-runner` in `.env`), removes the old
 container, and starts the compose one: the login, the bots' repositories and the enrollment carry over, and the runner
 now has its updater.
@@ -289,7 +289,7 @@ now has its updater.
 docker run -d --name tico-runner --restart unless-stopped -v tico-runner:/home/runner \
   --user 0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add KILL --cap-add SETGID --cap-add SETUID \
   --security-opt no-new-privileges:true \
-  ghcr.io/ticoteam/tico-runner:vX.Y.Z join --url https://tico.example.com --code <code> --label "Build box"
+  ghcr.io/ticoteam/tico-runner:vX.Y.Z join --url https://tico.example.com --code <code> --label "Build computer"
 ```
 
 The `--user 0` and capabilities are what keep the runner's own login out of the bots' reach (below); without them the
@@ -298,28 +298,28 @@ Settings > Health says so.
 
 **Who runs what.** The container's entrypoint starts as root, with five capabilities and nothing else, only to prepare
 the volume; the runner itself is the `ticorun` user that owns `/home/runner/runner.json`, its state and the tools
-directory, as in every earlier release. Everything a bot runs (each turn's model CLI,
+directory, as in every earlier release. Everything a bot runs (each run's model CLI,
 its `git`, the sign-in flows) runs as the unprivileged `bot` user, whose home holds the workspace, `secrets/` and the
-model logins. So a bot cannot read the runner's own credential, which could claim any bot's work; a turn gets its
-attempt token, and asks the runner for its bot's GitHub token over a local socket. Bots still share the `bot` user with
+model logins. So a bot cannot read the runner's own credential, which could claim any bot's work; a run gets its
+run token, and asks the runner for its bot's GitHub token over a local socket. Bots still share the `bot` user with
 one another ([SECURITY.md](../SECURITY.md#bots-on-one-computer-share-a-trust-boundary-on-purpose)). The first start of a volume from an older image
 changes its ownership to match (one time, a minute on a large workspace). If an update is rolled back, the previous
 image still starts on the migrated volume and reads its own files; the bots then run as the runner's user again until
 the next update. Use `docker exec -u bot` for what a bot should
-own (logins, secrets); the runner hands root-made files in `secrets/` to `bot` itself.
+own (logins, credentials); the runner hands root-made files in `secrets/` to `bot` itself.
 
-The image holds no model CLI. Once the company has enabled a provider (Settings > AI providers), the runner installs
-that provider's CLI into `/home/runner/tools` in the volume (a minute or two; Settings > Devices shows the progress),
-keeps it current between turns, and lets the owner pin a version. See [harnesses](harnesses.md).
+The image holds no model CLI. Once your team has enabled a provider (Settings > AI providers), the runner installs
+that provider's CLI into `/home/runner/tools` in the volume (a minute or two; Settings > Computers shows the progress),
+keeps it current between runs, and lets the owner pin a version. See [harnesses](harnesses.md).
 
-Sign the bots in to a model once, from Settings > Devices or inside the container (the login stays in the volume):
+Sign the bots in to a model once, from Settings > Computers or inside the container (the login stays in the volume):
 
 ```
 docker exec -it -u bot tico-runner codex login --device-auth      # ChatGPT subscription: open the URL, enter the code
 docker exec -it -u bot tico-runner claude setup-token             # Claude: prints a long-lived token
 ```
 
-API keys and other secrets go in the runner's shared file. Every bot on that computer can read it (bots share the `bot` user); the runner's own credential is not in it:
+API keys and other credentials go in the runner's shared file. Every bot on that computer can read it (bots share the `bot` user); the runner's own credential is not in it:
 
 ```
 docker exec -u bot tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUTH_TOKEN=<token>" "GH_TOKEN=<fine-grained token>" >> /home/runner/workspace/secrets/_shared.env'
@@ -327,7 +327,7 @@ docker exec -u bot tico-runner sh -c 'umask 077; printf "%s\n" "CLAUDE_CODE_OAUT
 
 **Codex with an API key.** Put `OPENAI_API_KEY` in that file and nothing else is needed: while a Codex bot is assigned to the computer
 and Codex is not signed in, the runner runs `codex login --with-api-key` as the `bot` user, with the key on standard input (it is in
-no command line and no log), and Settings > Devices shows *Signed in with an API key*. A key Codex refuses is tried again after ten
+no command line and no log), and Settings > Computers shows *Signed in with an API key*. A key Codex refuses is tried again after ten
 minutes or when the key changes. The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid, and the login
 files are readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
 
@@ -336,7 +336,7 @@ to push the bots' repositories. Check with **Settings > Bots**, or
 `docker exec tico-runner python -m runner --config /home/runner/runner.json doctor`.
 
 To write the compose setup by hand instead of using the installer, copy `docker/runner.compose.yaml` from the release
-to the machine, write a `.env` next to it with `TICO_URL=https://tico.example.com`, `TICO_CODE=<code>`,
+to the computer, write a `.env` next to it with `TICO_URL=https://tico.example.com`, `TICO_CODE=<code>`,
 `TICO_RUNNER_LABEL=<name>`, and `TICO_TAG` and `TICO_UPDATER_TAG` set to the server's release (`v0.2.3`, not `latest`), and run
 `docker compose -f runner.compose.yaml up -d`.
 
@@ -344,7 +344,7 @@ to the machine, write a `.env` next to it with `TICO_URL=https://tico.example.co
 `importers` and `close-calls` jobs that a Mac runs as launchd jobs, as children of the runner with restart and backoff,
 and only while they are wanted:
 
-- *Meeting importers* (Fireflies, Zoom, Google Meet, Granola): in **Settings > Cloud services > Meeting importers**
+- *Meeting importers* (Fireflies, Zoom, Google Meet, Granola): in **Tools > Meeting importers**
   tick **Enabled** and choose this computer. The job starts within a minute and stops again when you switch it off
   or pick another computer. Put the tool's credential in the runner's secrets folder, for example
   `docker exec tico-runner sh -c 'umask 077; printf "%s\n" "FIREFLIES_API_KEY=<key>" | tee /home/runner/workspace/secrets/fireflies.env >/dev/null'`
@@ -356,29 +356,29 @@ and only while they are wanted:
 `docker logs tico-runner` carries the jobs' lines (`Tico side jobs: started importers`), and each importer's health
 shows on its Settings card and the Meetings Sources strip.
 
-*Mail and calendar (`connectors`)* run on a Linux runner the same way, from the company's Google service-account
-key ([mail](mail.md#works-on-linux-runners) has the Google Workspace setup). Put the key in the runner's state directory,
+*Mail and calendar (`connectors`)* run on a Linux runner the same way, from the team's Google service-account
+key ([Message bots](mail.md#works-on-linux-runners) has the Google Workspace setup). Put the key in the runner's state directory,
 where only the runner can read it, and keep it on one computer only:
 `docker exec -i -u ticorun tico-runner sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`
 (the runner refuses a key that is not mode 0600). A key an older install kept in `workspace/secrets/google-sa.json` is moved
-there once, automatically. Bots cannot read it; an inbox bot asks the runner for a token for its own mailbox, and an inbox bot
-gets a computer to itself ([mail](mail.md#who-can-read-the-key)).
+there once, automatically. Bots cannot read it; a message bot asks the runner for a token for its own mailbox, and a message bot
+gets a computer to itself ([Message bots](mail.md#who-can-read-the-key)).
 The job starts within a minute of the file appearing, builds its Python environment into the volume the first time
 (about a minute; `docker logs` shows it), and stops when the file is removed. Instead of the key, an owner who
-sets `TICO_PROCESSING_OPERATORS` on the server assigns the job to that operator's runners. `docker exec tico-runner
+sets `TICO_PROCESSING_OPERATORS` on the server assigns the job to that owner's runners. `docker exec tico-runner
 python -m runner --config /home/runner/runner.json connectors-doctor` says whether the key is found.
 `TICO_SIDE_JOBS=0` in the container's environment turns the supervisor off.
 
 Update a runner with `docker pull ghcr.io/ticoteam/tico-runner:latest`, then remove and re-run the container
 (`docker rm -f tico-runner`, then the same `docker run` line; the volume keeps everything). With the compose file it
 is `docker compose -f runner.compose.yaml pull && docker compose -f runner.compose.yaml up -d`. The runner
-finishes turns in progress (up to 15 minutes) before it stops.
+finishes runs in progress (up to 15 minutes) before it stops.
 With the compose file the runner also updates itself to the release its server runs, through an `updater` sidecar
 (the only container with the Docker socket); see [updates.md](updates.md).
 
 The runner container is not a sandbox between bots: all bots on one runner run as the same user. It cannot see
-the server or its data (they are on other machines), and bots cannot reach a Docker socket. On AWS, keep the
-instance metadata hop limit at 1 for runner boxes too.
+the server or its data (they are on other computers), and bots cannot reach a Docker socket. On AWS, keep the
+instance metadata hop limit at 1 for runner computers too.
 
 ### Mac
 
@@ -389,8 +389,8 @@ in Add computer, then in the Tico checkout on that Mac run the command it prints
 `https://<TICO_DOMAIN>`, runs under launchd, and reconnects on its own after the server restarts.
 
 **Mac updates.** The runner follows the server's release by itself ([updates.md](updates.md#a-mac-or-linux-checkout)).
-After a healthy update it also restarts the helper jobs installed beside it (`connectors`, `close-calls`, `importers`), and
-each helper exits and restarts when it sees the checkout move to another revision (checked about once a minute), so no job
+After a healthy update it also restarts the side jobs installed beside it (`connectors`, `close-calls`, `importers`), and
+each side job exits and restarts when it sees the checkout move to another revision (checked about once a minute), so no job
 keeps old code in memory. `scripts/tico restart` does the same by hand.
 
 ## Slack
@@ -451,12 +451,12 @@ limited to it, on Cloudflare an R2 bucket (with an API token that has Workers R2
 already have. Turn on bucket versioning yourself if you make one by hand; a deleted or overwritten backup is then
 still recoverable. With `TICO_BLOB_BUCKET` set, attachments already live in S3 and are not copied again.
 
-**A lost volume never becomes a blank company.** The server records that it is an existing company outside the
+**A lost volume never becomes a blank team.** The server records that it is an existing team outside the
 database: a `.tico-environment` file in the data volume and an `environment.json` object beside the backup. When it
-starts with an empty volume it first restores; if the restore fails (wrong key, no network) and a company is known
-to exist, or the backup cannot be read at all, it refuses to start and says why, instead of creating an empty company
+starts with an empty volume it first restores; if the restore fails (wrong key, no network) and a team is known
+to exist, or the backup cannot be read at all, it refuses to start and says why, instead of creating an empty team
 and replicating it over your backup. A genuinely new install (nothing anywhere) starts as usual. To begin a new
-company over an existing backup on purpose, set `TICO_INITIALIZE_EMPTY=1` (or run `server --initialize-empty`).
+team over an existing backup on purpose, set `TICO_INITIALIZE_EMPTY=1` (or run `server --initialize-empty`).
 
 **Restore** into an empty data volume, from the bucket or, with no `TICO_BACKUP_URL`, from `tico-backups`:
 
@@ -471,7 +471,7 @@ the current database is kept beside it as `hub.sqlite.before-restore.<time>`. Th
 (`TICO_ENVIRONMENT_ID`) is stored in the database, so it comes back with the restore and the Macs and runners
 already enrolled keep working.
 
-**Move to a new server:** install Docker on the new machine, copy the same `.env` (and `compose.yaml`), then
+**Move to a new server:** install Docker on the new computer, copy the same `.env` (and `compose.yaml`), then
 
 ```
 docker compose pull
@@ -479,18 +479,18 @@ docker compose run --rm --no-deps server restore
 docker compose up -d
 ```
 
-and point the domain at the new machine (Cloudflare tunnel: run the same tunnel token there). Stop the old server
+and point the domain at the new computer (Cloudflare tunnel: run the same tunnel token there). Stop the old server
 first; two servers writing to one bucket corrupt the replica. A fresh volume that finds a backup also restores the
 database by itself on first start, but run `restore` so attachments and any error are visible. This needs the
-bucket, so with the default local-only backups you can only rebuild on the same machine; that is the reason to set
+bucket, so with the default local-only backups you can only rebuild on the same computer; that is the reason to set
 `TICO_BACKUP_URL`.
 
-Runners hold no company data that is not in a git remote, but back up their volume if bots keep local work.
+Runners hold no team data that is not in a git remote, but back up their volume if bots keep local work.
 
 ### Rehearse a migration
 
 To try a move (a new server, a new release, a new host) on a copy of the real data first, start the copy with
-`TICO_REHEARSAL=1`. It runs the same migrations and initialization as any start and shows the whole company, but nothing runs
+`TICO_REHEARSAL=1`. It runs the same migrations and initialization as any start and shows the whole team, but nothing runs
 on a timer and nothing leaves the server:
 
 | Off in a rehearsal | |
@@ -498,8 +498,8 @@ on a timer and nothing leaves the server:
 | Scheduler and directory sync | routines make no jobs, and the directory is not read (so nobody is marked as having left) |
 | Backups | no Litestream, no replication loop, and nothing is written to `TICO_BACKUP_URL`; the log says so at start |
 | Release check and usage count | nothing goes to GitHub or Tico HQ |
-| Outbound from the server | contact support and org suggestions (HQ), the Slack gateway (its container waits), GitHub App calls, error and analytics reporting, and **Update now** |
-| Uploads to an attachments bucket | reading works; adding to the company's `TICO_BLOB_BUCKET` is refused |
+| Outbound from the server | contact support and team suggestions (HQ), the Slack gateway (its container waits), GitHub App calls, error and analytics reporting, and **Update now** |
+| Uploads to an attachments bucket | reading works; adding to `TICO_BLOB_BUCKET` is refused |
 
 The server sends no email of its own. The app shows a banner on every page, **Rehearsal: nothing runs or leaves this server**,
 and `GET /api/v2/config` carries `"rehearsal": true`.
@@ -521,7 +521,7 @@ turns off only the scheduler and directory sync; unset, the server starts them.
 | | |
 |---|---|
 | Status | `docker compose ps` (the server shows `healthy`) |
-| Logs | `docker compose logs -f server`; on a runner box `docker logs -f tico-runner` |
+| Logs | `docker compose logs -f server`; on a runner computer `docker logs -f tico-runner` |
 | Restart | `docker compose restart server` (runners reconnect by themselves) |
 | Stop and keep data | `docker compose down` |
 | Remove everything | `docker compose down -v` (deletes the data volume) |

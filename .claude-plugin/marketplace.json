@@ -4,7 +4,7 @@
     "name": "Tico"
   },
   "metadata": {
-    "description": "Team skills for people's own Claude Code sessions: the same ones the dev bots use."
+    "description": "Team skills for humans' own Claude Code sessions: the same ones the dev bots use."
   },
   "plugins": [
     {

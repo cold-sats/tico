@@ -25,12 +25,12 @@ Eleven groups of operations, each a tag in the spec:
 |---|---|
 | Session | who is signed in, sign-in for a separate frontend, personal API tokens |
 | Company | names, version, setup state |
-| Org chart | people, bots, who reports to whom |
+| Org chart | humans, bots, who reports to whom |
 | Bots | the bots you can see and their live status, models |
 | Conversations | chat with a bot: send, list, snapshot, live stream |
 | Tasks | list, create, update, comment |
 | Updates | the daily and weekly updates bots post |
-| Needs you | what waits on the signed-in person: questions, tasks, approvals |
+| Needs you | what needs the signed-in human: questions, tasks, approvals |
 | Meetings | search and read recorded meetings |
 | Docs | internal docs with history and locks, linked docs, import, and search across both ([docs.md](docs.md)) |
 | Health | liveness and the health checks |
@@ -45,7 +45,7 @@ Tico's own app uses more of the API than the spec lists. The line:
 - **Internal.** Everything else: the `/api/...` routes without `v2` (the web app's own: `/api/me`, `/api/employees`,
   `/api/meetings`, `/api/status` and others; a custom frontend uses `GET /api/v2/bots/{bot}` and
   `GET /api/v2/bots` where the web app uses `/api/employees`), runner and bot endpoints (`/api/v2/runners`,
-  `/jobs`, `/attempts`, `/agents`), settings, access, credentials, integrations, market, routines, `/mcp` and
+  `/jobs`, `/attempts`, `/agents`), settings, access, credentials, tools, market, routines, `/mcp` and
   `/scim`. They change between releases without notice. A route you need that is not in the spec: open an issue to
   have it added to the stable set.
 - **Inside answers.** Fields ending in `_json` (`refs_json`, `participants_json`, `acceptance_json`) are storage
@@ -60,28 +60,28 @@ generates; after a change to the API, `python -m backend.openapi_v2` rewrites it
 
 | From | Credential | Guide |
 |---|---|---|
-| A browser app on another address | A bearer session from `/auth/token` after the person signs in with your company account | [custom-frontend.md](custom-frontend.md#sign-in-option-b) |
+| A browser app on another address | A bearer session from `/auth/token` after the human signs in with your work account | [custom-frontend.md](custom-frontend.md#sign-in-option-b) |
 | A browser app served from the same address as Tico | Tico's own session cookie | [custom-frontend.md](custom-frontend.md#same-origin-option-a) |
 | A server or script | A personal API token, `Authorization: Bearer tico_pt_...` | [custom-frontend.md](custom-frontend.md#servers-and-scripts-option-c) |
 
-Whatever the credential, the caller is a person on your roster and sees what that person sees.
+Whatever the credential, the caller is a human on your roster and sees what that human sees.
 
 ## Who can see, read and write to a bot
 
-Each bot has three permissions, See, Read and Write, each open to everyone or to chosen people, teams and bots
+Each bot has three permissions, See, Read and Write, each open to everyone or to chosen humans, groups and bots
 ([permissions.md](permissions.md)). The routes above honour them for every caller, a personal API token
 included:
 
 - `GET /api/v2/bots` and `GET /api/v2/org` return only the bots the caller can **see**, each with
   `access: {"see": true, "read": false, "write": true}` for that caller. `?can=read` or `?can=write` keeps
-  only the ones the caller holds that level on. A bot they may only see has no status, machine or queue. Each bot in the
-  org chart carries its `reports_to`, `department` and `template`.
+  only the ones the caller holds that level on. A bot they may only see has no status, computer or queue. Each bot in the
+  team chart carries its `reports_to`, `department` and `template`.
 - A bot the caller cannot see answers `404`. One they can see but not read, or not write to, answers
   `403 forbidden` with what is missing. A task, update, file or run of a bot they cannot read is left out of
   lists (counts and pages included) and answers `403` when asked for by id.
 - `GET /api/v2/bots/{bot}` is one bot: its profile if the caller can see it, its status, queue and goals too if they can
   read it. `GET /api/v2/bots/{bot}/routines` needs Read, and so do `GET /api/v2/bots/{bot}/kpis` and a bot's goals and
-  KPIs on the Goals routes ([goals-and-kpis.md](goals-and-kpis.md)); a company goal is visible to everyone.
+  KPIs on the Goals routes ([goals-and-kpis.md](goals-and-kpis.md)); a team goal is visible to everyone.
 - `GET /api/v2/bots/{bot}/access` and `PUT /api/v2/bots/{bot}/access` read and set the three audiences, for the
   bot's managers: `{"see": {"everyone": true}, "read": {"teams": ["legal"]}, "write": {"everyone": true}, "revision": 3}`.
   A stale `revision` is `409 version_conflict`.

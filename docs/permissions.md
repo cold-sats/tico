@@ -1,16 +1,15 @@
 # Who can see, read and write to a bot
 
 Every bot has three permissions. Each one has its own audience, so a bot can be visible to the whole
-company, readable by one team and open to requests from everyone.
+team, readable by one group and open to requests from everyone.
 
 | Permission | What it covers |
 | --- | --- |
-| **See** | The bot in the org chart and in every bot list: its name, role, who runs it and who it reports to. |
+| **See** | The bot in the team chart and in every bot list: its name, role, who owns it and who it reports to. |
 | **Read** | Its activity: its tasks, updates, files, status and run log, routines, the shared rooms and chats it is in, and the activity sections of its page. |
 | **Write** | Sending it messages, chatting with it, asking it; creating or reassigning tasks to it; leaving it notes; comments that wake it. Its approvals work as they always did. |
 
-An audience is **Everyone**, or a list of **people**, **teams** (a team name, or a department on the org
-chart) and **bots**. Anyone who may read or write a bot can also see it, whatever its See list says.
+An audience is **Everyone**, or a list of **humans**, **groups** and **bots**. Anyone who may read or write a bot can also see it, whatever its See list says.
 
 New bots, and every bot after an upgrade, start **Open**: Everyone for all three.
 
@@ -21,126 +20,126 @@ Settings > Bots has an **Access** column. **Edit** opens the editor, with three 
 | Preset | See | Read | Write |
 | --- | --- | --- | --- |
 | **Open** | Everyone | Everyone | Everyone |
-| **Visible, requests only** | Everyone | the people, teams and bots you choose | Everyone |
+| **Visible, requests only** | Everyone | the humans, groups and bots you choose | Everyone |
 | **Private** | the ones you choose | the ones you choose | the ones you choose |
 | **Custom** | each level chosen on its own | | |
 
-The column summarises it, for example `See: Everyone · Read: Legal · Write: Everyone`. A person who
+The column summarises it, for example `See: Everyone · Read: Legal · Write: Everyone`. A human who
 may only use the bot sees what they can do (`You: See · Write`) instead. Changes are revisioned and
-appear in the settings history, where the owner can undo them, like the people a bot works for.
+appear in the settings history, where the owner can undo them, like the humans a bot works for.
 
-Who may edit a bot's access: its owners (see [Bot owners](#bot-owners)): the company owner, the admins, the bot's creator
-and co-owners, and the people it reports up to on the org chart (the same people who may change the bot's other settings).
+Who may edit a bot's access: its owners (see [Bot owners](#bot-owners)): the team owner, the admins, the bot's creator
+and other owners, and the humans it reports up to on the team chart (the same humans who may change the bot's other settings).
 The Assistant, BotOps, the Librarian and the Goal Manager can have their access edited too.
 
 ## Always full access
 
 Whatever the audiences say, these callers can see, read and write to a bot:
 
-- the company **owner**;
+- the team **owner**;
 - the **bot itself**, for its own data;
-- the people **above the bot on the org chart** (whoever it reports up to), and a bot above it in the
+- the humans **above the bot on the team chart** (whoever it reports up to), and a bot above it in the
   `reports_to` chain when the caller is a bot;
-- an **admin**, and the bot's **owners** (its creator, co-owners and operator). This is the same rule that lets
+- an **admin**, and the bot's **owners** (its creator and any others added). This is the same rule that lets
   them change the bot's settings, so being able to edit who has access and having access always go together.
 
 ## Roles, and what a member may do
 
-Everyone on the roster has one company role:
+Every human on the team has one role:
 
 | Role | Who | Can |
 | --- | --- | --- |
-| **Owner** | whoever the company was set up for (one at a time) | everything: sign-in domains, ownership, providers, roles |
-| **Admin** | people the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot but the built-in ones (below), people and computers (enrol, revoke, open to members' bots); set what members may do and the bot limit. They cannot make or remove admins or owners, and they are not credential administrators |
+| **Owner** | whoever the team was set up for (one at a time) | everything: sign-in domains, ownership, providers, roles |
+| **Admin** | humans the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot but the built-in ones (below), humans and computers (enrol, revoke, open to members' bots); set what members may do and the bot limit. They cannot make or remove admins or owners, and they are not credential administrators |
 | **Member** | everyone else | create and manage their own bots, add coworkers, and use the bots they are allowed to |
 
-Settings > People (owners and admins) shows each person on one row: their role (the owner switches Admin and Member there), a
+Settings > Humans (owners and admins) shows each human on one row: their role (the owner switches Admin and Member there), a
 **Can sign in** switch, and a ⋯ menu with two capabilities per member:
 
 - **Can add bots** (`create_bots`): on for everyone unless switched off.
-- **Can add people** (`add_people`): on by default for coworkers, that is people whose email is in the company domain. A
-  member with it on may add a person whose email is in the company domain. Adding anyone outside it needs an owner or an admin,
+- **Can add humans** (`add_people`): on by default for coworkers, that is humans whose email is in the team's domain. A
+  member with it on may add a human whose email is in the team's domain. Adding anyone outside it needs an owner or an admin,
   whatever the capability says.
 
-The **company domain** is the domain(s) the owner allows to sign in (Settings > People, **Anyone at <domain> can sign in**); when
-none is set it is the owner's own email domain, unless that is a public mail service such as gmail.com, in which case there is none
-and members add nobody until the owner sets one. A newly added person goes on the roster and on the sign-in list, so they can
+The **team's domain** is the domain(s) the owner allows to sign in (Settings > Humans, **Anyone at <domain> can sign in**); when
+none is set it is the owner's own email domain, unless that is a public email service such as gmail.com, in which case there is none
+and members add nobody until the owner sets one. A newly added human goes on the roster and on the sign-in list, so they can
 actually sign in.
 
-**Can sign in** off keeps a person on the roster and the org chart but refuses their sign-in, sessions and API tokens until it is
+**Can sign in** off keeps a human on the roster and the team chart but refuses their sign-in, sessions and API tokens until it is
 on again. Owners and admins switch it for members; only the owner switches it for an admin; nobody switches it for themselves or
 for the owner.
 
 **Credential administrators** are the owner and whoever `TICO_CREDENTIAL_ADMINS` names, nobody else: being an Admin does not
-let someone write shared credentials, whatever an earlier version did. Add a person to that list to give them the vault.
+let someone write shared credentials, whatever an earlier version did. Add a human to that list to give them the vault.
 
-**The built-in bots** (the Assistant, BotOps, the Librarian and the Goal Manager) act for the whole company, so only the owner changes their settings,
+**The built-in bots** (the Assistant, BotOps, the Librarian and the Goal Manager) act for the whole team, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
 `librarian`, `goal-manager` or `coo`; an Admin can, and manages every other bot.
 
 A member may have at most **25 active bots** by default; owners and admins have no limit. An admin changes the number in
-Settings > People (**Bot limit per member**). Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
-([First run](onboarding.md#what-create-does)) is parked, does nothing on its own and costs nothing, so it does not count; it counts once
-it says it is onboarded, and that call answers `bot_limit` when the member is already at their limit.
+Settings > Humans (**Bot limit per member**). Past it, adding a bot answers `409 bot_limit` with what to do. A starter bot that is still `needs_onboarding`
+([Finish setup](onboarding.md#what-create-does)) is parked, does nothing on its own and costs nothing, so it does not count; it counts once
+it says it is set up, and that call answers `bot_limit` when the member is already at their limit.
 
 ## Bot owners
 
-Each bot has owners: its **creator** (added automatically), any **co-owners**, and its operator. Whoever the bot reports up to on
-the org chart, and every admin, are owners without being listed. One rule, `Auth.bot_manager`, says who may manage a bot, and it
-is the same people who always have full access to it. A bot owner can:
+Each bot has owners: its **creator** (added automatically) and any others added. Whoever the bot reports up to on
+the team chart, and every admin, are owners without being listed. One rule, `Auth.bot_manager`, says who may manage a bot, and it
+is the same humans who always have full access to it. A bot owner can:
 
 - edit its configuration: instructions, model, routines, name and description, repository;
 - set its See, Read and Write access;
 - pause it, rename it, archive it (never the built-in Assistant, BotOps, Librarian or Goal Manager);
-- add or remove co-owners (`POST /api/v2/bots/{bot}/co-owners`, Settings > Bots, **Owned by**);
+- add or remove owners (`POST /api/v2/bots/{bot}/co-owners`, Settings > Bots, **Owned by**);
 - give it a stored credential they hold themselves, and no one else's.
 
 A member cannot change a bot that is not theirs, through Settings, the API or BotOps.
 
 ## Computers for members' bots
 
-Every bot on a computer shares that computer's trust: the same OS user, workspace, model logins and `secrets/_shared.env`. A bot
-created by a member has instructions the company has not reviewed, so it does not go on just any computer. Each computer has
-**Accepts members' bots** (Settings > Devices, owners and admins):
+Every bot on a computer shares that computer's trust: the same OS user, workspace, model credentials and `secrets/_shared.env`. A bot
+created by a member has instructions the team has not reviewed, so it does not go on just any computer. Each computer has
+**Accepts members' bots** (Settings > Computers, owners and admins):
 
 - **Off** for every computer that existed before this release and for every new one, whoever enrols it: only an owner or an admin
-  turns it on. A computer a member enrols is theirs, and hosts their own bots because they are its operator; it is not open to other
+  turns it on. A computer a member enrols is theirs, and hosts their own bots because they are its owner; it is not open to other
   members' bots.
-- A bot created by a member can only be placed on **its own operator's computer, or a computer an admin has opened to members' bots**.
+- A bot created by a member can only be placed on **its own owner's computer, or a computer an admin has opened to members' bots**.
   Otherwise it stays planned, and the answer says to ask an admin to place it or to open a computer. Admins may place a member's
-  bot on any computer. Placing a member's bot never hands it to the computer's operator: it stays theirs.
-- Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its operator's
+  bot on any computer. Placing a member's bot never hands it to the computer's owner: it stays theirs.
+- Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its owner's
   or open to members' bots.
-- Settings > Health warns when bots members created run on a computer whose `secrets/_shared.env` holds keys, since the bot
-  instructions could ask a run for them. Give members a computer with no shared keys and open only that one.
+- Settings > Health warns when bots members created run on a computer whose `secrets/_shared.env` holds credentials, since the bot
+  instructions could ask a run for them. Give members a computer with no shared credentials and open only that one.
 
-A computer still hosts its operator's bots and the owner's; opening it to members' bots adds members' bots, it does not move anyone else's.
+A computer still hosts its owner's bots and the team owner's; opening it to members' bots adds members' bots, it does not move anyone else's.
 
-## BotOps acts as the person who asked
+## BotOps acts as the human who asked
 
 An owner should be able to say "build me a Jira bot, and add Sean" in chat with BotOps and have it done. BotOps therefore acts **as the
-person whose own chat message started its current turn**, checked with that person's rights and recorded as theirs, "via BotOps"
-(events, settings history). Not more than they may do: a member cannot edit another person's bot through BotOps any more than by hand.
+human whose own chat message started its current run**, checked with that human's rights and recorded as theirs, "via BotOps"
+(events, settings history). Not more than they may do: a member cannot edit another human's bot through BotOps any more than by hand.
 
-BotOps never acts for a message a **bot** wrote, one the **Assistant** wrote for a person (`refs.via`), a person's words
+BotOps never acts for a message a **bot** wrote, one the **Assistant** wrote for a human (`refs.via`), a human's words
 **inside a task** or a document, a message **routed from Slack** (anyone in the thread can shape it), or a message more than a week old.
-A message cited by id (`on_behalf_of`) must be the requester's own, in their own chat with BotOps rather than a room another person
-spoke in, and under a day old, and it must be the same person whose message started the turn. Someone who has left lends nothing.
+A message cited by id (`on_behalf_of`) must be the requester's own, in their own chat with BotOps rather than a room another human
+spoke in, and under a day old, and it must be the same human whose message started the run. Someone who has left lends nothing.
 A refused request answers `on_behalf_of`; BotOps reports it and stops.
 
-The same goes for routines and quarantine: BotOps sets a bot's routines only as the person who asked, who must manage that bot (a
-turn no person started, such as setup, may seed routines on a bot still being built from its template and nothing else), and clears
-a quarantine only citing that person's message and their management of the bot. BotOps has no authority of its own over other bots.
+The same goes for routines and quarantine: BotOps sets a bot's routines only as the human who asked, who must manage that bot (a
+run no human started, such as setup, may seed routines on a bot still being built from its template and nothing else), and clears
+a quarantine only citing that human's message and their management of the bot. BotOps has no authority of its own over other bots.
 
 The commands (with MCP tools of the same names):
 
 | Command | Does |
 | --- | --- |
-| `hub bot register <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a turn |
+| `hub bot register <slug> [--name] [--description] [--reports-to] [--template]` | creates the planned server record as the requester, who becomes its owner; safe to repeat. `hub bot create` registers automatically in such a run |
 | `hub bot access <slug> [--see V] [--read V] [--write V]` | show or set who sees, reads, writes (`everyone`, or `ben,team:legal,bot:analyst`) |
-| `hub bot owners <slug> [--add P ...] [--remove P ...]` | co-owners |
+| `hub bot owners <slug> [--add P ...] [--remove P ...]` | the bot's owners |
 | `hub bot set <slug> ...` | name, description, reports-to, status, repository |
-| `hub bot onboarded [slug]` | a starter bot's own call, once a person approved its first routine: it stops being `needs_onboarding` (its manager may call it for it) |
+| `hub bot onboarded [slug]` | a starter bot's own call, once a human approved its first routine: it stops being `needs_onboarding` (its manager may call it for it) |
 | `hub people add <email> [--name] [--title] [--reports-to]`, `hub people list` | the roster |
 
 | `hub bot place <bot> [--computer C]` | puts a bot on a computer: the one named, or the only one, or the least busy that takes it |
@@ -148,7 +147,7 @@ The commands (with MCP tools of the same names):
 | `hub bot model <bot> [<model>] [--effort E]`, `hub bot pause\|resume <bot>` | the model (none: list the choices), stop and restart |
 | `hub routine on\|off <key> --bot <bot>` | a routine on or off |
 | `hub computers`, `hub fleet-check` | the computers a bot may go on and what runs on each; what is wrong with the bots, most urgent first, each with its fix |
-| `hub credential request\|set\|list` | a card for a secret in the chat, storing one a person pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
+| `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
 | `hub support file "<message>"` | tells the Tico team about a gap or a fault: a Confirm card shows the exact message, and nothing is sent until they confirm |
 | `hub api <METHOD> <path> ['{json}']` | any other v2 route, as the requester |
 
@@ -156,63 +155,63 @@ The commands (with MCP tools of the same names):
 checks are the only gate: a member is refused what only an owner may do, an owner is not. A route is one of three kinds
 (`backend/botops_act.py`): it **runs at once** (bots, routines, goals, tasks, docs, access, models, placement, credential grants), it comes
 back as a **Confirm card** (below), or it is **not delegable** at all: tokens and enrollment codes, approvals, transferring ownership, a
-stored secret's own routes, agent credentials. Reads are the requester's reads. A secret never travels in a `hub api` body (a key named
+stored credential's own routes, external agent credentials. Reads are the requester's reads. A credential never travels in a `hub api` body (a key named
 `secret`, `password`, `token`, `api_key` and the like is refused).
 
-Everyday edits to a bot the person owns happen at once, and each is undoable from Settings > Bots history.
+Everyday edits to a bot the human owns happen at once, and each is undoable from Settings > Bots history.
 
 ### What always needs their click
 
-These are proposed instead: the command answers `needs_confirm: true` and a **Confirm card** appears in the person's chat with BotOps
+These are proposed instead: the command answers `needs_confirm: true` and a **Confirm card** appears in the human's chat with BotOps
 (the same card the Assistant uses: "Runs as you, only when you confirm"). Nothing changes until they click, and only they can:
 BotOps, the owner and the admins cannot confirm for them.
 
-- adding a person (any), including anyone outside the company domain (owners and admins only);
-- making someone an Admin, granting `add_people`, changing roles, or changing a person's email (it decides who is an Admin) or team
+- adding a human (any), including anyone outside the team's domain (owners and admins only);
+- making someone an Admin, granting `add_people`, changing roles, or changing a human's email (it decides who is an Admin) or group
   (it is an access audience);
 - giving a bot a stored credential (a tool registration that uses a shared credential or another bot's);
-- placing a member's bot on a computer that is neither its operator's nor open to members' bots (admins only);
+- placing a member's bot on a computer that is neither its owner's nor open to members' bots (admins only);
 - deleting (archiving) a bot, removing a computer, and letting a computer take members' bots;
-- changing the company's AI providers, who may sign in, or a spending limit (raising what a bot may spend);
+- changing the team's AI providers, who may sign in, or a spending limit (raising what a bot may spend);
 - updating Tico, the directory sync, disconnecting Slack or GitHub;
-- a message in their name (`/messages`, `/chat`), a decision on a goal proposal, and a support message to the Tico team.
+- a message in their name (`/messages`, `/chat`), a decision on a proposal, and a support message to the Tico team.
 
-What only an owner or an admin may ask for (providers, sign-in and member limits, the company spending limit, a computer taking members' bots,
+What only an owner or an admin may ask for (providers, sign-in and member limits, the team spending limit, a computer taking members' bots,
 updates, directory, disconnecting) is refused at once for a member, not handed over as a card that would fail.
 
 The card shows every field the request carries, and its description, written by the server and never by the bot, names each field it
 changes and, for a placement, the computer and whether it takes members' bots.
 
-BotOps reports "there is a card waiting in this chat" instead of asking the person to go to Settings.
+BotOps reports "there is a card waiting in this chat" instead of asking the human to go to Settings.
 
 ### Why it is built this way
 
-A bot's instructions and everything it reads (mail, web pages, documents, a colleague's task) can try to steer it. If BotOps could
-act with the company's full authority, or for whoever a piece of text names, one injected sentence would be a privilege escalation.
-So it borrows one person's rights at a time, only from the message that person typed to it in chat, never more than they have, and
-the few changes that widen who can get in or what a bot can hold need that person's own click. For the same reason a member's bot goes
+A bot's instructions and everything it reads (email, web pages, documents, a colleague's task) can try to steer it. If BotOps could
+act with the team's full authority, or for whoever a piece of text names, one injected sentence would be a privilege escalation.
+So it borrows one human's rights at a time, only from the message that human typed to it in chat, never more than they have, and
+the few changes that widen who can get in or what a bot can hold need that human's own click. For the same reason a member's bot goes
 only on computers set aside for members' bots: bots on one computer are not isolated from each other.
 
 ### A computer for every active bot
 
-A bot that becomes active without a computer (added active, turned on, resumed, or built by BotOps) is placed by the server: on the company's
+A bot that becomes active without a computer (added active, turned on, resumed, or built by BotOps) is placed by the server: on the team's
 only computer, else the least busy online one that takes it (a bot BotOps builds prefers BotOps's own computer, where its repository is). A member's bot goes on that member's own computer or one opened to members' bots,
 and never on a closed one. With none that takes it the bot stays as it is and the answer says so; the scheduler places it as soon as one can
-(`backend/placement.py`). People see a bot that is only set up, not yet turned on, as "Setting up".
+(`backend/placement.py`). Humans see a bot that is only set up, not yet turned on, as "Setting up".
 
 ## Write without Read
 
 Someone who may write to a bot but not read it can talk to it, and only sees what is theirs: their
 own conversations with it and the tasks they requested, created or own. They do not see its status,
-run log, files, updates, routines, other people's tasks or shared rooms, and the step-by-step "what it
-did" under its replies is hidden. The bot's page for them holds its name, role, who runs it, the
-people it works for, a **Send a request** box, and their own threads and tasks. A bot they may only
+run log, files, updates, routines, other humans' tasks or shared rooms, and the step-by-step "what it
+did" under its replies is hidden. The bot's page for them holds its name, role, who owns it, the
+humans it works for, a **Send a request** box, and their own threads and tasks. A bot they may only
 see shows the same About card and no request box.
 
-When a bot uses a shared room, the room belongs to the people it works for who may read it. Anyone else
+When a bot uses a shared room, the room belongs to the humans it works for who may read it. Anyone else
 who writes to it talks to it in a room of their own.
 
-## Bots and people are checked alike
+## Bots and humans are checked alike
 
 A bot's rights to another bot come from the same audiences: put a bot in another's Write list to let it
 send that bot requests. A bot may always answer one that wrote to it, or that holds a task it asked for,
@@ -220,18 +219,18 @@ so a private bot can still be replied to. `bot_contact` (Other bots: may chat an
 tasks only) stays as a further limit between bots and now also applies to notes and to comments that
 wake a bot.
 
-Personal API tokens, the MCP tools and the Assistant act as the person, with the person's access.
+Personal API tokens, the MCP tools and the Assistant act as the human, with the human's access.
 
 ## What each answer looks like
 
 - A bot the caller cannot **see** does not exist for them: lists leave it out, counts and pages do not
   include its work, and asking for it by name answers `404`.
 - A bot they can see but not read or write answers `403 forbidden` with what is missing, for example
-  `You can see counsel but not send it requests. Ask the person who runs it for Write access.`
+  `You can see counsel but not send it requests. Ask the human who owns it for Write access.`
 
 `GET /api/v2/bots` and `GET /api/v2/org` return only the bots the caller can see, each with
 `access: {see, read, write}` for that caller, and take `?can=read` or `?can=write`. A bot the caller may only
-see comes back without its status, machine, queue or configuration. The org chart is one piece: the bots
+see comes back without its status, computer, queue or configuration. The team chart is one piece: the bots
 under a hidden bot hang from the nearest thing above it that is still shown.
 
 ## The Legal example
@@ -241,11 +240,11 @@ Legal's business.
 
 1. Settings > Bots, **Edit** in Legal's Access column.
 2. Choose **Visible, requests only**.
-3. Under *Who can read its work* tick the **Legal** team. Save.
+3. Under *Who can read its work* tick the **Legal** group. Save.
 
-Now everyone sees the bot and can chat with it or give it a task. Cara, on the Legal team, also reads its
+Now everyone sees the bot and can chat with it or give it a task. Cara, in the Legal group, also reads its
 tasks, updates and files. Dee, in Sales, sees a **Send a request** box and her own threads and
-tasks with it; the bot's status, files and other people's requests are not shown to her. To let the
+tasks with it; the bot's status, files and other humans' requests are not shown to her. To let the
 Sales lead read it too, add them to the Read list.
 
 The same through the API, as the owner or the bot's manager:
@@ -276,4 +275,4 @@ access you meant there; saving any bot's access, or dismissing the note, clears 
 
 `POST /api/v2/sql` is the one place a bot the caller may only see or write to does not appear: the
 `bots`, `bot_status`, `schedules`, `bot_config`, `turns`, `jobs` and related tables hold the bots the caller can read,
-and tasks follow the rule above ([Hub SQL](hub-sql.md)).
+and tasks follow the rule above ([Tico SQL](hub-sql.md)).

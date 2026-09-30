@@ -1,6 +1,6 @@
 # Meetings
 
-**Meetings** is where the company's meeting transcripts live. Tico does not record: people already
+**Meetings** is where the team's meeting transcripts live. Tico does not record: humans already
 have Granola, Zoom, Google Meet, Otter, Fireflies or Close for that. Tico takes what those tools
 produce, keeps it in one list, and turns it into work. How the pieces fit:
 [How Tico works](how-it-works.md).
@@ -13,14 +13,14 @@ in the tool that made it. Media files can be attached too.
 
 | Door | For | How |
 |---|---|---|
-| **Add notes** on the Meetings page | a person with notes to write, a transcript file or a paste | title, date and time (default now), participants from the roster plus emails or names, markdown notes, and an optional bot to send them to. **Upload a file** (or drop one on the dialog) or **Paste** adds a transcript: a `.txt`, `.vtt`, `.srt` or `.json` file, with its source (`upload` by default) and an optional recording link. Files through this same API: notes alone as source `manual`, a transcript as the source you chose |
-| `hub meetings import <file>` | a person or script on a computer | `hub meetings import call.vtt --title "Pricing call" --date 2026-09-28T16:00 --participant dana@example.com --source zoom --external-id 123` |
-| `hub_meetings_import` (MCP) | a person's own agent | the same fields; the agent reads the file and sends the text |
+| **Add notes** on the Meetings page | a human with notes to write, a transcript file or a paste | title, date and time (default now), participants from the roster plus emails or names, markdown notes, and an optional bot to send them to. **Upload a file** (or drop one on the dialog) or **Paste** adds a transcript: a `.txt`, `.vtt`, `.srt` or `.json` file, with its source (`upload` by default) and an optional recording link. Files through this same API: notes alone as source `manual`, a transcript as the source you chose |
+| `hub meetings import <file>` | a human or script on a computer | `hub meetings import call.vtt --title "Pricing call" --date 2026-09-28T16:00 --participant dana@example.com --source zoom --external-id 123` |
+| `hub_meetings_import` (MCP) | a human's external agent | the same fields; the agent reads the file and sends the text |
 | `POST /api/v2/meetings/import` | anything else | one JSON body, below |
 | Close | Close calls and Notetaker meetings | the `close-calls` worker on a Mac or a Linux runner; see [Close](#close) |
-| Fireflies, Zoom, Google Meet, Granola | the company's meeting tools | the `importers` job on an enrolled computer, turned on in **Settings > Cloud services > Meeting importers**; see [Meeting importers](#meeting-importers) |
+| Fireflies, Zoom, Google Meet, Granola | the team's meeting tools | the `importers` job on an enrolled computer, turned on in **Tools > Meeting importers**; see [Meeting importers](#meeting-importers) |
 
-The CLI and the API act as the person whose credential they carry: set `HUB_API_URL` and `HUB_TOKEN` to
+The CLI and the API act as the human whose credential they carry: set `HUB_API_URL` and `HUB_TOKEN` to
 a personal token (see [Who can do what](#who-can-do-what)). All of them land in the same place, in the same shape, so the list, search, sharing, Send and
 action items work identically whatever the source.
 
@@ -34,7 +34,7 @@ and `participants` and `context` as JSON-encoded text fields). Only a transcript
 | `title` | What the meeting was, up to 300 characters. Default on a new meeting: "Imported meeting". On an update, empty leaves the title alone |
 | `started_at` | ISO-8601 **with a timezone**. Default: now |
 | `duration_seconds` | Default: the last segment's end |
-| `participants` | Up to 100 entries: an email, a name, or `{"name", "email"}`. Each is linked to the roster person it matches (by email, else by exact name); people outside the company are kept as written |
+| `participants` | Up to 100 entries: an email, a name, or `{"name", "email"}`. Each is linked to the roster human it matches (by email, else by exact name); other participants are kept as written |
 | `source` | Where it came from, a short lower-case name: `zoom`, `google-meet`, `granola`, `otter`, `fireflies`, `upload`, `api` (default `api`). `close` is reserved for the Close worker |
 | `external_id` | That system's id for the meeting, up to 200 characters of `A-Za-z0-9_.:@/-`. The idempotency key: see below. Omit it and every call makes a new meeting |
 | `transcript` | Plain text, WebVTT, SRT or JSON segments, as a string, or a list of segment objects |
@@ -42,9 +42,9 @@ and `participants` and `context` as JSON-encoded text fields). Only a transcript
 | `notes` | Notes or a summary in Markdown, up to 200,000 characters. The source's own summary goes here |
 | `media_url` | An `https` link to the recording in the source |
 | `context` | A flat map of up to 20 short text fields the source wants kept (`lead_url`, `room`); keys are lower-case identifiers and `*_url` values must be `https` |
-| `private` | `true` narrows the meeting to its participants and its owner. Default: a company meeting, readable by everyone signed in |
+| `private` | `true` narrows the meeting to its participants and its owner. Default: a team meeting, readable by everyone signed in |
 | `send_to` | A bot slug. Hands the meeting to that bot as a task, exactly as **Send** does, in the same call |
-| `owner_email` | Machines only: the roster person the meeting is filed for |
+| `owner_email` | Computers only: the roster human the meeting is filed for |
 
 A transcript is at most 1,000,000 characters and 10,000 segments. A file attached by multipart is at
 most 10 MB, ten to a request, and the request at most 20 MB. Unknown fields are refused, so a typo
@@ -72,11 +72,11 @@ curl -X POST "$HUB_API_URL/api/v2/meetings/import" \
 
 ### Idempotency: re-import updates, never duplicates
 
-The key is (source, `external_id`, the person the meeting is filed for). Send the same three again and
+The key is (source, `external_id`, the human the meeting is filed for). Send the same three again and
 you get the same meeting: if the body is identical nothing happens (`changed: false`); if the
 transcript, notes, participants, title, time or link differ, the meeting is updated in place and the
-previous state stays in its version history (`GET /api/meetings/{id}/versions`). Two people who both
-import the same Zoom meeting each get their own copy, and the same person importing from two
+previous state stays in its version history (`GET /api/meetings/{id}/versions`). Two humans who both
+import the same Zoom meeting each get their own copy, and the same human importing from two
 sources gets two. Files sent again with the same name and size are not attached twice.
 
 ### Transcript formats
@@ -103,33 +103,33 @@ format is a `422` that names the problem.
 
 ## Who can do what
 
-- **A person** (the owner or anyone on the roster) imports meetings of their own with their own
-  credential, from the page or with a personal token (`Connect an agent` makes one for the owner
-  and bot administrators). The meeting is theirs: only they and the company owner edit, delete or
+- **A human** (the owner or anyone on the roster) imports meetings of their own with their own
+  credential, from the page or with a personal token (`Connect an external agent` makes one for the owner
+  and bot administrators). The meeting is theirs: only they and the team owner edit, delete or
   Send it.
-- **A machine** that runs an importer (a registered runner whose operator is in
-  `TICO_PROCESSING_OPERATORS`, else the owner's) files meetings for a roster person it names in
+- **A computer** that runs an importer (a registered runner whose owner is in
+  `TICO_PROCESSING_OPERATORS`, else the owner's) files meetings for a roster human it names in
   `owner_email`. It cannot file for someone who is not on the roster.
 - **A bot** cannot import. Bots read: `hub_meetings_search` and `hub_meetings_transcript` give them
-  company meetings that are not private, never personal notes or private meetings.
-- **Reading**: a company meeting is readable by everyone signed in. A private one is readable by its
-  owner, its participants (matched by email, ignoring case) and the company owner.
+  team meetings that are not private, never personal notes or private meetings.
+- **Reading**: a team meeting is readable by everyone signed in. A private one is readable by its
+  owner, its participants (matched by email, ignoring case) and the team owner.
 - `send_to` applies the ordinary Send rule: the caller must be allowed to hand that bot work.
 
 ## What a meeting turns into
 
-- **Send to a bot** (the button, `POST /api/meetings/{id}/send`, or `send_to` on import): one hub task
+- **Send to a bot** (the button, `POST /api/meetings/{id}/send`, or `send_to` on import): one Tico task
   for the bot, carrying the notes, the readable transcript and the meeting context. Sending is once;
   asking again for the same bot returns the same task.
 - **Action items.** Beside each meeting are three lists: **Doc updates**, **Tasks** and **Feature
-  requests**. A person adds items (with the quote and time they came from if they like) and the
-  meeting's owner pushes them. Push creates ordinary hub tasks, never a card in another tool: a
+  requests**. A human adds items (with the quote and time they came from if they like) and the
+  meeting's owner pushes them. Push creates ordinary Tico tasks, never a card in another tool: a
   task item becomes a task for its named owner; a doc update becomes a task for `doc-updater`; a
-  feature request becomes a task for whoever is primary for the product team, labelled by side, app and
+  feature request becomes a task for whoever is primary for the product group, labelled by side, app and
   area, refused with a link if a near-identical task is still open (**Push anyway** overrides).
   Every pushed task ends with a footer naming the meeting and quoting the line.
 - **Comments.** Anyone who can open the meeting can add to the thread beside it.
-- **Routines.** `meeting.ready` fires when a company meeting with a transcript is first imported,
+- **Routines.** `meeting.ready` fires when a team meeting with a transcript is first imported,
   once per meeting however often it is re-imported; a routine written `on: meeting.ready` gets one
   task carrying the notes and transcript. A private meeting fires nothing. The older name
   `recording.ready` is still emitted for routines written before the rename; new routines use
@@ -151,7 +151,7 @@ meeting has been sent or has items. It does not fetch, upload or store Close aud
 without a transcript is revisited, because transcripts may arrive after completion. Close Call Assistant
 must already be enabled in the Close account for ordinary call transcripts to exist; Tico does not enable
 it. A Notetaker meeting transcript is available only after the meeting concludes. See
-[Close integration](../integrations/close-crm.md).
+[Close tool](../integrations/close-crm.md).
 
 The first pull covers 30 days of Close activity creation. Close's organization-wide activity API does
 not allow filtering by meeting time, so the worker revisits pending future meetings until their
@@ -164,8 +164,8 @@ error if a single day exceeds its 5,000-activity page limit, so narrow the windo
 The **Sources** strip on the Meetings page shows a tile for Close and for each importer below, with the worker's
 heartbeat in one word: **Connect** until the worker connects, **Connected** (with the last import) after a recent
 successful pull, **Delayed** when its heartbeat is stale, **Error** after a failed pull. With no meetings yet, the
-page shows the same tiles large, with **Add notes**. A tile opens that source's setup: Close its integration page,
-the others a dialog with the same form as Settings > Cloud services > Meeting importers (owners only).
+page shows the same tiles large, with **Add notes**. A tile opens that source's setup: Close its tool page,
+the others a dialog with the same form as Tools > Meeting importers (owners only).
 
 ## Meeting importers
 
@@ -179,7 +179,7 @@ Meetings page shows each one's health). Each importer:
   folder (the same place as Close's `secrets/close-calls.env`, mode 600). The credential never reaches
   the server or the browser, and a failure is reported as a short code, never with a URL, header or
   provider message;
-- is idempotent. The key is (source, the tool's own meeting id, the person it is filed for); a
+- is idempotent. The key is (source, the tool's own meeting id, the human it is filed for); a
   meeting that changes is updated in place, an unchanged one is not sent again, and one somebody
   deleted stays deleted;
 - reads a bounded window: the first pass covers the last 30 days, then each pass re-reads the last
@@ -187,13 +187,13 @@ Meetings page shows each one's health). Each importer:
   keeps the window from passing it for up to seven days. For older history, stop the job and run
   `python -m runner importers --backfill-days DAYS [--only fireflies|zoom|google-meet|granola]`
   (1 to 365; Google Meet keeps only 30 days, so it is capped there); it makes one pass and exits;
-- files a meeting for the roster person it belongs to. A person who is not on the roster is filed
-  under the company owner, except Granola, which skips notes it cannot place, because those are
+- files a meeting for the roster human it belongs to. A human who is not on the roster is filed
+  under the team owner, except Granola, which skips notes it cannot place, because those are
   someone else's private notes.
 
-**Turn one on.** As the owner open Settings > Cloud services > Meeting importers, tick **Enabled**,
+**Turn one on.** As the owner open Tools > Meeting importers, tick **Enabled**,
 choose the computer that holds the credential file, and **Save**. The card shows the last sync, the
-last import, how many meetings it has filed and the last error. Only computers whose operator may run
+last import, how many meetings it has filed and the last error. Only computers whose owner may run
 importers (`TICO_PROCESSING_OPERATORS`, else the owner) are offered. `python -m runner
 importers-doctor` on the computer says which credential files are present, without calling any tool.
 
@@ -202,8 +202,8 @@ stops it when none is. Put the credential file in the runner's `workspace/secret
 the runner user, then assign the importer to that computer. `Tico side jobs:` lines in `docker logs` show it starting. A Google Meet service-account file goes in the same folder.
 
 Options every importer's file accepts: `<TOOL>_PRIVATE=1` files its meetings as private (readable by
-their participants and the owner) and `<TOOL>_PRIVATE=0` files them for the company. The default is
-company-readable except Granola, which defaults to private. A credential can also be set in the job's
+their participants and the owner) and `<TOOL>_PRIVATE=0` files them for the team. The default is
+team-readable except Granola, which defaults to private. A credential can also be set in the job's
 environment (for example `FIREFLIES_API_KEY`), which wins over the file.
 
 Errors the card can show: `missing_credentials` (the file or a key is missing), `auth_failed` (the tool
@@ -217,14 +217,14 @@ recorded-shape fixtures and no network.
 ### Fireflies
 
 Fireflies' GraphQL API (`https://api.fireflies.ai/graphql`) with a personal API key. Each key reads its
-own holder's transcripts (`mine: true`), so the meeting is filed for the person who made the key.
+own holder's transcripts (`mine: true`), so the meeting is filed for the human who made the key.
 
-1. In Fireflies open **Integrations > Fireflies API** and copy the API key (one per person).
+1. In Fireflies open **Integrations > Fireflies API** and copy the API key (one per human).
 2. On the computer that runs the importer, create `secrets/fireflies.env`:
    ```
    FIREFLIES_API_KEY=your-key
    ```
-   Several people's keys can be listed separated by commas; each is read and filed for its own holder.
+   Several humans' keys can be listed separated by commas; each is read and filed for its own holder.
 3. Enable **Fireflies** in Settings and choose that computer.
 
 The importer lists transcripts a day at a time (`transcripts(fromDate, toDate, limit, skip)`), then
@@ -273,7 +273,7 @@ lasts an hour; there is no refresh token, so a new one is requested. Recordings 
 (`/users/{userId}/recordings`, at most 300 per page, Zoom allows a month per request). The transcript is
 downloaded with the token as a Bearer header, only from `zoom.us` and `zoomgov.com` hosts, and redirects
 are followed only inside them. The external id is the meeting's UUID, with base64 characters mapped
-(`+` to `-`, `=` dropped) to fit the hub's id alphabet. The host is the meeting's owner, so only meetings a
+(`+` to `-`, `=` dropped) to fit Tico's id alphabet. The host is the meeting's owner, so only meetings a
 user hosts appear under that user.
 *Verified from Zoom's published OpenAPI (developers.zoom.us/api-hub):* the token request, `/users`,
 `/users/{userId}/recordings` (parameters, `next_page_token`, `recording_files[].file_type` = `TRANSCRIPT`,
@@ -284,7 +284,7 @@ with `/` or holds `//`), and the scopes above.
 
 The Google Meet REST API v2 (`conferenceRecords`, `participants`, `transcripts`, `transcripts.entries`).
 Authentication is a **Google Workspace service account with domain-wide delegation**, impersonating each
-person whose meetings should be imported. Google keeps a conference record for 30 days after the meeting
+human whose meetings should be imported. Google keeps a conference record for 30 days after the meeting
 ends, so the importer never looks back further than that; leave it running.
 
 1. In the Google Cloud console create (or pick) a project, **enable the Google Meet REST API**, and create
@@ -294,7 +294,7 @@ ends, so the importer never looks back further than that; leave it running.
    API controls > Domain-wide delegation > Add new**. Enter the client ID and this one scope:
    `https://www.googleapis.com/auth/meetings.space.readonly`
 4. Meet must record transcripts: **Admin console > Apps > Google Workspace > Google Meet > Meet video
-   settings**, turn on **Recording** and **Transcripts** for the people involved (a Workspace edition
+   settings**, turn on **Recording** and **Transcripts** for the humans involved (a Workspace edition
    that includes them). Transcript files are created only for meetings where somebody turned them on.
 5. Copy the key to the computer, for example `secrets/google-meet-key.json` (mode 600), and create
    `secrets/google-meet.env`:
@@ -330,14 +330,14 @@ here but not run against a Workspace.
 app files, and nothing needs to run on the Mac where Granola is installed.
 
 1. In Granola (Business or Enterprise plan) open **Settings > Workspaces > API** and **Generate API Key**.
-   A **personal** key (any Business member can make one) reads that person's notes and what is shared
+   A **personal** key (any Business member can make one) reads that human's notes and what is shared
    with them; a **workspace** key (an admin makes it) reads notes the workspace made public. On
    Enterprise, admins control who may create keys.
 2. On the computer that runs the importer, create `secrets/granola.env`:
    ```
    GRANOLA_API_KEY=grn_...
    ```
-   A comma-separated list takes several people's personal keys.
+   A comma-separated list takes several humans' personal keys.
 3. Enable **Granola** in Settings and choose that computer.
 
 The importer lists notes (`GET https://public-api.granola.ai/v1/notes`, `created_after` and
@@ -348,8 +348,8 @@ and the transcript, with `microphone`/`speaker` lines attributed to the note's o
 Granola gives no speaker name. Granola returns only notes that have a summary and transcript, and
 allows about five calls a second, which the importer stays under. **Private notes typed by the
 note-taker are never imported.** Meetings default to private (readable by their participants and the
-owner); put `GRANOLA_PRIVATE=0` in the file to file them for the company. A note is filed for its owner
-if that person is on the roster, and skipped otherwise. Because the list is read by creation date,
+owner); put `GRANOLA_PRIVATE=0` in the file to file them for the team. A note is filed for its owner
+if that human is on the roster, and skipped otherwise. Because the list is read by creation date,
 edits to a note more than three days old are not picked up unless it is re-read with `--backfill-days`.
 *Verified from Granola's published OpenAPI (docs.granola.ai/api-reference/openapi.json) and API
 changelog:* the base URL, Bearer `grn_` keys, the three endpoints and their parameters, the note,
@@ -362,16 +362,16 @@ Otter has no importer here. Use `hub meetings import`, the API, or write one as 
 ## Writing an importer
 
 Each of the importers above is a small module that reads one tool's API, maps it onto the fields above,
-and posts it; nothing on the hub side changes when one is added. `runner/importers/base.py` is the
+and posts it; nothing on the Tico side changes when one is added. `runner/importers/base.py` is the
 shared shape: subclass `Importer`, say how to list credentials (`scopes`) and meetings (`fetch`), and it
 supplies the window, cursor, idempotent filing, roster fallback and status reporting. Add it to
 `runner/importers/__init__.py` and to `IMPORTERS` in `backend/meeting_importers.py` to get a card in
 Settings. The steps below are the same whether it is a module or a standalone script.
 
 1. **Pick the door.**
-   - *Runs on a person's computer or in their agent*: post to `/api/v2/meetings/import` with that
-     person's own credential (a personal token). No `owner_email`; the meeting is theirs.
-   - *Runs for the company on a computer that is enrolled as a runner*, as the Close worker and the
+   - *Runs on a human's computer or in their external agent*: post to `/api/v2/meetings/import` with that
+     human's own credential (a personal token). No `owner_email`; the meeting is theirs.
+   - *Runs for the team on a computer that is enrolled as a runner*, as the Close worker and the
      importers above do: post to the same route with the runner's credential and `owner_email` for
      each meeting. See `runner/importers/base.py` (or `runner/close_calls.py`) for the shape (a poll
      loop, a cursor in the runner's state database, a heartbeat, `CodeWatch` to restart on new code)
@@ -404,7 +404,7 @@ Settings. The steps below are the same whether it is a module or a standalone sc
    (the message names the field); `403` and `404` are credential or roster problems, not something
    to retry.
 8. **Test it without the network**: feed a recorded API response through your mapper and check the
-   body with `MeetingImport.model_validate(body)` (`backend/imports.py`), or post it to a test hub
+   body with `MeetingImport.model_validate(body)` (`backend/imports.py`), or post it to a test Tico
    as `backend/tests/test_meetings_import.py` does.
 
 A minimal importer, for a tool that hands back VTT:
@@ -443,7 +443,7 @@ stays is everything that was ever imported or recorded. An upgrading install kee
 - `recording.ready` is still emitted beside `meeting.ready`.
 - A Mac set up earlier has a processing job (`team.tico.tico-processing`); `scripts/tico install`,
   `restart` and `uninstall` remove it.
-- The desktop app no longer captures audio or shows a meeting prompt; it is the hub in a window
+- The desktop app no longer captures audio or shows a meeting prompt; it is Tico in a window
   with a tray item. It no longer asks for microphone or system-audio permission.
 - `TICO_GEMINI_SECRET_ARN`, `TICO_XAI_SECRET_ARN` and `TICO_TRELLO_SECRET_ARN` are no longer read;
-  `TICO_PROCESSING_OPERATORS` still names the machines that may run importers and connector publishers.
+  `TICO_PROCESSING_OPERATORS` still names the computers that may run importers and calendar publishers.

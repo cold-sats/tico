@@ -1,10 +1,10 @@
-# Connect an agent
+# Connect an external agent
 
-Your own AI agent (Grok, Muse, Claude, Cursor, Codex or any other that speaks MCP) can work in Tico
+Your own external agent (Grok, Muse, Claude, Cursor, Codex or any other that speaks MCP) can work in Tico
 as you: read and act on your tasks, goals, docs and bots, with your rights and no more. It connects
 to Tico's MCP server with a personal token.
 
-**Connect an agent** is the plug button beside your email (and a step in the first-run wizard). Only
+**Connect an external agent** is the plug button beside your email (and a step in Finish setup). Only
 the owner and bot administrators can make personal tokens.
 
 1. Pick the agent.
@@ -15,8 +15,8 @@ the owner and bot administrators can make personal tokens.
 4. The dialog shows **Connected** once the agent's first call reaches Tico. It checks every 3 seconds
    for 5 minutes; **Check again** starts another 5 minutes.
 
-Existing connections are listed under the tiles with when each was last used. **Revoke** stops one at
-once. The same tokens are under **Settings > Devices > API tokens**.
+Connected external agents are listed under the tiles with when each was last used. **Revoke** stops one at
+once. The same tokens are under **Settings > Computers > API tokens**.
 
 ## The server
 
@@ -25,7 +25,7 @@ once. The same tokens are under **Settings > Devices > API tokens**.
 | URL | `https://<runner hostname>/api/v2/mcp`: `TICO_RUNNER_URL`, or `TICO_PUBLIC_URL` when that is unset. The dialog shows the right one |
 | Transport | Streamable HTTP, JSON replies, stateless (no session id; `GET` answers 405) |
 | Auth | `Authorization: Bearer <token>`. No OAuth |
-| Tools | The `hub` command set (`clients/hubtools.py`): tasks, goals and KPIs, docs, bots, messages, approvals, updates, SQL. Each call runs as the token's person through the same routes the web app uses |
+| Tools | The `hub` command set (`clients/hubtools.py`): tasks, goals and KPIs, docs, bots, messages, approvals, updates, SQL. Each call runs as the token's human through the same routes the web app uses |
 | Instructions | The server's `initialize` reply carries the "who needs me" skill (`skills/who-needs-me/SKILL.md`), so nothing else needs pasting |
 
 The token cannot make or revoke tokens.

@@ -18,20 +18,20 @@ was spent.
 
 ## Who sees it
 
-The owner and the bot administrators see every bot. Anyone else sees the bots they run or own. A bot's own credentials cannot read it.
+The owner and the admins see every bot. Anyone else sees the bots they own. A bot's own credentials cannot read it.
 
 ## Limits
 
-A bot can have a daily and a monthly limit in estimated USD; the company has a default for bots with none of their own. Neither is set
+A bot can have a daily and a monthly limit in estimated USD; the team has a default for bots with none of their own. Neither is set
 until someone sets it. Change a bot's on its Usage row or in Settings > Bots; the owner and administrators also set the default (Usage >
-Default limit). The person who runs a bot may set its limit, no higher than the company default.
+Default limit). The owner of a bot may set its limit, no higher than the team default.
 
-- At 80% of a limit the bot's operator (else the company owner) gets one notice; a chip shows on the Usage row.
+- At 80% of a limit the bot's owner (else the team owner) gets one message; a chip shows on the Usage row.
 - At a limit the bot takes no new job until the period turns over or the limit is raised. The job stays queued, the bot reads "Paused: over
   its daily limit" on its page and in Tasks, and a run already going finishes.
 - What counts is the estimate of the runs the bot has finished in the UTC day or month. Subscription runs count their API-equivalent only
-  if the company turns on "Count subscription runs".
-- A notice is sent once per bot, period and limit, so raising a limit arms it again.
+  if the team turns on "Count subscription runs".
+- A message is sent once per bot, period and limit, so raising a limit arms it again.
 
 `GET /api/v2/usage/limits`, `PUT /api/v2/usage/limits` (the default) and `PUT /api/v2/usage/limits/{bot}` (empty follows the default).
 

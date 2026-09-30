@@ -1,10 +1,10 @@
 # Harnesses: the model CLIs a runner uses
 
-A **harness** is the program a runner starts to run a bot's turn: Codex, Claude Code, Gemini CLI, Grok Build, Cursor Agent, or pi.
+A **harness** is the program a runner starts for a bot's run: Codex, Claude Code, Gemini CLI, Grok Build, Cursor Agent, or pi.
 Tico does not ship them. Model CLIs release every few days and Tico has to work with many providers, so each runner
-installs the harnesses its company needs, keeps them current, and lets the owner pin one when a release misbehaves.
+installs the harnesses its team needs, keeps them current, and lets the owner pin one when a release misbehaves.
 
-Where bots run: on a Mac (native runner) or on a Linux box (the `tico-runner` Docker image). The server runs no bots
+Where bots run: on a Mac (native runner) or on a Linux computer (the `tico-runner` Docker image). The server runs no bots
 and holds no harness.
 
 ## Supported harnesses
@@ -24,8 +24,8 @@ checks the tarball's integrity hash; the script installs into `~/.grok`.
 
 `runtime: cursor` was retired in v0.1.0. It is back as an
 ordinary harness: `runner/hosts/cursor.py` runs `cursor-agent -p --output-format stream-json --force --trust` once per
-turn, with the prompt on stdin and the chat made by `cursor-agent create-chat`, so a restart resumes it. Cursor picks
-the model itself on `auto` (`cursor-auto` in the catalog); a bot's config may name any other model Cursor offers.
+run, with the prompt on stdin and the chat made by `cursor-agent create-chat`, so a restart resumes it. Cursor picks
+the model itself on `auto` (`cursor-auto` in the model list); a bot's config may name any other model Cursor offers.
 Cursor's installer only ever installs the newest release, so this harness follows `latest` and cannot be pinned to an
 older version (Pin to this version pins the one installed).
 
@@ -34,16 +34,16 @@ older version (Pin to this version pins the one installed).
 Providers with no CLI of their own (DeepSeek, Kimi, Llama, Mistral, and whatever comes next) share one harness that
 takes an API key. Candidates:
 
-- **pi** (already a Tico host, `runner/hosts/pi.py`): one non-interactive process per turn (`pi -p --mode json`), a
-  JSON event stream Tico already parses, resumable sessions, read/bash/edit/write/grep tools (the bot reaches the hub
+- **pi** (already a Tico host, `runner/hosts/pi.py`): one non-interactive process per run (`pi -p --mode json`), a
+  JSON event stream Tico already parses, resumable sessions, read/bash/edit/write/grep tools (the bot reaches Tico
   with the `hub` CLI over bash), no permission prompts, an npm package, and keys for many providers by environment
   variable. Tico reaches every model through OpenRouter, so one key covers all of them.
 - **OpenCode**: also capable and widely used, with a large provider list, but it would need a new host adapter and its
-  own event format, and ships a per-platform native binary. Nothing in a headless turn needs what it adds.
-- **aider**: edits a git repository well, but it is a chat-driven editor, not an agent with a shell; a bot's turn
-  (read the repo, call the hub, run tests, commit) does not fit.
+  own event format, and ships a per-platform native binary. Nothing in a headless run needs what it adds.
+- **aider**: edits a git repository well, but it is a chat-driven editor, not an agent with a shell; a bot's run
+  (read the repo, call Tico, run tests, commit) does not fit.
 
-pi is the one that best fits a headless turn in a git repository with the least new code. If it stops being
+pi is the one that best fits a headless run in a git repository with the least new code. If it stops being
 maintained, replacing the catch-all is a manifest and a host adapter, described below.
 
 ## How providers map to harnesses
@@ -51,7 +51,7 @@ maintained, replacing the catch-all is a manifest and a host adapter, described 
 The owner enables providers in **Settings > AI providers** (`backend/providers.py`). Each provider names its runtime
 (the host adapter) and its harness (the manifest). The runner reads the enabled providers from the server
 (`GET /api/v2/config`, `enabled_providers`) and installs the harnesses they need, plus the harness of any bot
-assigned to it that names a runtime. A runner whose company has no provider yet installs nothing and still joins and
+assigned to it that names a runtime. A runner whose team has no provider yet installs nothing and still joins and
 goes online.
 
 A model with no CLI of its own has a row in `MODEL_CATALOG` with `runtime: "pi"` and an entry in
@@ -76,15 +76,15 @@ volume, so harnesses survive a restart or a new image. The directory is put last
 ## Updating and pinning
 
 Every day the runner asks each harness it installed for the newest release. With the default policy (`latest`) it
-installs the new version **between turns**: the copy is downloaded and checked beside the old one while turns run,
-and switched in only at a moment no running turn uses that harness (a turn on another harness does not hold it
+installs the new version **between runs**: the copy is downloaded and checked beside the old one while runs are in progress,
+and switched in only at a moment no run in progress uses that harness (a run on another harness does not hold it
 back). A failed install keeps the working version and is retried after 30 minutes.
 
 A harness can be **pinned** to a version: the runner keeps that version and only reports that a newer one exists.
 The manifest can ship a pin (`[update] policy = "pinned"`, `pin = "1.2.3"`), and the owner can pin or unpin per
 computer.
 
-**Settings > Devices** shows a chip per harness on each computer: name, version, `pinned`, `<version> available`,
+**Settings > Computers** shows a chip per harness on each computer: name, version, `pinned`, `<version> available`,
 `installing`, `updating`. The owner (and only the owner) sees the actions, for installs the runner manages:
 
 - **Update**: install the newest release now (waits for an idle moment; moves the pin if the harness is pinned).
@@ -95,7 +95,7 @@ same way as the browser sign-in: the server keeps the request, the runner polls 
 and reports back. Nothing listens on the runner. A request the computer does not answer within six hours expires.
 
 The readiness heartbeat carries, per harness: `installed`, `version`, `pinned` (and `pin`), `authenticated`,
-`update_available` (and `latest`), `managed` (installed by the runner, not by a person), `wanted`, `state`. A runner
+`update_available` (and `latest`), `managed` (installed by the runner, not by a human), `wanted`, `state`. A runner
 talking to a server from before this change drops the field instead of going offline.
 
 ## Writing a harness
@@ -141,6 +141,6 @@ A harness is a manifest plus a host adapter.
    If the CLI signs in through the browser relay, add its runtime to `RUNTIMES` (and `PASTE_RUNTIMES`) in
    `backend/model_login.py`; a test checks that this list matches the manifests.
 4. **Check**: `runner/tests/test_harness_tools.py` validates every manifest (file name, host adapter, unique
-   providers, install fields) and that the provider catalog and manifests agree.
+   providers, install fields) and that the provider list and manifests agree.
 
 Loading fails loudly on a bad manifest, naming the file and the field.

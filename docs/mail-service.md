@@ -1,25 +1,25 @@
-# Mail: the shared email and calendar service
+# Message bots: the shared email and calendar service
 
 Status: stages 1-2 built. `mail doctor` checks the Google service account against
-Gmail and Calendar, and calendar impersonation is verified read-only for each person in
+Gmail and Calendar, and calendar impersonation is verified read-only for each human in
 `registry/people.yaml`. Reading, filing, the rules engine, the policy file, lint,
 reviewer, `draft`, `send`, `reply`, `sent-log`, `slots`, `upcoming`, and `schedule` are in.
 
 ## Why one service
 
-Three of the next five employees (Inbox, Legal Inbox, Influencer) need Gmail as
+Three of the next five bots (two message bots and Influencer) need Gmail as
 ana@acme.example or legal@acme.example. Business Development, Email Marketing, Recruiting and Support will need it after them. Email is the highest-blast-radius thing a bot can do: one
-wrong send reaches a customer, a creator, or a lawyer under Ana's name. So no employee talks to
+wrong send reaches a customer, a creator, or a lawyer under Ana's name. So no bot talks to
 Gmail on its own. There is one tool, the rules live in code (not in prompts), and every action is
 logged in one place.
 
 ## Shape
 
-- **A CLI, `mail`, in the hub at `connectors/mail/`.** Python. Uses the official Google client
+- **A CLI, `mail`, in Tico at `connectors/mail/`.** Python. Uses the official Google client
   libraries in a small venv that `scripts/mail.sh` creates on first use. No daemon: a daemon adds
   a process and gives no real isolation, because every bot runs as the same Unix user anyway. The
   rules are enforced inside the CLI, and state lives in one SQLite file, `runtime/mail/mail.db`.
-- **Bots never call the Gmail or Calendar API directly.** AGENT.md for every employee with mail
+- **Bots never call the Gmail or Calendar API directly.** AGENT.md for every bot with mail
   access says so; the audit log is how we notice if one does.
 - **Auth: one Google service account with domain-wide delegation.** Key at
   `~/tico-work/secrets/google-sa.json`, mode 600. It is never loaded into a bot's environment;
@@ -27,8 +27,8 @@ logged in one place.
   (`gmail.modify`, `calendar`); Google has no scope that allows drafts but forbids sending, so the
   send gate is in our code, not Google's.
 - **Who may act as which mailbox comes from `employee.yaml`.** The dispatcher already sets the
-  employee's env; it will add `HUB_EMPLOYEE=<slug>`. The CLI reads that (or `--as <slug>`), loads
-  the employee's `access:` block, and refuses anything not declared there: mailbox identity, verbs
+  bot's env; it will add `HUB_EMPLOYEE=<slug>`. The CLI reads that (or `--as <slug>`), loads
+  the bot's `access:` block, and refuses anything not declared there: mailbox identity, verbs
   (`read`, `draft`, `send`), and `outbound_send`.
 
 ## Commands (the interface every bot learns)
@@ -66,14 +66,14 @@ Legal is authorized by Ana (September 4, 2026, #130) to read messages and attach
 `ana@acme.example`. Its Gmail access entry has `can: [read]` and `read_only: true`. The shared
 service refuses mailbox filing, labels, rules, mark-read, starring, drafts, and sends for that
 entry. This is separate from `allow_attachments` in the outbound policy, which controls adding
-attachments to mail the hub writes and remains unchanged.
+attachments to mail Tico writes and remains unchanged.
 
 Legal's `default_mailbox: legal@acme.example` preserves its existing routines. It must explicitly use
 `--as legal --mailbox ana@acme.example` for Ana's messages; rules and filing are not allowed there.
 
 ### Reading attachments
 
-Every employee with `read` access to a mailbox can list and download its attachments; no
+Every bot with `read` access to a mailbox can list and download its attachments; no
 separate attachment grant is needed. This applies to ordinary and read-only mailbox access
 alike, and does not grant access to other mailboxes or permission to send attachments.
 
@@ -98,49 +98,49 @@ with the reason attached; it never silently drops the work.
 
 **1. Policy (hardcoded, `registry/mail-policy.yaml` plus `employee.yaml`).**
 - Global kill switch and per-mailbox pause. Flip one line and everything becomes drafts.
-- Employee may use this mailbox with this verb (from `access:`). `outbound_send: false` means
+- Bot may use this mailbox with this verb (from `access:`). `outbound_send: false` means
   `send` produces a draft and a note, always.
 - Internal (@acme.example) versus external recipients. External sends need one of: a standing
   allowance in the policy file (Influencer: recipient must be in its creator table, 10 per day,
   never the same address twice) or `--approval-issue`, which is a closed `owner:ana`
   `type:decision` GitHub Issue, a decided Tico `send` approval, or Ana's Tico message
-  telling this employee to send.
-- Caps: sends per employee per day, per-recipient cooldown (14 days unless they wrote last),
+  telling this bot to send.
+- Caps: sends per bot per day, per-recipient cooldown (14 days unless they wrote last),
   one external recipient per message, no CC or BCC outside acme.example, no attachments unless the
-  policy allows them for that employee. A per-message approval (below) lifts the recipient
+  policy allows them for that bot. A per-message approval (below) lifts the recipient
   count, the external Cc rule and the cooldown for that one message; never the daily cap, the
   blocklist, or attachments.
 - Blocklist of addresses and domains bots never email (press, counterparties, anyone Ana
   lists), and a "Ana handles personally" list that forces `hub/needs-owner`.
 
 **Per-message approval.** Ana sometimes approves one
-exact message: these words, to these people, once. The approval Issue says so with a line in
+exact message: these words, to these humans, once. The approval task says so with a line in
 its body, one block per message, and the block has to match the message exactly (external
-addresses only; a mention elsewhere in the Issue, or a superset, does not count):
+addresses only; a mention elsewhere in the task, or a superset, does not count):
 
 ```
 Send to: counsel@lawfirm.example
 Cc: partner@lawfirm.example; associate@lawfirm.example
 ```
 
-When `--approval-issue` is a full yes — a closed `owner:ana` `type:decision` Issue with a
+When `--approval-issue` is a full yes — a closed `owner:ana` `type:decision` GitHub Issue with a
 matching block, a decided Tico `send` approval whose payload names every external address,
-or a Tico message in which Ana told this employee to send — that message may carry more
+or a Tico message in which Ana told this bot to send — that message may carry more
 than one external recipient and external Cc, the cooldown does not apply to it, lint L056
 does not apply to it, the second reviewer runs but advises instead of blocking (its verdict
-is still recorded and shown), and the employee's `outbound_send: false` is lifted for that
-message only. The employee still has to declare `send` on the mailbox, the daily cap and
+is still recorded and shown), and the bot's `outbound_send: false` is lifted for that
+message only. The bot still has to declare `send` on the mailbox, the daily cap and
 the blocklist still apply, and `mail draft` accepts the same `--approval-issue` so the
 draft can be written with the external Cc in the first place. Everything else about the
-employee stays draft-only.
+bot stays draft-only.
 
 **2. Lint (deterministic, each rule has an id, `mail lint` runs standalone).**
-- Forbidden phrases from the company writing rules and the playbooks, for example "we guarantee"
-  or other promises the company does not make (the list is configuration, not code).
+- Forbidden phrases from the team writing rules and the playbooks, for example "we guarantee"
+  or other promises the team does not make (the list is configuration, not code).
 - URLs: only acme.example hosts; no calendly.com, no go.acme.example/get-demo, no presigned S3 links;
   Influencer CTAs must carry the UTM pattern from its playbook.
 - Placeholders and leaks: `{{`, `[NAME]`, `TODO`, `lorem`, key-shaped strings (`xoxb-`, `AKIA`,
-  `sk-`), S3 URIs, hub Issue numbers, anything internal-only.
+  `sk-`), S3 URIs, Tico task numbers, anything internal-only.
 - Structure: subject present and under 120 characters, body within bounds, reply keeps the
   thread and its recipient, signature present, one language.
 - Scheduling: when times are offered there are at least two, in the future, chronological,
@@ -149,8 +149,8 @@ employee stays draft-only.
   sent without the invite; `mail schedule` does both or neither.
 
 **3. Reviewer (a second model, different vendor from the writer).**
-The employees write with Codex (OpenAI). The CLI asks Grok 4.6 to judge the draft against the
-incoming thread, the employee's declared purpose, and the company writing rules. Grok runs through the
+The bots write with Codex (OpenAI). The CLI asks Grok 4.6 to review the draft against the
+incoming thread, the bot's declared purpose, and the team writing rules. Grok runs through the
 Grok Build, xAI's CLI, on this Mac (`grok -p '<prompt>' --output-format json -m grok-4.6
 --max-turns 1 --disable-web-search --permission-mode plan`, Ana's xAI subscription, no key to
 manage; the flags, plus a one-line preamble telling it to answer from the message alone
@@ -169,14 +169,14 @@ nightly reconcile against Gmail's Sent folder makes Ana's own sends count toward
 
 **5. Audit.**
 Every read of a thread body, label change, draft, send, and reviewer verdict goes to
-`runtime/mail/audit.jsonl` and the database: employee, Issue, mailbox, recipient, rule results,
-message id. `mail audit` prints it; the hub app gets a Mail tab later.
+`runtime/mail/audit.jsonl` and the database: bot, task, mailbox, recipient, rule results,
+message id. `mail audit` prints it; Tico gets a Message bots tab later.
 
-## Inbox rules (deterministic, run before any model sees the mail)
+## Mailbox rules (deterministic, run before any model sees the mail)
 
-The goal for Inbox and Legal Inbox is inbox zero with almost no input from Ana. Most of
+The goal for the message bots is inbox zero with almost no input from Ana. Most of
 that is not judgement, it is rules, and rules cost no tokens. `mail rules run --as <slug>` applies
-`registry/mail-rules.yaml` to every new message before the employee reads anything:
+`registry/mail-rules.yaml` to every new message before the bot reads anything:
 
 ```yaml
 rules:
@@ -207,9 +207,9 @@ Conditions are a fixed vocabulary implemented in code (headers, sender patterns,
 state, regexes, attachment types, age). Actions are label, archive, mark-read, star,
 `never_archive`, and `stop` (do not show this to the model at all). Rules run in order; the
 first `stop` wins. Every rule hit is audited with the rule id so a wrong archive is one query
-away and one label away from undone. The employee only sees what the rules did not settle,
-which is the token saving Ana asked for. Ana and the inbox bots add rules over time; a bot
-proposes a rule on its Issue, Ana merges it into the hub file.
+away and one label away from undone. The bot only sees what the rules did not settle,
+which is the token saving Ana asked for. Ana and the message bots add rules over time; a bot
+proposes a rule on its task, Ana merges it into the Tico file.
 
 A proposed rule comes with a backtest, not just a fixture. `mail rules backtest --as <slug>
 [--since 14d] [--rules candidate.yaml] [--limit 2000] [--format md|json]` replays the registry
@@ -219,7 +219,7 @@ of counts. It reports hits per rule with sample subjects; the candidate's diff a
 registry bucketed as newly archived, no longer archived, newly protected, no longer protected;
 conflicts, meaning anything the rules would archive that carries `hub/needs-owner`,
 `hub/drafted` or `hub/handled/owner`, sits on a thread with a hub draft or a scheduling action,
-or comes from a person at acme.example; and the number that would still reach the model. The
+or comes from a human at acme.example; and the number that would still reach the model. The
 conflicts list is the part to read before merging.
 
 Day one for ana@acme.example: anything with an unsubscribe link is marketing and is archived
@@ -227,50 +227,50 @@ immediately. Same for legal@acme.example.
 
 ## Reading side
 
-- Watermarks per mailbox and employee, so a run only sees what it has not triaged.
+- Watermarks per mailbox and bot, so a run only sees what it has not triaged.
 - Normalized JSON: from, to, date in America/Los_Angeles, thread id, plain-text body extracted
   from HTML, attachments listed with names and sizes but not downloaded unless asked, bodies
   truncated at 32 KB with a marker.
-- Hub labels make the bot's state visible in Gmail, so Ana can see at a glance what a bot
+- Tico labels make the bot's state visible in Gmail, so Ana can see at a glance what a bot
   touched and can override by relabeling.
 - A bot lists with `--format brief` and verifies with `inbox --untriaged`. Brief is four lines
   a message (id, date, sender; subject; thread, labels, unsubscribe, attachment count; the
   snippet) and no bodies; the bot opens the threads that need reading with `mail thread`. The
-  full `md` read of a busy inbox once cost 948K input tokens in one turn and truncated the
+  full `md` read of a busy inbox once cost 948K input tokens in one run and truncated the
   answer after `--new` had already marked everything seen, so the untriaged half was lost.
 - `inbox --untriaged` is `in:inbox` minus every message carrying any `hub/*` label. It is
   label-based and idempotent, touches neither `seen` nor the watermark, and cannot be combined
   with `--new` or `--since`. An empty answer means the pass is complete; a non-empty one lists
-  exactly what is still owed, however the previous turn ended.
+  exactly what is still owed, however the previous run ended.
 
-## Persisted mail on the hub
+## Persisted mail on Tico
 
-The server never talks to Gmail. The connector worker (`python -m runner connectors`) syncs one
+The server never talks to Gmail. The `connectors` job (`python -m runner connectors`) syncs one
 roster mailbox every `TICO_MAIL_SYNC_SECONDS` (default 10 minutes): `mail sync --as ana`
 locally ( `--backfill 90d` when the server still has no messages), then `mail sync export` →
 `POST /api/v2/connectors/mail/messages` → `mail sync ack` until the local outbox is empty.
-The CLI never holds `HUB_TOKEN`; the runner posts. Same operator gate as calendar snapshots.
-Bodies stay ≤32 KB; the hub keeps about 180 days (`TICO_MAIL_RETENTION_DAYS`) and a porter FTS
-index. People browse that copy on the Mail page (`GET /api/v2/mail/...`, [Mail](mail.md)); SQL
+The CLI never holds `HUB_TOKEN`; the runner posts. Same owner gate as calendar snapshots.
+Bodies stay ≤32 KB; Tico keeps about 180 days (`TICO_MAIL_RETENTION_DAYS`) and a porter FTS
+index. Humans browse that copy on the Message bots page (`GET /api/v2/mail/...`, [Message bots](mail.md)); SQL
 access to `mail_*` is owner-only.
 
 ## Tests and rollout
 
 - Unit tests for policy and lint with fixture emails, `python3 -m unittest`, and preflight runs
-  them for any employee that declares gmail access.
+  them for any bot that declares gmail access.
 - `mail doctor --e2e` uses a sandbox mailbox, `hub-test@acme.example`: draft, label, send to itself,
-  create and delete a throwaway event. Run by preflight before any mail employee goes active.
-- Week one: all three employees read and draft only (`outbound_send: false`). Ana reviews
-  drafts in Gmail and on the Issues. Week two, if the drafts are good: `outbound_send: true` for
-  Influencer with the 10-per-day creator allowance. Inbox and Legal Inbox never send
-  without a per-message approval Issue; Ana can also just send the draft herself.
+  create and delete a throwaway event. Run by preflight before any message bot goes active.
+- Week one: all three bots read and draft only (`outbound_send: false`). Ana reviews
+  drafts in Gmail and on the tasks. Week two, if the drafts are good: `outbound_send: true` for
+  Influencer with the 10-per-day creator allowance. The message bots never send
+  without a per-message approval task; Ana can also just send the draft herself.
 
-## Build order (about three working days of agent time)
+## Build order (about three working days of bot time)
 
 1. Auth, `doctor`, reading, labels, database, audit.
 2. `draft`, lint, reviewer, `--dry-run` everywhere, unit tests.
 3. `send`, policy file, caps, approval-issue check, `slots`, `schedule`, reconcile.
-4. `--e2e`, preflight hook, `docs/mail.md` for employees, `HUB_EMPLOYEE` in the dispatcher.
+4. `--e2e`, preflight hook, `docs/mail.md` for bots, `HUB_EMPLOYEE` in the dispatcher.
 
 ## What Ana does (about 20 minutes)
 
@@ -287,13 +287,13 @@ access to `mail_*` is owner-only.
 
 ## Decisions
 
-1. legal@acme.example is a real user mailbox; the Legal Inbox bot acts as it directly.
-2. Inbox archives noise from day one, by rules first (unsubscribe link means marketing,
+1. legal@acme.example is a real user mailbox; the legal message bot acts as it directly.
+2. The message bot archives noise from day one, by rules first (unsubscribe link means marketing,
    archive at once), then by the model for what the rules miss.
 3. Reviewer is Grok 4.6 through Grok Build (`MAIL_REVIEWER=grok:grok-4.6`), with xAI's API
-   as the fallback; the employees write with Codex. Claude is not part of the mail path.
+   as the fallback; the bots write with Codex. Claude is not part of the mail path.
    Anything that runs a model should run on a subscription Ana already pays for (xAI, Codex,
    Claude Code), not a metered key, unless there is no other way.
 4. CLI, not a daemon.
-5. The purpose of both inbox bots is inbox zero with very little input from Ana; add linting
+5. The purpose of both message bots is inbox zero with very little input from Ana; add linting
    and automatic rules over time rather than more model calls.
