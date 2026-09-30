@@ -279,7 +279,7 @@ def botops_turn(api):
 def test_botops_is_refused_outside_its_lane(api, gh):
     botops_turn(api)
     connect(api, administration="true")
-    for slug, why in (("nobody", "not a planned or active bot"), ("oldie", "not a planned or active bot")):
+    for slug, why in (("nobody", "not a bot being set up or running"), ("oldie", "not a bot being set up or running")):
         r = api.post("/api/v2/github/repos", json={"slug": slug}, headers=auth("botops-test"))
         assert r.status_code == 403 and why in r.text, slug
     r = api.post("/api/v2/github/repos", json={"slug": "newbie", "template": "evil/template"}, headers=auth("botops-test"))

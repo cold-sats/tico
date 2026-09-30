@@ -28,7 +28,12 @@ def candidates(c, auth, bot):
         # A member's bot: its member's computer, or one opened to members' bots. Any other: its operator's or the owner's.
         return (r["operator"] == operator or bool(r["accepts_member_bots"])) if member else r["operator"] in (operator, owner)
     rows = [r for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL") if takes(r)]
-    return sorted(rows, key=lambda r: (r["id"] not in online, load.get(r["id"], 0), r["created"], r["id"]))
+    # A bot BotOps builds has its repository on BotOps's computer, so it goes there when that computer takes it; a starter
+    # the runner sets up itself goes anywhere.
+    declared = H._json((c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone() or {"config_json": "{}"})["config_json"], {}) or {}
+    home = c.execute("SELECT runner_id FROM assignments WHERE bot='botops'").fetchone()
+    home = home["runner_id"] if home and not declared.get("materialize") and bot != "botops" else None
+    return sorted(rows, key=lambda r: (r["id"] not in online, r["id"] != home, load.get(r["id"], 0), r["created"], r["id"]))
 
 
 def auto_place(c, execution, bot, by=""):

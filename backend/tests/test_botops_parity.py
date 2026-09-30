@@ -104,6 +104,15 @@ def test_an_active_bot_goes_on_the_only_computer_or_the_least_busy_one(api):
     assert where["writer"] == second["runner_id"]                  # the one with nothing on it
 
 
+def test_a_bot_botops_builds_goes_where_botops_and_its_repository_are(api, botops):
+    other = runner(api, label="Idle Mac")
+    ready(api, other, [])
+    ready(api, botops, ["botops"])
+    made = post(api, "bots", {"slug": "scribe", "display_name": "Scribe", "description": "Writes", "status": "active",
+                              "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
+    assert made["assignment"]["runner_id"] == botops["runner_id"]            # not the emptier computer
+
+
 def test_activating_or_resuming_places_a_bot_and_the_scheduler_places_the_rest(api):
     made = post(api, "bots", {"slug": "scribe", "display_name": "Scribe", "description": "Writes", "status": "planned",
                               "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})

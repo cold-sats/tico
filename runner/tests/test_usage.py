@@ -94,5 +94,6 @@ class Sending(unittest.TestCase):
                 return super().post(path, body, key)
         client = Old()
         done = self.run_turn(client)
-        self.assertNotIn("usage", client.posts[-1][1])
-        self.assertEqual(client.posts[-1][1]["text"], done["text"])
+        result = [body for path, body in client.posts if path.endswith("/complete")][-1]      # a lease renewal may land after it
+        self.assertNotIn("usage", result)
+        self.assertEqual(result["text"], done["text"])

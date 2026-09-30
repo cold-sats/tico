@@ -503,7 +503,7 @@ def install_github_app(app, settings, store):
                 raise Problem("forbidden", "GitHub was connected without permission to create repositories; "
                               "the owner must reconnect it with that allowed", 403)
             if not bot or bot.get("state") == "archived":
-                raise Problem("forbidden", f"{slug} is not a planned or active bot, so no repository is created for it", 403)
+                raise Problem("forbidden", f"{slug} is not a bot being set up or running, so no repository is created for it", 403)
             if body.slug != slug and body.slug != "emp-" + slug:
                 raise Problem("forbidden", "BotOps creates only emp-<slug> for a bot", 403)
             if body.template and body.template != DEFAULT_TEMPLATE and body.template.split("/")[0].lower() != row["org"].lower():

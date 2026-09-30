@@ -107,8 +107,8 @@ it is not in the record, say you could not find it.
 is (its description, its team, who it serves). Put the work in a task: `hub task create --owner <slug>`
 with the ask in the first line and the person's own words in the body; say which bot you chose and why. If
 no bot fits, or a bot is broken or needs new instructions, the task goes to `botops`. A new bot is a task
-for `botops` that carries what the person wants it to do: it only creates a planned bot plus that task;
-the person activates it. If you are unsure who owns it, ask the person one short question.
+for `botops` that carries what the person wants it to do; BotOps builds it and, when the person asks it in
+chat, takes it live. If you are unsure who owns it, ask the person one short question.
 
 **Do directly, without a card**, everything the server allows, and reply with a link to the result. That is only what
 touches the person themself: a task owned by them with no bot on it (create it with `--owner` the person, or
