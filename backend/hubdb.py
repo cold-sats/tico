@@ -228,6 +228,74 @@ CREATE INDEX IF NOT EXISTS kpi_readings_kpi ON kpi_readings(kpi_id, ts);
 ALTER TABLE tasks ADD COLUMN goal_id TEXT;
 """
 
+# KPIs as records of their own, and how goals are coloured (backend/kpis.py, backend/goals.py). A KPI
+# no longer belongs to one goal: `goal_kpis` links a goal to a KPI and holds the target (an improvement
+# from a baseline to a value by a deadline, or a range to stay inside). Readings keep the business time
+# (`period_start`/`period_end`) apart from `collected_at`, and a correction is a new reading that
+# `supersedes` the old one. The old `kpis.goal_id` and `kpis.target` stay for the rows that had them; a
+# new KPI stores '' in `goal_id`. Rows that existed before this migration are recognised by `owner IS NULL`.
+KPIS_SCHEMA = """
+ALTER TABLE kpis ADD COLUMN slug TEXT;
+ALTER TABLE kpis ADD COLUMN definition TEXT NOT NULL DEFAULT '';
+ALTER TABLE kpis ADD COLUMN direction TEXT NOT NULL DEFAULT 'up';
+ALTER TABLE kpis ADD COLUMN cadence TEXT NOT NULL DEFAULT 'weekly';
+ALTER TABLE kpis ADD COLUMN owner TEXT;
+ALTER TABLE kpis ADD COLUMN source_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE kpis ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE kpis ADD COLUMN updated TEXT;
+ALTER TABLE kpi_readings ADD COLUMN period_start TEXT;
+ALTER TABLE kpi_readings ADD COLUMN period_end TEXT;
+ALTER TABLE kpi_readings ADD COLUMN collected_at TEXT;
+ALTER TABLE kpi_readings ADD COLUMN evidence TEXT NOT NULL DEFAULT '';
+ALTER TABLE kpi_readings ADD COLUMN quality TEXT NOT NULL DEFAULT 'measured';
+ALTER TABLE kpi_readings ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE kpi_readings ADD COLUMN supersedes TEXT;
+CREATE INDEX IF NOT EXISTS kpi_readings_supersedes ON kpi_readings(supersedes);
+ALTER TABLE goals ADD COLUMN status_source TEXT;
+ALTER TABLE goals ADD COLUMN suggest_status TEXT;
+ALTER TABLE goals ADD COLUMN suggest_note TEXT;
+ALTER TABLE goals ADD COLUMN suggest_at TEXT;
+ALTER TABLE goal_events ADD COLUMN status_by TEXT;
+ALTER TABLE goal_events ADD COLUMN status_source TEXT;
+
+CREATE TABLE IF NOT EXISTS goal_kpis (
+  id TEXT PRIMARY KEY, goal_id TEXT NOT NULL, kpi_id TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'none',
+  baseline REAL, baseline_at TEXT, target REAL, deadline TEXT, min REAL, max REAL,
+  created TEXT NOT NULL, created_by TEXT NOT NULL, updated TEXT NOT NULL, updated_by TEXT NOT NULL,
+  UNIQUE (goal_id, kpi_id));
+CREATE INDEX IF NOT EXISTS goal_kpis_kpi ON goal_kpis(kpi_id);
+
+CREATE TABLE IF NOT EXISTS kpi_definitions (
+  id TEXT PRIMARY KEY, kpi_id TEXT NOT NULL, version INTEGER NOT NULL, ts TEXT NOT NULL, actor TEXT NOT NULL,
+  name TEXT NOT NULL, definition TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL DEFAULT '',
+  direction TEXT NOT NULL, cadence TEXT NOT NULL, source_note TEXT NOT NULL DEFAULT '',
+  UNIQUE (kpi_id, version));
+
+CREATE TABLE IF NOT EXISTS goal_checkins (
+  id TEXT PRIMARY KEY, goal_id TEXT NOT NULL, kpi_id TEXT, ts TEXT NOT NULL, author TEXT NOT NULL,
+  source_actor TEXT NOT NULL, body TEXT NOT NULL, signal TEXT);
+CREATE INDEX IF NOT EXISTS goal_checkins_goal ON goal_checkins(goal_id, ts);
+
+CREATE TABLE IF NOT EXISTS goal_proposals (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, goal_id TEXT, kpi_id TEXT, payload_json TEXT NOT NULL DEFAULT '{}',
+  reason TEXT NOT NULL DEFAULT '', proposed_by TEXT NOT NULL, proposed_at TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', decided_by TEXT, decided_at TEXT, decision_note TEXT NOT NULL DEFAULT '',
+  result_json TEXT);
+CREATE INDEX IF NOT EXISTS goal_proposals_status ON goal_proposals(status, proposed_at);
+
+UPDATE kpi_readings SET period_end=ts, period_start=ts, collected_at=created WHERE period_end IS NULL;
+UPDATE kpi_readings SET quality='estimate' WHERE source='estimate' AND quality='measured' AND supersedes IS NULL AND period_start=period_end;
+UPDATE kpis SET owner=COALESCE((SELECT owner FROM goals WHERE goals.id=kpis.goal_id), 'company'),
+  cadence='monthly', updated=created WHERE owner IS NULL;
+INSERT OR IGNORE INTO goal_kpis (id, goal_id, kpi_id, kind, target, created, created_by, updated, updated_by)
+  SELECT id, goal_id, id, CASE WHEN target IS NULL THEN 'none' ELSE 'improve' END, target, created, created_by,
+         created, created_by FROM kpis WHERE goal_id != '' AND goal_id IN (SELECT id FROM goals);
+INSERT OR IGNORE INTO kpi_definitions (id, kpi_id, version, ts, actor, name, definition, unit, direction, cadence, source_note)
+  SELECT id || ':1', id, 1, created, created_by, name, definition, unit, direction, cadence, source_note FROM kpis;
+UPDATE goals SET status_source='person' WHERE status IS NOT NULL AND status_source IS NULL;
+UPDATE goal_events SET status_by=actor, status_source='person' WHERE field='status' AND status_source IS NULL;
+"""
+
 # The shared market model (backend/market.py).
 # Six tables plus an FTS index. Rows are retired, merged or ended, never deleted.
 MARKET_SCHEMA = """
@@ -412,7 +480,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS market_insights_source_ref
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
-              REPLY_ANSWERS_ASKS, LISTENING_SCHEMA]
+              REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA]
 
 
 class Refused(Exception):

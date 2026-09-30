@@ -1,27 +1,41 @@
 """Goals: what every person and bot on the org chart is for, and how it says it is going.
 
 A goal has an owner (a person, a bot, or `company`; one field), the goal it serves (`parent_id`,
-optional: a goal with none is simply not linked), a colour the owner sets with one sentence, and
-KPIs whose readings anyone may log at any time. What level a goal is at comes from its owner: `company`
-is a company goal, `human:x` a person's, `bot:x` a bot's. A company goal is optional. No number lives on a goal, no colour is derived from children, and nothing
-goes stale on its own. Bots read theirs with `hub goals`;
-nothing is pushed into a run.
+optional: a goal with none is simply not linked), and a colour. What level a goal is at comes from
+its owner: `company` is a company goal, `human:x` a person's, `bot:x` a bot's. A company goal is
+optional. Bots read theirs with `hub goals`; nothing is pushed into a run.
 
-Rows are appended, never deleted: `dropped` is a status, a reading is a fact with an author.
-Every change leaves a `goal_events` row, as `task_events` does for tasks.
+A goal links to KPIs (backend/kpis.py) and its colour is set automatically from them, by the Goal
+Manager, or from its owner's check-ins and its tasks when it has none. A person may override that:
+the colour they set sticks (`status_source` is `person`, with their note) until a person hands it
+back, and the Goal Manager may only *suggest* a different one. Every colour is stored with who set
+it (`status_by`) and how (`status_source`, auto or person), in `goals` and in `goal_events`.
+
+Rows are appended, never deleted: `dropped` is a status. Every change leaves a `goal_events` row, as
+`task_events` does for tasks. Changes to a definition or a target that the Goal Manager wants are
+proposals (`goal_proposals`) that the goal's or KPI's owner confirms.
 """
 
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 
 from . import hubdb as H
+from . import kpis as K
 from . import people as P
 
 COLOURS = ("red", "yellow", "green")
 STATUSES = COLOURS + ("done", "dropped")
+AUTO_STATUSES = COLOURS + ("gray",)       # what the arithmetic may say; gray is no data
 LIVE = ("red", "yellow", "green")         # statuses a goal is still worked under; None is proposed
 COMPANY = "company"                       # the owner of a company goal
-SOURCES = ("measured", "estimate")        # or a connector name; only these two are checked
-
+GOAL_MANAGER = "goal-manager"             # the built-in bot that keeps the KPIs and sets the automatic colours
+AUTO_ACTOR = "bot:" + GOAL_MANAGER        # who an automatic status says set it
+SIGNALS = ("on_track", "at_risk", "off_track")
+SIGNAL_COLOUR = {"on_track": "green", "at_risk": "yellow", "off_track": "red"}
+CHECKIN_DAYS = 21                         # a check-in colours a goal for three weeks
+TASK_DAYS = 14                            # no task done for two weeks, on a goal at least that old: yellow
+SOURCES = ("measured", "estimate")        # legacy names of a reading's quality; a connector name is a source
+PROPOSALS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag")
+FLAGS = ("vague", "duplicate", "unmeasured")
 
 
 # ----------------------------------------------------------------------------- reads
@@ -69,25 +83,16 @@ def history(conn, goal_id):
 
 
 def kpis(conn, goal_id):
-    """The goal's KPIs, each with its latest measured reading and its latest reading of any kind."""
-    out = []
-    for row in H._rows(conn.execute("SELECT * FROM kpis WHERE goal_id=? ORDER BY created", (goal_id,))):
-        row["latest"] = H._one(conn, "SELECT * FROM kpi_readings WHERE kpi_id=? ORDER BY ts DESC, created DESC LIMIT 1",
-                               (row["id"],))
-        row["latest_measured"] = H._one(conn, "SELECT * FROM kpi_readings WHERE kpi_id=? AND source!='estimate' "
-                                              "ORDER BY ts DESC, created DESC LIMIT 1", (row["id"],))
-        row["readings"] = conn.execute("SELECT count(*) FROM kpi_readings WHERE kpi_id=?", (row["id"],)).fetchone()[0]
-        out.append(row)
-    return out
+    """The goal's KPIs: each one's fields and latest reading, its link with the target, and its status."""
+    return K.goal_views(conn, [goal_id])[goal_id]
 
 
 def kpi(conn, kpi_id):
-    return H._one(conn, "SELECT * FROM kpis WHERE id=?", (kpi_id,))
+    return K.kpi(conn, kpi_id)
 
 
 def readings(conn, kpi_id, limit=500):
-    return H._rows(conn.execute("SELECT * FROM kpi_readings WHERE kpi_id=? ORDER BY ts, created LIMIT ?",
-                                (kpi_id, limit)))
+    return K.readings(conn, kpi_id, limit=limit)
 
 
 def tasks_of(conn, goal_id):
@@ -95,11 +100,40 @@ def tasks_of(conn, goal_id):
                                 "ORDER BY status, updated DESC", (goal_id,)))
 
 
+def checkins(conn, goal_id, limit=50):
+    """The owner's own words about how it is going, newest first."""
+    return H._rows(conn.execute("SELECT * FROM goal_checkins WHERE goal_id=? ORDER BY ts DESC LIMIT ?",
+                                (goal_id, limit)))
+
+
+def proposals(conn, status="pending", goal_id=None, kpi_id=None):
+    where, args = [], []
+    if status:
+        where.append("status=?")
+        args.append(status)
+    if goal_id:
+        where.append("goal_id=?")
+        args.append(goal_id)
+    if kpi_id:
+        where.append("kpi_id=?")
+        args.append(kpi_id)
+    return [_proposal_view(r) for r in H._rows(conn.execute(
+        "SELECT * FROM goal_proposals" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY proposed_at", args))]
+
+
+def _proposal_view(row):
+    if row:
+        row["payload"] = H._json(row.pop("payload_json"), {}) or {}
+        row["result"] = H._json(row.pop("result_json"), None)
+    return row
+
+
 def view(conn, row):
     """One goal with everything the page and `hub goal show` print."""
     return {**row, "kpis": kpis(conn, row["id"]), "children": children(conn, row["id"]),
             "chain": chain(conn, row["id"]), "tasks": tasks_of(conn, row["id"]),
-            "events": history(conn, row["id"])}
+            "events": history(conn, row["id"]), "checkins": checkins(conn, row["id"], 10),
+            "proposals": proposals(conn, "pending", goal_id=row["id"])}
 
 
 def for_actor(conn, actor, roster=None, entries=None, archived=()):
@@ -176,10 +210,12 @@ def reports_of(actor, roster, entries, archived=()):
 
 
 # ----------------------------------------------------------------------------- writes
-def _event(conn, goal_id, actor, field, old, new, note=""):
-    conn.execute("INSERT INTO goal_events (id, goal_id, ts, actor, field, old, new, note) VALUES (?,?,?,?,?,?,?,?)",
+def _event(conn, goal_id, actor, field, old, new, note="", status_by=None, status_source=None):
+    conn.execute("INSERT INTO goal_events (id, goal_id, ts, actor, field, old, new, note, status_by, status_source) "
+                 "VALUES (?,?,?,?,?,?,?,?,?,?)",
                  (H.new_id(), goal_id, H.now(), actor, field,
-                  None if old is None else str(old), None if new is None else str(new), note or ""))
+                  None if old is None else str(old), None if new is None else str(new), note or "",
+                  status_by, status_source))
 
 
 def _next_rank(conn, owner, top=False):
@@ -214,6 +250,7 @@ def create(conn, actor, title, owner, parent_id=None, body="", top=False):
 
 
 def set_status(conn, actor, goal_id, status, note=""):
+    """A colour set by hand: it sticks (`status_source` person) until somebody hands it back."""
     H._writer(conn, actor)
     row = goal(conn, goal_id)
     if not row:
@@ -224,10 +261,11 @@ def set_status(conn, actor, goal_id, status, note=""):
     if status in COLOURS and not note:
         H.refuse(conn, actor, "lint", "say in one sentence why it is " + status)
     ts = H.now()
-    conn.execute("UPDATE goals SET status=?, status_note=?, status_by=?, status_at=?, updated=?, "
+    conn.execute("UPDATE goals SET status=?, status_note=?, status_by=?, status_at=?, status_source='person', "
+                 "suggest_status=NULL, suggest_note=NULL, suggest_at=NULL, updated=?, "
                  "rank=CASE WHEN ? IN ('done','dropped') THEN NULL WHEN rank IS NULL THEN ? ELSE rank END "
                  "WHERE id=?", (status, note, actor, ts, ts, status, _next_rank(conn, row["owner"]), goal_id))
-    _event(conn, goal_id, actor, "status", row["status"], status, note)
+    _event(conn, goal_id, actor, "status", row["status"], status, note, status_by=actor, status_source="person")
     H.event(conn, actor, "goal.status", goal_id, {"status": status})
     if status == "dropped":
         # Nothing is deleted: the children move up to the goal this one served.
@@ -300,69 +338,378 @@ def mark_read(conn, actor, goal_ids):
         conn.execute("UPDATE goals SET last_read_at=?, last_read_by=? WHERE id=?", (ts, actor, gid))
 
 
-def kpi_add(conn, actor, goal_id, name, unit="", target=None):
+# ----------------------------------------------------------------------------- KPIs on goals
+def _lint(conn, actor, error):
+    H.refuse(conn, actor, "lint", str(error))
+
+
+def kpi_create(conn, actor, owner, fields, goal_id=None, target=None):
+    """A standalone KPI (backend/kpis.py), and with `goal_id` its link to that goal in one go."""
     H._writer(conn, actor)
-    if not goal(conn, goal_id):
+    if goal_id and not goal(conn, goal_id):
         H.refuse(conn, actor, "not-found", f"no goal {goal_id}")
-    name = str(name or "").strip()
-    if not name:
-        H.refuse(conn, actor, "lint", "name the measure, in words: what is counted, per what")
-    row = {"id": H.new_id(), "goal_id": goal_id, "name": name, "unit": str(unit or "").strip(),
-           "target": target, "created": H.now(), "created_by": actor}
-    conn.execute("INSERT INTO kpis (id, goal_id, name, unit, target, created, created_by) VALUES "
-                 "(:id, :goal_id, :name, :unit, :target, :created, :created_by)", row)
-    _event(conn, goal_id, actor, "kpi", None, name, f"target {target} {row['unit']}".strip() if target is not None else "")
-    H.event(conn, actor, "kpi.add", row["id"], {"goal_id": goal_id, "name": name})
+    try:
+        row = K.create(conn, actor, owner, fields)
+        values = None
+        if goal_id and target is not None:
+            values, error = K.validate_target(row, target)
+            if error:
+                raise ValueError(error)
+    except ValueError as exc:
+        _lint(conn, actor, exc)
+    H.event(conn, actor, "kpi.create", row["id"], {"name": row["name"], "owner": owner})
+    arm_pass(conn)
+    if goal_id:
+        kpi_link(conn, actor, goal_id, row["id"], target or {"kind": "none"})
     return kpi(conn, row["id"])
 
 
-def kpi_update(conn, actor, kpi_id, name=None, unit=None, target=None, clear_target=False):
+def kpi_edit(conn, actor, kpi_id, fields, owner=None):
+    """Change a KPI. A change to what it measures is a new definition version, noted on every goal it serves."""
     H._writer(conn, actor)
     row = kpi(conn, kpi_id)
-    if not row:
+    if not row or K.auto(kpi_id):
         H.refuse(conn, actor, "not-found", f"no kpi {kpi_id}")
-    sets, args = [], {}
-    if name is not None and str(name).strip():
-        sets.append("name=:name")
-        args["name"] = str(name).strip()
-    if unit is not None:
-        sets.append("unit=:unit")
-        args["unit"] = str(unit).strip()
-    if target is not None or clear_target:
-        sets.append("target=:target")
-        args["target"] = None if clear_target else target
-        _event(conn, row["goal_id"], actor, "kpi_target", row["target"], args["target"], row["name"])
-    if not sets:
+    try:
+        after, changes = K.update(conn, actor, kpi_id, fields, owner)
+    except ValueError as exc:
+        _lint(conn, actor, exc)
+    if not changes:
         return row
-    args["id"] = kpi_id
-    conn.execute(f"UPDATE kpis SET {', '.join(sets)} WHERE id=:id", args)
-    return kpi(conn, kpi_id)
+    H.event(conn, actor, "kpi.update", kpi_id, {k: v[1] for k, v in changes.items()})
+    if after["definition_version"] != row["definition_version"]:
+        for link in K.links_of(conn, kpi_id=kpi_id):
+            _event(conn, link["goal_id"], actor, "kpi_definition", row["definition_version"], after["definition_version"],
+                   after["name"])
+    for link in K.links_of(conn, kpi_id=kpi_id):
+        apply_auto(conn, link["goal_id"])
+    return after
 
 
-def kpi_log(conn, actor, kpi_id, value, note="", source="measured", at=None):
-    """A reading: a fact somebody measured, or a guess labelled as such. Appended, never edited."""
+def kpi_log(conn, actor, kpi_id, value, note="", source="", at=None, **fields):
+    """A reading: a fact somebody measured, with the period it describes. Appended, never edited; a
+    correction names the reading it replaces in `supersedes`. `at` is the old spelling of `period_end`."""
     H._writer(conn, actor)
     row = kpi(conn, kpi_id)
+    if not row or K.auto(kpi_id):
+        H.refuse(conn, actor, "not-found", f"no kpi {kpi_id}" if not row else f"{row['name']} is computed by Tico, not logged")
+    if at and not fields.get("period_end"):
+        fields["period_end"] = at
+    try:
+        reading = K.add_reading(conn, actor, row, value, note=note, source=source, **fields)
+    except ValueError as exc:
+        _lint(conn, actor, exc)
+    H.event(conn, actor, "kpi.log", kpi_id, {"value": reading["value"], "quality": reading["quality"]})
+    for link in K.links_of(conn, kpi_id=kpi_id):
+        apply_auto(conn, link["goal_id"])
+    return reading
+
+
+def kpi_link(conn, actor, goal_id, kpi_id, target):
+    """Link a goal to a KPI, with the target on the link (`kind` none, improve or maintain). Linking again
+    replaces the target."""
+    H._writer(conn, actor)
+    row = kpi(conn, kpi_id)
+    if not goal(conn, goal_id):
+        H.refuse(conn, actor, "not-found", f"no goal {goal_id}")
     if not row:
         H.refuse(conn, actor, "not-found", f"no kpi {kpi_id}")
-    source = str(source or "measured").strip().lower() or "measured"
+    values, error = K.validate_target(row, target or {"kind": "none"})
+    if error:
+        _lint(conn, actor, error)
+    if values["kind"] == "improve" and values["baseline"] is None:
+        # No baseline given: the line starts from the latest reading, or from the first one to come.
+        newest = K.latest(K.readings(conn, kpi_id, effective=True), usable=True)
+        if newest:
+            values["baseline"], values["baseline_at"] = newest["value"], newest["period_end"]
+    made, old = K.set_link(conn, actor, goal_id, kpi_id, values)
+    if not old:
+        _event(conn, goal_id, actor, "kpi", None, row["name"], K.target_label(row, made))
+    elif K.target_label(row, old) != K.target_label(row, made):
+        _event(conn, goal_id, actor, "kpi_target", K.target_label(row, old), K.target_label(row, made), row["name"])
+    H.event(conn, actor, "kpi.link", kpi_id, {"goal_id": goal_id, "kind": values["kind"]})
+    apply_auto(conn, goal_id)
+    return made
+
+
+def kpi_unlink(conn, actor, goal_id, kpi_id):
+    H._writer(conn, actor)
+    row = kpi(conn, kpi_id)
+    made = K.link(conn, goal_id, kpi_id)
+    if not made:
+        H.refuse(conn, actor, "not-found", "that KPI is not linked to this goal")
+    K.unlink(conn, goal_id, kpi_id)
+    _event(conn, goal_id, actor, "kpi", (row or {}).get("name") or kpi_id, None, "unlinked")
+    H.event(conn, actor, "kpi.unlink", kpi_id, {"goal_id": goal_id})
+    apply_auto(conn, goal_id)
+
+
+def arm_pass(conn):
+    """The Goal Manager's daily pass starts paused, like a starter bot's first routine, and may start once a
+    KPI exists. Once: a person who pauses it afterwards is not overruled."""
+    from . import routines
+    sid = f"{GOAL_MANAGER}:kpi-pass"
+    row = routines.row(conn, sid)
+    if not row or row["deleted_at"] or row["enabled"] or not conn.execute("SELECT 1 FROM kpis LIMIT 1").fetchone():
+        return False
+    if conn.execute("SELECT 1 FROM events WHERE action='goal_manager.armed'").fetchone():
+        return False
+    routines.update(conn, H.KEEPER, sid, {"enabled": True})
+    H.event(conn, H.KEEPER, "goal_manager.armed", sid, {})
+    return True
+
+
+# ----------------------------------------------------------------------------- the colour, worked out
+def _age(then, at):
+    days = (at - H.parse_ts(then).astimezone(timezone.utc)).total_seconds() / 86400 if H.parse_ts(then) else 0
+    return K.age_words(days)
+
+
+def _from_owner(conn, row, at):
+    """A goal with no KPI to judge it by is coloured by its owner's check-in, then by its tasks."""
+    since = H.shift(H.now(), days=-CHECKIN_DAYS)
+    said = H._one(conn, "SELECT * FROM goal_checkins WHERE goal_id=? AND signal IS NOT NULL AND ts>? "
+                        "ORDER BY ts DESC LIMIT 1", (row["id"], since))
+    if said:
+        return {"status": SIGNAL_COLOUR[said["signal"]], "basis": "checkin",
+                "reason": f"Check-in {_age(said['ts'], at)} ago: {said['signal'].replace('_', ' ')}"}
+    tasks = conn.execute("SELECT status, done_at, closed_at, updated FROM tasks WHERE goal_id=? AND status!='declined'",
+                         (row["id"],)).fetchall()
+    if not tasks:
+        return None
+    finished = [t["done_at"] or t["closed_at"] for t in tasks if t["done_at"] or t["closed_at"]]
+    waiting = [t for t in tasks if not (t["done_at"] or t["closed_at"])]
+    if not waiting:
+        return {"status": "green", "basis": "tasks", "reason": f"All {len(tasks)} tasks done"}
+    latest = max(finished, default=None)
+    if latest and (at - H.parse_ts(latest).astimezone(timezone.utc)).days < TASK_DAYS:
+        return {"status": "green", "basis": "tasks",
+                "reason": f"{len(finished)} of {len(tasks)} tasks done, latest {_age(latest, at)} ago"}
+    created = H.parse_ts(row["created"])
+    if created and (at - created.astimezone(timezone.utc)).days >= TASK_DAYS:
+        moved = max(t["updated"] or "" for t in waiting)
+        if moved and (at - H.parse_ts(moved).astimezone(timezone.utc)).days >= 30:
+            return {"status": "red", "basis": "tasks", "reason": "Nothing has moved in 30 days"}
+        return {"status": "yellow", "basis": "tasks", "reason": f"No task done in {TASK_DAYS} days ({len(waiting)} open)"}
+    return None
+
+
+def score(conn, row, at=None):
+    """The automatic colour of a goal and the one line that says why: {status, reason, basis}.
+    From its KPIs when they carry a target (the worst of them decides); else from its owner's latest
+    check-in and its tasks; else gray, no data. A KPI without fresh data never turns a goal red."""
+    at = at or K.now()
+    views = K.goal_link_status(conn, row["id"], at)
+    judged = [v for v in views if v["status"] in COLOURS]
+    if judged:
+        worst = min(judged, key=lambda v: COLOURS[::-1].index(v["status"]))
+        others = len(judged) - 1
+        return {"status": worst["status"], "basis": "kpis",
+                "reason": worst["reason"] + (f" (+{others} more)" if others and worst["status"] != "green" else "")}
+    fallback = _from_owner(conn, row, at)
+    if fallback:
+        return fallback
+    if views:
+        return {"status": "gray", "basis": "kpis", "reason": views[0]["reason"]}
+    return {"status": "gray", "basis": "none", "reason": "No data yet: no KPI, check-in or task progress"}
+
+
+def apply_auto(conn, goal_id, at=None):
+    """Set a goal's automatic colour, unless a person set one. A goal a person set only gets a
+    visible suggestion when the arithmetic disagrees, never a change. Done, dropped and proposed goals
+    are left alone. Returns what happened, or None."""
+    row = goal(conn, goal_id)
+    if not row or row["status"] in ("done", "dropped") or (row["status"] is None and row["parent_id"]):
+        return None
+    result = score(conn, row, at)
     ts = H.now()
-    when = ts
-    if at:
-        parsed = H.parse_ts(at)
-        if not parsed:
-            H.refuse(conn, actor, "date", "at must be an ISO-8601 date or date-time")
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        when = parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
-    reading = {"id": H.new_id(), "kpi_id": kpi_id, "ts": when, "value": float(value), "actor": actor,
-               "source": source, "note": str(note or "").strip(), "created": ts}
-    conn.execute("INSERT INTO kpi_readings (id, kpi_id, ts, value, actor, source, note, created) VALUES "
-                 "(:id, :kpi_id, :ts, :value, :actor, :source, :note, :created)", reading)
-    _event(conn, row["goal_id"], actor, "reading", None, f"{row['name']}: {reading['value']:g} {row['unit']}".strip(),
-           (source if source != "measured" else "") + ((" " if source != "measured" and reading["note"] else "") + reading["note"]))
-    H.event(conn, actor, "kpi.log", kpi_id, {"value": reading["value"], "source": source})
-    return reading
+    if row["status_source"] == "person":
+        differs = result["status"] in COLOURS and result["status"] != row["status"]
+        suggest = (result["status"], result["reason"]) if differs else (None, None)
+        if (suggest[0], suggest[1]) != (row["suggest_status"], row["suggest_note"]):
+            conn.execute("UPDATE goals SET suggest_status=?, suggest_note=?, suggest_at=? WHERE id=?",
+                         (suggest[0], suggest[1], ts if suggest[0] else None, goal_id))
+            return {"goal": goal_id, "suggested": suggest[0], "reason": suggest[1]} if suggest[0] else None
+        return None
+    if row["status"] is None and result["status"] == "gray":
+        return None                                   # nothing to say yet: it stays unscored
+    changed = result["status"] != row["status"]
+    if not changed and result["reason"] == row["status_note"] and row["status_by"] == AUTO_ACTOR:
+        return None
+    conn.execute("UPDATE goals SET status=?, status_note=?, status_by=?, status_source='auto', "
+                 "status_at=CASE WHEN ? THEN ? ELSE status_at END, updated=CASE WHEN ? THEN ? ELSE updated END, "
+                 "suggest_status=NULL, suggest_note=NULL, suggest_at=NULL, "
+                 "rank=CASE WHEN rank IS NULL THEN ? ELSE rank END WHERE id=?",
+                 (result["status"], result["reason"], AUTO_ACTOR, changed, ts, changed, ts,
+                  _next_rank(conn, row["owner"]), goal_id))
+    if changed:
+        _event(conn, goal_id, AUTO_ACTOR, "status", row["status"], result["status"], result["reason"],
+               status_by=AUTO_ACTOR, status_source="auto")
+        H.event(conn, AUTO_ACTOR, "goal.status", goal_id, {"status": result["status"], "source": "auto"})
+    return {"goal": goal_id, "status": result["status"], "was": row["status"], "reason": result["reason"],
+            "changed": changed}
+
+
+def refresh(conn, goal_ids=None, at=None):
+    """The Goal Manager's status pass: every live goal (or the ones named) gets its automatic colour
+    worked out again, which is how time passing turns fresh data stale."""
+    rows = [goal(conn, g) for g in goal_ids] if goal_ids else goals(conn, live_only=True)
+    changed, suggested = [], []
+    for row in filter(None, rows):
+        out = apply_auto(conn, row["id"], at)
+        if out and out.get("suggested"):
+            suggested.append(out)
+        elif out and out.get("changed"):
+            changed.append(out)
+    return {"changed": changed, "suggested": suggested, "checked": len([r for r in rows if r])}
+
+
+def hand_back(conn, actor, goal_id):
+    """A person lets the Goal Manager set the colour again: the override ends and it is worked out now."""
+    H._writer(conn, actor)
+    row = goal(conn, goal_id)
+    if not row:
+        H.refuse(conn, actor, "not-found", f"no goal {goal_id}")
+    if row["status_source"] != "person" or row["status"] not in COLOURS:
+        H.refuse(conn, actor, "kind", "only a colour a person set can be handed back; this one is already automatic"
+                 if row["status_source"] != "person" else "a done or dropped goal is not handed back: set a colour first")
+    conn.execute("UPDATE goals SET status_source='auto', suggest_status=NULL, suggest_note=NULL, suggest_at=NULL, "
+                 "updated=? WHERE id=?", (H.now(), goal_id))
+    _event(conn, goal_id, actor, "status_source", "person", "auto", "Let Goal Manager set it",
+           status_by=actor, status_source="auto")
+    H.event(conn, actor, "goal.hand_back", goal_id, {})
+    apply_auto(conn, goal_id)
+    return goal(conn, goal_id)
+
+
+def checkin_add(conn, actor, goal_id, body, signal=None, source_actor=None, kpi_id=None):
+    """The owner's own answer about how a goal is going, in their words: interpretation, kept apart from
+    the readings (facts). `source_actor` is whose answer it is when someone records it for them."""
+    H._writer(conn, actor)
+    if not goal(conn, goal_id):
+        H.refuse(conn, actor, "not-found", f"no goal {goal_id}")
+    body = str(body or "").strip()
+    if not body:
+        H.refuse(conn, actor, "lint", "a check-in says what is going on, in a sentence")
+    if signal and signal not in SIGNALS:
+        H.refuse(conn, actor, "kind", f"a signal is {'|'.join(SIGNALS)}, not {signal}")
+    if kpi_id and not kpi(conn, kpi_id):
+        H.refuse(conn, actor, "not-found", f"no kpi {kpi_id}")
+    row = {"id": H.new_id(), "goal_id": goal_id, "kpi_id": kpi_id or None, "ts": H.now(), "author": actor,
+           "source_actor": source_actor or actor, "body": body[:4000], "signal": signal or None}
+    conn.execute("INSERT INTO goal_checkins (id, goal_id, kpi_id, ts, author, source_actor, body, signal) VALUES "
+                 "(:id, :goal_id, :kpi_id, :ts, :author, :source_actor, :body, :signal)", row)
+    _event(conn, goal_id, actor, "checkin", None, signal, body[:300])
+    H.event(conn, actor, "goal.checkin", goal_id, {"signal": signal})
+    apply_auto(conn, goal_id)
+    return row
+
+
+# ----------------------------------------------------------------------------- proposals
+def _payload_error(conn, kind, goal_id, kpi_id, payload):
+    """What is wrong with a proposal's payload, in a sentence, or None."""
+    if kind in ("goal_wording", "goal_kpi", "flag") and not goal(conn, goal_id):
+        return "name the goal this is about"
+    if kind in ("kpi_definition", "kpi_target") and (not kpi_id or not kpi(conn, kpi_id)
+                                                      or (kind == "kpi_definition" and K.auto(kpi_id))):
+        return "name a KPI this is about (a KPI Tico computes itself has no definition to change)"
+    try:
+        if kind == "goal_wording":
+            if not (payload.get("title") or payload.get("body")):
+                return "propose a new title or body"
+        elif kind == "kpi_definition":
+            if not K.clean(payload):
+                return "propose a change to the name, definition, unit, direction, cadence or source note"
+        elif kind == "kpi_target":
+            if not goal_id or not goal(conn, goal_id):
+                return "name the goal whose target this changes"
+            _, error = K.validate_target(kpi(conn, kpi_id), payload)
+            return error
+        elif kind == "goal_kpi":
+            if payload.get("kpi_id"):
+                if not kpi(conn, payload["kpi_id"]):
+                    return "no such KPI to link"
+            else:
+                K.clean(payload.get("kpi") or {})
+                if not (payload.get("kpi") or {}).get("name"):
+                    return "name the KPI, or name an existing one with kpi_id"
+            _, error = K.validate_target(kpi(conn, payload["kpi_id"]) if payload.get("kpi_id")
+                                         else {**{"direction": "up"}, **(payload.get("kpi") or {})},
+                                         payload.get("target") or {"kind": "none"})
+            return error
+        elif kind == "flag":
+            if payload.get("issue") not in FLAGS:
+                return f"a flag says what is wrong: {'|'.join(FLAGS)}"
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def propose(conn, actor, kind, goal_id=None, kpi_id=None, payload=None, reason=""):
+    """A change somebody may not make themselves (the Goal Manager, above all, may not change a target it
+    is judged against): stored for the goal's or KPI's owner to confirm. The same proposal twice is one."""
+    H._writer(conn, actor)
+    payload = payload if isinstance(payload, dict) else {}
+    if kind not in PROPOSALS:
+        H.refuse(conn, actor, "kind", f"a proposal is {'|'.join(PROPOSALS)}, not {kind}")
+    error = _payload_error(conn, kind, goal_id, kpi_id, payload)
+    if error:
+        H.refuse(conn, actor, "lint", error)
+    body = H._dump(payload)
+    same = H._one(conn, "SELECT id FROM goal_proposals WHERE status='pending' AND kind=? AND coalesce(goal_id,'')=? "
+                        "AND coalesce(kpi_id,'')=? AND payload_json=?", (kind, goal_id or "", kpi_id or "", body))
+    if same:
+        return proposal(conn, same["id"])
+    row = {"id": H.new_id(), "kind": kind, "goal_id": goal_id or None, "kpi_id": kpi_id or None, "payload_json": body,
+           "reason": str(reason or "").strip()[:1000], "proposed_by": actor, "proposed_at": H.now()}
+    conn.execute("INSERT INTO goal_proposals (id, kind, goal_id, kpi_id, payload_json, reason, proposed_by, proposed_at) "
+                 "VALUES (:id, :kind, :goal_id, :kpi_id, :payload_json, :reason, :proposed_by, :proposed_at)", row)
+    if goal_id:
+        _event(conn, goal_id, actor, "proposal", None, kind, row["reason"])
+    H.event(conn, actor, "goal.propose", row["id"], {"kind": kind, "goal_id": goal_id, "kpi_id": kpi_id})
+    return proposal(conn, row["id"])
+
+
+def proposal(conn, proposal_id):
+    return _proposal_view(H._one(conn, "SELECT * FROM goal_proposals WHERE id=?", (proposal_id,)))
+
+
+def decide(conn, actor, proposal_id, decision, note=""):
+    """The owner confirms (the change is made, as them) or rejects. Only a pending proposal is decided, once."""
+    H._writer(conn, actor)
+    row = proposal(conn, proposal_id)
+    if not row:
+        H.refuse(conn, actor, "not-found", f"no proposal {proposal_id}")
+    if row["status"] != "pending":
+        H.refuse(conn, actor, "duplicate", f"{proposal_id} was already {row['status']}")
+    if decision not in ("confirm", "reject"):
+        H.refuse(conn, actor, "kind", f"a decision is confirm|reject, not {decision}")
+    result = None
+    if decision == "confirm":
+        payload, goal_id, kpi_id = row["payload"], row["goal_id"], row["kpi_id"]
+        if row["kind"] == "goal_wording":
+            update(conn, actor, goal_id, title=payload.get("title"), body=payload.get("body"))
+        elif row["kind"] == "kpi_definition":
+            kpi_edit(conn, actor, kpi_id, payload)
+        elif row["kind"] == "kpi_target":
+            kpi_link(conn, actor, goal_id, kpi_id, payload)
+        elif row["kind"] == "goal_kpi":
+            target = payload.get("target") or {"kind": "none"}
+            if payload.get("kpi_id"):
+                kpi_link(conn, actor, goal_id, payload["kpi_id"], target)
+                result = {"kpi_id": payload["kpi_id"]}
+            else:
+                made = kpi_create(conn, actor, payload.get("owner") or (goal(conn, goal_id) or {}).get("owner"),
+                                  payload["kpi"], goal_id=goal_id, target=target)
+                result = {"kpi_id": made["id"]}
+    conn.execute("UPDATE goal_proposals SET status=?, decided_by=?, decided_at=?, decision_note=?, result_json=? "
+                 "WHERE id=?", ("confirmed" if decision == "confirm" else "rejected", actor, H.now(),
+                                str(note or "").strip()[:1000], H._dump(result) if result else None, proposal_id))
+    if row["goal_id"]:
+        _event(conn, row["goal_id"], actor, "proposal", row["kind"], "confirmed" if decision == "confirm" else "rejected",
+               str(note or ""))
+    H.event(conn, actor, "goal.decide", proposal_id, {"decision": decision, "kind": row["kind"]})
+    return proposal(conn, proposal_id)
 
 
 # ----------------------------------------------------------------------------- BotOps' first goal
@@ -403,25 +750,33 @@ def seed(conn, document, resolve):
         if parent and not goal(conn, parent):
             continue
         ts = H.now()
+        stated = entry.get("status") if entry.get("status") in STATUSES else None
         conn.execute("INSERT INTO goals (id, title, owner, parent_id, body, status, status_note, status_by, "
-                     "status_at, rank, created, created_by, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                     "status_at, status_source, rank, created, created_by, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                      (gid, str(entry.get("title") or gid).strip(), owner, parent, str(entry.get("body") or ""),
-                      entry.get("status") if entry.get("status") in STATUSES else None,
-                      str(entry.get("status_note") or ""), H.KEEPER if entry.get("status") else None,
-                      ts if entry.get("status") else None, _next_rank(conn, owner), ts, H.KEEPER, ts))
+                      stated, str(entry.get("status_note") or ""), H.KEEPER if stated else None,
+                      ts if stated else None, "person" if stated else None, _next_rank(conn, owner), ts, H.KEEPER, ts))
         _event(conn, gid, H.KEEPER, "created", None, entry.get("title"), "registry/goals.yaml")
         for measure in entry.get("kpis") or []:
-            kid = str(measure.get("id") or "").strip() or H.new_id()
-            if kpi(conn, kid):
+            kid = str(measure.get("id") or "").strip() or None
+            if kid and kpi(conn, kid):
                 continue
-            conn.execute("INSERT INTO kpis (id, goal_id, name, unit, target, created, created_by) VALUES (?,?,?,?,?,?,?)",
-                         (kid, gid, str(measure.get("name") or kid), str(measure.get("unit") or ""),
-                          measure.get("target"), ts, H.KEEPER))
+            made = K.create(conn, H.KEEPER, owner, {"name": measure.get("name") or kid or "KPI",
+                                                    "unit": measure.get("unit"), "definition": measure.get("definition"),
+                                                    "direction": measure.get("direction"), "cadence": measure.get("cadence")},
+                            kid=kid)
+            target = {"kind": "none"}
+            if measure.get("target") is not None:
+                target = {"kind": "improve", "target": measure["target"], "deadline": measure.get("deadline")}
+            K.set_link(conn, H.KEEPER, gid, made["id"], {"kind": target["kind"], "baseline": None, "baseline_at": None,
+                       "target": target.get("target"), "deadline": str(target.get("deadline") or "")[:10] or None,
+                       "min": None, "max": None})
             for reading in measure.get("readings") or []:
-                conn.execute("INSERT INTO kpi_readings (id, kpi_id, ts, value, actor, source, note, created) "
-                             "VALUES (?,?,?,?,?,?,?,?)",
-                             (H.new_id(), kid, str(reading.get("at") or ts), float(reading.get("value")),
-                              resolve(reading.get("by")) or H.KEEPER, str(reading.get("source") or "measured"),
-                              str(reading.get("note") or ""), ts))
+                try:
+                    K.add_reading(conn, resolve(reading.get("by")) or H.KEEPER, made, float(reading.get("value")),
+                                  period_end=reading.get("at"), source=str(reading.get("source") or "measured"),
+                                  note=str(reading.get("note") or ""))
+                except (ValueError, TypeError):
+                    continue
         added.append(gid)
     return added

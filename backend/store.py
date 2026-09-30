@@ -877,6 +877,14 @@ class Store:
                     c.execute("UPDATE goals SET owner='company' WHERE parent_id IS NULL AND owner LIKE 'human:%' "
                               "AND id IN (SELECT parent_id FROM goals WHERE parent_id IS NOT NULL)")
                     c.execute("INSERT INTO cloud_migrations VALUES(43,?)", (H.now(),))
+                if not c.execute("SELECT 1 FROM cloud_migrations WHERE version=44").fetchone():
+                    # KPIs stand on their own (backend/kpis.py). hubdb's KPIS_SCHEMA added the columns and
+                    # tables on connect and turned each old `kpis.goal_id` + `target` into a `goal_kpis` link
+                    # with an improvement target; this gives every KPI a slug (the folder name in the Goal
+                    # Manager's repository) and records that the goals' automatic colours have been worked out.
+                    from . import kpis as _kpis
+                    _kpis.fill_slugs(c)
+                    c.execute("INSERT INTO cloud_migrations VALUES(44,?)", (H.now(),))
                 # Lookups that scanned their whole table (performance pass): a goal's
                 # tasks, a bot's or computer's attempts, a job's attempts, and the events read by
                 # action and target (quarantines, drains, who opened a conversation). Idempotent,

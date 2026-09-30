@@ -361,16 +361,17 @@ INSIGHTS = [
      "", "We switched from Fernwood, the reports were too slow.", "low"),
 ]
 
-# key, title, owner, parent key, colour, why, [(kpi name, unit, target, readings oldest first)]
+# key, title, owner, parent key, colour a person set (None: the Goal Manager's colour from the KPIs), why,
+# [(kpi name, unit, target, readings oldest first, days until the target is due)]
 GOALS = [
-    ("grow", "Grow to 200 paying studios by December", "company", None, "green",
-     "148 studios today and adding about ten a week.", [("Paying studios", "studios", 200, [131, 139, 148])]),
-    ("tickets", "Answer every support ticket the same day", "bot:support", "grow", "green",
-     "91 percent answered the same day this week.", [("Tickets answered the same day", "%", 95, [86, 89, 91])]),
-    ("trials", "Turn 30 percent of trials into paying studios", "bot:sales", "grow", "yellow",
-     "24 percent, and follow-ups wait on one approval.", [("Trial conversion", "%", 30, [21, 23, 24])]),
+    ("grow", "Grow to 200 paying studios by December", "company", None, None,
+     "", [("Paying studios", "studios", 200, [131, 139, 148], 93)]),
+    ("tickets", "Answer every support ticket the same day", "bot:support", "grow", None,
+     "", [("Tickets answered the same day", "%", 95, [86, 89, 91], 30)]),
+    ("trials", "Turn 30 percent of trials into paying studios", "bot:sales", "grow", None,
+     "", [("Trial conversion", "%", 30, [21, 22.5, 23], 12)]),
     ("posts", "Publish two useful posts a month", "bot:content", "grow", "yellow",
-     "One post is out; the launch post is in review.", [("Posts published this month", "posts", 2, [0, 1, 1])]),
+     "One post is out; the launch post is in review.", [("Posts published this month", "posts", 2, [0, 1, 1], 20)]),
 ]
 
 # The curator's own pages, written over the seed's outlines: id, title, category, body.

@@ -99,6 +99,7 @@ def guarded(c, auth, who, inner):
                     "OR EXISTS (SELECT 1 FROM json_each(json_extract(metadata_json,'$.participants')) "
                     f"WHERE lower(json_extract(value,'$.email'))={email})))")
     goals = f"owner NOT IN {qlist(['bot:' + slug for slug in hidden])}" if hidden else "id IS NOT NULL"
+    kpis = goals            # a KPI is owned like a goal: a bot's own are read by whoever may read the bot
     admin = who.role == "owner" or auth.bot_admin(who)
     # What happened is for whoever it involved: their own actions and what they may read. The rest is the
     # company's audit trail, which the owner reads whole.
@@ -131,8 +132,10 @@ def guarded(c, auth, who, inner):
         "humans": "1",
         # Goals are the company's, except a bot's own: a caller reads those of bots they may read. Never a
         # bare "1" (the same reason as intake_items below).
-        "goals": goals, "goal_events": "goal_id IN (SELECT id FROM goals)", "kpis": "goal_id IN (SELECT id FROM goals)",
-        "kpi_readings": "kpi_id IN (SELECT id FROM kpis)",
+        "goals": goals, "goal_events": "goal_id IN (SELECT id FROM goals)", "kpis": kpis,
+        "kpi_readings": "kpi_id IN (SELECT id FROM kpis)", "kpi_definitions": "kpi_id IN (SELECT id FROM kpis)",
+        "goal_kpis": "goal_id IN (SELECT id FROM goals)", "goal_checkins": "goal_id IN (SELECT id FROM goals)",
+        "goal_proposals": "goal_id IS NULL OR goal_id IN (SELECT id FROM goals)",
         # The market graph is the company's, the same way goals are.
         "market_entities": "1", "market_edges": "1", "market_evidence": "1",
         "market_citations": "1", "market_insights": "1", "market_events": "1",

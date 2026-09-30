@@ -28,6 +28,7 @@ from .store import H, Problem, encode, readiness_document
 KEY = "onboarding"
 BOTOPS = "botops"
 LIBRARIAN = "librarian"
+GOAL_MANAGER = G.GOAL_MANAGER          # keeps the KPIs and sets goals' automatic colours (docs/goals-and-kpis.md)
 ASSISTANT_TEMPLATE_SLUG = "coo"
 CARD_FILE = "card.yaml"
 INSTRUCTIONS_FILE = "AGENT.md"
@@ -772,33 +773,43 @@ class Onboarding:
                 pass
         return True
 
+    def turn_on_goal_manager(self, c, who):
+        """The same for the built-in Goal Manager (docs/goals-and-kpis.md)."""
+        return self._turn_on(c, who, GOAL_MANAGER, GOAL_MANAGER, "Goal Manager", "goal_manager.turned_on")
+
     def ensure_librarian(self, c):
         """A company set up before the Librarian was built in gets it without anyone clicking, once
         it can run: the owner is on the roster, a model is chosen and a computer is enrolled. Called
         when the server starts (an update) and when a computer enrolls; with any of those missing it
         does nothing, and the owner's Turn on Librarian stays available. An owner who paused it
         keeps it paused: only a missing or unplaced one is touched."""
+        return self._ensure_builtin(c, LIBRARIAN, "Librarian", "librarian.turned_on")
+
+    def ensure_goal_manager(self, c):
+        """The same for the Goal Manager: a company from before it was built in gets it once it can run it."""
+        return self._ensure_builtin(c, GOAL_MANAGER, "Goal Manager", "goal_manager.turned_on")
+
+    def _ensure_builtin(self, c, slug, name, event):
         if not load(c)["completed"] or not providers.configured(providers.load(c, self.settings)):
             return None
         if not c.execute("SELECT 1 FROM runners WHERE revoked_at IS NULL").fetchone():
             return None
-        row = H.bot(c, LIBRARIAN)
-        if row and (row["state"] != "planned" or c.execute("SELECT 1 FROM assignments WHERE bot=?",
-                                                           (LIBRARIAN,)).fetchone()):
+        row = H.bot(c, slug)
+        if row and (row["state"] != "planned" or c.execute("SELECT 1 FROM assignments WHERE bot=?", (slug,)).fetchone()):
             return None
         if row and row["state"] == "archived":
             return None
-        if not any(card["template"] == LIBRARIAN for card in read_cards(self.settings)):
+        if not any(card["template"] == slug for card in read_cards(self.settings)):
             return None
         # Best effort and all or nothing: an update or an enrollment never fails because of this.
-        c.execute("SAVEPOINT ensure_librarian")
+        c.execute("SAVEPOINT ensure_" + slug.replace("-", "_"))
         try:
             who = self.auth.owner_identity(c)
-            done = self._turn_on(c, who, LIBRARIAN, LIBRARIAN, "Librarian", "librarian.turned_on")
+            done = self._turn_on(c, who, slug, slug, name, event)
         except Problem:
-            c.execute("ROLLBACK TO ensure_librarian")
+            c.execute("ROLLBACK TO ensure_" + slug.replace("-", "_"))
             done = None
-        c.execute("RELEASE ensure_librarian")
+        c.execute("RELEASE ensure_" + slug.replace("-", "_"))
         return done
 
     def _turn_on(self, c, who, slug, template, name, event):
@@ -832,6 +843,8 @@ class Onboarding:
             self.admin.update_bot(c, who, slug, M.BotDefinitionUpdate(
                 status="active", expected_revision=self.admin._config(c, slug)["revision"]))
         self._seed_routines(c, who, slug, template)
+        if slug == GOAL_MANAGER:
+            G.arm_pass(c)                                # KPIs already exist: its daily pass may start
         H.event(c, who.actor, event, slug, {"restored": restored, "placed": placed})
         return {"bot": slug, "state": H.bot(c, slug)["state"], "restored": restored, "placed": placed}
 
@@ -867,6 +880,7 @@ class Onboarding:
         if not record["completed"]:
             return []
         self.ensure_librarian(c)              # a company from before it was built in
+        self.ensure_goal_manager(c)
         placed = self._wire(c, record, "human:" + operator, runner_id)
         self._store(c, record, "human:" + operator)
         return placed

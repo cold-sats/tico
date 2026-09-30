@@ -1,0 +1,138 @@
+"""Automatic bot KPIs: measures Tico computes from its own data, so no steward is needed.
+
+Each bot has five, and each is a virtual KPI: nothing is stored, the value is worked out when it is
+read, and it has an id (`auto:<bot>:<metric>`) that a goal links to like any other KPI, with a target
+on the link. Their readings are the same measure at the end of each of the last fourteen days, so a
+sparkline and a pace work the way they do for a KPI a person or the Goal Manager keeps.
+
+  tasks_done_7d       tasks the bot owns that were finished in the last seven days
+  first_response_min  median minutes from a message to the bot to its first reply in that conversation (7 days)
+  approval_rate_30d   the share of its approval requests a person approved, over the last thirty days
+  failed_runs_7d      runs that ended failed in the last seven days
+  cost_7d             what its runs cost in the last seven days, when the runs recorded a cost
+
+A metric with nothing to measure over its window (no message was sent to it, no approval was decided,
+no run recorded a cost) has no reading, and no reading is missing data, never zero.
+"""
+
+import statistics
+from datetime import datetime, timedelta, timezone
+
+from . import hubdb as H
+
+AUTO = "auto:"
+DAYS = 14        # readings behind a sparkline: the measure at each of the last fourteen day-ends
+
+METRICS = {
+    "tasks_done_7d": {"name": "Tasks completed (7d)", "unit": "tasks", "direction": "up", "window": 7,
+                      "definition": "Tasks this bot owns that were marked done in the last 7 days."},
+    "first_response_min": {"name": "Median time to first response", "unit": "min", "direction": "down", "window": 7,
+                           "definition": "Median minutes from a message to this bot to its first reply in that "
+                                         "conversation, over the last 7 days."},
+    "approval_rate_30d": {"name": "Approval rate (30d)", "unit": "%", "direction": "up", "window": 30,
+                          "definition": "Share of this bot's approval requests that a person approved, of those "
+                                        "decided in the last 30 days."},
+    "failed_runs_7d": {"name": "Failed runs (7d)", "unit": "runs", "direction": "down", "window": 7,
+                       "definition": "Runs of this bot that ended failed in the last 7 days."},
+    "cost_7d": {"name": "Model cost (7d)", "unit": "$", "direction": "down", "window": 7,
+                "definition": "What this bot's runs cost in the last 7 days, where the runs recorded a cost."},
+}
+
+
+def ident(slug, key):
+    return f"{AUTO}{slug}:{key}"
+
+
+def parse(kpi_id):
+    """(bot slug, metric key) of an auto KPI id, or None."""
+    rest = str(kpi_id or "")[len(AUTO):] if str(kpi_id or "").startswith(AUTO) else ""
+    slug, _, key = rest.rpartition(":")
+    return (slug, key) if slug and key in METRICS else None
+
+
+def _now():
+    return H.parse_ts(H.now())
+
+
+def _stamp(at):
+    return at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+
+
+def value(conn, slug, key, at=None):
+    """The metric over the window that ends at `at`, or None when there was nothing to measure."""
+    at = at or _now()
+    end = _stamp(at)
+    since = _stamp(at - timedelta(days=METRICS[key]["window"]))
+    actor = H.bot_actor(slug)
+    if key == "tasks_done_7d":
+        return float(conn.execute("SELECT count(*) FROM tasks WHERE owner=? AND done_at>? AND done_at<=?",
+                                  (actor, since, end)).fetchone()[0])
+    if key == "first_response_min":
+        gaps = []
+        for created, answered in conn.execute(
+                "SELECT m.created, (SELECT min(r.created) FROM messages r WHERE r.conversation_id=m.conversation_id "
+                "AND r.from_actor=? AND r.created>m.created) FROM messages m WHERE m.to_actor=? AND m.from_actor!=? "
+                "AND m.kind IN ('say','ask') AND m.created>? AND m.created<=? ORDER BY m.created DESC LIMIT 500",
+                (actor, actor, actor, since, end)).fetchall():
+            first, then = H.parse_ts(created), H.parse_ts(answered)
+            if first and then:
+                gaps.append((then - first).total_seconds() / 60)
+        return round(statistics.median(gaps), 1) if gaps else None
+    if key == "approval_rate_30d":
+        rows = conn.execute("SELECT decision FROM approvals WHERE requested_by=? AND decision IN ('approved','declined') "
+                            "AND decided_at>? AND decided_at<=?", (actor, since, end)).fetchall()
+        return round(100 * sum(r[0] == "approved" for r in rows) / len(rows), 1) if rows else None
+    if key == "failed_runs_7d":
+        return float(conn.execute("SELECT count(*) FROM attempts WHERE bot=? AND state='failed' "
+                                  "AND coalesce(finished, created)>? AND coalesce(finished, created)<=?",
+                                  (slug, since, end)).fetchone()[0])
+    row = conn.execute("SELECT sum(cost), count(cost) FROM turns WHERE bot=? AND started>? AND started<=?",
+                       (slug, since, end)).fetchone()
+    return round(row[0], 4) if row and row[1] else None
+
+
+def kpi(conn, kpi_id):
+    """The virtual KPI as a row shaped like a stored one, or None for a bot or metric that does not exist."""
+    parsed = parse(kpi_id)
+    if not parsed or not H.bot(conn, parsed[0]):
+        return None
+    slug, key = parsed
+    spec = METRICS[key]
+    return {"id": kpi_id, "slug": f"{slug}-{key}", "goal_id": "", "name": spec["name"], "unit": spec["unit"],
+            "direction": spec["direction"], "cadence": "daily", "owner": H.bot_actor(slug),
+            "definition": spec["definition"], "source_note": "Computed from Tico's own data", "definition_version": 1,
+            "created": None, "created_by": "keeper", "updated": None, "target": None}
+
+
+def readings(conn, kpi_id, at=None):
+    """The measure at the end of each of the last fourteen days, oldest first; days with nothing to measure
+    are left out. Rows carry the fields a stored reading does."""
+    parsed = parse(kpi_id)
+    if not parsed:
+        return []
+    slug, key = parsed
+    at = at or _now()
+    out = []
+    for back in range(DAYS - 1, -1, -1):
+        end = at - timedelta(days=back) if back else at
+        amount = value(conn, slug, key, end)
+        if amount is None:
+            continue
+        stamp = _stamp(end)
+        out.append({"id": f"{kpi_id}@{stamp[:10]}", "kpi_id": kpi_id, "ts": stamp, "value": amount,
+                    "actor": "keeper", "source": "tico", "note": "", "created": stamp, "period_start":
+                    _stamp(end - timedelta(days=METRICS[key]["window"])), "period_end": stamp, "collected_at": stamp,
+                    "evidence": "", "quality": "measured", "definition_version": 1, "supersedes": None,
+                    "superseded_by": None})
+    return out
+
+
+def for_bot(conn, slug, at=None):
+    """The five KPIs of one bot with today's value and the trend, for the bot page's row."""
+    from . import kpis as K
+    out = []
+    for key in METRICS:
+        record = kpi(conn, ident(slug, key))
+        if record:
+            out.append(K.view(record, readings(conn, record["id"], at), None, at))
+    return out

@@ -210,12 +210,16 @@ class Builder:
                 row = G.create(c, "human:ana", title, owner, keys.get(parent))
                 keys[key] = row["id"]
                 who = "human:ana" if owner == G.COMPANY else owner
-                G.set_status(c, who, row["id"], colour, why)
-                for name, unit, target, values in measures:
-                    kpi = G.kpi_add(c, who, row["id"], name, unit, target)
+                if colour:
+                    G.set_status(c, who, row["id"], colour, why)
+                for name, unit, target, values, days in measures:
+                    kpi = G.kpi_create(c, who, owner, {"name": name, "unit": unit, "cadence": "weekly"})
                     for index, value in enumerate(values):
                         self.at(days=6 - index * 2.5)
-                        G.kpi_log(c, who, kpi["id"], value, source="measured")
+                        G.kpi_log(c, who, kpi["id"], value, quality="measured", period_end=self.clock.at.isoformat())
+                    G.kpi_link(c, who, row["id"], kpi["id"],
+                               {"kind": "improve", "baseline": values[0], "baseline_at": self.ago(days=6).isoformat(),
+                                "target": target, "deadline": (self.ago(days=6) + timedelta(days=days + 6)).date().isoformat()})
         self.write(work)
 
     def docs(self):

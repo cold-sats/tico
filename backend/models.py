@@ -197,24 +197,86 @@ class GoalUpdate(Contract):
     top: bool = False
 
 
-class KpiCreate(Contract):
-    name: str = Field(min_length=1, max_length=300)
-    unit: str = Field(default="", max_length=40)
+class GoalRefresh(Contract):
+    goal_ids: list[ID] | None = Field(default=None, max_length=500)
+
+
+class GoalCheckin(Contract):
+    body: str = Field(min_length=1, max_length=4000)
+    signal: Literal["on_track", "at_risk", "off_track"] | None = None
+    from_actor: str | None = Field(default=None, max_length=200)     # whose words these are, when recorded for them
+    kpi_id: str | None = Field(default=None, max_length=200)
+
+
+# KPIs (backend/kpis.py). A target lives on the link between a goal and a KPI: `kind` improve wants a
+# target and a deadline (and may name a baseline), `kind` maintain wants a min, a max or both.
+class KpiTarget(Contract):
+    kind: Literal["none", "improve", "maintain"] = "none"
+    baseline: float | None = None
+    baseline_at: str | None = Field(default=None, max_length=40)
     target: float | None = None
+    deadline: str | None = Field(default=None, max_length=40)
+    min: float | None = None
+    max: float | None = None
+
+
+class KpiCreate(KpiTarget):
+    name: str = Field(min_length=1, max_length=300)
+    definition: str = Field(default="", max_length=2000)
+    unit: str = Field(default="", max_length=40)
+    direction: Literal["up", "down", "range"] = "up"
+    cadence: Literal["daily", "weekly", "monthly"] = "weekly"
+    source_note: str = Field(default="", max_length=2000)
+    owner: str | None = Field(default=None, max_length=200)        # me, company, a bot slug or a person id
+    goal_id: str | None = Field(default=None, max_length=200)      # link it to this goal, with the target above
 
 
 class KpiUpdate(Contract):
     name: str | None = Field(default=None, min_length=1, max_length=300)
+    definition: str | None = Field(default=None, max_length=2000)
     unit: str | None = Field(default=None, max_length=40)
-    target: float | None = None
-    clear_target: bool = False
+    direction: Literal["up", "down", "range"] | None = None
+    cadence: Literal["daily", "weekly", "monthly"] | None = None
+    source_note: str | None = Field(default=None, max_length=2000)
+    owner: str | None = Field(default=None, max_length=200)
 
 
-class KpiLog(Contract):
+class GoalKpiLink(KpiTarget):
+    kpi_id: str | None = Field(default=None, max_length=200)      # an existing KPI, or leave it out and name a new one
+    name: str | None = Field(default=None, min_length=1, max_length=300)
+    definition: str = Field(default="", max_length=2000)
+    unit: str = Field(default="", max_length=40)
+    direction: Literal["up", "down", "range"] = "up"
+    cadence: Literal["daily", "weekly", "monthly"] = "weekly"
+    source_note: str = Field(default="", max_length=2000)
+    owner: str | None = Field(default=None, max_length=200)
+
+
+class KpiReading(Contract):
     value: float
+    period_start: str | None = Field(default=None, max_length=40)
+    period_end: str | None = Field(default=None, max_length=40)
+    collected_at: str | None = Field(default=None, max_length=40)
+    evidence: str = Field(default="", max_length=2000)
+    quality: Literal["measured", "estimate", "partial"] | None = None
+    source: str = Field(default="", max_length=40)
     note: str = Field(default="", max_length=2000)
-    source: str = Field(default="measured", max_length=40)
-    at: str | None = None
+    definition_version: int | None = Field(default=None, ge=1)
+    supersedes: str | None = Field(default=None, max_length=200)
+    at: str | None = Field(default=None, max_length=40)              # the old name of period_end
+
+
+class GoalProposal(Contract):
+    kind: Literal["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"]
+    goal_id: str | None = Field(default=None, max_length=200)
+    kpi_id: str | None = Field(default=None, max_length=200)
+    payload: dict = Field(default_factory=dict)
+    reason: str = Field(default="", max_length=1000)
+
+
+class GoalProposalDecision(Contract):
+    decision: Literal["confirm", "reject"]
+    note: str = Field(default="", max_length=1000)
 
 
 # Market (backend/market.py). Reporters send prose. The curator and the owner write the graph.

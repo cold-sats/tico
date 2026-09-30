@@ -15,7 +15,8 @@ Nothing here reads more than the `humans` and `bots` tables, and a name is only 
 import json
 import re
 
-ACTOR_KEYS = ("owner", "requester", "from_actor", "to_actor", "actor", "author", "operator", "reports_to")
+ACTOR_KEYS = ("owner", "requester", "from_actor", "to_actor", "actor", "author", "operator", "reports_to",
+              "status_by", "proposed_by", "decided_by", "source_actor")
 ID = re.compile(r"\b(human|bot):([A-Za-z0-9._-]*[A-Za-z0-9_])")
 
 
