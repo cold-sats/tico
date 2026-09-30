@@ -47,6 +47,13 @@ PROVIDERS = (
      "catch_all": True, "detail": "The pi agent, with an OpenRouter API key in the shared secrets"},
 )
 PROVIDER_BY_ID = {row["id"]: row for row in PROVIDERS}
+# What a computer's model CLI is called, for the words on Health and in Settings.
+RUNTIME_LABELS = {"codex": "Codex", "claude": "Claude Code", "grok": "Grok", "cursor": "Cursor", "gemini": "Gemini", "pi": "pi"}
+# The variables that sign a runtime's CLI in with no browser. A credential stored under one of these names can be
+# given to every computer (backend/credentials.py `COMPUTERS`); a runner takes only the names it can sign in with.
+MODEL_KEYS = {"codex": ("OPENAI_API_KEY",), "claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"),
+              "cursor": ("CURSOR_API_KEY",)}
+MODEL_KEY_NAMES = frozenset(name for names in MODEL_KEYS.values() for name in names)
 # One provider speaks for a runtime when a bot names only the runtime: the catch-all row for a
 # shared runtime, else the only one.
 PROVIDER_BY_RUNTIME = {}

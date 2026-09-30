@@ -35,6 +35,7 @@ async function vaultLoad() {
   } catch (error) { if (host?.isConnected) host.innerHTML = `<p class="err">${esc(error.message)}</p>`; }
 }
 function vaultSubject(subject) {
+  if (subject === 'computers') return 'Every computer (signs models in)';
   const [kind,id] = subject.split(':');
   const row = (kind === 'human' ? VAULT.people : VAULT.bots).find(row => row.id === id);
   return row?.name || row?.email || id;
@@ -101,7 +102,9 @@ function vaultEdit(row) {
 }
 function vaultShare(id) {
   const row=VAULT.credentials.find(row=>row.id===id);
-  const choices=[...(VAULT.can_manage ? VAULT.people.map(person=>({subject:'human:'+person.id,label:person.name || person.email})) : []),
+  const modelKey=['OPENAI_API_KEY','ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN','CURSOR_API_KEY'].includes(row.env)&&['api_key','token'].includes(row.kind)&&row.stored;
+  const choices=[...(VAULT.can_manage&&modelKey?[{subject:'computers',label:'Every computer (signs models in)'}]:[]),
+    ...(VAULT.can_manage ? VAULT.people.map(person=>({subject:'human:'+person.id,label:person.name || person.email})) : []),
     ...VAULT.bots.map(bot=>({subject:'bot:'+bot.id,label:bot.name+' (bot)'}))];
   const dialog=vaultDialog('Access to '+row.name,`<p class="muted">Revoking access also revokes the access they gave their bots.</p>
     <div>${row.grants.map(grant=>`<div class="row"><span>${esc(vaultSubject(grant.subject))}${grant.parent_id?' · delegated':''}</span>${VAULT.can_manage?`<button class="ghost" type="button" data-revoke="${esc(grant.id)}">Revoke</button>`:''}</div>`).join('') || '<p>Owners only.</p>'}</div>

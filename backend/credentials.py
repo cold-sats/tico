@@ -9,12 +9,16 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Request
 from pydantic import ConfigDict, Field, SecretStr
 
+from . import providers
 from .auth import validate_identity
 from .models import Contract, ID
 from .bot_access import owner_ids
 from .store import H, Problem, encode
 
 CONTEXT = {'application': 'tico-credentials'}
+# A grant to every computer, present and future: a model API key or token that signs each computer's model CLI in
+# (runner/service.py `team_model_keys`). Never a bot's: a bot still gets only what is granted to it.
+COMPUTERS = 'computers'
 
 
 def administrator(c, who, admins):
@@ -195,6 +199,9 @@ class Vault:
         return self.brief(self.row(c,cid))
 
     def grant_authority(self, c, who, cid, subject):
+        if subject == COMPUTERS:
+            require_admin(c, who, self.admins)
+            return None
         if administrator(c, who, self.admins):
             return None
         parent = effective_grant(c,cid,who.actor) if who.role in ('human','owner') else None
@@ -206,9 +213,14 @@ class Vault:
         return parent['id']
 
     def grant(self, c, who, cid, subject):
-        self.row(c,cid)
+        row=self.row(c,cid)
         parent = self.grant_authority(c,who,cid,subject)
-        if subject.startswith('human:'):
+        if subject == COMPUTERS:
+            if row['env'] not in providers.MODEL_KEY_NAMES or row['kind'] not in ('api_key','token') or row['ciphertext'] is None:
+                raise Problem('subject','Only a stored model API key or token, named '+', '.join(sorted(providers.MODEL_KEY_NAMES))
+                              +', can be given to every computer',422)
+            exists=True
+        elif subject.startswith('human:'):
             exists=c.execute('SELECT 1 FROM humans WHERE id=?',(H.actor_id(subject),)).fetchone()
         elif subject.startswith('bot:'):
             exists=c.execute('SELECT 1 FROM bots WHERE slug=?',(H.actor_id(subject),)).fetchone()
@@ -307,7 +319,8 @@ def install_credentials(app,store,delegate=None,propose=None):
                 vault.grant_authority(c,who,cid,body.subject)
                 name=vault.row(c,cid)['name']
                 return propose(c,who,'POST',request.url.path,{'subject':body.subject},
-                               f"Give {body.subject} the stored credential {name}")
+                               f"Give every computer the stored credential {name}, to sign its model in" if body.subject==COMPUTERS
+                               else f"Give {body.subject} the stored credential {name}")
         return vault.change(who,request.url.path,request.headers.get('idempotency-key'),body,
                             lambda c,w:vault.grant_authority(c,w,cid,body.subject),lambda c:vault.grant(c,who,cid,body.subject))
 
@@ -339,3 +352,22 @@ def install_credentials(app,store,delegate=None,propose=None):
                 if row['ciphertext'] is not None and effective_grant(c,row['id'],who.actor):
                     values.append({'id':row['id'],'name':row['name'],'env':row['env'],'kind':row['kind'],**vault.reveal(c,who,row['id'])})
             return {'credentials':values}
+
+    @app.get('/api/v2/runner-model-credentials')
+    def model_credentials(request:Request,runtime:str):
+        """The model key or token the company gave every computer, for a runner whose model CLI is not signed in.
+        Only credentials granted to `computers` and named for this runtime: never one granted to a bot."""
+        who=request.state.identity
+        names=providers.MODEL_KEYS.get(runtime)
+        if who.role!='runner':raise Problem('forbidden','Only a registered computer may ask for this',403)
+        if not names:raise Problem('runtime','That runtime has no key or token to sign in with',422)
+        with store.transaction() as c:
+            if not c.execute('SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL',(who.runner_id,)).fetchone():
+                raise Problem('forbidden','Only a registered computer may ask for this',403)
+            found={}
+            for row in c.execute('SELECT * FROM credentials WHERE ciphertext IS NOT NULL ORDER BY id'):
+                if row['env'] in names and row['env'] not in found and effective_grant(c,row['id'],COMPUTERS):
+                    found[row['env']]=(row['id'],vault.cipher.decrypt(c,row))
+            for env,(cid,_) in found.items():
+                H.event(c,who.actor,'credential.sent_to_computer',cid,{'env':env,'runner':who.runner_id})
+            return {'credentials':[{'env':env,'value':found[env][1]} for env in names if env in found]}

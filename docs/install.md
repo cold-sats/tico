@@ -286,6 +286,18 @@ In the app open **Settings > Computers > Add computer** (or step 4 of the Finish
 runs your bots"), pick the kind of computer, and copy the commands it shows. The one-time code works once and
 expires after 15 minutes. Adding a computer never assigns bots to it: choose it for each bot afterwards.
 
+**A new computer signs in to your model by itself when your team has given every computer its model key.** Store the key
+once under Credentials (a credential named `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or `CURSOR_API_KEY`,
+type API key or token), open **Manage access** on it and choose **Every computer**. Only a credential administrator can do this,
+and BotOps asks for a Confirm click first. From then on, when a new computer joins or gets its first job and its model is not
+signed in, the runner (the software on the computer) asks the server for that key as itself, saves it in its own secrets folder
+and signs in the way it would with a key you had typed there. Nobody copies a key between computers, and the key is in no log.
+Only that model credential comes this way: a bot's own credentials stay with that bot, and a computer never receives them.
+
+A subscription login (a ChatGPT or Claude plan) cannot be copied. If that is how your team signs in, Settings > Health shows
+"*computer name*: sign in to Codex" (or Claude Code) for each new computer that needs it. Sign it in from Settings > Devices, or ask
+BotOps to start it, then finish the sign-in in your browser.
+
 ### Linux or cloud server (Docker)
 
 On any Linux computer, run the line the app shows. It downloads the installer of the release your server runs, so the
@@ -386,6 +398,8 @@ and Codex is not signed in, the runner runs `codex login --with-api-key` as the 
 no command line and no log), and Settings > Computers shows *Signed in with an API key*. A key Codex refuses is tried again after ten
 minutes or when the key changes. The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid, and the login
 files are readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
+
+A computer that has no key of its own takes the team's model key instead, as above; a key in this file wins.
 
 `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `OPENROUTER_API_KEY` work the same way; `GH_TOKEN` is used by `git` and `gh`
 to push the bots' repositories. Check with **Settings > Bots**, or
