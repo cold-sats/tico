@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Tico HQ's address is now `https://updates.tico.team`** (was `hq.tico.team`, which never went live). It is the default
+  `TICO_HQ_URL`, and the address PRIVACY.md and docs/telemetry.md name. An install on 0.2.15 asks the old address, gets no
+  answer, and checks GitHub directly as before until it updates.
+
 ## [0.2.15] - 2026-09-30
 
 ### Added
@@ -27,7 +32,7 @@ All notable changes to Tico are recorded here. The format follows
   Manager set it** (`hub goal auto`), and the automatic pass only ever *suggests* a different colour on such a goal. `goals` and
   every `goal_events` row now say who set a colour (`status_by`) and how (`status_source`, `auto` or `person`). Automatic colours
   are worked out again on every reading, target, link and check-in, by the Goal Manager's status pass, and once an hour.
-- **The Goal Manager**, a fourth built-in bot (with Tico, BotOps and the Librarian), created for every company and for existing
+- **The Goal Manager**, a fourth built-in bot (with the Assistant, BotOps and the Librarian), created for every company and for existing
   companies on update once a computer and a model exist. It is the steward of every KPI: one folder per KPI in its repository
   (`kpis/<slug>/`: definition, sources, the query or script, a known-values check, a changelog), one scheduled pass that computes
   each KPI with a time budget and posts readings with evidence, stale and missing marked, a failing KPI skipped and reported. It
@@ -73,7 +78,7 @@ All notable changes to Tico are recorded here. The format follows
   monthly, linked to its old goal; an old `target` becomes an improvement target on that link (with no deadline until someone sets
   one), and a colour someone set on a goal is now their override.
 - **First run has one step fewer: "What hurts, and what you use" is gone.** The pain chips grouped by team, "In your own words" and the
-  "What do you already use?" tool checkboxes are removed, so the wizard is seven steps (AI providers, Names, About the company, Your team,
+  "What do you already use?" tool checkboxes are removed, so the wizard is six steps, with AI providers first when none are chosen yet (Names, About the company, Your team,
   Add the computer, Connect your agent, Review and create). The team is now chosen from "About the company" alone. The **starter team** is
   Chief of Staff, Support Agent and Sales Drafter, plus Issue Triage when software is the product, and at most one more starter when the
   "What you do" text obviously matches a card's `pains` or summary. The **full org chart** is every starter template grouped by team with each

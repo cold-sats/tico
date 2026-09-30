@@ -34,7 +34,7 @@ Tico server ── GET /v1/latest?install_id&version&active_people&active_bots �
 
 - **Client:** `backend/census.py` decides whether anything may be sent and builds the payload; `backend/releases.py`
   makes the request. HQ answers with the same body GitHub does, so the update notice works the same either way.
-  `TICO_HQ_URL` moves the base URL (default `https://hq.tico.team`); `TICO_RELEASES_URL` still replaces the whole check
+  `TICO_HQ_URL` moves the base URL (default `https://updates.tico.team`); `TICO_RELEASES_URL` still replaces the whole check
   with a GitHub-shaped mirror and sends nothing extra.
 - **`active_people`** is set from the last time a person (not an API token, not the Assistant acting for someone) made a
   request; it is written at most once an hour. **`active_bots`** is a query over finished bot turns.
@@ -73,7 +73,7 @@ installs call HQ without signing in.
 ### Deploy HQ
 
 On the server (next to an existing Tico is fine: HQ has its own compose project, volume and hostname). This is the Tico
-team's `hq.tico.team`; anyone can run their own the same way.
+team's `updates.tico.team`; anyone can run their own the same way.
 
 ```
 git clone https://github.com/ticoteam/tico && cd tico
@@ -85,20 +85,20 @@ curl -fsS http://127.0.0.1:8770/healthz
 
 Front door, one of (set in `hq/.env`):
 
-- `COMPOSE_PROFILES=cloudflared`, `HQ_TUNNEL_TOKEN=...`, `HQ_DOMAIN=hq.tico.team`, `HQ_CLIENT_IP_HEADER=CF-Connecting-IP`:
+- `COMPOSE_PROFILES=cloudflared`, `HQ_TUNNEL_TOKEN=...`, `HQ_DOMAIN=updates.tico.team`, `HQ_CLIENT_IP_HEADER=CF-Connecting-IP`:
   an HQ-only Cloudflare tunnel, and the right choice on a server whose Tico already holds ports 80 and 443. Do not add an
   Access application. HQ writes the tunnel's route at every start (`hq/tunnel.py`, into the `hq-tunnel` volume) and
   cloudflared runs with it (`--config /tunnel/cloudflared.yml`): `HQ_DOMAIN` to `http://hq:8770`, anything else a 404.
   So a tunnel with no route of its own (a locally managed one, or a token reused from elsewhere) serves HQ instead of
   logging "No ingress rules" and answering 503. A Public Hostname set in the tunnel's dashboard still wins: cloudflared
-  prefers the configuration Cloudflare holds, so with one there, route `hq.tico.team` to `http://hq:8770` there too. The
+  prefers the configuration Cloudflare holds, so with one there, route `updates.tico.team` to `http://hq:8770` there too. The
   file is world-readable (0644) because cloudflared runs as its own non-root user; it holds no secret, the token stays
   in cloudflared's environment. A changed `HQ_DOMAIN` needs `up -d` for both services; with `HQ_DOMAIN` empty the route
   answers only 404s, and a value that is not a plain hostname stops HQ with the reason.
-- `COMPOSE_PROFILES=caddy`, `HQ_DOMAIN=hq.tico.team`, `HQ_CLIENT_IP_HEADER=X-Forwarded-For`: HTTPS on ports 80 and 443 of a
+- `COMPOSE_PROFILES=caddy`, `HQ_DOMAIN=updates.tico.team`, `HQ_CLIENT_IP_HEADER=X-Forwarded-For`: HTTPS on ports 80 and 443 of a
   host of its own.
 
-Then check `curl -fsS https://hq.tico.team/v1/stats` and `curl -fsS https://hq.tico.team/v1/latest`. Through the
+Then check `curl -fsS https://updates.tico.team/v1/stats` and `curl -fsS https://updates.tico.team/v1/latest`. Through the
 tunnel, a 404 means `HQ_DOMAIN` is empty or names another host, and a 503 means cloudflared runs without the route:
 `docker compose -f hq/compose.yaml logs cloudflared` says "No ingress rules" (it was started without `--config`) or
 "permission denied" (the file it reads is not world-readable).

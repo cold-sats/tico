@@ -20,7 +20,7 @@ from .store import H, Problem, encode
 log = logging.getLogger("tico.census")
 
 KEY = "usage-count"               # registry_metadata
-DEFAULT_HQ = "https://hq.tico.team"
+DEFAULT_HQ = "https://updates.tico.team"
 WINDOW_DAYS = 7
 NOTE_EVERY = 3600                 # a person's activity is written at most this often
 DOC_URL = "https://github.com/ticoteam/tico/blob/main/PRIVACY.md"

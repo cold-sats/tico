@@ -11,7 +11,7 @@ Your Tico looks for a new release about every six hours. With counting on, it as
 request carries exactly these four fields and nothing else:
 
 ```
-GET https://hq.tico.team/v1/latest?install_id=6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63&version=0.2.15&active_people=true&active_bots=false
+GET https://updates.tico.team/v1/latest?install_id=6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63&version=0.2.15&active_people=true&active_bots=false
 ```
 
 | Field | What it is |
@@ -54,7 +54,7 @@ One row per install ID, and nothing else:
 
 ## What we publish
 
-`https://hq.tico.team/v1/stats` is public. It shows the number of installs that have tried Tico (a person and a bot
+`https://updates.tico.team/v1/stats` is public. It shows the number of installs that have tried Tico (a person and a bot
 active at some point), that were active in the last 7 days, and that are still running bots 30 or more days after they
 first appeared, plus a count by major version. Counts by version under 5 are left out. Those are the numbers behind
 Tico's goal of 100 companies trying it and 100 still using it after 30 days.
