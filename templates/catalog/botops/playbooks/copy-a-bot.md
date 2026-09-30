@@ -22,8 +22,9 @@ for a copy.
 - No credential, `.env`, key file or `secrets/` is ever copied. Routines are not copied either (the copy starts with none).
 - They need to be allowed to add bots and to be within their limit; a copy counts like any bot they add. If the server says they are at
   their limit, offer to archive one they no longer need, or say an admin can raise it, and stop.
-- The original's repository has to be on this computer. If the command says it is not, the copy cannot be made from here: say so in one
-  line and `hub support file "<what they asked, what the command said>"`.
+- The original's files come from this computer's workspace, or, when the bot runs on another computer, from its GitHub repository
+  (read-only, for a bot they may read). If the command says the original's repository isn't on this computer or GitHub, tell them its
+  owner has to publish it, and stop; if it is some other failure, `hub support file "<what they asked, what the command said>"`.
 - The built-in bots (the Assistant, BotOps, the Librarian, the Goal Manager) are not copied; add one of the catalog's bots instead
   (`playbooks/build-me-a-bot.md`).
 

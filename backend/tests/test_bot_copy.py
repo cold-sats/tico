@@ -316,3 +316,34 @@ def test_the_tools_copy_update_and_share_a_skill_in_the_workspace_as_the_request
     assert refused.value.status == 403 and not (workspace / "bot-ops").exists()
     assert botcopy.head(workspace / "bot-cara-helper") and "botops" in hubtools.offered_to(hubtools.BY_NAME["hub_bot_copy"])
     assert "hub_bot_copy" in {t["name"] for t in hubtools.listing(local=True)} and "hub_bot_copy" not in {t["name"] for t in hubtools.listing()}
+
+
+def test_botops_is_given_a_read_only_token_for_a_bot_on_another_computer_only_for_a_person_who_may_read_it(api, botops, scribe, monkeypatch, tmp_path):
+    service, minted = api.app.state.github_app, []
+    attempt = turn(api, botops, text="Copy the scribe")
+    token = lambda who="botops": act(api, attempt, "POST", "bots/scribe/repository-read-token", {})
+    assert token().json() == {"configured": False}                                   # GitHub is not connected: nothing to fetch
+    monkeypatch.setattr(service, "row", lambda c=None: {"org": "Acme", "administration": 1})
+    monkeypatch.setattr(service, "mint", lambda repos, permissions: minted.append((repos, permissions)) or ("ghs_read", "later"))
+    granted = token().json()
+    assert granted == {"configured": True, "token": "ghs_read", "expires_at": "later", "repository": "Acme/bot-scribe"}
+    assert minted == [(["Acme/bot-scribe"], {"contents": "read", "metadata": "read"})]          # one repository, read only
+    # Not a person's own call, and not for a bot the requester may not read.
+    assert api.post("/api/v2/bots/scribe/repository-read-token", json={}, headers=headers("cara-test")).status_code == 403
+    with api.app.state.store.transaction() as c:
+        restrict(c, "scribe", people=["ana"])
+    assert token().status_code == 404 and len(minted) == 1
+    # The client clones with it (the runner's own clone, mocked) into a temporary folder, and says so when it cannot.
+    with api.app.state.store.transaction() as c:
+        restrict(c, "scribe", see={"everyone": True}, read={"everyone": True}, write={"everyone": True})
+    seen = []
+    import runner.git_credentials as credentials
+    monkeypatch.setattr(credentials, "clone_repository", lambda path, repository, env=None, url=None: seen.append((repository, env["GH_TOKEN"])) or ("failed", "no"))
+    with pytest.raises(botcopy.CopyError) as refused:
+        botcopy.fetch_repository(botcopy_person(api, attempt), "scribe", tmp_path / "into")
+    assert seen == [("Acme/bot-scribe", "ghs_read")] and "ask its owner to publish it" in refused.value.detail
+
+
+def botcopy_person(api, attempt):
+    from clients.hubtools import _Requester
+    return _Requester(Hub(api, attempt["token"]))

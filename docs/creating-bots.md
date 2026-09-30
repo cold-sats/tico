@@ -54,7 +54,8 @@ explicitly:
 
 The server holds no bot repositories, so it decides and records (your rights, the limit, the credentials, `POST
 /api/v2/bots/<bot>/copy`, `update-from-original` and `suggest-to-original`) and BotOps's computer makes the commits in its
-workspace: the original's repository has to be on that computer. The steps BotOps follows are in `playbooks/copy-a-bot.md`.
+workspace. The original's files come from that workspace or, when the bot runs on another computer, from a read-only clone of its GitHub
+repository (BotOps gets a short-lived token for it only as a person who may read the bot); with neither, its owner has to publish it. The steps BotOps follows are in `playbooks/copy-a-bot.md`.
 
 ## Copy a skill
 

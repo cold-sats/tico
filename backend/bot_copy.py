@@ -26,6 +26,8 @@ from .github_app import TURN_PERMISSIONS, repo_of
 from .harnesses import EXTERNAL_HARNESSES, resolve_harness
 from .store import H, Problem, encode
 
+READ_PERMISSIONS = {"contents": "read", "metadata": "read"}
+
 
 def _json(value):
     try:
@@ -162,6 +164,26 @@ def install(app, store, auth, mutate, settings_admin, place_now):
                     "original_repo": row["repo"] or "emp-" + bot, "credentials": credentials,
                     **({"placement": placed} if placed else {})}
         return mutate(request, body, work)
+
+    @app.post("/api/v2/bots/{bot}/repository-read-token")
+    def repository_read_token(request: Request, bot: str, body: M.Empty):
+        """A short-lived, read-only GitHub token for one bot's repository, for BotOps to clone it when that bot runs on another
+        computer (a copy, an update or a skill is made from its files). Only BotOps acting for a person who may read the bot gets one."""
+        who = person(request)
+        if who.via != "botops":
+            raise Problem("forbidden", "Only BotOps, acting for the person who asked, is given a token to read a bot's repository", 403)
+        with store.read() as c:
+            if not H.bot(c, bot):
+                raise Problem("not_found", "Bot not found", 404)
+            auth.require_read(c, who, bot)
+            app_row = app.state.github_app.row(c)
+            repo = repo_of(settings_admin._config(c, bot)["repo"] or "emp-" + bot, app_row["org"]) if app_row else None
+        if not repo or repo.split("/")[0].lower() != app_row["org"].lower():
+            return {"configured": False}
+        token, expires = app.state.github_app.mint([repo], READ_PERMISSIONS)
+        with store.transaction() as c:
+            H.event(c, who.actor, "bot.repository_read", bot, {"repository": repo})
+        return {"configured": True, "token": token, "expires_at": expires, "repository": repo}
 
     @app.post("/api/v2/bots/{bot}/update-from-original")
     def update_from_original(request: Request, bot: str, body: M.BotUpdateFromOriginal):

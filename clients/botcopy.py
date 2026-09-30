@@ -12,6 +12,7 @@ with `git merge-file` for the three-way merge.
 Secrets never travel: dotenv files, `secrets/`, key files and credentials are left out whatever else is asked.
 """
 import difflib
+import contextlib
 import functools
 import io
 import os
@@ -130,6 +131,43 @@ def source(workspace, slug, what="the original"):
     return path
 
 
+def unavailable(what):
+    return CopyError("no_repository", f"{what.capitalize()}'s repository isn't on this computer or GitHub; ask its owner to publish it.")
+
+
+def fetch_repository(person, slug, into, what="the original"):
+    """A bot's repository, read-only, from its recorded GitHub repository, cloned into `into`: the same clone the runner does for a bot
+    that moved (runner/git_credentials.py), with a read token the server gives only for a bot the requester may read."""
+    from clients.tico import APIError
+    try:
+        granted = person.post(f"bots/{slug}/repository-read-token", {})
+    except APIError as exc:
+        if exc.code in ("forbidden", "not_found"):
+            raise CopyError(exc.code, exc.detail) from None
+        raise unavailable(what) from None
+    if not granted.get("configured") or not granted.get("token") or not granted.get("repository"):
+        raise unavailable(what)
+    from runner import git_credentials
+    state, detail = git_credentials.clone_repository(Path(into), granted["repository"], {**os.environ, **git_credentials.environment(granted["token"])})
+    if state != "cloned" or not head(into):
+        raise CopyError("no_repository", unavailable(what).detail + (f" ({detail})" if detail else ""))
+    return Path(into)
+
+
+@contextlib.contextmanager
+def opened(workspace, slug, person=None, what="the original"):
+    """A repository to read from: this workspace's own when it has the bot's, else a read-only clone of its GitHub repository in a
+    temporary folder that is removed afterwards."""
+    path = repo_dir(workspace, slug)
+    if (path / ".git").exists() and head(path):
+        yield path
+    elif person is None:
+        raise unavailable(what)
+    else:
+        with tempfile.TemporaryDirectory(prefix="tico-copy-") as folder:
+            yield fetch_repository(person, slug, Path(folder) / ("bot-" + slug), what)
+
+
 # ----------------------------------------------------------------------------- a copy
 def rewrite_manifest(text, original, slug, display_name):
     """bot.yaml as the copy's own: its name and label, no routines (the hub's rows are the routines, and a copy starts with none)."""
@@ -181,10 +219,10 @@ def blank(rel, original):
             "memory/decisions.md": "# Decisions\nWhat was decided, when, and why. Date each entry.\n"}.get(rel)
 
 
-def build_copy(workspace, original, slug, display_name="", with_memory=False):
+def build_copy(workspace, original, slug, display_name="", with_memory=False, theirs=None):
     """`<workspace>/bot-<slug>` from the original's repository at its current commit: one commit, no history.
     {path, commit, from_sha, files, left_out}."""
-    path = source(workspace, original)
+    path = theirs or source(workspace, original)
     sha = head(path)
     target = Path(workspace).expanduser() / ("bot-" + slug)
     if repo_dir(workspace, slug).exists():
@@ -210,9 +248,9 @@ def build_copy(workspace, original, slug, display_name="", with_memory=False):
     return {"path": str(target), "commit": made, "from_sha": sha, "files": len(files), "left_out": left}
 
 
-def tools_at_head(workspace, original):
+def tools_at_head(workspace, original, theirs=None):
     """What the original declares it needs, for the server to work out credentials from."""
-    path = source(workspace, original)
+    path = theirs or source(workspace, original)
     return head(path), declared_tools(tree(path, head(path)))
 
 
@@ -266,13 +304,13 @@ def plan_update(base, now, mine):
     return {"changes": changes, "conflicts": conflicts}
 
 
-def update_from_original(workspace, original, slug, base_sha):
+def update_from_original(workspace, original, slug, base_sha, theirs=None):
     """Bring the copy's instructions up to date with the original's, in one commit on the copy's repository, or
     change nothing and answer the conflicts. {status: updated|current|conflicts, ...}."""
     if not base_sha:
         raise CopyError("no_base", "This copy has no recorded starting point. Once you have compared it with the original "
                         "by hand, `hub bot update-from-original <bot> --resolved` records that it is up to date.")
-    theirs, mine_path = source(workspace, original), source(workspace, slug, "the copy")
+    theirs, mine_path = theirs or source(workspace, original), source(workspace, slug, "the copy")
     current = head(theirs)
     base = scoped(tree(theirs, base_sha))
     now = scoped(tree(theirs, current))
@@ -304,9 +342,9 @@ def update_from_original(workspace, original, slug, base_sha):
     return {**result, "status": "updated", "updated": sorted(plan["changes"]), "commit": made}
 
 
-def settle(workspace, original, slug):
+def settle(workspace, original, slug, theirs=None):
     """`--resolved`: the original's commit the copy now counts as up to date with, once nothing in the copy is uncommitted."""
-    theirs, mine = source(workspace, original), source(workspace, slug, "the copy")
+    theirs, mine = theirs or source(workspace, original), source(workspace, slug, "the copy")
     wrote = dirty(mine, *SCOPE)
     if wrote:
         raise CopyError("dirty", f"The copy has changes that are not committed ({', '.join(wrote[:5])}). Commit them first.")
@@ -314,12 +352,12 @@ def settle(workspace, original, slug):
 
 
 # ----------------------------------------------------------------------------- suggest to the original
-def suggestion(workspace, original, slug, base_sha, paths=None):
+def suggestion(workspace, original, slug, base_sha, paths=None, theirs=None):
     """The copy's own changes to its instructions, as files the original could take: {files, held_back, diff}.
     A file the original changed too since the copy was made is held back: a suggestion must not undo what it did."""
     if not base_sha:
         raise CopyError("no_base", "This copy has no recorded starting point, so its own changes cannot be told apart.")
-    theirs, mine_path = source(workspace, original), source(workspace, slug, "the copy")
+    theirs, mine_path = theirs or source(workspace, original), source(workspace, slug, "the copy")
     base, now = scoped(tree(theirs, base_sha)), scoped(tree(theirs, head(theirs)))
     mine = scoped(tree(mine_path, head(mine_path)))
     wanted = [str(p).strip("/") for p in paths or []]
@@ -345,12 +383,12 @@ def suggestion(workspace, original, slug, base_sha, paths=None):
 
 
 # ----------------------------------------------------------------------------- a skill
-def copy_skill(workspace, skill, from_bot, to_bots, replace=False):
+def copy_skill(workspace, skill, from_bot, to_bots, replace=False, path=None):
     """`skills/<skill>/` from one bot's repository into each target's, one commit each. Per target: copied, replaced, unchanged,
     or why not. A target that already has a different skill of that name is left alone unless `replace`."""
     if not SKILL.match(skill or ""):
         raise CopyError("skill", "A skill is named by its folder under skills/: lowercase letters, digits, dots, hyphens")
-    path = source(workspace, from_bot, "the source bot")
+    path = path or source(workspace, from_bot, "the source bot")
     prefix = f"skills/{skill}/"
     files = {rel: data for rel, data in tree(path, head(path)).items() if rel.startswith(prefix) and safe_path(rel)}
     if not files:
@@ -423,17 +461,18 @@ def run_copy(api, person, args, workspace=None):
     """`hub bot copy`: the server registers the new bot (rights, limit, model, credentials); this computer makes its repository."""
     root = workspace or workspace_of()
     original = args["bot"]
-    sha, tools = tools_at_head(root, original)
     slug = args.get("slug") or ""
     if slug and repo_dir(root, slug).exists():
         raise CopyError("exists", f"{repo_dir(root, slug)} already exists; a bot's repository is never overwritten")
-    body = {"with_memory": bool(args.get("with_memory")), "sha": sha, "tools": tools,
-            **{k: args[k] for k in ("slug", "computer") if args.get(k)},
-            **({"display_name": args["name"]} if args.get("name") else {})}
-    made = person.post(f"bots/{original}/copy", body, key=args.get("operation_id"))
-    if not isinstance(made, dict) or "slug" not in made:
-        return made                                  # a card waiting for the person's click, or whatever the server said
-    built = build_copy(root, original, made["slug"], made.get("display_name") or "", bool(args.get("with_memory")))
+    with opened(root, original, person) as theirs:
+        sha, tools = tools_at_head(root, original, theirs)
+        body = {"with_memory": bool(args.get("with_memory")), "sha": sha, "tools": tools,
+                **{k: args[k] for k in ("slug", "computer") if args.get(k)},
+                **({"display_name": args["name"]} if args.get("name") else {})}
+        made = person.post(f"bots/{original}/copy", body, key=args.get("operation_id"))
+        if not isinstance(made, dict) or "slug" not in made:
+            return made                              # a card waiting for the person's click, or whatever the server said
+        built = build_copy(root, original, made["slug"], made.get("display_name") or "", bool(args.get("with_memory")), theirs)
     return {**made, **built, **publish(api, made["slug"])}
 
 
@@ -444,10 +483,11 @@ def run_update(person, args, workspace=None):
     root = workspace or workspace_of()
     slug = args["bot"]
     plan = person.post(f"bots/{slug}/update-from-original", {})
-    if args.get("resolved"):
-        result = {"status": "resolved", "current_sha": settle(root, plan["original"], slug)}
-    else:
-        result = update_from_original(root, plan["original"], slug, plan.get("base_sha") or "")
+    with opened(root, plan["original"], person) as theirs:
+        if args.get("resolved"):
+            result = {"status": "resolved", "current_sha": settle(root, plan["original"], slug, theirs)}
+        else:
+            result = update_from_original(root, plan["original"], slug, plan.get("base_sha") or "", theirs)
     if result["status"] != "conflicts":
         person.post(f"bots/{slug}/update-from-original", {"applied_sha": result["current_sha"]}, key=args.get("operation_id"))
     return {"bot": slug, "original": plan["original"], **result}
@@ -460,7 +500,8 @@ def run_suggest(person, args, workspace=None):
     root = workspace or workspace_of()
     slug = args["bot"]
     plan = person.post(f"bots/{slug}/update-from-original", {})
-    found = suggestion(root, plan["original"], slug, plan.get("base_sha") or "", args.get("paths"))
+    with opened(root, plan["original"], person) as theirs:
+        found = suggestion(root, plan["original"], slug, plan.get("base_sha") or "", args.get("paths"), theirs)
     if not found["files"]:
         return {"bot": slug, "original": plan["original"], "suggested": False, "held_back": found["held_back"],
                 "detail": "Nothing to suggest: the copy has no changes to its instructions that the original does not already have."
@@ -474,5 +515,6 @@ def run_skill(person, args, workspace=None):
     """`hub skill copy`: the server checks read on the source and write on every target; the skill's folder is committed into each."""
     root = workspace or workspace_of()
     plan = person.post(f"bots/{args['bot']}/skills/copy", {"skill": args["skill"], "to": list(args["to"])}, key=args.get("operation_id"))
-    copied = copy_skill(root, args["skill"], args["bot"], [t["bot"] for t in plan["to"]], bool(args.get("replace")))
+    with opened(root, args["bot"], person, "the source bot") as path:
+        copied = copy_skill(root, args["skill"], args["bot"], [t["bot"] for t in plan["to"]], bool(args.get("replace")), path)
     return {"skill": args["skill"], "from": args["bot"], "to": copied}

@@ -185,3 +185,67 @@ def test_a_skill_is_committed_into_each_target_and_a_different_one_is_not_replac
         botcopy.copy_skill(workspace, "../etc", "scribe", ["one"])
     with pytest.raises(botcopy.CopyError):
         botcopy.copy_skill(workspace, "nothing-here", "scribe", ["one"])
+
+
+# ------------------------------------------------------------------ an original that is on GitHub, not in this workspace
+class Person:
+    """The api acting for the requester, answering the few calls a copy makes."""
+    def __init__(self, answers):
+        self.answers, self.calls = answers, []
+
+    def post(self, path, body=None, key=None):
+        self.calls.append(path)
+        answer = self.answers[path]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def elsewhere(workspace, tmp_path, monkeypatch):
+    """The original lives on another computer: only a fetch (a clone of its GitHub repository, mocked here) can bring it."""
+    (tmp_path / "remote").mkdir()
+    (workspace / "bot-scribe").rename(tmp_path / "remote" / "bot-scribe")
+    cloned = []
+
+    def fetch(person, slug, into, what="the original"):
+        subprocess.run(["git", "clone", "-q", str(tmp_path / "remote" / ("bot-" + slug)), str(into)], check=True)
+        cloned.append(Path(into))
+        return Path(into)
+    monkeypatch.setattr(botcopy, "fetch_repository", fetch)
+    return cloned
+
+
+def test_an_original_on_another_computer_is_fetched_read_only_used_and_cleaned_up(workspace, tmp_path, monkeypatch):
+    cloned = elsewhere(workspace, tmp_path, monkeypatch)
+    base = run(tmp_path / "remote" / "bot-scribe", "rev-parse", "HEAD")
+    person = Person({"github/repos": {"repository": "Acme/bot-scribe-two", "html_url": "https://github.com/Acme/bot-scribe-two"},
+                     "bots/scribe/copy": {"slug": "scribe-two", "display_name": "Scribe Two", "credentials": {"granted": [], "needs": []}},
+                     "bots/scribe-two/update-from-original": {"original": "scribe", "base_sha": base}})
+    made = botcopy.run_copy(person, person, {"bot": "scribe"}, workspace)
+    assert made["from_sha"] == base and (workspace / "bot-scribe-two" / "AGENT.md").read_text() == AGENT
+    assert not (workspace / "bot-scribe-two" / ".env").exists() and not cloned[-1].exists()      # the temporary clone is gone
+    assert person.calls[0] == "bots/scribe/copy" and made["published"] is True
+    # The same for bringing the copy up to date, suggesting back, and a skill from it.
+    save(tmp_path / "remote" / "bot-scribe", {"playbooks/new.md": "New.\n"}, "Moves on")
+    person.answers["bots/scribe-two/update-from-original"] = {"original": "scribe", "base_sha": base}
+    person.answers["bots/scribe-two/suggest-to-original"] = {"suggested": True}
+    updated = botcopy.run_update(person, {"bot": "scribe-two"}, workspace)
+    assert updated["status"] == "updated" and (workspace / "bot-scribe-two" / "playbooks" / "new.md").exists()
+    save(workspace / "bot-scribe-two", {"AGENT.md": AGENT + "More.\n"}, "Mine")
+    person.answers["bots/scribe-two/update-from-original"] = {"original": "scribe", "base_sha": updated["current_sha"]}
+    assert botcopy.run_suggest(person, {"bot": "scribe-two"}, workspace) == {"suggested": True}
+    person.answers["bots/scribe/skills/copy"] = {"to": [{"bot": "scribe-two"}]}
+    shared = botcopy.run_skill(person, {"skill": "triage", "bot": "scribe", "to": ["scribe-two"]}, workspace)
+    assert shared["to"][0]["status"] == "unchanged" and not any(p.exists() for p in cloned)
+
+
+def test_no_repository_anywhere_says_who_to_ask(workspace, tmp_path):
+    from clients.tico import APIError
+    (workspace / "bot-scribe").rename(tmp_path / "gone")
+    for answer in ({"configured": False}, APIError("forbidden", "You may not read it", 403)):
+        person = Person({"bots/scribe/repository-read-token": answer})
+        with pytest.raises((APIError, botcopy.CopyError)) as refused:
+            botcopy.run_skill(Person({"bots/scribe/skills/copy": {"to": [{"bot": "x"}]}, **person.answers}),
+                              {"skill": "triage", "bot": "scribe", "to": ["x"]}, workspace)
+        assert getattr(refused.value, "detail", "") in (
+            "The source bot's repository isn't on this computer or GitHub; ask its owner to publish it.", "You may not read it")

@@ -38,7 +38,7 @@ DO = _routes(
     ("POST", rf"bots/{_S}/tools/{_S}/(delete|update)"), ("DELETE", rf"bots/{_S}/tools/{_S}"),
     # Copying a bot or a skill, bringing a copy up to date and suggesting its changes back: each is checked with the requester's own
     # rights on the bots it names (backend/bot_copy.py).
-    ("POST", rf"bots/{_S}/(copy|update-from-original|suggest-to-original|skills/copy)"),
+    ("POST", rf"bots/{_S}/(copy|update-from-original|suggest-to-original|skills/copy|repository-read-token)"),
     # A Hermes bot (docs/hermes-agents.md): restoring an archived bot, pairing its profile with the code the connector
     # prints, and rotating or revoking its agent credential. The token itself never comes back to BotOps (the route).
     ("POST", rf"bots/{_S}/restore"), ("POST", rf"bots/{_S}/agent-credential"), ("POST", rf"bots/{_S}/agent-credential/revoke"),
