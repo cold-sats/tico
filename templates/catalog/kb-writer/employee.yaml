@@ -1,0 +1,42 @@
+name: kb-writer                     # the slug: it matches the repository emp-kb-writer and the label owner:kb-writer
+display_name: "Knowledge Base Writer"
+labels: [owner:kb-writer]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 45
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# the bot puts every draft on the task and asks for an approval.
+outbound_send: false
+
+# The first routine is declared but not armed (`enabled: false`). The bot arms it with
+# `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
+# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+schedules:
+  - id: weekly-article-drafts
+    title: Weekly help article drafts
+    cron: "0 10 * * 3"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/weekly-article-drafts.md
+    labels: [priority:p2]
+    enabled: false
+
+# What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
+# arrives in, never the value; declaring access here does not create it. Changing access is an
+# owner decision, so the bot files a task for the owner rather than editing this file.
+# The hub itself (tasks, files, docs) needs no entry: every turn has it. Resolved tickets arrive as
+# tasks from Support Triage or a person. Optional, uncomment what the onboarding says is connected.
+# Changing access is an owner decision; the bot files a task rather than editing this file.
+# access:
+#   - service: gmail
+#     identity: "support@example.com"
+#     can: [read]
+#     env: GOOGLE_SA_KEY
+#     note: "reads resolved support threads to find repeated questions; never drafts a reply, files or sends"
+#   - service: public-web
+#     identity: "Unauthenticated public sources"
+#     can: [read]
+#     note: "reads the company's own public help centre to find stale or duplicate articles; no forms, no accounts"
+access: []

@@ -1,0 +1,43 @@
+A sample of excellent output for a fictional company. Every name in it is a stand-in.
+
+```markdown
+# Acme support summary, week of Mon 2026-09-21
+
+Sample output for Acme, a fictional company. Every figure, ticket and name below is invented.
+
+**Headline: replies were on target (median first reply 2h10m against 4h), but the backlog aged: 6 tickets are older than 7 days and 2 have no owner.**
+
+## Decisions needed
+1. **Who owns T-2011 and T-2019?** Both are 9 days old with no owner since Dana Okoye went on leave on 2026-09-16.
+   Proposed: Ben Okafor takes both. Say yes and I will draft the task.
+2. **Weekend cover on 2026-10-10 and 2026-10-11**: nobody is listed in the rota. Proposed: ask Cara Mendes.
+
+## Against target
+| Measure | This week | Last week | Target |
+|---|---|---|---|
+| New requests | 74 | 61 | none |
+| First reply, median / slowest tenth | 2h10m / 7h40m | 2h30m / 6h05m | 4h |
+| Time to resolution, median | 1.4 days | 1.1 days | 3 days |
+| Open, at end of week | 31 | 22 | none |
+
+Source: triage digests 2026-09-21 to 2026-09-27 and the support mailbox count on 2026-09-28. Times run from the
+customer's first email.
+
+## Oldest waiting
+T-2011 (9 days, no owner, waiting on us), T-2019 (9 days, no owner), T-2024 (8 days, waiting on the customer), T-2027
+(7 days, waiting on a fix), T-2030 (7 days, waiting on us).
+
+## Repeats
+Calendar sync lag (4 tickets, already a product issue), invoice date questions (5, standing answer exists), SMS
+reminder plans (3, no answer yet: the Knowledge Base Writer has a draft).
+
+## Quality and customers
+QA review 2026-09-25: 10 replies sampled, 8 met the scorecard; the two misses lacked a next step. Feedback report
+2026-09-22: "double booking" is the largest theme (9 mentions).
+
+## Routing proposals (nothing created)
+- T-2027 to the engineering lead: waiting on the sync fix, needs a date for the customer.
+
+## Could not read
+The Slack support channel is not connected, so questions asked there are not counted.
+```
