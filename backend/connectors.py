@@ -14,7 +14,8 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from . import models as M
-from .store import H, Problem, encode
+from . import routines
+from .store import H, P, Problem, encode
 
 
 EMAIL = re.compile(r"^[^\s@]{1,200}@[A-Za-z0-9.-]{1,200}$")
@@ -179,7 +180,7 @@ class MailMessage(M.Contract):
 class ConnectorFailure(M.Contract):
     account: str = Field(min_length=3, max_length=320)
     # Only the kind of failure reaches the cloud, never the provider's message or a local path.
-    reason: Literal["signin", "network", "error"]
+    reason: Literal["signin", "network", "error", "delegation"]
 
 
 class ConnectorHealth(M.Contract):
@@ -189,7 +190,10 @@ class ConnectorHealth(M.Contract):
 
 CONNECTOR_REASON = {"signin": "its Google sign-in was refused, so retrying won't fix it",
                     "network": "Google or the network can't be reached; the Mac keeps retrying",
-                    "error": "the connector failed; the Mac keeps retrying"}
+                    "error": "the connector failed; the Mac keeps retrying",
+                    "delegation": "the Google service account has no domain-wide delegation for the domain {domain}, "
+                                  "so it can't act as this mailbox; add that domain's delegation in Google Workspace, "
+                                  "or give the message bot a mailbox on a domain the key covers"}
 
 
 class MailPublish(M.Contract):
@@ -244,6 +248,18 @@ def _refresh_mailbox(c, address, person_id, runner_id, synced_at):
               (address, person_id, runner_id, synced_at, stats["n"], stats["oldest"], stats["newest"]))
 
 
+def human_of(c, address):
+    """The person row a connector address belongs to: by roster email, else by a message bot's declared mailbox."""
+    address = str(address or "").strip().lower()
+    row = c.execute("SELECT id,email FROM humans WHERE lower(email)=?", (address,)).fetchone()
+    if row:
+        return row
+    from .views import roster
+    people = roster(c)
+    found = routines.person_for_mailbox(address, routines.message_bot_mailboxes(c, people), people)
+    return c.execute("SELECT id,email FROM humans WHERE id=?", (found["id"],)).fetchone() if found else None
+
+
 def install_connectors(app, store, execution, mutate):
     def publisher(c, who):
         runner = execution.runner(c, who)
@@ -265,13 +281,11 @@ def install_connectors(app, store, execution, mutate):
     def targets(request: Request):
         with store.read() as c:
             publisher(c, request.state.identity)
-            # People hidden on the roster have left; their Google mailbox is gone and every refresh
-            # failed with invalid_grant, for hours at a time.
+            # The mailboxes the message bots manage, not every person on the roster: a bot's declared
+            # mailbox, else its person's email. People who left (hidden) are left out.
             from .views import roster
-            hidden = {p.get("id") for p in (roster(c) or {}).get("people") or [] if p.get("hidden")}
-            people = [{"id": row["id"], "email": row["email"]} for row in c.execute(
-                "SELECT id,email FROM humans WHERE email IS NOT NULL AND trim(email)<>'' ORDER BY id")
-                if row["id"] not in hidden]
+            people = [{"id": box["person_id"], "email": box["address"]}
+                      for box in routines.message_bot_mailboxes(c, roster(c))]
         return {"people": people, "hours": 24, "refresh_seconds": 45}
 
     @app.post("/api/v2/connectors/calendar/snapshots")
@@ -283,7 +297,7 @@ def install_connectors(app, store, execution, mutate):
                 if snapshot.email in seen:
                     raise Problem("duplicate", "Publish at most one snapshot per person", 422)
                 seen.add(snapshot.email)
-                person = c.execute("SELECT id FROM humans WHERE lower(email)=?", (snapshot.email,)).fetchone()
+                person = human_of(c, snapshot.email)
                 if not person:
                     raise Problem("not_found", "Calendar target is not on the "
                                   + store.settings.app_name + " roster", 404)
@@ -312,7 +326,9 @@ def install_connectors(app, store, execution, mutate):
                           "detail_json=excluded.detail_json", (service, H.now(), encode({"runner_id": runner["id"]})))
                 return {"ok": True}
             label = "Calendar" if body.service == "calendar" else "Mail"
-            error = "; ".join(f"{label} can't refresh for {f.account}: {CONNECTOR_REASON[f.reason]}" for f in body.failing)
+            error = "; ".join(
+                f"{label} can't refresh for {f.account}: "
+                + CONNECTOR_REASON[f.reason].format(domain=f.account.rpartition("@")[2]) for f in body.failing)
             signin = any(f.reason == "signin" for f in body.failing)
             detail = {"runner_id": runner["id"], "needs_person": signin,
                       **({"action": "Reconnect the Google account for " + ", ".join(
@@ -371,15 +387,22 @@ def install_connectors(app, store, execution, mutate):
                 "SELECT * FROM calendar_actions WHERE id=?", (action_id,)).fetchone())}
 
     def calendar_person(c, address):
+        """The person a calendar belongs to and the address the connector acts as: the mailbox their
+        message bot declares, else their email. Either address names the calendar."""
         address = str(address or store.settings.owner_email).strip().lower()
         if not EMAIL.fullmatch(address):
             raise Problem("calendar", "Calendar must be an email address", 422)
-        person = c.execute("SELECT id,email FROM humans WHERE lower(email)=?", (address,)).fetchone()
+        person = human_of(c, address)
         if not person:
             raise Problem("not_found", "Calendar is not on the company roster", 404)
+        from .views import roster
+        people = roster(c)
+        rostered = P.person(person["id"], people)
+        if rostered:
+            address = routines.mailbox_of(rostered, routines.message_bot_mailboxes(c, people))
         return person, address
 
-    def calendar_allowed(c, who, address):
+    def calendar_allowed(c, who, address, person=None):
         """People: the calendars whose mail they may read. Bots: the owner's and their operator's."""
         if who.role == "owner":
             return
@@ -390,7 +413,8 @@ def install_connectors(app, store, execution, mutate):
         elif who.role == "bot":
             row = c.execute("SELECT h.email FROM bot_config b JOIN humans h ON h.id=b.operator WHERE b.bot=?",
                             (H.actor_id(who.actor),)).fetchone()
-            if address in {store.settings.owner_email, str(row["email"] if row else "").lower()} - {""}:
+            named = {store.settings.owner_email, str(row["email"] if row else "").lower()} - {""}
+            if address in named or (str(person["email"] or "").lower() if person else "") in named:
                 return
         raise Problem("forbidden", "That calendar is not yours to read or schedule on", 403)
 
@@ -401,7 +425,7 @@ def install_connectors(app, store, execution, mutate):
             raise Problem("identity", "Calendar appointments are available to bots and people", 403)
         with store.transaction() as c:
             person, address = calendar_person(c, calendar)
-            calendar_allowed(c, who, address)
+            calendar_allowed(c, who, address, person)
             row = c.execute("SELECT * FROM connector_snapshots WHERE kind='calendar' AND owner=?",
                             (person["id"],)).fetchone()
             H.event(c, who.actor, "calendar.read", address, {})
@@ -419,8 +443,8 @@ def install_connectors(app, store, execution, mutate):
             raise Problem("identity", "Only a bot or person may schedule an appointment", 403)
 
         def work(c):
-            _, address = calendar_person(c, body.calendar)
-            calendar_allowed(c, who, address)
+            person, address = calendar_person(c, body.calendar)
+            calendar_allowed(c, who, address, person)
             start = instant(body.start)
             if start.astimezone(timezone.utc) < datetime.now(timezone.utc):
                 raise Problem("start", "Calendar appointments must start in the future", 422)
@@ -459,11 +483,12 @@ def install_connectors(app, store, execution, mutate):
     def mail_targets(request: Request):
         with store.read() as c:
             publisher(c, request.state.identity)
-            people = {row["id"]: (row["email"] or "").lower() for row in c.execute(
-                "SELECT id,email FROM humans WHERE email IS NOT NULL AND trim(email)<>'' ORDER BY id")}
+            from .views import roster
+            targets = routines.message_bot_mailboxes(c, roster(c))
             freshness = {row["address"]: row for row in c.execute("SELECT * FROM mail_mailboxes")}
         mailboxes = []
-        for person_id, address in people.items():
+        for target in targets:
+            address, person_id = target["address"], target["person_id"]
             row = freshness.get(address)
             mailboxes.append({
                 "address": address, "person_id": person_id,
@@ -485,7 +510,7 @@ def install_connectors(app, store, execution, mutate):
                 if message.msg_id in seen:
                     raise Problem("duplicate", "Publish a message at most once per batch", 422)
                 seen.add(message.msg_id)
-            person = c.execute("SELECT id FROM humans WHERE lower(email)=?", (body.mailbox,)).fetchone()
+            person = human_of(c, body.mailbox)
             if not person:
                 raise Problem("not_found", "Mail target is not on the "
                               + store.settings.app_name + " roster", 404)
