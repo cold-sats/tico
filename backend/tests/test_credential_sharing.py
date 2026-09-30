@@ -294,3 +294,34 @@ def test_the_import_tool_asks_as_the_requester_and_waits_for_the_computer(api, b
         assert JIRA not in everything(api)
     finally:
         service.pool.shutdown()
+
+
+# ------------------------------------------------------------------ readiness counts a vault grant
+def test_a_granted_credential_is_present_in_the_tool_row_and_health_until_it_is_revoked(api):
+    from backend.tests.test_bot_tools import configure, report, tools_of
+    local(api)
+    configure(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    entry = {"service": "jira", "can": ["read"], "env": "JIRA_BASIC_AUTH", "credential": "missing"}
+    other = {"service": "posthog", "can": ["read"], "env": "POSTHOG_KEY", "credential": "missing"}
+    assert report(api, machine, "ops", [entry, other]).status_code == 200
+
+    def rows():
+        return {t["id"]: t for t in tools_of(api)["tools"]}
+
+    def missing():
+        return [i["text"] for i in get(api, "fleet/check", token="ana-test")["issues"] if i["kind"] == "missing_credential"]
+
+    assert rows()["jira"]["status"] == "problem" and len(missing()) == 2      # nothing granted yet
+    stored = jira(api)
+    post(api, f"credentials/{stored['id']}/grants", {"subject": "bot:finance"})  # another bot's grant is not ops's
+    assert rows()["jira"]["status"] == "problem"
+    grant = post(api, f"credentials/{stored['id']}/grants", {"subject": "bot:ops"})
+    tool = rows()["jira"]
+    assert tool["status"] == "ready" and "problem" not in tool and "credential vault" in tool["detail"]
+    assert rows()["posthog"]["status"] == "problem"                          # a variable nobody granted stays missing
+    assert len(missing()) == 1 and "JIRA_BASIC_AUTH" not in missing()[0]
+    assert JIRA not in json.dumps([tools_of(api), get(api, "fleet/check", token="ana-test")])
+    assert post(api, f"credentials/{stored['id']}/grants/{grant['id']}/revoke", {}).get("ok")
+    assert rows()["jira"]["status"] == "problem" and len(missing()) == 2

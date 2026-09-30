@@ -132,7 +132,9 @@ def _declared_tool(entry, used, label):
     service = str(entry.get("service") or "")
     env, credential = entry.get("env") or "", entry.get("credential") or "not-declared"
     status, problem, detail = "unknown", entry.get("problem") or "", ""
-    if credential == "present" and entry.get("held"):
+    if credential == "present" and entry.get("granted"):
+        status, detail = "ready", f"{env} is granted through the credential vault; it arrives when a run starts"
+    elif credential == "present" and entry.get("held"):
         status, detail = "ready", f"{env} is present (held by the computer); a run gets a short-lived token, never the key"
     elif credential == "present":
         status, detail = "ready", f"{env} is set on {label}"
@@ -189,6 +191,22 @@ def _same(a, b):
     return norm(a) == norm(b)
 
 
+def granted(c, bot, raw):
+    """The reported tools, with a credential the computer says is missing counted present when the vault grants it to the bot.
+
+    The runner reports only what its computer holds (a secrets file, a profile); a vault grant arrives with each run
+    (`GET /api/v2/credential-runtime`), so the computer cannot see it but this server can. Only a grant a run would receive
+    counts: not revoked, its delegation intact, and a stored value behind it. Names only, never a value."""
+    missing = {str(e.get("env")) for e in raw if e.get("credential") == "missing" and e.get("env")}
+    if not missing:
+        return raw
+    from .credentials import effective_grant
+    have = {row["env"] for row in c.execute("SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=''")
+            if row["env"] in missing and effective_grant(c, row["id"], "bot:" + bot)}
+    return [dict(e, credential="present", granted=True) if e.get("credential") == "missing" and e.get("env") in have else e
+            for e in raw]
+
+
 def _state(c, settings, bot):
     row = c.execute("SELECT config_json,repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
     config = H._json(row["config_json"], {}) if row else {}
@@ -200,7 +218,7 @@ def _state(c, settings, bot):
     report = report if isinstance(report, dict) else {}
     label = (runner["label"] if runner else "") or "its computer"
     used = {"model", "repo"}
-    raw = [entry for entry in report.get("tools") or [] if isinstance(entry, dict)]
+    raw = granted(c, bot, [entry for entry in report.get("tools") or [] if isinstance(entry, dict)])
     return {"row": row, "config": config, "runner": runner, "readiness": readiness, "report": report, "label": label,
             "raw": raw, "declared": [_declared_tool(entry, used, label) for entry in raw]}
 
