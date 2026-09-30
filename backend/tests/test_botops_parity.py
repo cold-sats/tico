@@ -67,6 +67,36 @@ def test_what_always_needs_a_click_comes_back_as_one_card_and_runs_only_on_it(ap
         assert Access.load_access(c, api.app.state.store.settings)["member_bot_limit"] == 3
 
 
+def test_a_support_card_shows_the_whole_message_behind_a_short_preview(api, botops):
+    """A long request to the Tico team was cut at 300 characters in the card and its chat message, mid-word."""
+    ben = turn(api, botops, person="ben-test", text="Tell the Tico team")
+    message = "[BotOps] " + " ".join(f"step{n}" for n in range(1, 160)) + " both `hub task show 539ce091` and `hub task list` fail."
+    assert len(message) > 900
+    card = act(api, ben, "POST", "support/tickets", {"message": message, "include_ids": True})
+    assert card.status_code == 200 and card.json()["needs_confirm"] is True, card.text
+    action = card.json()["action"]
+    # The short line is marked as a preview, and the card carries the exact text that would be sent, whole.
+    assert action["description"].startswith("Send this to the Tico team: [BotOps] step1 ") and action["description"].endswith("…")
+    assert len(action["description"]) < 220 and action["summary"] == action["description"]
+    assert [d for d in action["diff"] if d["field"] == "message"] == [{"field": "message", "new": message}]
+    assert action["body"]["message"] == message
+    with api.app.state.store.read() as c:
+        body = c.execute("SELECT body_json FROM assistant_actions WHERE id=?", (action["id"],)).fetchone()[0]
+        assert json.loads(body)["message"] == message
+        said = c.execute("SELECT body FROM messages WHERE refs_json LIKE ?", ('%' + action["id"] + '%',)).fetchone()[0]
+    assert said.startswith("Needs your OK: Send this to the Tico team: ") and said.endswith("…")
+    # A message the ticket would refuse never becomes a card to approve.
+    refused = act(api, ben, "POST", "support/tickets", {"message": "x" * 4001, "include_ids": True})
+    assert refused.status_code == 422, refused.text
+
+
+def test_preview_cuts_at_a_word_and_marks_it():
+    from backend.assistant import preview
+    assert preview("short  text\n here") == "short text here"
+    cut = preview("word " * 100)
+    assert cut.endswith("word…") and len(cut) <= 161 and "  " not in cut
+
+
 def test_a_secret_or_an_unlisted_route_never_goes_through_it(api, botops):
     attempt = turn(api, botops, person="ana-test")
     revision = act(api, attempt, "GET", "bots/ops/access").json()["revision"]
