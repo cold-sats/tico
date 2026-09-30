@@ -115,7 +115,7 @@
     const body = panel.querySelector('.dask-body');
     const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
     body.innerHTML = session.turns.length ? session.turns.map(turnHtml).join('')
-      : `<div class="dask-empty">Ask about anything in your company's docs. Matching docs appear at once; the Librarian then writes a short answer and cites where each part came from.
+      : `<div class="dask-empty">
           <div class="dask-hints">${['How do we handle a refund?', 'Who owns onboarding?', 'Where is the pricing?'].map(h => `<button class="ghost" type="button" data-hint="${esc(h)}">${esc(h)}</button>`).join('')}</div></div>`;
     decorate(body);
     body.querySelectorAll('a[data-close]').forEach(a => a.addEventListener('click', () => close(false)));
@@ -230,7 +230,7 @@
       panel.setAttribute('aria-labelledby', 'dask-title');
       panel.dataset.docsAsk = '';
       panel.innerHTML = `<header class="dask-head"><span class="nav-icon" aria-hidden="true">auto_awesome</span>
-          <div><h2 id="dask-title">Ask AI</h2><small>Answers from your docs, by the Librarian</small></div><span class="spacer"></span>
+          <div><h2 id="dask-title">Ask AI</h2></div><span class="spacer"></span>
           <button class="ghost dask-new" type="button" data-new-chat>New chat</button>
           <button class="dask-close" type="button" aria-label="Close Ask AI">✕</button></header>
         <div class="dask-body"></div>
