@@ -1,0 +1,41 @@
+name: proposal-writer                     # the slug: it matches the repository emp-proposal-writer and the label owner:proposal-writer
+display_name: "Proposal Writer"
+labels: [owner:proposal-writer]
+reads: []                        # other bot repositories this one may clone read-only
+
+# These must agree with the bot's settings on the server, or be left out of this file entirely.
+reasoning_effort: medium
+max_run_minutes: 60
+
+# Nothing addressed to anyone outside the company leaves until an owner turns this on. Until then
+# the bot puts every draft on the task and asks for an approval.
+outbound_send: false
+
+# The first routine is declared but not armed (`enabled: false`). The bot arms it with
+# `hub routine update <id> --enable` after a person approves the first draft on the onboarding task.
+# `hub bot create` seeds it once; from then on the hub's row is the routine (docs/routines.md).
+schedules:
+  - id: weekly-proposal-check
+    title: Weekly proposal pipeline check
+    cron: "0 14 * * 5"
+    timezone: America/Los_Angeles     # set this to the company's own timezone
+    template: playbooks/weekly-proposal-check.md
+    labels: [priority:p2]
+    enabled: false
+
+# What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
+# arrives in, never the value; declaring access here does not create it. Changing access is an
+# owner decision, so the bot files a task for the owner rather than editing this file.
+# Optional, uncomment when connected. Neither entry may ever carry write or send.
+# access:
+#   - service: close-crm
+#     identity: "the company's CRM account"
+#     can: [read]
+#     env: CLOSE_API_KEY
+#     note: "the deal's stage, contacts by role and notes; read only, never a write"
+#   - service: gmail
+#     identity: "seller@example.com"
+#     can: [read, draft]          # never send: outbound_send stays false
+#     env: GOOGLE_SA_KEY
+#     note: "reads the sender's threads with the buyer and leaves a draft; never files or sends"
+access: []
