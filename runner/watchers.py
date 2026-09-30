@@ -43,13 +43,21 @@ def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Names that say a value is an address or a setting, not a secret: masking them would mangle ordinary text
+# (a repository name, a URL, the bot's own name in a ticket title). A name that also says KEY/TOKEN/... wins.
+PLAIN_NAMES = ("URL", "URI", "HOST", "REPO", "REPOS", "DIR", "PATH", "HOME", "EMAIL", "NAME", "LABEL", "TIMEZONE", "TZ")
+
+
 def secret_values(env):
     """The values that must not appear in anything sent or logged: whatever the secrets files added to the
-    environment, and any variable whose name says it is one."""
+    environment, and any variable whose name says it is one. Call it before adding the runner's own variables."""
     found = set()
     for key, value in env.items():
-        value = str(value or "")
-        if len(value) >= 6 and (value != os.environ.get(key) or any(w in key.upper() for w in SECRET_NAMES)):
+        value, name = str(value or ""), key.upper()
+        secret_name = any(w in name for w in SECRET_NAMES)
+        plain_name = (any(name == w or name.endswith("_" + w) for w in PLAIN_NAMES)
+                      or name.startswith(("HUB_", "TICO_")))     # the runner's own settings, never a credential
+        if len(value) >= 6 and (secret_name or (value != os.environ.get(key) and not plain_name)):
             found.add(value)
     return sorted(found, key=len, reverse=True)
 
@@ -184,10 +192,10 @@ class Watchers:
         isolation.mkdir(state)
         saved = snapshot(state)
         env = self.environment(bot, entry)
+        secrets = secret_values(env)        # before the runner's own, non-secret variables (the bot's name, paths)
         env.update({"TICO_WATCHER": spec["name"], "TICO_WATCHER_STATE": str(state), "HUB_EMPLOYEE": bot,
                     "HUB_API_URL": self.runner.config["url"], "HUB_WORKSPACE": str(self.runner.config["projects_dir"]),
                     "PATH": os.pathsep.join([str(Path(sys.executable).parent), env.get("PATH", os.defpath)])})
-        secrets = secret_values(env)
         started = now()
         proc = self.popen(argv, cwd=str(path), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, start_new_session=True)

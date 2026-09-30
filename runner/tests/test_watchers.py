@@ -207,3 +207,13 @@ class SupportTemplate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_ordinary_words_and_addresses_are_not_masked():
+    # A ticket that says "support" or names the watched repository must reach the task as written.
+    from runner.watchers import secret_values, redact
+    env = {"HQ_STAFF_KEY": "k" * 40, "TICO_HQ_URL": "https://updates.tico.team", "GH_SUPPORT_REPOS": "ticoteam/tico",
+           "HUB_EMPLOYEE": "support"}
+    values = secret_values(env)
+    text = "checking the support path for ticoteam/tico at https://updates.tico.team with " + "k" * 40
+    assert redact(text, values) == "checking the support path for ticoteam/tico at https://updates.tico.team with [redacted]"

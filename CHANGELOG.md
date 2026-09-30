@@ -62,6 +62,7 @@ All notable changes to Tico are recorded here. The format follows
   Librarian answers "how do I..." from the manual.
 
 ### Fixed
+- Watchers no longer mask ordinary words in what they report: the bot's own name, a repository or a URL in a ticket title reached the task as "[redacted]". Only values from secrets files and variables named as secrets are masked.
 - **Credentials could not be added from the app.** `#/credentials` led to Integrations, whose "Add credential" needed a vault that nothing
   loaded. Owners and credential admins now see a Credentials section on Integrations with Add, Edit and Grant access.
 
