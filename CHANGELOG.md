@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.23] - 2026-09-30
+
+### Fixed
+- **Message bots on Docker computers read mail.** Creating a message bot for a human now links it: the human's message bot and
+  the mailbox it manages (its `Mailbox:` line, else the human's email) are recorded, whether BotOps builds it, it is added from a
+  template or the team builder makes it. Existing message bots are linked at start when it is unambiguous. Every isolated run gets
+  the credential socket, so the bot's mail tool uses a short-lived token for its mailbox instead of looking for the key. A bot with
+  no mailbox is told so plainly, and owners and admins (or BotOps, as them) change a bot's mailbox with
+  `POST /api/v2/access/humans/<id> {"inbox_bot", "mailbox"}`.
+
 ## [0.2.22] - 2026-09-30
 
 Fixes from rolling 0.2.21 out and from a clean install on a Mac.
