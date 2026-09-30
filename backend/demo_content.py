@@ -226,6 +226,16 @@ ROUTINES = [
 
 # The turns the runner would have recorded: (bot, hours ago, trigger, summary, tokens in, tokens out)
 TURNS = [
+    # Earlier in the week, so Usage has a few days to draw.
+    ("support", 30, "routine", "Morning triage: 9 drafts ready.", 79200, 6400),
+    ("support", 55, "message", "Answered a billing question.", 33800, 2500),
+    ("sales", 52, "task", "Prepared the Brightline renewal brief.", 74500, 6900),
+    ("content", 76, "task", "Outlined the launch post.", 48800, 5400),
+    ("inbox", 27, "routine", "Sorted the inbox: 31 filed, 4 flagged.", 35100, 2000),
+    ("inbox", 51, "routine", "Sorted the inbox: 26 filed, 6 flagged.", 37900, 2200),
+    ("botops", 100, "task", "Added Content from the catalog.", 91000, 8800),
+    ("coo", 78, "task", "Routed four requests.", 21400, 1400),
+    ("market-analyst", 125, "task", "Summarised two competitor pages.", 58300, 4700),
     ("support", 1.5, "message", "Drafted replies for three tickets.", 41200, 3100),
     ("support", 5, "routine", "Morning triage: 11 drafts ready.", 88400, 7200),
     ("sales", 9, "task", "Drafted trial follow-ups; one waits for approval.", 61000, 4800),
@@ -235,6 +245,13 @@ TURNS = [
     ("coo", 6, "task", "Routed six requests.", 22800, 1500),
     ("market-analyst", 20, "task", "Applied the Fernwood report.", 30900, 2300),
 ]
+
+# What model each demo bot runs on and how it is billed, for the usage the demo turns carry: about two thirds
+# of a turn's input is read from the model's cache.
+USAGE = {"coo": ("claude-opus-5", "anthropic", "subscription"), "botops": ("claude-opus-5", "anthropic", "subscription"),
+         "support": ("claude-opus-5-5", "anthropic", "api"), "sales": ("gpt-6-sol", "openai", "api"),
+         "inbox": ("gpt-6-luna", "openai", "api"), "content": ("claude-fable-5-1", "anthropic", "api"),
+         "market-analyst": ("gpt-6-sol", "openai", "subscription")}
 
 FOCUS = {"support": "Drafting ticket replies", "sales": "Waiting on an approval", "content": "Launch post review",
          "botops": "Refund policy wording", "inbox": "Sorting today's mail", "coo": "Routing requests",

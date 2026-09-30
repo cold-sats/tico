@@ -20,6 +20,7 @@ function route() {
   if (!S.route.startsWith(MAIL)) { MAIL_LOAD++; clearTimeout(MAIL_SEARCH); mailForget(); }
   if (!S.route.startsWith(MESSAGING)) { MESSAGING_LOAD++; MESSAGING_LIST = null; }
   convStop(); meetStop(); onbStop(); TASKS_ST = null; // page-local work never outlives its page
+  if (S.route !== '#/usage') USE = null;
   if (UPD && !(S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) { UPD.io?.disconnect(); void updFlush(UPD); UPD = null; }
   if (!S.route.startsWith('#/bot/')) botStopped();
   renderTree();
@@ -61,6 +62,7 @@ function route() {
   else if (S.route === DOCS || S.route.startsWith(DOCS + '/') || S.route.startsWith(DOCS + '?')) pageCompanyDocs();
   else if (S.route === INTEGRATIONS || S.route.startsWith(INTEGRATIONS + '/')) pageIntegrations();
   else if (S.route === '#/runs') pageRuns();
+  else if (S.route === '#/usage') pageUsage();
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
   $('#main').scrollTop = 0;
 }

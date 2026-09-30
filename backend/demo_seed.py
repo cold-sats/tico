@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message=".*starlette.testclient.*")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from . import demo_content as D
-from . import docs, goals as G, hubdb, market, onboarding, routines, updates
+from . import docs, goals as G, hubdb, market, onboarding, providers, routines, updates
 from .auth import Identity
 from .scheduler import next_due, stamp
 from .store import H, encode
@@ -402,8 +402,14 @@ class Builder:
                 self.at(hours=hours)
                 turn = hubdb.turn_start(c, hubdb.KEEPER, bot, trigger=trigger)
                 self.clock.at += timedelta(minutes=4)
+                model, provider, billing = D.USAGE[bot]
+                cached = tokens_in * 2 // 3
                 hubdb.turn_finish(c, hubdb.KEEPER, turn["id"], "ok", tokens_in, tokens_out,
-                                  round((tokens_in * 5 + tokens_out * 25) / 1_000_000, 2), summary)
+                                  round((tokens_in * 5 + tokens_out * 25) / 1_000_000, 2), summary,
+                                  usage={"input_tokens": tokens_in - cached, "cached_tokens": cached,
+                                         "output_tokens": tokens_out, "model": model, "provider": provider,
+                                         "est_cost_usd": providers.estimate_cost(model, tokens_in - cached, cached, tokens_out),
+                                         "billing": billing})
                 hubdb.status_result(c, hubdb.KEEPER, bot, last_result=summary, last_turn_at=H.now())
             self.at(hours=1)
             for bot, focus in D.FOCUS.items():
