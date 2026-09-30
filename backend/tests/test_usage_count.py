@@ -42,7 +42,7 @@ def wire(monkeypatch, api, hq=True):
 
     def handler(request):
         seen.append(request)
-        if request.url.host == "hq.tico.team" and not hq:
+        if request.url.host == "updates.tico.team" and not hq:
             raise httpx.ConnectTimeout("down")
         return httpx.Response(200, json=RELEASE)
     monkeypatch.setattr(releases, "TRANSPORT", httpx.MockTransport(handler))
@@ -100,13 +100,13 @@ def test_when_on_hq_gets_the_four_fields_and_a_dead_hq_falls_back_silently(envir
     counting(api)
     checker, seen = wire(monkeypatch, api)
     checker.refresh()
-    assert [r.url.host for r in seen] == ["hq.tico.team"] and seen[0].url.path == "/v1/latest"
+    assert [r.url.host for r in seen] == ["updates.tico.team"] and seen[0].url.path == "/v1/latest"
     assert set(seen[0].url.params) == ALLOWED
     assert seen[0].url.params["active_people"] == "true" and seen[0].url.params["active_bots"] == "false"
     assert checker.view("0.2.13")["latest"] == "0.2.0"
     checker, seen = wire(monkeypatch, api, hq=False)
     checker.refresh()
-    assert [r.url.host for r in seen] == ["hq.tico.team", "api.github.com"]
+    assert [r.url.host for r in seen] == ["updates.tico.team", "api.github.com"]
     assert checker.view("0.2.13")["latest"] == "0.2.0"
     # A mirror set by TICO_RELEASES_URL is asked as before, with nothing added.
     monkeypatch.setenv("TICO_RELEASES_URL", "https://mirror.example/latest")
