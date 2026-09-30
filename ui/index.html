@@ -1692,6 +1692,75 @@ input.goal-ed-text:hover:not([readonly]){border-color:var(--line)}input.goal-ed-
 @media (max-width:760px){.goal-ed-change{padding:10px 0;font-size:14px}.goal-ed-pick{font-size:16px;width:100%;min-height:40px}}
 .goal-ed-kids{display:flex;flex-direction:column;gap:1px;font-size:12.5px}
 .goal-ed-kids>span{font-size:12px;color:var(--muted)}.goal-ed-kids a{color:var(--ink)}
+/* goals: status dots, a goal's note, its KPI lines, the KPI panel, Needs you */
+.gdot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block;background:var(--idle)}
+.gdot.green{background:var(--ok)}.gdot.yellow{background:var(--wait)}.gdot.red{background:var(--fail)}
+.gdot.none{background:transparent;border:1.5px solid var(--idle)}
+.goal-item{border-top:1px solid var(--line)}.goal-item:first-child{border-top:0}
+.goal-item .goal-row{border-top:0;align-items:center;gap:4px 10px}
+.goal-note{font-size:12.5px;line-height:1.4;color:var(--muted);margin:-4px 0 6px 19px;overflow-wrap:anywhere}
+.goal-note b{font-weight:600}.goal-suggest{margin-top:-2px}
+.kpi-lines{list-style:none;margin:0 0 4px 19px;padding:0}
+.kpi-line{display:flex;align-items:center;gap:10px;min-height:32px;padding:3px 6px;margin:0 -6px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1.35}
+.kpi-line:hover,.need-row:hover{background:var(--surface2)}
+.kpi-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpi-val{white-space:nowrap;font-size:12.5px}.kpi-off{color:var(--muted)}.kpi-q{font-size:11px;color:var(--muted)}
+.kpi-target{font-size:12px;color:var(--muted);white-space:nowrap}.kpi-owner{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.kspark{flex:none}.kspark polyline{fill:none;stroke:var(--muted);stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round}
+.kspark-end{fill:var(--idle)}.kspark-end.green{fill:var(--ok)}.kspark-end.yellow{fill:var(--wait)}.kspark-end.red{fill:var(--fail)}
+.kpi-tools{margin:0 0 4px 19px}.kpi-tools .linkish,.goal-auto{font-size:12.5px}
+.kpi-add-host{margin:4px 0 10px 19px}
+.goal-foot{margin:6px 0 24px}.goal-foot .kpi-add-host{margin-left:0}
+.goal-colour-row{display:grid;grid-template-columns:150px 1fr;gap:8px}
+.goal-colour-row input{box-sizing:border-box;width:100%;height:36px;padding:0 9px;font-size:14px}
+.goal-f textarea{box-sizing:border-box;width:100%;padding:7px 9px;font:inherit;font-size:14px;resize:vertical}
+.goal-form [hidden],.kpi-panel [hidden]{display:none!important}
+.goal-needs{border-color:color-mix(in srgb,var(--wait) 45%,var(--line))}
+.need-row{display:flex;align-items:center;gap:10px;padding:9px 6px;margin:0 -6px;border-top:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:14px;line-height:1.35}
+.need-row:first-child{border-top:0}.need-text{min-width:0;overflow-wrap:anywhere}
+.kpi-prop{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+.kpi-prop:first-child{border-top:0}
+.kpi-prop-main{display:flex;flex-direction:column;gap:2px;min-width:0}.kpi-prop-detail{overflow-wrap:anywhere}.kpi-prop-why{font-size:12.5px}
+.kpi-prop-do{display:flex;gap:8px;flex:none}.kpi-prop-do button{height:34px;padding-top:0;padding-bottom:0}
+.kpi-props{list-style:none;margin:0;padding:0}
+.kpi-panel{width:min(600px,calc(100vw - 24px))}
+.kpi-panel .tmodal-body{max-height:calc(88vh - 56px)}
+.kpi-ptitle{display:flex;align-items:center;gap:8px;min-width:0;font-size:15px}.kpi-ptitle .who{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpi-big{font-size:26px;font-weight:600;letter-spacing:-.01em}.kpi-why{font-size:12.5px;margin-top:2px}
+.kchart{display:block;width:100%;height:auto;margin:10px 0 4px}
+.kc-axis{stroke:var(--line)}.kc-line{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round}.kc-dot{fill:var(--accent)}
+.kc-pace{stroke:var(--muted);stroke-width:1.2;stroke-dasharray:4 3}.kc-band{fill:var(--ok-bg)}.kc-t{fill:var(--muted);font-size:10px}
+.kc-last{fill:var(--idle)}.kc-last.green{fill:var(--ok)}.kc-last.yellow{fill:var(--wait)}.kc-last.red{fill:var(--fail)}
+.kpi-meta{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:10px 0;font-size:13px}.kpi-meta dt{color:var(--muted)}.kpi-meta dd{margin:0;overflow-wrap:anywhere}
+.kpi-h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:16px 0 6px;font-weight:600}
+.kpi-used{list-style:none;margin:0;padding:0}.kpi-used li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:5px 0;font-size:13.5px}
+.kpi-goal{text-align:left;color:var(--ink)}.kpi-target-host{flex-basis:100%}.kpi-target-host:empty{display:none}
+.kpi-check{margin:0;padding:4px 12px;border-left:3px solid var(--line);font-size:13.5px;overflow-wrap:anywhere}.kpi-check footer{font-size:12px;margin-top:2px}
+.kpi-readings{list-style:none;margin:0;padding:0}
+.kpi-r{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}.kpi-r:first-child{border-top:0}
+.kpi-r.old>*{text-decoration:line-through;opacity:.55}.kpi-r.old .linkish{display:none}
+.kpi-rv{min-width:64px;font-weight:600}.kpi-note{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kpi-by{margin-left:auto}
+.kpi-log,.kpi-edit-host{margin-top:12px}
+.bot-kpis{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}.bot-kpis[hidden]{display:none}
+.bot-kpi{display:grid;grid-template-columns:1fr auto;grid-template-areas:"n n" "v s";align-items:end;gap:3px 8px;flex:1 1 128px;min-width:0;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;text-align:left;cursor:pointer;font:inherit;color:var(--ink)}
+.bot-kpi:hover{background:var(--surface2)}
+.bot-kpi-name{grid-area:n;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bot-kpi-val{grid-area:v;font-size:16px;font-weight:600}.bot-kpi-val.kpi-off{font-size:13px;font-weight:400}.bot-kpi .kspark{grid-area:s}
+@media (max-width:760px){
+  .kpi-lines,.kpi-tools,.kpi-add-host,.goal-note{margin-left:19px}
+  .kpi-line{flex-wrap:wrap;gap:2px 10px;min-height:44px;padding:8px 6px}
+  .kpi-name{flex:1 1 calc(100% - 20px)}.kpi-name+*{margin-left:19px}
+  .kpi-tools .linkish,.goal-auto,.kpi-r .linkish,.kpi-used .linkish{min-height:36px;padding:0 6px;margin:0 -6px}
+  .need-row{padding:12px 6px}
+  .kpi-prop{flex-direction:column;align-items:stretch}.kpi-prop-do button{flex:1;height:44px}
+  .goal-colour-row{grid-template-columns:1fr}.goal-colour-row input{height:44px;font-size:16px}
+  .goal-f textarea{font-size:16px}
+  .goal-foot .ghost{height:44px}
+  .kpi-panel{margin:auto 0 0;width:100%;max-width:100%;max-height:90vh;border-radius:14px 14px 0 0}
+  .kpi-panel .tmodal-body{max-height:calc(90vh - 56px)}
+  .kpi-r{padding:9px 0}.kpi-by{margin-left:0}
+  .bot-kpi{flex:1 1 calc(50% - 8px);max-width:none}
+}
 /* tasks card */
 .tasks>header{align-items:center}
 .tasks>header .sub{margin-left:auto}
@@ -2337,6 +2406,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 <script src="/tico/ui/first-run.js"></script>
 <script src="/tico/ui/runner-updates.js"></script>
 <script src="/tico/ui/health.js"></script>
+<script src="/tico/ui/goals-kpis.js"></script>
 <script src="/tico/ui/assistant.js"></script>
 <script>
 'use strict';
@@ -2960,8 +3030,8 @@ const S = { emps: [], people: [], orgGroups: [], status: null, issues: [], me: n
 const appName = () => S.config.app_name || CONFIG_DEFAULTS.app_name;
 const assistantName = () => S.config.assistant_name || CONFIG_DEFAULTS.assistant_name;
 const assistantBot = () => S.config.assistant_bot || CONFIG_DEFAULTS.assistant_bot;
-// The assistant, BotOps and the Librarian are built in to every company: pause and rename them, never archive or delete.
-const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian';
+// The assistant, BotOps, the Librarian and the Goal Manager are built in to every company: pause and rename them, never archive or delete.
+const isBuiltInBot = slug => slug === assistantBot() || slug === 'botops' || slug === 'librarian' || slug === 'goal-manager';
 const companyName = () => S.config.company_name || appName();
 // Tico's own wordmark, only while the app is called Tico; a company that named its app gets that name as text.
 const brandLogo = () => appName() === CONFIG_DEFAULTS.app_name
@@ -6760,6 +6830,7 @@ async function pageBot(slug, tab) {
   </div>
 
   <div id="pane-tasks" hidden>
+    ${limited ? '' : '<section class="bot-kpis" id="bot-kpis" aria-label="KPIs" hidden></section>'}
     ${limited ? '' : '<section class="card bot-files" id="bot-files" aria-label="Files" hidden></section>'}
     <section class="card tasks"><header><h2>Active</h2></header>
       <div id="t-open" class="tpane">Loading…</div>
@@ -6852,7 +6923,7 @@ async function pageBot(slug, tab) {
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
     $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
-  if (!limited) void botGoalLoad(slug);
+  if (!limited) { void botGoalLoad(slug); void botKpisLoad(slug); }
   if (isKeeper(slug) && !limited) void botTickerLoad(slug);
   $('#btabs').onclick = ev => {
     const b = ev.target.closest('[data-bt]'); if (!b) return;
@@ -10907,7 +10978,7 @@ const HELP_TOOL_GROUPS = [
   ["Calendar", ["calendar upcoming", "calendar status", "calendar schedule"]],
   ["Identity & messages", ["whoami", "say", "ask", "answer", "notice"]],
   ["Tasks", ["task create", "task ask", "task update", "task comment", "task link", "task label", "task close", "task attach", "task list", "task show"]],
-  ["Goals & measures", ["goals", "goal show", "goal create", "goal status", "goal update", "kpi add", "kpi log", "kpi readings"]],
+  ["Goals & measures", ["goals", "goal show", "goal create", "goal status", "goal auto", "goal refresh", "goal checkin", "goal checkins", "goal needs-you", "goal update", "kpi list", "kpi show", "kpi add", "kpi update", "kpi link", "kpi unlink", "kpi log", "kpi readings", "proposal create", "proposal list", "proposal decide"]],
   ["Market", ["market show", "market find", "market edges", "market delta", "market ask", "market report", "market resolve", "market apply", "market sweep", "market refresh"]],
   ["Listening & intake", ["listen save", "listen decide", "listen show", "listen runs", "listen stats", "intake list", "intake resolve"]],
   ["History & routines", ["history", "routine list", "routine set", "routine update", "routine delete"]],
@@ -12205,17 +12276,26 @@ function goalAddInline(host, owner, done) {
 
 // The Goals page's editor: one form for a new goal and an existing one. Goal, Owner (new goals),
 // Supports (optional, Nothing by default) and one Save.
-const GOAL_STATUS_PILL = {green: ['ok', 'On track'], yellow: ['waiting', 'At risk'], red: ['fail', 'Off track']};
-function goalProgress(g) {
-  const k = (g.kpis || []).find(x => x.latest && x.latest.value != null);
-  if (!k) return '';
-  const n = v => Number(v).toLocaleString(undefined, {maximumFractionDigits: 1});
-  return `${n(k.latest.value)}${k.target != null ? ' / ' + n(k.target) : ''}${k.unit ? ' ' + k.unit : ''}`;
-}
 function goalOwnerChoices(mine) {
   if (S.me?.role !== 'owner') return mine ? [[mine, 'Me']] : [];
   return [...(S.people || []).filter(p => !p.hidden).map(p => ['human:' + p.id, p.name || p.id]),
           ...shownEmps().map(e => ['bot:' + e.name, e.display_name || e.name])];
+}
+// The colour a person sets by hand sticks until they let the Goal Manager set it again.
+const GOAL_COLOURS = [['green', 'On track'], ['yellow', 'At risk'], ['red', 'Off track'], ['done', 'Done']];
+function goalColourHtml(g) {
+  const byHand = g.status_source === 'person' && ['red', 'yellow', 'green'].includes(g.status);
+  return `<div class="goal-f goal-colour"><span>Colour</span><div class="goal-colour-row">
+      <select name="status" aria-label="Colour"><option value="">${byHand ? 'Set by hand' : 'Automatic'}</option>${GOAL_COLOURS.map(([v, label]) => `<option value="${v}">${label}</option>`).join('')}</select>
+      <input name="note" type="text" maxlength="2000" autocomplete="off" placeholder="One sentence: why" aria-label="Why"></div>
+      ${byHand ? '<button class="linkish goal-auto" type="button" data-goal-auto>Let Goal Manager set it</button>' : ''}</div>`;
+}
+function goalNoteHtml(g, may) {
+  const byHand = g.status_source === 'person' && ['red', 'yellow', 'green'].includes(g.status);
+  const said = byHand ? `Set by ${goalActorName(g.status_by)}${g.status_note ? ': ' + g.status_note : ''}` : g.status_note || '';
+  const suggest = byHand && g.suggest_status
+    ? `<div class="goal-note goal-suggest">Goal Manager suggests <b>${esc(g.suggest_status)}</b>${g.suggest_note ? ': ' + esc(g.suggest_note) : ''}${may ? ' <button class="linkish" type="button" data-goal-auto="' + esc(g.id) + '">Let Goal Manager set it</button>' : ''}</div>` : '';
+  return (said ? `<div class="goal-note">${esc(said)}</div>` : '') + suggest;
 }
 function goalFormHtml(g, goals, {owner = '', company = false} = {}) {
   company = company || g.owner === GOAL_COMPANY;      // a company goal supports nothing
@@ -12231,6 +12311,7 @@ function goalFormHtml(g, goals, {owner = '', company = false} = {}) {
       : company ? '' : `<label class="goal-f"><span>Supports</span><select name="parent"${may ? '' : ' disabled'}>${goalSupportOptions(g, g.owner || who, goals)}</select></label>`}
       ${kids.length ? `<div class="goal-ed-kids"><span>Supported by</span>${kids.map(k =>
         `<a href="${GOALS}/${encodeURIComponent(k.id)}" data-goal-go="${esc(k.id)}">${esc(k.title)} <span class="muted">· ${esc(goalOwnerInfo(k.owner).name)}</span></a>`).join('')}</div>` : ''}
+      ${may && g.id ? goalColourHtml(g) : ''}
       <div class="goal-actions">
         ${may ? '<button class="primary" type="submit">Save</button>' : ''}<button class="ghost" type="button" data-goal-cancel>${may ? 'Cancel' : 'Close'}</button>
         <span class="spacer"></span>${may && g.id ? '<button class="ghost danger" type="button" data-goal-remove>Remove</button>' : ''}
@@ -12243,6 +12324,12 @@ function bindGoalForm(form, g, goals, {company = false} = {}, done) {
   form.onkeydown = ev => { if (ev.key === 'Escape') { ev.preventDefault(); done(); } };
   form.querySelector('[data-goal-cancel]').onclick = () => done();
   if (ownerSel) ownerSel.onchange = () => { parentSel.innerHTML = goalSupportOptions(g, ownerSel.value, goals); };
+  const auto = form.querySelector('[data-goal-auto]');
+  if (auto) auto.onclick = async () => {
+    auto.disabled = true;
+    try { await post('/v2/goals/' + encodeURIComponent(g.id) + '/status/auto', {}); await goalsRefresh(); done(true); }
+    catch (e) { toast(e.message || 'Could not hand the colour back', true); auto.disabled = false; }
+  };
   const remove = form.querySelector('[data-goal-remove]');
   if (remove) remove.onclick = async () => {
     remove.disabled = true;
@@ -12254,8 +12341,12 @@ function bindGoalForm(form, g, goals, {company = false} = {}, done) {
     if (!save) return;
     const words = title.value.trim();
     if (!words) { title.focus(); return; }
+    const colour = g.id && form.elements.status ? form.elements.status.value : '';
+    const why = g.id && form.elements.note ? form.elements.note.value.trim() : '';
+    if (colour && colour !== 'done' && !why) { form.elements.note.focus(); return; }
     save.disabled = true;
     try {
+      if (colour) await post('/v2/goals/' + encodeURIComponent(g.id) + '/status', {status: colour, note: why});
       if (g.id) {
         const body = {};
         if (words !== g.title) body.title = words;
@@ -12274,27 +12365,40 @@ function bindGoalForm(form, g, goals, {company = false} = {}, done) {
 }
 function pageGoals() {
   const open = S.route.startsWith(GOALS + '/') ? decodeURIComponent(S.route.slice(GOALS.length + 1)) : '';
-  const state = GOALS_ST = {goals: [], loaded: false, open, adding: ''};
+  const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, adding: '', kpiAdding: ''};
   $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1><span class="spacer"></span><span id="goal-tools"></span></div>
     <div id="goal-body"><p class="muted">Loading…</p></div>`;
   goalsLoad(state);
 }
+function goalsApply(state, data, needs) {
+  state.goals = data.goals || [];
+  state.other = data.other_kpis || [];
+  state.proposals = data.proposals || [];
+  state.owners = data.owners || {};
+  if (needs !== undefined) state.needs = needs?.items || [];
+}
 async function goalsLoad(state) {
-  let data, people;
-  try { [data, people] = await Promise.all([get('/v2/goals/tree'), get('/people').catch(() => null)]); }
+  let data, people, needs;
+  try { [data, people, needs] = await Promise.all([get('/v2/goals/tree'), get('/people').catch(() => null), v2Get('/v2/goals/needs-you')]); }
   catch (e) { $('#goal-body').innerHTML = `<p class="err">${esc(e.message || 'Could not load goals')}</p>`; return; }
   if (GOALS_ST !== state) return;
   setPeople(people);
-  state.goals = data.goals || [];
+  goalsApply(state, data, needs);
   state.loaded = true;
   goalsRender(state);
 }
-// A goal's line: its words, its status and progress if it has them, and what it supports.
-function goalLine(g, goals = []) {
-  const parent = goals.find(x => x.id === g.parent_id), pill = GOAL_STATUS_PILL[g.status], progress = goalProgress(g);
-  const meta = (pill ? `<span class="pill ${pill[0]}">${pill[1]}</span>` : '') + (progress ? `<span class="goal-prog tnum">${esc(progress)}</span>` : '')
-    + (parent ? `<span class="goal-chip" title="Supports ${esc(parent.title)}">supports ${esc(parent.title)}</span>` : '');
-  return `<li class="goal-row" data-goal="${esc(g.id)}" tabindex="0" role="button"><span class="goal-title">${esc(g.title)}</span>${meta ? `<span class="goal-meta">${meta}</span>` : ''}</li>`;
+// A goal's line: its status dot, its words and what it supports, then the note that says why it has that
+// colour and its KPIs, one line each.
+function goalKpiBlock(g, may, state) {
+  return kpiLinesHtml(g.kpis, {goal: g.id})
+    + (may ? (state.kpiAdding === g.id ? `<div class="kpi-add-host" data-kpi-add-host="${esc(g.id)}">${kpiAddHtml(g)}</div>`
+      : `<div class="kpi-tools"><button class="linkish" type="button" data-kpi-add-goal="${esc(g.id)}">+ KPI</button></div>`) : '');
+}
+function goalLine(g, goals = [], state = GOALS_ST, may = false) {
+  const parent = goals.find(x => x.id === g.parent_id);
+  const chip = parent ? `<span class="goal-meta"><span class="goal-chip" title="Supports ${esc(parent.title)}">supports ${esc(parent.title)}</span></span>` : '';
+  return `<li class="goal-item"><div class="goal-row" data-goal="${esc(g.id)}" tabindex="0" role="button">${gdot(g.status, g.status_note || '')}<span class="goal-title">${esc(g.title)}</span>${chip}</div>
+    ${goalNoteHtml(g, may)}${goalKpiBlock(g, may, state)}</li>`;
 }
 // The goal written on a person's profile (the Goals field): a line like any goal, saved back to the profile.
 function standingGoalLine(person, open) {
@@ -12316,7 +12420,8 @@ function goalsRender(state) {
     tools.innerHTML = `<button class="ghost" type="button" data-goal-new="new">+ Goal</button>${isOwner ? ' <button class="ghost" type="button" data-goal-new="company">+ Company goal</button>' : ''}`;
     for (const b of tools.querySelectorAll('[data-goal-new]')) b.onclick = () => { state.adding = b.dataset.goalNew; state.open = ''; history.replaceState(null, '', GOALS); goalsRender(state); };
   }
-  const line = g => g.id === state.open ? `<li class="goal-open">${goalFormHtml(g, state.goals)}</li>` : goalLine(g, state.goals);
+  const mayCache = {}, mayOf = g => mayCache[g.id] ??= goalMayEdit(g, state.goals);
+  const line = g => g.id === state.open ? `<li class="goal-open">${goalFormHtml(g, state.goals)}${goalKpiBlock(g, mayOf(g), state)}</li>` : goalLine(g, state.goals, state, mayOf(g));
   const owned = {};
   for (const g of live.filter(g => g.owner !== GOAL_COMPANY)) (owned[g.owner] ||= []).push(g);
   const card = (key, head, rows) => `<section class="card goal-card" data-goal-owner="${esc(key)}"><header><h2>${head}</h2></header><ul class="goal-rows">${rows}</ul></section>`;
@@ -12338,11 +12443,14 @@ function goalsRender(state) {
   const company = live.filter(g => g.owner === GOAL_COMPANY).sort(goalRank);
   const adding = state.adding && state.adding !== 'company' ? card('new', 'New goal', `<li class="goal-open">${goalFormHtml({}, state.goals)}</li>`) : '';
   const addingCompany = state.adding === 'company' ? `<li class="goal-open">${goalFormHtml({}, state.goals, {company: true})}</li>` : '';
-  const html = (adding
+  const other = state.other.length ? `<section class="card goal-card" data-goal-owner="@other"><header><h2>Other KPIs</h2></header>${kpiLinesHtml(state.other, {owner: true})}</section>` : '';
+  const foot = `<div class="goal-foot">${state.kpiAdding === '@page' ? `<div class="kpi-add-host" data-kpi-add-host="@page">${kpiAddHtml(null)}</div>` : '<button class="ghost" type="button" data-kpi-add-page>+ KPI</button>'}</div>`;
+  const html = (goalNeedsHtml(state.needs) + adding
     + (company.length || addingCompany ? card(GOAL_COMPANY, esc(goalOwnerInfo(GOAL_COMPANY).name), addingCompany + company.map(line).join('')) : '')
     + (by[''] || []).map(node).join('')
-    + Object.keys(owned).filter(a => !seen.has(a)).map(a => card(a, ownerHead(goalOwnerInfo(a)), owned[a].sort(goalRank).map(line).join(''))).join(''));
-  body.innerHTML = html || '<p class="muted">No goals yet.</p>';
+    + Object.keys(owned).filter(a => !seen.has(a)).map(a => card(a, ownerHead(goalOwnerInfo(a)), owned[a].sort(goalRank).map(line).join(''))).join('')
+    + other);
+  body.innerHTML = (html || '<p class="muted">No goals yet.</p>') + foot;
   bindGoalLines(state);
 }
 function goalOpen(state, id) {
@@ -12358,6 +12466,19 @@ function bindGoalLines(state) {
     li.onclick = () => openRow(li);
     li.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(li); } };
   }
+  const reload = async () => { await goalsRefresh(); if (GOALS_ST === state) goalsRender(state); };
+  bindKpiLines(body);
+  bindProposals(body, reload);
+  for (const b of body.querySelectorAll('button[data-goal-auto]')) if (b.dataset.goalAuto) b.onclick = async () => {
+    b.disabled = true;
+    try { await post('/v2/goals/' + encodeURIComponent(b.dataset.goalAuto) + '/status/auto', {}); await reload(); }
+    catch (e) { toast(e.message || 'Could not hand the colour back', true); b.disabled = false; }
+  };
+  for (const b of body.querySelectorAll('[data-kpi-add-goal]')) b.onclick = () => { state.kpiAdding = b.dataset.kpiAddGoal; goalsRender(state); };
+  const addPage = body.querySelector('[data-kpi-add-page]');
+  if (addPage) addPage.onclick = () => { state.kpiAdding = '@page'; goalsRender(state); };
+  const kform = body.querySelector('[data-kpi-add]');
+  if (kform) kpiAddBind(kform, state.goals.find(g => g.id === kform.dataset.kpiAdd), async ok => { state.kpiAdding = ''; if (ok) await reload(); else goalsRender(state); });
   for (const a of body.querySelectorAll('[data-goal-go]')) a.onclick = ev => {
     if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
     ev.preventDefault(); goalOpen(state, a.dataset.goalGo);
@@ -12417,8 +12538,8 @@ function openGoal(id) { location.hash = GOALS + '/' + encodeURIComponent(id); }
 async function goalsRefresh() {
   GOAL_OPTIONS = null;
   if (GOALS_ST && $('#goal-body')) {
-    const r = await v2Get('/v2/goals/tree');
-    if (r) GOALS_ST.goals = r.goals || [];
+    const [r, needs] = await Promise.all([v2Get('/v2/goals/tree'), v2Get('/v2/goals/needs-you')]);
+    if (r) goalsApply(GOALS_ST, r, needs);
   }
   headGoalsReload();
 }

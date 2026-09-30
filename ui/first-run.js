@@ -308,7 +308,7 @@ function frBotRowHTML(state, bot, botOps) {
           : ready && !active && !bootstrap ? `<button class="ghost" type="button" data-onb-activate="${esc(bot.slug)}">Activate</button>` : ''}</div></div>`;
 }
 function frNextHTML(state) {
-  const bots = (state.record.bots || []).filter(bot => bot.slug !== assistantBot() && bot.slug !== 'botops' && bot.slug !== 'librarian');
+  const bots = (state.record.bots || []).filter(bot => bot.slug !== assistantBot() && bot.slug !== 'botops' && bot.slug !== 'librarian' && bot.slug !== 'goal-manager');
   const tools = (state.record.answers.tools || []).filter(tool => FR_TOOL_LINK[tool]);
   const owners = bots.map(bot => `<div class="fr-owner" data-fr-owner-row="${esc(bot.slug)}"><span>${esc(bot.display_name || bot.slug)}</span>
       <select data-fr-owner="${esc(bot.slug)}" aria-label="Add an owner for ${esc(bot.display_name || bot.slug)}"><option value="">Add an owner…</option>${frPeople().map(person =>
