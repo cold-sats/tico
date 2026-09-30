@@ -3210,6 +3210,8 @@ def create_app(settings=None):
         except Problem:
             return who
     install_bot_tools(app, store, auth, mutate, settings_admin, as_requester)
+    from .bot_copy import install as install_bot_copy
+    install_bot_copy(app, store, auth, mutate, settings_admin, place_now)
     from .groups import install as install_groups
     install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support
