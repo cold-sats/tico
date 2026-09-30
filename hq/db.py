@@ -4,7 +4,8 @@
 
 Dates are UTC days (YYYY-MM-DD), not times. `last_people` and `last_bots` are the last day the install said
 "a person used it" and "a bot turn completed"; they stay NULL until it does. There is no ping log, no address, no
-user agent and no other field, so a row cannot say more than that.
+user agent and no other field, so a row cannot say more than that. Support tickets, which a person files on purpose,
+are in support.py's own two tables.
 """
 import re
 import sqlite3

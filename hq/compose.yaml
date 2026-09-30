@@ -33,6 +33,8 @@ services:
       # (cloudflared). Used only for the in-memory rate limit. Empty: the connection's own address.
       HQ_CLIENT_IP_HEADER: ${HQ_CLIENT_IP_HEADER:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # The team's key for the support ticket routes (docs/support.md). Empty: those routes answer 404.
+      HQ_STAFF_KEY: ${HQ_STAFF_KEY:-}
       # The public hostname: the tunnel's route (cloudflared) and the certificate (caddy).
       HQ_DOMAIN: ${HQ_DOMAIN:-}
     volumes:

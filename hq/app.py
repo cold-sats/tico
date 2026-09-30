@@ -1,6 +1,7 @@
-"""The HQ collector: `GET /v1/latest` (a release lookup that also counts the install) and `GET /v1/stats`.
+"""The HQ collector: `GET /v1/latest` (a release lookup that also counts the install), `GET /v1/stats`, and the support
+tickets a person files from their app (support.py).
 
-What it keeps is in db.py and what it is sent is in PRIVACY.md. The address of a request is used for rate limiting in
+What it keeps is in db.py and support.py and what it is sent is in PRIVACY.md. The address of a request is used for rate limiting in
 memory (limits.py) and nowhere else; nothing here logs a request, and the server is started with its access log off
 (__main__.py), so no address or query string reaches a log.
 """
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 from .db import Database
 from .limits import Limiter
 from .releases import Latest
+from .support import Tickets, install as install_support
 
 INSTALL_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 VERSION = re.compile(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}(?:-[0-9A-Za-z][0-9A-Za-z.-]{0,31})?")
@@ -39,8 +41,9 @@ def parse(params):
             BOOLEANS[values["active_bots"]])
 
 
-def create_app(db, latest, limiter=None, client_ip_header=""):
+def create_app(db, latest, limiter=None, client_ip_header="", staff_key="", tickets=None):
     limiter = limiter or Limiter()
+    tickets = tickets or Tickets(db)
     header = client_ip_header.strip().lower()
 
     def address(request):
@@ -54,6 +57,7 @@ def create_app(db, latest, limiter=None, client_ip_header=""):
     async def purge_daily():
         while True:
             await asyncio.to_thread(db.purge)
+            await asyncio.to_thread(tickets.purge)
             await asyncio.sleep(PURGE_EVERY)
 
     @asynccontextmanager
@@ -68,7 +72,9 @@ def create_app(db, latest, limiter=None, client_ip_header=""):
 
     @app.middleware("http")
     async def rate_limit(request: Request, call_next):
-        if request.url.path != "/healthz" and not limiter.allow(address(request)):
+        # The support routes have limits of their own (support.py): a person's app polls for replies.
+        path = request.url.path
+        if path != "/healthz" and not path.startswith(("/v1/support", "/v1/staff")) and not limiter.allow(address(request)):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
         return await call_next(request)
 
@@ -94,4 +100,5 @@ def create_app(db, latest, limiter=None, client_ip_header=""):
         return JSONResponse(db.stats(), headers={"Cache-Control": "public, max-age=300",
                                                  "Access-Control-Allow-Origin": "*"})
 
+    install_support(app, tickets, address, staff_key)
     return app
