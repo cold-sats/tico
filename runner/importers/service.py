@@ -92,17 +92,15 @@ class ImporterService:
         from ..freshness import CodeWatch
         cloud = Outage("Tico importers", "cannot reach the Tico server", "still cannot reach the Tico server",
                        "Tico server reachable again")
-        watch = CodeWatch()
+        watch = CodeWatch("Tico importers")
         while not self.stop.is_set():
             try:
                 self.tick()
                 cloud.recovered()
             except Exception as exc:
                 cloud.failed(exc)
-            if watch.stale():
-                print("Tico importers: new code in the checkout; exiting so the supervisor restarts it", flush=True)
+            if watch.wait(self.stop, GRANULARITY):   # the checkout moved: the supervisor starts it on the new code
                 return
-            self.stop.wait(GRANULARITY)
 
 
 def doctor(config):

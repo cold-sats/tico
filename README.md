@@ -381,6 +381,14 @@ checkouts on the Mac that runs them, so a push to one is not live until that che
 Never put a credential in git, in a task, or in bot instructions, and keep company names, people
 and accounts out of the repository: examples use the fictional company Acme (`acme.example`).
 
+## Community
+
+- [LICENSE](LICENSE): what you may do with Tico.
+- [CONTRIBUTING.md](CONTRIBUTING.md): running the tests, opening a pull request, and the DCO sign-off (`git commit -s`).
+- [SECURITY.md](SECURITY.md): report a vulnerability privately, and which versions get fixes.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): how we treat each other.
+- Questions and ideas: [Discussions](https://github.com/ticoteam/tico/discussions). Bugs: [issues](https://github.com/ticoteam/tico/issues/new/choose).
+
 ## Privacy
 
 Tico counts active installs anonymously: a random ID, the version and two yes/no activity flags, sent with the update check. Turn it off in Settings > Privacy, with `TICO_TELEMETRY=off` or with `DO_NOT_TRACK=1`. Exactly what is sent, and what is kept: [PRIVACY.md](PRIVACY.md).

@@ -40,6 +40,8 @@ def off_reason(c, settings):
     The same switches as the anonymous usage count (backend/census.py), so turning that off turns this off too."""
     if settings.demo:
         return "demo"
+    if settings.rehearsal:
+        return "TICO_REHEARSAL"
     return C.env_off() or ("" if C._load(c).get("enabled", True) else "setting")
 
 
@@ -62,6 +64,13 @@ def catalog(settings):
     except (OSError, yaml.YAMLError):
         departments = {}
     return R.build(departments, O.read_cards(settings))
+
+
+def template_departments(settings):
+    """{template: department name} from the org builder's catalog: where a bot built from a template belongs."""
+    value = catalog(settings)
+    names = {row["id"]: row["name"] for row in value["departments"]}
+    return {card["template"]: names[card["department"]] for card in value["cards"] if card["department"] in names}
 
 
 def _about(answers):

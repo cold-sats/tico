@@ -2,7 +2,9 @@
 
 POST /update {"version": "1.2.3" | "v1.2.3" | "latest"}   start an update (409 while one runs)
 GET  /status                                     {"state", "from", "to", "message"}
-Both need `Authorization: Bearer <token>`, the token the server wrote to /control/updater-token.
+GET  /diagnostics                                versions, each container's state and restart count, and the last
+                                                 failures: what a support bundle a person chooses to send holds
+All need `Authorization: Bearer <token>`, the token the server wrote to /control/updater-token.
 
 It talks to Docker through the mounted socket, which is root on the host: it listens on the compose
 network only, and runs nothing but `docker compose` for the one service it manages.
@@ -28,6 +30,7 @@ the `updater` service and checks that the new one stays up; if it does not, the 
 install whose updater is pinned to a local-only tag (TICO_UPDATER_PULL=never, docker/smoke.sh) is left alone.
 """
 
+import collections
 import hashlib
 import hmac
 import json
@@ -70,11 +73,43 @@ VERSION = re.compile(r"latest|v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?")
 
 lock = threading.Lock()
 status = {"state": "idle", "from": "", "to": "", "message": ""}
+errors = collections.deque(maxlen=50)     # the last failures, in memory, for GET /diagnostics
 
 
 def set_status(**fields):
     with lock:
         status.update(fields)
+        if fields.get("state") in ("failed", "rolled_back") or (status["state"] == "failed" and fields.get("message")):
+            errors.append("%s %s: %s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), status["state"],
+                                         str(status.get("message") or "")[:250]))
+
+
+def diagnostics():
+    """Facts about this install's containers and the tools that run them; nothing from inside a container."""
+    def run(*args):
+        try:
+            done = subprocess.run(list(args), capture_output=True, text=True, timeout=15)
+            return done.stdout.strip() if done.returncode == 0 else ""
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    containers = []
+    try:
+        ids = compose("ps", "-a", "-q", timeout=30).split()
+    except (RuntimeError, OSError, subprocess.SubprocessError):
+        ids = []
+    for ident in ids[:50]:
+        row = run("docker", "inspect", "--format",
+                  '{{index .Config.Labels "com.docker.compose.service"}}|{{.State.Status}}|'
+                  '{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.RestartCount}}', ident).split("|")
+        if len(row) == 4:
+            containers.append({"name": row[0], "state": row[1], "health": row[2],
+                               "restarts": int(row[3]) if row[3].isdigit() else 0})
+    own = run("docker", "inspect", "--format", "{{.Config.Image}}", os.environ.get("HOSTNAME", ""))
+    with lock:
+        recent = list(errors)
+    return {"mode": MODE, "version": image_tag(own) if own else "",
+            "docker": run("docker", "version", "--format", "{{.Server.Version}}"),
+            "compose": run("docker", "compose", "version", "--short"), "containers": containers, "errors": recent}
 
 
 def compose(*args, tag=None, timeout=600, extra_env=None):
@@ -590,6 +625,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.authorized():
             return self.reply(401, {"error": "unauthorized"})
+        if self.path == "/diagnostics":
+            return self.reply(200, diagnostics())
         if self.path != "/status":
             return self.reply(404, {"error": "not found"})
         with lock:

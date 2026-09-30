@@ -22,6 +22,7 @@ from pathlib import Path
 import httpx
 
 from .census import hq_url
+from .replication import rehearsal_on
 from .store import Problem
 
 log = logging.getLogger("tico.releases")
@@ -85,7 +86,8 @@ class Checker:
 
     @staticmethod
     def enabled():
-        return os.environ.get("TICO_UPDATE_CHECK", "").strip().lower() not in ("off", "0", "false", "no")
+        return (not rehearsal_on()
+                and os.environ.get("TICO_UPDATE_CHECK", "").strip().lower() not in ("off", "0", "false", "no"))
 
     def refresh(self, force=False):
         """One request, conditional unless `force`. Runs in a background thread; tests call it directly."""
@@ -197,7 +199,7 @@ def check_now():
 
 
 def _updater():
-    url = os.environ.get("TICO_UPDATER_URL", "").strip().rstrip("/")
+    url = "" if rehearsal_on() else os.environ.get("TICO_UPDATER_URL", "").strip().rstrip("/")
     return url, os.environ.get("TICO_UPDATER_TOKEN", "").strip()
 
 

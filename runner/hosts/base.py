@@ -29,7 +29,8 @@ Events are dicts. Every event carries `kind`, `thread_id` and `turn_id` (either 
     turn_completed status        the turn ended (status "completed" | "interrupted")
     turn_failed    error, limit  the turn failed; `limit` is True for a usage-limit error
     status         state         "idle" | "active" for the thread
-    tokens         input, output, total
+    tokens         input, output, total; `usage` {input, cached, output} is this event's increment
+                   (input counts cached tokens too), emitted once per token (runner/usage.py sums it)
     rate_limits    used_percent, window_minutes, resets_at (ISO-8601 UTC)
     error          error         host-level trouble; `host_restart` True when the process was
                                  restarted and the runner must re-resume its threads

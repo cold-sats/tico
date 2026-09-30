@@ -80,12 +80,12 @@ staff key. Bodies are JSON, at most 16 KB (48 KB for staff), with strict fields;
 
 | Route | Auth | |
 |---|---|---|
-| `POST /v1/support` | none | `{message, email?, install_id?, version?}` (no other field). `201 {ticket_id, secret, status}`. The secret is shown once and HQ keeps its SHA-256. 5 an hour per address, 10 a day per install ID, 1000 a day in all: `429`. |
+| `POST /v1/support` | none | `{message, email?, install_id?, version?, diagnostics?}` (no other field; `diagnostics` is a JSON object with `format: 1`, up to 256 KB, and makes the request limit larger than a message's 16 KB). `201 {ticket_id, secret, status}`. The secret is shown once and HQ keeps its SHA-256. 5 an hour per address, 10 a day per install ID, 1000 a day in all: `429`. |
 | `GET /v1/support/{id}` | ticket secret | Header `X-Ticket-Secret` (or `?secret=`). `{ticket_id, status, created, updated, messages: [{id, created, from: "staff"\|"person", body}]}`. An unknown ticket and a wrong secret are the same `404`. 600 an hour per address. |
 | `POST /v1/support/{id}/messages` | ticket secret | `{message}` from the person; reopens an answered ticket; `409` when closed or at 60 messages. |
 | `DELETE /v1/support/{id}` | ticket secret | The person deletes their ticket. |
-| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the person writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending` and `messages`. |
-| `GET /v1/staff/tickets/{id}` | staff key | One ticket. |
+| `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the person writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending`, `has_diagnostics` and `messages`. |
+| `GET /v1/staff/tickets/{id}` | staff key | One ticket, with its `diagnostics` bundle when the person attached one (support.md, PRIVACY.md). No other route returns it. |
 | `POST /v1/staff/tickets/{id}/reply` | staff key | `{body}` (up to 8000 characters). Sets the ticket to `answered`; with an email on the ticket it is marked `email_pending`. HQ sends no email. `409` when closed. |
 | `POST /v1/staff/tickets/{id}/status` | staff key | `{status: "open"\|"answered"\|"closed", email_sent?: true}`. |
 | `DELETE /v1/staff/tickets/{id}` | staff key | Delete on request. The rows are overwritten in the file. |
@@ -130,7 +130,7 @@ tunnel, a 404 means `HQ_DOMAIN` is empty or names another host, and a 503 means 
 
 **Backups** are optional: add `,backup` to `COMPOSE_PROFILES` and set `HQ_BACKUP_URL` (and `HQ_BACKUP_ENDPOINT`,
 `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` for R2 or MinIO). Litestream copies `hq.db` continuously;
-restoring is the command at the top of `hq/litestream.yml`. Update HQ with `git pull` and the same `up -d --build`.
+the backup service runs as the HQ image's user (`10005:10005`) so it can read `hq.db`; as root it fails with "stat /data/hq.db: permission denied". Restoring is the command at the top of `hq/litestream.yml`. Update HQ with `git pull` and the same `up -d --build`.
 
 ## Testing
 

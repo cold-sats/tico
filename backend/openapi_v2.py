@@ -35,6 +35,7 @@ TAGS = {
              "unless a person set one; check-ins in the owner's words; proposals the owner confirms.",
     "KPIs": "Measures that stand on their own: a goal links to them and carries the target. Readings are facts with a period, "
             "evidence and a quality, never edited; a correction supersedes the old one.",
+    "Usage": "Estimated model spend per bot (docs/usage.md): tokens counted by each run's computer, priced at list price.",
     "Health": "Whether the installation is working.",
 }
 
@@ -239,6 +240,20 @@ STABLE = [
      "Log a reading: a value with its period, evidence and quality. Never edited; supersedes names the reading it corrects", "KpiReadingResult"),
     ("/api/v2/bots/{bot}/kpis", "get", "KPIs", "listBotKpis",
      "A bot's five automatic KPIs, computed from Tico's own data (Read on the bot)", "BotKpis"),
+    ("/api/v2/usage", "get", "Usage", "getUsage",
+     "Estimated spend over from..to (UTC dates, default the last 7 days), grouped by bot (default), day or routine, "
+     "optionally for one department. The owner and bot administrators see every bot; anyone else sees the bots they run "
+     "or own. ?bot=<slug> is that bot's daily series and top routines instead", "Usage"),
+    ("/api/v2/usage/limits", "get", "Usage", "getUsageLimits",
+     "The company default limit and each bot's daily and monthly limits with this period's spend, for the bots the caller may "
+     "see usage for", "UsageLimits"),
+    ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
+     "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
+     "count toward it (owner and bot administrators)", "UsageDefault"),
+    ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
+     "A bot's own daily and monthly limit in estimated USD; empty follows the company default. Owner and administrators, or "
+     "the person who runs the bot within the company default. A bot over a limit takes no new job until the period turns "
+     "over or the limit is raised", "BotUsageLimit"),
     ("/healthz", "get", "Health", "getLiveness", "Is the server up (no sign-in)", None),
     ("/api/v2/health", "get", "Health", "getHealth", "Checks, computers and failures (people only)", "Health"),
 ]
@@ -508,6 +523,32 @@ SCHEMAS = {
     "KpiReadings": obj({"kpi": {"type": "object", "description": "The KPI record"}, "readings": items(ref("KpiReading"))}),
     "KpiReadingResult": obj({"reading": ref("KpiReading")}),
     "BotKpis": obj({"bot": "s", "kpis": items(ref("Kpi"))}),
+    "UsageFigures": obj({"runs": "i", "input_tokens": {"type": "integer", "description": "Uncached input tokens"},
+                         "cached_tokens": {"type": "integer", "description": "Input tokens read from the provider's cache"},
+                         "output_tokens": "i",
+                         "est_cost_usd": {"type": ["number", "null"], "description": "List-price estimate for runs billed by API key; "
+                                          "null when every such run used a model with no list price"},
+                         "subscription_equiv_usd": {"type": "number", "description": "What runs on a ChatGPT or Claude sign-in would "
+                                                    "cost through the API: not money spent, never added to est_cost_usd"},
+                         "unpriced_runs": {"type": "integer", "description": "Runs with tokens on a model with no list price"}}),
+    "Usage": obj({"from": "s", "to": "s", "prices_as_of": {"type": "string", "description": "The date the price table was read"},
+                  "group": {"enum": ["bot", "day", "routine"]}, "department": "n", "totals": ref("UsageFigures"),
+                  "rows": items({"type": "object", "description": "By bot: bot, name, department; by day: day; by routine: "
+                                                 "routine (null for runs that came from none), title, bot, name. Every row has the "
+                                                 "usage figures and `share`, its part of the total (estimate plus API-equivalent)",
+                                                 "additionalProperties": True}),
+                  "departments": items({"type": "string"}), "bot": "s", "name": "s", "daily": items({"type": "object", "additionalProperties": True}),
+                  "routines": items({"type": "object", "additionalProperties": True})},
+                 required=["from", "to", "prices_as_of", "totals"]),
+    "UsageLimit": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "source": {"type": "object", "description": "Where each cap comes "
+                       "from: bot, company or null"}, "day_spent": NUM_N, "month_spent": NUM_N,
+                       "percent": {"type": "integer", "description": "The highest share of a limit reached"},
+                       "blocked": {"enum": ["daily", "monthly", None], "description": "Set while a limit is met: the bot takes no new job"},
+                       "own_daily_usd": NUM_N, "own_monthly_usd": NUM_N, "may_edit": "b"}),
+    "UsageDefault": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"})}),
+    "UsageLimits": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"}),
+                        "may_edit_default": "b", "bots": {"type": "object", "additionalProperties": ref("UsageLimit")}}),
+    "BotUsageLimit": obj({"bot": "s", "limit": ref("UsageLimit")}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),
 }

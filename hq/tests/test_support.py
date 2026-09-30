@@ -1,6 +1,7 @@
 """HQ support tickets: strict input, per-ticket secrets, staff-only routes, replies the install can fetch, messages from
 the person, no body in a log, and no automatic deletion."""
 
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -253,3 +254,60 @@ def test_the_existing_request_limit_does_not_apply_to_polling_and_still_holds_el
     with TestClient(create_app(db, latest, limiter, staff_key=STAFF, tickets=tickets)) as c:
         assert [c.get("/v1/stats").status_code for _ in range(3)] == [200, 200, 429]
         assert [c.get("/v1/support/TK-AAAAAAAA").status_code for _ in range(4)] == [404] * 4
+
+
+# ---------------------------------------------------------------------- diagnostics
+BUNDLE = {"format": 1, "versions": {"tico": "0.2.18"}, "counts": {"bots": 3}, "health": [{"name": "Computers", "status": "ok"}],
+          "logs": {"server": ["2026-11-01T11:59:00Z WARNING tico.x: Sync for person-1 failed"], "updater": []}}
+
+
+def test_diagnostics_are_kept_with_the_ticket_and_only_staff_read_them(client, db):
+    made = file(client, "It will not load", diagnostics=BUNDLE)
+    assert made.status_code == 201
+    tid, mine = made.json()["ticket_id"], {"X-Ticket-Secret": made.json()["secret"]}
+    assert json.loads(db.conn.execute("SELECT diagnostics FROM tickets").fetchone()[0]) == BUNDLE
+    # The person's own route never returns it, and neither does a staff listing (it says there is one).
+    assert "diagnostics" not in client.get(f"/v1/support/{tid}", headers=mine).text
+    assert "diagnostics" not in client.get(f"/v1/support/{tid}", headers=mine).json()
+    listed = client.get("/v1/staff/tickets", headers=staff()).json()["tickets"][0]
+    assert listed["has_diagnostics"] is True and "diagnostics" not in listed
+    assert client.get(f"/v1/staff/tickets/{tid}", headers=staff()).json()["diagnostics"] == BUNDLE
+    # Nobody else reads it: not without a key, not with the ticket's own secret, not with a wrong key.
+    for headers in ({}, mine, staff("x" * 32)):
+        assert client.get(f"/v1/staff/tickets/{tid}", headers=headers).status_code == 401
+    # A ticket without them says so, and deleting the ticket deletes them.
+    plain = file(client, "Another").json()["ticket_id"]
+    shown = client.get(f"/v1/staff/tickets/{plain}", headers=staff()).json()
+    assert shown["has_diagnostics"] is False and "diagnostics" not in shown
+    assert client.delete(f"/v1/staff/tickets/{tid}", headers=staff()).status_code == 200
+    assert "0.2.18" not in "".join(db.conn.iterdump())
+
+
+def test_diagnostics_are_checked_for_size_and_shape(client, db, ticks):
+    limit = 256 * 1024
+    over = {**BUNDLE, "logs": {"server": ["x" * 1000] * 262}}          # over the bundle cap, inside the request's
+    assert file(client, diagnostics=over).status_code == 422
+    assert file(client, diagnostics={**BUNDLE, "logs": {"server": ["x" * 1000] * 300}}).status_code == 413
+    fits = {**BUNDLE, "logs": {"server": ["x" * 1000] * 200}}          # under it, and the request is bigger than a ticket's
+    assert 16 * 1024 < len(json.dumps(fits)) < limit and file(client, diagnostics=fits).status_code == 201
+    for bad in ("text", [1], {"versions": {}}, {"format": 2}, {**BUNDLE, "x": "a\x00b"}, {**BUNDLE, "x": {"a": {"b": {"c": {"d": {"e": {"f": {"g": 1}}}}}}}}):
+        ticks[0] += 3601                                               # the per-address hourly limit is not what is tested
+        assert file(client, diagnostics=bad).status_code == 422
+    # Only the diagnostics may make a request bigger than a message needs.
+    ticks[0] += 3601
+    assert client.post("/v1/support", json={"message": "hi", "note": "y" * 20000}).status_code in (413, 422)
+    ticks[0] += 3601
+    assert client.post("/v1/support", content=b"{" + b" " * 20000 + b"}").status_code == 413
+    assert db.conn.execute("SELECT count(*) FROM tickets").fetchone()[0] == 1
+
+
+def test_an_older_database_gets_the_column_once_and_starting_again_changes_nothing(tmp_path):
+    old = Database(tmp_path / "old.db")
+    old.conn.executescript("""CREATE TABLE tickets(ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL,
+        updated TEXT NOT NULL, closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT,
+        version TEXT, email_pending INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO tickets(ticket_id,key_hash,created,updated,body) VALUES('TK-AAAAAAAA','h','t','t','kept');""")
+    for _ in range(2):
+        Tickets(old)
+        assert [r[1] for r in old.conn.execute("PRAGMA table_info(tickets)")].count("diagnostics") == 1
+    assert old.conn.execute("SELECT body, diagnostics FROM tickets").fetchone()[:] == ("kept", None)

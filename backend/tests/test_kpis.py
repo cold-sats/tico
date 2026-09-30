@@ -98,15 +98,20 @@ def goal_of(api, goal_id, token="ana-test"):
 
 
 def test_a_persons_colour_sticks_until_they_hand_it_back(api):
-    goal, kpi = goal_with_kpi(api, {"kind": "improve", "baseline": 40, "target": 70, "deadline": "2099-12-31"})
+    # The pace line starts at baseline_at and 40 is on it only at that instant: a reading taken later is behind by a
+    # sliver (30 * seconds / 73 years), and past 0.08 s that is yellow, not green. So the baseline and the first
+    # reading name the same instant, and the test no longer depends on how fast the machine is.
+    start = H.now()
+    goal, kpi = goal_with_kpi(api, {"kind": "improve", "baseline": 40, "baseline_at": start, "target": 70,
+                                    "deadline": "2099-12-31"})
     assert goal["status"] is None                                       # no data: it stays unscored
-    log(api, kpi["id"], 40)
+    log(api, kpi["id"], 40, period_end=start)
     seen = goal_of(api, goal["id"])
     assert (seen["status"], seen["status_source"], seen["status_by"]) == ("green", "auto", "bot:goal-manager")
     assert [e["status_source"] for e in seen["events"] if e["field"] == "status"] == ["auto"]
     # Ana says red, in a sentence. It is hers: a reading the arithmetic likes does not take it back.
     post(api, f"goals/{goal['id']}/status", {"status": "red", "note": "The launch slipped a month."})
-    log(api, kpi["id"], 41, period_end="2026-09-28")                    # the arithmetic still likes it
+    log(api, kpi["id"], 41, period_end=H.shift(start, seconds=1))       # the arithmetic still likes it
     mine = goal_of(api, goal["id"])
     assert (mine["status"], mine["status_source"], mine["status_by"]) == ("red", "person", "human:ana")
     assert mine["status_note"] == "The launch slipped a month."
@@ -151,7 +156,7 @@ def test_the_goal_manager_reads_and_writes_facts_but_a_target_needs_the_owners_c
     token = claim(api, machine)["token"]
     goal, kpi = goal_with_kpi(api, {"kind": "improve", "baseline": 40, "target": 70, "deadline": "2099-12-31"}, token="ben-test", owner="ben")
     # It writes the readings and the automatic colours...
-    log(api, kpi["id"], 45, token=token, evidence="https://analytics.example/q/12", period_end="2026-09-28")
+    log(api, kpi["id"], 45, token=token, evidence="https://analytics.example/q/12", period_end=H.now())
     assert goal_of(api, goal["id"], token)["status_source"] == "auto"
     assert post(api, "goals/refresh", {}, token=token)["checked"] >= 1
     # ...and nothing else: not the target, the definition, a colour, a new KPI or a new link.

@@ -28,7 +28,7 @@ from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
 from .execution import Execution
 from .onboarding import BOTOPS, Onboarding
-from .recruit import Recruiter
+from .recruit import Recruiter, template_departments as recruit_departments
 from . import rooms
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
@@ -142,8 +142,10 @@ def create_app(settings=None):
                     await asyncio.wait_for(stop.wait(), timeout=60)
                 except TimeoutError:
                     pass
-        scheduler_task = asyncio.create_task(schedule_loop()) if settings.scheduler_enabled else None
-        directory_task = asyncio.create_task(directory_loop()) if settings.scheduler_enabled else None
+        # A rehearsal never runs them, whatever else says so (docs/install.md, "Rehearse a migration").
+        timers = settings.scheduler_enabled and not settings.rehearsal
+        scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
+        directory_task = asyncio.create_task(directory_loop()) if timers else None
         # A demo runs no scheduler: nothing fires, and nothing waits for a bot that will never run.
         demo_task = None
         if settings.demo:
@@ -1229,7 +1231,8 @@ def create_app(settings=None):
     def org(request: Request, person: str | None = None, team: str | None = None, can: str | None = None):
         """The mixed people-and-bots org chart. Bots use this (and `hub org` / `hub_org`) to
         find who handles a kind of work and how to reach them. Only the bots the caller may see,
-        each with `access`; `?can=read` or `?can=write` keeps those they hold that level on."""
+        each with `access`, its `reports_to`, its `department` (its team, else its template's department,
+        else its manager's) and its `template`; `?can=read` or `?can=write` keeps those they hold that level on."""
         who = request.state.identity
         auth.domain(who)
         if can not in (None, "", "read", "write"):
@@ -1242,12 +1245,15 @@ def create_app(settings=None):
             live = {row["slug"]: row for row in H.bots(c)}
             bots = []
             by_id = {row["id"]: row for row in view["bots"]}
+            departments = P.bot_departments(configs, roster, recruit_departments(settings), archived)
             for row in view["bots"]:
                 level = access.get(row["id"], auth.FULL)
                 if not level["see"] or (can and not level[can]):
                     continue
                 bot = live.get(row["id"]) or {}
                 shown = {**row, "display_name": bot.get("display_name") or row["display_name"],
+                         "department": departments.get(row["id"], ""),
+                         "template": configs.get(row["id"], {}).get("template") or "",
                          "status": bot.get("state") or "", "access": level,
                          "onboarding_state": configs.get(row["id"], {}).get("onboarding_state") or ""}
                 # A bot the caller may not see is not in the chart, so those under it hang from
@@ -2058,9 +2064,13 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
+            from . import usage_limits
+            default = usage_limits.company(c)
+
             def with_bot_state(row):
                 if row:
                     row["bot_state"] = (H.bot(c, row["bot"]) or {}).get("state")
+                    row = usage_limits.overlay(c, row, default)      # over a spend limit: paused, and why
                 return row
             if bot:
                 auth.target(c, who, bot, need="read")
@@ -3058,6 +3068,8 @@ def create_app(settings=None):
     install_librarian(app, store, auth, mutate, onboarding)
     from .goal_routes import install as install_goal_routes
     install_goal_routes(app, store, auth, mutate, settings)
+    from .usage import install as install_usage
+    install_usage(app, store, auth, mutate, settings)
     from .bot_tools import install as install_bot_tools
     install_bot_tools(app, store, auth, mutate, settings_admin)
     from .support import install as install_support
@@ -3071,7 +3083,7 @@ def create_app(settings=None):
     # One script and one stylesheet instead of ~80 files (backend/ui_bundle.py): index.html is served with
     # its bundle regions replaced by the versioned bundle tags. TICO_UI_BUNDLE=off serves the files as listed.
     if ui_bundle.enabled():
-        ui_bundles = ui_bundle.UiBundle(settings.ui_dir)
+        ui_bundles = ui_bundle.shared(settings.ui_dir)
 
         def ui_reply(request, body, media_type, etag, cache_control=None, gz=None, gz_etag=None):
             headers = {"ETag": etag}

@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 
 import yaml
 
+from .replication import rehearsal_on
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # The upstream project's own name. Every environment renames itself through TICO_APP_NAME
@@ -186,6 +188,10 @@ class Settings:
     # demo is one someone put on a non-loopback address on purpose; it is read-only.
     demo: bool = False
     demo_public: bool = False
+    # TICO_REHEARSAL=1: a copy of real data run to see whether a migration works. Nothing runs on a timer and nothing
+    # leaves the server: no scheduler, directory sync, backups, release check, usage count, support or HQ calls,
+    # GitHub or Slack, telemetry or updater (docs/install.md, "Rehearse a migration"). Migrations run as usual.
+    rehearsal: bool = False
 
     def __post_init__(self):
         self.public_url = self.public_url.rstrip("/")
@@ -236,7 +242,7 @@ class Settings:
                 "assistant_bot": self.assistant_bot, "public_url": self.public_url,
                 "runner_url": self.runner_url, "github_owner": self.github_owner,
                 "local": self.local_signin, "release": self.release_id,
-                "owner_email": self.owner_email, "demo": self.demo}
+                "owner_email": self.owner_email, "demo": self.demo, "rehearsal": self.rehearsal}
 
     def allows_origin(self, origin):
         """Whether a browser write comes from this server's own page. A demo is opened by whatever
@@ -256,6 +262,9 @@ class Settings:
             raise RuntimeError("TICO_ENVIRONMENT_ID must give this company a permanent, opaque "
                                "identity whenever TICO_COMPANY_NAME is set")
         token_file = os.environ.get("TICO_LOCAL_OWNER_TOKEN_FILE", "").strip()
+        rehearsal = rehearsal_on()
+        # Whatever else the environment holds, a rehearsal cannot reach the services it would otherwise talk to.
+        quiet = (lambda value: "") if rehearsal else (lambda value: value)
         return cls(
             db_path=Path(path),
             registry_dir=Path(os.environ["TICO_REGISTRY_DIR"]) if os.environ.get("TICO_REGISTRY_DIR") else ROOT / "registry",
@@ -292,7 +301,8 @@ class Settings:
             oidc_allowed_domains=_emails(os.environ.get("TICO_OIDC_ALLOWED_DOMAINS", "")),
             session_secret=os.environ.get("TICO_SESSION_SECRET", "").strip(),
             cors_origins=os.environ.get("TICO_CORS_ORIGINS", ""),
-            scheduler_enabled=os.environ.get("TICO_SCHEDULER", "1") == "1",
+            scheduler_enabled=not rehearsal and os.environ.get("TICO_SCHEDULER", "1") == "1",
+            rehearsal=rehearsal,
             blob_dir=Path(os.environ["TICO_BLOB_DIR"]) if os.environ.get("TICO_BLOB_DIR") else None,
             blob_bucket=os.environ.get("TICO_BLOB_BUCKET", ""),
             processing_operators=tuple(filter(None, os.environ.get("TICO_PROCESSING_OPERATORS", "").split(","))),
@@ -302,17 +312,17 @@ class Settings:
             github_webhook_secret=os.environ.get("TICO_GITHUB_WEBHOOK_SECRET", "").strip(),
             observability_environment=os.environ.get("TICO_OBSERVABILITY_ENVIRONMENT", ""),
             observability_id_secret=os.environ.get("TICO_OBSERVABILITY_ID_SECRET", ""),
-            posthog_key=os.environ.get("TICO_POSTHOG_KEY", ""),
-            posthog_host=os.environ.get("TICO_POSTHOG_HOST", ""),
-            sentry_dsn=os.environ.get("TICO_SENTRY_DSN", ""),
-            sentry_server_dsn=os.environ.get("TICO_SENTRY_SERVER_DSN", ""),
+            posthog_key=quiet(os.environ.get("TICO_POSTHOG_KEY", "")),
+            posthog_host=quiet(os.environ.get("TICO_POSTHOG_HOST", "")),
+            sentry_dsn=quiet(os.environ.get("TICO_SENTRY_DSN", "")),
+            sentry_server_dsn=quiet(os.environ.get("TICO_SENTRY_SERVER_DSN", "")),
             typesafe_api_key=_typesafe_key(),
             enabled_providers=tuple(part.strip().lower() for part in
                                     os.environ.get("TICO_ENABLED_PROVIDERS", "").split(",") if part.strip()),
             default_runtime=os.environ.get("TICO_DEFAULT_RUNTIME", "").strip().lower(),
             default_model=os.environ.get("TICO_DEFAULT_MODEL", "").strip(),
             credential_kms_key=os.environ.get("TICO_CREDENTIAL_KMS_KEY", ""),
-            slack_gateway_enabled=os.environ.get("TICO_SLACK_GATEWAY_ENABLED", "0") == "1",
+            slack_gateway_enabled=not rehearsal and os.environ.get("TICO_SLACK_GATEWAY_ENABLED", "0") == "1",
             slack_team_id=os.environ.get("SLACK_TEAM_ID", "").strip(),
             slack_app_id=os.environ.get("SLACK_APP_ID", "").strip(),
             slack_secret_arn=os.environ.get("TICO_SLACK_SECRET_ARN", "").strip(),

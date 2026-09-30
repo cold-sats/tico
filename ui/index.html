@@ -41,11 +41,12 @@
 <link rel="stylesheet" href="/tico/ui/styles/getting-started.css">
 <link rel="stylesheet" href="/tico/ui/styles/brand.css">
 <link rel="stylesheet" href="/tico/ui/styles/updates.css">
+<link rel="stylesheet" href="/tico/ui/styles/usage.css">
 <!-- bundle:css:end -->
 </head>
 <body>
 <div id="side-backdrop" hidden></div>
-<div id="stale-banner" role="status" hidden><span></span><button class="primary" type="button" id="stale-reload">Reload</button></div>
+<div id="stale-banner" role="status" hidden><span>New version ·</span><button class="primary" type="button" id="stale-reload">Reload</button></div>
 <div id="usage-notice" role="note" hidden><span>Tico counts active installs anonymously (a random ID, version, and two yes/no activity flags). Turn off: Settings &gt; Privacy or TICO_TELEMETRY=off. <a href="https://github.com/ticoteam/tico/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Details</a></span><button class="ghost" type="button" id="usage-notice-x">Dismiss</button></div>
 <div id="demo-banner" role="note" hidden><strong>Demo — sample data</strong><span>A fictional company. Bots do not run here and nothing leaves this machine.</span></div>
 <aside id="side" aria-label="Primary navigation">
@@ -53,7 +54,7 @@
     <button class="side-close" type="button" aria-label="Close navigation">×</button>
   </header>
   <!-- The rail is Tasks, Goals, Docs, Market and Meetings, then the org and
-       the message bots. Integrations, Runs, Changelog and Settings sit in the account menu below.
+       the message bots. Integrations, Runs, Usage, Changelog and Settings sit in the account menu below.
        The phone drawer (More) shows the same, opened. -->
   <nav class="side-scroll" aria-label="Pages and bots">
     <div id="side-update" class="side-rec finishing" role="status" hidden title="Tico is installing an update. Bots finish what they are doing; new work waits a few minutes, then starts on its own."><span class="dot" aria-hidden="true"></span><span class="side-rec-time">Updating</span><span class="side-rec-title">Tico · new bot work starts after</span></div>
@@ -105,6 +106,7 @@
         <nav id="account-menu" aria-label="Account navigation" hidden>
           <a class="nav-link" href="#/integrations" data-nav="integrations" id="nav-integrations"><span class="nav-icon" aria-hidden="true">api</span>Integrations</a>
           <a class="nav-link" href="#/runs" data-nav="runs"><span class="nav-icon" aria-hidden="true">replay</span>Runs</a>
+          <a class="nav-link" href="#/usage" data-nav="usage"><span class="nav-icon" aria-hidden="true">paid</span>Usage</a>
           <a class="nav-link" href="#/changelog" data-nav="changelog"><span class="nav-icon" aria-hidden="true">dynamic_feed</span>Changelog</a>
           <a class="nav-link" href="#/settings" data-nav="settings"><span class="nav-icon" aria-hidden="true">settings</span>Settings<span class="hl-alert" data-hl-alert hidden></span></a>
           <a class="nav-link" id="sign-out" href="/api/v2/logout" hidden><span class="nav-icon" aria-hidden="true">logout</span>Sign out</a>
@@ -208,6 +210,7 @@
 <script src="/tico/ui/app/welcome.js"></script>
 <script src="/tico/ui/app/updates.js"></script>
 <script src="/tico/ui/app/goals.js"></script>
+<script src="/tico/ui/app/usage.js"></script>
 <script src="/tico/ui/app/router.js"></script>
 <script src="/tico/ui/app/drawer.js"></script>
 <script src="/tico/ui/app/search.js"></script>

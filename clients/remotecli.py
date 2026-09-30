@@ -45,6 +45,11 @@ def run(args, who=None):
     if args.fn == "docs ask":           # `docs fetch` never gets here: it runs locally (clients/hubcli.py)
         from clients import docs_ask
         return docs_ask.ask(client, args.question, args.wait, key=os.environ.get("HUB_OPERATION_ID"))
+    if args.cmd in ("update", "updates"):
+        from clients import hubtools
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
+        fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
+        return hubtools.BY_NAME["hub_" + args.fn.replace(" ", "_")]["fn"](client, fields)
     if args.cmd == "grokbot":
         from clients import hubtools
         body = json.loads(Path(args.file).read_text())

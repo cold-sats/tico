@@ -1,0 +1,23 @@
+name: Feature request
+description: Something Tico should do that it does not
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation and what is hard about it today, before any solution.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What should happen
+      description: The wanted behavior, and how you would check that it works.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: A workaround or another tool, if any.

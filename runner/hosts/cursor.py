@@ -54,6 +54,13 @@ def usage_tokens(usage):
     return inp, out, inp + out
 
 
+def cached_tokens(usage):
+    try:
+        return int((usage if isinstance(usage, dict) else {}).get("cacheReadTokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def message_text(message):
     content = (message or {}).get("content") if isinstance(message, dict) else None
     if isinstance(content, str):
@@ -243,7 +250,8 @@ class CursorHost(Host):
                 state["reply"] = str(event["result"])
             inp, out, total = usage_tokens(event.get("usage"))
             if total:
-                self.emit("tokens", tid, turn, input=inp, output=out, total=total)
+                self.emit("tokens", tid, turn, input=inp, output=out, total=total,
+                          usage={"input": inp, "cached": cached_tokens(event.get("usage")), "output": out})
 
     def _finish(self, tid, turn, rc, stderr, state):
         with self._lock:

@@ -300,15 +300,25 @@ function renderSettingsBots() {
       <td class="sb-cell-access">${settingsAccessCell(e)}</td><td class="sb-cell-model">${model}</td>
       <td class="sb-cell-fallback">${e.agent ? '<span class="muted">-</span>' : settingsChoiceCombo(e, 'fallback')}</td>
       <td class="sb-cell-owners">${stack(e)}</td><td class="sb-cell-computer">${settingsMachineSelect(e)}</td>
+      <td class="sb-cell-limit">${useLimitButton(e.name, e.display_name, SETTINGS_DATA.limits?.bots?.[e.name])}</td>
       <td class="settings-row-actions">${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit ${esc(e.display_name)}">Edit</button>` : ''}</td></tr>`;
   };
-  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Owners</th><th>Computer</th><th aria-label="Actions"></th></tr></thead><tbody>
+  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Owners</th><th>Computer</th><th>Limit</th><th aria-label="Actions"></th></tr></thead><tbody>
     ${rows.map(row).join('')}
     </tbody></table></div>` : '<div class="empty">No bots match these filters.</div>'}`;
   settingsBotsSyncSelection(el, rows);
   el.onclick = event => {
     if (event.target.closest('[data-bulk-model]')) { settingsBulkModelDialog(); return; }
     if (event.target.closest('[data-bulk-clear]')) { SETTINGS_BOTS_VIEW.selected.clear(); renderSettingsBots(); return; }
+    const cap = event.target.closest('[data-use-limit]');
+    if (cap) {
+      const slug = cap.dataset.useLimit, name = settingsBotName(slug);
+      useLimitDialog(slug, name, SETTINGS_DATA.limits?.bots?.[slug], SETTINGS_DATA.limits?.default, async () => {
+        try { SETTINGS_DATA.limits = await get('/v2/usage/limits'); } catch {}
+        renderSettingsBots();
+      });
+      return;
+    }
     const bot = event.target.closest('[data-edit-bot]');
     const credential = event.target.closest('[data-agent-credential]');
     const revoke = event.target.closest('[data-agent-revoke]');

@@ -21,7 +21,7 @@ import yaml
 from . import goals as G
 from . import models as M
 from . import providers
-from . import census, releases, replication, runner_versions
+from . import census, releases, replication, runner_versions, ui_bundle
 from .config import ASSISTANT_NAME
 from . import rooms, routines
 from . import access as Access
@@ -275,6 +275,7 @@ def config_view(c, settings, who=None):
         value["enabled_providers"] = list(chosen["enabled"])
     value["in_docker"] = running_in_docker()      # the first run offers a Linux computer first when the server is one
     value["version"] = releases.version()
+    value["ui_build"] = ui_bundle.build_id(settings.ui_dir)      # an open page compares it with its own (ui/app/notices.js)
     value["update"] = releases.notice()
     value["usage_count_notice"] = census.notice_due(c, settings, who)
     value["backup"] = replication.status()

@@ -149,7 +149,7 @@ and the value is worked out when it is read. Each has an id, `auto:<bot>:<metric
 | `first_response_min` | median minutes from a message to the bot to its first reply in that conversation, over 7 days |
 | `approval_rate_30d` | the share of its approval requests a person approved, of those decided in 30 days |
 | `failed_runs_7d` | runs that ended failed in the last 7 days |
-| `cost_7d` | what its runs cost in 7 days, when the runs recorded a cost |
+| `cost_7d` | what its runs cost in 7 days at list price, from their tokens ([usage](usage.md)); subscription runs are left out |
 
 A metric with nothing to measure has no reading and is gray: no message to the bot means no response time, not zero. Their
 history is the same measure at the end of each of the last fourteen days. The bot's page does not show them: link one to a

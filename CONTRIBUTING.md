@@ -1,7 +1,8 @@
 # Contributing to Tico
 
-Thanks for helping. Tico is licensed under Apache-2.0; by contributing you agree your work is
-released under the same license.
+Thanks for helping. Tico is released under the license in [LICENSE](LICENSE); your contribution is
+under that same license. There is no contributor license agreement (CLA): you sign off each commit
+instead (see below). Please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
@@ -22,8 +23,25 @@ npm run test:ui                                # the browser scripts in ui/tests
 ```
 
 Run both locally before you open a pull request: CI does not run the tests unless started by hand
-(`.github/workflows/ci.yml`). A full run has to stay under 10 minutes. If you touch `app/`, also run
+(`.github/workflows/ci.yml`). A full run (pytest, then the browser scripts) takes a few minutes and has
+to stay under 10. To run less while you work: `python -m pytest -q backend/tests/test_x.py` for one
+file, `node scripts/ui-tests.cjs <name>` for one browser script. If you touch `app/`, also run
 `cargo check` there.
+
+## Developer Certificate of Origin
+
+Every commit in a pull request must be signed off, which says you wrote it or have the right to
+submit it under the project's license, as set out in the
+[Developer Certificate of Origin](https://developercertificate.org/). Add the sign-off with `-s`:
+
+```bash
+git commit -s -m "Fix the thing"
+```
+
+That appends `Signed-off-by: Your Name <you@example.com>`, using your git `user.name` and
+`user.email`, which must be your real name and an address you use. To add it to commits you
+have already made: `git rebase --signoff main` (then `git push --force-with-lease`). A pull request
+with unsigned commits will be asked to sign them before it is merged.
 
 ## Pull requests
 
@@ -40,3 +58,11 @@ Run both locally before you open a pull request: CI does not run the tests unles
 - Keep real company names, people, domains and credentials out of the repository. Examples use
   the fictional company Acme (`acme.example`).
 - Describe the behavior change and how you checked it in the pull request.
+
+## Releases
+
+A release is a version tag. Maintainers move the `[Unreleased]` notes in [CHANGELOG.md](CHANGELOG.md)
+under the new version, run the full suite locally, then push a tag `vX.Y.Z` on `main`. The tag builds
+the Docker images and publishes the GitHub release, with that CHANGELOG section as its notes, and
+running installs then offer the update. Contributors do not tag; add your change to `[Unreleased]` in
+the CHANGELOG instead. The steps are in [docs/releasing.md](docs/releasing.md).

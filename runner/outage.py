@@ -1,13 +1,23 @@
 """One log line per outage, not one per failed poll, and how long to wait before the next try."""
 
+import collections
+import re
 import time
 
 from clients.tico import APIError
 
+# The last few lines that say something went wrong, for a support bundle (backend/diagnostics.py); it is
+# the same text the runner prints, kept in memory only and sent only in a heartbeat the server reads.
+TROUBLE = re.compile(r"error|fail|unavailable|refused|rejected|interrupted|cannot|could not|not updating|exception|limit", re.I)
+RECENT = collections.deque(maxlen=50)
+
 
 def log(line):
     from .redact import scrub_log            # a running turn's secrets never reach the log
-    print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + scrub_log(line), flush=True)
+    line = scrub_log(line)
+    print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
+    if TROUBLE.search(line):
+        RECENT.append(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + " " + line.replace("\n", " ")[:280])
 
 
 def span(seconds):

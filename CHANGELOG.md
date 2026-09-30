@@ -7,6 +7,67 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-09-30
+
+### Added
+- **Usage: estimated model spend per bot.** Account menu > Usage shows what the bots' runs cost, for Today, 7 days, 30 days, This month
+  or a custom range, by department, one row per bot with its tokens, estimate and share; a bot opens to a daily chart, its top routines
+  and a CSV. The runner sums each run's tokens (input, cached input, output) and sends them with the result; the server prices them from
+  a per-model list-price table (`providers.PRICES`, dated `prices_as_of`). A model with no price shows its tokens and a dash. Runs on a
+  ChatGPT or Claude sign-in are shown as "API-equivalent" and never added to spend. `GET /api/v2/usage` (owner and administrators see
+  every bot, anyone else the bots they run) is in the v2 contract; the bot KPI `cost_7d` reads the same estimate (docs/usage.md).
+  Two migrations add the token columns on `turns` and the limits tables.
+- **Spend limits per bot.** A daily and a monthly limit in estimated USD, on the Usage row or in Settings > Bots, with a company default
+  (Usage > Default limit; none until set). At 80% the bot's operator is told once; at 100% the bot takes no new job until the period
+  turns over or the limit is raised ("Paused: over its daily limit", shown on the bot and in Tasks), and a run in progress finishes.
+  Subscription runs count only if the company opts in. The person who runs a bot sets its limit within the company default.
+- **Support diagnostics.** Contact support has an "Attach diagnostics" box, on by default, with a Preview link that shows exactly
+  what will be sent: versions, containers, the last update, health check names, each computer's runtime readiness, counts and the recent
+  WARN/ERROR log lines, with emails, keys, addresses, hostnames and the names of bots and people redacted. HQ keeps it with the ticket
+  (`tickets.diagnostics`), for staff only, and `hq-tickets show` prints it for the Support Agent. PRIVACY.md lists every field. A name or
+  slug is relabeled as a word from four characters; a shorter one (`coo`) only as an exact `bot:<slug>` or `human:<id>` reference, and
+  an email is always relabeled or redacted, so a short slug no longer changes ordinary words.
+- **Rehearsal mode.** `TICO_REHEARSAL=1` starts a server on a copy of real data for trying a migration. Migrations and
+  initialization run as usual; nothing runs on a timer and nothing leaves the server: no scheduler or directory sync, no
+  backups (no Litestream or replication loop, and nothing is written to `TICO_BACKUP_URL`, so restored production data cannot
+  write into the production replica), no release check or usage count, no contact support or HQ calls (Contact support reports
+  "rehearsal" as the reason it is off), no Slack gateway, GitHub App calls, error reporting or updater, and no uploads to an
+  attachments bucket. A banner on every page says "Rehearsal: nothing runs or leaves this server", and the config carries
+  `rehearsal: true`. See docs/install.md, "Rehearse a migration".
+- **A bot's org chart carries each bot's department.** `hub org` (and `hub_org`, `GET /api/v2/org`) gives every bot the caller may see
+  its `reports_to`, its `department` (its team, else its template's department, else its manager's) and its `template`, so a head of
+  a department can tell which bots are on the team. Bots still follow each bot's See permission.
+- **A bar offers a reload after an update.** A tab left open through an update shows "New version · Reload" when the server's release
+  or the build of its script and stylesheet (`ui_build` in the config) differs from what the page loaded with. It checks on the
+  config poll and the moment a background tab is shown again, and never reloads by itself.
+
+### Changed
+- **The UI is split into files and served as one script and one stylesheet.** `ui/index.html` no longer holds the inline scripts and
+  styles: the code is in `ui/app/*.js` and `ui/styles/*.css`, one file per area, and the server concatenates the files index.html lists
+  between its bundle markers into `app.bundle.js` and `app.bundle.css`, with the content hash in the URL. A browser fetches each once
+  per release (immutable, gzip), so a page loads as fast as before or faster, on a phone too; editing the files needs no build step, and
+  `TICO_UI_BUNDLE=off` serves them separately. See ui/README.md.
+- **Mac helper jobs follow a release.** `connectors`, `close-calls` and `importers` are separate launchd jobs, and a release
+  restarted only the bot job, so a helper kept the old code in memory while it loaded new modules and scripts from the switched
+  checkout. After a healthy update the runner now restarts the helper jobs that are installed (`launchctl kickstart -k`, the way
+  `scripts/tico restart` does; a job that is not installed is left alone), and each helper checks the checkout's revision about
+  once a minute and exits with status 0 when it changes, so launchd starts it on the new code. Every restart is logged. A helper
+  now also stops between mail batches and calendar actions on a stop signal. Docker runners are unchanged: the container is replaced.
+- **Open-source basics.** SECURITY.md now names supported versions (the latest release) and what to expect from a report;
+  CONTRIBUTING.md covers running the tests, releases by tag and a DCO sign-off (`git commit -s`, no CLA); a Contributor Covenant 2.1
+  CODE_OF_CONDUCT.md, issue forms (bug report, feature request), a pull request template and a Community section in the README
+  were added.
+
+### Fixed
+- **`hub updates` and `hub update ...` work for a bot.** The CLI parsed them, but the remote handler had no branch for them, so a bot
+  reading the daily or weekly updates got "This command is not supported by the remote API" (the `hub_updates` tool over MCP was
+  fine). They now run the same tools; `hub update list` reads like `hub updates`. Marking updates read and replying stay a person's.
+- **The Docker server no longer overrides `TICO_SCHEDULER=0`.** The entrypoint forced `TICO_SCHEDULER=1`, so an explicit off was
+  ignored (and compose did not pass the variable to the container at all). Unset still means on. compose.yaml now also passes
+  `TICO_SUPPORT`, which docs/support.md already told owners to set in `.env`.
+- **The HQ backup runs as the HQ image's user.** Litestream as root with no capabilities failed with "stat /data/hq.db: permission
+  denied"; `hq/compose.yaml` now sets `user: "10005:10005"` on the backup service.
+
 ## [0.2.17] - 2026-09-30
 
 ### Added
@@ -945,7 +1006,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.17...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.18...HEAD
+[0.2.18]: https://github.com/ticoteam/tico/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/ticoteam/tico/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/ticoteam/tico/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/ticoteam/tico/compare/v0.2.14...v0.2.15

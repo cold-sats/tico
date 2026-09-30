@@ -45,6 +45,8 @@ class Bundle:
         self.gz = {JS_PATH: gzip.compress(js, 6, mtime=0), CSS_PATH: gzip.compress(css, 6, mtime=0)}
         self.gz_etag = {k: v[:-1] + '-gzip"' for k, v in self.etag.items()}
         self.page_etag = _etag(page)
+        # What the page's own tags carry (`?v=`), joined: a page that finds a different one in the config is out of date.
+        self.build = self.etag[JS_PATH][1:17] + "." + self.etag[CSS_PATH][1:17]
 
 
 def _etag(data):
@@ -108,6 +110,26 @@ class UiBundle:
             print(f"ui bundle off: {exc}", file=sys.stderr)
             self._bundle = None
         return self._bundle
+
+
+_SHARED = {}
+
+
+def shared(ui_dir):
+    """The one UiBundle for a ui directory, for the page route and for `build_id` alike."""
+    key = str(ui_dir)
+    if key not in _SHARED:
+        _SHARED[key] = UiBundle(ui_dir)
+    return _SHARED[key]
+
+
+def build_id(ui_dir):
+    """The build the server serves now (the config carries it so an open page can tell it is out of date);
+    empty when the UI is served as separate files."""
+    if not enabled():
+        return ""
+    bundle = shared(ui_dir).get()
+    return bundle.build if bundle else ""
 
 
 if __name__ == "__main__":

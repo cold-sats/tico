@@ -349,6 +349,8 @@ class Directory:
 
     # -- pull
     def fetch(self, source):
+        if self.settings.rehearsal:
+            raise Problem("rehearsal", "Directory sync is off in a rehearsal: it would read the company's directory", 409)
         with self.store.read() as c:
             cfg, creds = load(c), None
             if cfg["source"] != source or source not in Sources.FETCH:

@@ -80,6 +80,8 @@ services:
     <<: *hardening
     profiles: [backup]
     image: litestream/litestream:0.5.17
+    # The hq image's user (hq/Dockerfile): it owns /data/hq.db; as root with no capabilities Litestream cannot read it.
+    user: "10005:10005"
     command: replicate
     environment:
       HQ_BACKUP_URL: ${HQ_BACKUP_URL:-}

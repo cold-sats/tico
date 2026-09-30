@@ -150,6 +150,7 @@ function botAlertHTML(slug) {
   const e = S.emps.find(x => x.name === slug) || {}, s = v2StatusOf(slug);
   let word = '', why = '';
   if (s && ['crashed', 'quarantined', 'limited', 'blocked'].includes(s.state)) { word = V2_WORD[s.state]; why = s.focus || ''; }
+  else if (s?.state === 'paused' && /^Paused: over /.test(s.focus || '')) { word = s.focus; why = 'No new work until it resets or the limit is raised. A run in progress finishes.'; }
   else if (!s && stateOf(slug) === 'failed') word = 'Last run failed';
   else if (e.agent?.credential && !e.online && ((S.status?.queued || []).some(q => (q.bot || q.employee) === slug) || s?.open_tasks))
     word = 'Offline with work waiting';

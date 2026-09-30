@@ -2,18 +2,24 @@
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// A tab left open through an update keeps running the old UI. The config poll already runs, so the
-// version this page loaded with is compared to the server's on every answer. A banner offers the
-// reload; it never reloads by itself, since the person may be typing.
+// A tab left open through an update keeps running the old UI. The config poll already runs, so what this page
+// loaded with is compared to the server's on every answer: its release, and the build of its script and
+// stylesheet (the `?v=` of their tags, which the config carries as `ui_build`; empty when the files are served
+// unbundled). The bar offers the reload and never reloads by itself, since the person may be typing.
 let LOADED_VERSION = '';
+const PAGE_BUILD = (() => {
+  const v = sel => (document.querySelector(sel)?.getAttribute(sel.startsWith('script') ? 'src' : 'href') || '').split('?v=')[1] || '';
+  const js = v('script[src*="app.bundle.js"]'), css = v('link[href*="app.bundle.css"]');
+  return js && css ? js + '.' + css : '';
+})();
 function noticeUpdatedServer() {
   const v = String(S.config.version || '');
   if (!v) return;
   if (!LOADED_VERSION) LOADED_VERSION = v;
   const bar = $('#stale-banner');
   if (!bar) return;
-  bar.hidden = v === LOADED_VERSION;
-  if (!bar.hidden) bar.firstElementChild.textContent = `${appName()} was updated to ${nvVersion(v)}. Reload to get the new version.`;
+  const build = String(S.config.ui_build || '');
+  bar.hidden = v === LOADED_VERSION && !(build && PAGE_BUILD && build !== PAGE_BUILD);
 }
 document.addEventListener('click', ev => { if (ev.target.closest('#stale-reload')) location.reload(); });
 // The anonymous usage count (PRIVACY.md): the owner sees this once, and nothing is counted before they have.
@@ -113,7 +119,9 @@ document.addEventListener('click', ev => {
   }
   if (!t.closest('#new-version-wrap')) setNewVersionPop(false);
 });
-setInterval(() => { if (!document.hidden && !nvBusy && S.me) get('/v2/config').then(c => applyConfig(c)).catch(() => {}); }, 30000);  // with the app's poll: a release the server just learned of shows within a poll, not an hour
+const refreshConfig = () => { if (!document.hidden && !nvBusy && S.me) get('/v2/config').then(c => applyConfig(c)).catch(() => {}); };
+setInterval(refreshConfig, 30000);  // with the app's poll: a release the server just learned of shows within a poll, not an hour
+document.addEventListener('visibilitychange', refreshConfig);   // a tab that was in the background asks the moment it is shown again
 // The main assistant is shown under the environment's assistant name, never its slug.
 // The built-in assistant reads as what it is. An assistant named after the company (the old default) is just "Assistant".
 const assistantShownName = () => {

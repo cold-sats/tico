@@ -23,6 +23,8 @@ function taskStateIcon(t) {
   const owner = actorSlug(t.owner), live = owner ? v2StatusOf(owner) : null;
   const running = label === 'Doing' && live?.state === 'running' && (!live.task_id || live.task_id === t.id);
   const cls = {'Needs you': 'needs', Waiting: 'waiting', Doing: running ? 'doing' : 'doing-idle', 'To do': 'todo'}[label];
+  const over = live?.state === 'paused' && /^Paused: over /.test(live.focus || '') ? live.focus : '';   // its bot is over a spend limit
+  if (over && ['Doing', 'To do'].includes(label)) return `<span class="st-ic st-doing-idle" role="img" aria-label="${esc(over)}" title="${esc(over)}"></span>`;
   if (label === 'Doing' && !running) return `<span class="st-ic st-doing-idle" role="img" aria-label="In progress, not running now" title="In progress, not running now"></span>`;
   return `<span class="st-ic st-${cls}" role="img" aria-label="${esc(label)}" title="${esc(label)}">${inner}</span>`;
 }

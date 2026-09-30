@@ -12,6 +12,7 @@ from .store import H, Problem
 class Blobs:
     def __init__(self, settings, s3=None):
         self.bucket = settings.blob_bucket
+        self.rehearsal = getattr(settings, "rehearsal", False)
         self.directory = settings.blob_dir or settings.db_path.parent / "blobs"
         self._s3 = s3
 
@@ -31,6 +32,8 @@ class Blobs:
     def put(self, data):
         digest = hashlib.sha256(data).hexdigest()
         key = self.key(digest)
+        if self.bucket and self.rehearsal:      # the bucket holds the real company's files: reading it is fine, adding to it is not
+            raise Problem("rehearsal", "Uploads are off in a rehearsal: attachments live in the company's bucket", 409)
         if self.bucket:
             import base64
             checksum = base64.b64encode(bytes.fromhex(digest)).decode()

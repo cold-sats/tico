@@ -4,7 +4,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {html, uiFile} = require('./support/page.cjs');
+const {html, uiFile, bundled} = require('./support/page.cjs');
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https://github.com/ticoteam/tico/releases/tag/v0.2.0',
                 published_at: '2026-10-20T10:00:00Z', name: 'Tico 0.2.0'};
@@ -46,7 +46,7 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
       await page.goto('https://tico-ui.test/#/help');
       await page.waitForFunction(() => !document.querySelector('#account .account-email')?.textContent.includes('Signing in'));
       page.on('framenavigated', () => reloads++);
-      return {page, ctx, errors, posts, serve: version => { served = version; }};
+      return {page, ctx, errors, posts, reloads: () => reloads, serve: version => { served = version; }};
     };
 
     // Nothing available, nothing shown.
@@ -91,10 +91,30 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
     assert.equal(await v.page.locator('#stale-banner').isVisible(), false, 'no banner while the version is unchanged');
     v.serve('0.3.0');
     await v.page.evaluate(() => get('/v2/config').then(applyConfig));
-    assert.equal((await v.page.locator('#stale-banner span').innerText()).trim(), 'Tico was updated to v0.3.0. Reload to get the new version.');
+    assert.equal((await v.page.locator('#stale-banner').innerText()).replace(/\s+/g, ' ').trim(), 'New version · Reload');
     await v.page.locator('#stale-reload').waitFor();
     await v.page.waitForTimeout(300);
     assert.equal(await v.page.locator('#stale-banner').isVisible(), true, 'it stays until the person reloads');
+    assert.equal(v.reloads(), 0, 'the page is never reloaded for the person');
+    await v.ctx.close();
+
+    // The same release with another build of the page's script and stylesheet (an image rebuilt without a new
+    // version) shows the bar too, in the bundled page; the page's own build matches the config's and shows nothing.
+    v = await visit({update: {...UPDATE, available: false}});
+    const own = await v.page.evaluate(() => PAGE_BUILD);
+    assert.equal(!!own, bundled, 'the page knows its build when it is bundled');
+    await v.page.evaluate(b => get('/v2/config').then(c => applyConfig({...c, ui_build: b})), own || 'aaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbb');
+    assert.equal(await v.page.locator('#stale-banner').isVisible(), false, 'the same build shows nothing');
+    await v.page.evaluate(() => get('/v2/config').then(c => applyConfig({...c, ui_build: '0123456789abcdef.fedcba9876543210'})));
+    assert.equal(await v.page.locator('#stale-banner').isVisible(), bundled, 'another build shows the bar when the page is bundled');
+    await v.ctx.close();
+
+    // A tab shown again asks at once, not at the next poll.
+    v = await visit({update: {...UPDATE, available: false}});
+    assert.equal(await v.page.locator('#stale-banner').isVisible(), false);
+    v.serve('0.4.0');
+    await v.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await v.page.locator('#stale-banner').waitFor({state: 'visible', timeout: 3000});
     await v.ctx.close();
 
     // Without an updater the owner is shown the command to run.

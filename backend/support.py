@@ -21,8 +21,10 @@ import httpx
 
 from pydantic import Field
 
+from . import diagnostics
 from .census import hq_url
 from .models import Contract
+from .replication import rehearsal_on
 from .store import H, Problem, encode
 
 log = logging.getLogger("tico.support")
@@ -51,6 +53,7 @@ class SupportTicket(Contract):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE)
     email: str = Field(default="", max_length=254)
     include_ids: bool = True            # the version and the install ID go with it, unless the person unticks it
+    diagnostics: str = Field(default="", max_length=64)     # the digest of the bundle the person previewed (backend/diagnostics.py)
 
 
 class SupportMessage(Contract):
@@ -60,6 +63,8 @@ class SupportMessage(Contract):
 def off_reason(settings):
     if settings.demo:
         return "demo"
+    if settings.rehearsal or rehearsal_on():
+        return "rehearsal"
     if os.environ.get("TICO_SUPPORT", "").strip().lower() in ("off", "0", "false", "no", "disabled"):
         return "TICO_SUPPORT"
     return ""
@@ -151,6 +156,7 @@ def view(row):
 class Support:
     def __init__(self, store, settings, census):
         self.store, self.settings, self.census = store, settings, census
+        self.previews = diagnostics.Previews()
 
     # ------------------------------------------------------------------ the form
     def compose(self, who):
@@ -159,7 +165,15 @@ class Support:
         version = releases.version()
         return {"enabled": True, "email": who.email or "", "version": version if VERSION.fullmatch(version) else "",
                 "install_id": self.census.install_id(), "to": hq_url().split("://", 1)[-1].split("/", 1)[0],
-                "max": MAX_MESSAGE}
+                "max": MAX_MESSAGE, "diagnostics": True}
+
+    def preview(self, who, app):
+        """Build the diagnostics bundle and keep it for this person, so the request that files the ticket sends these
+        very bytes. Returns its digest and the text the page shows."""
+        bundle = diagnostics.build(self.store, self.settings, app.state.auth, who, self.census,
+                                   github=getattr(app.state, "github_app", None))
+        text = diagnostics.canonical(bundle)
+        return {"id": self.previews.keep(who.actor, bundle), "bytes": len(text.encode()), "text": text}
 
     def file(self, who, body, key=""):
         """Send the ticket to HQ, then keep HQ's id and secret. Nothing is kept when HQ refuses or cannot be reached."""
@@ -182,7 +196,18 @@ class Support:
             details = self.compose(who)
             sent = {k: details[k] for k in ("version", "install_id") if details[k]}
             payload.update(sent)
-        made = _answer(_ask_hq("POST", "/v1/support", body=payload), (201, 200))
+        if body.diagnostics:
+            bundle = self.previews.take(who.actor, body.diagnostics)
+            if bundle is None:
+                raise Problem("diagnostics_stale", "Preview the diagnostics again.", 409)
+            payload["diagnostics"] = bundle
+        answer = _ask_hq("POST", "/v1/support", body=payload)
+        if answer.status_code == 422 and "diagnostics" in payload:       # an HQ from before diagnostics: send the rest
+            payload.pop("diagnostics")
+            answer = _ask_hq("POST", "/v1/support", body=payload)
+        made = _answer(answer, (201, 200))
+        if "diagnostics" in payload:
+            sent["diagnostics"] = len(diagnostics.canonical(payload["diagnostics"]).encode())
         hq_id, hq_secret = str(made.get("ticket_id") or ""), str(made.get("secret") or "")
         if not hq_id or not hq_secret:
             raise Problem("support_unreachable", "Could not reach Tico support. Try again in a moment.", 502, retryable=True)
@@ -191,7 +216,8 @@ class Support:
             c.execute("INSERT INTO support_tickets(id,actor,created,status,message,email,sent_json,hq_id,hq_secret,"
                       "request_key) VALUES(?,?,?,?,?,?,?,?,?,?)",
                       (ticket_id, who.actor, H.now(), "open", message, email, encode(sent), hq_id, hq_secret, key or None))
-            H.event(c, who.actor, "support.filed", ticket_id, {"email": bool(email), "ids": bool(sent)})
+            H.event(c, who.actor, "support.filed", ticket_id, {"email": bool(email), "ids": bool({k: v for k, v in sent.items() if k != "diagnostics"}),
+                                                              "diagnostics": "diagnostics" in sent})
             return view(c.execute("SELECT * FROM support_tickets WHERE id=?", (ticket_id,)).fetchone())
 
     def write(self, who, ticket_id, text):
@@ -280,6 +306,7 @@ def install(app, store, settings, census):
     from fastapi import Request
 
     support = Support(store, settings, census)
+    diagnostics.watch_logs()
 
     def person(request):
         who = request.state.identity
@@ -298,6 +325,12 @@ def install(app, store, settings, census):
         who = person(request)
         require_on(settings)
         return support.compose(who)
+
+    @app.get("/api/v2/support/diagnostics")
+    def support_diagnostics(request: Request):
+        who = person(request)
+        require_on(settings)
+        return support.preview(who, request.app)
 
     @app.post("/api/v2/support/tickets")
     def support_file(request: Request, body: SupportTicket):

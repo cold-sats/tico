@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Entry point for the server image: `server`, `slack-gateway`, `restore` or `demo`. It seeds the data volume and runs
-# the backups. The runner has its own image and entry point.
+# the backups (or, with TICO_REHEARSAL=1, none of them). The runner has its own image and entry point.
 set -euo pipefail
 
 DATA=${TICO_DATA_DIR:-/data}  # overridable so tests can run this script unprivileged
@@ -8,6 +8,12 @@ LITESTREAM_CONFIG=/tmp/litestream.yml
 
 log() { printf 'tico: %s\n' "$*"; }
 die() { printf 'tico: error: %s\n' "$*" >&2; exit 1; }
+
+# TICO_REHEARSAL=1: a server on a copy of real data, to see whether a migration works. It runs the same migrations and
+# initialization as any start, and otherwise does nothing on a timer and sends nothing out (docs/install.md, "Rehearse a
+# migration"): no scheduler or directory sync, no backups, no release check or usage count, no support or HQ calls, no
+# Slack, no updater, no telemetry. The server also reads TICO_REHEARSAL itself (backend/config.py), so this is the second lock.
+rehearsal() { case "${TICO_REHEARSAL:-}" in 1|true|TRUE|True|yes|YES|Yes|on|ON|On) return 0 ;; *) return 1 ;; esac; }
 
 server_environment() {
   [ -n "${TICO_COMPANY_NAME:-}" ] || die "set TICO_COMPANY_NAME"
@@ -18,7 +24,12 @@ server_environment() {
   export TICO_DB=$DATA/hub.sqlite TICO_REGISTRY_DIR=$DATA/registry
   [ -n "${TICO_BLOB_BUCKET:-}" ] || export TICO_BLOB_DIR=$DATA/blobs
   export TICO_APP_NAME="${TICO_APP_NAME:-$TICO_COMPANY_NAME}" TICO_ASSISTANT_NAME="${TICO_ASSISTANT_NAME:-Assistant}"
-  export TICO_SCHEDULER=1
+  # An explicit TICO_SCHEDULER=0 is kept; unset means on.
+  export TICO_SCHEDULER="${TICO_SCHEDULER:-1}"
+  if rehearsal; then
+    export TICO_REHEARSAL=1 TICO_SCHEDULER=0 TICO_UPDATE_CHECK=off TICO_TELEMETRY=off TICO_SUPPORT=off TICO_SLACK_GATEWAY_ENABLED=0
+    unset TICO_UPDATER_URL TICO_POSTHOG_KEY TICO_POSTHOG_HOST TICO_SENTRY_DSN TICO_SENTRY_SERVER_DSN
+  fi
 
   if [ -n "${TICO_UPDATER_URL:-}" ]; then
     # /control is shared with the updater alone; the volume is what keeps everyone else from the token.
@@ -72,8 +83,8 @@ BACKUPS=${TICO_BACKUP_DIR:-/backups}
 
 backup_configuration() {  # writes $LITESTREAM_CONFIG; returns 1 when backups are off
   local url region
-  if [ "${TICO_BACKUP:-}" = off ]; then
-    TICO_BACKUP_MODE=off
+  if [ "${TICO_BACKUP:-}" = off ] || { rehearsal && [ -z "${TICO_BACKUP_URL:-}" ]; }; then
+    TICO_BACKUP_MODE=off    # a rehearsal with no TICO_BACKUP_URL has nothing to restore from
   elif [ -n "${TICO_BACKUP_URL:-}" ]; then
     case "$TICO_BACKUP_URL" in s3://*) ;; *) die "TICO_BACKUP_URL must be s3://bucket/prefix" ;; esac
     TICO_BACKUP_MODE=remote
@@ -175,6 +186,8 @@ prepare() {  # everything `server` does before it starts serving: also what the 
   environment_identity
   tunnel_config
   backup_configuration || true
+  # After the restore above, which only reads the backup: from here nothing is written to it.
+  if rehearsal; then export TICO_BACKUP_MODE=rehearsal; fi
   python -m backend.replication mark-environment "$DATA" "$TICO_ENVIRONMENT_ID"
 }
 
@@ -182,6 +195,11 @@ server() {
   prepare "$@"
   local serve=(uvicorn backend.app:create_app --factory --host 0.0.0.0 --port 8765 --workers 1 --no-access-log
                --timeout-graceful-shutdown 2)
+  if rehearsal; then
+    log "REHEARSAL: nothing runs or leaves this server. No scheduler, directory sync, release check, usage count, support, Slack or updater."
+    log "REHEARSAL: backups are off: no Litestream, no replication loop, nothing is written to ${TICO_BACKUP_URL:-a backup location}."
+    exec "${serve[@]}"
+  fi
   warn_backups
   if [ "$TICO_BACKUP_MODE" != off ]; then
     log "backing up the database and attachments to ${TICO_BACKUP_URL:-the tico-backups volume ($BACKUPS)}"
@@ -195,6 +213,10 @@ server() {
 # The Slack gateway: the same image, its own process, so a Slack outage or restart never touches the
 # server. It waits for the server to create the database and for the owner to paste tokens.
 slack_gateway() {
+  if rehearsal; then
+    log "REHEARSAL: the Slack gateway does not run"
+    exec sleep infinity
+  fi
   server_environment
   local waited=0
   until [ -s "$TICO_DB" ]; do
