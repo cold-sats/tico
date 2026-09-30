@@ -6,9 +6,9 @@ agent, and press **Create my team**. Every company gets the assistant, BotOps, t
 Creating defines the bots on the server and hands the rest to two places: a starter bot's repository is set up by the computer
 the moment it is placed, and BotOps sets up every other template.
 
-The wizard is the first of four pieces, all described below: the wizard, a short tour, the Getting
-started checklist and a card at the top of each section. [After the wizard](#after-the-wizard) covers
-the last three. To choose a first team and get the most from it, read the [onboarding guide](onboarding-guide.md).
+The wizard is the first of three pieces, all described below: the wizard, a short tour, and a line under the org list
+that points at BotOps. [After the wizard](#after-the-wizard) covers the last two, and the Market page's empty state, where the
+owner asks for market research. To choose a first team and get the most from it, read the [onboarding guide](onboarding-guide.md).
 
 Nobody else sees the wizard. Only the owner may write onboarding, and the sidebar entry
 **Finish setup** appears only while it is unfinished.
@@ -157,8 +157,8 @@ The wizard is done once, by the owner. Everything after it is per person, so a t
 joins later gets the same help without the owner doing anything.
 
 ```
-wizard  ->  tour (once)  ->  Getting started checklist  ->  section cards
-             replay: ?        until done or hidden           until closed
+wizard  ->  tour (once)  ->  "Talk to BotOps" line
+             replay: ?        until a bot of your own exists
 ```
 
 ### The tour
@@ -168,67 +168,40 @@ on, **Skip** or **Esc** closes it, and focus stays inside it. On a phone it open
 and shows the same steps. It opens by itself once, right after **Finish setup**, and can be replayed
 from **?** (How Tico works) with **Take the tour**. That it was seen is kept per person.
 
-### The checklist
+### Bots
 
-**Getting started** sits at the top of the sidebar with a count such as `3/9`. It leaves the sidebar
-when every step is done or the person hides it, and stays reachable at `#/getting-started` (the button
-on that page, or **Getting started checklist** on the Help page, brings it back).
+There is no checklist, no card above any page and no card in the sidebar. While there are no bots of your own (the Create your
+first bot step is not done), one line of muted text sits under the org list: "Talk to BotOps to add or edit your AI employees",
+with **BotOps** linking to its chat (`#/bot/botops`). It shows only to people who may add bots (the owner and bot administrators,
+`can_build`), and has nothing to close. Asking BotOps in chat is how a bot is added (`playbooks/build-me-a-bot.md`); connecting
+an agent you already have is the **Connect an agent** button in the sidebar footer.
 
-`GET /api/v2/getting-started` computes every step from live state on each request. Nothing is
-self-reported and nothing stays ticked once the thing it names goes away.
+### An empty Market page
 
-| Step | Done when | Who sees it |
-|---|---|---|
-| Signed in | Always, if you can read this | Everyone |
-| A computer is online | An enrolled, unrevoked runner sent a heartbeat in the last 2 minutes | Owner |
-| A model is signed in on it | An online runner's readiness lists a runtime that is installed and `authenticated: ready`. The runtime is the company's default; with none, any runtime of an enabled provider | Owner |
-| GitHub is connected | The GitHub App is stored and installed (`backend/github_app.py`). Optional: it can be skipped, and a skipped step counts toward the total | Owner |
-| BotOps is active | The `botops` bot's state is `active` | Owner, bot administrators |
-| Create your first bot | Any bot other than the assistant and BotOps exists and is not archived | Owner, bot administrators |
-| Set up the next bot | Done when no starter is waiting; while one is, the label names it (the first of the team, by `setup_rank`), says why, and links to its page, where **Start setup** is | Owner, bot administrators |
-| First approved output | A starter bot has said it is onboarded (`onboarding_state: onboarded`): a person approved its first routine, which is the first output reviewed. It replaces a count of set-up bots, and completes by one | Everyone |
-| Your first update arrived | The `updates` table has a row | Everyone |
+While the market has no entity and no page someone wrote (the seed's pages do not count), the Market page is an empty state
+instead of the graph, the index and the ask box. The owner sees **Research your market**: one box for a website, a description
+or links to anything about the market, **Start research**, and an **Attach files** link to the Docs import. Everyone else sees
+"Nothing here yet."
 
-The model step carries a **Sign in** button when a computer has Codex or Claude Code installed but not
-signed in: it opens the same dialog as Settings > Devices, which shows the CLI's link and one-time code
-(and a paste field for Claude Code) so the owner can sign the runner in from the browser, no SSH. Tico
-relays the CLI's prompts and never sees the credential (`backend/model_login.py`, and `runner/login.py`).
-
-Every step that is not done carries a one-line reason and a link to the place that fixes it (Settings >
-Devices, AI providers or Cloud services, the bot's page, Tasks, Updates).
-
-**Create your first bot** opens **What should your bot do?** (a description and an optional name).
-It files a task for BotOps titled `Build a bot: <name>` with the slug, the description and the
-onboarding answers, via `POST /api/v2/getting-started/bot`. That needs BotOps active and the owner or
-a bot administrator. The task names no template, so BotOps picks the closest one
-(`playbooks/set-up-a-bot.md`). While that task is open the step points at it.
-
-### Section cards
-
-The first time a person opens a section, a compact card sits above it. It can be closed with the X,
-and stays closed for that person. It never blocks the page.
-
-| Section | The card | What it does |
-|---|---|---|
-| Docs (owner) | Where do your current docs live? Paste links (a help site, a Drive folder, a Notion page, a GitHub repository, anything), each with an optional description; "No docs yet" leads to writing a first internal doc, "Files to upload" to Import | `POST /api/v2/getting-started/docs` `{"links": [{"url", "description"}]}` makes each link a linked doc (kind detected from the address; Tico keeps no copy) and answers `{"linked": [...], "skipped": [...]}`. No task is filed and no bot is involved ([docs.md](docs.md)) |
-| Market (owner) | **Research your market**: one box for a website, a description or links to anything about the market, and **Start research** (with an **Attach files** link to the Docs import). Shown on the Market page and the Getting started page while the market is empty | `POST /api/v2/getting-started/market` `{"text"}` files one task, "Set up the market map", to the Librarian and answers `{"task_id", "bot": "librarian"}`; `409 librarian` while the Librarian is not running. The Librarian's `playbooks/market-setup.md` researches the sources and writes the market pages and graph ([librarian.md](librarian.md)). The page then shows "The Librarian is researching your market. This usually takes 5–10 minutes." until the market has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds |
-| Bots | In the org list while there are no bots of your own: **Connect a bot you already have** (the connect-an-agent dialog) or **Build one with BotOps** (the form above) | As above |
-| Tasks, Goals | One or two sentences and one action: create a task, set a first goal | Opens the real control on that page |
-| Updates | What daily and Friday updates are | Nothing to do |
+**Start research** calls `POST /api/v2/getting-started/market` `{"text"}`, which files one task, "Set up the market map", to the
+Librarian and answers `{"task_id", "bot": "librarian"}`; `409 librarian` while the Librarian is not running. The Librarian's
+`playbooks/market-setup.md` researches the sources and writes the market pages and graph ([librarian.md](librarian.md)). The page
+then shows "The Librarian is researching your market. This usually takes 5–10 minutes." with a link to the task, until the market
+has content (at least two minutes, at most thirty), kept in the browser, polling the market every 30 seconds. Then the normal
+Market page is drawn. The code is `ui/market-page.js`.
 
 ### What is stored, and who may do what
 
 A person's choices are one row in `preferences` (key `onboarding.progress`, the same per-person store as
-`/api/v2/preferences/{key}`): tour seen, checklist hidden, cards closed, optional steps skipped.
-`POST /api/v2/getting-started/state` writes only the caller's own row, and the checklist read shows only
+`/api/v2/preferences/{key}`): whether they saw the tour.
+`POST /api/v2/getting-started/state` writes only the caller's own row, and the read shows only
 the caller's own choices. Runners and bots get `403`.
 
 | Endpoint | Who |
 |---|---|
-| `GET /api/v2/getting-started` | Any person; the steps returned depend on their role |
+| `GET /api/v2/getting-started` | Any person (the BotOps line and the tour read it) |
 | `POST /api/v2/getting-started/state` | Any person, for themselves |
-| `POST /api/v2/getting-started/bot` | Owner or bot administrator |
-| `POST /api/v2/getting-started/docs`, `.../market` | Owner |
+| `POST /api/v2/getting-started/market` | Owner |
 
 The code is `backend/getting_started.py` and `ui/getting-started.js`. Tests: `backend/tests/test_getting_started.py`
 and `ui/tests/getting-started.cjs`.

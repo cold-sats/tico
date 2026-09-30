@@ -15,7 +15,7 @@ owner's reviewed instructions and the onboarding answers.
 
     hub task show <id>
 
-A task titled `Build a bot: <name>` (from Getting started) carries a slug and a plain-language job
+A task titled `Build a bot: <name>` carries a slug and a plain-language job
 instead of a template. Pick the closest template in the catalog, and write `AGENT.md` for that job.
 
 If any of those is missing, ask once with `hub task ask <id>` and stop until it is answered. Do not

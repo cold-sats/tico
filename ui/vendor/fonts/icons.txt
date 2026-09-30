@@ -24,7 +24,6 @@ chair
 chat_bubble
 check
 check_circle
-checklist
 chevron_right
 co_present
 code
@@ -108,7 +107,6 @@ radio_button_unchecked
 receipt
 receipt_long
 record_voice_over
-remove_circle
 replay
 request_quote
 reviews

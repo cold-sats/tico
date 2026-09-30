@@ -151,22 +151,7 @@ class Preference(Contract):
 class GettingStartedState(Contract):
     tour: bool | None = None
     checklist: bool | None = None
-    card: str | None = Field(default=None, max_length=32)
     skip: str | None = Field(default=None, max_length=32)
-
-
-class GettingStartedBot(Contract):
-    what: str = Field(min_length=1, max_length=2000)
-    name: str = Field(default="", max_length=80)
-
-
-class GettingStartedDocLink(Contract):
-    url: str = Field(min_length=1, max_length=2000)
-    description: str = Field(default="", max_length=300)
-
-
-class GettingStartedDocs(Contract):
-    links: list[GettingStartedDocLink] = Field(min_length=1, max_length=20)
 
 
 class GettingStartedMarket(Contract):

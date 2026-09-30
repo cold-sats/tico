@@ -72,6 +72,18 @@ All notable changes to Tico are recorded here. The format follows
   beside them (each menu names itself, e.g. "All bots"); two menus a row on a phone.
 
 ### Removed
+- **The Getting started checklist** (its page, its sidebar entry and its Help link; `#/getting-started` now opens Tasks),
+  and the intro cards on Updates, Tasks and Goals. **Finish setup** is the only setup entry in the sidebar, while the first run
+  is unfinished. The card slot above the page is gone too: the market research box is now the Market page's own empty
+  state (one box, **Start research** and **Attach files**; "Nothing here yet." for everyone but the owner), and the
+  "researching" notice fills the same place until the market has content; `GET /api/v2/getting-started` no longer
+  returns `empty`. The tour stays.
+- **The bot card in the sidebar** ("No bots of your own yet.", with **Connect a bot you already have**, **Build one with
+  BotOps** and an X), its **What should your bot do?** dialog, `POST /api/v2/getting-started/bot` and card dismissal
+  (`card` on `POST /api/v2/getting-started/state`, `cards_dismissed` on the read). While there are no bots of your own, one
+  muted line under the org list says "Talk to BotOps to add or edit your AI employees", linking to BotOps's chat.
+- **The Docs setup card** ("Where do your current docs live?") and `POST /api/v2/getting-started/docs`. The Docs page's
+  own empty state already offers writing a doc, importing and adding a link.
 - **The integration pages that were specific to one company.** A new company's **Integrations** page listed dozens of
   services one company happened to use. The release now ships a page only for an outside service Tico has built-in support
   for: GitHub, Slack, Mail (Gmail and Google Calendar), the Aside browser, Close (the call importer behind Meetings), and the

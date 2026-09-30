@@ -64,13 +64,6 @@ which it is: **Internal** or **Linked**. Where SQLite has no FTS5, search falls 
 
 **Ask AI** asks the Librarian, the built-in bot for the company's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub docs ask`.
 
-## Getting started
-
-For the owner, the Docs page opens with a card, "Where do your current docs live?": paste a link for each place
-(a help site, a Drive folder, a Notion page, a GitHub repository, anything), optionally say what is in it, and each
-becomes a linked doc. "No docs yet" leads to writing a first internal doc, and "Files to upload" to Import
-([onboarding.md](onboarding.md)).
-
 ## Upgrading
 
 The old document mirror (a worker importing linked repositories, the "Current docs" view, Bot Notes, Proposed

@@ -1,7 +1,7 @@
 // The Docs page, against an in-memory stand-in for the docs API (fixtures only, no server): write a doc,
 // edit it (with the version-conflict message), read its history and restore an old version, lock it
 // (only owners and bot administrators), add, open, edit and remove a linked doc, search across both
-// kinds, import a file, and let the Getting started card turn pasted links into linked docs.
+// kinds, and import a file.
 // TICO_SCREENSHOT_DIR=<dir> saves the review screenshots (both themes, and a phone).
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -79,12 +79,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       if (p === '/api/v2/getting-started' && method === 'GET') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true,
         cards_dismissed: started.cards, can_build: true, owner: me.role === 'owner', empty: {docs: true, market: false, tasks: false, updates: false, goals: false, meetings: false, ...started.empty}});
       if (p === '/api/v2/getting-started/state') return json({tour: true, checklist: true, cards: [], skipped: []});
-      if (p === '/api/v2/getting-started/docs') {
-        const body = req.postDataJSON(); requests.push({p, body, key: req.headers()['idempotency-key']});
-        const made = body.links.map(l => addLinked(l.url, titleOf(l.url), kindOf(l.url), l.description, me.role === 'owner' ? 'human:ana' : 'human:ben'));
-        started.empty.docs = false;
-        return json({linked: made.map(linkView), skipped: []});
-      }
       if (!p.startsWith('/api/v2/')) return json({});
       const api = p.slice(8);
       const body = ['POST', 'PATCH'].includes(method) && (req.headers()['content-type'] || '').includes('json') ? req.postDataJSON() : null;
@@ -311,34 +305,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.ok(imported.key, 'the upload carries an Idempotency-Key');
     await page.close();
 
-    // ---- the Getting started card: pasted links become linked docs
-    started = {empty: {docs: true}, cards: []};
-    linked.length = 0; docs.clear();
-    page = await context.newPage();
-    page.on('pageerror', e => errors.push('card: ' + e.message));
-    await page.goto('https://tico-ui.test/#/docs');
-    await page.locator('[data-gs-card=docs]').waitFor();
-    assert.match(await page.locator('.docs-empty-note').first().textContent(), /No docs yet/);
-    await shot(page, 'setup-card');
-    const first = page.locator('[data-gs-docs] input[name=url]').first();
-    await first.click();
-    await page.evaluate(() => {
-      const target = document.querySelector('[data-gs-docs] input[name=url]');
-      const data = new DataTransfer(); data.setData('text', 'https://help.acme.example\nhttps://www.notion.so/Acme-Wiki\nhttps://github.com/acme/handbook');
-      target.dispatchEvent(new ClipboardEvent('paste', {clipboardData: data, bubbles: true, cancelable: true}));
-    });
-    assert.equal(await page.locator('[data-gs-link-row]').count(), 3);
-    assert.match(await page.locator('[data-gs-kind]').nth(1).textContent(), /Notion/);
-    await page.locator('[data-gs-link-row] input[name=description]').first().fill('Public help site');
-    await page.locator('[data-gs-docs] [type=submit]').click();
-    await page.locator('#gs-card [role=status]', {hasText: 'Linked 3 docs'}).waitFor();
-    assert.deepEqual(requests.findLast(r => r.p === '/api/v2/getting-started/docs').body.links.map(l => l.url),
-      ['https://help.acme.example', 'https://www.notion.so/Acme-Wiki', 'https://github.com/acme/handbook']);
-    await page.locator('.docs-link-main').nth(2).waitFor();                       // the Docs page refreshed behind the card
-    assert.deepEqual(linked.map(l => l.kind), ['website', 'notion', 'github']);
-    assert.equal(await page.locator('.docs-link-main').count(), 3);
-    await page.close();
-
     // ---- a phone
     docs.clear();
     add('doc-000000000001', 'support/refund-policy.md', 'Refund policy', '# Refund policy\n\nRefund within **30 days**.\n\n## Who decides\n\nSupport up to $200.\n\n## Escalation\n\nAsk the owner.\n\n## Records\n\nKeep the receipt.', {locked: true});
@@ -362,6 +328,6 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await page.close();
 
     assert.deepEqual(errors, []);
-    console.log('PASS: docs are written, edited (with the conflict message), versioned and restored, locked for admins, linked and searched, imported, and set up from the Getting started card.');
+    console.log('PASS: docs are written, edited (with the conflict message), versioned and restored, locked for admins, linked, searched and imported.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exit(1); });

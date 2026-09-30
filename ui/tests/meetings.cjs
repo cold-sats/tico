@@ -85,7 +85,6 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       assert.equal(await page.locator('#notes-manual').innerText(), 'Add notes');
       assert.equal(await page.locator('#notes-import').count(), 0, scheme + ': no Import button under the title');
       assert.equal(await page.locator('[data-gs-card=meetings]').count(), 0, scheme + ': no intro banner');
-      assert.equal(await page.locator('#gs-card').isHidden(), true);
       assert.equal((await page.locator('.meet-blank h2').innerText()).trim(), 'Connect a source or add a note');
       assert.deepEqual(await words(page, '.meet-blank .meet-tile .mt-text'), ['Granola Connect', 'Fireflies Connect', 'Zoom Connect', 'Google Meet Connect', 'Close Connect']);
       assert.equal(await page.locator('.meet-blank [data-add]').innerText(), 'Add notes');

@@ -16,10 +16,27 @@ const MARKET_TYPES = [
 const MARKET_BRIEF = 'brief';
 
 // Nothing about the market is written here: the Overview is the page the Librarian writes
-// (playbooks/market-setup.md), and until it exists there is only the setup card in getting-started.js.
+// (playbooks/market-setup.md). Until the market has content the page is its own empty state, drawn in
+// the app's theme rather than the graph's dark room: the owner's one box, or the notice while it works.
 const marketStyle = document.createElement('style');
-marketStyle.textContent = '.market-blank{margin:0;color:#9a9a9a}.market-hint{display:none}'
-  + 'body:has(#gs-card [data-gs-market]) .market-hint{display:inline}';
+marketStyle.textContent = `.market-shell.market-shell-blank{display:flex;align-items:center;justify-content:center;overflow:auto;padding:32px 16px 12vh;background:var(--bg);color:var(--ink)}
+.market-start{width:min(560px,100%);display:grid;gap:10px;margin:0}
+.market-start h1{margin:0 0 6px;font-size:22px;line-height:1.25;font-weight:650;color:var(--ink)}
+.market-start label{font-size:13px;color:var(--muted)}
+.market-start textarea{min-height:112px;font:inherit;font-size:14px}
+.market-start .err{margin:0;font-size:13px}
+.market-start-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:4px}
+.market-start-actions .primary{padding:9px 18px}
+.market-start-actions a{font-size:13.5px}
+.market-researching{width:min(560px,100%);display:flex;align-items:flex-start;gap:14px}
+.market-researching strong{display:block;font-size:16px;font-weight:600;color:var(--ink)}
+.market-researching p{margin:4px 0 0;color:var(--muted);font-size:13.5px}
+.market-spin{flex:none;width:18px;height:18px;margin-top:2px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:marketspin .9s linear infinite}
+@keyframes marketspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.market-spin{animation:none;border-color:var(--accent)}}
+.market-none{margin:0;color:var(--muted);font-size:14px}
+.market-blank{margin:0;color:#9a9a9a}
+@media (max-width:600px){.market-shell.market-shell-blank{align-items:flex-start;padding:28px 16px}.market-start-actions .primary{flex:1}}`;
 document.head.appendChild(marketStyle);
 
 // The node for your own company sits at the centre of the graph. The hub may name it in its
@@ -39,8 +56,8 @@ window.marketStop = function marketStop() {
   if (MARKET_VIEW) MARKET_VIEW.stop();
 };
 
-// The research notice (getting-started.js) calls this when the market has new content. A question being
-// typed is left alone.
+// Draws the page again from the server, when the research notice sees the market's first content. A
+// question being typed is left alone.
 window.marketReload = function marketReload() {
   if (!MARKET_VIEW || !(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) return;
   const ask = $('#market-q');
@@ -78,6 +95,10 @@ async function mountMarket(shell) {
   const links = (edges.edges || []).filter(edge => byId.has(edge.src) && byId.has(edge.dst));
   // A fresh install starts with pages the seed wrote ("None in the seed."): they are not shown until the graph has rows.
   const pages = (library.documents || []).filter(doc => nodes.length || !doc.seeded).sort((a, b) => a.title.localeCompare(b.title));
+  let researching = marketResearchGet();
+  const blank = !nodes.length && !pages.length;
+  if (researching && !blank && Date.now() - Number(researching.at) >= MARKET_RESEARCH_MIN) { marketResearchSet(null); researching = null; }
+  if (blank || researching) return mountBlank(shell);
   shell.innerHTML = `<aside class="market-list" aria-label="Market notes">
       <a id="market-overview" class="market-overview-btn" href="${marketHref(MARKET_BRIEF)}">Overview</a>
       <input id="market-filter" type="search" placeholder="Search the market" aria-label="Search the market" autocomplete="off">
@@ -162,7 +183,7 @@ async function mountMarket(shell) {
     if (onBrief) {
       const overview = pages.find(row => row.id === 'market/overview');
       if (overview) { await showDoc(overview); return; }
-      read.innerHTML = '<p class="market-blank">Nothing here yet.<span class="market-hint"> Start the research above.</span></p>';
+      read.innerHTML = '<p class="market-blank">Nothing here yet.</p>';
       graph.focus(null);
       return;
     }
@@ -184,6 +205,97 @@ async function mountMarket(shell) {
   }
 
   return {shell, open, stop: () => graph.stop()};
+}
+
+// ---------------------------------------------------------------- an empty market
+// The owner's one box: whatever they have about their market. The Librarian reads it and builds the map
+// (templates/catalog/librarian/playbooks/market-setup.md); "Attach files" is the Docs import. Then a notice,
+// kept in this browser with no server involved: it shows for at least two minutes and until the market has
+// content, and goes for good after thirty. While it shows, the market is read every thirty seconds (two
+// small GETs), and the page is drawn again once the notice is done.
+const MARKET_RESEARCH_KEY = 'tico.market.researching';
+const MARKET_RESEARCH_MIN = 2 * 60 * 1000, MARKET_RESEARCH_MAX = 30 * 60 * 1000, MARKET_RESEARCH_POLL = 30 * 1000;
+let MARKET_RESEARCH = null;        // the same record in memory, for a browser that will not store it
+
+function marketResearchGet() {
+  let row = MARKET_RESEARCH;
+  try { row = JSON.parse(localStorage.getItem(MARKET_RESEARCH_KEY) || 'null') || row; } catch { /* the memory copy stands */ }
+  const age = row ? Date.now() - Number(row.at) : NaN;
+  if (row && age >= -60000 && age < MARKET_RESEARCH_MAX) return row;
+  if (row) marketResearchSet(null);
+  return null;
+}
+
+function marketResearchSet(row) {
+  MARKET_RESEARCH = row;
+  try { if (row) localStorage.setItem(MARKET_RESEARCH_KEY, JSON.stringify(row)); else localStorage.removeItem(MARKET_RESEARCH_KEY); } catch { /* memory only */ }
+}
+
+// What the market holds, in one string: how many entities, and when its newest page was written. The seed's
+// pages are already there when the owner asks, so "has content" means "differs from what it was when asked".
+async function marketSig() {
+  const [entities, pages] = await Promise.all([get('/v2/market/entities'), get('/company-docs?collection=market')]);
+  const written = (pages.documents || []).filter(doc => doc.id !== 'market/weekly-delta').map(doc => String(doc.fetched || ''));
+  return `${(entities.entities || []).length}|${written.reduce((a, b) => a > b ? a : b, '')}`;
+}
+
+function marketBlankHtml(row) {
+  if (row) return `<div class="market-researching" data-market-researching role="status">
+      <span class="market-spin" aria-hidden="true"></span>
+      <div><strong>The Librarian is researching your market.</strong>
+        <p>This usually takes 5–10 minutes.${row.task ? ` <a href="#/task/${esc(row.task)}">View task</a>` : ''}</p></div></div>`;
+  if (!(S.me?.cloud && S.me.role === 'owner')) return '<p class="market-none">Nothing here yet.</p>';
+  return `<form class="market-start" data-market-research>
+      <h1>Research your market</h1>
+      <label for="market-sources">Your website, a description, or links to anything about your market</label>
+      <textarea id="market-sources" name="text" rows="4" maxlength="8000" required autocomplete="off" placeholder="https://yourcompany.com"></textarea>
+      <p class="err" data-market-error hidden></p>
+      <div class="market-start-actions"><button class="primary" type="submit">Start research</button>
+        <a href="#/docs?import=1">Attach files</a></div>
+    </form>`;
+}
+
+function mountBlank(shell) {
+  let poll = 0;
+  const watch = on => {
+    if (!on) { clearInterval(poll); poll = 0; } else if (!poll) poll = setInterval(() => void tick(), MARKET_RESEARCH_POLL);
+  };
+  const draw = () => {
+    const row = marketResearchGet();
+    shell.classList.add('market-shell-blank');
+    shell.innerHTML = marketBlankHtml(row);
+    watch(!!row);
+  };
+  async function tick() {
+    const row = marketResearchGet();
+    if (!row) { watch(false); window.marketReload(); return; }          // thirty minutes passed: the box is back
+    let sig;
+    try { sig = await marketSig(); } catch { return; }                   // the next tick tries again
+    const arrived = row.base == null ? !sig.startsWith('0|') : sig !== row.base;
+    if (arrived && Date.now() - Number(row.at) >= MARKET_RESEARCH_MIN) {
+      marketResearchSet(null);
+      watch(false);
+      window.marketReload();
+    }
+  }
+  shell.onsubmit = async event => {
+    const form = event.target.closest('[data-market-research]');
+    if (!form) return;
+    event.preventDefault();
+    const line = form.querySelector('[data-market-error]'), button = form.querySelector('[type=submit]');
+    const fail = error => { line.textContent = error.message || 'That did not go through.'; line.hidden = false; button.disabled = false; };
+    const text = form.elements.text.value.trim();
+    if (!text) return fail(new Error('Add your website, a description or a link.'));
+    button.disabled = true;
+    try {
+      const base = await marketSig().catch(() => null);
+      const result = await post('/v2/getting-started/market', {text});
+      marketResearchSet({at: Date.now(), task: result.task_id || '', base});
+      draw();
+    } catch (error) { fail(error); }
+  };
+  draw();
+  return {shell, open: async () => {}, stop: () => watch(false)};
 }
 
 function renderEntity(shown, names) {
