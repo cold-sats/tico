@@ -43,10 +43,12 @@ const publicUrl = () => S.config.public_url || location.origin;
 const runnerUrl = () => S.config.runner_url || location.origin;
 function applyConfig(config) {
   S.config = {...CONFIG_DEFAULTS, ...(config && typeof config === 'object' ? config : {})};
-  document.title = (S.config.demo ? 'Demo · ' : '') + appName();
-  // The strip is shown by the server's say-so alone: only a demo's config carries `demo`.
-  document.documentElement.classList.toggle('demo', !!S.config.demo);
-  $('#demo-banner').hidden = !S.config.demo;
+  document.title = (S.config.demo ? 'Demo · ' : S.config.rehearsal ? 'Rehearsal · ' : '') + appName();
+  // The strip is shown by the server's say-so alone: only a demo's config carries `demo`, a rehearsal's `rehearsal`.
+  const strip = !!(S.config.demo || S.config.rehearsal);
+  document.documentElement.classList.toggle('demo', strip);
+  $('#demo-banner').hidden = !strip;
+  if (S.config.rehearsal && !S.config.demo) $('#demo-banner').innerHTML = '<strong>Rehearsal: nothing runs or leaves this server</strong>';
   renderOnboardingNav();
   renderNewVersion();
   noticeUpdatedServer();

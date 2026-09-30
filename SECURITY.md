@@ -7,11 +7,29 @@ Please report security problems privately. Do not open a public issue or pull re
 Use GitHub's private vulnerability reporting: go to the
 [Security tab of ticoteam/tico](https://github.com/ticoteam/tico/security/advisories/new) and
 choose **Report a vulnerability**. Include what you found, how to reproduce it, and which
-version or commit it affects.
+version or commit it affects. Only the maintainers can read the report.
 
-We aim to acknowledge a report within a few business days, and to tell you when a fix is
-released. Please give us reasonable time to fix a problem before you disclose it. Never put a real
-credential in a report, an issue or a pull request.
+If you cannot use GitHub for this, open a public issue that says only that you have a security
+report and asks for a private way to send it. Put no details in it, and we will reply there with one.
+
+Never put a real credential in a report, an issue or a pull request.
+
+## Supported versions
+
+Only the latest release gets security fixes ([releases](https://github.com/ticoteam/tico/releases)). Older
+releases do not; the fix is to update, which a server does with **Update now** and a computer does by
+itself ([docs/updates.md](docs/updates.md)). Tell us which version you tested; if the problem is
+already fixed in the latest release, we will say so.
+
+## What to expect
+
+- We aim to acknowledge a report within 5 business days, and to tell you whether we consider it a
+  vulnerability, and how we plan to fix it, within 14 days of that.
+- A fix ships as a new release, with an advisory on GitHub that credits you unless you would rather
+  not be named. We ask that you keep the details private until it is out; if a fix is taking long we
+  will agree a date with you.
+- This is a small project run by a few people. These are aims, not a contract, and we will tell you
+  if we are slower.
 
 ## Scope
 

@@ -213,3 +213,69 @@ def test_a_docker_runner_asks_its_sidecar_when_quiet(repos):
     assert f.kind == "docker" and f.release == "0.1.0" and f.pending == "0.2.0"
     assert f.blocks_claims(active=False) and sidecar.started == ["0.2.0"]
 
+
+
+# -- helper jobs follow the release --------------------------------------------------------------
+
+def test_a_healthy_update_restarts_the_helpers_and_a_rollback_does_not(repos):
+    public, checkout, state = repos
+    restarted = []
+    result, _ = run_apply(checkout, state, helpers=lambda: restarted.append("all"))
+    assert result["state"] == "healthy" and restarted == ["all"]
+    sh(checkout, "git", "reset", "-q", "--hard", "v0.1.0")
+    restarted.clear()
+    result, _ = run_apply(checkout, state, calls=Calls(healthy=(False, True)), helpers=lambda: restarted.append("all"))
+    assert result["state"] == "rolled_back" and restarted == []
+
+
+def test_a_helper_restart_that_fails_does_not_fail_the_update(repos):
+    public, checkout, state = repos
+
+    def boom():
+        raise OSError("launchctl")
+    result, _ = run_apply(checkout, state, helpers=boom)
+    assert result["state"] == "healthy"
+
+
+class Launchctl:
+    def __init__(self, fail_kickstart=()):
+        self.calls, self.fail_kickstart = [], set(fail_kickstart)
+
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        bad = cmd[1] == "kickstart" and cmd[-1].rsplit("/", 1)[-1] in self.fail_kickstart
+        return subprocess.CompletedProcess(cmd, 1 if bad else 0, "", "")
+
+
+def install_plists(agents, *labels):
+    agents.mkdir(parents=True, exist_ok=True)
+    for label in labels:
+        (agents / f"{label}.plist").write_text("<plist/>")
+
+
+def test_only_installed_helpers_are_restarted(tmp_path):
+    agents = tmp_path / "agents"
+    install_plists(agents, "team.tico.tico-bot", "team.tico.tico-connectors", "team.tico.tico-importers")
+    launchctl, said = Launchctl(), []
+    done = ru.restart_helpers({}, launchctl, agents, uid=501, say=said.append)
+    assert done == ["connectors", "importers"]                  # close-calls has no plist; the bot job is not touched here
+    assert launchctl.calls == [["launchctl", "kickstart", "-k", "gui/501/team.tico.tico-connectors"],
+                               ["launchctl", "kickstart", "-k", "gui/501/team.tico.tico-importers"]]
+    assert len(said) == 2 and "team.tico.tico-connectors" in said[0]
+
+
+def test_helper_labels_follow_the_bot_jobs_environment(tmp_path):
+    agents = tmp_path / "agents"
+    install_plists(agents, "team.tico.tico.acme.close-calls", "team.tico.tico-connectors")   # the default install is another company's
+    launchctl = Launchctl()
+    done = ru.restart_helpers({"XPC_SERVICE_NAME": "team.tico.tico.acme.bot"}, launchctl, agents, uid=501, say=lambda line: None)
+    assert done == ["close-calls"]
+    assert launchctl.calls == [["launchctl", "kickstart", "-k", "gui/501/team.tico.tico.acme.close-calls"]]
+
+
+def test_an_installed_helper_that_is_not_loaded_is_bootstrapped(tmp_path):
+    agents = tmp_path / "agents"
+    install_plists(agents, "team.tico.tico-connectors")
+    launchctl = Launchctl(fail_kickstart={"team.tico.tico-connectors"})
+    done = ru.restart_helpers({}, launchctl, agents, uid=501, say=lambda line: None)
+    assert done == ["connectors"] and launchctl.calls[-1] == ["launchctl", "bootstrap", "gui/501", str(agents / "team.tico.tico-connectors.plist")]

@@ -370,7 +370,7 @@ class CloseCallImporter:
         from .freshness import CodeWatch
         cloud = Outage("Tico Close transcripts", "pull failed", "pull still failing",
                        "pull working again")
-        watch = CodeWatch()
+        watch = CodeWatch("Tico Close transcripts")
         failures = 0
         while not self.stop.is_set():
             try:
@@ -388,7 +388,5 @@ class CloseCallImporter:
                 except Exception:
                     pass
                 delay = min(INTERVAL, RETRY_SECONDS * 2 ** min(failures - 1, 3))
-            if watch.stale():                   # the supervisor starts it on the new code
-                print("Tico Close transcripts: new code in the checkout; exiting so the supervisor restarts it", flush=True)
+            if watch.wait(self.stop, delay):    # the checkout moved: the supervisor starts it on the new code
                 return
-            self.stop.wait(delay)

@@ -150,6 +150,8 @@ class ConnectorPublisher:
     def calendar_action_tick(self, limit=10):
         completed = 0
         for _ in range(limit):
+            if self.stop.is_set():
+                break
             claimed = self.client.post("connectors/calendar/actions/claim", {})
             action = claimed.get("action") if isinstance(claimed, dict) else None
             if not action:
@@ -256,6 +258,8 @@ class ConnectorPublisher:
         history_id = result.get("history_id") if isinstance(result, dict) else None
         posted = 0
         for _ in range(50):
+            if self.stop.is_set():          # a stop lands between batches, never inside one
+                break
             export = self.run_mail(["sync", "export", "--as", self.owner, "--mailbox", address,
                                     "--limit", str(int(batch)), "--json"])
             rows = export.get("messages") if isinstance(export, dict) else None
@@ -295,7 +299,7 @@ class ConnectorPublisher:
         mail = Outage("Tico connectors", "mail refresh failed", "mail refresh still failing",
                       "mail refresh working again", progress=600)
         from .freshness import CodeWatch
-        watch = CodeWatch()
+        watch = CodeWatch("Tico connectors")
         self.prepare()
         while not self.stop.is_set():
             try:
@@ -308,7 +312,5 @@ class ConnectorPublisher:
                 mail.recovered()
             except Exception as exc:
                 mail.failed(exc)
-            if watch.stale():                   # the supervisor starts it on the new code
-                print("Tico connectors: new code in the checkout; exiting so the supervisor restarts it", flush=True)
+            if watch.wait(self.stop, 45):       # the checkout moved: the supervisor starts it on the new code
                 return
-            self.stop.wait(45)

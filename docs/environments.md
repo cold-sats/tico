@@ -61,6 +61,9 @@ and a hand-run `uvicorn`, so both see exactly the same configuration. Keys:
 `TICO_LOCAL_OWNER_TOKEN_FILE`, `TICO_SCHEDULER=1`, and `TICO_GITHUB_OWNER` when
 `env create --github-owner` was given. Values are single lines; a newline is refused at creation.
 
+A copy of real data that must send nothing out takes `TICO_REHEARSAL=1` in `server.env`
+(`TICO_SCHEDULER` and the other switches are then ignored); see [install.md](install.md#rehearse-a-migration).
+
 `server install` bakes these values into the launchd plist. After editing `server.env`, re-run
 `scripts/tico -e <slug> server install`, not `server restart`, or the job keeps the old values.
 
@@ -321,7 +324,9 @@ sqlite3 ~/.config/tico/environments/acme/hub.sqlite ".backup '/Volumes/Backups/h
 
 `python -m backend.manage snapshot <source> <destination>` writes a verified copy, and
 `restore <source> <destination>` puts one back. Keep `local-owner.token` out of any shared backup
-target, or rotate it after a restore.
+target, or rotate it after a restore. To open a restored copy without it touching anything outside the machine (no
+scheduler, directory sync, release check or usage count, and no calls to GitHub, Slack or Tico HQ), add
+`TICO_REHEARSAL=1` to that environment's `server.env` first; the app then says "Rehearsal: nothing runs or leaves this server".
 
 ## Removing an environment
 

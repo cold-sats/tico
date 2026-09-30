@@ -39,6 +39,12 @@ The runner is a git checkout. When the server's release is newer, the runner:
 5. if it does not, checks the old commit out again, restores the old dependencies, restarts and reports
    `rolled_back` (or `failed` if the old code does not start either). It does not retry that release for six hours,
    or until the server's release changes.
+6. once the runner is healthy on the new release, restarts the helper jobs that are installed on this Mac
+   (`connectors`, `close-calls`, `importers`; the same `launchctl kickstart -k` as `scripts/tico restart`), so none keeps
+   the old release in memory. A helper that is not installed is left alone. Each helper also checks the checkout's
+   revision about once a minute and exits when it changes, so launchd starts it on the new code even after a
+   `scripts/tico update` or a pull by hand. Each restart is a line in the job's log
+   (`scripts/tico logs connectors`) and in `update.log`. A Docker runner replaces its container, helpers included.
 
 A checkout with uncommitted changes, or on a branch other than `main`, is **refused, never touched**: nothing is
 stashed, reset or discarded. Settings > Health and Devices show "the checkout has 2 changed files" until someone commits or
