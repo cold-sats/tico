@@ -2934,7 +2934,7 @@ def create_app(settings=None):
     # One script and one stylesheet instead of ~80 files (backend/ui_bundle.py): index.html is served with
     # its bundle regions replaced by the versioned bundle tags. TICO_UI_BUNDLE=off serves the files as listed.
     if ui_bundle.enabled():
-        ui_bundles = ui_bundle.UiBundle(settings.ui_dir)
+        ui_bundles = ui_bundle.shared(settings.ui_dir)
 
         def ui_reply(request, body, media_type, etag, cache_control=None, gz=None, gz_etag=None):
             headers = {"ETag": etag}
