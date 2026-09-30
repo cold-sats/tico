@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Bot avatars are soft blobs that breathe while the bot works.** Every bot avatar (org panel, bot page, chat, Settings > Bots, tasks,
+  Updates, Goals) is now a slightly organic outline instead of a circle: six to eight points a few percent in or out from round, drawn
+  from the bot's slug so each bot keeps its own shape on every page and load. People stay plain circles, so the two read apart at a glance.
+  The colour and the symbol, initials or Assistant mark inside are unchanged. While a bot runs a turn, or answers in the open chat, its
+  outline eases to a second shape and back every few seconds (CSS `d` in Chrome and Firefox, SMIL in Safari and the macOS app); with
+  reduced motion it stays still. A bot whose template names an `icon` shows that Material Symbol inside its blob: `/api/employees`
+  now carries each bot's `icon`, from its own definition or its template's card.
+
 ## [0.2.14] - 2026-09-30
 
 ### Added

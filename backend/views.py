@@ -676,6 +676,12 @@ def install_views(app, store, auth, mutate, task_view):
         company = providers.load(c, store.settings)
         rows = []
         access = auth.bot_accesses(c, who)
+        # The Material Symbol a bot's avatar wears: its own, else its template's.
+        from .onboarding import template_icons
+        icons = template_icons(store.settings)
+
+        def icon_of(config):
+            return str(config.get("icon") or "") or icons.get(str(config.get("template") or ""), "")
         for bot in H.bots(c):
             slug = bot["slug"]
             level = access.get(slug, auth.FULL)
@@ -705,6 +711,7 @@ def install_views(app, store, auth, mutate, task_view):
                              "org_parent": P.org_parent("bot", slug, people, configs, archived),
                              "operator": registry["operator"] if registry else None,
                              "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
+                             "icon": icon_of(configs.get(slug, {}) or {}),
                              "can_chat": may_chat(c, auth, who, slug)})
                 continue
             config = configs.get(slug, {})
@@ -730,6 +737,7 @@ def install_views(app, store, auth, mutate, task_view):
                          "goals": (registry["goals"] if registry else "") or "",
                          **location,
                          "users": [P.brief(p) for p in P.primary_users(slug, people, configs)],
+                         "icon": icon_of(config),
                          "my_access": level, **policy, "can_chat": may_chat(c, auth, who, slug)})
         return rows
 
