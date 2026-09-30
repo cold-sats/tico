@@ -26,7 +26,7 @@ const DOCS = '#/docs';              // company-wide documentation, separate from
 const INTEGRATIONS = '#/integrations'; // integrations/*.md: how a bot uses each outside system, its queries, shared learnings
 const MAIL = '#/mail';                // server-stored mail copies; #/inbox redirects here
 const MESSAGING = '#/messaging';       // selected Message bot: setup, schedules, and example messages
-// Bot notices still flow through /api/v2/inbox. People read mail on #/mail, not live Gmail.
+// Bot notices still flow through /api/v2/messages?unread=1. People read mail on #/mail, not live Gmail.
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Bot text (final replies, status notes, playbooks) is untrusted: every render goes through safeMd.

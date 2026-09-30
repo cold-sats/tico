@@ -41,16 +41,16 @@ DO = _routes(
     # Goals and KPIs: a goal's or KPI's own rules decide who may change what.
     ("POST", r"goals"), ("POST", rf"goals/{_S}"), ("POST", rf"goals/{_S}/(status|status/auto|checkins|kpis)"),
     ("POST", rf"goals/{_S}/kpis/{_S}"), ("POST", rf"goals/{_S}/kpis/{_S}/unlink"), ("POST", r"goals/refresh"),
-    ("POST", r"kpis"), ("POST", rf"kpis/{_S}"), ("POST", rf"kpis/{_S}/readings"), ("POST", r"goal-proposals"),
+    ("POST", r"kpis"), ("POST", rf"kpis/{_S}"), ("POST", rf"kpis/{_S}/readings"), ("POST", r"(goal-proposals|proposals)"),
     # Tasks, docs and what the people asked of BotOps.
     ("POST", r"tasks"), ("POST", r"tasks/dry-run"), ("POST", rf"tasks/{_S}"),
     ("POST", rf"tasks/{_S}/(comments|links|ask|run-now)"),
     ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
     ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
-    ("POST", rf"integrations/{_S}/learnings"), ("POST", rf"integrations/{_S}/learnings/{_S}/delete"),
+    ("POST", rf"(integrations|tools)/{_S}/learnings"), ("POST", rf"(integrations|tools)/{_S}/learnings/{_S}/delete"),
     ("POST", r"health/bot-access/dismiss"),
     # People and access. The route asks for the click on what needs it.
-    ("POST", r"access/people"), ("POST", rf"access/people/{_S}"),
+    ("POST", r"access/(people|humans)"), ("POST", rf"access/(people|humans)/{_S}"),
     ("POST", rf"credentials/{_S}/grants"),
     ("POST", r"system/update/check"),
 )
@@ -58,13 +58,13 @@ DO = _routes(
 # Comes back as a Confirm card; it runs only on the person's own click, as them.
 CONFIRM = _routes(
     ("POST", rf"bots/{_S}/archive"),
-    ("POST", rf"people/{_S}"),
+    ("POST", rf"(people|humans)/{_S}"),
     ("PUT", r"providers"), ("PUT", r"access/limits"), ("PUT", r"access/allow"),
     ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),                 # spending: always their click
-    ("POST", rf"runners/{_S}/(member-bots|revoke|restart)"),
+    ("POST", rf"(runners|computers)/{_S}/(member-bots|revoke|restart)"),
     ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
     ("POST", r"system/update"),
-    ("POST", rf"goal-proposals/{_S}/decide"),
+    ("POST", rf"(goal-proposals|proposals)/{_S}/decide"),
     ("POST", r"support/tickets"),
     ("POST", rf"chat/{_S}"), ("POST", r"messages"),
     ("PATCH", rf"files/{_S}"),
@@ -74,13 +74,13 @@ CONFIRM = _routes(
 
 # Confirm-card routes only an owner or an admin may ask for: a member is told so at once, not handed a card that fails.
 ADMIN_ONLY = _routes(
-    ("PUT", r"providers"), ("PUT", r"access/(limits|allow)"), ("PUT", r"usage/limits"), ("POST", rf"runners/{_S}/member-bots"),
+    ("PUT", r"providers"), ("PUT", r"access/(limits|allow)"), ("PUT", r"usage/limits"), ("POST", rf"(runners|computers)/{_S}/member-bots"),
     ("POST", r"system/update"), ("PUT", r"directory"), ("POST", r"directory/(sync|preview)"),
     ("POST", r"(slack|github/app)/disconnect"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
 )
 
 # Read as the person, except what hands back a secret or is a computer's own channel.
-NO_READ = re.compile(API + r"(credential-runtime|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*|runners/[^/]+/logins.*"
+NO_READ = re.compile(API + r"(credential-runtime|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*|(runners|computers)/[^/]+/logins.*"
                      r"|runner-logins.*|runners/desired|runners/assignments|runners/eligible|directory/scim-token)")
 
 # Named like a secret: refused whatever route it is on.

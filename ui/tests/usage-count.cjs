@@ -29,7 +29,7 @@ const {html, uiFile} = require('./support/page.cjs');
           return json({enabled: true, off_by: '', install_id: '6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63', notice: 'shown', doc: 'https://example.test/PRIVACY.md'});
         }
         if (p === '/api/employees' || p === '/api/issues') return json([]);
-        if (p === '/api/people') return json({people: [], teams: {}});
+        if (p === '/api/humans') return json({people: [], teams: {}});
         if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: []});
         if (p === '/api/v2/status') return json({bots: []});
         if (p === '/api/v2/needs-you') return json({items: []});

@@ -210,7 +210,7 @@ function orgDragWire(tree, byParent) {
     try {
       if (from.startsWith('p:')) {
         if (!to.startsWith('p:')) return;
-        await post(`/v2/people/${encodeURIComponent(from.slice(2))}`, {reports_to: to.slice(2)});
+        await post(`/v2/humans/${encodeURIComponent(from.slice(2))}`, {reports_to: to.slice(2)});
       } else {
         const slug = from.slice(2), e = S.emps.find(x => x.name === slug);
         if (!e) return;

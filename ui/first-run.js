@@ -94,7 +94,7 @@ function frSummaryTeamHTML(state) {
 function frBotRowHTML(state, bot, botOps) {
   const card = state.catalog.cards.find(row => row.slug === bot.slug || row.template === bot.template);
   const bootstrap = bot.slug === assistantBot() || !!card?.bootstrap;
-  const ready = !!bot.repository_present, active = bot.status === 'active', parked = bot.onboarding_state === 'needs_onboarding';
+  const ready = !!bot.repository_present, active = bot.status === 'active', parked = ['needs_setup', 'needs_onboarding'].includes(bot.onboarding_state);
   const where = bootstrap ? 'Set up automatically once a computer is online.'
     : parked ? (ready ? 'Repository ready.' : 'Setting up its repository…')
     : `${esc(botOps)} is setting this up.`;
@@ -151,12 +151,12 @@ function frWireNext(state) {
     const status = $('#fr-admin-status'), data = Object.fromEntries(new FormData(form));
     form.querySelector('button').disabled = true; status.textContent = 'Inviting…';
     try {
-      const added = await post('/v2/access/people', {name: data.name || '', email: data.email});
+      const added = await post('/v2/access/humans', {name: data.name || '', email: data.email});
       // Adding is the roster and the sign-in list; the role is a second, owner-only step.
-      await post('/v2/access/people/' + encodeURIComponent(added.person), {role: 'admin'});
+      await post('/v2/access/humans/' + encodeURIComponent(added.person), {role: 'admin'});
       status.textContent = `${added.name || data.email} is on the roster as an admin.`;
       form.reset();
-      const roster = await get('/people').catch(() => null);
+      const roster = await get('/humans').catch(() => null);
       if (roster?.people) { SETTINGS_DATA.people = roster.people; setPeople(roster); }
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
     form.querySelector('button').disabled = false;
@@ -175,7 +175,7 @@ function frWireNext(state) {
 }
 
 // ----------------------------------------------------------------- the bot page and the org chart
-const frNeedsSetup = e => !!e && e.onboarding_state === 'needs_onboarding';
+const frNeedsSetup = e => !!e && ['needs_setup', 'needs_onboarding'].includes(e.onboarding_state);
 // The org chart's mark: small, beside the name, and the same word as the bot page.
 const frTreeMark = e => (frNeedsSetup(e) ? '<span class="tree-setup" title="Needs onboarding: set it up together before it does anything on its own">Setup</span>' : '');
 function frBotBannerHTML(e) {

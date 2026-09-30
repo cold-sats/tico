@@ -50,7 +50,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       if (p === '/api/v2/config') return json(CONFIG);
       if (p === '/api/status') return json({cloud: true, keeper_alive: true, health_issues: [], active: [], recent_runs: []});
       if (p === '/api/employees' || p === '/api/issues') return json([]);
-      if (p === '/api/people') return json({people});
+      if (p === '/api/humans') return json({people});
       if (p === '/api/v2/models') return json({models: [], harnesses: [], enabled_providers: [], default: {}});
       if (p === '/api/v2/operations') return json({machines: [], services: [], issues: [], scheduler_enabled: true});
       if (p === '/api/v2/settings/history') return json({changes: [], transitions: []});
@@ -60,19 +60,19 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
         const body = request.postDataJSON(); calls.push(['directory', body]);
         directory = {...directory, source: body.source, revision: directory.revision + 1}; return json({revision: directory.revision});
       }
-      if (p === '/api/v2/access/people' && method === 'POST') {
+      if (p === '/api/v2/access/humans' && method === 'POST') {
         const body = request.postDataJSON(); calls.push(['add', body]);
         people.push({id: body.email.split('@')[0], ...body}); allowedPeople = [...allowedPeople, body.email]; return json({person: 'x'});
       }
       let m;
-      if ((m = p.match(/^\/api\/v2\/access\/people\/([^/]+)$/))) {
+      if ((m = p.match(/^\/api\/v2\/access\/humans\/([^/]+)$/))) {
         const body = request.postDataJSON(); calls.push(['edit', m[1], body]);
         const row = people.find(x => x.id === m[1]);
         if ('role' in body) row.admin = body.role === 'admin';
         for (const k of ['create_bots', 'add_people', 'left', 'sign_in']) if (k in body) row[k] = body[k];
         return json({person: m[1]});
       }
-      if ((m = p.match(/^\/api\/v2\/people\/([^/]+)$/)) && method === 'POST') {
+      if ((m = p.match(/^\/api\/v2\/humans\/([^/]+)$/)) && method === 'POST') {
         const body = request.postDataJSON(); calls.push(['left', m[1], body]);
         people.find(x => x.id === m[1]).left = true; return json({});
       }

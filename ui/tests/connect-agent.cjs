@@ -34,7 +34,7 @@ async function open(browser, viewport, colorScheme, bypass) {
     if (p.startsWith('/vendor/fonts/') && p.endsWith('.woff2')) return route.fulfill({contentType: 'font/woff2', body: fs.readFileSync(path.join(__dirname, '..', p))});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json({id: 'ana', role: 'owner', name: 'Ana', email: 'ana@acme.example', cloud: true});
-    if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}]});
+    if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}]});
     if (p === '/api/employees') return json([]);
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: [], schedules: []});
     if (p === '/api/v2/status') return json({bots: []});

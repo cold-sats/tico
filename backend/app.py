@@ -20,6 +20,7 @@ from clients.agent_skill import WHO_NEEDS_ME
 
 from . import agents, batch, grokbot, inbox_isolation, harness_actions, model_login, oidc, personal_tokens, views
 from . import placement as placing
+from .statuses import is_parked
 from . import turns as turn_work
 from . import goals as G
 from . import models as M
@@ -32,6 +33,7 @@ from .recruit import Recruiter, template_departments as recruit_departments
 from . import rooms
 from . import names as actor_names
 from .openapi_v2 import STABLE as STABLE_ROUTES
+from .route_renames import old_paths as old_route_paths
 from . import updates
 from . import providers as Providers
 from . import access as Access
@@ -50,8 +52,9 @@ from .store import H, P, Problem, Store, encode, message_page, repo_url, task_me
 
 
 # The stable v2 routes whose answers carry display names (backend/names.py); streams are left alone.
-STABLE_PATH = re.compile("|".join(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(path)) for path, *_ in STABLE_ROUTES
-                                  if not path.endswith(("/stream", "/watch"))))
+STABLE_PATH = re.compile("|".join(re.sub(r"\\\{[^}]+\\\}", "[^/]+", re.escape(spelling))
+                                  for path, *_ in STABLE_ROUTES if not path.endswith(("/stream", "/watch"))
+                                  for spelling in (path, *old_route_paths(path))))
 
 
 def reset_bot_sessions(c, bot):
@@ -1086,9 +1089,11 @@ def create_app(settings=None):
 
     @app.get("/api/v2/me")
     def me(request: Request):
+        from .mcp import caller_kind
         who = request.state.identity
         return {"actor": who.actor, "role": who.role, "email": who.email,
-                "runner_id": who.runner_id, "attempt_id": who.attempt_id, "agent": who.agent}
+                "runner_id": who.runner_id, "attempt_id": who.attempt_id, "agent": who.agent,
+                "kind": caller_kind(auth, who)}
 
     # A person's own API tokens (backend/personal_tokens.py). Managed only from a browser
     # sign-in: a token is that person everywhere else, but it cannot mint or revoke tokens.
@@ -1138,7 +1143,7 @@ def create_app(settings=None):
         row["team"] = config["team"] if config else None
         row["operator"] = config["operator"] if config else None
         row["revision"] = config["revision"] if config else None
-        # `needs_onboarding` for a starter bot until it says a person approved its first routine, then
+        # `needs_setup` for a starter bot until it says a person approved its first routine, then
         # `onboarded`; empty for every other bot (backend/onboarding.py).
         row["onboarding_state"] = (config["onboarding_state"] or "") if config else ""
         if config:
@@ -1229,7 +1234,7 @@ def create_app(settings=None):
 
     @app.get("/api/v2/org")
     def org(request: Request, person: str | None = None, team: str | None = None, can: str | None = None):
-        """The mixed people-and-bots org chart. Bots use this (and `hub org` / `hub_org`) to
+        """The mixed people-and-bots org chart. Bots use this (and `hub team show` / `hub_team_show`) to
         find who handles a kind of work and how to reach them. Only the bots the caller may see,
         each with `access`, its `reports_to`, its `department` (its team, else its template's department,
         else its manager's) and its `template`; `?can=read` or `?can=write` keeps those they hold that level on."""
@@ -2098,8 +2103,8 @@ def create_app(settings=None):
 
     @app.post("/api/v2/bots/{bot}/onboarded")
     def bot_onboarded(request: Request, bot: str, body: M.Empty):
-        """A starter bot's own call (`hub bot onboarded`), or its manager's, once a person approved its first
-        routine: the bot stops being `needs_onboarding`. Repeating it changes nothing."""
+        """A starter bot's own call (`hub bot setup-done`), or its manager's, once a person approved its first
+        routine: the bot stops being `needs_setup`. Repeating it changes nothing."""
         who = request.state.identity
         return mutate(request, body, lambda c: onboarding.onboarded(c, who, bot))
 
@@ -2616,7 +2621,7 @@ def create_app(settings=None):
                     status="active", expected_revision=settings_admin._config(c, bot)["revision"]))
             setup = False
             config = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (bot,)).fetchone()
-            if body.setup and config and config["onboarding_state"] == "needs_onboarding" and who.role in ("owner", "human"):
+            if body.setup and config and is_parked(config["onboarding_state"]) and who.role in ("owner", "human"):
                 send(c, who, M.MessageCreate(to="bot:" + bot, text="Let's set you up."))
                 setup = True
             return {"bot": bot, "state": H.bot(c, bot)["state"], "computer": placed["computer"], "placed": placed["placed"],
@@ -2777,7 +2782,7 @@ def create_app(settings=None):
                 raise Problem("version_conflict", "Bot configuration changed; refresh before moving it", 409)
             runner = c.execute("SELECT * FROM runners WHERE id=? AND revoked_at IS NULL", (body.runner_id,)).fetchone()
             if not runner:
-                raise Problem("not_found", "Machine is not registered", 404)
+                raise Problem("not_found", "Computer is not registered", 404)
             if (who.role != "owner" and not auth.bot_admin(who) and runner["operator"] != H.actor_id(who.actor)
                     and not (runner["accepts_member_bots"] and auth.member_bot(c, bot))):
                 raise Problem("forbidden", "You may use only your own registered computers, or ones an admin has "
@@ -3076,6 +3081,8 @@ def create_app(settings=None):
     install_support(app, store, settings, census)
     from .watchers import install as install_watchers
     install_watchers(app, store, auth, execution, mutate)
+    from .route_renames import install as install_route_renames
+    install_route_renames(app)           # after every route: the new spellings canonical, the old ones deprecated
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts and styles from /tico/ui/ (ui/index.html), so the same directory is

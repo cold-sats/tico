@@ -127,7 +127,7 @@ async function renderSettingsPrivacy() {
 async function loadSettings() {
   try {
     const [people, operations, catalog, employees, history, limits] = await Promise.all([
-      get('/people'),
+      get('/humans'),
       S.me?.cloud ? get('/v2/operations') : Promise.resolve({machines: [], services: []}),
       S.me?.cloud ? get('/v2/models') : Promise.resolve({models: []}),
       get('/employees'),

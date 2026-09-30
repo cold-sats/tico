@@ -251,7 +251,7 @@ def brief(person_row):
     if person_row.get("photo"):
         out["photo"] = person_row["photo"]
     if person_row.get("id"):
-        out["photo_url"] = "/api/people/" + person_row["id"] + "/photo"
+        out["photo_url"] = "/api/humans/" + person_row["id"] + "/photo"
     return out
 
 

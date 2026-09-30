@@ -17,7 +17,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', () => {
 });
 (async () => {
   try {
-    const [st, emps, issues, me, people] = await Promise.all([get('/status').catch(() => null), get('/employees'), get('/issues').catch(() => []), get('/me').catch(() => null), get('/people').catch(() => ({people: []}))]);
+    const [st, emps, issues, me, people] = await Promise.all([get('/status').catch(() => null), get('/employees'), get('/issues').catch(() => []), get('/me').catch(() => null), get('/humans').catch(() => ({people: []}))]);
     applyConfig(me?.config);           // company-facing names before the first render
     S.status = st; S.emps = namedRoster(emps); S.issues = issues; S.me = me; setPeople(people);
   } catch (e) {

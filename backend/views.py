@@ -795,7 +795,7 @@ def install_views(app, store, auth, mutate, task_view):
             access = auth.bot_accesses(c, who)
             return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
-                "photo_url": "/api/people/" + p["id"] + "/photo",
+                "photo_url": "/api/humans/" + p["id"] + "/photo",
                 "bots": [b for b in P.bots_of(p["id"], r, configs)
                          if access.get(b, auth.FULL)["see"] and b not in archived]}
                 for p in r["people"]]}
@@ -986,6 +986,7 @@ def install_views(app, store, auth, mutate, task_view):
                 state += "\n\nLast result: " + status["last_result"]
             return {"AGENT.md": "# " + name + "\n\n" + role + "\n",
                     "state.md": state + "\n", "memory/learnings.md": "", "memory/decisions.md": "",
+                    "bot.yaml": yaml.safe_dump(safe, sort_keys=False, allow_unicode=True),
                     "employee.yaml": yaml.safe_dump(safe, sort_keys=False, allow_unicode=True),
                     "playbooks": {}, "source": "cloud registry and status snapshot"}
 
@@ -1017,14 +1018,14 @@ def install_views(app, store, auth, mutate, task_view):
                     "turn_count": len(turns), "shown": len(turns), "skipped": 0,
                     "path": "canonical cloud history",
                     "note": ("Provider session files stay on the assigned Mac; the hub keeps the "
-                             "conversation, which the bot reads with `hub history`."),
+                             "conversation, which the bot reads with `hub conversation show`."),
                     "runs": [{"run": turn["id"], "issue": None} for turn, _ in rows], "turns": turns}
 
     @app.get("/api/v2/me/recent")
     def my_recent(request: Request, days: int = 7, limit: int = 10):
         """The bots I have been working with lately, most recent first, each with
         its live status, the last thing I said and the last thing it said, the conversation to read
-        on (`hub_history`), our open tasks and what it needs from me. `hub_recent` over MCP, so an
+        on (`hub_conversation_show`), our open tasks and what it needs from me. `hub_bot_recent` over MCP, so an
         agent of mine (a Grok bot) can carry on where I left off."""
         who = request.state.identity
         human_only(who)

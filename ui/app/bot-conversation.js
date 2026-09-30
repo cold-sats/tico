@@ -319,7 +319,7 @@ async function loadDocs(slug) {
     for (const [n, t] of Object.entries(f.playbooks || {})) { const el = document.getElementById('pb-' + n); if (el) el.innerHTML = md(t); }
     const tabs = [['Status note', f['state.md']], ['Learnings', f['memory/learnings.md']], ['Decisions', f['memory/decisions.md']]];
     for (const [n, t] of Object.entries(f.playbooks || {})) if (n !== 'README.md') tabs.push(['Playbook: ' + n.replace(/\.md$/, ''), t]);
-    tabs.push(['Manifest', '```yaml\n' + (f['employee.yaml'] || '') + '\n```']);
+    tabs.push(['Manifest', '```yaml\n' + (f['bot.yaml'] || f['employee.yaml'] || '') + '\n```']);
     const tb = $('#tabs'), doc = $('#doc'); if (!tb) return;
     tb.innerHTML = tabs.map(([n], i) => `<button data-i="${i}" class="${i === 0 ? 'cur' : ''}">${esc(n)}</button>`).join('');
     const show = i => { tb.querySelectorAll('button').forEach(b => b.classList.toggle('cur', +b.dataset.i === i)); doc.innerHTML = tabs[i][1] ? md(tabs[i][1]) : '<div class="empty">Empty.</div>'; };

@@ -5,7 +5,7 @@
 // ----------------------------------------------------------------- refresh loop + router
 async function refresh(force) {
   try {
-    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), S.emps.length && !force && !S.emps.some(frNeedsSetup) ? S.emps : get('/employees'), S.people.length && !force ? {people: S.people} : get('/people').catch(() => ({people: S.people || []}))]);
+    const [st, issues, emps, people] = await Promise.all([get('/status'), get('/issues'), S.emps.length && !force && !S.emps.some(frNeedsSetup) ? S.emps : get('/employees'), S.people.length && !force ? {people: S.people} : get('/humans').catch(() => ({people: S.people || []}))]);
     S.status = st;
     S.issues = issues.map(i => {
       if (!pendingClosedIssues.has(i.number)) return i;

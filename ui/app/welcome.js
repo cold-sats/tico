@@ -45,7 +45,7 @@ function pageWelcome() {
 async function onbLoad(state) {
   try {
     const [record, catalog, roster, providers, models] = await Promise.all([
-      get('/v2/onboarding'), get('/v2/catalog'), get('/people').catch(() => ({people: []})),
+      get('/v2/setup'), get('/v2/templates'), get('/humans').catch(() => ({people: []})),
       get('/v2/providers').catch(() => null), get('/v2/models').catch(() => ({models: []}))]);
     if (ONB !== state) return;
     state.providers = providers && Array.isArray(providers.providers) ? providers : null;
@@ -313,7 +313,7 @@ function onbBusy(state, busy, message) {
   if (status) status.innerHTML = message === undefined ? '' : message;
 }
 async function onbSave(state) {
-  const saved = await put('/v2/onboarding', {names: state.record.names, answers: state.record.answers,
+  const saved = await put('/v2/setup', {names: state.record.names, answers: state.record.answers,
                                              selected: state.record.selected});
   if (ONB !== state || !saved || typeof saved !== 'object') return saved;
   if (saved.machine) state.record.machine = {...state.record.machine, ...saved.machine};
@@ -334,7 +334,7 @@ async function onbRefreshOwner(state) {
   const name = state.record.names.owner_name;
   if (!name) return;
   S.me = {...S.me, name};
-  const roster = await get('/people').catch(() => null);
+  const roster = await get('/humans').catch(() => null);
   if (ONB !== state || !roster?.people) return;
   setPeople(roster);
   renderTree();
@@ -379,7 +379,7 @@ async function onbFinish(state) {
   onbBusy(state, true, 'Creating your team…');
   try {
     await onbSave(state);
-    const record = await post('/v2/onboarding/complete', {});
+    const record = await post('/v2/setup/complete', {});
     if (ONB !== state) return;
     onbApplyNames(state);
     onbAdopt(state, record);
@@ -404,7 +404,7 @@ async function onbRevisions(state) {
 }
 async function onbPoll(state) {
   if (ONB !== state || state.busy) return;
-  const record = await v2Get('/v2/onboarding');
+  const record = await v2Get('/v2/setup');
   if (ONB !== state || !record) return;
   if (record.machine) state.record.machine = {...state.record.machine, ...record.machine};
   if (Array.isArray(record.bots)) state.record.bots = record.bots;

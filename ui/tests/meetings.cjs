@@ -43,13 +43,13 @@ async function open(browser, viewport, world, options = {}) {
     if (ui && fs.existsSync(uiFile(ui[1]))) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json({id: 'ana', role: world.role || 'owner', name: 'Ana', email: 'ana@example.test', cloud: true});
-    if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana', email: 'ana@acme.example'}, {id: 'ben', name: 'Ben'}]});
+    if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana', email: 'ana@acme.example'}, {id: 'ben', name: 'Ben'}]});
     if (p === '/api/employees') return json([]);
     if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], keeper_alive: true, health_issues: [], schedules: []});
     if (p === '/api/v2/status') return json({bots: []});
     if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
     if (p === '/api/v2/tasks') return json({tasks: []});
-    if (p === '/api/v2/getting-started') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true, cards_dismissed: [],
+    if (p === '/api/v2/setup/getting-started') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true, cards_dismissed: [],
       can_build: true, owner: true, empty: {docs: true, market: true, tasks: true, updates: true, goals: true, meetings: true}});
     if (p === '/api/meetings/sources') return json({sources: world.sources});
     if (p === '/api/meetings') return json(world.meetings);

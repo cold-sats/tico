@@ -11,12 +11,12 @@
       "description": "Who is calling, and how a frontend signs in (docs/custom-frontend.md)."
     },
     {
-      "name": "Company",
+      "name": "Team",
       "description": "This installation's names and settings."
     },
     {
-      "name": "Org chart",
-      "description": "People and bots, and who reports to whom."
+      "name": "Team chart",
+      "description": "Humans and bots, and who reports to whom."
     },
     {
       "name": "Bots",
@@ -1427,7 +1427,7 @@
           }
         },
         "tags": [
-          "Company"
+          "Team"
         ]
       }
     },
@@ -2976,201 +2976,6 @@
         ]
       }
     },
-    "/api/v2/goal-proposals": {
-      "get": {
-        "summary": "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it",
-        "operationId": "listGoalProposals",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "pending",
-              "title": "Status"
-            }
-          },
-          {
-            "name": "goal_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Goal Id"
-            }
-          },
-          {
-            "name": "kpi_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kpi Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoalProposalList"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
-          }
-        },
-        "tags": [
-          "Goals"
-        ]
-      },
-      "post": {
-        "summary": "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag",
-        "operationId": "createGoalProposal",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GoalProposal"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoalProposalResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
-          }
-        },
-        "tags": [
-          "Goals"
-        ],
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ]
-      }
-    },
-    "/api/v2/goal-proposals/{pid}/decide": {
-      "post": {
-        "summary": "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it",
-        "operationId": "decideGoalProposal",
-        "parameters": [
-          {
-            "name": "pid",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Pid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GoalProposalDecision"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoalProposalResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
-          }
-        },
-        "tags": [
-          "Goals"
-        ]
-      }
-    },
     "/api/v2/goals": {
       "get": {
         "summary": "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read (?status=red,gray filters); ?owner= names someone else",
@@ -4008,6 +3813,68 @@
         },
         "tags": [
           "Health"
+        ]
+      }
+    },
+    "/api/v2/humans/{pid}": {
+      "post": {
+        "summary": "Edit a person's profile or reports_to",
+        "operationId": "updatePerson",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Team chart"
         ]
       }
     },
@@ -5043,14 +4910,14 @@
         "summary": "Send a message to a person or bot",
         "operationId": "sendMessage",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MessageCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -5390,14 +5257,145 @@
           }
         },
         "tags": [
-          "Org chart"
+          "Team chart"
         ]
       }
     },
-    "/api/v2/people/{pid}": {
+    "/api/v2/proposals": {
+      "get": {
+        "summary": "Proposals (pending by default; status=confirmed|rejected|all), each saying whether the caller may decide it",
+        "operationId": "listGoalProposals",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "pending",
+              "title": "Status"
+            }
+          },
+          {
+            "name": "goal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Goal Id"
+            }
+          },
+          {
+            "name": "kpi_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kpi Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalProposalList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ]
+      },
       "post": {
-        "summary": "Edit a person's profile or reports_to",
-        "operationId": "updatePerson",
+        "summary": "Propose a change the caller may not make: goal wording, a KPI for a goal, a definition, a target, or a flag",
+        "operationId": "createGoalProposal",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalProposal"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalProposalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Goals"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/proposals/{pid}/decide": {
+      "post": {
+        "summary": "A person's own decision, made by whoever owns the goal or KPI: confirm makes the change as them, reject drops it",
+        "operationId": "decideGoalProposal",
         "parameters": [
           {
             "name": "pid",
@@ -5423,17 +5421,19 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PersonUpdate"
+                "$ref": "#/components/schemas/GoalProposalDecision"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "OK",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/GoalProposalResult"
+                }
               }
             }
           },
@@ -5452,7 +5452,7 @@
           }
         },
         "tags": [
-          "Org chart"
+          "Goals"
         ]
       }
     },

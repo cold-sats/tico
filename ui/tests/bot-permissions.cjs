@@ -42,7 +42,7 @@ async function access(browser) {
       return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json(ME);
-    if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana', org_parent: ''}, {id: 'ben', name: 'Ben Cole', org_parent: ''}],
+    if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana', org_parent: ''}, {id: 'ben', name: 'Ben Cole', org_parent: ''}],
       org_groups: [{id: 'legal', name: 'Legal', org_parent: 'p:ana'}, {id: 'sales', name: 'Sales', org_parent: 'p:ana'}]});
     if (p === '/api/employees') return json(employees());
     if (p === '/api/issues') return json([]);
@@ -208,7 +208,7 @@ async function roles(browser) {
   const errors = [], posts = [];
   let action = {id: 'act1', owner: 'human:ana', status: 'pending', proposer: 'botops', proposed_via: 'botops',
     description: 'Add Sean (sean@example.test) to the roster, and let them sign in', summary: 'Add Sean (sean@example.test) to the roster',
-    method: 'POST', path: '/api/v2/access/people', body: {name: 'Sean', email: 'sean@example.test'}, diff: []};
+    method: 'POST', path: '/api/v2/access/humans', body: {name: 'Sean', email: 'sean@example.test'}, diff: []};
   let accepts = false;
   const bot = (name, display_name, extra = {}) => ({name, display_name, org_parent: '', host: 'keeper', status: 'active',
     state: 'active', can_chat: true, my_access: FULL, users: [{id: 'ana', name: 'Ana'}], operator: 'ana', revision: 1,
@@ -223,7 +223,7 @@ async function roles(browser) {
       return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json(ME);
-    if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana', org_parent: ''}, {id: 'ben', name: 'Ben Cole', org_parent: ''},
+    if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana', org_parent: ''}, {id: 'ben', name: 'Ben Cole', org_parent: ''},
       {id: 'cara', name: 'Cara Diaz', org_parent: ''}], org_groups: []});
     if (p === '/api/employees') return json([
       bot('jira-manager', 'Jira Manager', {operator: 'cara', bot_owners: [{id: 'cara', name: 'Cara Diaz'}], access_policy: null}),
@@ -236,7 +236,7 @@ async function roles(browser) {
     if (p === '/api/v2/models') return json({models: []});
     if (p === '/api/v2/settings/history') return json({changes: [], transitions: []});
     if (p === '/api/v2/bots/jira-manager/co-owners' && method === 'POST') { posts.push(['co-owners', request.postDataJSON()]); return json({}); }
-    if (p === '/api/v2/runners/r1/member-bots' && method === 'POST') {
+    if (p === '/api/v2/computers/r1/member-bots' && method === 'POST') {
       posts.push(['member-bots', request.postDataJSON()]); accepts = request.postDataJSON().accepts; return json({});
     }
     if (p === '/api/v2/assistant/actions/act1' && method === 'GET') return json({action});

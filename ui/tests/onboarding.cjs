@@ -1,10 +1,10 @@
 // Offline browser regression for the first-run wizard: a company whose config
 // says onboarding_needed lands on #/welcome instead of Tasks and keeps a "Finish setup" entry; the
-// six steps save a draft with PUT /api/v2/onboarding on every Next (there is no assistant to name, and an
+// six steps save a draft with PUT /api/v2/setup on every Next (there is no assistant to name, and an
 // optional "Connect your agent" step opens connectAgent()). The company says what it does, then builds its org chart:
 // it picks departments, answers one question per department, sees "Recruiting bots…", checks the suggested bots and
 // watches the chart grow; the finished chart can rename or re-point a bot. Nothing is created until "Create my team",
-// which posts /api/v2/onboarding/complete exactly once. After it: each
+// which posts /api/v2/setup/complete exactly once. After it: each
 // starter shows "Needs onboarding" with a Start setup button that says "Let's set you up.", an admin can be
 // invited, bot owners named and where to keep keys found; the bot page and the org chart carry the same mark.
 // Settings -> Bots reuses the catalog cards. Fixtures only - no server, no network.
@@ -110,14 +110,14 @@ const BOTS_AFTER = [
    setup_task_id: null, repository_present: false},
   {slug: 'botops', display_name: 'BotOps', status: 'active', template: 'botops', onboarding_state: '',
    setup_task_id: null, repository_present: true},
-  {slug: 'support', display_name: 'Support desk', status: 'active', template: 'support', onboarding_state: 'needs_onboarding',
+  {slug: 'support', display_name: 'Support desk', status: 'active', template: 'support', onboarding_state: 'needs_setup',
    setup_task_id: null, repository_present: true},
-  {slug: 'meeting-notes', display_name: 'Project Coordinator', status: 'planned', template: 'meeting-notes', onboarding_state: 'needs_onboarding',
+  {slug: 'meeting-notes', display_name: 'Project Coordinator', status: 'planned', template: 'meeting-notes', onboarding_state: 'needs_setup',
    setup_task_id: null, repository_present: false},
   {slug: 'content', display_name: 'Content Marketer', status: 'planned', template: 'content', onboarding_state: '',
    setup_task_id: 'task-content', repository_present: false},
 ];
-// The org builder's departments (templates/departments.yaml) and cards (GET /api/v2/onboarding/departments).
+// The org builder's departments (templates/departments.yaml) and cards (GET /api/v2/setup/groups).
 const DEPARTMENTS = [
   ["sales", "Sales", "handshake", "Finds buyers, works every deal to a signature and keeps existing accounts renewing and growing.", "Turn interest into revenue", "What kind of sales do you do today?", "Outbound to studio owners, a two-call demo, annual contracts; two sellers and a spreadsheet pipeline"],
   ["marketing", "Marketing", "campaign", "Makes the right people aware of the company and gives sales a steady flow of interested buyers.", "Be known by the customers you want", "How do customers find you today?", "Mostly word of mouth and search; a monthly newsletter, some paid social, two trade shows a year"],
@@ -131,7 +131,7 @@ const DEPARTMENTS = [
 ].map(([id, name, icon, description, goal, question, placeholder]) => ({id, name, icon, description, goal, question, placeholder,
   head: CATALOG.find(card => card.department === id && card.lead)?.template || '', software_only: ['product', 'engineering'].includes(id)}));
 const deptCards = id => CATALOG.filter(card => card.department === id);
-// POST /api/v2/onboarding/recruit, as the server's local recommender would answer (backend/recruit_rank.py, tested there):
+// POST /api/v2/setup/recruit, as the server's local recommender would answer (backend/recruit_rank.py, tested there):
 // the head, then the defaults and commons, and a niche card only when the answer names one of its tags.
 function recruitFor({department, briefing, share}) {
   const dept = DEPARTMENTS.find(row => row.id === department), words = String(briefing || '').toLowerCase();
@@ -193,8 +193,8 @@ function recruitFor({department, briefing, share}) {
           status: bot.status, reports_to: '', description: '', revision: 5, can_chat: true, can_manage: true, onboarding_state: bot.onboarding_state,
           host: 'keeper', thread_mode: 'personal', users: []})) : [])]);
       if (p === '/api/issues') return json([]);
-      if (p === '/api/v2/catalog') return json({cards: CATALOG});
-      if (p === '/api/v2/onboarding') {
+      if (p === '/api/v2/templates') return json({cards: CATALOG});
+      if (p === '/api/v2/setup') {
         if (request.method() === 'PUT') {
           const body = request.postDataJSON();
           puts.push(body);
@@ -203,20 +203,20 @@ function recruitFor({department, briefing, share}) {
         }
         return json({...record, machine, home: 'human:ana'});
       }
-      if (p === '/api/v2/onboarding/departments') return json({version: 'fixture', departments: DEPARTMENTS, cards: CATALOG.filter(card => card.department), hq});
-      if (p === '/api/v2/onboarding/recruit') {
+      if (p === '/api/v2/setup/groups') return json({version: 'fixture', departments: DEPARTMENTS, cards: CATALOG.filter(card => card.department), hq});
+      if (p === '/api/v2/setup/recruit') {
         const body = request.postDataJSON();
         recruits.push(body);
         if (slowRecruit) await new Promise(resolve => setTimeout(resolve, slowRecruit));
         return json(recruitFor(body));
       }
-      if (p === '/api/v2/onboarding/complete') {
+      if (p === '/api/v2/setup/complete') {
         completes.push(request.postDataJSON());
         record = {...record, completed: '2026-09-16T10:00:00Z', needed: false,
                   bots: BOTS_AFTER.map(bot => ({...bot})), machine};
         return json({...record, home: 'human:ana'});
       }
-      if (p === '/api/v2/getting-started/state') { tourPosts.push(request.postDataJSON()); return json({tour: true, checklist: false, cards: [], skipped: []}); }
+      if (p === '/api/v2/setup/getting-started/state') { tourPosts.push(request.postDataJSON()); return json({tour: true, checklist: false, cards: [], skipped: []}); }
       if (p === '/api/v2/enrollments') { enrollments.push(request.postDataJSON()); return json({code: 'enroll-code', expires: '2026-09-16T10:15:00Z'}); }
       if (p === '/api/v2/bots' && request.method() === 'POST') { created.push(request.postDataJSON()); return json({bot: {slug: request.postDataJSON().slug}}); }
       if (p === '/api/v2/bots') return json(v2bots());
@@ -239,8 +239,8 @@ function recruitFor({department, briefing, share}) {
         const chat = opened[p.split('/')[4].slice(5)];
         return json({messages: chat ? chat.messages : [], has_more: false, next_before: null, execution: null});
       }
-      if (p === '/api/v2/access/people') { invites.push(['add', request.postDataJSON()]); return json({person: 'sam', email: 'sam@initech.test', name: 'Sam Ortiz'}); }
-      if (p === '/api/v2/access/people/sam') { invites.push(['role', request.postDataJSON()]); return json({person: 'sam'}); }
+      if (p === '/api/v2/access/humans') { invites.push(['add', request.postDataJSON()]); return json({person: 'sam', email: 'sam@initech.test', name: 'Sam Ortiz'}); }
+      if (p === '/api/v2/access/humans/sam') { invites.push(['role', request.postDataJSON()]); return json({person: 'sam'}); }
       if (/^\/api\/v2\/bots\/[^/]+\/co-owners$/.test(p)) { owners.push([p.split('/')[4], request.postDataJSON()]); return json({bot_owners: [{id: 'ana', name: 'Ana Rivera'}, {id: 'ben', name: 'Ben Cole'}], revision: 4}); }
       if (/^\/api\/v2\/bots\/[^/]+\/definition$/.test(p)) {
         definitions.push({path: p, body: request.postDataJSON()});
@@ -253,7 +253,7 @@ function recruitFor({department, briefing, share}) {
         owner: 'bot:botops', status: 'in_progress', version: 1, updated: '2026-09-16T10:01:00Z',
         created: '2026-09-16T10:00:30Z', requester: 'human:ana',
         body: 'Create the repository and the first routine.'}]});
-      if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example'}, {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example'}]});
+      if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example'}, {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example'}]});
       if (p === '/api/v2/operations') return json({machines: [], services: [], issues: [], scheduler_enabled: true});
       if (p === '/api/v2/models') return json({models: [{id: 'gpt-6-sol', label: 'Sol', runtime: 'codex', efforts: ['high', 'xhigh'], default_effort: 'high'}]});
       if (p === '/api/v2/settings/history') return json({changes: [], transitions: []});
@@ -813,7 +813,7 @@ function recruitFor({department, briefing, share}) {
     hq = {available: true, off_by: ''};
 
     // After Create, on a phone: the same one screen, one column.
-    BOTS_AFTER.find(bot => bot.slug === 'meeting-notes').onboarding_state = 'needs_onboarding';
+    BOTS_AFTER.find(bot => bot.slug === 'meeting-notes').onboarding_state = 'needs_setup';
     record = {...record, completed: '2026-09-16T10:00:00Z', needed: false, bots: BOTS_AFTER.map(bot => ({...bot})), machine};
     const created2 = await context.newPage();
     created2.on('pageerror', e => errors.push(e.message));

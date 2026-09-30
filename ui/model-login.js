@@ -26,7 +26,7 @@
   }
 
   function open({runnerId, runtime, machine}) {
-    const base = `/v2/runners/${encodeURIComponent(runnerId)}/logins`;
+    const base = `/v2/computers/${encodeURIComponent(runnerId)}/logins`;
     const name = RUNTIME_NAMES[runtime] || runtime;
     const dialog = document.createElement('dialog');
     dialog.className = 'tmodal model-login';

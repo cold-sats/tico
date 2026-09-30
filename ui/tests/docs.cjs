@@ -71,14 +71,14 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       if (p === '/api/issues') return json([]);
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
-      if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana'}]});
+      if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana'}]});
       if (p === '/api/v2/updates/unread') return json({unread: 0});
       if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
       if (p === '/api/v2/tasks') return json({tasks: []});
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
-      if (p === '/api/v2/getting-started' && method === 'GET') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true,
+      if (p === '/api/v2/setup/getting-started' && method === 'GET') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true,
         cards_dismissed: started.cards, can_build: true, owner: me.role === 'owner', empty: {docs: true, market: false, tasks: false, updates: false, goals: false, meetings: false, ...started.empty}});
-      if (p === '/api/v2/getting-started/state') return json({tour: true, checklist: true, cards: [], skipped: []});
+      if (p === '/api/v2/setup/getting-started/state') return json({tour: true, checklist: true, cards: [], skipped: []});
       if (!p.startsWith('/api/v2/')) return json({});
       const api = p.slice(8);
       const body = ['POST', 'PATCH'].includes(method) && (req.headers()['content-type'] || '').includes('json') ? req.postDataJSON() : null;
