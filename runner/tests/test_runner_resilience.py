@@ -454,3 +454,17 @@ class RefusedReplies(unittest.TestCase):
         completes = [body for path, body in client.posts if path.endswith("/complete")]
         self.assertEqual([c["outcome"] for c in completes], ["completed", "failed"])
         self.assertIn("refused this turn's reply", completes[1]["text"])
+
+
+def test_the_runner_keeps_its_last_trouble_lines_for_a_support_bundle():
+    from runner import outage
+    outage.RECENT.clear()
+    outage.log("Tico runner: heartbeat is fine")
+    outage.log("Tico runner: cloud unavailable (http_error, HTTP 530); retrying")
+    outage.log("Tico runner: coo: codex sign-in was rejected")
+    assert [line.split(" ", 1)[1] for line in outage.RECENT] == [
+        "Tico runner: cloud unavailable (http_error, HTTP 530); retrying", "Tico runner: coo: codex sign-in was rejected"]
+    for n in range(80):
+        outage.log(f"Tico runner: failed {n}")
+    assert len(outage.RECENT) == 50 and outage.RECENT[-1].endswith("failed 79")
+    outage.RECENT.clear()

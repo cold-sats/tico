@@ -22,7 +22,7 @@ from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
 from .hosts.cursor import MODELS as CURSOR_HOST_MODELS
 from .hosts.pi import MODELS as PI_HOST_MODELS
-from .outage import Outage, describe, log
+from .outage import RECENT, Outage, describe, log
 from .state import BOT_THREAD, State
 from .warm import WarmSessions
 from .watchers import Watchers
@@ -1131,6 +1131,8 @@ class Runner:
             document["shared_env"] = True
         if self.tools is not None and time.monotonic() >= self._harness_after:
             document["harnesses"] = self.tools.report(runtimes)
+        if RECENT:
+            document["recent_errors"] = list(RECENT)      # a server before support diagnostics refuses it; maintain() retries without
         return document
 
     def mail_agent_instructions(self, assignments):
@@ -1745,7 +1747,7 @@ class Runner:
             # A server from before harness reports refuses the new field outright; the runner
             # must not go offline over it, so it reports without and asks again later.
             sends_tools = any(row.get("tools") for row in body["readiness"].get("bots", {}).values())
-            sends_harnesses = bool({"harnesses", "mail_key", "shared_env"} & set(body["readiness"]))
+            sends_harnesses = bool({"harnesses", "mail_key", "shared_env", "recent_errors"} & set(body["readiness"]))
             if exc.status != 422 or not (sends_harnesses or sends_tools):
                 raise
             if sends_harnesses:
@@ -1755,6 +1757,7 @@ class Runner:
             body["readiness"].pop("harnesses", None)
             body["readiness"].pop("mail_key", None)
             body["readiness"].pop("shared_env", None)
+            body["readiness"].pop("recent_errors", None)
             for row in body["readiness"].get("bots", {}).values():
                 row.pop("tools", None)
             beat = self.client.post("runners/heartbeat", body)

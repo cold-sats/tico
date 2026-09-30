@@ -1,11 +1,11 @@
 """Support tickets: what a person writes to the Tico team from their app, and what the team writes back.
 
-    POST   /v1/support                     a person files a ticket; the answer is {ticket_id, secret}
+    POST   /v1/support                     a person files a ticket, with redacted diagnostics if they chose; the answer is {ticket_id, secret}
     GET    /v1/support/{ticket_id}         that person's app asks for its status and messages (the ticket's secret)
     POST   /v1/support/{ticket_id}/messages   the person adds a message to a ticket that is not closed (the secret)
     DELETE /v1/support/{ticket_id}         the person deletes their ticket (the secret)
     GET    /v1/staff/tickets               the team lists tickets              (HQ_STAFF_KEY)
-    GET    /v1/staff/tickets/{id}          one ticket with its messages        (HQ_STAFF_KEY)
+    GET    /v1/staff/tickets/{id}          one ticket with its messages and diagnostics (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/reply    a reply the person's app will fetch (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/status   open, answered or closed            (HQ_STAFF_KEY)
     DELETE /v1/staff/tickets/{id}          delete a ticket on request          (HQ_STAFF_KEY)
@@ -33,7 +33,10 @@ from .limits import Limiter
 MAX_MESSAGES = 60                 # a ticket's thread, both sides
 MAX_MESSAGE = 4000
 MAX_REPLY = 8000
-MAX_REQUEST = 16 * 1024           # bytes of a ticket request; a full message is well under this
+MAX_FOLLOW_UP = 16 * 1024         # bytes of a message added to a ticket; a full message is well under this
+MAX_DIAGNOSTICS = 256 * 1024      # bytes of the diagnostics bundle a person may attach (backend/diagnostics.py)
+MAX_REQUEST = MAX_FOLLOW_UP + MAX_DIAGNOSTICS + 1024      # a ticket request
+DIAGNOSTICS_DEPTH = 6
 MAX_STAFF_REQUEST = 48 * 1024
 STATUSES = ("open", "answered", "closed")
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
@@ -47,12 +50,13 @@ EMAIL = re.compile(r"[^@\s<>\",;()\[\]\\]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,25
 MOMENT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f  ‪-‮⁦-⁩]")
 FIELDS = ("message", "email", "install_id", "version")
+OPTIONAL = ("diagnostics",)       # the person's own choice; staff routes only ever show it
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets(
  ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
  closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT,
- email_pending INTEGER NOT NULL DEFAULT 0);
+ email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT);
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
 CREATE TABLE IF NOT EXISTS ticket_replies(
  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, created TEXT NOT NULL, body TEXT NOT NULL,
@@ -91,9 +95,40 @@ def text(value, field, limit):
     return value.strip()
 
 
+def _plain(value, depth=0):
+    """Whether `value` is JSON made only of strings, numbers, booleans, null, lists and objects, not deeply nested,
+    with no control character in any string."""
+    if depth > DIAGNOSTICS_DEPTH:
+        return False
+    if isinstance(value, str):
+        return not CONTROL.search(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return True
+    if isinstance(value, list):
+        return all(_plain(v, depth + 1) for v in value)
+    if isinstance(value, dict):
+        return all(isinstance(k, str) and not CONTROL.search(k) and _plain(v, depth + 1) for k, v in value.items())
+    return False
+
+
+def parse_diagnostics(data):
+    """The compact JSON of the attached diagnostics, None when there are none, or Invalid. HQ checks the shape and the
+    size; what may be in it is the sending Tico's allowlist and redactor (backend/diagnostics.py)."""
+    value = data.get("diagnostics") if isinstance(data, dict) else None
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get("format") != 1 or not _plain(value):
+        raise Invalid("diagnostics")
+    packed = json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+    if len(packed.encode()) > MAX_DIAGNOSTICS:
+        raise Invalid("diagnostics")
+    return packed
+
+
 def parse_ticket(data):
-    """(message, email, install_id, version) from a decoded request, or Invalid. Fields beyond these four are refused."""
-    if not isinstance(data, dict) or set(data) - set(FIELDS):
+    """(message, email, install_id, version) from a decoded request, or Invalid. Fields beyond these four (and the optional
+    diagnostics, which `parse_diagnostics` reads) are refused."""
+    if not isinstance(data, dict) or set(data) - set(FIELDS) - set(OPTIONAL):
         raise Invalid("fields")
     message = text(data.get("message"), "message", MAX_MESSAGE)
     values = {}
@@ -116,6 +151,9 @@ class Tickets:
         with db.lock:
             db.conn.execute("PRAGMA secure_delete=ON")       # a deleted ticket's text is overwritten, not just unlinked
             db.conn.executescript(SCHEMA)
+            # A database from before diagnostics gets the column once; running this again changes nothing.
+            if "diagnostics" not in {row[1] for row in db.conn.execute("PRAGMA table_info(tickets)")}:
+                db.conn.execute("ALTER TABLE tickets ADD COLUMN diagnostics TEXT")
         # In memory, as the request limit is: a salted hash of the address, or of the install id, forgotten on restart.
         self.per_address = Limiter(limit=5, window=3600, clock=clock)         # tickets an hour from one address
         self.per_install = Limiter(limit=10, window=86400, clock=clock)       # tickets a day from one install id
@@ -126,8 +164,9 @@ class Tickets:
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
 
     # ------------------------------------------------------------------ people
-    def create(self, message, email, install_id, version):
-        """Store a ticket. Returns (ticket_id, secret); the secret is not kept, only its hash."""
+    def create(self, message, email, install_id, version, diagnostics=None):
+        """Store a ticket. Returns (ticket_id, secret); the secret is not kept, only its hash. `diagnostics` is the
+        attached bundle as compact JSON; it is kept with the ticket until the ticket is deleted."""
         secret = secrets.token_urlsafe(24)
         moment = stamp(self.now())
         with self.db.lock:
@@ -136,9 +175,9 @@ class Tickets:
                 if not self.db.conn.execute("SELECT 1 FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone():
                     break
             self.db.conn.execute(
-                "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version) "
-                "VALUES(?,?,?,?,'open',?,?,?,?)",
-                (ticket_id, digest(secret), moment, moment, message, email, install_id, version))
+                "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,diagnostics) "
+                "VALUES(?,?,?,?,'open',?,?,?,?,?)",
+                (ticket_id, digest(secret), moment, moment, message, email, install_id, version, diagnostics))
         return ticket_id, secret
 
     def _owned(self, ticket_id, secret):
@@ -192,11 +231,16 @@ class Tickets:
                 for r in self.db.conn.execute(
                     "SELECT id,created,body,author FROM ticket_replies WHERE ticket_id=? ORDER BY id", (ticket_id,))]
 
-    def _staff_view(self, row):
-        return {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
+    def _staff_view(self, row, full=False):
+        """A ticket for the staff routes. The diagnostics bundle is large: a listing says whether there is one, and
+        `show` (`full`) carries it."""
+        view = {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
                 "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
-                "messages": self._messages(row["ticket_id"])}
+                "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"])}
+        if full and row["diagnostics"]:
+            view["diagnostics"] = json.loads(row["diagnostics"])
+        return view
 
     def listing(self, status="", since="", limit=50):
         """Oldest activity first, so a caller that remembers the last `updated` it saw misses nothing. A ticket appears
@@ -216,7 +260,7 @@ class Tickets:
     def show(self, ticket_id):
         with self.db.lock:
             row = self.db.conn.execute("SELECT * FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone()
-            return self._staff_view(row) if row else None
+            return self._staff_view(row, full=True) if row else None
 
     def reply(self, ticket_id, body):
         """Record a reply for the install to fetch. A ticket with an email address is marked "email pending": HQ sends
@@ -269,6 +313,7 @@ async def read_json(request, limit):
         raw += chunk
         if len(raw) > limit:
             return 413, "too_large"
+    request.state.body_size = len(raw)
     try:
         return 200, json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError):
@@ -287,13 +332,16 @@ def install(app, tickets, address, staff_key=""):
         status, data = await read_json(request, MAX_REQUEST)
         if status != 200:
             return refuse(data, status)
+        if request.state.body_size > MAX_FOLLOW_UP and not (isinstance(data, dict) and "diagnostics" in data):
+            return refuse("too_large", 413)          # only the diagnostics may make a request this big
         try:
             message, email, install_id, version = parse_ticket(data)
+            diagnostics = parse_diagnostics(data)
         except Invalid as bad:
             return refuse("invalid", 422, field=bad.field)
         if install_id and not tickets.per_install.allow(install_id):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "86400"})
-        ticket_id, secret = tickets.create(message, email, install_id, version)
+        ticket_id, secret = tickets.create(message, email, install_id, version, diagnostics)
         return no_store({"ticket_id": ticket_id, "secret": secret, "status": "open"}, 201)
 
     @app.get("/v1/support/{ticket_id}")
@@ -314,7 +362,7 @@ def install(app, tickets, address, staff_key=""):
     async def person_writes(request: Request, ticket_id: str):
         if not tickets.follow_ups.allow(address(request)):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "3600"})
-        status, data = await read_json(request, MAX_REQUEST)
+        status, data = await read_json(request, MAX_FOLLOW_UP)
         if status != 200:
             return refuse(data, status)
         try:
