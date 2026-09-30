@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-09-30
+
+### Added
+- **Tico sync for external agents.** A `tico-sync` skill and a scheduled job on the agent itself keep a Hermes or OpenClaw bot in
+  step with Tico: each run it checks in, answers its Tico messages, moves its tasks and marks messages read, stops at once when
+  nothing waits, and updates its connector once a week. `pair` and `install` take `--sync 15m|1h|daily|<cron>|off` (default 1h);
+  on Hermes an empty run costs no model call. `doctor` reports the job and its last run; `uninstall` removes it.
+- **OpenClaw profiles can be bots** (`--harness openclaw`), paired the same way as Hermes (docs/openclaw-agents.md). OpenClaw has no
+  MCP client, so the connector's new `call` command reaches Tico's tools for it; `check` prints what is waiting.
+
 ## [0.2.26] - 2026-09-30
 
 ### Added
