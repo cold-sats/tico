@@ -164,10 +164,7 @@ def task_dry_run(c, auth, who, body):
                                 "manager or a person to pass this on")
         severity = H.classify(f"{title}\n{text}", to_actor=target, actor=who.actor) if H.is_bot(who.actor) else "normal"
         if severity == "escape":
-            problems.append("the task reaches outside the hub (rule 8): a real create is refused and quarantines you")
-        elif severity == H.OUTSIDE_LINK:
-            problems.append("the task links outside the hub next to an access request (rule 8): a real create "
-                            "is refused. " + H.LINK_HINT)
+            problems.append("the task reaches outside the hub (rule 8): a real create is refused and repeating it quarantines you")
         if H.is_human(target):
             problems += H.lint_human_item(text, title=title)
         elif not title:

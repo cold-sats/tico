@@ -101,7 +101,7 @@ def whoami(api, args):
 
 
 @tool("hub_say", "Send a message to a bot or a person. Bot-to-person messages are linted "
-      "(first line is the ask, under 120 words) and capped at 3 unsolicited a day.",
+      "(first line is the ask, under 120 words) and capped at 10 unsolicited a day.",
       {"to": _s("Recipient: a bot slug, `bot:<slug>`, or a person id"),
        "text": _s("The message"),
        "conversation_id": _s("Continue this conversation instead of opening a pair conversation"),

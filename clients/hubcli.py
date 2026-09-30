@@ -282,7 +282,7 @@ def task_problems(actor, owner, title, body):
         problems.append(f"{owner} is not in registry/employees.yaml or registry/people.yaml")
     if H.is_bot(actor) and H.classify(f"{title}\n{body}", to_actor=target) == "escape":
         problems.append("the task reaches outside the hub (rule 8): a real create is refused "
-                        "and quarantines you")
+                        "and repeating it quarantines you")
     if H.is_human(target):
         problems += H.lint_human_item(body, title=title)
     elif not title:

@@ -114,9 +114,10 @@ APPROVAL_FIELDS = {"send": ("to", "cc", "subject", "body_sha256", "mailbox"),
 
 CAP_PER_HOUR = 20               # rule 3: messages in one conversation between bots, per hour
 MAX_ASK_DEPTH = 3               # rule 3: A asks B asks C; C may not ask on
-UNSOLICITED_PER_DAY = 3         # rule 4: per human, per bot, per UTC day
+UNSOLICITED_PER_DAY = int(os.environ.get("TICO_UNSOLICITED_PER_DAY", "10"))   # rule 4: per human, per bot, per UTC day
 REVIEW_AT = 3                   # rule 8: refusals in a day that open a review task
 QUARANTINE_AT = 10              # rule 8: refusals in a day that quarantine the bot
+ESCAPE_QUARANTINE_AT = int(os.environ.get("TICO_ESCAPE_QUARANTINE_AT", "3"))   # rule 8: `escape` refusals in a day that quarantine it until a person clears it
 AUTO_CLOSE_DAYS = 3             # rule 5: a bot requester's `done` task closes itself
 NOTICE_DAYS = 14                # how long a notice stays in the inbox
 
@@ -968,78 +969,27 @@ def _clip(text, limit=180):
 # ----------------------------------------------------------------------------- severity (rule 8)
 SECRETS_PATH = re.compile(r"(^|[\s\"'(/])secrets/", re.I)
 OTHER_REPO = re.compile(r"\bemp-[a-z0-9-]+/", re.I)
-EXTERNAL_URL = re.compile(r"https?://(?!localhost|127\.0\.0\.1)\S+", re.I)
-# The systems this company already works through. A link to one of them is not "outside the
-# hub": a pull request is the currency of its engineering, and handing one bot's link to another
-# is the point of having both, so passing it along is the work, not an escape from it.
-CONNECTOR_HOSTS = ("github.com", "sentry.io", "slack.com", "posthog.com")
-
-
-def company_hosts():
-    """The company's own hosts count as known too: the hub's public origin, the owner's mail
-    domain, and any listed in TICO_COMPANY_DOMAINS (comma-separated)."""
-    hosts = {h.strip().lower() for h in os.environ.get("TICO_COMPANY_DOMAINS", "").split(",")}
-    hosts.add((urlsplit(os.environ.get("TICO_PUBLIC_URL", "")).hostname or "").lower())
-    hosts.add(os.environ.get("TICO_OWNER_EMAIL", "").rpartition("@")[2].strip().lower())
-    return tuple(h for h in hosts if h)
 SENSITIVE_WORDS = re.compile(
     r"\b(spend|spending|invoice|payment|pay|card|refund|budget|wire|charge|"
     r"send|email|mailbox|inbox|access|credential|credentials|token|password|api[_ -]?key)\b", re.I)
-# "Access" alone is everyday product copy ("door access codes" in a post);
-# only a request for access is context.
-ESCAPE_CONTEXT = re.compile(r"\b(hub[- ]change|secret|grant|permission|env)\b"
-                            r"|\baccess (to|for)\b|\b(give|grant|request|need|share)s? (\w+ ){0,3}access\b", re.I)
-# A link outside the known systems is the weakest escape signal: the write is refused and
-# counted like any refusal (the hour's cooldown at QUARANTINE_AT), never a quarantine only a
-# person can clear. A bot was stopped for handing another a render
-# task that quoted its sources; the same kind of link caught several bots.
-OUTSIDE_LINK = "outside-link"
-LINK_HINT = ("Take the outside links out of the hub item, or save them in a file in your own "
-             "repository and give its path, then retry.")
-
-
-def is_escape(severity):
-    """Whether a write with this severity is refused under rule 8."""
-    return severity in ("escape", OUTSIDE_LINK)
-
-
-def _reaches_outside(body):
-    """Whether any link in this text leaves the systems the hub itself works through."""
-    for match in EXTERNAL_URL.finditer(body):
-        try:
-            host = (urlsplit(match.group(0).rstrip(').,;\'"')).hostname or "").lower()
-        except ValueError:          # `http://[` and the like: not a host at all
-            continue
-        if not host:
-            continue
-        if not any(host == known or host.endswith("." + known)
-                   for known in CONNECTOR_HOSTS + company_hosts()):
-            return True
-    return False
 
 
 def classify(text, kind=None, to_actor=None, where="item", actor=None):
     """The severity rule 8 counts by, read off the thing that was refused.
 
-    `escape`   a `secrets/` path or another bot's repo path. Rule 8 quarantines on this.
-    `outside-link` a link outside the systems this company works through, inside a hub-change
-               or access request. Refused and counted, not quarantined by itself.
+    `escape`   a `secrets/` path or another bot's repo path. Rule 8 quarantines on this, once
+               the bot has done it ESCAPE_QUARANTINE_AT times in a day.
     `sensitive` money, an outbound send, an access change, or a human's inbox.
     `normal`   everything else.
 
-    `where` is "item" (a task or an approval payload) or "message" (a say or an answer). The
-    external-URL rule applies to items only: an answer about marketing goals naturally holds a
-    scheduling link next to the word "access", and that once refused a bot's reply to
-    the owner and quarantined it. A link in a message is a link; a secrets path or another bot's
-    repo path is still an escape anywhere.
+    `where` is "item" (a task or an approval payload) or "message" (a say or an answer). A
+    link is never an escape; a secrets path or another bot's repo path is one anywhere.
     """
     body = str(text or "")
     if SECRETS_PATH.search(body) or any(
             match.group(0).lower() != f"emp-{actor_id(actor)}/"
             for match in OTHER_REPO.finditer(body)):
         return "escape"
-    if where != "message" and _reaches_outside(body) and ESCAPE_CONTEXT.search(body):
-        return OUTSIDE_LINK
     if kind in ("send", "spend"):
         return "sensitive"
     if is_human(to_actor) and SENSITIVE_WORDS.search(body):
@@ -1078,7 +1028,9 @@ def _escalate(conn, actor, rule, detail, severity, ts):
                      f"Read its refusals and decide whether its playbook or its reach needs a change.", origin=actor)
     # Refusals are diagnostics for the bot, not decisions for the human.
     # Keep the audit, internal repeated-failure review, and quarantine enforcement.
-    if severity == "escape" or count >= QUARANTINE_AT:
+    escapes = conn.execute("SELECT COUNT(*) FROM refusals WHERE actor=? AND ts>=? AND severity='escape'",
+                           (actor, since)).fetchone()[0]
+    if (severity == "escape" and escapes >= ESCAPE_QUARANTINE_AT) or count >= QUARANTINE_AT:
         quarantine(conn, slug, f"{rule}: {said}" if severity == "escape"
                    else f"{count} refused writes today")
 
@@ -1757,11 +1709,9 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     title = str(title or "").strip()
     body = str(body or "")
     severity = classify(f"{title}\n{body}", to_actor=target, actor=actor)
-    # rule 8 is about bots reaching outside the hub; a person's meeting notes may well hold a
-    # link next to the word "access" and are not an escape
-    if is_escape(severity) and is_bot(actor):
-        refuse(conn, actor, "escape", f"the task reaches outside the hub: {_clip(body, 80)}"
-               + (". " + LINK_HINT if severity == OUTSIDE_LINK else ""), severity)
+    # rule 8 is about bots reaching outside the hub; a person's notes are not an escape
+    if severity == "escape" and is_bot(actor):
+        refuse(conn, actor, "escape", f"the task reaches outside the hub: {_clip(body, 80)}", severity)
     if next_run and not is_bot(target):
         refuse(conn, actor, "next-run", "only a bot has a next run; file an ordinary task for a person")
     lane = _lane_for(conn, lane, target, actor)
@@ -1896,9 +1846,8 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         if value is None:
             continue
         severity = classify(str(value), actor=actor) if field == "body" and is_bot(actor) else "normal"
-        if is_escape(severity):
-            refuse(conn, actor, "escape", f"the task body reaches outside the hub: {_clip(value, 80)}"
-                   + (". " + LINK_HINT if severity == OUTSIDE_LINK else ""), severity)
+        if severity == "escape":
+            refuse(conn, actor, "escape", f"the task body reaches outside the hub: {_clip(value, 80)}", severity)
         sets.append(f"{field}=:{field}")
         args[field] = value
         _task_event(conn, task_id, actor, field, row.get(field), value, note or "")
@@ -2522,9 +2471,8 @@ def approval_request(conn, actor, kind, payload, task_id=None):
         refuse(conn, actor, "kind", f"an approval is {'|'.join(APPROVAL_KINDS)}, not {kind}")
     text = json.dumps(payload, sort_keys=True, default=str)
     severity = classify(text, kind=kind)
-    if is_escape(severity):
-        refuse(conn, actor, "escape", f"the {kind} payload reaches outside the hub: {_clip(text, 100)}"
-               + (". " + LINK_HINT if severity == OUTSIDE_LINK else ""), severity)
+    if severity == "escape":
+        refuse(conn, actor, "escape", f"the {kind} payload reaches outside the hub: {_clip(text, 100)}", severity)
     problems = lint_approval(kind, payload)
     if problems:
         refuse(conn, actor, "lint", "; ".join(problems), classify(text, kind=kind))
