@@ -24,6 +24,7 @@ from pydantic import Field
 from . import diagnostics
 from .census import hq_url
 from .models import Contract
+from .replication import rehearsal_on
 from .store import H, Problem, encode
 
 log = logging.getLogger("tico.support")
@@ -62,6 +63,8 @@ class SupportMessage(Contract):
 def off_reason(settings):
     if settings.demo:
         return "demo"
+    if settings.rehearsal or rehearsal_on():
+        return "rehearsal"
     if os.environ.get("TICO_SUPPORT", "").strip().lower() in ("off", "0", "false", "no", "disabled"):
         return "TICO_SUPPORT"
     return ""

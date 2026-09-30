@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend import census, releases, replication
+from backend import census, releases, replication, support
 from backend.blobs import Blobs
 from backend.config import Settings
 from backend.store import Problem
@@ -113,6 +113,15 @@ def test_a_rehearsal_sends_no_count_no_release_check_and_no_directory_read(envir
     with pytest.raises(Problem) as refused:
         api.app.state.directory.fetch("google")
     assert refused.value.code == "rehearsal"
+
+
+def test_a_rehearsal_has_no_contact_support_and_says_why(environment, monkeypatch):
+    api = environment(rehearsal=True)
+    assert support.off_reason(api.app.state.store.settings) == "rehearsal"
+    assert api.get("/api/v2/support/compose", headers=signed_in()).status_code == 409
+    assert api.get("/api/v2/support/tickets", headers=signed_in()).json() == {"enabled": False, "tickets": [], "unread": 0}
+    monkeypatch.setenv("TICO_REHEARSAL", "1")                    # the switch itself, whatever the settings say
+    assert support.off_reason(environment().app.state.store.settings) == "rehearsal"
 
 
 def test_a_rehearsal_adds_nothing_to_the_companys_bucket(tmp_path):

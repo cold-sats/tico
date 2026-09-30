@@ -29,7 +29,7 @@ the team replies; opening the request clears them. You can write back on a ticke
 from HQ and from your Tico.
 
 - Any signed-in person may file a ticket. A personal API token, the Assistant acting for a person, and a bot may not.
-- Demo mode has no Contact support: nothing leaves a demo.
+- Demo mode has no Contact support: nothing leaves a demo. Neither does a rehearsal (`TICO_REHEARSAL=1`), which reports "rehearsal" as the reason it is off.
 - `TICO_SUPPORT=off` in the server's `.env` removes it from an install that must not phone out. `TICO_HQ_URL` points it at your
   own HQ (see [telemetry.md](telemetry.md)).
 
