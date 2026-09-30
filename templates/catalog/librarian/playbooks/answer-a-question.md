@@ -83,6 +83,8 @@ Shape, always:
      `hub docs read` or search;
    - a linked doc: `[Linked · help.example.com](https://help.example.com/refunds)`, the page address
      you actually read, and the host or the linked doc's title as its label.
+   - a manual page (a search result labelled "Tico manual"): `[Tico manual · Backups](https://...)`, the `url`
+     the result carried, and name its file (`docs/backups.md`) if asked where it is from.
    Nothing else is a citation. Never cite a doc you did not read this turn. Never invent an id or an address.
 4. **Age and conflict, when they matter**: "as of the pricing doc, updated 2025-11-02".
 5. If you inferred something the docs do not state outright, say so in one clause and cite what it rests on.

@@ -87,7 +87,7 @@
   function decorate(root) {
     root.querySelectorAll('a').forEach(a => {
       const href = a.getAttribute('href') || '';
-      if (/^(Internal doc|Linked) · /.test(a.textContent)) a.classList.add('dask-cite');
+      if (/^(Internal doc|Linked|Tico manual) · /.test(a.textContent)) a.classList.add('dask-cite');
       if (href.startsWith('#/')) { a.removeAttribute('target'); a.addEventListener('click', () => close(false)); }
     });
   }

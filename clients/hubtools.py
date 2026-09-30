@@ -952,18 +952,30 @@ def docs_list(api, args):
     return api.get("docs", path_prefix=args.get("prefix"), limit=args.get("limit"))
 
 
-@tool("hub_docs_read", "Read one internal doc in full (Markdown) by id or path, with its version.",
-      {"ref": _s("A doc id (doc-...) or a path such as sales/pricing.md")}, required=("ref",))
+@tool("hub_docs_read", "Read one internal doc in full (Markdown) by id or path, with its version. "
+      "`manual:<name>` reads a page of the read-only Tico manual.",
+      {"ref": _s("A doc id (doc-...), a path such as sales/pricing.md, or manual:<name>")}, required=("ref",))
 def docs_read(api, args):
+    if str(args["ref"]).lower().startswith("manual:"):
+        try:
+            return api.get("docs/manual/" + str(args["ref"])[7:].removeprefix("docs/").removesuffix(".md"))
+        except Exception as exc:
+            if getattr(exc, "status", 0) == 404:
+                return {"refused": "docs", "detail": f"No page {args['ref']!r} in the Tico manual: `hub docs search --manual \"words\"` finds one"}
+            raise
     doc = _doc_lookup(api, args["ref"])
     return {"doc": doc} if doc else _doc_missing(args["ref"])
 
 
 @tool("hub_docs_search", "Search the company's docs: internal docs (ranked, with an excerpt) and linked docs "
-      "(a title, address and note; open them with `hub docs fetch`). Start here for any question about the company.",
-      {"q": _s("Words to search for"), "limit": {"type": "integer", "minimum": 1, "maximum": 50}}, required=("q",))
+      "(a title, address and note; open them with `hub docs fetch`), then the read-only Tico manual (results labelled "
+      "\"Tico manual\", each with its file and a link). Start here for any question about the company or about how "
+      "to do something in Tico.",
+      {"q": _s("Words to search for"), "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+       "collection": _s("all (default), company, or manual (only the Tico manual)", enum=["all", "company", "manual"])},
+      required=("q",))
 def docs_search(api, args):
-    return api.get("docs/search", q=args["q"], limit=args.get("limit"))
+    return api.get("docs/search", q=args["q"], limit=args.get("limit"), collection=args.get("collection") or "all")
 
 
 @tool("hub_docs_write", "Create or replace an internal doc at a path (Markdown). Every write is a version the "

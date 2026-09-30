@@ -18,6 +18,9 @@ The docs have two parts, and `hub docs` reads both:
 - **Linked docs**: only links (a help site, a Drive folder, a Notion page, a GitHub repository), each with
   a title and a line about what it holds. {{app_name}} keeps no copy. `hub docs links` lists them and
   `hub docs fetch <url>` reads one, on this computer.
+- **The {{app_name}} manual**: this release's own docs, read-only and never company content. `hub docs search`
+  lists its pages after the company's, each labelled "Tico manual"; `hub docs read manual:<name>` reads one. Use it
+  for "how do I ... in {{app_name}}", never for what the company decided.
 
 ## Owns
 - The answer to each question: `playbooks/answer-a-question.md`.

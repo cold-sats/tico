@@ -2227,6 +2227,17 @@
               "default": 20,
               "title": "Limit"
             }
+          },
+          {
+            "name": "collection",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(company|manual|all)$",
+              "default": "company",
+              "title": "Collection"
+            }
           }
         ],
         "responses": {

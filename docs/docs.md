@@ -38,7 +38,7 @@ Bots use the same docs through the `hub` CLI and the MCP tools:
 |---|---|---|
 | `hub docs list [--prefix sales/]` | `hub_docs_list` | paths, titles, who changed them last |
 | `hub docs read <id\|path>` | `hub_docs_read` | one doc in full, with its version |
-| `hub docs search "words"` | `hub_docs_search` | internal and linked docs, best first |
+| `hub docs search "words" [--manual]` | `hub_docs_search` | internal and linked docs, best first, then the Tico manual (`--manual`: only it) |
 | `hub docs write <path> --title T (--body-file F \| stdin) [--note N]` | `hub_docs_write` | creates or replaces; on a version conflict it reads again and retries once |
 | `hub docs history <id\|path>` | `hub_docs_history` | the versions |
 | `hub docs links` | `hub_docs_links` | the linked docs |
@@ -52,6 +52,17 @@ The kind comes from the address: `website`, `google_drive` (Drive folders and Sh
 `notion`, `github` or `other` (Dropbox, SharePoint, Confluence, Figma and similar). The title defaults to the host
 and path. Add one with **Add link** on the page (anyone may); its adder, an owner or a bot administrator can edit or
 remove it. Opening one goes to the source in a new tab, so people need access there. Tico never fetches it.
+
+## The Tico manual
+
+Every install carries the manual for its own release: the `docs/*.md` its image ships, as a **read-only** collection kept
+apart from the company's docs. It is built in memory when the server starts and rebuilt when the release changes; it is never
+stored in the company's docs, so it cannot be edited (`405 read_only`), listed with `hub docs list`, synced or backed up as
+company content. `GET /api/v2/docs/search?collection=company|manual|all` (default `company`, which is what the Docs page uses)
+and `hub docs search` (all: the company's results first, then the manual's) label each manual result `Tico manual` with its
+file (`docs/backups.md`), a link to that page (the GitHub file at the release tag, `main` on a build with no version) and the
+section's excerpt. `hub docs read manual:<name>` (`GET /api/v2/docs/manual/{name}`) reads one page; `GET /api/v2/docs/manual`
+lists them.
 
 ## Search
 

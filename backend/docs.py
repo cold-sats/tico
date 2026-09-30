@@ -24,6 +24,7 @@ from fastapi import Query, Request
 from pydantic import Field
 
 from . import docs_import
+from . import manual
 from . import models as M
 from .names import lookup
 from .store import H, Problem, encode
@@ -640,6 +641,10 @@ def install_docs(app, store, auth, mutate):
     def create_body(item, text):
         return DocCreate(path=item.path or None, title=item.title, body=text)
 
+    def read_only(doc_id):
+        if str(doc_id).startswith("manual:"):
+            raise Problem("read_only", "The Tico manual is read-only; it ships with each release", 405)
+
     @app.get("/api/v2/docs")
     def list_docs(request: Request, path_prefix: str = Query(default="", max_length=300),
                   limit: int = Query(default=200, ge=1, le=LIST_MAX), cursor: str = Query(default="", max_length=400)):
@@ -651,8 +656,31 @@ def install_docs(app, store, auth, mutate):
 
     @app.get("/api/v2/docs/search")
     def search_docs(request: Request, q: str = Query(min_length=1, max_length=500),
-                    limit: int = Query(default=20, ge=1, le=50)):
-        return docs.search(request.state.identity, q, limit)
+                    limit: int = Query(default=20, ge=1, le=50),
+                    collection: str = Query(default="company", pattern="^(company|manual|all)$")):
+        """`company` (the default) is the company's docs; `manual` is the read-only Tico manual (backend/manual.py);
+        `all` is the company's first, then the manual's, each result labelled with its collection."""
+        who = request.state.identity
+        docs.reader(who)
+        if collection == "manual":
+            return {"results": manual.search(q, limit)}
+        found = docs.search(who, q, limit)["results"]
+        if collection == "all":
+            found = [{**r, "collection": "company"} for r in found] + manual.search(q, limit)
+        return {"results": found}
+
+    @app.get("/api/v2/docs/manual")
+    def manual_list(request: Request):
+        docs.reader(request.state.identity)
+        return {"pages": manual.listing()}
+
+    @app.get("/api/v2/docs/manual/{name}")
+    def manual_page(request: Request, name: str):
+        docs.reader(request.state.identity)
+        page = manual.read(name)
+        if not page:
+            raise Problem("not_found", "No such page in the Tico manual", 404)
+        return {"doc": page}
 
     upload_doc = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
         "type": "object", "required": ["file"], "properties": {
@@ -675,6 +703,7 @@ def install_docs(app, store, auth, mutate):
 
     @app.patch("/api/v2/docs/{doc_id}")
     def edit_doc(request: Request, doc_id: str, body: DocEdit):
+        read_only(doc_id)
         return mutate(request, body, docs.edit(request, doc_id, body))
 
     @app.get("/api/v2/docs/{doc_id}/versions")
@@ -687,6 +716,7 @@ def install_docs(app, store, auth, mutate):
 
     @app.post("/api/v2/docs/{doc_id}/restore")
     def restore_doc(request: Request, doc_id: str, body: DocRestore):
+        read_only(doc_id)
         return mutate(request, body, docs.restore(request, doc_id, body))
 
     @app.get("/api/v2/linked-docs")

@@ -19,7 +19,8 @@ import time
 LIBRARIAN = "librarian"
 WAIT_MAX = 300
 # The Librarian's citations: [Internal doc · Title](doc:<id>) and [Linked · host or title](https://...).
-CITATION = re.compile(r"\[(Internal doc|Linked) · ([^\]]+)\]\((doc:[^)\s]+|https?://[^)\s]+)\)")
+# A manual page: [Tico manual · Title](https://...), the link its search result carried.
+CITATION = re.compile(r"\[(Internal doc|Linked|Tico manual) · ([^\]]+)\]\((doc:[^)\s]+|https?://[^)\s]+)\)")
 
 
 def parse_citations(text):
@@ -31,7 +32,8 @@ def parse_citations(text):
         ref = target[len("doc:"):] if target.startswith("doc:") else target
         if (internal, ref) not in seen:
             seen.add((internal, ref))
-            found.append({"type": "internal" if internal else "linked", "title": title.strip(), "url_or_id": ref})
+            found.append({"type": "internal" if internal else "manual" if kind == "Tico manual" else "linked",
+                          "title": title.strip(), "url_or_id": ref})
     return found
 
 

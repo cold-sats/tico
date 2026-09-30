@@ -29,8 +29,8 @@ the server (`backend/hubdb.py`), never here.
     hub files import s3://bucket/key [--title T] [--task ID]  copy an object with this computer's credentials
     hub files list [--bot X] [--limit N]   what is on the page, newest activity first
     hub docs list [--prefix sales/]        the company's internal docs by path
-    hub docs read <id|path>                one doc in full, with its version
-    hub docs search "<words>"              internal and linked docs, best first (docs/docs.md)
+    hub docs read <id|path|manual:name>    one doc in full, with its version; manual:<name> is a Tico manual page
+    hub docs search "<words>" [--manual]   internal and linked docs, best first, then the Tico manual (--manual: only it)
     hub docs write <path> --title T (--body-file F | stdin) [--note N]
                                            create or replace a doc; every write is a version
     hub docs history <id|path>             its versions: who changed it, when and why
@@ -406,11 +406,13 @@ def parser():
     s.add_argument("--limit", type=int)
     s.set_defaults(fn="docs list")
     s = docs.add_parser("read", help="one internal doc in full")
-    s.add_argument("ref", help="a doc id or a path")
+    s.add_argument("ref", help="a doc id or a path; manual:<name> for a page of the Tico manual")
     s.set_defaults(fn="docs read")
-    s = docs.add_parser("search", help="search internal and linked docs")
+    s = docs.add_parser("search", help="search internal and linked docs, then the Tico manual")
     s.add_argument("q")
     s.add_argument("--limit", type=int)
+    s.add_argument("--manual", dest="collection", action="store_const", const="manual",
+                   help="only the read-only Tico manual (how to do something in Tico)")
     s.set_defaults(fn="docs search")
     s = docs.add_parser("write", help="create or replace an internal doc at a path")
     s.add_argument("path")

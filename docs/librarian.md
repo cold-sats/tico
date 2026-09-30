@@ -11,6 +11,11 @@ docs do not say, and keeps a map of the docs so the next question is cheaper. It
 - **Linked docs**: links only (a help site, a Drive folder, a Notion page, a GitHub repository). Tico keeps no copy. It reads
   them with `hub docs fetch <url>`, on its own computer.
 
+- **The Tico manual**: this release's own docs, read-only and separate from the company's (docs/docs.md). `hub docs search`
+  returns its pages after the company's, labelled "Tico manual", and `hub docs read manual:<name>` reads one. It answers
+  "how do I ... in Tico" and is cited `[Tico manual · Title](https://...)` with the result's link; it never answers what the
+  company decided.
+
 ## How a question is answered
 
 The playbooks in its repository (`templates/catalog/librarian/playbooks/`) are the product. In short:
