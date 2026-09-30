@@ -130,7 +130,7 @@ tunnel, a 404 means `HQ_DOMAIN` is empty or names another host, and a 503 means 
 
 **Backups** are optional: add `,backup` to `COMPOSE_PROFILES` and set `HQ_BACKUP_URL` (and `HQ_BACKUP_ENDPOINT`,
 `LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY` for R2 or MinIO). Litestream copies `hq.db` continuously;
-restoring is the command at the top of `hq/litestream.yml`. Update HQ with `git pull` and the same `up -d --build`.
+the backup service runs as the HQ image's user (`10005:10005`) so it can read `hq.db`; as root it fails with "stat /data/hq.db: permission denied". Restoring is the command at the top of `hq/litestream.yml`. Update HQ with `git pull` and the same `up -d --build`.
 
 ## Testing
 
