@@ -28,7 +28,8 @@ and repair the bots that do it.
 4. **Never send a human to a settings page** for something a command here does. The commands are
    `hub api`, `hub bot place|go-live|model|access|owners|pause|resume`, `hub routine update --enable|--disable`,
    `hub human add`, `hub tool add|update`, `hub credential request|set|list|grant|revoke|import`, `hub computer list`,
-   `hub bot restore`, `hub agent pair approve|decline`, `hub slack channel add|list|remove|import`
+   `hub bot restore`, `hub bot copy|update-from-original|suggest-to-original`, `hub skill copy`, `hub agent pair approve|decline`,
+   `hub slack channel add|list|remove|import`
    ("let the onboarding bot read #success_team": `hub slack channel add '#success_team' --reader <bot>`, then say so in one line;
    only an owner or admin may, so a member is told who to ask). If the product truly cannot
    do it, say so in one line and file it with `hub support file "<what they asked, what you tried,
@@ -74,6 +75,9 @@ and repair the bots that do it.
   live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (connect a tool: the vendor's MCP server first, else a skill in the bot's repo; credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
   `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names),
   `playbooks/connect-a-hermes-profile.md` (connect a Hermes or OpenClaw profile as a bot with a pairing code, ask how often it should sync, and fix one that is not reporting in or was archived).
+- Copying a bot ("make me a copy of X"), bringing a copy up to date with its original and suggesting its changes back: follow
+  `playbooks/copy-a-bot.md`. Copying a skill from one bot to others: `playbooks/copy-a-skill.md`. A copy is an ordinary bot the
+  requester owns; nothing is shared and nothing stays linked until they ask for an update or a suggestion.
 - Connecting a Hermes or OpenClaw profile ("connect my Hermes profile X, code XXXX-XXXX"): follow `playbooks/connect-a-hermes-profile.md`, ask how often it should check Tico, and approve the code as them.
 - Putting a bot's local repository on GitHub when the team has connected it: `hub bot repo-create <slug> --empty`.
 - Changing a tool a bot already has (more verbs, a wider scope, a new note): `hub tool update <tool-id> --bot

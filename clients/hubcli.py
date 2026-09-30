@@ -195,6 +195,15 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub bot model <bot> [<model>] [--effort E]
                                            list the models, or change the bot's
     hub bot pause|resume <bot>             stop or restart a bot (resume places one that has no computer)
+    hub bot copy <bot> [--slug S] [--name N] [--with-memory] [--computer C]
+                                           copy a bot into a new one the requester owns: its instructions, skills, playbooks and
+                                           tools, never a secret; notes and memory only with --with-memory (BotOps)
+    hub bot update-from-original <bot> [--resolved]
+                                           bring a copy's instructions up to date with its original (three-way merge, one commit)
+    hub bot suggest-to-original <bot> [--paths P ...] [--title T]
+                                           a pull request (or a task with the diff) for the original from the copy's changes
+    hub skill copy <skill> --from <bot> --to <bot> [<bot> ...] [--replace]
+                                           copy skills/<skill>/ into other bots' repositories, a commit in each
     hub bot repo-create <slug> [--template OWNER/REPO | --empty]
                                            owner or BotOps: create <org>/bot-<slug> from a template (docs/github-app.md)
     hub human add <email> [--name N] [--title T] [--reports-to P]
@@ -1103,6 +1112,22 @@ def parser():
         s = bot.add_parser(verb, help=f"{verb} a bot (BotOps)")
         s.add_argument("bot")
         s.set_defaults(fn="bot " + verb)
+    s = bot.add_parser("copy", help="copy a bot into a new one the requester owns (BotOps)")
+    s.add_argument("bot", help="the bot to copy")
+    s.add_argument("--slug", help="the copy's slug; <bot>-copy by default")
+    s.add_argument("--name", help="what people call the copy")
+    s.add_argument("--with-memory", dest="with_memory", action="store_true", help="also copy the original's memory, notes and state")
+    s.add_argument("--computer", help="a computer's label or id to put the copy on")
+    s.set_defaults(fn="bot copy")
+    s = bot.add_parser("update-from-original", help="bring a copy's instructions up to date with the bot it was copied from (BotOps)")
+    s.add_argument("bot", help="the copy")
+    s.add_argument("--resolved", action="store_true", help="conflicts settled by hand and committed: record the copy as up to date")
+    s.set_defaults(fn="bot update-from-original")
+    s = bot.add_parser("suggest-to-original", help="suggest a copy's instruction changes to the bot it was copied from (BotOps)")
+    s.add_argument("bot", help="the copy")
+    s.add_argument("--paths", nargs="+", metavar="PATH", help="only these files or folders, like AGENT.md or skills/triage")
+    s.add_argument("--title")
+    s.set_defaults(fn="bot suggest-to-original")
     s = bot.add_parser("repo-create", help="owner or BotOps: create <org>/bot-<slug> from a template, or empty")
     s.add_argument("slug")
     s.add_argument("--template", default="ticoteam/botops", metavar="OWNER/REPO")
@@ -1126,6 +1151,13 @@ def parser():
     s.add_argument("bot")
     s.add_argument("--since")
     s.set_defaults(fn="bot status history")
+    skill = sub.add_parser("skill", help="a bot's skills: copy one to other bots").add_subparsers(dest="sub")
+    s = skill.add_parser("copy", help="copy skills/<skill>/ from one bot into others, a commit in each (BotOps)")
+    s.add_argument("skill", help="the skill's folder name under skills/")
+    s.add_argument("--from", dest="bot", required=True, metavar="BOT", help="the bot that has the skill")
+    s.add_argument("--to", nargs="+", required=True, metavar="BOT", help="the bots to copy it to")
+    s.add_argument("--replace", action="store_true", help="replace a different skill of the same name")
+    s.set_defaults(fn="skill copy")
     agent = sub.add_parser("agent", help="external agents: connect a Hermes profile to a bot").add_subparsers(dest="sub")
     pair = agent.add_parser("pair", help="approve or decline the code a Hermes profile printed when it asked to pair").add_subparsers(dest="subsub")
     s = pair.add_parser("approve", help="connect the profile that printed this code to a bot (BotOps, or its owner or an admin)")
@@ -1221,6 +1253,8 @@ def parser():
 
 RUNNER_CONFIG = Path.home() / ".config" / "tico" / "runner.json"
 # Read-only commands a person or a script on the Mac may run outside a turn with the runner credential.
+# The commands that work in this computer's workspace of bot repositories.
+WORKSPACE_COMMANDS = ("bot check", "bot copy", "bot update-from-original", "bot suggest-to-original", "skill copy")
 READ_OUTSIDE_A_TURN = ("sql", "tool list", "tool show", "tool query-search")
 
 
@@ -1383,7 +1417,7 @@ def main(argv):
                                + (f"; outside a turn `hub {args.fn}` needs this Mac's runner credential "
                                   "(scripts/setup-runner.sh)" if local else ""))
             os.environ["HUB_API_URL"], os.environ["HUB_TOKEN"] = credential
-        if (args.fn == "bot check" or args.fn == "bot create" and not args.record_only) and not os.environ.get("HUB_WORKSPACE"):
+        if (args.fn in WORKSPACE_COMMANDS or args.fn == "bot create" and not args.record_only) and not os.environ.get("HUB_WORKSPACE"):
             raise CliError("HUB_WORKSPACE is not set: bot repositories live in the workspace this "
                            "machine was enrolled with, which the runner gives every turn")
         from clients import remotecli

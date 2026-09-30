@@ -1420,6 +1420,57 @@ def bot_restore(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/restore", {}, key=_key(args))
 
 
+# Copying a bot or a skill moves files in the workspace on this computer, so these run here, never on the server
+# (docs/creating-bots.md, "Copy a bot"); the server checks the requester's rights on each bot they name.
+@tool("hub_bot_copy", "Copy a bot into a new one, as the person who asked you (they need read on the original and room in their limit of bots): an "
+      "ordinary, independent bot they own, from the original's repository at its current commit (instructions, skills, playbooks, the `tools:` "
+      "list; one fresh commit, not its history). Its notes and memory are left out unless `with_memory`. No credential, .env or secret is "
+      "ever copied: the credentials the original's tools need are granted to the copy when the person is a credential administrator, and "
+      "the rest come back as `needs credential X` for you to ask for. Nothing stays linked. Runs on this computer, in its workspace.",
+      {"bot": _s("The bot to copy"), "slug": _s("The copy's slug; <bot>-copy by default"), "name": _s("What people call the copy"),
+       "with_memory": {"type": "boolean", "default": False, "description": "Also copy the original's memory, notes and state"},
+       "computer": _s("A computer's label or id to put the copy on; leave out to place it later")},
+      required=("bot",), writes=True, local=True)
+def bot_copy(api, args):
+    from clients import botcopy
+    return botcopy.run_copy(api, _as_person(api), args)
+
+
+@tool("hub_bot_update_from_original", "Bring a copy's instructions (AGENT.md, skills, playbooks) up to date with the bot it was copied from, as the "
+      "person who asked you (they manage the copy): a file-level three-way merge, in one commit on the copy's repository. Answers the "
+      "original's diff since the copy, and either `updated`, `current`, or `conflicts` (nothing changed; settle each with the person, "
+      "edit the copy, commit, then call again with `resolved`). Runs on this computer.",
+      {"bot": _s("The copy"), "resolved": {"type": "boolean", "default": False,
+                                          "description": "You settled the conflicts by hand and committed: record that the copy is up to date"}},
+      required=("bot",), writes=True, local=True)
+def bot_update_from_original(api, args):
+    from clients import botcopy
+    return botcopy.run_update(_as_person(api), args)
+
+
+@tool("hub_bot_suggest_to_original", "Suggest a copy's changes to its instructions to the bot it was copied from, as the person who asked you: a "
+      "pull request on the original's repository when they may write to it and GitHub is connected, else a task for the original's owner "
+      "with the diff. A file the original changed too is held back. Runs on this computer.",
+      {"bot": _s("The copy"), "paths": {"type": "array", "items": {"type": "string"}, "description": "Only these files or folders (AGENT.md, skills/x)"},
+       "title": _s("The pull request's or task's title")},
+      required=("bot",), writes=True, local=True)
+def bot_suggest_to_original(api, args):
+    from clients import botcopy
+    return botcopy.run_suggest(_as_person(api), args)
+
+
+@tool("hub_skill_copy", "Copy one skill (skills/<skill>/) from a bot's repository into other bots' repositories, a commit in each, as the person "
+      "who asked you (read on the source; they manage each target). A target that already has a different skill of that name is left "
+      "alone unless `replace`. Runs on this computer.",
+      {"skill": _s("The skill's folder name under skills/"), "bot": _s("The bot that has the skill"),
+       "to": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The bots to copy it to"},
+       "replace": {"type": "boolean", "default": False, "description": "Replace a different skill of the same name"}},
+      required=("skill", "bot", "to"), writes=True, local=True)
+def skill_copy(api, args):
+    from clients import botcopy
+    return botcopy.run_skill(_as_person(api), args)
+
+
 @tool("hub_agent_pair_approve", "Connect a Hermes profile to a bot, as the person who asked you (the bot's owner or an admin): "
       "the profile printed a code like K7QM-4F2P when it asked to pair. The bot must use the hermes harness (planned or active). "
       "The bot's agent credential is made and goes to the profile itself; it is never shown here. Answers the profile name and "
@@ -2216,7 +2267,8 @@ AUDIENCE = {
     **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
-                                    "hub_tool_add", "hub_tool_update", "hub_tool_remove")},
+                                    "hub_tool_add", "hub_tool_update", "hub_tool_remove",
+                                    "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),

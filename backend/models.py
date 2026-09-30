@@ -676,6 +676,47 @@ class BotRegister(Contract):
     on_behalf_of: ID | None = None
 
 
+class CopiedTool(Contract):
+    """What the original's `tools:` names about a credential it needs: the variable's name, never a value."""
+    service: str = Field(default="", max_length=100)
+    env: str = Field(pattern=r"^[A-Z_][A-Z0-9_]*$", max_length=100)
+
+
+class BotCopy(Contract):
+    """Copy a bot into a new, independent one the requester owns (backend/bot_copy.py). `sha` and `tools` are what the computer
+    that holds the original's repository read from it; the new repository is made on that computer."""
+    slug: Slug | None = None
+    display_name: str = Field(default="", max_length=100)
+    with_memory: bool = False
+    computer: str = Field(default="", max_length=200)
+    sha: str = Field(default="", pattern=r"^([0-9a-f]{40})?$")
+    tools: list[CopiedTool] = Field(default_factory=list, max_length=50)
+
+
+class BotUpdateFromOriginal(Contract):
+    """Without `applied_sha`: what a copy was copied from. With it: the original's commit the copy is now up to date with."""
+    applied_sha: str = Field(default="", pattern=r"^([0-9a-f]{40})?$")
+
+
+class SuggestedFile(Contract):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)       # a file's own whitespace is its content
+    path: str = Field(min_length=1, max_length=300)
+    content: str | None = Field(default=None, max_length=200_000)      # None: the copy deleted it
+
+
+class BotSuggest(Contract):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    files: list[SuggestedFile] = Field(min_length=1, max_length=50)
+    diff: str = Field(default="", max_length=100_000)
+    held_back: list[str] = Field(default_factory=list, max_length=100)
+    title: str = Field(default="", max_length=200)
+
+
+class SkillCopy(Contract):
+    skill: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,79}$")
+    to: list[Slug] = Field(min_length=1, max_length=20)
+
+
 class BotCoOwners(Contract):
     """Add or remove people who own a bot (its creator is the first)."""
     add: list[ID] = Field(default_factory=list, max_length=50)
