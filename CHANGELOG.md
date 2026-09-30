@@ -7,6 +7,27 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-09-30
+
+Fixes from rolling 0.2.21 out and from a clean install on a Mac.
+
+### Fixed
+- **The local quick start works on a Mac.** `install.sh --local` and `--runner` run with Docker Desktop (the team install on a
+  server stays Linux). The Add computer line on a local install joins the server's Docker network, so the runner reaches it and
+  the computer is named "This computer". A local install accepts `localhost` as well as `127.0.0.1`.
+- **Local sign-in sticks.** The printed sign-in link keeps you signed in (the cookie is `SameSite=Lax`), and the cookie is named
+  per install, so two local installs in one browser no longer sign each other out.
+- **First run** asks to sign in to a model only after an AI provider is chosen, and "Add an AI provider" links to it.
+- **Message bots on a Docker computer:** `mail.sh` no longer fails with "readonly database" (the mail files are shared between
+  the runner and the bot), and Health no longer says the Gmail credential is missing when the computer holds the key.
+- **GitHub needs attention** appears only when the GitHub App itself fails, with what to do. A bot whose repository is not on
+  GitHub yet no longer marks GitHub unhealthy, and when the App cannot create repositories it says so (Administration is off).
+- **Chat:** a message sent right after opening a bot page is no longer dropped when an older snapshot arrives; notices no longer
+  cover the composer.
+- **Wording:** "Accepts members' bots" and "Bot limit per member" (member is a role); "Settings > Computers" and "groups" in the
+  docs and the team chart; Health on a local install notes that copies stay on this computer instead of warning.
+- **Security:** PyJWT 2.14.0.
+
 ## [0.2.21] - 2026-09-30
 
 One large release: new words across the product, cleaner API names, faster defaults, nested groups and a batch of fixes.
