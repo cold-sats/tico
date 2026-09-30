@@ -242,8 +242,12 @@ class SettingsAdmin:
         if runner:
             assignment = self.execution.assign(c, who, body.slug, SimpleNamespace(
                 runner_id=runner["id"], expected_generation=0))
-        elif body.status == "active" and placement.auto_place(c, self.execution, body.slug, who.actor):
-            assignment = dict(c.execute("SELECT * FROM assignments WHERE bot=?", (body.slug,)).fetchone())
+        elif body.status == "active" and harness not in EXTERNAL_HARNESSES:
+            if placement.auto_place(c, self.execution, body.slug, who.actor):
+                assignment = dict(c.execute("SELECT * FROM assignments WHERE bot=?", (body.slug,)).fetchone())
+            elif not note:
+                note = ("No computer takes " + body.display_name + " yet, so it is on but not running. Add a computer, or ask an "
+                        "admin to open one to members' bots (Settings > Devices); it starts on its own when one can take it")
         H.event(c, who.actor, "bot.definition_created", body.slug,
                 {"operator": operator, "owners": owners, "runner": body.runner_id})
         return {**self.definition(c, body.slug), "owners": owners, "assignment": assignment,

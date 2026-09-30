@@ -186,6 +186,11 @@ def redact_value(c, person, value, env, conversation_id="", attempt_id="", messa
         if row and row["final_text"] and value in row["final_text"]:
             c.execute("UPDATE attempts SET final_text=? WHERE id=?", (row["final_text"].replace(value, label), attempt_id))
         remember(attempt_id, value)
+    # The answers kept for retries (the chat send that carried it, the claim that delivered it to the run).
+    for form in forms:
+        for row in c.execute("SELECT actor,operation,key,response_json FROM idempotency WHERE instr(response_json, ?) > 0", (form,)).fetchall():
+            c.execute("UPDATE idempotency SET response_json=? WHERE actor=? AND operation=? AND key=?",
+                      (row["response_json"].replace(form, label), row["actor"], row["operation"], row["key"]))
     if count:
         H.event(c, person.actor, "message.redacted", conversation_id or message_id, {"messages": count, "env": env})
     return count
