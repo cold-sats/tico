@@ -143,7 +143,7 @@ def hub(tmp_path):
     registry = tmp_path / "hub-registry"
     registry.mkdir()
     (registry / "hub-access.yaml").write_text("owner: ana@acme.example\nallowed_domains: [acme.example]\n")
-    settings = Settings(db_path=tmp_path / "hub.db", slack_team_id=TEAM, slack_app_id=APP, registry_dir=registry)
+    settings = Settings(db_path=tmp_path / "hub.db", slack_team_id=TEAM, slack_app_id=APP, registry_dir=registry, assistant_name="Tico")
     store = Store(settings)
     store.initialize()
     with store.transaction() as c:
