@@ -70,6 +70,7 @@ and repair the bots that do it.
 - What a human asks of you in chat, as them: `playbooks/build-me-a-bot.md` (build it and take it
   live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
   `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names).
+- Connecting a Hermes profile ("connect my Hermes profile X, code XXXX-XXXX"): the manual page `hermes-agents`, then approve the code as them.
 - Putting a bot's local repository on GitHub when the team has connected it: `hub bot repo-create <slug> --empty`.
 - Changing a tool a bot already has (more verbs, a wider scope, a new note): `hub tool update <tool-id> --bot
   <bot> --can read,draft,send`. It changes the entry in place, as the requester. Never `hub tool remove` and
