@@ -2332,7 +2332,7 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 .fr-secrets{margin:0;padding:10px 12px;border-left:3px solid var(--wait);border-radius:0 7px 7px 0;background:var(--wait-bg);font-size:13px}
 .tree-setup{flex:none;margin-left:4px;padding:0 6px;border-radius:9px;background:var(--wait-bg);color:var(--wait);font-size:10.5px;font-weight:500;line-height:16px;letter-spacing:.01em}
 .bot-onboard{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;margin:0 0 var(--s3);padding:10px 14px;border:1px solid color-mix(in srgb,var(--wait) 40%,var(--line));border-radius:var(--radius);background:color-mix(in srgb,var(--wait) 8%,var(--surface))}
-.bot-onboard p{flex:1 1 260px;margin:0;font-size:13px}
+.bot-onboard .primary,.bot-onboard .muted{margin-left:auto}
 @media(max-width:760px){
   .fr-form{grid-template-columns:1fr}
   .fr-owner select{width:100%}
@@ -5081,6 +5081,14 @@ async function v2ChatLoad(slug) {
       if (state.loaded && S.me?.cloud && state.conv) v2ChatStream(state);
       return;
     }
+    // A chat that was empty is looked up again: someone may have started it (another tab, a bot page's Start setup).
+    if (!state.conv) {
+      state.listed = false;
+      await v2ChatFind(state);
+      if (V2C !== state) return;
+      if (state.conv) { v2ChatRender(state); if (S.me?.cloud) v2ChatStream(state); } else state.failed = false;
+      return;
+    }
     // The live stream already pushes every change; the poll is the fallback when it is down.
     if (S.me?.cloud && state.es && state.es.readyState === 1) return;
     v2ChatMessages(state).then(() => v2ChatRender(state));
@@ -5414,6 +5422,19 @@ function v2ChatRender(state) {
   // Header updates above can resize the thread after its content renders.
   requestAnimationFrame(() => { if (V2C === state && state.followLatest) thread.scrollTop = thread.scrollHeight; });
 }
+// A message sent to a bot (the composer, Start setup) lands in the chat that is open on that bot, in the conversation the
+// server put it in; a chat that was empty when it loaded is not "Nothing yet" any more.
+function v2ChatAdopt(slug, j) {
+  const state = V2C;
+  if (!state || state.slug !== slug) { CHAT_CACHE.delete(slug); return; }
+  if (j.conversation) { state.conv = j.conversation; state.listed = true; state.loaded = true; state.failed = false; }
+  if (j.message) state.messages.push(j.message);
+  state.live = {text: ''};
+  state.execution = null; state.sentAt = Date.now();
+  state.followLatest = true;
+  v2ChatRender(state);
+  v2ChatStream(state);
+}
 async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}) {
   if (P.sending) return false;
   P.sending = true;
@@ -5425,16 +5446,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}) {
     const j = await cloudCompose(`/v2/chat/${encodeURIComponent(slug)}`, {text: text || 'Attached files.', refs}, files);
     pillAcknowledge(P, text, files);
     if (j.message?.refs?.action_result) toast(j.message.refs.action_result.decision === 'approved' ? 'Approved' : 'Declined');
-    const state = V2C;
-    if (state && state.slug === slug) {
-      if (j.conversation) { state.conv = j.conversation; state.listed = true; state.loaded = true; state.failed = false; }
-      if (j.message) state.messages.push(j.message);
-      state.live = {text: ''};
-      state.execution = null; state.sentAt = Date.now();
-      state.followLatest = true;
-      v2ChatRender(state);
-      v2ChatStream(state);
-    }
+    v2ChatAdopt(slug, j);
     P.retryTries = 0;
     return true;
   } catch (e) {

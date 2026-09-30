@@ -141,7 +141,7 @@ async function frSendSetup(slug) {
   const bots = await v2Get('/v2/bots?include_archived=1');
   const bot = (bots || []).find(row => row.slug === slug);
   if (bot && bot.state === 'planned') await post(`/v2/bots/${encodeURIComponent(slug)}/definition`, {status: 'active', expected_revision: bot.revision});
-  await post(`/v2/chat/${encodeURIComponent(slug)}`, {text: "Let's set you up."});
+  v2ChatAdopt(slug, await post(`/v2/chat/${encodeURIComponent(slug)}`, {text: "Let's set you up."}));   // the Chat tab shows it
   await refresh(true);
 }
 function frWireNext(state) {
@@ -185,8 +185,6 @@ function frBotBannerHTML(e) {
   const can = e.can_chat && (!planned || manager);
   return `<section class="bot-onboard" id="bot-onboard" role="status" aria-label="Needs onboarding">
       <span class="pill needs">Needs onboarding</span>
-      <p>${esc(e.display_name || e.name)} does nothing on its own until you have set it up together. It asks a few questions, drafts a first result and
-        proposes its first routine, which stays off until you say yes. Sending it any message starts the same conversation.</p>
       ${can ? '<button class="primary" type="button" id="bot-start-setup">Start setup</button>'
         : `<span class="muted">${planned ? 'Waiting for an owner to place it on a computer and activate it.' : 'Ask someone who can write to it to start.'}</span>`}
     </section>`;

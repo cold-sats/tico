@@ -150,7 +150,7 @@ function recruitFor({department, briefing, share}) {
   try {
     const context = await browser.newContext({viewport: {width: 1100, height: 800}, serviceWorkers: 'block', acceptDownloads: true, colorScheme: scheme});
     const puts = [], tourPosts = [], completes = [], definitions = [], created = [], enrollments = [], chats = [], invites = [], owners = [];
-    const recruits = [];
+    const recruits = [], opened = {};
     let hq = {available: true, off_by: ''}, slowRecruit = 0;
     let record = {
       names: {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace'},
@@ -190,7 +190,7 @@ function recruitFor({department, briefing, share}) {
         // After Create the two starters are on the chart, parked.
         ...(record.completed ? BOTS_AFTER.filter(bot => bot.onboarding_state).map(bot => ({name: bot.slug, display_name: bot.display_name,
           status: bot.status, reports_to: '', description: '', revision: 5, can_chat: true, can_manage: true, onboarding_state: bot.onboarding_state,
-          users: []})) : [])]);
+          host: 'keeper', thread_mode: 'personal', users: []})) : [])]);
       if (p === '/api/issues') return json([]);
       if (p === '/api/v2/catalog') return json({cards: CATALOG});
       if (p === '/api/v2/onboarding') {
@@ -219,7 +219,25 @@ function recruitFor({department, briefing, share}) {
       if (p === '/api/v2/enrollments') { enrollments.push(request.postDataJSON()); return json({code: 'enroll-code', expires: '2026-09-16T10:15:00Z'}); }
       if (p === '/api/v2/bots' && request.method() === 'POST') { created.push(request.postDataJSON()); return json({bot: {slug: request.postDataJSON().slug}}); }
       if (p === '/api/v2/bots') return json(v2bots());
-      if (/^\/api\/v2\/chat\/[^/]+$/.test(p)) { chats.push([p.split('/')[4], request.postDataJSON()]); return json({message: {id: 'm1'}, conversation: {id: 'c1'}}); }
+      // A person's chat with a bot: the first message opens it, and the bot page's Chat tab lists it from then on.
+      if (/^\/api\/v2\/chat\/[^/]+$/.test(p)) {
+        const bot = p.split('/')[4], text = request.postDataJSON().text;
+        chats.push([bot, request.postDataJSON()]);
+        const conversation = {id: 'chat-' + bot, kind: 'chat', scope: 'personal', task_id: null, closed_at: null,
+                              participants: ['human:ana', 'bot:' + bot]};
+        const message = {id: 'msg-' + bot, conversation_id: conversation.id, from_actor: 'human:ana', to_actor: 'bot:' + bot,
+                         kind: 'say', body: text, refs: {}, created: '2026-09-16T10:05:00Z'};
+        opened[bot] = {conversation, messages: [message]};
+        return json({message, conversation});
+      }
+      if (p === '/api/v2/conversations') {
+        const chat = opened[url.searchParams.get('chat_with')];
+        return json({conversations: chat ? [chat.conversation] : []});
+      }
+      if (/^\/api\/v2\/conversations\/chat-[^/]+\/(snapshot|messages)$/.test(p)) {
+        const chat = opened[p.split('/')[4].slice(5)];
+        return json({messages: chat ? chat.messages : [], has_more: false, next_before: null, execution: null});
+      }
       if (p === '/api/v2/access/people') { invites.push(['add', request.postDataJSON()]); return json({person: 'sam', email: 'sam@initech.test', name: 'Sam Ortiz'}); }
       if (p === '/api/v2/access/people/sam') { invites.push(['role', request.postDataJSON()]); return json({person: 'sam'}); }
       if (/^\/api\/v2\/bots\/[^/]+\/co-owners$/.test(p)) { owners.push([p.split('/')[4], request.postDataJSON()]); return json({bot_owners: [{id: 'ana', name: 'Ana Rivera'}, {id: 'ben', name: 'Ben Cole'}], revision: 4}); }
@@ -610,11 +628,17 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#bot-onboard').waitFor();
     await shot(page, 'desktop-7-bot-page');
     assert.match(await page.locator('#bot-onboard').textContent(), /Needs onboarding/);
-    assert.match(await page.locator('#bot-onboard').textContent(), /does nothing on its own until you have set it up together/);
+    assert.equal(await page.locator('#bot-onboard p').count(), 0);                                    // the pill and the button, no paragraph
+    assert.equal(await page.locator('#bot-start-setup').textContent(), 'Start setup');
+    // The Chat tab shows the setup conversation: the person's line, in the chat Start setup wrote to.
+    await page.locator('#conv-thread .bubble.you', {hasText: "Let's set you up."}).waitFor();
     // A planned starter is activated first (an owner's call), then told the same line.
     await page.goto('https://tico-ui.test/#/bot/meeting-notes');
     await page.locator('#bot-start-setup').click();
     await page.locator('#bot-start-setup', {hasText: 'Setup started'}).waitFor();
+    // Its Chat tab was open and empty when Start setup was pressed: the message shows at once, not after a reload.
+    await page.locator('#conv-thread .bubble.you', {hasText: "Let's set you up."}).waitFor({timeout: 3000});
+    assert.equal(await page.locator('#conv-thread .empty').count(), 0);
     assert.deepEqual(definitions, [{path: '/api/v2/bots/meeting-notes/definition', body: {status: 'active', expected_revision: 4}}]);
     assert.deepEqual(chats.at(-1), ['meeting-notes', {text: "Let's set you up."}]);
     // The mark clears when the bot says it is set up: the page follows the bot's state.
