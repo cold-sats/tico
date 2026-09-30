@@ -112,6 +112,10 @@ All notable changes to Tico are recorded here. The format follows
   are one line each, with the OpenRouter-backed vendors on one line.
 - The built-in assistant shows as **Assistant** when its name is the company's, and an assistant still named after the company is
   renamed to Assistant once at startup (a name anyone chose is left alone).
+- **The full org chart is led by each pack's lead template.** A card's `lead: true` now reaches the wizard (`lead` on every card and on
+  each chart member). Every team leads with its pack's lead: Chief of Staff for Leadership, Sales Lead, Marketing Lead, Support Lead,
+  Ops Manager and Engineering Lead. The lead is listed first and added even when no answer points at it (unless its required tool,
+  GitHub for Engineering, was not ticked, when the team's first member leads); the rest report to it and the lead reports to the owner.
 
 ### Fixed
 - **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched

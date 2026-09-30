@@ -137,6 +137,8 @@ def _card(document, instructions):
     return {"template": template, "slug": str(document.get("slug") or template).strip(),
             "name": str(document.get("name") or template), "required": bool(document.get("required")),
             "bootstrap": bool(document.get("bootstrap")),
+            # The template that leads its pack's team in the full org chart (one per pack).
+            "lead": bool(document.get("lead")),
             # Checked when the wizard first shows the card, and `when` says who wants it.
             "default": bool(document.get("default")), "when": str(document.get("when") or ""),
             "summary": str(document.get("summary") or ""),
@@ -377,15 +379,23 @@ def _why(reason, summary):
 
 def full_chart(cards, answers, home=""):
     """The other starting point: every template that fits these answers, grouped into the teams of a
-    real org chart, each team with a lead and the rest reporting to it. Leads report to `home` (the
-    company owner). A template whose required tool the company did not tick is left out, and named in
+    real org chart, each team with a lead and the rest reporting to it. A team's lead is its pack's
+    `lead: true` template (Ops Manager, Support Lead, ...), added even when nothing said points at it.
+    Leads report to `home` (the company owner). A template whose required tool the company did not tick is left out, and named in
     `held_back` with what it needs. It fits when it matches a pain, names a ticked tool or one of the
     answers' tags, or is for every company. Returns {"teams": [...], "held_back": [...]}.
     """
     derived, have = tags(answers), tools_of(answers)
     chips, text = answers.get("pains") or [], " ".join(
         str(answers.get(key) or "") for key in ("pains_text", "repetitive_work"))
-    teams, held = {}, []
+    teams, held, leads = {}, [], {}
+
+    def member(card, reason, score, overlap):
+        return {"template": card["template"], "slug": card["slug"], "name": card["name"],
+                "why": _why(reason, card["summary"]), "matched_pain": reason["matched_pain"],
+                "prerequisites": _prerequisite_rows(card, have), "lead": bool(card.get("lead")),
+                "_order": (0 if card.get("lead") else 1, 0 if "always" in card["recommend_when"] else 1, -score, -len(overlap - {"always"}), card["name"].lower())}
+
     for card in (card for card in cards if not card["required"]):
         missing = [row for row in card.get("prerequisites") or [] if row["required"] and row["tool"] not in have]
         score, phrase = pain_match(card, chips, text)
@@ -394,21 +404,26 @@ def full_chart(cards, answers, home=""):
             if score > 0 or overlap & set(SIGNAL_TAGS):
                 held.append(_held(card, phrase, missing))
             continue
+        team = TEAMS.get(card.get("pack") or "", OTHER_TEAM)
+        if card.get("lead"):
+            leads[team] = (card, score, overlap)
         if not (score > 0 or overlap):
             continue
         signals = [SIGNAL_TAGS[tag] for tag in sorted(overlap & set(SIGNAL_TAGS))]
-        reason = {"matched_pain": phrase, "signal": signals[0] if signals else ""}
-        teams.setdefault(TEAMS.get(card.get("pack") or "", OTHER_TEAM), []).append({
-            "template": card["template"], "slug": card["slug"], "name": card["name"],
-            "why": _why(reason, card["summary"]), "matched_pain": phrase,
-            "prerequisites": _prerequisite_rows(card, have),
-            "_order": (0 if "always" in card["recommend_when"] else 1, -score, -len(overlap - {"always"}),
-                       card["name"].lower())})
+        teams.setdefault(team, []).append(member(card, {"matched_pain": phrase, "signal": signals[0] if signals else ""},
+                                                 score, overlap))
+    # A team that has anyone in it gets its pack's lead, even when nothing said points at the lead itself.
+    for team, rows in teams.items():
+        if team in leads and not any(row["lead"] for row in rows):
+            card, score, overlap = leads[team]
+            rows.append(member(card, {"matched_pain": "", "signal": ""}, score, overlap))
     ordered = []
     for team in [*TEAMS.values(), OTHER_TEAM]:
         members = sorted(teams.get(team, []), key=lambda row: row["_order"])
         if not members:
             continue
+        # The template marked `lead: true` leads; a team with none (or whose lead needs a tool that was not
+        # ticked) is led by its first member.
         lead = members[0]["slug"]
         for row in members:
             row.pop("_order")

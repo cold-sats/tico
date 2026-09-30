@@ -63,11 +63,30 @@ def test_the_chooser_offers_a_small_starter_team_and_a_full_org_chart():
     assert sum(len(row["members"]) for row in teams) >= 25 and len(teams) == 6
     assert len(O.choose(CARDS, typical)[0]) <= O.STARTER_TEAM_MAX
     leaders = {row["team"]: row["lead"] for row in chart["teams"]}
-    assert leaders["Leadership"] == "chief-of-staff" and leaders["Marketing"] in grouped["Marketing"]
+    assert leaders == {"Leadership": "chief-of-staff", "Sales": "sales-lead", "Marketing": "marketing-lead",
+                       "Support": "support-lead", "Operations": "ops-manager", "Engineering": "engineering-lead"}
+    assert all(row["members"][0]["slug"] == row["lead"] and row["members"][0]["lead"] for row in chart["teams"])
+    assert not any(m["lead"] for row in chart["teams"] for m in row["members"][1:])
     reports = {m["slug"]: m["reports_to"] for row in chart["teams"] for m in row["members"]}
     assert reports["chief-of-staff"] == "human:morgan" and reports["mail-drafts" if "mail-drafts" in reports else "inbox"] == "chief-of-staff"
     assert len({r for r in reports.values() if r.startswith("human:")}) == 1          # every lead reports to the owner
     assert len(O.full_chart(CARDS, answers(), "human:morgan")["teams"]) == 1          # no answers: Chief of Staff only
+
+
+def test_a_team_is_led_by_its_packs_lead_template_even_when_a_pain_names_another_member():
+    """The `lead: true` card leads the team and comes first; without GitHub the Engineering lead cannot be offered."""
+    assert {card["pack"]: card["template"] for card in CARDS if card["lead"]} == {
+        "basics": "chief-of-staff", "sales": "sales-lead", "marketing": "marketing-lead", "support": "support-lead",
+        "operations": "ops-manager", "engineering": "engineering-lead"}
+    chart = O.full_chart(CARDS, answers(pains=["support inbox is overflowing"], tools=["mail", "docs"]), "human:morgan")
+    support = {row["team"]: row for row in chart["teams"]}["Support"]
+    assert support["lead"] == "support-lead" and support["members"][0]["slug"] == "support-lead"
+    assert {m["slug"]: m["reports_to"] for m in support["members"]} == {
+        "support-lead": "human:morgan", **{m["slug"]: "support-lead" for m in support["members"][1:]}}
+    assert "support" in [m["slug"] for m in support["members"]]
+    # No GitHub: Engineering's lead needs it and is held back, so the team is led by its first member instead of by nothing.
+    chart = O.full_chart(CARDS, answers(pains=["support inbox is overflowing"], tools=["mail"], software_product="yes"), "human:morgan")
+    assert "engineering-lead" not in [m["slug"] for row in chart["teams"] for m in row["members"]]
 
 
 def real_starters(api, *names):
