@@ -25,8 +25,12 @@ still apply. The human can turn it off again in one message.
 
 1. **Get the facts from the message.** Which bot (`hub api GET bots/<slug>` if they did not name it), who it may
    answer, and where it forwards what. Ask one question only if an address is missing: "Where should I forward it?"
-2. **Record the permission as them.** `hub tool add <slug> gmail --can read,draft,send --identity <the bot's mailbox>`.
-   This is the step the server checks against their rights; it answers at once. A refusal ends the playbook.
+2. **Record the permission as them.** The bot already has a gmail tool (`hub tool list --bot <slug>` shows its id):
+   `hub tool update <tool-id> --bot <slug> --can read,draft,send`. It changes the entry in place; never remove it and
+   add it again, which files a "Remove Gmail access" task nobody wants. No gmail tool yet:
+   `hub tool add <slug> gmail --can read,draft,send --identity <the bot's mailbox>`. This is the step the server
+   checks against their rights; it answers at once. A refusal ends the playbook. It files one task for you with the
+   entry; when step 3 has put that entry in `bot.yaml`, close it: `hub task update <id> --status done --note "..."`.
 3. **Change the bot's repository** (`$HUB_WORKSPACE/bot-<slug>`):
    - `bot.yaml`: `outbound_send: true`; the gmail entry's `can: [read, draft, send]`; and
      `forward_to: [<each address they gave, lowercase>]` (an address is a forward target only when they named it).
@@ -53,7 +57,7 @@ Taking an address off the list is reversible by asking again; do it at once.
 
 ## When it goes sideways
 
-- **The server refuses `hub tool add`.** They do not manage the bot. Say who does.
+- **The server refuses `hub tool add` or `hub tool update`.** They do not manage the bot. Say who does.
 - **`on_behalf_of` refused.** The run was not started by the human's own chat message. Tell whoever is on the task;
   do not act as anyone and do not turn anything on.
 - **`mail.sh policy show` says outbound_send False.** The commit is not on the bot's computer yet, or the YAML is

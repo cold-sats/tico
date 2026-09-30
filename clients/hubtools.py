@@ -1063,6 +1063,30 @@ def tools_add(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/tools", body, key=_key(args))
 
 
+@tool("hub_tool_update", "Change a tool a bot already declares, in place: what it `can` do, its `scope` or its `note` "
+      "(BotOps: as the person who asked you). Only what you send changes; a `scope` key with an empty value comes off. "
+      "One task for BotOps carries the whole changed entry and the tool shows as pending its change. Use this, never "
+      "remove and add again: that files a removal nobody wants. The identity and the env name do not change here.",
+      {"bot": _s("The bot's slug"), "id": _s("The tool id from hub_tool_list"),
+       "can": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+               "description": "The full list of what it may do from now on: read, draft, post, act, use, send, write (or a comma list)"},
+       "scope": {"type": "object", "description": "Keys to set: database, channels, project, mailbox and the like; '' takes one off"},
+       "note": _s("The new note; an empty string clears it")},
+      required=("bot", "id"), writes=True)
+def tools_update(api, args):
+    body = {}
+    if args.get("can") is not None:
+        can = args["can"]
+        body["can"] = [part.strip() for part in can.split(",") if part.strip()] if isinstance(can, str) else can
+    if args.get("scope") is not None:
+        body["scope"] = _scope_of(args["scope"])
+    if args.get("note") is not None:
+        body["note"] = args["note"]
+    if not body:
+        raise ValueError("Say what changes: can, scope or note")
+    return _as_person(api).post(f"bots/{args['bot']}/tools/{args['id']}/update", body, key=_key(args))
+
+
 @tool("hub_tool_remove", "Ask BotOps to remove a tool from a bot you manage (its id from `hub_tool_list`), or withdraw "
       "a pending request. The entry goes from bot.yaml when BotOps commits the change.",
       {"bot": _s("The bot's slug"), "id": _s("The tool id from hub_tool_list")},
@@ -2001,7 +2025,7 @@ AUDIENCE = {
     "hub_bot_repo_create": ("owner", "botops"),
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
-                                    "hub_tool_add", "hub_tool_remove")},
+                                    "hub_tool_add", "hub_tool_update", "hub_tool_remove")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),

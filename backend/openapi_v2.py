@@ -89,6 +89,9 @@ STABLE = [
      "Ask BotOps to remove a declared tool, or withdraw a pending request (bot managers)", "BotToolRemoval"),
     ("/api/v2/bots/{bot}/tools/{tool_id}/delete", "post", "Bots", "removeBotToolPost",
      "The same as DELETE, for clients that only send GET and POST", "BotToolRemoval"),
+    ("/api/v2/bots/{bot}/tools/{tool_id}/update", "post", "Bots", "updateBotTool",
+     "Change a declared tool's `can`, `scope` or `note` in place (bot managers): one BotOps task with the changed entry; "
+     "the tool shows `pending: update` until the computer reports it", "BotToolUpdated"),
     ("/api/v2/models", "get", "Bots", "listModels", "Models a bot can be set to", None),
     ("/api/v2/me/recent", "get", "Bots", "listRecentBots", "Bots the caller worked with lately", "Recent"),
     ("/api/v2/bots/{bot}/updates", "get", "Updates", "getBotUpdateSettings", "A bot's daily and weekly update settings", None),
@@ -365,10 +368,13 @@ SCHEMAS = {
                    detail={"type": "string", "description": "One sentence on what the tool is or how it was checked"},
                    problem={"type": "string", "description": "Why status is `problem`, in words a person can act on"},
                    url={"type": "string", "description": "Where the tool opens, when it has an address (the repository)"},
-                   pending={"enum": ["add", "remove"], "description": "A request BotOps has not finished: `add` on a tool that is "
-                            "not on the bot yet (status `pending`), `remove` on a declared one being taken out"},
+                   pending={"enum": ["add", "remove", "update"], "description": "A request BotOps has not finished: `add` on a tool that is "
+                            "not on the bot yet (status `pending`), `remove` on a declared one being taken out, `update` on "
+                            "one whose can, scope or note is being changed"},
                    task_id={"type": "string", "description": "The BotOps task carrying the request"}),
     "BotToolRegistered": obj({"tool": ref("BotTool"), "task_id": "s", "yaml": "s", "credentials": "s"}),
+    "BotToolUpdated": obj({"task_id": "s", "yaml": "s", "credentials": "s"}, required=["task_id"], update={"type": "boolean"},
+                          tool={"type": "string"}),
     "BotToolRemoval": obj({"task_id": "s"}, required=[], cancelled={"type": "boolean"}, removal={"type": "boolean"},
                           tool={"type": "string"}, detail={"type": "string"}),
     "BotTools": obj({"bot": "s", "tools": items(ref("BotTool")), "computer": "n", "online": "b", "reported_at": "n"},

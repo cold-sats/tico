@@ -119,6 +119,9 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--env VAR_NAME] [--note "..."]
                                            register a tool: BotOps gets a task with the entry; it shows pending
                                            until the computer reports it. A variable's name, never its value
+    hub tool update <tool-id> --bot <bot> [--can read,draft,send] [--scope KEY=VALUE ...] [--note "..."]
+                                           change a declared tool in place (BotOps: as the requester); never remove
+                                           and add it again. `--scope KEY=` takes a key off, `--note ""` clears it
     hub tool remove <bot> <tool-id>        ask BotOps to remove one (or withdraw a pending request)
     hub routine list [--bot X]             the routines a bot runs on a schedule (yours by default)
     hub routine set <key> --title "..." (--cron "0 7 * * 1-5" | --on meeting.ready)
@@ -816,6 +819,13 @@ def parser():
     s.add_argument("--env", help="the variable's NAME, such as POSTHOG_KEY; the owner installs the value")
     s.add_argument("--note")
     s.set_defaults(fn="tool add")
+    s = tools.add_parser("update", help="change a declared tool's can, scope or note in place; never remove and add again")
+    s.add_argument("id", help="the tool id from `hub tool list --bot`")
+    s.add_argument("--bot", required=True, help="the bot's slug")
+    s.add_argument("--can", help="the full list from now on: read, draft, post, act, use, send or write; comma separated")
+    s.add_argument("--scope", action="append", metavar="KEY=VALUE", help="set a key (database=warehouse, channels=#a,#b); KEY= takes it off; repeatable")
+    s.add_argument("--note", help='the new note; "" clears it')
+    s.set_defaults(fn="tool update")
     s = tools.add_parser("remove", help="ask BotOps to remove a tool, or withdraw a pending request")
     s.add_argument("bot")
     s.add_argument("id", help="the tool id from `hub tool list --bot`")

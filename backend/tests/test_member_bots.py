@@ -357,3 +357,29 @@ def test_botops_changes_a_bots_tools_as_the_requester_who_owns_it_and_never_for_
     idle = api.post("/api/v2/bots/cara-mail/tools", json={**GMAIL_SEND, "identity": "x@acme.example"},
                     headers=headers(botops["token"]))
     assert idle.status_code in (401, 403)
+
+
+def test_botops_updates_a_tool_in_place_as_the_requester_and_only_on_her_bot(api, botops):
+    from backend.tests.test_bot_tools import report, runner as make_runner, assign as assign_bot
+    attempt = turn(api, botops, text="Let my inbox bot send mail")
+    register(api, attempt, "cara-mail", template="inbox")
+    machine = make_runner(api)
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT generation FROM assignments WHERE bot='cara-mail'").fetchone()
+    assign_bot(api, machine, "cara-mail", generation=row["generation"] if row else 0)
+    assert report(api, machine, "cara-mail", [{"service": "gmail", "identity": "cara@acme.example", "can": ["read", "draft"],
+                                               "env": "GOOGLE_SA_KEY", "credential": "present"}]).status_code == 200
+    delegated = {**headers(attempt["token"]), "X-Tico-On-Behalf-Of": "turn"}
+    sent = api.post("/api/v2/bots/cara-mail/tools/gmail/update", json={"can": ["read", "draft", "send"]}, headers=delegated)
+    assert sent.status_code == 200, sent.text
+    assert "can: [read, draft, send]" in sent.json()["yaml"]
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT kind,requested_by FROM bot_tool_requests WHERE bot='cara-mail'").fetchall()
+        assert [(r["kind"], r["requested_by"]) for r in row] == [("update", "human:cara")]       # hers, not BotOps'
+        task = c.execute("SELECT requester,owner,title FROM tasks WHERE title LIKE 'Change Gmail%'").fetchone()
+        assert (task["requester"], task["owner"]) == ("human:cara", "bot:botops")
+    # A bot that is not hers stays closed, and so does a call with nobody asking.
+    assert api.post("/api/v2/bots/ops/tools/gmail/update", json={"can": ["read"]}, headers=delegated).status_code == 403
+    finish(api, botops, attempt)
+    assert api.post("/api/v2/bots/cara-mail/tools/gmail/update", json={"note": "x"},
+                    headers=headers(botops["token"])).status_code in (401, 403)

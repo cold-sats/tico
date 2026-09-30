@@ -34,7 +34,7 @@ DO = _routes(
     ("POST", r"bots"), ("POST", r"bots/register"),
     ("POST", rf"bots/{_S}/(definition|assignment|placement|place|go-live|model|fallback|transitions|control|owners|co-owners|"
              rf"onboarded|goals|updates|routines|tools|quarantine/clear)"),
-    ("POST", rf"bots/{_S}/tools/{_S}/delete"), ("DELETE", rf"bots/{_S}/tools/{_S}"),
+    ("POST", rf"bots/{_S}/tools/{_S}/(delete|update)"), ("DELETE", rf"bots/{_S}/tools/{_S}"),
     ("POST", rf"bots/{_S}/access"), ("PUT", rf"bots/{_S}/access"),
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"),
     ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),

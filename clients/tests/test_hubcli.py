@@ -87,6 +87,18 @@ class Parser(unittest.TestCase):
         self.assertEqual(done.stderr.count("\n"), 1)
         self.assertNotIn("is now", done.stdout)
 
+class ToolUpdateAndRequester(unittest.TestCase):
+    def test_tool_update_and_the_requester_filter_parse(self):
+        args = hubcli.parser().parse_args(["tool", "update", "gmail", "--bot", "inbox", "--can", "read,draft,send",
+                                           "--scope", "mailbox=a@acme.example", "--scope", "sites=", "--note", ""])
+        self.assertEqual((args.fn, args.id, args.bot, args.can, args.scope, args.note),
+                         ("tool update", "gmail", "inbox", "read,draft,send", ["mailbox=a@acme.example", "sites="], ""))
+        with self.assertRaises(SystemExit):
+            hubcli.parser().parse_args(["tool", "update", "gmail"])               # --bot is required
+        listed = hubcli.parser().parse_args(["task", "list", "--requester", "me", "--status", "open"])
+        self.assertEqual((listed.fn, listed.requester, listed.status), ("task list", "me", ["open"]))
+
+
 class Remote(unittest.TestCase):
     def test_human_override_is_refused_remotely_with_exit_two(self):
         code, out = run_hub("--human", "ana", "whoami",

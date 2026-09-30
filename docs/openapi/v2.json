@@ -1228,6 +1228,79 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/tools/{tool_id}/update": {
+      "post": {
+        "summary": "Change a declared tool's `can`, `scope` or `note` in place (bot managers): one BotOps task with the changed entry; the tool shows `pending: update` until the computer reports it",
+        "operationId": "updateBotTool",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          },
+          {
+            "name": "tool_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotToolUpdated"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, or a Problem for a rule the server enforces"
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/updates": {
       "get": {
         "summary": "A bot's daily and weekly update settings",
@@ -7566,9 +7639,10 @@
           "pending": {
             "enum": [
               "add",
-              "remove"
+              "remove",
+              "update"
             ],
-            "description": "A request BotOps has not finished: `add` on a tool that is not on the bot yet (status `pending`), `remove` on a declared one being taken out"
+            "description": "A request BotOps has not finished: `add` on a tool that is not on the bot yet (status `pending`), `remove` on a declared one being taken out, `update` on one whose can, scope or note is being changed"
           },
           "task_id": {
             "type": "string",
@@ -7632,6 +7706,30 @@
           }
         },
         "required": [],
+        "additionalProperties": true
+      },
+      "BotToolUpdated": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "yaml": {
+            "type": "string"
+          },
+          "credentials": {
+            "type": "string"
+          },
+          "update": {
+            "type": "boolean"
+          },
+          "tool": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
         "additionalProperties": true
       },
       "BotTools": {
@@ -12243,6 +12341,55 @@
         ],
         "title": "ToolRegister",
         "description": "A tool a person registers for a bot (backend/bot_tools.py). Names and verbs only: `env` is the\nvariable's name, and the server refuses a field that looks like a credential."
+      },
+      "ToolUpdate": {
+        "properties": {
+          "can": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 20,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object",
+                "maxProperties": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ToolUpdate",
+        "description": "A change to a tool a bot already declares (backend/bot_tools.py): only what is sent changes. `scope` keys\nare set one by one (an empty value takes a key off); `note` \"\" clears the note."
       },
       "Unread": {
         "type": "object",
