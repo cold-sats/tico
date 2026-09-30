@@ -37,3 +37,13 @@ def test_the_slack_gateway_gets_every_sign_in_setting_the_server_gets():
             "TICO_OIDC_CLIENT_SECRET", "TICO_OIDC_ALLOWED_DOMAINS"}
     assert auth <= set(services["server"]["environment"])
     assert auth <= set(services["slack"]["environment"])
+
+
+def test_the_server_and_the_slack_gateway_get_the_decision_model_keys_but_not_other_services_secrets():
+    import yaml
+    services = yaml.safe_load((ROOT / "compose.yaml").read_text())["services"]
+    keys = {"TYPESAFE_API_KEY", "TICO_TYPESAFE_SECRET_ARN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY",
+            "XAI_API_KEY", "OPENROUTER_API_KEY"}
+    for name in ("server", "slack"):
+        env = set(services[name]["environment"])
+        assert keys <= env and "CLOUDFLARE_TUNNEL_TOKEN" not in env
