@@ -69,7 +69,7 @@ pydantic-core==2.46.5
     # via pydantic
 pygments==2.21.0
     # via pytest
-pyjwt==2.13.0
+pyjwt==2.14.0
     # via -r backend/requirements.in
 pymongo==4.18.2
     # via -r backend/requirements.in

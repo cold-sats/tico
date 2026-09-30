@@ -160,18 +160,26 @@ def _waiting(c, online_ids):
     return waiting, slow
 
 
-def _github(c, github):
-    row = github.row(c) if github else None
+def token_failure(c):
+    """{"message", "action"} when the GitHub App itself failed to issue a token in the last day and has not
+    succeeded since, else None. A row without an action predates App-only recording (0.2.21 also wrote a bot's
+    own missing repository here), so it is not this."""
     health = c.execute("SELECT last_success,last_error,detail_json FROM service_health WHERE service=?",
                        (GITHUB_HEALTH,)).fetchone()
     recent = H.shift(H.now(), hours=-RECENT_HOURS)
-    failure = None
-    if health and health["last_error"] and health["last_error"] > recent \
-            and health["last_error"] > (health["last_success"] or ""):
-        try:
-            failure = str(json.loads(health["detail_json"] or "{}").get("message") or "")
-        except ValueError:
-            failure = ""
+    if not (health and health["last_error"] and health["last_error"] > recent
+            and health["last_error"] > (health["last_success"] or "")):
+        return None
+    try:
+        detail = json.loads(health["detail_json"] or "{}")
+    except ValueError:
+        return None
+    return {"message": str(detail.get("message") or ""), "action": str(detail["action"])} if detail.get("action") else None
+
+
+def _github(c, github):
+    row = github.row(c) if github else None
+    failure = token_failure(c) if row else None
     fix = _fix("Open GitHub settings", "#/settings", "cloud")
     if not row:
         return _check("github", "GitHub", "info", "Not connected. Optional: connect it to keep bot work in your GitHub.", [fix])
@@ -179,7 +187,7 @@ def _github(c, github):
         return _check("github", "GitHub", "warn", "The app is created but not installed on your organization.", [fix])
     if failure is not None:
         return _check("github", "GitHub", "bad",
-                      "GitHub refused a token in the last day" + (": " + failure if failure else "."), [fix])
+                      "GitHub would not give a bot a token in the last day" + (": " + failure["message"] if failure["message"] else "."), [fix])
     return _check("github", "GitHub", "ok", f"Connected to {row['org']}.")
 
 
@@ -392,14 +400,16 @@ def view(c, who, settings, auth, github, config):
             "update": config.get("update") or {}}
 
 
-def note_github_token(store, error=None):
-    """Called around minting a GitHub token so the page can say the last attempt failed."""
+def note_github_token(store, error=None, action=""):
+    """Called around minting a GitHub token so the page can say the last attempt failed. Only a failure of the
+    App itself belongs here (its key, installation or permissions), with what to do about it; a bot whose
+    repository is not on GitHub yet is that bot's readiness problem."""
     now = H.now()
     with store.transaction() as c:
         if error:
             c.execute("INSERT INTO service_health(service,last_success,last_error,detail_json) VALUES(?,NULL,?,?) "
                       "ON CONFLICT(service) DO UPDATE SET last_error=excluded.last_error,detail_json=excluded.detail_json",
-                      (GITHUB_HEALTH, now, json.dumps({"message": error})))
+                      (GITHUB_HEALTH, now, json.dumps({"message": error, "action": action})))
         else:   # only a recovery is written, so a healthy turn costs no extra write
             c.execute("UPDATE service_health SET last_success=?,last_error=NULL WHERE service=? AND last_error IS NOT NULL",
                       (now, GITHUB_HEALTH))

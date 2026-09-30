@@ -283,6 +283,14 @@ def operation_issues(c, who, auth):
                 checkout_issue(add, row, runner_busy(c, row["id"]))
         for row in c.execute("SELECT service,last_error,detail_json FROM service_health WHERE last_error IS NOT NULL"):
             detail = json.loads(row["detail_json"] or "{}")
+            if row["service"] == "github:token":
+                # Only the App itself failing is a system problem, and only while it is recent and unrecovered.
+                from . import health
+                failure = health.token_failure(c)
+                if failure:
+                    add("service", "GitHub needs attention", failure["message"] or "GitHub would not issue a token.",
+                        needs_person=False, action=failure["action"])
+                continue
             add("service", row["service"] + " needs attention", row["last_error"] or "The last check failed.",
                 needs_person=bool(detail.get("needs_person")), action=detail.get("action"))
         # A connector that stopped refreshing (the Mac lost the network, or the sync hung) writes no
