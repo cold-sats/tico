@@ -89,6 +89,19 @@ def test_local_signin_never_redirects_off_this_origin(environment, tmp_path):
         assert response.headers["location"] == "/"
 
 
+def test_a_local_install_takes_writes_from_127_0_0_1_and_localhost_on_its_own_port(tmp_path):
+    local = Settings(db_path=tmp_path / "hub.db", public_url="http://127.0.0.1:8765",
+                     local_owner_token_file=local_token_file(tmp_path))
+    for origin in ("http://127.0.0.1:8765", "http://localhost:8765"):
+        assert local.allows_origin(origin)
+    for origin in ("http://localhost:9000", "https://localhost:8765", "http://evil.example:8765",
+                   "http://127.0.0.1.evil.example:8765"):
+        assert not local.allows_origin(origin)
+    # Without a local owner session the origin must match the public address exactly.
+    plain = Settings(db_path=tmp_path / "hub.db", public_url="http://127.0.0.1:8765")
+    assert not plain.allows_origin("http://localhost:8765")
+
+
 def test_local_signin_refuses_to_start_on_a_public_address(tmp_path):
     with pytest.raises(RuntimeError, match="loopback"):
         Settings(db_path=tmp_path / "hub.db", public_url="https://atlas.acme.example",
