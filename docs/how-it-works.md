@@ -61,7 +61,7 @@ and the Librarian work in the background and are not listed for people. Each per
 and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that person, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared
 Tico chat page and no Tico Live; people can also act across the company through their own agent over the hub's
-MCP (**Connect an agent**).
+MCP ([Connect an agent](connect-an-agent.md)).
 The database itself is readable with plain SQL (`hub sql`, the SQL page, `POST /api/v2/sql`):
 one `SELECT` at a time, each caller seeing only what the JSON API would show it, secrets never
 ([Querying the hub with SQL](hub-sql.md)).

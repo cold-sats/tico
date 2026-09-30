@@ -8,7 +8,7 @@ import re
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
@@ -1074,15 +1074,19 @@ def create_app(settings=None):
     def revoke_my_token(request: Request, token_id: str, body: M.Empty):
         return mutate(request, body, lambda c: personal_tokens.revoke(c, request.state.identity, token_id))
 
-    # "Connect an agent": what a person pastes into their own agent (Grok Bot, Meta Muse) beside
-    # a personal token. The MCP address is the runner hostname, where a bearer is let through;
-    # the public one answers a bearer with the login page. The text is the MCP instructions too.
+    # "Connect an agent" (ui/connect-agent.js): the MCP address a person's own agent (Grok, Muse,
+    # Claude, ...) is given beside a personal token. It is the runner hostname, where a bearer is let
+    # through. When that is the one hostname and Cloudflare Access guards it, Access answers an
+    # outside agent with its login page unless /api/v2/mcp is bypassed, so the dialog says so
+    # (docs/connect-an-agent.md). The text is the MCP instructions too.
     @app.get("/api/v2/agent-skill")
     def agent_skill(request: Request):
         if request.state.identity.role not in ("human", "owner"):
             raise Problem("forbidden", "This endpoint is available only to people", 403)
         from .mcp import PATH as MCP_PATH
-        return {"mcp_url": settings.runner_url + MCP_PATH, "text": WHO_NEEDS_ME}
+        behind_access = (settings.proxy_kind == "cloudflare"
+                         and urlparse(settings.runner_url).hostname == urlparse(settings.public_url).hostname)
+        return {"mcp_url": settings.runner_url + MCP_PATH, "text": WHO_NEEDS_ME, "access_bypass": behind_access}
 
     # What a caller who may only see a bot is told about it: its name, role, who runs it and who it
     # reports to. Its status, machine, queue and configuration are its activity, which is Read.

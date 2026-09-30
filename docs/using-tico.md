@@ -9,13 +9,13 @@ Every picture in these docs is a screenshot of [demo mode](demo.md), which you c
 
 **How do I give work to a bot or a person?**
 On **Tasks**, press **New task** and pick who it is for — any person or bot. On a person's profile,
-**Give a task**. On a bot, ask it in Chat. Or ask your own agent (Grok Bot, Meta Muse) to file
+**Give a task**. On a bot, ask it in Chat. Or ask your own agent (Grok, Muse, Claude and others) to file
 it through the hub's MCP. Each task shows who added it: you, another person, or a bot.
 
 **How do I ask a bot a question?**
 Open the bot's page and use its **Chat** tab; the reply comes back into the same conversation.
 For anything across the company, ask your own agent: **Connect an agent** (the plug button beside
-your email) gives it a token and the hub's MCP.
+your email) gives it a token and the hub's MCP ([Connect an agent](connect-an-agent.md)).
 
 **How do I know my bot ran?**
 The conversation goes *Saved — queued* → *Starting* → *Working* → the reply. When the bot marks

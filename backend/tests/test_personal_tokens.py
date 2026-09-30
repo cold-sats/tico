@@ -88,6 +88,29 @@ def test_the_owner_may_revoke_anyones_token_and_nobody_else_may(tokens):
     assert row["actor"] == "human:ana"
 
 
+def test_an_mcp_call_marks_the_token_used(tokens):
+    """The Connect an agent dialog shows Connected once the agent's first MCP call lands: the token
+    list's last_used, set by that call and by nothing the browser does while it waits."""
+    issued = mint(tokens, label="Grok · 2026-09-30")
+    last_used = lambda: {row["id"]: row["last_used"] for row in get(tokens, "me/tokens", token=ADMIN)["tokens"]}[issued["id"]]
+    assert last_used() is None
+    r = tokens.post("/api/v2/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                    headers=headers(issued["token"]))
+    assert r.status_code == 200 and r.json()["result"]["tools"]
+    assert last_used()
+
+
+def test_the_dialog_is_told_when_cloudflare_access_guards_the_mcp_url(tokens):
+    settings = tokens.app.state.store.settings
+    assert get(tokens, "agent-skill", token=ADMIN)["access_bypass"] is False
+    settings.auth_proxy, settings.public_url = "cloudflare", "https://hub.acme.example"
+    settings.runner_url = settings.public_url
+    skill = get(tokens, "agent-skill", token=ADMIN)
+    assert skill["mcp_url"] == "https://hub.acme.example/api/v2/mcp" and skill["access_bypass"] is True
+    settings.runner_url = "https://runner.acme.example"          # a hostname Access does not guard
+    assert get(tokens, "agent-skill", token=ADMIN)["access_bypass"] is False
+
+
 def hub(argv, env):
     out = io.StringIO()
     with redirect_stdout(out):

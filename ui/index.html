@@ -1531,42 +1531,6 @@ a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;h
 .agent-credential label{display:flex;flex-direction:column;gap:6px;font-size:13px}.agent-credential code{white-space:pre-wrap;word-break:break-all;flex:1;padding:6px 8px;background:var(--surface2);border-radius:var(--radius)}
 .settings-token-form{margin-top:var(--s2);align-items:flex-end;flex-wrap:wrap;gap:var(--s2)}.settings-token-form label{display:flex;flex-direction:column;gap:4px;font-size:13px}.settings-token-form input[type=number]{width:5em}
 .agent-credential pre{white-space:pre-wrap;word-break:break-all;background:var(--surface2);padding:8px;border-radius:var(--radius);font-size:12px}
-/* Connect an agent: title and intro, the agent as a segmented control, one button; then three
-   steps and the block to paste, which wraps and carries its own Copy. */
-.connect-agent{width:min(600px,calc(100vw - 24px))}
-.connect-agent[open]{display:flex;flex-direction:column}
-.ca-head{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s5) var(--s5) var(--s3)}
-.ca-head>div{flex:1;min-width:0}
-.ca-head h2{font-size:18px;line-height:1.3}
-.ca-intro{margin:6px 0 0;color:var(--muted);font-size:13.5px;line-height:1.5}
-.ca-head .tmodal-x{flex:none;margin:-4px -6px 0 0;border:0;font-size:15px;color:var(--muted)}
-.ca-head .tmodal-x:hover{color:var(--ink);background:var(--surface2)}
-.ca-body{display:flex;flex-direction:column;gap:var(--s4);padding:var(--s2) var(--s5) var(--s5);min-height:0;overflow-y:auto}
-.ca-field{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;border:0;min-width:0}
-.ca-label{padding:0;font-size:12px;font-weight:500;color:var(--muted)}
-.ca-pick{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2)}
-.ca-seg{display:inline-flex;padding:3px;gap:2px;border-radius:8px;background:var(--surface2);max-width:100%}
-.ca-seg label{position:relative;flex:1 1 auto;cursor:pointer}
-.ca-seg input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
-.ca-seg span{display:block;padding:6px 14px;border-radius:6px;font-size:13.5px;color:var(--muted);white-space:nowrap;text-align:center}
-.ca-seg label:hover span{color:var(--ink)}
-.ca-seg input:checked+span{background:var(--surface);color:var(--ink);font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,.14)}
-.ca-seg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:1px}
-.ca-other{flex:1 1 180px;min-width:0}
-.ca-other[hidden]{display:none}
-.ca-actions{display:flex;justify-content:flex-end}
-.ca-actions .primary{min-width:140px}
-.ca-steps{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;counter-reset:ca;font-size:14px}
-.ca-steps li{display:flex;align-items:baseline;gap:10px;counter-increment:ca}
-.ca-steps li::before{content:counter(ca);flex:none;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--ok-bg);color:var(--accent);font-size:11.5px;font-weight:600;transform:translateY(-1px)}
-.ca-block{border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);min-width:0;overflow:hidden}
-.ca-block-head{display:flex;align-items:center;gap:var(--s2);padding:6px 6px 6px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
-.ca-block-head span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono)}
-.ca-copy{flex:none;padding:4px 12px;font-size:12.5px;background:var(--surface)}
-.ca-copy[data-copied]{color:var(--ok);border-color:var(--ok)}
-.ca-block pre{margin:0;padding:12px;max-height:min(42vh,380px);overflow-y:auto;overflow-x:hidden;white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;font:12.5px/1.55 var(--mono);color:var(--ink)}
-.ca-note{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
-@media (max-width:760px){.ca-head{padding:var(--s4) var(--s4) var(--s2)}.ca-body{padding:var(--s2) var(--s4) var(--s4)}.ca-seg{display:flex;width:100%}.ca-seg span{padding:8px 6px}.ca-actions .primary{width:100%;padding:11px 14px}}
 .bfiles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .fchip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;background:var(--bg);font-size:11.5px}
 .chat-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
@@ -2542,7 +2506,7 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
           <a class="nav-link" id="download-app" href="/download/mac" hidden><span class="nav-icon" aria-hidden="true">download</span>Download the app</a>
         </nav>
       </div>
-      <button class="help-link" id="connect-agent" type="button" hidden aria-label="Connect an agent" title="Connect an agent: Grok Bot, Meta Muse or your own, through the hub's MCP"><span class="nav-icon" aria-hidden="true">power</span></button>
+      <button class="help-link" id="connect-agent" type="button" hidden aria-label="Connect an agent" title="Connect an agent: Grok, Dots, Muse or any MCP agent"><span class="nav-icon" aria-hidden="true">power</span></button>
       <a class="help-link" id="help-open" href="#/help" data-nav="help" aria-label="How Tico works" title="How Tico works">?</a>
       <button id="rail" type="button" aria-label="Move to right rail" title="Move to right rail">⇥</button>
     </div>
@@ -2568,6 +2532,7 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 <script src="/vendor/marked.min.js"></script>
 <script src="/tico/ui/bot-files.js"></script>
 <script src="/tico/ui/tool-icons.js"></script>
+<script src="/tico/ui/connect-agent.js"></script>
 <script src="/tico/ui/bot-tools.js"></script>
 <script src="/tico/ui/docs-search.js"></script>
 <script src="/tico/ui/docs-editor.js"></script>
@@ -10384,73 +10349,8 @@ function settingsTokenShow(issued) {
   dialog.onclose = () => { dialog.remove(); void renderSettingsTokens(); };
   document.body.appendChild(dialog); dialog.showModal();
 }
-// "Connect an agent": a person's own agent (Grok Bot, Meta Muse) works their bots through the
-// hub's MCP as them. One personal token, labelled after the agent (messages it sends read
-// "Jo (via grok-bot)"), and one block to paste: the MCP server and the skill it follows.
-// The address and the skill come from GET /api/v2/agent-skill, the server's own source.
-const CONNECT_AGENTS = [['grok-bot', 'Grok Bot'], ['meta-muse', 'Meta Muse'], ['other', 'Other']];
-const agentLabel = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-function connectAgent() {
-  setDrawer(false);
-  const dialog = document.createElement('dialog'); dialog.className = 'tmodal connect-agent';
-  dialog.setAttribute('aria-labelledby', 'ca-title');
-  dialog.innerHTML = `<header class="ca-head"><div><h2 id="ca-title">Connect an agent</h2>
-      </div>
-      <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
-    <form class="ca-body" data-connect-form>
-      <fieldset class="ca-field"><legend class="ca-label">Agent</legend>
-        <div class="ca-pick">
-          <div class="ca-seg">${CONNECT_AGENTS.map(([value, name], i) =>
-            `<label><input type="radio" name="agent" value="${value}"${i ? '' : ' checked'}><span>${name}</span></label>`).join('')}</div>
-          <input class="ca-other" data-other hidden name="other" type="text" maxlength="40" placeholder="Its name, e.g. Claude desktop" aria-label="Agent name">
-        </div>
-      </fieldset>
-      <div class="ca-actions"><button class="primary" type="submit">Create token</button></div>
-    </form>`;
-  const form = dialog.querySelector('[data-connect-form]'), other = form.querySelector('[data-other]');
-  form.addEventListener('change', event => {
-    if (event.target.name !== 'agent') return;
-    other.hidden = form.agent.value !== 'other';
-    if (!other.hidden) other.focus();
-  });
-  dialog.querySelector('[data-close]').onclick = () => dialog.close();
-  dialog.onclose = () => { dialog.remove(); if ($('#set-tokens')) void renderSettingsTokens(); };
-  form.onsubmit = async event => {
-    event.preventDefault();
-    const choice = form.agent.value;
-    const label = choice === 'other' ? agentLabel(other.value) : choice;
-    if (!label) { other.focus(); return; }
-    const name = choice === 'other' ? other.value.trim().replace(/[.!?]+$/, '') : CONNECT_AGENTS.find(([value]) => value === choice)[1];
-    const button = form.querySelector('button[type=submit]'); button.disabled = true;
-    let skill, issued;
-    try {
-      skill = await get('/v2/agent-skill');     // first, so a token is never made that cannot be shown
-      issued = await post('/v2/me/tokens', {label, expires_in_days: 90});
-    } catch (error) { toast(error.message, true); button.disabled = false; return; }
-    const setup = `Add a remote MCP server (streamable HTTP):
-  Name: tico-hub
-  URL: ${skill.mcp_url}
-  Header: Authorization: Bearer ${issued.token}
-
-Then follow this skill:
-
-${skill.text}`;
-    form.outerHTML = `<div class="ca-body">
-      <ol class="ca-steps"><li>Copy the block below.</li><li>Paste it into ${esc(name)}.</li><li>Ask it “who needs me”.</li></ol>
-      <div class="ca-block"><div class="ca-block-head"><span>tico-hub · ${esc(label)}</span><button class="ghost ca-copy" type="button" data-copy-setup>Copy</button></div>
-        <pre data-setup>${esc(setup)}</pre></div>
-      <p class="ca-note">Shown once; expires ${esc(new Date(issued.expires_at).toLocaleDateString())}. Revoke it in Devices › API tokens.</p>
-    </div>`;
-    const copy = dialog.querySelector('[data-copy-setup]');
-    let reset = 0;
-    copy.onclick = () => void copyText(setup).then(() => {
-      copy.textContent = 'Copied ✓'; copy.dataset.copied = '';
-      clearTimeout(reset); reset = setTimeout(() => { copy.textContent = 'Copy'; delete copy.dataset.copied; }, 2000);
-    }).catch(() => toast('Could not copy; select the block and copy it', true));
-  };
-  document.body.appendChild(dialog); dialog.showModal();
-}
-$('#connect-agent').onclick = connectAgent;
+// Connect an agent: ui/connect-agent.js.
+$('#connect-agent').onclick = () => window.connectAgent?.();
 async function settingsTokenRevoke(id, label) {
   if (!confirm(`Revoke the token ${label}? Anything using it stops at once.`)) return;
   try { await post(`/v2/me/tokens/${encodeURIComponent(id)}/revoke`, {}); toast(`Token ${label} revoked`); }
@@ -11997,7 +11897,7 @@ function onbWire(state, key) {
   const tasks = $('#onb-tasks');
   if (tasks) tasks.onclick = () => { location.hash = TASKS; };
   const connect = $('#onb-connect');
-  if (connect) connect.onclick = connectAgent;
+  if (connect) connect.onclick = () => window.connectAgent?.();
   document.querySelectorAll('[data-onb-activate]').forEach(button => button.onclick = () =>
     void onbActivate(state, button.dataset.onbActivate, button));
   if (key === 'done') { frWireDone(state); frWireNext(state); }
