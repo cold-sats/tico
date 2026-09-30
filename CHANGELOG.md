@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-09-30
+
 ### Added
 - **Contact support, from the app.** Help > Contact support sends the Tico team a message: up to 4000 characters, an email for a
   reply (prefilled, removable) and "Include version and install ID" (on by default). The form shows in one line exactly what it will
@@ -943,7 +945,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.16...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.17...HEAD
+[0.2.17]: https://github.com/ticoteam/tico/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/ticoteam/tico/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/ticoteam/tico/compare/v0.2.14...v0.2.15
 [0.2.14]: https://github.com/ticoteam/tico/compare/v0.2.13...v0.2.14
