@@ -38,6 +38,8 @@ def run(args, who=None):
     if fn in ("tool list", "tool show", "tool query-search") and not (fn == "tool list" and args.bot):
         # Reads a runner credential may make outside a turn; /me would refuse a runner.
         return integrations(client, args)
+    if fn in ("bot copy", "bot update-from-original", "bot suggest-to-original", "skill copy"):
+        return via_tool(client, args)              # they work in this computer's workspace (clients/botcopy.py)
     if args.cmd == "template" or (args.cmd == "bot" and args.sub not in ("status", "recent", "repo-create")):
         return bots(client, args)
     if fn in ("bot repo-create", "human add", "human list", "group list", "group update", "tool list", "tool learn", "tool add", "tool update", "tool remove",
