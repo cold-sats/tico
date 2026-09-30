@@ -1,5 +1,5 @@
 name: feedback-analyst                     # the slug: it matches the repository emp-feedback-analyst and the label owner:feedback-analyst
-display_name: "Feedback Analyst"
+display_name: "Customer Insights Analyst"
 labels: [owner:feedback-analyst]
 reads: []                        # other bot repositories this one may clone read-only
 
