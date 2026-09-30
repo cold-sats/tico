@@ -1546,7 +1546,7 @@ def slack_channel_list(api, args):
     return api.get("slack/channels")
 
 
-_CHANNEL = _s("The channel: #success_team, success_team or its id (C0123456789)")
+_CHANNEL = _s("The channel: #customer_success, customer_success or its id (C0123456789)")
 
 
 @tool("hub_slack_channel_add", "Let a bot read a Slack channel: add the channel to the company's list with the bots that read it, "

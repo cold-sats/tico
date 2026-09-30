@@ -25,12 +25,12 @@ paste the new tokens. Invite Tico to a channel with `/invite @Tico`.
 Tico, invited to a channel, stores what is said there. Which bots read it, and whether bots may post in it, is a
 list in Tico's database, not a file:
 
-- **In the app.** Settings > Tools > Slack channels (an owner or an admin): the channel (`#success_team` or its id),
+- **In the app.** Settings > Tools > Slack channels (an owner or an admin): the channel (`#customer_success` or its id),
   the bots that read it, whether bots may post (on unless you turn it off), and a note. A channel listed by name gets
   its id from Slack once Tico is in it.
-- **With `hub`.** `hub slack channel add '#success_team' --reader close-to-onboarded`, `hub slack channel list`,
-  `hub slack channel remove '#success_team' [--reader BOT]`.
-- **By asking BotOps.** "Let the Close-to-Onboarded bot read #success_team": BotOps adds it as the person who asked,
+- **With `hub`.** `hub slack channel add '#customer_success' --reader onboarding`, `hub slack channel list`,
+  `hub slack channel remove '#customer_success' [--reader BOT]`.
+- **By asking BotOps.** "Let the onboarding bot read #customer_success": BotOps adds it as the person who asked,
   so a member is told who to ask. The MCP tools are `hub_slack_channel_add`, `_list`, `_remove` and `_import`.
 
 A reader gets what is new in the channel about once an hour, as a message in its own conversation

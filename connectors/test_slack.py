@@ -204,7 +204,7 @@ class Workspace(unittest.TestCase):
 class ChannelList(FakeSlack):
     """The channel list is the hub's (Settings > Tools > Slack); the old registry file counts only until it is imported."""
 
-    rows = [{"id": "C0000000010", "name": "success_team", "post": True, "readers": ["reader"], "note": ""},
+    rows = [{"id": "C0000000010", "name": "customer_success", "post": True, "readers": ["reader"], "note": ""},
             {"id": "", "name": "agents", "post": True, "readers": [], "note": ""},
             {"id": "C0000000011", "name": "release_notes", "post": False, "readers": [], "note": ""}]
 
@@ -221,12 +221,12 @@ class ChannelList(FakeSlack):
 
     def test_a_run_reads_the_list_from_the_hub_and_the_file_only_until_it_is_imported(self):
         self.file.write_text("channels:\n  - {id: C0000000012, name: old_one, readers: reader}\n")
-        self.assertEqual([c["name"] for c in slack.load_channels(self.file)], ["success_team", "agents", "release_notes"])
+        self.assertEqual([c["name"] for c in slack.load_channels(self.file)], ["customer_success", "agents", "release_notes"])
         self.assertEqual(self.asked, ["slack/channels"])
         slack._CACHE.clear()
         self.answer["registry_file"]["imported"] = False
         self.assertEqual([c["name"] for c in slack.load_channels(self.file)],
-                         ["success_team", "agents", "release_notes", "old_one"])
+                         ["customer_success", "agents", "release_notes", "old_one"])
 
     def test_without_the_hub_the_file_is_used_and_with_neither_the_refusal_says_where_the_list_is(self):
         self.answer = None
@@ -242,7 +242,7 @@ class ChannelList(FakeSlack):
         rows = slack.load_channels(self.file)
         slack.check_history_scope(manifest, "reader", ["#agents", "C0000000010"], rows)
         with self.assertRaises(slack.Refused):                       # listed, but its reader is someone else
-            slack.check_history_scope(manifest, "other-bot", ["#success_team"], rows)
+            slack.check_history_scope(manifest, "other-bot", ["#customer_success"], rows)
         with self.assertRaises(slack.Refused):                       # not on the list at all
             slack.check_history_scope(manifest, "reader", ["#general"], rows)
         # A declared channel the list does not have no longer refuses every read.
@@ -266,7 +266,7 @@ class ChannelList(FakeSlack):
         self.assertEqual((rc, calls), (2, []))                        # not on the list
         slack._CACHE.clear()
         rc, out, calls = self.run_cli(["post", "--as", self.slug, "--channel", "C0000000010", "--text", "hi", "--json"],
-                                      [(200, {}, {"ok": True, "channel": {"name": "success_team", "is_ext_shared": True}})])
+                                      [(200, {}, {"ok": True, "channel": {"name": "customer_success", "is_ext_shared": True}})])
         self.assertEqual(rc, 2)
         self.assertEqual(len(calls), 1)                               # conversations.info, then it stopped
         self.assertEqual(self.audited, [])

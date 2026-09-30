@@ -32,12 +32,12 @@ FILE = "slack-channels.yaml"
 IMPORTED = "slack_channels_imported"
 ID_RE = re.compile(r"^[CG][A-Z0-9]{8,}$")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
-HOW = "Give a channel name like #success_team, or its id like C0123456789."
+HOW = "Give a channel name like #customer_success, or its id like C0123456789."
 
 
 # ----------------------------------------------------------------------------- pure helpers
 def parse_ref(ref, name=""):
-    """`#success_team`, `success_team`, `C0123456789` or Slack's `<#C0123456789|success_team>` -> (channel id, name);
+    """`#customer_success`, `customer_success`, `C0123456789` or Slack's `<#C0123456789|customer_success>` -> (channel id, name);
     one of them may be empty."""
     text = str(ref or "").strip()
     markup = re.fullmatch(r"<#([A-Z0-9]+)(?:\|([^>]*))?>", text)

@@ -29,7 +29,7 @@ window.mountSlackChannels = async function (host) {
     ${rows ? `<table class="int-list"><thead><tr><th>Channel</th><th>Read by</th><th></th><th>Note</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : '<div class="empty">No channels yet.</div>'}
     <form data-slack-add style="display:grid;gap:10px;max-width:460px;margin-top:12px">
-      <label>Channel<input name="channel" required autocomplete="off" spellcheck="false" placeholder="#success_team or C0123456789"></label>
+      <label>Channel<input name="channel" required autocomplete="off" spellcheck="false" placeholder="#customer_success or C0123456789"></label>
       <label>Read by<select name="reader" multiple size="${Math.min(6, Math.max(2, bots.length))}">${bots.map(b => `<option value="${text(b.id)}">${text(b.name)}</option>`).join('')}</select></label>
       <label><input type="checkbox" name="post" checked> Bots may post there</label>
       <label>Note<input name="note" maxlength="500" autocomplete="off"></label>

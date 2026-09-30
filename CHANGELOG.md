@@ -18,7 +18,7 @@ Connect tools and copy bots.
   readiness show each server as reachable, auth failed or unreachable; `hub tool add|update` take `--mcp-url`, `--transport` and
   `--header`. Bots use API tokens, never OAuth sign-ins that expire: docs/connect-tools.md says, for Jira, Linear, PostHog, Sentry
   and Trello, whether the vendor's MCP server takes a token or the bot should use its REST API.
-- **Copy a bot.** "Copy Steven's backend-reviewer for me" makes an independent bot you own, with the original's instructions,
+- **Copy a bot.** "Copy Ana's backend-reviewer for me" makes an independent bot you own, with the original's instructions,
   skills and tools (no credentials; its notes only if you ask). "Update my copy from the original" merges later changes; "suggest
   this to the original" opens a pull request or a task for its owner. `hub bot copy|update-from-original|suggest-to-original`. The
   original's repository is fetched read-only from GitHub when it lives on another computer.
