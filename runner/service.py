@@ -52,6 +52,12 @@ HEADLESS_LOGIN = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), "c
 # Codex reads its key from a login, not the environment, so the runner makes the login. A key it could not log in with
 # is not tried again for this long (a heartbeat asks every few seconds), unless the key or the home changes.
 CODEX_LOGIN_RETRY_S = 600
+# The company can give every computer its model key (Credentials > Access > Every computer). A computer whose model CLI is
+# not signed in asks for it, at most this often, and keeps it in `secrets/TEAM_KEYS_FILE`, apart from the hand-made
+# `_shared.env`. Codex is signed in once from its key and its turns never see the key; the others read theirs from the environment.
+TEAM_KEYS_FILE = "_team_model.env"
+TEAM_KEY_RETRY_S = 300
+LOGIN_ONLY = ("OPENAI_API_KEY",)
 # A parked starter bot's status: `needs_setup`, or `needs_onboarding` from a hub that has not moved to the new word.
 PARKED_STATES = ("needs_setup", "needs_onboarding")
 # What a person's chat with a parked starter bot is: its onboarding, not a request for work.
@@ -747,6 +753,7 @@ class Runner:
         env = dict(os.environ)
         secrets_dir = Path(self.config["projects_dir"]) / "secrets"
         isolation.adopt(secrets_dir)     # a file written by `docker exec` as root is still the bots'
+        env.update({k: v for k, v in self._read_env(secrets_dir / TEAM_KEYS_FILE).items() if k not in LOGIN_ONLY})
         for path in (secrets_dir / "_shared.env", secrets_dir / (bot + ".env")):
             env.update(self._read_env(path))
         for access in tools_of(config) or []:
@@ -999,11 +1006,65 @@ class Runner:
     def headless_secret(self, runtime):
         """(name, value) of the API key or token that signs `runtime` in without a browser, or ("", "").
         The runner's own environment counts, and so does `secrets/_shared.env`, where bots get it."""
-        env = {**os.environ, **self._read_env(Path(self.config["projects_dir"]) / "secrets" / "_shared.env")}
+        secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+        env = {**self._read_env(secrets_dir / TEAM_KEYS_FILE), **os.environ, **self._read_env(secrets_dir / "_shared.env")}
         for name in HEADLESS_LOGIN.get(runtime, ()):
             if env.get(name):
                 return name, env[name].strip("\"'")
         return "", ""
+
+    def team_model_keys(self, runtime):
+        """Take the model key the company gave every computer, when this computer has none of its own for `runtime`.
+
+        Asked of the server as this computer; what comes back is written to secrets/_team_model.env (owner only) and
+        never logged. A key someone put in the environment or `_shared.env` by hand is left alone. A key already taken
+        is asked for again only after the provider refused it, in case the company changed it. Returns whether the
+        file changed."""
+        names = HEADLESS_LOGIN.get(runtime)
+        client = getattr(self, "client", None)
+        if not names or client is None:
+            return False
+        secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+        team = self._read_env(secrets_dir / TEAM_KEYS_FILE)
+        hand = {**os.environ, **self._read_env(secrets_dir / "_shared.env")}
+        if any(hand.get(name) for name in names) or (any(team.get(name) for name in names) and not self.rejection(runtime)):
+            return False
+        asked = self.__dict__.setdefault("_team_key_asked", {})
+        if time.monotonic() - asked.get(runtime, -TEAM_KEY_RETRY_S) < TEAM_KEY_RETRY_S:
+            return False
+        asked[runtime] = time.monotonic()
+        try:
+            reply = client.get("runner-model-credentials", runtime=runtime)
+        except Exception as exc:                       # an older server, or none reachable: the sign-in stays as it was
+            log(f"Team model key for {runtime} was not fetched: {type(exc).__name__}")
+            return False
+        given = {str(row.get("env")): str(row.get("value") or "").strip() for row in (reply or {}).get("credentials", [])
+                 if isinstance(row, dict)}
+        given = {k: v for k, v in given.items() if k in names and v and not re.search(r"[\r\n\x00]", v)}
+        if not given or all(team.get(k) == v for k, v in given.items()):
+            return False
+        for name in names:
+            team.pop(name, None)
+        team.update(given)
+        path = secrets_dir / TEAM_KEYS_FILE
+        isolation.mkdir(secrets_dir, mode=0o770)
+        temp = path.with_name(path.name + ".tmp")
+        # Owner only; with isolation on the bot user owns it and the group (the supervisor) reads it too.
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o660 if isolation.enabled() else 0o600)
+        with os.fdopen(fd, "w") as out:
+            out.write("".join(f"{k}={v}\n" for k, v in sorted(team.items())))
+        isolation.chown(temp)
+        os.replace(temp, path)
+        log("Took the team's model key for " + ", ".join(sorted(given)))
+        return True
+
+    def team_key_only(self, runtime):
+        """Whether the only key that signs `runtime` in is the one the company gave this computer."""
+        secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+        hand = {**os.environ, **self._read_env(secrets_dir / "_shared.env")}
+        team = self._read_env(secrets_dir / TEAM_KEYS_FILE)
+        names = HEADLESS_LOGIN.get(runtime, ())
+        return not any(hand.get(n) for n in names) and any(team.get(n) for n in names)
 
     def headless_login(self, runtime):
         """The name of the API key or long-lived token that signs `runtime` in without a browser, or ""."""
@@ -1060,9 +1121,13 @@ class Runner:
                     return result.returncode == 0 and "logged in" in output.lower(), output
 
                 signed, output = status()
-                # A box with an API key and no browser: sign in once, for the bots that use Codex.
+                # A box with an API key and no browser: sign in once, for the bots that use Codex, or with the
+                # key the company gave every computer.
+                if not signed and profile is None:
+                    self.team_model_keys("codex")
                 if (not signed and profile is None and self.headless_login("codex")
-                        and any((row.get("config") or {}).get("runtime") == "codex" for row in assignments)
+                        and (self.team_key_only("codex")
+                             or any((row.get("config") or {}).get("runtime") == "codex" for row in assignments))
                         and self.codex_key_login(executable, env)):
                     signed, output = status()
                 authenticated = "ready" if signed else "missing"
@@ -1083,8 +1148,11 @@ class Runner:
                     status = json.loads(result.stdout or "")
                 except ValueError:
                     status = None
+                signed = isinstance(status, dict) and status.get("loggedIn") is True
+                if not signed and profile is None:
+                    self.team_model_keys("claude")
                 token = self.headless_login("claude")
-                if isinstance(status, dict) and status.get("loggedIn") is True:
+                if signed:
                     authenticated, detail = "ready", "Signed in with " + str(status.get("authMethod") or "Claude")
                 elif token:
                     # `auth status` may not report a token from the environment as a login; the CLI
@@ -1114,6 +1182,8 @@ class Runner:
             else:
                 authenticated, detail = "ready", "Gemini API key configured"
         elif runtime == "cursor":
+            if profile is None:
+                self.team_model_keys("cursor")
             if self.headless_login("cursor"):
                 authenticated, detail = "ready", "Signed in with CURSOR_API_KEY"
             else:
@@ -1179,7 +1249,11 @@ class Runner:
             shared = self._read_env(Path(self.config["projects_dir"]) / "secrets" / "_shared.env")
         except OSError:
             shared = {}
-        if any(shared.values()):
+        try:
+            team = self._read_env(Path(self.config["projects_dir"]) / "secrets" / TEAM_KEYS_FILE)
+        except OSError:
+            team = {}
+        if any(shared.values()) or any(v for k, v in team.items() if k not in LOGIN_ONLY):
             document["shared_env"] = True
         if self.tools is not None and time.monotonic() >= self._harness_after:
             document["harnesses"] = self.tools.report(runtimes)

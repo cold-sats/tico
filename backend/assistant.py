@@ -208,7 +208,8 @@ def describe(c, method, path, body):
         (r"/api/v2/bots/([^/]+)/(owners|co-owners|updates|goals)", lambda g: f"Change {g[1]} of bot {bot(g[0])}: "
          + fields(body)),
         (r"/api/v2/bots/([^/]+)/(assignment|placement)", lambda g: f"Place bot {bot(g[0])} on {computer(body)}"),
-        (r"/api/v2/credentials/([^/]+)/grants", lambda g: "Give " + who(body.get("subject")) + " a stored credential"),
+        (r"/api/v2/credentials/([^/]+)/grants", lambda g: "Give " + ("every computer" if body.get("subject") == "computers" else who(body.get("subject")))
+         + " a stored credential"),
         (r"/api/v2/(?:people|humans)/([^/]+)", lambda g: f"Edit person {who(g[0])}: " + fields(body)),
         (r"/api/v2/access/(?:people|humans)", lambda g: f"Add {body.get('name') or body.get('email', '')} ({body.get('email', '')}) "
          "to the roster, and let them sign in" + "".join(f"; {k} {body[k]}" for k in ("team", "reports_to", "title") if body.get(k))),

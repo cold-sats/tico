@@ -112,6 +112,64 @@ class HeadlessLogin(unittest.TestCase):
         (self.root / "secrets" / "_shared.env").write_text("")
         self.assertEqual(self.readiness("codex", ("ana",))["authenticated"], "missing")
 
+    def team_key(self, reply, bots=()):
+        """Readiness on a computer with no key of its own, where the server answers `reply`; (row, printed, asks)."""
+        asks = []
+
+        class Server:
+            def get(self, path, **query):
+                asks.append((path, query))
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+
+        self.runner.client = Server()
+        args = self.root / "args.log"
+        args.write_text("")
+        self.stub("codex", CODEX_KEY)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"STUB_ARGS": str(args)}), contextlib.redirect_stdout(out):
+            row = self.readiness("codex", bots)
+            self.readiness("codex", bots)
+        return row, out.getvalue() + args.read_text(), asks
+
+    def test_a_new_computer_signs_in_with_the_key_the_team_gave_every_computer(self):
+        row, seen, asks = self.team_key({"credentials": [{"env": "OPENAI_API_KEY", "value": "sk-good"}]})
+        self.assertEqual((row["authenticated"], row["detail"]), ("ready", "Signed in with an API key"))
+        self.assertEqual(asks, [("runner-model-credentials", {"runtime": "codex"})])       # once, and only for the model
+        self.assertNotIn("sk-good", seen)
+        team = self.root / "secrets" / "_team_model.env"
+        self.assertEqual(team.read_text(), "OPENAI_API_KEY=sk-good\n")
+        self.assertEqual(team.stat().st_mode & 0o777, 0o600)
+        self.assertFalse((self.root / "secrets" / "_shared.env").exists())
+        # Codex signs in once and its turns never see the key.
+        self.assertNotIn("OPENAI_API_KEY", self.runner.credential_environment("ana"))
+
+    def test_a_subscription_only_team_leaves_the_computer_signed_out(self):
+        row, seen, asks = self.team_key({"credentials": []})
+        self.assertEqual((row["authenticated"], row["detail"]), ("missing", "Codex login required"))
+        self.assertNotIn("--with-api-key", seen)
+        self.assertEqual(len(asks), 1)                        # not on every heartbeat
+        row, _, _ = self.team_key(OSError("offline"))          # an unreachable server changes nothing
+        self.assertEqual(row["authenticated"], "missing")
+
+    def test_a_key_put_on_the_computer_by_hand_is_never_replaced_by_the_team_key(self):
+        (self.root / "secrets" / "_shared.env").write_text("OPENAI_API_KEY=sk-good\n")
+        row, _, asks = self.team_key({"credentials": [{"env": "OPENAI_API_KEY", "value": "sk-other"}]}, bots=("ana",))
+        self.assertEqual(row["authenticated"], "ready")
+        self.assertEqual(asks, [])
+        self.assertFalse((self.root / "secrets" / "_team_model.env").exists())
+
+    def test_claude_takes_the_team_token_and_its_turns_get_it(self):
+        self.stub("claude", CLAUDE)
+        self.runner.client = type("S", (), {"get": lambda self, path, **q: {"credentials": [
+            {"env": "ANTHROPIC_API_KEY", "value": "sk-ant-team"}, {"env": "OPENAI_API_KEY", "value": "sk-not-asked"}]}})()
+        row = self.readiness("claude")
+        self.assertEqual((row["authenticated"], row["detail"]), ("ready", "Signed in with ANTHROPIC_API_KEY"))
+        self.assertEqual((self.root / "secrets" / "_team_model.env").read_text(), "ANTHROPIC_API_KEY=sk-ant-team\n")
+        self.assertEqual(self.runner.credential_environment("ana")["ANTHROPIC_API_KEY"], "sk-ant-team")
+        self.assertTrue(self.runner.readiness([])["shared_env"])
+
     def test_a_turn_is_told_where_the_projects_are_so_the_mail_tool_builds_its_venv_in_the_volume(self):
         env = self.runner.environment({"bot": "ana", "token": "t", "config": {}})
         self.assertEqual(env["TICO_PROJECTS_DIR"], str(self.root))

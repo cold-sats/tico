@@ -36,6 +36,7 @@ def _computers(c, runners_online, settings):
     since = {r["id"] for r in runners_online}
     rows, fleet = [], runner_versions.load(c)
     wanted, assigned = providers.runtimes_needed(c, settings)
+    default = providers.load(c, settings)["runtime"]
     for r in c.execute("SELECT id,label,last_seen,platform,readiness_json FROM runners WHERE revoked_at IS NULL "
                        "ORDER BY label"):
         runtimes = (readiness_document(r["readiness_json"]).get("runtimes") or {})
@@ -50,7 +51,11 @@ def _computers(c, runners_online, settings):
                                    "rejected_at": v.get("rejected_at") or "" if v.get("authenticated") == "rejected" else "",
                                    "rejected_reason": v.get("rejected_reason") or "" if v.get("authenticated") == "rejected" else "",
                                    "signable": bool(v.get("installed")) and v.get("authenticated") != "ready"
-                                   and n in model_login.RUNTIMES}
+                                   and n in model_login.RUNTIMES,
+                                   # A model this computer runs (a bot on it, or the company's default) that it has no
+                                   # sign-in for, and that no key from the company gave it either.
+                                   "sign_in": bool(v.get("installed")) and v.get("authenticated") == "missing"
+                                   and n in model_login.RUNTIMES and (n in assigned.get(r["id"], ()) or n == default)}
                                   for n, v in sorted(runtimes.items())
                                   if v.get("installed") or n in wanted or n in assigned.get(r["id"], ())]})
     return rows
@@ -97,6 +102,12 @@ def _rejected(computers):
     """Online computers whose wanted harness refused its key or login: (computer, runtime, when, why)."""
     return [(x["label"], r["name"], r["rejected_at"], r["rejected_reason"])
             for x in computers if x["online"] for r in x["runtimes"] if r["rejected"] and r["needed"]]
+
+
+def _needs_sign_in(computers):
+    """(computer, model CLI) for online computers that have to be signed in to a model they run, by hand or BotOps."""
+    return [(x["label"], providers.RUNTIME_LABELS.get(r["name"], r["name"]))
+            for x in computers if x["online"] for r in x["runtimes"] if r["sign_in"]]
 
 
 def _rejected_summary(rows):
@@ -285,6 +296,13 @@ def view(c, who, settings, auth, github, config):
         else:
             checks.append(_check("models", "Models", "unknown", "Nothing to check until a computer is online."))
 
+    if full and (unsigned := _needs_sign_in(computers)):
+        checks.append(_check("computer_signin", "Computer sign-in", "warn",
+                             "; ".join(f"{label}: sign in to {model}" for label, model in unsigned[:5])
+                             + ("." if len(unsigned) <= 5 else f"; and {len(unsigned) - 5} more.")
+                             + " Sign in from Settings > Devices (BotOps can start it). To have new computers sign in by "
+                             "themselves, store the company's model key in Credentials and give it to every computer.",
+                             [_fix("Open Devices", "#/settings", "devices"), _fix("Open Credentials", "#/credentials")]))
     if full and (versions := runner_versions.health_check(computers)):
         checks.append(versions)
     if waiting:
