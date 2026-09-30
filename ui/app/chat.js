@@ -247,6 +247,8 @@ async function v2StepsOpen(state, el) {
 // Tico Live was retired; the lines it left in rooms (refs.live) read as plain messages.
 function v2MessageHTML(m) {
   // A Confirm card a bot left for you (BotOps: adding a person, a role, a shared credential): filled in from the action.
+  // A bot asking for a secret: the card takes it here and it goes straight to Credentials (ui/credential-card.js).
+  if (m.refs?.credential_request) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-credential-host="${esc(m.refs.credential_request)}"><div class="asst-state">Loading the card…</div></div></div>`;
   if (m.refs?.action) return `<div class="conv-run chat" data-message="${esc(m.id)}"><div data-action-host="${esc(m.refs.action)}"><div class="asst-state">Loading the card…</div></div></div>`;
   if (m.kind === 'notice' || m.refs?.note) {
     const when = `<div class="chat-meta"><time class="chat-time" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>`;
@@ -351,6 +353,8 @@ function v2ChatRender(state) {
   thread.innerHTML = (groups + live) || (state.failed ? '<div class="empty">Could not load the conversation yet; trying again…</div>'
     : !state.loaded ? '<div class="empty">Loading the thread…</div>' : '<div class="empty">Nothing yet. Say something below.</div>');
   if (thread.querySelector('[data-action-host]')) void window.assistantChat?.cards(thread, {get, post, esc, toast,
+    reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
+  if (thread.querySelector('[data-credential-host]')) void window.credentialCards?.mount(thread, {get, post, esc, toast,
     reload: () => v2ChatMessages(state).then(() => { if (V2C === state) v2ChatRender(state); })});
   if (atEnd) thread.scrollTop = thread.scrollHeight;
   else thread.scrollTop = wasTop + (state.prepending ? thread.scrollHeight - wasHeight : 0);

@@ -13,13 +13,17 @@ function vaultClose() {
   if (dialog.open) dialog.close();
   dialog.replaceChildren();
 }
+// The Credentials section at the bottom of the Integrations page (#int-vault); who sees it is the server's call
+// (`credential_access`), and only a credential admin gets Add.
 async function vaultLoad() {
-  const host = $('#set-credentials');
+  const host = $('#int-vault');
   if (host) host.innerHTML = '<div class="empty">Loading credentials…</div>';
   try {
     const data = await vaultFetch();
     if (INT_CRED_SERVICE && $('#int-cred-dialog')?.open) intCredPaint();
-    if (!data || !host?.isConnected || SETTINGS_TAB !== 'credentials') return;
+    if (!host?.isConnected) return;
+    if (!data) { host.hidden = true; return; }
+    host.hidden = false;
     host.innerHTML = `<div class="settings-toolbar"><div><h2>Credentials</h2></div>
       <div class="row">${data.can_manage ? '<button class="primary" id="vault-add" type="button">Add credential</button>' : ''}<button class="ghost" id="vault-refresh" type="button">Refresh</button></div></div>
       <input id="vault-search" type="search" aria-label="Find a credential" placeholder="Search by name, username or key name" autocomplete="off">

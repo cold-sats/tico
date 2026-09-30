@@ -10,6 +10,8 @@
 const V2_WORD = {idle: 'Idle', running: 'Running', waiting_human: 'Waiting on a person',
                  waiting_bot: 'Waiting on a bot', blocked: 'Blocked', limited: 'Rate limited',
                  crashed: 'Crashed', paused: 'Paused', quarantined: 'Quarantined'};
+// A bot the server has registered but not switched on yet. People read "Setting up"; the API value stays `planned`.
+const statusWord = status => status === 'planned' ? 'Setting up' : String(status || '');
 const V2_PILL = {running: 'in-progress', waiting_human: 'needs', waiting_bot: 'waiting', blocked: 'blocked',
                  limited: 'waiting', crashed: 'fail', quarantined: 'fail', idle: ''};
 const V2_KIND = {decision: 'Decision', approval: 'Approval', review: 'Review', declined: 'Declined',

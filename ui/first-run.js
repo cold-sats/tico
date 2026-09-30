@@ -186,7 +186,7 @@ function frBotBannerHTML(e) {
   return `<section class="bot-onboard" id="bot-onboard" role="status" aria-label="Needs onboarding">
       <span class="pill needs">Needs onboarding</span>
       ${can ? '<button class="primary" type="button" id="bot-start-setup">Start setup</button>'
-        : `<span class="muted">${planned ? 'Waiting for an owner to place it on a computer and activate it.' : 'Ask someone who can write to it to start.'}</span>`}
+        : `<span class="muted">${planned ? 'Setting up.' : 'Ask someone who can write to it to start.'}</span>`}
     </section>`;
 }
 function frBotWire(slug) {

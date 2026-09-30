@@ -39,7 +39,7 @@ function botStatePill(slug) {
   if (st === 'running') return `<span class="pill in-progress">Running${act?.issue ? ` on #${esc(act.issue)}` : ''}</span>`;
   if (st === 'needs') return '<span class="pill needs">Needs you</span>';
   if (st === 'paused') return '<span class="pill">Paused</span>';
-  if (st === 'planned') return '<span class="pill">Planned</span>';
+  if (st === 'planned') return '<span class="pill">Setting up</span>';
   if (st === 'failed') return `<span class="pill fail">Last run failed${last?.finished ? ` ${ago(last.finished)}` : ''}</span>`;
   return `<span class="pill">Idle${last?.finished ? `, last active ${ago(last.finished)}` : ''}</span>`;
 }

@@ -89,9 +89,11 @@ async function pageIntegrations() {
   const load = ++INT_LOAD;
   const service = S.route.startsWith(INTEGRATIONS + '/') ? decodeURIComponent(S.route.slice(INTEGRATIONS.length + 1)) : '';
   if (!service) {
-    $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Integrations</h1></div></div>
+    $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Integrations</h1></div>
+      ${S.me?.credential_access ? '<a class="ghost" href="#int-vault" data-int-vault-link>Credentials</a>' : ''}</div>
       <section class="card"><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter integrations">
       <div id="int-list"><div class="empty">Loading…</div></div></section>
+      <section class="card" id="int-vault" hidden></section>
       <dialog class="bot-editor" id="int-cred-dialog" aria-label="Integration credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
     const draw = () => {
@@ -124,6 +126,10 @@ async function pageIntegrations() {
       const b = ev.target.closest('[data-int-cred]');
       if (b) { ev.preventDefault(); intCredOpen(b.dataset.intCred); }
     };
+    // The vault lists itself for whoever may open it (owners and credential admins add and share).
+    if (S.me?.credential_access) void vaultLoad();
+    const jump = $('[data-int-vault-link]');
+    if (jump) jump.onclick = ev => { ev.preventDefault(); $('#int-vault')?.scrollIntoView({behavior: 'smooth', block: 'start'}); };
     return;
   }
   $('#main').innerHTML = `<div class="int-page"><p class="muted"><a href="${INTEGRATIONS}">← Integrations</a></p><div id="int-detail"><div class="empty">Loading…</div></div>
