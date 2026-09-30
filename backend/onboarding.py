@@ -703,7 +703,7 @@ class Onboarding:
         """A person who manages a parked starter says anything to it: its setup has begun, so its first routine
         goes on (`arm_first_routine`). Anyone else's message to it changes nothing."""
         row = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (slug,)).fetchone()
-        if (row and row["onboarding_state"] == NEEDS_ONBOARDING and who.role in ("owner", "human")
+        if (row and statuses.is_parked(row["onboarding_state"]) and who.role in ("owner", "human")
                 and (self.auth.bot_manager(c, who, slug) or self.auth.operator(c, who, slug))):
             return self.arm_first_routine(c, who, slug)
         return None
