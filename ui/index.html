@@ -780,16 +780,77 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-table tr:last-child td{border-bottom:0}
 .settings-table tbody tr:hover{background:var(--surface2)}
 .settings-num{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
-.settings-people{min-width:560px}
-.settings-people th:nth-child(1){width:34%}.settings-people th:nth-child(2){width:20%}.settings-people th:nth-child(3){width:16%}.settings-people th:nth-child(5){width:40px}
-.settings-people .settings-cell-note{color:var(--muted)}
+/* Settings > People: one choice for how people join, then one compact row per person, saved as it changes */
+.people-join{display:flex;flex-direction:column;gap:var(--s3)}
+.people-mode{display:flex;gap:2px;padding:3px;background:var(--surface2);border-radius:8px;align-self:flex-start}
+.people-mode button{border:0;background:transparent;color:var(--muted);font-weight:500;padding:6px 16px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.people-mode button:hover{color:var(--ink)}
+.people-mode button[aria-pressed=true]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.06)}
+.people-add{display:flex;gap:var(--s2);max-width:640px}
+.people-add input[name=email]{flex:3 1 0;min-width:0}.people-add input[name=name]{flex:2 1 0;min-width:0}.people-add button{flex:none}
+.people-line{display:flex;align-items:center;gap:10px;margin:0;font-size:13.5px}
+.people-note,.people-synced{margin:0;font-size:13px;color:var(--muted)}
+.people-extras{flex-wrap:wrap}.people-extras .allow-chips{margin:0}
+.people-chip-x{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 0 0 2px;font-size:15px;line-height:1}
+.people-chip-x:hover{color:var(--fail)}
+input.people-switch{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:34px;height:20px;margin:0;border-radius:10px;background:color-mix(in srgb,var(--muted) 45%,var(--line));cursor:pointer;transition:background .15s;vertical-align:middle}
+input.people-switch::before{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+input.people-switch:checked{background:var(--accent)}
+input.people-switch:checked::before{transform:translateX(14px)}
+input.people-switch:disabled{opacity:.45;cursor:not-allowed}
+.people-list-card>header{align-items:center}
+.people-head,.people-row{display:grid;grid-template-columns:minmax(0,1fr) 120px 100px 36px;align-items:center;gap:var(--s3)}
+.people-head{padding:0 0 6px;border-bottom:1px solid var(--line);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.people-list{list-style:none;margin:0;padding:0}
+.people-row{padding:10px 0;border-bottom:1px solid var(--line)}
+.people-row:last-child{border-bottom:0}
+.people-who{display:flex;align-items:center;gap:10px;min-width:0}
+.people-id{min-width:0}
+.people-name,.people-email{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.people-name{font-weight:500}.people-email{color:var(--muted);font-size:12.5px}
+.people-cell-role select{width:auto;min-width:104px;padding:4px 8px;font-size:13px}
+.people-role{font-size:13px}.people-role[data-role=owner]{font-weight:600}
+.people-cell-signin{display:flex;align-items:center;gap:8px}
+.people-switch-label{display:none;font-size:13px;color:var(--muted)}
+.people-cell-more{position:relative;display:flex;justify-content:flex-end}
+.people-more{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:0;border-radius:6px;background:none;color:var(--muted);cursor:pointer}
+.people-more:hover,.people-more[aria-expanded=true]{background:var(--surface2);color:var(--ink)}
+.people-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:180px;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+.people-menu[hidden]{display:none}
+.people-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:5px;background:none;color:var(--ink);font-size:13.5px;text-align:left;cursor:pointer;white-space:nowrap}
+.people-menu button:hover,.people-menu button:focus-visible{background:var(--surface2)}
+.people-menu .danger-text{color:var(--fail)}
+.people-check{width:14px;color:var(--accent);font-weight:600}
+.people-left{margin-top:var(--s2);padding-top:var(--s2);border-top:1px solid var(--line)}
+.people-left summary{padding:4px 0;color:var(--muted);font-size:13px;cursor:pointer}
+.people-row.is-left{grid-template-columns:minmax(0,1fr) auto}.people-row.is-left .people-who{opacity:.6}
+.people-limit{margin-top:var(--s2);padding-top:var(--s3);border-top:1px solid var(--line)}
+.people-limit input{width:76px}
+button.people-danger{background:var(--fail);color:var(--surface)}
+/* Sync with directory (ui/directory-sync.js) */
+.ds-form{display:grid;gap:10px;max-width:560px}.ds-form [hidden]{display:none!important}
+.ds-stack{display:grid;gap:10px}
+.ds-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+.ds-row select{width:auto;min-width:220px}
+.ds-form details summary{color:var(--muted);font-size:13px;cursor:pointer}
+.ds-form details[open]>div{display:grid;gap:10px;margin-top:8px}
+.ds-inline input{width:72px;margin:0 4px}
 @media (max-width:760px){
-  /* tables of people and computers become stacked cards: nothing is cut off behind a sideways scroll */
-  .settings-people,.settings-people tbody,.settings-people tr,.settings-people td,.settings-table.settings-machines,.settings-machines tbody,.settings-machines tr,.settings-machines td{display:block;width:100%;min-width:0}
-  .settings-people thead,.settings-machines thead{display:none}
-  .settings-people tr,.settings-machines tr{padding:10px 0;border-bottom:1px solid var(--line)}
-  .settings-people td,.settings-machines td{border:0;padding:2px 0}
-  .settings-people td.row-actions{display:flex;flex-wrap:wrap;gap:6px;padding-top:6px}
+  .people-mode{align-self:stretch}.people-mode button{flex:1;padding:8px 6px}
+  .people-add{flex-wrap:wrap}.people-add input[name=email]{flex:1 1 100%}
+  .people-head{display:none}
+  .people-row{grid-template-columns:auto minmax(0,1fr) 36px;grid-template-areas:"who who more" "role signin signin";row-gap:6px}
+  .people-who{grid-area:who}.people-cell-role{grid-area:role;padding-left:42px}.people-cell-signin{grid-area:signin}.people-cell-more{grid-area:more}
+  .people-row.is-left{grid-template-areas:"who more"}
+  .people-switch-label{display:inline}
+  .ds-row select{flex:1;min-width:0}
+}
+@media (max-width:760px){
+  /* computers become stacked cards: nothing is cut off behind a sideways scroll */
+  .settings-table.settings-machines,.settings-machines tbody,.settings-machines tr,.settings-machines td{display:block;width:100%;min-width:0}
+  .settings-machines thead{display:none}
+  .settings-machines tr{padding:10px 0;border-bottom:1px solid var(--line)}
+  .settings-machines td{border:0;padding:2px 0}
 }
 p:empty{display:none}
 .person-bot-logos{display:flex;align-items:center;min-height:25px;gap:3px}
@@ -11290,149 +11351,207 @@ async function renderSettingsProviders() {
 }
 
 // ----------------------------------------------------------------- people and access
-// The owner manages who is on the roster, who may sign in and who owns the environment
-// (backend/access.py). Everything is a stored, revisioned setting, so none of it needs a restart.
-const PEOPLE_PROXY_NOTE = {
-  cloudflare: 'Cloudflare Access', 'aws-alb': 'your AWS sign-in (Cognito)'};
-const peopleLines = text => String(text || '').split(/[\s,;]+/).map(v => v.trim()).filter(Boolean);
+// How people get here (a directory sync, or added by hand), who is on the roster, what each may do and who
+// owns the environment (backend/access.py). Every control saves when it changes; nothing needs a restart.
+// Identity proxies keep their own list: Tico does not change a Cloudflare Access policy or a Cognito pool.
+const PEOPLE_PROXY = {cloudflare: 'Cloudflare Access', 'aws-alb': 'your Cognito user pool'};
+const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
+const PEOPLE_SOURCE = {google: 'Google Workspace', entra: 'Microsoft Entra ID', scim: 'SCIM'};
+let PEOPLE_MODE = '';        // 'manual' or 'sync' picked on this page; '' follows the saved directory source
+let PEOPLE_ADDED = '';       // who was just let in, for the one-line identity proxy reminder
 function peopleDialog(title, body) {
   const d = $('#people-dialog');
   d.innerHTML = `<div class="tmodal-title">${esc(title)}</div><div class="tmodal-body">${body}</div>`;
   if (!d.open) d.showModal();
   return d;
 }
-function peopleFormRows(p = {}) {
-  const row = (name, label, value, type = 'text') =>
-    `<label class="onb-field"><span class="k">${label}</span><input name="${name}" type="${type}"${type === 'email' ? ' inputmode="email" spellcheck="false"' : ''} autocomplete="off" value="${esc(value || '')}" ${name === 'name' || name === 'email' ? 'required' : ''}></label>`;
-  return row('name', 'Name', p.name) + row('email', 'Email', p.email, 'email') + row('title', 'Title', p.title) + row('team', 'Team', p.team);
+function peopleSwitch(attrs, checked, disabled, label) {
+  return `<input type="checkbox" role="switch" class="people-switch" ${attrs} aria-label="${esc(label)}"${checked ? ' checked' : ''}${disabled ? ' disabled' : ''}>`;
 }
-// What a member may do: create bots (on unless switched off) and add people (by default coworkers in the
-// company's email domain). Owners and admins always may, so these are shown for members only.
-function peopleCapabilityRows(p) {
-  if (p.role !== 'member') return '<p class="muted">An owner or admin may add bots and people without limit.</p>';
-  const add = p.add_people_default ? 'default' : p.add_people ? 'yes' : 'no';
-  return `<label class="onb-field"><span class="k"><input type="checkbox" name="create_bots" ${p.create_bots ? 'checked' : ''}> Can add bots</span></label>
-    <label class="onb-field"><span class="k">Can add people</span><select name="add_people">
-      <option value="default" ${add === 'default' ? 'selected' : ''}>Coworkers (default)</option>
-      <option value="yes" ${add === 'yes' ? 'selected' : ''}>Coworkers</option>
-      <option value="no" ${add === 'no' ? 'selected' : ''}>No</option></select></label>
-    <p class="muted">Anyone outside the company domain needs an admin.</p>`;
+// Owners and admins set what a member may do; only the owner makes admins, transfers ownership or marks someone as left.
+function peopleMenu(p) {
+  const owner = S.me?.role === 'owner', items = [];
+  const check = (act, label, on) => `<button type="button" role="menuitemcheckbox" aria-checked="${on}" data-person-act="${act}"><span class="people-check" aria-hidden="true">${on ? '✓' : ''}</span>${label}</button>`;
+  if (p.role === 'member') items.push(check('create_bots', 'Can add bots', !!p.create_bots), check('add_people', 'Can add people', !!p.add_people));
+  if (owner && !p.owner && p.email && p.can_sign_in) items.push('<button type="button" role="menuitem" data-person-act="owner">Make owner</button>');
+  if (owner && !p.owner && p.id !== S.me?.id) items.push('<button type="button" role="menuitem" class="danger-text" data-person-act="left">Mark as left</button>');
+  return items.join('');
 }
-// What "who may join" understood, as chips: a domain lets anyone at it in, an address only that person.
-function allowChips(people, found) {
-  const rows = [...(found || []).map(d => ['Domain', d]), ...(people || []).map(p => ['Person', p])];
-  if (!rows.length) return '';
-  const chip = ([kind, value]) => `<li class="allow-chip" data-allow-kind="${kind.toLowerCase()}"><span class="k">${kind}</span>${esc(value)}</li>`;
-  return `<ul class="allow-chips" aria-label="What was understood">${rows.slice(0, 14).map(chip).join('')}${rows.length > 14 ? `<li class="allow-chip more">+${rows.length - 14} more</li>` : ''}</ul>`;
+function peopleRow(p) {
+  const owner = S.me?.role === 'owner', menu = peopleMenu(p);
+  const face = personAvatar({...(S.people || []).find(x => x.id === p.id), ...p}, 32);
+  const role = owner && !p.owner
+    ? `<select data-person-role aria-label="Role">${['member', 'admin'].map(r => `<option value="${r}"${p.role === r ? ' selected' : ''}>${PEOPLE_ROLE[r]}</option>`).join('')}</select>`
+    : `<span class="people-role" data-role="${esc(p.role)}">${PEOPLE_ROLE[p.role] || 'Member'}</span>`;
+  const locked = p.owner || p.id === S.me?.id || !p.email || (!owner && p.role === 'admin');
+  return `<li class="people-row" data-person="${esc(p.id)}">
+    <div class="people-who">${face}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div></div></div>
+    <div class="people-cell-role">${role}</div>
+    <label class="people-cell-signin">${peopleSwitch('data-person-signin', p.can_sign_in, locked, 'Can sign in')}<span class="people-switch-label">Can sign in</span></label>
+    <div class="people-cell-more">${menu ? `<button class="people-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button><div class="people-menu" role="menu" hidden>${menu}</div>` : ''}</div>
+  </li>`;
 }
-const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
-function peopleAccessLabel(p) {
-  if (p.left) return '<span class="muted">Left</span>';
-  const can = p.role === 'member' ? [p.create_bots ? 'adds bots' : '', p.add_people ? 'adds people' : ''].filter(Boolean).join(', ') : '';
-  return [`<b data-role="${esc(p.role)}">${PEOPLE_ROLE[p.role] || 'Member'}</b>`, p.can_sign_in ? 'Can sign in' : 'No email', can]
-    .filter(Boolean).join(' · ');
+function peopleCloseMenus(except) {
+  document.querySelectorAll('.people-menu:not([hidden])').forEach(menu => {
+    if (menu === except) return;
+    menu.hidden = true; menu.previousElementSibling?.setAttribute('aria-expanded', 'false');
+  });
 }
+document.addEventListener('click', event => { if (!event.target.closest?.('.people-cell-more')) peopleCloseMenus(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') peopleCloseMenus(); });
 async function renderSettingsPeople() {
   const el = $('#set-people'); if (!el) return;
   try {
     const view = await get('/v2/access');
     if (!$('#set-people')) return;
-    const proxy = PEOPLE_PROXY_NOTE[view.proxy];
-    const rows = view.people.map(p => `<tr data-person="${esc(p.id)}">
-      <td>${esc(p.name)}<div class="settings-cell-note">${esc(p.email || 'no email')}</div></td>
-      <td>${esc([p.title, p.team].filter(Boolean).join(' · '))}</td>
-      <td>${peopleAccessLabel(p)}</td>
-      <td class="row-actions">
-        <button class="ghost" type="button" data-person-act="edit">Edit</button>
-        ${p.owner || p.left || S.me?.role !== 'owner' ? '' : `<button class="ghost" type="button" data-person-act="admin">${p.bot_admin ? 'Remove admin' : 'Make admin'}</button>`}
-        ${p.owner ? '' : p.left ? '<button class="ghost" type="button" data-person-act="restore">Restore</button>'
-          : '<button class="ghost" type="button" data-person-act="left">Mark as left</button>'}
-        ${p.owner || p.left || !p.email || S.me?.role !== 'owner' ? '' : '<button class="ghost" type="button" data-person-act="owner">Make owner</button>'}
-      </td></tr>`).join('');
+    const owner = S.me?.role === 'owner', home = view.home_domain || '', added = PEOPLE_ADDED;
+    PEOPLE_ADDED = '';                                     // the reminder shows once, right after the add
+    const mode = PEOPLE_MODE || (view.directory ? 'sync' : 'manual');
+    const active = view.people.filter(p => !p.left), left = view.people.filter(p => p.left);
+    // Anything else on the allow list: addresses nobody on the roster has yet, and other domains.
+    const onRoster = new Set(view.people.map(p => p.email).filter(Boolean));
+    const extras = [...view.allowed_domains.filter(d => d !== home), ...view.allowed.filter(e => !onRoster.has(e))];
+    const proxy = PEOPLE_PROXY[view.proxy];
+    const help = `${GH}/blob/main/docs/people.md#the-identity-proxy-must-agree`;
     el.innerHTML = `
-      ${proxy ? `<div class="card" id="people-proxy-note"><p class="muted" style="margin:0">Sign-in goes through ${esc(proxy)}. Also allow new people's emails there.</p></div>` : ''}
-      <section class="card"><header><h2>People</h2>
-        <span class="spacer"></span><button class="primary" type="button" id="people-add">Add a person</button></header>
-        <div class="table-scroll"><table class="settings-table settings-people"><thead><tr><th>Person</th><th>Title · team</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-        <p class="muted">Marking someone as left ends their sign-in and API tokens.</p>
+      <section class="card people-join">
+        ${owner ? `<div class="people-mode" role="group" aria-label="How people join">
+          <button type="button" data-people-mode="manual" aria-pressed="${mode === 'manual'}">Add manually</button>
+          <button type="button" data-people-mode="sync" aria-pressed="${mode === 'sync'}">Sync with directory</button></div>` : ''}
+        ${mode === 'manual' ? `<form class="people-add" id="people-add" autocomplete="off" novalidate>
+            <input name="email" type="text" inputmode="email" autocapitalize="off" spellcheck="false" placeholder="Email" aria-label="Email">
+            <input name="name" type="text" placeholder="Name (optional)" aria-label="Name">
+            <button class="primary" type="submit">Add</button></form>`
+          : owner ? '<div id="directory-sync"></div>'
+          : `<p class="muted people-synced">Synced from ${esc(PEOPLE_SOURCE[view.directory] || view.directory)}</p>`}
+        ${proxy && added ? `<p class="people-note" id="people-proxy-note">Also allow ${esc(added)} in <a href="${esc(help)}" target="_blank" rel="noopener noreferrer">${esc(proxy)}</a></p>` : ''}
+        ${home ? `<label class="people-line">${peopleSwitch('id="people-domain"', view.domain_sign_in, !owner, `Anyone at ${home} can sign in`)}<span>Anyone at <b>${esc(home)}</b> can sign in</span></label>` : ''}
+        ${extras.length ? `<div class="people-line people-extras"><span class="muted">Also allowed</span><ul class="allow-chips">${extras.map(x =>
+          `<li class="allow-chip" data-allow="${esc(x)}">${esc(x)}${owner ? `<button type="button" class="people-chip-x" data-allow-remove="${esc(x)}" aria-label="Remove ${esc(x)}">×</button>` : ''}</li>`).join('')}</ul></div>` : ''}
       </section>
-      <section class="card" id="people-signin"><header><h2>Sign-in</h2></header>
-        <label class="onb-field"><span class="k">Who can join</span><textarea id="allow-who" rows="3" placeholder="acme.example&#10;ana@acme.example"${S.me?.role === 'owner' ? '' : ' disabled'}>${esc([...view.allowed_domains, ...view.allowed].join('\n'))}</textarea>
-          <small>Emails or domains. Empty: add people by hand.</small>
-          <small>Company domain: <span data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'none'}</span></small></label>
-        <div id="allow-understood">${allowChips(view.allowed, view.allowed_domains)}</div>
-        <label class="onb-field" style="max-width:220px"><span class="k">Bot limit per member</span><input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
-        <div class="onb-actions"><button class="primary" type="button" id="signin-save">Save</button><span class="spacer"></span><span class="muted" id="signin-status"></span></div>
-      </section>
-      <section class="card" id="directory-sync"></section>`;
-    window.mountDirectorySync?.($('#directory-sync'), renderSettingsPeople);   // ui/directory-sync.js
+      <section class="card people-list-card">
+        <header><h2>People</h2><span class="muted tnum">${active.length}</span></header>
+        <div class="people-head" aria-hidden="true"><span>Person</span><span>Role</span><span>Can sign in</span><span></span></div>
+        <ul class="people-list">${active.map(peopleRow).join('')}</ul>
+        ${left.length ? `<details class="people-left"><summary>Left <span class="tnum">${left.length}</span></summary><ul class="people-list">${left.map(p => `<li class="people-row is-left" data-person="${esc(p.id)}">
+          <div class="people-who">${personAvatar(p, 32)}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div></div></div>
+          <div class="people-cell-more"><button class="ghost" type="button" data-person-act="restore">Restore</button></div></li>`).join('')}</ul></details>` : ''}
+        <label class="people-line people-limit">Bot limit per member<input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+      </section>`;
+    if (mode === 'sync' && owner) window.mountDirectorySync?.($('#directory-sync'), renderSettingsPeople);   // ui/directory-sync.js
     const person = id => view.people.find(p => p.id === id);
-    const refresh = async message => { $('#people-dialog').close(); if (message) toast(message); await renderSettingsPeople(); };
-    const fail = (form, error) => { form.querySelector('.people-status').innerHTML = `<span class="err">${esc(error.message)}</span>`; form.querySelectorAll('button').forEach(b => b.disabled = false); };
-    const actions = (label, danger) => `<div class="onb-actions"><button class="ghost" type="button" data-people-cancel>Cancel</button><span class="spacer"></span><span class="people-status muted"></span><button class="${danger ? 'danger' : 'primary'}" type="submit">${label}</button></div>`;
-    const submit = (d, work, done) => {
+    const again = async message => { if (message) toast(message); await renderSettingsPeople(); };
+    const change = async (work, message) => {
+      try { await work(); await again(message); } catch (error) { toast(error.message, true); await renderSettingsPeople(); }
+    };
+    const allow = (people, domains) => put('/v2/access/allow', {allowed: people, allowed_domains: domains, expected_revision: view.revision});
+    const confirmDialog = (title, text, label, work) => {
+      const d = peopleDialog(title, `<form>${text ? `<p>${esc(text)}</p>` : ''}<div class="onb-actions"><button class="ghost" type="button" data-people-cancel>Cancel</button><span class="spacer"></span><span class="people-status muted"></span><button class="primary people-danger" type="submit">${esc(label)}</button></div></form>`);
       const form = d.querySelector('form');
       d.querySelector('[data-people-cancel]').onclick = () => d.close();
       form.onsubmit = async event => {
         event.preventDefault();
         form.querySelectorAll('button').forEach(b => b.disabled = true);
-        try { await work(new FormData(form)); await refresh(done); } catch (error) { fail(form, error); }
+        try { await work(); d.close(); }
+        catch (error) { form.querySelector('.people-status').innerHTML = `<span class="err">${esc(error.message)}</span>`; form.querySelectorAll('button').forEach(b => b.disabled = false); }
       };
     };
-    $('#people-add').onclick = () => {
-      const d = peopleDialog('Add a person', `<form>${peopleFormRows()}${actions('Add')}</form>`);
-      submit(d, f => post('/v2/access/people', Object.fromEntries(f)), 'Person added');
-    };
-    $('#signin-save').onclick = async () => {
-      const status = $('#signin-status'); status.textContent = 'Saving…';
+    el.querySelectorAll('[data-people-mode]').forEach(button => button.onclick = () => {
+      const want = button.dataset.peopleMode;
+      if (want === mode) return;
+      if (want === 'sync' || !view.directory) { PEOPLE_MODE = want; void renderSettingsPeople(); return; }
+      // Leaving a saved sync turns it off; the people it added stay.
+      confirmDialog(`Stop syncing from ${PEOPLE_SOURCE[view.directory] || view.directory}?`, 'Synced people stay.', 'Stop sync', async () => {
+        const d = await get('/v2/directory');
+        await put('/v2/directory', {source: '', filter: d.filter, interval_minutes: d.interval_minutes,
+          mass_leave_limit: d.mass_leave_limit, expected_revision: d.revision});
+        PEOPLE_MODE = 'manual'; await again('Sync stopped');
+      });
+    });
+    const add = $('#people-add');
+    if (add) add.onsubmit = async event => {
+      event.preventDefault();
+      const email = add.email.value.trim(), name = add.name.value.trim();
+      if (!email) { add.email.focus(); return; }
+      add.querySelectorAll('input,button').forEach(x => x.disabled = true);
       try {
-        // The server sorts each entry into an address or a domain and refuses one that could never match;
-        // the page then re-reads what it understood.
-        if (S.me?.role === 'owner') await put('/v2/access/allow', {allowed: peopleLines($('#allow-who').value),
-          allowed_domains: [], expected_revision: view.revision});
-        await put('/v2/access/limits', {member_bot_limit: Number($('#member-bot-limit').value)});
-        toast('Sign-in saved'); await renderSettingsPeople();
-      } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
-    };
-    el.querySelectorAll('[data-person-act]').forEach(button => button.onclick = async () => {
-      const p = person(button.closest('[data-person]').dataset.person), act = button.dataset.personAct;
-      const path = `/v2/access/people/${encodeURIComponent(p.id)}`;
-      if (act === 'admin' || act === 'restore') {
-        try { await post(path, act === 'admin' ? {role: p.role === 'admin' ? 'member' : 'admin'} : {left: false}); await renderSettingsPeople(); }
-        catch (error) { toast(error.message, true); }
-      } else if (act === 'edit') {
-        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${peopleCapabilityRows(p)}${p.owner ? '<p class="muted">Make someone else owner to change this.</p>' : ''}${actions('Save')}</form>`);
-        if (p.owner) d.querySelector('[name=email]').readOnly = true;
-        submit(d, f => {
-          const body = Object.fromEntries([...f].filter(([k]) => !['create_bots', 'add_people'].includes(k)));
-          if (p.role === 'member') {
-            body.create_bots = f.get('create_bots') === 'on';
-            const add = f.get('add_people'); body.add_people = add === 'default' ? 'default' : add === 'yes';
-          }
-          return post(path, body);
-        }, 'Saved');
-      } else if (act === 'left') {
-        const d = peopleDialog('Mark ' + p.name + ' as left?', `<form><p>Ends their sign-in and API tokens. Their history stays.</p>${actions('Mark as left', true)}</form>`);
-        submit(d, () => post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}), p.name + ' marked as left');
-      } else if (act === 'owner') {
-        const old = view.people.find(q => q.owner);
-        const d = peopleDialog('Make ' + p.name + ' the owner?', `<form>
-          <p>${esc(p.name)} becomes owner now. You lose the owner's controls.</p>
-          <label class="onb-field"><span class="k"><input type="checkbox" name="admin"> Keep ${esc(old?.name || 'the current owner')} as a bot administrator</span></label>
-          <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" type="text" autocomplete="off" spellcheck="false"></label>
-          ${actions('Transfer ownership', true)}</form>`);
-        const go = d.querySelector('[type=submit]'); go.disabled = true;
-        d.querySelector('[name=typed]').oninput = event => { go.disabled = event.target.value.trim().toLowerCase() !== p.email.toLowerCase(); };
-        submit(d, async f => {
-          await post('/v2/access/owner', {person: p.id, previous_owner_bot_admin: f.get('admin') === 'on',
-            expected_revision: view.owner.revision, confirm: true});
-          // This page's own rights just changed: start over rather than render an owner-only tab.
-          location.hash = '#/'; location.reload();
-          await new Promise(() => {});
-        });
+        // A domain (`partner.com`, `@partner.com`) lets anyone at it sign in instead of adding one person.
+        if (!/^[^@\s]+@/.test(email)) {
+          const domain = email.replace(/^\*?@/, '').toLowerCase();
+          await allow(view.allowed, [...view.allowed_domains, domain]);
+          PEOPLE_ADDED = domain; await again(`Anyone at ${domain} can sign in`);
+        } else {
+          await post('/v2/access/people', {email, name});
+          PEOPLE_ADDED = 'them'; await again(`Added ${name || email}`);
+          $('#people-add [name=email]')?.focus();
+        }
+      } catch (error) {
+        toast(error.message, true);
+        add.querySelectorAll('input,button').forEach(x => x.disabled = false);
       }
+    };
+    const domainSwitch = $('#people-domain');
+    if (domainSwitch) domainSwitch.onchange = () => change(async () => {
+      const on = domainSwitch.checked;
+      await allow(view.allowed, on ? [...view.allowed_domains, home] : view.allowed_domains.filter(d => d !== home));
+      PEOPLE_ADDED = on ? home : '';
+    }, domainSwitch.checked ? `Anyone at ${home} can sign in` : `Only people added here can sign in`);
+    el.querySelectorAll('[data-allow-remove]').forEach(button => button.onclick = () => {
+      const x = button.dataset.allowRemove;
+      void change(() => allow(view.allowed.filter(e => e !== x), view.allowed_domains.filter(d => d !== x)), `Removed ${x}`);
+    });
+    $('#member-bot-limit').onchange = event => change(() => put('/v2/access/limits', {member_bot_limit: Number(event.target.value)}), 'Bot limit saved');
+    el.querySelectorAll('.people-row').forEach(row => {
+      const p = person(row.dataset.person), path = `/v2/access/people/${encodeURIComponent(p.id)}`;
+      const role = row.querySelector('[data-person-role]');
+      if (role) role.onchange = () => change(() => post(path, {role: role.value}), `${p.name} is now ${role.value === 'admin' ? 'an admin' : 'a member'}`);
+      const signIn = row.querySelector('[data-person-signin]');
+      if (signIn) signIn.onchange = () => change(() => post(path, {sign_in: signIn.checked}), `${p.name} ${signIn.checked ? 'can' : 'can no longer'} sign in`);
+      const more = row.querySelector('.people-more');
+      if (more) more.onclick = () => {
+        const menu = more.nextElementSibling, open = menu.hidden;
+        peopleCloseMenus(menu);
+        menu.hidden = !open; more.setAttribute('aria-expanded', String(open));
+        if (open) menu.querySelector('button')?.focus();
+      };
+      row.querySelectorAll('[data-person-act]').forEach(button => button.onclick = () => {
+        const act = button.dataset.personAct;
+        peopleCloseMenus();
+        if (act === 'restore') void change(() => post(path, {left: false}), `${p.name} restored`);
+        else if (act === 'create_bots') void change(() => post(path, {create_bots: !p.create_bots}), `${p.name} ${p.create_bots ? 'can no longer' : 'can'} add bots`);
+        else if (act === 'add_people') void change(() => post(path, {add_people: !p.add_people}), `${p.name} ${p.add_people ? 'can no longer' : 'can'} add people`);
+        else if (act === 'left') confirmDialog(`Mark ${p.name} as left?`, 'Ends their sign-in and API tokens. Their history stays.', 'Mark as left',
+          async () => { await post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}); await again(`${p.name} marked as left`); });
+        else if (act === 'owner') peopleOwnerDialog(p, view);
+      });
     });
   } catch (error) { el.innerHTML = `<div class="err">${esc(error.message)}</div>`; }
+}
+function peopleOwnerDialog(p, view) {
+  const old = view.people.find(q => q.owner);
+  const d = peopleDialog('Make ' + p.name + ' the owner?', `<form>
+    <p>${esc(p.name)} becomes owner now. You lose the owner's controls.</p>
+    <label class="onb-field"><span class="k"><input type="checkbox" name="admin"> Keep ${esc(old?.name || 'the current owner')} as an admin</span></label>
+    <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" type="text" autocomplete="off" spellcheck="false"></label>
+    <div class="onb-actions"><button class="ghost" type="button" data-people-cancel>Cancel</button><span class="spacer"></span><span class="people-status muted"></span><button class="primary people-danger" type="submit">Transfer ownership</button></div></form>`);
+  const form = d.querySelector('form'), go = form.querySelector('[type=submit]');
+  go.disabled = true;
+  d.querySelector('[data-people-cancel]').onclick = () => d.close();
+  form.typed.oninput = event => { go.disabled = event.target.value.trim().toLowerCase() !== p.email.toLowerCase(); };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    form.querySelectorAll('button').forEach(b => b.disabled = true);
+    try {
+      await post('/v2/access/owner', {person: p.id, previous_owner_bot_admin: form.admin.checked,
+        expected_revision: view.owner.revision, confirm: true});
+      // This page's own rights just changed: start over rather than render an owner-only tab.
+      location.hash = '#/'; location.reload();
+    } catch (error) {
+      form.querySelector('.people-status').innerHTML = `<span class="err">${esc(error.message)}</span>`;
+      form.querySelectorAll('button').forEach(b => b.disabled = false);
+      go.disabled = form.typed.value.trim().toLowerCase() !== p.email.toLowerCase();
+    }
+  };
 }
 
 // ----------------------------------------------------------------- first run (#/welcome)

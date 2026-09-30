@@ -1,4 +1,4 @@
-/* Settings > People > Directory sync: pull people from Google Workspace or Microsoft Entra ID, or
+/* Settings > People > Sync with directory: pull people from Google Workspace or Microsoft Entra ID, or
    accept them over SCIM (docs/people.md). Every sync is previewed first; the credentials never
    reach the browser after they are saved. */
 window.mountDirectorySync = async function (host, onChange) {
@@ -12,70 +12,76 @@ window.mountDirectorySync = async function (host, onChange) {
       filter: {groups: [], org_units: [], domains: [], ...got.filter}, credentials: {...got.credentials}, scim: {...got.scim}};
   } catch (error) { host.innerHTML = `<div class="empty">${text(error.message)}</div>`; return; }
   if (!host.isConnected) return;
-  const HELP = {
-    google: 'Service account with domain-wide delegation, scope <code>admin.directory.user.readonly</code> (plus <code>admin.directory.group.member.readonly</code> for groups). Steps: docs/people.md.',
-    entra: 'App with <code>User.Read.All</code> (plus <code>GroupMember.Read.All</code> for groups), admin consent, and a client secret. Steps: docs/people.md.',
-    scim: 'Give your identity provider the base URL and a token. Turn group provisioning off. Steps: docs/people.md.'};
+  const GUIDE = 'https://github.com/ticoteam/tico/blob/main/docs/people.md#';
+  const ANCHOR = {google: 'google-workspace', entra: 'microsoft-entra-id', scim: 'scim-okta-microsoft-entra-provisioning-jumpcloud'};
   const last = view.last?.at
     ? `Last sync ${text(new Date(view.last.at).toLocaleString())}: ${view.last.ok === false ? `failed, ${text(view.last.error)}` : view.last.held ? 'held for your confirmation' : 'ok'}`
     : 'Never synced';
-  const saved = view.credentials[view.source];
   host.innerHTML = `
-    <header><h2>Directory sync</h2></header>
-    <form data-ds-form style="display:grid;gap:10px;max-width:560px">
-      <label>Source <select name="source">
-        <option value="">None</option><option value="google">Google Workspace</option>
-        <option value="entra">Microsoft Entra ID</option><option value="scim">SCIM (Okta, Entra provisioning, JumpCloud)</option></select></label>
-      <p class="muted" data-ds-help></p>
-      <div data-ds-creds="google" hidden>
-        <label>Service account key <textarea name="service_account_json" rows="3" autocomplete="off" spellcheck="false" placeholder="${saved?.configured ? 'Saved. Paste a new key to replace it.' : '{ &quot;type&quot;: &quot;service_account&quot;, ... }'}"></textarea></label>
+    <form data-ds-form class="ds-form">
+      <div class="ds-row"><select name="source" aria-label="Directory">
+          <option value="" disabled>Choose a directory</option><option value="google">Google Workspace</option>
+          <option value="entra">Microsoft Entra ID</option><option value="scim">SCIM (Okta, Entra, JumpCloud)</option></select>
+        <a data-ds-guide target="_blank" rel="noopener noreferrer">Setup guide</a></div>
+      <div class="ds-row" data-ds-saved hidden><span class="muted" data-ds-hint></span><button class="ghost" type="button" data-ds-replace>Replace key</button></div>
+      <div data-ds-creds="google" class="ds-stack" hidden>
+        <label>Service account key <textarea name="service_account_json" rows="3" autocomplete="off" spellcheck="false" placeholder="{ &quot;type&quot;: &quot;service_account&quot;, ... }"></textarea></label>
         <label>Admin to act as <input name="admin_email" type="email" autocomplete="email" spellcheck="false" placeholder="admin@company.com"></label>
       </div>
-      <div data-ds-creds="entra" hidden>
+      <div data-ds-creds="entra" class="ds-stack" hidden>
         <label>Tenant ID or domain <input name="tenant" type="text" autocomplete="off" spellcheck="false"></label>
         <label>Application (client) ID <input name="client_id" type="text" autocomplete="off" spellcheck="false"></label>
-        <label>Client secret value <input name="client_secret" type="password" autocomplete="new-password" placeholder="${saved?.configured ? 'Saved. Enter a new secret to replace it.' : ''}"></label>
+        <label>Client secret value <input name="client_secret" type="password" autocomplete="new-password"></label>
       </div>
-      <p class="muted" data-ds-saved></p>
-      <div data-ds-filters hidden>
-        <label><span data-ds-groups-label>Only these groups</span> <textarea name="groups" rows="2" spellcheck="false" placeholder="one per line; empty means everyone">${text(view.filter.groups.join('\n'))}</textarea></label>
-        <label data-ds-ou>Only these organizational units <textarea name="org_units" rows="2" spellcheck="false" placeholder="/Sales">${text(view.filter.org_units.join('\n'))}</textarea></label>
-        <label>Only these email domains <textarea name="domains" rows="2" spellcheck="false" placeholder="company.com">${text(view.filter.domains.join('\n'))}</textarea></label>
-        <label>Sync every <select name="interval_minutes"><option value="0">Only when I press Sync now</option><option value="60">hour</option><option value="360">6 hours</option><option value="1440">day</option></select></label>
+      <div data-ds-scim class="ds-stack" hidden>
+        <div class="ds-row">Base URL <code>${text(view.scim.url)}</code></div>
+        <div class="ds-row"><button class="ghost" type="button" data-ds-token>${view.scim.enabled ? 'Replace token' : 'Create token'}</button>
+          <span class="muted">${view.scim.enabled ? `Token created ${text(new Date(view.scim.created).toLocaleDateString())}` : ''}</span></div>
+        <p data-ds-token-out></p>
       </div>
-      <label>Confirm when a sync would mark more than <input name="mass_leave_limit" type="number" inputmode="numeric" min="0" max="10000" style="width:80px" value="${text(view.mass_leave_limit)}"> people as left</label>
-      <p class="muted">Everyone synced can sign in. Hand-added people and the owner are never removed.</p>
-      <div class="row"><button class="primary" type="submit">Save</button>
+      <div class="ds-row" data-ds-status-row><span class="muted" data-ds-last>${last}</span>
         <button class="ghost" type="button" data-ds-now>Sync now</button></div>
+      <details data-ds-options><summary>Options</summary><div>
+        <div data-ds-filters class="ds-stack">
+          <label><span data-ds-groups-label>Only these groups</span> <textarea name="groups" rows="2" spellcheck="false" placeholder="One per line. Empty: everyone">${text(view.filter.groups.join('\n'))}</textarea></label>
+          <label data-ds-ou>Only these organizational units <textarea name="org_units" rows="2" spellcheck="false" placeholder="/Sales">${text(view.filter.org_units.join('\n'))}</textarea></label>
+          <label>Only these email domains <textarea name="domains" rows="2" spellcheck="false" placeholder="company.com">${text(view.filter.domains.join('\n'))}</textarea></label>
+          <label>Sync every <select name="interval_minutes"><option value="0">Only when I press Sync now</option><option value="60">hour</option><option value="360">6 hours</option><option value="1440">day</option></select></label>
+        </div>
+        <label class="ds-inline">Ask me first if more than<input name="mass_leave_limit" type="number" inputmode="numeric" min="0" max="10000" value="${text(view.mass_leave_limit)}">would be marked as left</label>
+      </div></details>
+      <div class="ds-row" data-ds-actions hidden><button class="primary" type="submit">Save</button></div>
     </form>
-    <div data-ds-scim hidden style="margin-top:10px">
-      <p>Base URL <code>${text(view.scim.url)}</code></p>
-      <p class="muted">${view.scim.enabled ? `Token created ${text(new Date(view.scim.created).toLocaleString())}. Shown once.` : 'No token yet.'}</p>
-      <button class="ghost" type="button" data-ds-token>${view.scim.enabled ? 'Replace token' : 'Create token'}</button>
-      <p data-ds-token-out></p>
-    </div>
-    <p class="muted" data-ds-last>${last}</p>
     <div data-ds-preview></div>
     <p role="status" data-ds-status></p>`;
   const form = host.querySelector('[data-ds-form]'), status = host.querySelector('[data-ds-status]');
+  const $in = selector => host.querySelector(selector);
   form.source.value = view.source;
   form.interval_minutes.value = String(view.interval_minutes);
+  let replacing = false, dirty = false;
   const show = () => {
-    const source = form.source.value, pull = source === 'google' || source === 'entra';
-    host.querySelector('[data-ds-help]').innerHTML = HELP[source] || '';
-    host.querySelectorAll('[data-ds-creds]').forEach(el => { el.hidden = el.dataset.dsCreds !== source; });
-    host.querySelector('[data-ds-filters]').hidden = !pull;
-    host.querySelector('[data-ds-ou]').hidden = source !== 'google';
-    host.querySelector('[data-ds-groups-label]').textContent = source === 'entra' ? 'Only these groups (object IDs)' : 'Only these groups (email addresses)';
-    host.querySelector('[data-ds-scim]').hidden = source !== 'scim';
-    host.querySelector('[data-ds-now]').hidden = !pull || view.source !== source;
-    const c = view.credentials[source];
-    host.querySelector('[data-ds-saved]').textContent = pull && c?.configured ? `Credentials saved: ${c.hint}` : '';
+    const source = form.source.value, pull = source === 'google' || source === 'entra', saved = view.source === source;
+    const c = view.credentials[source], hasKey = pull && c?.configured;
+    $in('[data-ds-guide]').href = GUIDE + (ANCHOR[source] || 'directory-sync');
+    $in('[data-ds-saved]').hidden = !hasKey || replacing;
+    $in('[data-ds-hint]').textContent = hasKey ? `Key saved: ${c.hint}` : '';
+    host.querySelectorAll('[data-ds-creds]').forEach(el => { el.hidden = el.dataset.dsCreds !== source || (hasKey && !replacing); });
+    $in('[data-ds-filters]').hidden = !pull;
+    $in('[data-ds-ou]').hidden = source !== 'google';
+    $in('[data-ds-groups-label]').textContent = source === 'entra' ? 'Only these groups (object IDs)' : 'Only these groups (email addresses)';
+    $in('[data-ds-scim]').hidden = source !== 'scim';
+    $in('[data-ds-options]').hidden = !source;
+    // Status and Sync now belong to the saved source; Save shows once there is something to save.
+    $in('[data-ds-status-row]').hidden = !source || !saved;
+    $in('[data-ds-now]').hidden = !pull || !saved;
+    $in('[data-ds-actions]').hidden = !source || (saved && !dirty);
   };
-  form.source.onchange = show;
+  form.source.onchange = () => { replacing = false; show(); };
+  form.oninput = form.onchange = event => { if (event.target !== form.source) { dirty = true; show(); } };
+  $in('[data-ds-replace]').onclick = () => { replacing = true; show(); };
   show();
   const body = () => {
-    const source = form.source.value, f = new FormData(form), fields = Object.fromEntries(f);
+    const source = form.source.value, fields = Object.fromEntries(new FormData(form));
     const out = {source, expected_revision: view.revision, interval_minutes: Number(fields.interval_minutes),
       mass_leave_limit: Number(fields.mass_leave_limit) || 0,
       filter: {groups: lines(fields.groups || ''), org_units: lines(fields.org_units || ''), domains: lines(fields.domains || '')}};
@@ -88,22 +94,22 @@ window.mountDirectorySync = async function (host, onChange) {
   form.onsubmit = async event => {
     event.preventDefault();
     status.textContent = '';
-    try { await put('/v2/directory', body()); onChange ? onChange() : window.mountDirectorySync(host); }
+    try { await put('/v2/directory', body()); toast?.('Directory saved'); onChange ? onChange() : window.mountDirectorySync(host); }
     catch (error) { status.textContent = error.message; }
   };
-  host.querySelector('[data-ds-token]').onclick = async () => {
+  $in('[data-ds-token]').onclick = async () => {
     if (view.scim.enabled && !confirm('Replace the SCIM token? The identity provider stops working until you give it the new one.')) return;
     try {
       const {token} = await post('/v2/directory/scim-token', {});
-      host.querySelector('[data-ds-token-out]').innerHTML = `Token (copy it now): <code data-ds-token-value>${text(token)}</code>`;
+      $in('[data-ds-token-out]').innerHTML = `Token (copy it now): <code data-ds-token-value>${text(token)}</code>`;
     } catch (error) { status.textContent = error.message; }
   };
   const list = (title, rows, describe) => rows.length
     ? `<details ${rows.length <= 8 ? 'open' : ''}><summary>${text(title)} (${rows.length})</summary><ul>${rows.slice(0, 200).map(r => `<li>${describe(r)}</li>`).join('')}</ul></details>` : '';
-  host.querySelector('[data-ds-now]').onclick = async event => {
+  $in('[data-ds-now]').onclick = async event => {
     const button = event.target;
     button.disabled = true; status.textContent = 'Reading the directory…';
-    const slot = host.querySelector('[data-ds-preview]');
+    const slot = $in('[data-ds-preview]');
     try {
       const preview = await post('/v2/directory/preview', {});
       const p = preview.plan, need = preview.needs_confirmation, needs = need.first || need.mass_leave;

@@ -9,21 +9,31 @@ Everyone on the roster is an **Owner**, an **Admin** or a **Member**. Members ca
 create and manage their own bots; Admins manage people, computers and every bot but the built-in ones; the Owner does
 everything. The full rules, including per-bot See, Read and Write, are in [permissions](permissions.md).
 
-## What the owner can do
+## Settings > People
 
-- **Add a person** (name, email, title, team), **edit** them, and set their role: **Admin** or **Member**.
-- **Mark someone as left.** They drop off the org chart, their API tokens are revoked, and they can
-  no longer sign in. **Restore** brings them back (their old tokens stay revoked).
-- **See who can sign in.** Everyone on the roster with an email who has not left.
-- **Who can join** (the **Sign-in** card, with the company domain and the bot limit per member). One box for addresses and domains. An address (`ana@company.com`) lets that
-  person join; a domain (`company.com`, `@company.com` or `*@company.com`) lets anyone at it join. The
-  server sorts each entry into `allowed` or `allowed_domains`, the page shows what it understood, and it
-  refuses, naming the entry, a wildcard inside an address (`a*@company.com`), a malformed address and a
-  public mail domain such as gmail.com (that would let anyone with such an account join). Someone who is
-  not on the roster but whose verified sign-in matches joins as a normal person on first sign-in
-  (audit event `person.joined`). Narrowing the list stops new people; it does not remove anyone
-  already on the roster, so mark them as left for that.
-- **Transfer ownership** to another active person.
+The page answers three things: how people get here, who is here, and what each person may do.
+
+- **How people join.** Pick **Add manually** or **Sync with directory**. There is no separate mode setting: a saved directory
+  source means Sync, none means manual. Going back to manual turns the sync off; the people it added stay.
+  - **Add manually** is one row: an email and, optionally, a name. The person goes on the roster and the sign-in list at once.
+    Type a domain instead (`partner.com` or `@partner.com`) to let anyone at it sign in.
+  - **Sync with directory** is the source, its status and **Sync now** ([Directory sync](#directory-sync)). The "ask me first"
+    number for people a sync would mark as left is under **Options**.
+- **Anyone at <domain> can sign in** (owner only). The domain is the owner's own when that is a company address, else the first
+  allowed domain. On means the domain is in `allowed_domains`; off takes it out. Someone not on the roster whose verified sign-in
+  is at an allowed domain or on the allowed list joins as a normal person on first sign-in (audit event `person.joined`).
+- **Also allowed.** Anything else on the allow list (other domains, and addresses of people not on the roster yet) is shown as
+  chips the owner can remove. Nothing on the list is rewritten on upgrade: entries saved by an earlier release keep working
+  exactly as before. The server still refuses a wildcard inside an address (`a*@company.com`), a malformed address and a public
+  mail domain such as gmail.com. Narrowing the list stops new people; it does not remove anyone on the roster.
+- **Each person** is one row: the role (**Owner** is fixed; the owner switches **Admin** and **Member**), a **Can sign in** switch
+  (see [permissions](permissions.md)), and a ⋯ menu: **Can add bots** and **Can add people** for a member, **Make owner** and
+  **Mark as left** for the owner. Everything saves when it changes. Title and team are kept on the person but edited on
+  their profile, not here.
+- **Mark as left.** They drop off the org chart, their API tokens are revoked, and they can no longer sign in. **Restore** (under
+  **Left**) brings them back (their old tokens stay revoked).
+- **Bot limit per member**: 25 active bots by default. A company still on the old default of 5 is moved to 25 once on upgrade;
+  a 5 someone set by changing it from another number, and any other number, stays.
 
 ## Transferring ownership
 
@@ -42,7 +52,7 @@ Two revisioned records in `registry_metadata`, like the AI provider choice:
 | Key | Holds |
 | --- | --- |
 | `owner` | the owner's email, revision, who changed it |
-| `access` | `allowed`, `allowed_domains`, `bot_admins`, revision |
+| `access` | `allowed`, `allowed_domains`, `admins` (also as `bot_admins`), `member_bot_limit`, revision |
 
 `TICO_OWNER_EMAIL` and `registry/hub-access.yaml` only seed them on the first boot (or when
 upgrading a database that has neither). Once the records exist those settings are never read again, so
@@ -55,19 +65,21 @@ editing `api.env` or the file changes nothing. `private_owners` and `routing_per
 With `TICO_AUTH_PROXY=cloudflare` (Cloudflare Access) or `aws-alb` (Cognito) the proxy authenticates
 people before Tico sees them. Adding a person or an allowed domain here does not change that
 policy: also allow the same addresses in the Access policy or the Cognito user pool, or the person is
-stopped before they reach the app. Settings > People shows a note saying so when either proxy is on.
+stopped before they reach the app. Tico does not change that policy itself; after an add, Settings > People shows one line saying
+so when either proxy is on.
 
 ## API
 
-All owner only. `GET /api/v2/access`, `POST /api/v2/access/people`,
-`POST /api/v2/access/people/{id}`, `PUT /api/v2/access/allow` (with `expected_revision`),
-`POST /api/v2/access/owner` (with `expected_revision` and `confirm: true`). Marking someone as left
-uses `POST /api/v2/people/{id}` with `left: true`.
+`GET /api/v2/access` (owners and admins; it includes `home_domain`, `domain_sign_in` and `directory`, the saved sync
+source), `POST /api/v2/access/people`, `POST /api/v2/access/people/{id}` (`role` owner only; `sign_in`, `create_bots`,
+`add_people`, `left: false`), `PUT /api/v2/access/limits` (owners and admins), and owner only `PUT /api/v2/access/allow` (with
+`expected_revision`), `POST /api/v2/access/owner` (with `expected_revision` and `confirm: true`). Marking someone as left
+uses `POST /api/v2/people/{id}` with `left: true` (owner only).
 
 ## Directory sync
 
-Instead of adding people one by one, the owner can sync them from the company directory in
-**Settings > People > Directory sync**. Pick one source: Google Workspace or Microsoft Entra ID
+Instead of adding people one by one, the owner can sync them from the company directory:
+**Settings > People > Sync with directory**. Pick one source: Google Workspace or Microsoft Entra ID
 (Tico reads the directory on a schedule) or SCIM (your identity provider pushes changes).
 
 Everyone a sync adds joins the roster and **can sign in**, so scope it (group, organizational unit,

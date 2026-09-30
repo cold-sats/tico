@@ -1,6 +1,7 @@
-// Offline browser regression for Settings -> People: the owner adds and edits people, marks one as
-// left, sets the allow list with the revision it read, and transfers ownership through a confirm
-// dialog that only enables once the new owner's email is typed. Fixtures only.
+// Offline browser regression for Settings -> People: one choice between adding people by hand and syncing a
+// directory, an inline add row, and one compact row per person whose role (owner only), sign-in and menu
+// (what a member may do, mark as left, make owner) save as they change. Domain sign-in maps onto the allow
+// list with the revision it was read at; the bot limit shows 25 by default. Fixtures only.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -17,22 +18,25 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
   try {
     const context = await browser.newContext({viewport: {width: 1200, height: 900}, serviceWorkers: 'block'});
     const calls = [];
-    let owner = 'ana@acme.example', proxy = 'cloudflare', revision = 3;
-    let allowedPeople = ['ana@acme.example'], allowedDomains = [];
+    let owner = 'ana@acme.example', revision = 3, limit = 25;
+    let allowedPeople = ['ana@acme.example', 'old@partner.example'], allowedDomains = [];
+    let directory = {source: '', filter: {groups: [], org_units: [], domains: []}, interval_minutes: 360, mass_leave_limit: 10,
+      revision: 2, last: {}, credentials: {google: {configured: false}, entra: {configured: false}}, scim: {url: 'https://initech.test/scim/v2', enabled: true, created: '2026-09-01T00:00:00Z'}};
     let people = [
       {id: 'ana', name: 'Ana Rivera', email: 'ana@acme.example', title: 'CEO', team: 'leadership'},
-      {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example', title: '', team: ''}];
+      {id: 'ben', name: 'Ben Cole', email: 'ben@acme.example', title: 'Ops', team: 'leadership'}];
     const access = () => ({
       owner: {email: owner, revision: 1, person: 'ana'},
       people: people.map(p => {
         const isOwner = p.email === owner, role = isOwner ? 'owner' : p.admin ? 'admin' : 'member';
         return {...p, left: !!p.left, owner: isOwner, role, bot_admin: role === 'admin', create_bots: p.create_bots !== false,
                 add_people: p.add_people === undefined ? true : !!p.add_people, add_people_default: p.add_people === undefined,
-                can_sign_in: !p.left && !!p.email};
+                sign_in: p.sign_in !== false, can_sign_in: !p.left && !!p.email && p.sign_in !== false};
       }),
-      allowed: allowedPeople, allowed_domains: allowedDomains, admins: [], bot_admins: [], member_bot_limit: 5,
-      company_domains: ['acme.example'], company_domain_source: 'owner', revision, proxy});
-    const me = {id: 'ana', name: 'Ana Rivera', role: 'owner', cloud: true, email: 'ana@acme.example', credential_access: false, config: CONFIG};
+      allowed: allowedPeople, allowed_domains: allowedDomains, admins: [], bot_admins: [], member_bot_limit: limit,
+      company_domains: ['acme.example'], company_domain_source: 'owner', revision, proxy: 'cloudflare',
+      home_domain: 'acme.example', domain_sign_in: allowedDomains.includes('acme.example'), directory: directory.source});
+    let me = {id: 'ana', name: 'Ana Rivera', role: 'owner', cloud: true, email: 'ana@acme.example', credential_access: false, config: CONFIG};
     await context.route('**/*', async route => {
       const request = route.request(), p = new URL(request.url()).pathname, method = request.method();
       const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
@@ -51,32 +55,31 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       if (p === '/api/v2/operations') return json({machines: [], services: [], issues: [], scheduler_enabled: true});
       if (p === '/api/v2/settings/history') return json({changes: [], transitions: []});
       if (p === '/api/v2/access' && method === 'GET') return json(access());
+      if (p === '/api/v2/directory' && method === 'GET') return json(directory);
+      if (p === '/api/v2/directory' && method === 'PUT') {
+        const body = request.postDataJSON(); calls.push(['directory', body]);
+        directory = {...directory, source: body.source, revision: directory.revision + 1}; return json({revision: directory.revision});
+      }
       if (p === '/api/v2/access/people' && method === 'POST') {
         const body = request.postDataJSON(); calls.push(['add', body]);
-        people.push({id: body.name.toLowerCase().split(' ')[0], ...body}); return json({person: 'x'});
+        people.push({id: body.email.split('@')[0], ...body}); allowedPeople = [...allowedPeople, body.email]; return json({person: 'x'});
       }
       let m;
       if ((m = p.match(/^\/api\/v2\/access\/people\/([^/]+)$/))) {
         const body = request.postDataJSON(); calls.push(['edit', m[1], body]);
         const row = people.find(x => x.id === m[1]);
         if ('role' in body) row.admin = body.role === 'admin';
-        if ('create_bots' in body) row.create_bots = body.create_bots;
-        if ('add_people' in body) row.add_people = body.add_people === 'default' ? undefined : body.add_people;
-        if ('left' in body) row.left = body.left;
-        Object.assign(row, Object.fromEntries(Object.entries(body).filter(([k]) => ['name', 'title', 'team', 'email'].includes(k))));
+        for (const k of ['create_bots', 'add_people', 'left', 'sign_in']) if (k in body) row[k] = body[k];
         return json({person: m[1]});
       }
       if ((m = p.match(/^\/api\/v2\/people\/([^/]+)$/)) && method === 'POST') {
         const body = request.postDataJSON(); calls.push(['left', m[1], body]);
         people.find(x => x.id === m[1]).left = true; return json({});
       }
-      if (p === '/api/v2/access/limits') { calls.push(['limits', request.postDataJSON()]); return json({}); }
+      if (p === '/api/v2/access/limits') { const body = request.postDataJSON(); calls.push(['limits', body]); limit = body.member_bot_limit; return json(body); }
       if (p === '/api/v2/access/allow') {
-        // What the server does: an entry is an address, or a domain written `d`, `@d` or `*@d`.
         const body = request.postDataJSON(); calls.push(['allow', body]); revision += 1;
-        const items = [...body.allowed, ...body.allowed_domains];
-        allowedDomains = items.filter(x => !/^[^*@]+@/.test(x)).map(x => x.replace(/^\*?@/, ''));
-        allowedPeople = items.filter(x => /^[^*@]+@/.test(x));
+        allowedPeople = body.allowed; allowedDomains = body.allowed_domains;
         return json({revision, allowed: allowedPeople, allowed_domains: allowedDomains});
       }
       if (p === '/api/v2/access/owner') {
@@ -90,68 +93,87 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
+    const next = async () => { for (let i = 0; i < 60 && !calls.length; i += 1) await page.waitForTimeout(50); return calls.shift(); };
+    const row = id => page.locator(`.people-row[data-person=${id}]`);
 
     await page.goto('https://tico-ui.test/#/settings');
     await page.getByRole('tab', {name: 'People'}).click();
-    await page.locator('tr[data-person=ben]').waitFor();
+    await row('ben').waitFor();
+    // Add manually is the mode with no directory; no title/team column and no Edit button; the bot limit reads 25.
+    assert.equal(await page.locator('[data-people-mode=manual]').getAttribute('aria-pressed'), 'true');
+    assert.doesNotMatch(await page.locator('#set-people').textContent(), /leadership|Edit/);
+    assert.equal(await page.locator('#member-bot-limit').inputValue(), '25');
+    assert.equal(await page.locator('#people-proxy-note').count(), 0);
+    assert.equal(await row('ana').locator('[data-person-role]').count(), 0);
+    assert.equal(await row('ana').locator('[data-person-signin]').isDisabled(), true);
+
+    // Add a person inline; Cloudflare Access is not changed by Tico, so one line says so.
+    await page.locator('#people-add [name=email]').fill('cy@acme.example');
+    await page.locator('#people-add [name=name]').fill('Cy Dunn');
+    await page.locator('#people-add [type=submit]').click();
+    await row('cy').waitFor();
+    assert.deepEqual(await next(), ['add', {email: 'cy@acme.example', name: 'Cy Dunn'}]);
     assert.match(await page.locator('#people-proxy-note').textContent(), /Cloudflare Access/);
-    assert.match(await page.locator('tr[data-person=ana]').textContent(), /Owner/);
-    assert.equal(await page.locator('tr[data-person=ana] [data-person-act=owner]').count(), 0);
 
-    // Add a person.
-    await page.locator('#people-add').click();
+    // Role and sign-in change in place and save at once.
+    await row('ben').locator('[data-person-role]').selectOption('admin');
+    assert.deepEqual(await next(), ['edit', 'ben', {role: 'admin'}]);
+    await page.waitForFunction(() => document.querySelector('.people-row[data-person=ben] [data-person-role]')?.value === 'admin');
+    await row('cy').locator('[data-person-signin]').uncheck();
+    assert.deepEqual(await next(), ['edit', 'cy', {sign_in: false}]);
+    await page.waitForFunction(() => document.querySelector('.people-row[data-person=cy] [data-person-signin]')?.checked === false);
+
+    // The menu: what a member may do, and Mark as left behind its confirm; Restore brings them back.
+    await row('cy').locator('.people-more').click();
+    await row('cy').locator('[data-person-act=create_bots]').click();
+    assert.deepEqual(await next(), ['edit', 'cy', {create_bots: false}]);
+    await row('cy').waitFor();
+    await row('cy').locator('.people-more').click();
+    await row('cy').locator('[data-person-act=left]').click();
     const dialog = page.locator('#people-dialog');
-    // Every text-like input looks the same: the Email field is styled like Name (it used to render as a bare native box).
-    const look = name => dialog.locator(`[name=${name}]`).evaluate(el => { const c = getComputedStyle(el); return [c.backgroundColor, c.borderTopWidth, c.borderTopLeftRadius, c.paddingLeft].join(' '); });
-    assert.equal(await look('email'), await look('name'), 'the Email input is styled like the Name input');
-    await dialog.locator('[name=name]').fill('Cy Dunn');
-    await dialog.locator('[name=email]').fill('cy@acme.example');
-    await dialog.locator('[name=team]').fill('ops');
-    await dialog.locator('[type=submit]').click();
-    await page.locator('tr[data-person=cy]').waitFor();
-    assert.deepEqual(calls.shift(), ['add', {name: 'Cy Dunn', email: 'cy@acme.example', title: '', team: 'ops'}]);
-
-    // Bot admin toggles; a person marked as left goes through the profile endpoint that ends tokens.
-    await page.locator('tr[data-person=ben] [data-person-act=admin]').click();
-    await page.locator('tr[data-person=ben] [data-role=admin]').waitFor();
-    assert.deepEqual(calls.shift(), ['edit', 'ben', {role: 'admin'}]);
-    assert.match(await page.locator('tr[data-person=ana]').textContent(), /Owner/);
-    assert.match(await page.locator('tr[data-person=ben]').textContent(), /Admin/);
-    assert.match(await page.locator('[data-company-domain]').textContent(), /acme\.example/);
-    // What a member may do: switched off per person, by an owner or an admin.
-    await page.locator('tr[data-person=cy] [data-person-act=edit]').click();
-    assert.equal(await dialog.locator('[name=create_bots]').isChecked(), true);
-    assert.equal(await dialog.locator('[name=add_people]').inputValue(), 'default');
-    await dialog.locator('[name=create_bots]').uncheck();
-    await dialog.locator('[name=add_people]').selectOption('no');
-    await dialog.locator('[type=submit]').click();
-    await page.waitForFunction(() => /adds people/.test(document.querySelector('tr[data-person=cy]').textContent) === false);
-    assert.deepEqual(calls.shift(), ['edit', 'cy', {name: 'Cy Dunn', email: 'cy@acme.example', title: '', team: 'ops',
-      create_bots: false, add_people: false}]);
-    await page.locator('tr[data-person=cy] [data-person-act=left]').click();
     assert.match(await dialog.textContent(), /API tokens/);
     await dialog.locator('[type=submit]').click();
-    await page.locator('tr[data-person=cy]', {hasText: 'Left'}).waitFor();
-    assert.deepEqual(calls.shift(), ['left', 'cy', {left: true}]);
-    await page.locator('tr[data-person=cy] [data-person-act=restore]').click();
-    await page.locator('tr[data-person=cy]', {hasText: 'Can sign in'}).waitFor();
-    assert.deepEqual(calls.shift(), ['edit', 'cy', {left: false}]);
+    assert.deepEqual(await next(), ['left', 'cy', {left: true}]);
+    await page.locator('.people-left summary').click();
+    await page.locator('.people-row.is-left[data-person=cy] [data-person-act=restore]').click();
+    assert.deepEqual(await next(), ['edit', 'cy', {left: false}]);
 
-    // Sign-in: one box for addresses, domains and *@domain, saved with the revision it was read at (the server sorts them
-    // and the page shows what it understood), and the member bot limit.
-    assert.equal(await page.locator('#allow-domains, #allow-emails, #allow-list').count(), 0);
-    await page.locator('#allow-who').fill('ana@acme.example, *@acme.example, partner.example');
-    await page.locator('#member-bot-limit').fill('3');
-    await page.locator('#signin-save').click();
-    await page.locator('[data-allow-kind=domain]', {hasText: 'partner.example'}).waitFor();
-    assert.deepEqual(calls.shift(), ['allow', {allowed: ['ana@acme.example', '*@acme.example', 'partner.example'],
-      allowed_domains: [], expected_revision: 3}]);
-    assert.deepEqual(calls.shift(), ['limits', {member_bot_limit: 3}]);
-    assert.deepEqual(await page.locator('[data-allow-kind=domain]').allTextContents(), ['Domainacme.example', 'Domainpartner.example']);
-    assert.deepEqual(await page.locator('[data-allow-kind=person]').allTextContents(), ['Personana@acme.example']);
+    // Domain sign-in is the company domain on the allow list; anything else listed stays, shown as a chip.
+    assert.equal(await page.locator('#people-domain').isChecked(), false);
+    await page.locator('#people-domain').check();
+    assert.deepEqual(await next(), ['allow', {allowed: ['ana@acme.example', 'old@partner.example', 'cy@acme.example'],
+      allowed_domains: ['acme.example'], expected_revision: 3}]);
+    await page.waitForFunction(() => document.querySelector('#people-domain')?.checked === true);
+    await page.locator('#people-domain').uncheck();
+    assert.deepEqual(await next(), ['allow', {allowed: ['ana@acme.example', 'old@partner.example', 'cy@acme.example'],
+      allowed_domains: [], expected_revision: 4}]);
+    await page.locator('[data-allow-remove="old@partner.example"]').click();
+    assert.deepEqual(await next(), ['allow', {allowed: ['ana@acme.example', 'cy@acme.example'], allowed_domains: [], expected_revision: 5}]);
+    await page.waitForFunction(() => !document.querySelector('[data-allow="old@partner.example"]'));
+
+    await page.locator('#member-bot-limit').fill('30');
+    await page.locator('#member-bot-limit').press('Enter');
+    assert.deepEqual(await next(), ['limits', {member_bot_limit: 30}]);
+
+    // Sync with directory: pick a source and save; going back to manual stops the sync after a confirm.
+    await page.locator('[data-people-mode=sync]').click();
+    await page.locator('#directory-sync select[name=source]').waitFor();
+    assert.equal(await page.locator('#people-add').count(), 0);
+    await page.locator('#directory-sync select[name=source]').selectOption('scim');
+    await page.locator('#directory-sync [type=submit]').click();
+    const saved = await next();
+    assert.equal(saved[0], 'directory'); assert.equal(saved[1].source, 'scim'); assert.equal(saved[1].mass_leave_limit, 10);
+    await page.locator('#directory-sync [data-ds-last]').waitFor();
+    await page.locator('[data-people-mode=manual]').click();
+    assert.match(await dialog.textContent(), /Stop syncing from SCIM/);
+    await dialog.locator('[type=submit]').click();
+    const stopped = await next();
+    assert.deepEqual([stopped[0], stopped[1].source, stopped[1].expected_revision], ['directory', '', 3]);
+    await page.locator('#people-add').waitFor();
 
     // Ownership moves only after the new owner's email is typed.
-    await page.locator('tr[data-person=ben] [data-person-act=owner]').click();
+    await row('ben').locator('.people-more').click();
+    await row('ben').locator('[data-person-act=owner]').click();
     const go = dialog.locator('[type=submit]');
     assert.equal(await go.isDisabled(), true);
     await dialog.locator('[name=typed]').fill('someone@else.example');
@@ -160,11 +182,22 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     await dialog.locator('[name=admin]').check();
     assert.equal(calls.length, 0);
     await go.click();
-    for (let i = 0; i < 50 && !calls.length; i += 1) await page.waitForTimeout(50);
-    assert.deepEqual(calls.shift(), ['owner', {person: 'ben', previous_owner_bot_admin: true,
-      expected_revision: 1, confirm: true}]);
+    assert.deepEqual(await next(), ['owner', {person: 'ben', previous_owner_bot_admin: true, expected_revision: 1, confirm: true}]);
+
+    // An admin sees no mode choice and no role picker, and cannot switch another admin's sign-in.
+    owner = 'ana@acme.example';
+    me = {...me, id: 'ben', name: 'Ben Cole', role: 'human', bot_admin: true, email: 'ben@acme.example'};
+    people.find(p => p.id === 'cy').admin = true;
+    const admin = await context.newPage();
+    admin.on('pageerror', e => errors.push(e.message));
+    await admin.goto('https://tico-ui.test/#/settings');
+    await admin.getByRole('tab', {name: 'People'}).click();
+    await admin.locator('.people-row[data-person=cy]').waitFor();
+    assert.equal(await admin.locator('[data-people-mode], [data-person-role]').count(), 0);
+    assert.equal(await admin.locator('.people-row[data-person=cy] [data-person-signin]').isDisabled(), true);
+    assert.equal(await admin.locator('.people-row[data-person=ben] [data-person-signin]').isDisabled(), true);
     assert.deepEqual(errors, []);
-    console.log('PASS: People tab adds, edits and retires people, saves the allow list and transfers ownership behind a confirm.');
+    console.log('PASS: People tab switches sync and manual, adds inline, saves role, sign-in, domain sign-in and bot limit as they change.');
   } finally {
     await browser.close();
   }
