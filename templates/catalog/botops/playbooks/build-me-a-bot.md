@@ -30,7 +30,11 @@ not waiting on it. The human reads one message at the end.
    `hub task create --owner <slug> --title "..." --body "..."`, and wait for the answer. If it fails,
    read why, fix what is yours to fix, and try once more. Skip it when they want it live now, and say
    in the report that it was not tested.
-7. **Report.** One message, in their words:
+7. **Close what you filed.** Any task you filed for them while building ("Create the Jira Manager record", "Add
+   Sean to the hub", "Paste the key") whose work you or the server finished is settled now:
+   `hub task list --requester me --status open`, then `hub task close <id> --note "Done: <one line>"` for each.
+   Nothing you filed stays open once its condition is true.
+8. **Report.** One message, in their words:
    - what exists ("Jira Manager is live"), and what it can do now;
    - who can see and use it;
    - what the test showed, or that it was not tested;
@@ -54,7 +58,8 @@ off) happen at once, and each can be undone from Settings > Bots history.
 ## Other things a human asks, done the same way
 
 - "Use a cheaper model on X": `hub bot model <bot> <model>` (`hub bot model <bot>` lists them).
-- "Make X read-only on GitHub": in its repository set the github entry in `tools:` to
+- "Make X read-only on GitHub": `hub tool update <tool-id> --bot <bot> --can read` (the id from
+  `hub tool list --bot <bot>`; never remove and add it again), and in its repository set the github entry in `tools:` to
   `can: [read]`, add "never push, merge or comment" under `## Never without approval` in its
   `AGENT.md`, run `hub bot check <slug>` and commit. Say plainly that this is its rules and declared
   access, not a narrower credential, unless they gave it a separate read-only token.

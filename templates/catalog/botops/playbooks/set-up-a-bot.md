@@ -105,6 +105,13 @@ repositories. If the command says the app was not given permission to create rep
 work around it: say so in the note and leave it local. Never create a repository for a slug the
 task did not name.
 
+## 5c. Close what you filed for a human
+
+If you filed a task for a human about this bot ("Create the record", "Add Sean", "Paste the key") and you have
+now done that work yourself, or it is already true, close it with one line: `hub task close <id> --note "Done:
+<what>"`. Find them with `hub task list --requester me --status open`. A task left open after the work is
+done sends the human to do something that is finished.
+
 ## 6. Finish the task
 
     hub task update <id> --status done --note "..."

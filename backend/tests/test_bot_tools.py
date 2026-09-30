@@ -218,6 +218,84 @@ def test_removing_a_tool_is_a_botops_task_and_a_pending_request_can_be_withdrawn
     assert not any(t["id"] == pending for t in tools_of(api)["tools"])
 
 
+def test_changing_a_tool_is_one_task_and_nothing_is_removed(api):
+    botops(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    assert report(api, machine, "ops", TOOLS).status_code == 200
+
+    def change(body, who="ana-test", expected=200, tool="slack"):
+        r = api.post(f"/api/v2/bots/ops/tools/{tool}/update", json=body, headers=headers(who))
+        assert r.status_code == expected, r.text
+        return r.json()
+
+    change({"can": ["read", "post", "send"]}, who="cara-test", expected=403)        # a member who does not manage ops
+    change({"can": ["read"]}, tool="model", expected=422)
+    change({"can": ["read"]}, tool="nothing", expected=404)
+    change({"can": ["read"]}, tool="pending-x", expected=422)
+    assert change({}, expected=422)["error"]["code"] == "entry"
+    assert change({"can": ["read", "post"]}, expected=409)["error"]["code"] == "unchanged"
+    assert change({"can": ["Read It"]}, expected=422)
+    assert change({"note": "key is sk-live-abcdefghijklmnop"}, expected=422)["error"]["code"] == "secret"
+    assert botops_tasks(api) == []
+    made = change({"can": ["read", "post", "send"], "scope": {"channels": "#ops", "workspace": "acme"}, "note": "send on Fridays"})
+    assert made["update"] is True and made["tool"] == "slack"
+    assert "can: [read, post, send]" in made["yaml"] and "workspace: acme" in made["yaml"] and "channels: " in made["yaml"]
+    assert "identity: Acme workspace" in made["yaml"] and "env: SLACK_TOKEN" in made["yaml"]
+    task = botops_tasks(api)[0]
+    assert task["id"] == made["task_id"] and task["title"] == "Change Slack access on ops"
+    body = api.get("/api/v2/tasks/" + task["id"], headers=headers()).json()["task"]["body"]
+    assert made["yaml"] in body and "do not remove and re-add" in body and "lists it as changed" in body
+    # Still the same tool, now marked as being changed; no removal and no second entry.
+    slack = next(t for t in tools_of(api)["tools"] if t["id"] == "slack")
+    assert slack["pending"] == "update" and slack["task_id"] == task["id"] and slack["status"] == "ready"
+    assert [t["service"] for t in tools_of(api)["tools"]].count("slack") == 1
+    change({"can": ["read"]}, expected=409)                                          # one change at a time
+    assert api.delete("/api/v2/bots/ops/tools/slack", headers=headers()).status_code == 409     # not a second task on top
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM bot_tool_requests WHERE kind='remove'").fetchone()[0] == 0
+        assert c.execute("SELECT state FROM bot_tool_requests WHERE kind='update'").fetchone()[0] == "pending"
+    # The computer reports the old entry: still pending. The changed entry: done.
+    assert report(api, machine, "ops", TOOLS).status_code == 200
+    assert next(t for t in tools_of(api)["tools"] if t["id"] == "slack")["pending"] == "update"
+    changed = {**TOOLS[1], "can": ["read", "post", "send"], "scope": {"channels": ["#ops"], "workspace": "acme"}, "note": "send on Fridays"}
+    assert report(api, machine, "ops", [TOOLS[0], changed, TOOLS[2]]).status_code == 200
+    slack = next(t for t in tools_of(api)["tools"] if t["id"] == "slack")
+    assert "pending" not in slack and slack["can"] == ["read", "post", "send"] and slack["scope"]["workspace"] == "acme"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bot_tool_requests WHERE kind='update'").fetchone()[0] == "done"
+
+
+def test_a_tool_update_keeps_the_rest_and_takes_a_scope_key_and_the_note_off(api):
+    botops(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    assert report(api, machine, "ops", TOOLS).status_code == 200
+    r = api.post("/api/v2/bots/ops/tools/posthog/update", json={"scope": {"project": ""}, "note": ""}, headers=headers())
+    assert r.status_code == 200, r.text
+    yaml_text = r.json()["yaml"]
+    assert "project: " not in yaml_text and "note" not in yaml_text and "can: [read]" in yaml_text and "env: POSTHOG_KEY" in yaml_text
+
+
+def test_tool_update_is_an_mcp_tool_too(api):
+    botops(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    assert report(api, machine, "ops", TOOLS).status_code == 200
+    err, done = mcp_call(api, "hub_tool_update", {"bot": "ops", "id": "slack", "can": "read,post,send", "scope": ["workspace=acme"]})
+    assert not err and done["update"] is True and "can: [read, post, send]" in done["yaml"]
+
+
+def test_the_requester_filter_finds_what_one_actor_filed(api):
+    botops(api)
+    register(api)                                                                     # ana's request: a task for BotOps
+    mine = mcp_call(api, "hub_task_list", {"requester": "me"})[1]["result"]
+    assert [t["title"] for t in mine] == ["Add PostHog access to ops"] and mine[0]["requester"] == "human:ana"
+    assert mcp_call(api, "hub_task_list", {"requester": "me"}, token="cara-test")[1]["result"] == []
+    assert mcp_call(api, "hub_task_list", {"requester": "human:ana", "status": ["open"]})[1]["result"][0]["id"] == mine[0]["id"]
+    assert api.get("/api/v2/tasks", params={"requester": "human:ana"}, headers=headers()).json()["tasks"][0]["id"] == mine[0]["id"]
+
+
 def test_the_tools_are_mcp_tools_too(api):
     botops(api)
     err, listed = mcp_call(api, "hub_tool_list", {"bot": "ops"})

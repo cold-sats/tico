@@ -497,6 +497,14 @@ class ToolRegister(Contract):
     note: str = Field(default="", max_length=500)
 
 
+class ToolUpdate(Contract):
+    """A change to a tool a bot already declares (backend/bot_tools.py): only what is sent changes. `scope` keys
+    are set one by one (an empty value takes a key off); `note` "" clears the note."""
+    can: list[str] | None = Field(default=None, min_length=1, max_length=20)
+    scope: dict[str, Any] | None = Field(default=None, max_length=20)
+    note: str | None = Field(default=None, max_length=500)
+
+
 class BotReadiness(Contract):
     ready: bool
     runtime: str = Field(default="", max_length=100)

@@ -44,6 +44,13 @@ write it in a file, a task or a commit, or copy it to another bot.
 The bot's `bot.yaml` `tools:` entry names the variable (`hub tool add <bot> <service> --can read --env <VARIABLE>`). A stored credential
 reaches a run only when it is granted to that bot; saving it from a card or `hub credential set` grants it to that one bot.
 
+## 5. Close what you filed
+
+A task you filed for the human about this credential ("Add the Jira key", "Create the Jira record") is settled
+once the test in step 2 passes, or once you did the work yourself: `hub task close <id> --note "Saved and
+connected."`. Change what a bot's tool `can` do or its scope with `hub tool update <tool-id> --bot <bot> ...`,
+never by removing and adding it.
+
 ## 5. What stops you
 
 - The server says only a credential admin can store it: say who (the message names them). They can fill

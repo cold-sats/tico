@@ -8,11 +8,13 @@ and reports on every heartbeat with whether each credential is on its computer
 (runner/declared_access.py, `bots.<bot>.tools` in the readiness report). A runner from before that
 report yields the first two only. No value ever passes through here: env is a variable's name.
 
-A person who manages a bot (`Auth.bot_manager`) can also register or remove a tool. The server holds no bot repository,
+A person who manages a bot (`Auth.bot_manager`) can also register, change or remove a tool. The server holds no bot repository,
 so it cannot edit bot.yaml: it checks the entry against the schema bot.yaml uses
 (clients/access_entry.py, which also refuses anything that looks like a credential), keeps it as a
 pending request, and opens a task for BotOps with the exact YAML. The Tools row shows the request as
-"pending" until the runner's report lists the entry (or, for a removal, stops listing it).
+"pending" until the runner's report lists the entry (or, for a removal, stops listing it, and for a change,
+lists it as changed). A change keeps the entry where it is: one task with the whole changed entry, never a
+removal followed by an add.
 """
 
 import json
@@ -199,11 +201,13 @@ def listing(c, settings, bot):
     declared = state["declared"]
     requests = _requests(c, bot)
     for request in requests:
-        if request["kind"] == "remove":
+        if request["kind"] in ("remove", "update"):
             for tool, entry in zip(declared, state["raw"]):
                 if _same(entry, request["entry"]):
-                    tool["pending"], tool["task_id"] = "remove", request["task_id"]
-                    tool["detail"] = "Removal requested; waiting for BotOps to take it out of bot.yaml"
+                    tool["pending"], tool["task_id"] = request["kind"], request["task_id"]
+                    tool["detail"] = ("Removal requested; waiting for BotOps to take it out of bot.yaml"
+                                      if request["kind"] == "remove" else
+                                      "A change is requested; waiting for BotOps to update it in bot.yaml")
     # The computer holds the Google key and gives a token, but only to a message bot the server has named
     # (routines.token_mailboxes): for any other bot "present" would be a promise its runs cannot keep.
     if any(entry.get("held") for entry in state["raw"]) and not routines.token_mailboxes(c, bot):
@@ -226,20 +230,26 @@ def listing(c, settings, bot):
 
 
 # ----------------------------------------------------------------------------- registering
+VERBS = {"add": ("Add", "to"), "remove": ("Remove", "from"), "update": ("Change", "on")}
+
+
 def _task_text(verb, bot, name, entry, computer, repo=None):
     # The bot's recorded repository (`emp-<slug>` for a bot made before `bot-<slug>`), and its manifest under either name.
     where = str(repo or "bot-" + bot).rsplit("/", 1)[-1] + "/bot.yaml (employee.yaml in a repository not yet renamed)"
     if verb == "add":
         do = (f"Add this entry to the `tools:` list (older: `access:`) in {where}, keeping the entries already there, then commit and "
               "push it:")
+    elif verb == "update":
+        do = (f"Replace the entry for this service and identity in the `tools:` list (older: `access:`) in {where} with this one "
+              "(match it by service and identity; keep every other entry and do not remove and re-add it), then commit and push it:")
     else:
         do = f"Remove this entry from the `tools:` list (older: `access:`) in {where} (match it by service and identity), then commit and push it:"
     return "\n".join([
-        f"{'Add' if verb == 'add' else 'Remove'} {name} access {'to' if verb == 'add' else 'from'} {bot}.", "",
+        f"{VERBS[verb][0]} {name} access {VERBS[verb][1]} {bot}.", "",
         do, "", "```yaml", access_entry.to_yaml(entry), "```", "",
         "Then run preflight for the bot (`scripts/preflight.sh " + bot + "`) and say on this task what it reported. "
         "Tico shows the entry on the bot's page once the computer's readiness report "
-        + ("lists it." if verb == "add" else "no longer lists it."), "",
+        + {"add": "lists it.", "update": "lists it as changed.", "remove": "no longer lists it."}[verb], "",
         CREDENTIALS_NOTE + (" Do not ask for the value here, and never commit it." if verb == "add" else "")
         + (f" The computer is {computer}." if computer else "")])
 
@@ -247,7 +257,7 @@ def _task_text(verb, bot, name, entry, computer, repo=None):
 def _request_task(c, auth, who, verb, bot, name, entry, computer, taken, repo=None):
     from . import getting_started as G
     G._botops(c)
-    title = f"{'Add' if verb == 'add' else 'Remove'} {name} access {'to' if verb == 'add' else 'from'} {bot}"
+    title = f"{VERBS[verb][0]} {name} access {VERBS[verb][1]} {bot}"
     if taken:
         title += f" ({taken + 1})"        # the hub refuses a second live task with the same title
     return G._task(c, auth, who, G.BOTOPS, title, _task_text(verb, bot, name, entry, computer, repo))
@@ -304,6 +314,8 @@ def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
     entry = {k: raw[k] for k in ("service", "identity", "can", "scope", "env", "note") if raw.get(k)}
     if any(r["kind"] == "remove" and _same(entry, r["entry"]) for r in requests):
         raise Problem("duplicate", "Its removal is already waiting for BotOps", 409)
+    if any(r["kind"] == "update" and _same(entry, r["entry"]) for r in requests):
+        raise Problem("duplicate", "A change to it is already waiting for BotOps; remove it once that is done", 409)
     flat = {"service": entry["service"], **({"identity": entry["identity"]} if entry.get("identity") else {}),
             "can": entry.get("can") or [], **(entry.get("scope") or {}),
             **({"env": entry["env"]} if entry.get("env") else {}), **({"note": entry["note"]} if entry.get("note") else {})}
@@ -319,6 +331,74 @@ def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
     return {"removal": True, "tool": tool_id, "task_id": task["id"]}
 
 
+def _declared_entry(state, tool_id):
+    """The raw entry of the bot's declared tool with this id, or a Problem."""
+    if tool_id in ("model", "repo"):
+        raise Problem("tool", "The model and the repository are set in the bot's settings, not here", 422)
+    index = next((i for i, tool in enumerate(state["declared"]) if tool["id"] == tool_id), None)
+    if index is None:
+        raise Problem("not_found", "This bot does not declare that tool", 404)
+    raw = state["raw"][index]
+    return {k: raw[k] for k in ("service", "identity", "can", "scope", "env", "note") if raw.get(k)}
+
+
+def _scope(entry):
+    """An entry's scope as {key: [text]}: one value and a list of one are the same scope."""
+    return {k: [str(i) for i in (v if isinstance(v, list) else [v])]
+            for k, v in access_entry.scope_of(entry.get("scope") or entry).items()}
+
+
+def _changed(entry, reported):
+    """Whether a reported entry already says what `entry` (a change's new entry) says."""
+    return (list(reported.get("can") or []) == list(entry.get("can") or [])
+            and _scope(reported) == _scope(entry) and str(reported.get("note") or "") == str(entry.get("note") or ""))
+
+
+def update(c, auth, settings_admin, settings, who, bot, tool_id, body):
+    """Change a declared tool in place: only `can`, `scope` and `note`. The server holds no bot repository, so this is
+    the add path's way: a pending request and one task for BotOps with the whole changed entry. Nothing is removed."""
+    auth.domain(who)
+    settings_admin._manager(c, who, bot)      # Auth.bot_manager
+    if not H.bot(c, bot):
+        raise Problem("not_found", "Bot not found", 404)
+    if tool_id.startswith("pending-"):
+        raise Problem("tool", "That tool is not on the bot yet; withdraw the request and add it again with the change", 422)
+    if body.can is None and body.scope is None and body.note is None:
+        raise Problem("entry", "Say what changes: can, scope or note", 422)
+    state = _state(c, settings, bot)
+    old = _declared_entry(state, tool_id)
+    scope = dict(old.get("scope") or {})
+    for key, value in (body.scope or {}).items():
+        if value in (None, "", []):
+            scope.pop(key, None)
+        else:
+            scope[key] = value
+    merged = {**old, "scope": scope}
+    if body.can is not None:
+        merged["can"] = body.can
+    if body.note is not None:
+        merged["note"] = body.note
+    try:
+        entry = access_entry.clean(merged)
+    except access_entry.EntryError as exc:
+        raise Problem(exc.code, str(exc), 422) from None
+    if _changed(entry, old):
+        raise Problem("unchanged", "The tool already says that", 409)
+    requests = _requests(c, bot)
+    if any(r["kind"] in ("update", "remove") and _same(old, r["entry"]) for r in requests):
+        raise Problem("duplicate", "A change or removal of this tool is already waiting for BotOps", 409)
+    taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='update' AND state='pending'",
+                      (bot, entry["service"])).fetchone()[0]
+    task = _request_task(c, auth, who, "update", bot, service_name(entry["service"]), entry, state["label"], taken,
+                         state["row"] and state["row"]["repo"])
+    c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
+              "VALUES(?,?,?,?,?,?,?,?,?)", (H.new_id(), bot, "update", entry["service"], entry.get("identity", ""),
+                                            encode(entry), task["id"], who.actor, H.now()))
+    H.event(c, who.actor, "bot.tool_update_requested", bot, {"service": entry["service"], "task": task["id"]})
+    return {"update": True, "tool": tool_id, "task_id": task["id"], "yaml": access_entry.to_yaml(entry),
+            "credentials": CREDENTIALS_NOTE}
+
+
 def reconcile(c, reported):
     """Close the requests a heartbeat's report has caught up with. `reported` is {bot: the report's tools}.
     A listed entry closes its request to add it; an entry that is gone closes its request to remove it,
@@ -330,8 +410,11 @@ def reconcile(c, reported):
         raw = [entry for entry in reported[bot] or [] if isinstance(entry, dict)]
         for request in _requests(c, bot):
             listed = any(_same(entry, request["entry"]) for entry in raw)
-            settled = listed if request["kind"] == "add" else (not listed and (
-                raw or request["created"] < H.shift(H.now(), seconds=-600)))
+            if request["kind"] == "update":
+                settled = any(_same(entry, request["entry"]) and _changed(request["entry"], entry) for entry in raw)
+            else:
+                settled = listed if request["kind"] == "add" else (not listed and (
+                    raw or request["created"] < H.shift(H.now(), seconds=-600)))
             if settled:
                 c.execute("UPDATE bot_tool_requests SET state='done' WHERE id=?", (request["id"],))
 
@@ -361,6 +444,13 @@ def install(app, store, auth, mutate, settings_admin, requester=None):
     def remove(request, bot, tool_id):
         who = request.state.identity
         return mutate(request, M.Empty(), lambda c: unregister(c, auth, settings_admin, store.settings, acting(c, who), bot, tool_id))
+
+    @app.post("/api/v2/bots/{bot}/tools/{tool_id}/update")
+    def update_tool(request: Request, bot: str, tool_id: str, body: M.ToolUpdate):
+        """Change a declared tool's `can`, `scope` or `note` in place: one task for BotOps with the changed entry,
+        the tool shown as pending its change. BotOps acts for the person who asked it, like `register_tool`."""
+        who = request.state.identity
+        return mutate(request, body, lambda c: update(c, auth, settings_admin, store.settings, acting(c, who), bot, tool_id, body))
 
     @app.delete("/api/v2/bots/{bot}/tools/{tool_id}")
     def delete_tool(request: Request, bot: str, tool_id: str):

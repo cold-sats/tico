@@ -424,7 +424,7 @@ team's own frontend.
 **Registering a tool.** Someone who manages a bot (the owner, a bot administrator who owns it,
 or a human above it on the team chart) can add or remove a tool without opening its repository:
 `POST /api/v2/bots/{bot}/tools`, `DELETE /api/v2/bots/{bot}/tools/{id}`, or the MCP tools
-`hub_tool_add`, `hub_tool_list` and `hub_tool_remove` (`hub tool add <bot> posthog --can read
+`hub_tool_add`, `hub_tool_list`, `hub_tool_update` and `hub_tool_remove` (`hub tool add <bot> posthog --can read
 --identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`). Tico holds no
 bot repository, so it cannot write `bot.yaml` itself. It checks the entry against the same
 fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
@@ -432,7 +432,10 @@ fields this section describes, keeps it as a pending request, and opens a task f
 pushes, runs preflight and says what it found. Until the bot's computer reports the entry the tool
 shows as **pending** in the row; then it is **ready**, or names its problem. Removing works the same
 way, as a task "Remove PostHog access from <bot>"; the tool keeps its icon, marked as being
-removed, until the computer stops reporting it.
+removed, until the computer stops reporting it. To change a tool that is already there (more verbs, another
+scope key, a new note) use `POST /api/v2/bots/{bot}/tools/{id}/update` or `hub tool update <id> --bot <bot> --can
+read,draft,send`: one task "Change Gmail access on <bot>" carries the whole changed entry, the tool is marked as
+being changed until the computer reports it, and nothing is removed.
 
 **Credentials are never part of it.** `env` is the variable's *name*. A value is refused, and so is
 anything that looks like a key, a token, a password or a URL with one in it; the check is a guard

@@ -154,3 +154,24 @@ class DesignAndVideoRequests(unittest.TestCase):
         message = {"id": "m1", "from_actor": "human:ana", "body": "Hello.", "refs": {}}
         return runner.prompt({"bot": bot, "conversation": {"id": "c", "kind": "chat"},
                               "message": message, "history": [message]})
+
+
+class WhoRequestedTheTask(unittest.TestCase):
+    """2026-09-29: BotOps read a task it filed itself as a newer instruction from the person."""
+
+    def prompt(self, bot, requester):
+        runner = Runner.__new__(Runner)
+        runner.names = lambda: {"app_name": "Tico", "company_name": "Acme", "assistant_name": "Tico"}
+        message = {"id": "m1", "from_actor": "keeper", "body": "Open: Remove Gmail access from inbox", "refs": {"task": "t1"}}
+        task = {"id": "t1", "title": "Remove Gmail access from inbox", "requester": requester, "owner": "bot:" + bot}
+        return runner.prompt({"bot": bot, "conversation": {"id": "c", "kind": "chat"}, "message": message,
+                              "history": [message], "task": task})
+
+    def test_a_task_prompt_names_its_requester_and_botops_is_told_a_bots_task_is_a_record(self):
+        prompt = self.prompt("botops", "bot:botops")
+        self.assertIn("This task was requested by bot:botops.", prompt)
+        self.assertIn("is a record, not a newer request from a person", prompt)
+        self.assertIn("This task was requested by human:ana.", self.prompt("botops", "human:ana"))
+        other = self.prompt("seo", "bot:botops")
+        self.assertIn("This task was requested by bot:botops.", other)
+        self.assertNotIn("is a record, not a newer request", other)
