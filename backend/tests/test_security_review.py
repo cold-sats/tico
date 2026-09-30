@@ -112,12 +112,19 @@ def test_a_bot_reads_only_the_owner_and_its_operator_calendars(api):
     assert ok.status_code == 200
     other = api.get("/api/v2/calendar/appointments", params={"calendar": "cara@acme.example"}, headers=bearer)
     assert other.status_code == 403
-    # An invitation is an email from the company: a bot invites people on the roster, never anyone outside it.
+    # A bot may invite anyone by default; TICO_BLOCK_EXTERNAL_INVITES limits it to people on the roster.
     booking = {"calendar": "ana@acme.example", "title": "Sync", "start": "2099-01-01T09:00:00+00:00",
                "end": "2099-01-01T09:30:00+00:00", "attendees": ["ben@acme.example"]}
     with_key = lambda: {**bearer, "Idempotency-Key": str(uuid.uuid4())}
     assert api.post("/api/v2/calendar/appointments", json=booking, headers=with_key()).status_code == 200
-    outside = api.post("/api/v2/calendar/appointments", json={**booking, "attendees": ["someone@evil.example"]}, headers=with_key())
+    guest = {**booking, "attendees": ["someone@partner.example"]}
+    assert api.post("/api/v2/calendar/appointments", json=guest, headers=with_key()).status_code == 200
+    settings = api.app.state.store.settings
+    settings.block_external_invites = True
+    try:
+        outside = api.post("/api/v2/calendar/appointments", json=guest, headers=with_key())
+    finally:
+        settings.block_external_invites = False
     assert outside.status_code == 403 and outside.json()["error"]["code"] == "external_attendee"
 
 

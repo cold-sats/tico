@@ -187,7 +187,6 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     catch (error) { say(error.message); event.target.disabled = false; }
   });
   $('#doc-archive')?.addEventListener('click', async event => {
-    if (!confirm(`Archive "${doc.title}"? It leaves the list and search; its history is kept.`)) return;
     event.target.disabled = true;
     try { await writeRequest('PATCH', '/v2/docs/' + encodeURIComponent(doc.id), {version: doc.version, archived: true, note: 'Archived'}); location.hash = docsHref(); }
     catch (error) { say(error.message); event.target.disabled = false; }

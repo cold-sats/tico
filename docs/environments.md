@@ -216,7 +216,8 @@ client secret in the request body or HTTP Basic.
 
 Sessions. The browser holds a random id in a `__Host-tico_session` cookie (`Secure`, `HttpOnly`,
 `SameSite=Lax`, path `/`; on loopback `http` the prefix and `Secure` are dropped). Only its hash is
-stored, in `oidc_sessions`. A session ends after 12 hours idle or 7 days in all, is replaced on each
+stored, in `oidc_sessions`. A session ends after 30 days idle or 90 days in all (`TICO_SESSION_IDLE_SECONDS` and
+`TICO_SESSION_ABSOLUTE_SECONDS` change these), is replaced on each
 sign-in, is deleted when the owner marks the person as left, and is deleted by
 `GET /api/v2/logout`, which then lands on a "signed out" page with a sign-in button. Tico ends its
 own session only, not the one at Google or Microsoft. `TICO_SESSION_SECRET` signs only the short

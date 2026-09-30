@@ -142,7 +142,7 @@ goes on), for each reader that is an active bot, in one transaction:
    messages wait unread and the cursor stays. A high-volume channel is best read daily: otherwise every message would cost a short turn.
 
 Readers are named per channel in `registry/slack-channels.yaml` (`readers: [cto]`); naming one
-is Ana's call, like `post: true`. Reading grants no posting right: a reader that wants to say
+is the owner's call, like `post: false`. Reading grants no posting right: a reader that wants to say
 something in the channel is bound by `post:` and the solicited-reply rule exactly as before,
 and its digest says so.
 
@@ -162,7 +162,7 @@ One attempt per post. A confirmed rate limit waits Slack's `Retry-After` and tri
 attempts at most, then the post is `failed`. Any other Slack refusal (`channel_not_found`,
 `missing_scope`) is `failed`. A network fault, an unreadable answer or a crash between send and
 record is `uncertain` and waits for a person.
-Thread replies are solicited: they need no `post: true` in `registry/slack-channels.yaml` and
+Thread replies are solicited: they are not stopped by `post: false` in `registry/slack-channels.yaml` and
 grant no bot any posting right there; `connectors/slack.py` and its gates are unchanged.
 
 ## Tables

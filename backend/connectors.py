@@ -424,9 +424,9 @@ def install_connectors(app, store, execution, mutate):
             start = instant(body.start)
             if start.astimezone(timezone.utc) < datetime.now(timezone.utc):
                 raise Problem("start", "Calendar appointments must start in the future", 422)
-            if who.role == "bot":
-                # An invitation is an email from the company's calendar. A bot may invite the people on the
-                # roster; inviting anyone else is a person's act, so it is refused here rather than trusted to a prompt.
+            if who.role == "bot" and store.settings.block_external_invites:
+                # TICO_BLOCK_EXTERNAL_INVITES=1: an invitation is an email from the company's calendar, so a
+                # bot may invite only the people on the roster; anyone else is a person's act.
                 known = {str(row["email"] or "").lower() for row in c.execute("SELECT email FROM humans")}
                 outside = [address for address in body.attendees if address.lower() not in known]
                 if outside:

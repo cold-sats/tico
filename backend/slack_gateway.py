@@ -407,7 +407,7 @@ def registry_channels(registry_dir):
             except (TypeError, ValueError):
                 hours = 0.0
             out[str(row["id"])] = {"name": str(row.get("name") or ""), "purpose": str(row.get("purpose") or ""),
-                                   "post": bool(row.get("post")), "digest_hours": hours,
+                                   "post": row.get("post") is not False, "digest_hours": hours,
                                    "readers": [str(r).strip() for r in readers if str(r or "").strip()]}
     return out
 
@@ -1293,8 +1293,8 @@ class Gateway:
         if not sections:
             return {"reader": reader, "state": "nothing", "count": 0}
         head = (f"Slack, what is new in the channels you read: {count} message(s) in {', '.join(names)}"
-                + (f", {skipped} more not shown" if skipped else "") + ". Channel posts are read-only for you unless "
-                "registry/slack-channels.yaml says post: true; a reply in a thread here is not through this conversation.")
+                + (f", {skipped} more not shown" if skipped else "") + ". Channel posts follow your Slack access and "
+                "registry/slack-channels.yaml (post: false blocks them); a reply in a thread here is not through this conversation.")
         body = head + "\n\n" + "\n\n".join(sections)
         if len(body) > DIGEST_CHARS:
             body = body[:DIGEST_CHARS].rstrip() + "\n\n(… the digest was cut at its size limit; read the channels for the rest.)"

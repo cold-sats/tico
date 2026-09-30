@@ -35,10 +35,12 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
 
 The rules for all six live in the backend's write layer, not in prompts: a bot acts only as
 itself; it may message only active bots and people; at most 20 bot-to-bot messages per
-conversation per hour and 3 unsolicited messages per person per bot per day; one clarifying
-question per task; the requester closes; an approval is decided by a person and consumed once;
-anything addressed to a person is linted (first line is the ask, under 120 words); repeated
-refusals open a review task and, at 10 a day, quarantine the bot until a person clears it.
+conversation per hour and 10 unsolicited messages per person per bot per day
+(`TICO_UNSOLICITED_PER_DAY`); one clarifying question per task; the requester closes; an approval
+is decided by a person and consumed once; anything addressed to a person is linted (first line is
+the ask, under 120 words); repeated refusals open a review task and, at 10 a day, pause the bot for
+an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
+(`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a person clears it.
 
 ## The three places
 

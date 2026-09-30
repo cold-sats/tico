@@ -20,6 +20,7 @@ class PostPolicy(unittest.TestCase):
         {"id": "C0000000001", "name": "marketing", "post": True},
         {"id": "C0000000002", "name": "release_notes", "post": False},
         {"id": None, "name": "agents", "post": True},
+        {"id": "C0000000003", "name": "random"},
     ]
 
     def test_employee_must_declare_slack_post(self):
@@ -44,6 +45,10 @@ class PostPolicy(unittest.TestCase):
         with self.assertRaises(slack.Refused):
             slack.check_channel_postable(
                 slack.find_registry_channel(self.channels, "#agents"), "#agents")
+
+    def test_a_channel_that_says_nothing_about_posting_is_postable(self):
+        entry = slack.find_registry_channel(self.channels, "#random")
+        self.assertEqual(slack.check_channel_postable(entry, "#random"), "C0000000003")
 
     def test_externally_shared_channels_are_refused(self):
         slack.check_not_external({"channel": {"name": "marketing"}}, "#marketing")

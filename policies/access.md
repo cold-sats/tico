@@ -2,12 +2,12 @@
 
 Every employee declares its access in `employee.yaml` under `access:`. The hub app shows this
 list on the bot's page, so the owner can see at a glance whether a bot can read Slack, send email as
-ana@acme.example, spend on Google Ads, and so on. **Not listed means not allowed.**
+owner@acme.example, spend on Google Ads, and so on. **Not listed means not allowed.**
 
 ```yaml
 access:
   - service: gmail                # short name, lower-case
-    identity: ana@acme.example      # the account it acts as; omit when not an identity
+    identity: owner@acme.example  # the account it acts as; omit when not an identity
     can: [read, draft]            # verbs, see below
     env: GMAIL_CREDENTIALS        # secret that connects it; the app shows connected / not connected
     note: "send needs outbound_send: true"
@@ -40,9 +40,9 @@ Rules:
   `hub_calendar_upcoming` reads the connector's bounded snapshot and `hub_calendar_schedule`
   queues an audited provider action. `hub_calendar_status` must say `succeeded` before the bot
   claims the event exists. `mail calendar add|list|get` is the direct audited path on the runner.
-  Generic calendar commands may invite company-roster attendees only; external invitations stay
-  in the separately guarded scheduling flow. This standing grant does not add Gmail read, draft
-  or send authority.
+  Invitations may include guests outside the company (the owner can turn that off with
+  `TICO_BLOCK_EXTERNAL_INVITES=1`, which limits bots to roster attendees). This standing grant does
+  not add Gmail read, draft or send authority.
 - Mailbox `read` access includes listing and downloading attachments from that mailbox for
   every employee. There is no separate incoming-attachment permission; outbound attachment
   restrictions remain unchanged.
@@ -69,5 +69,5 @@ Rules:
   channel in this list still needs to exist in `registry/slack-channels.yaml` and the hub app must
   be a member. Set `dms: false` when the role must not read the shared app's DM inbox; `inbox`
   enforces it from `--as <slug>` or `HUB_EMPLOYEE`.
-- Changing `access:` is a Tico-level decision: create a task for `human:ana` rather than editing
+- Changing `access:` is a Tico-level decision: create a task for the owner rather than editing
   your own manifest.

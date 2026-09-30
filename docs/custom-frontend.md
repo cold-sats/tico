@@ -94,10 +94,10 @@ your app                       Tico                              identity provid
 6. **You get a session:**
 
    ```json
-   {"access_token": "tico_st_...", "token_type": "Bearer", "expires_in": 604800, "idle_timeout": 43200, "person": "ana"}
+   {"access_token": "tico_st_...", "token_type": "Bearer", "expires_in": 7776000, "idle_timeout": 2592000, "person": "ana"}
    ```
 
-7. **Call the API** with `Authorization: Bearer <access_token>`. The session ends after 12 hours without use or 7 days
+7. **Call the API** with `Authorization: Bearer <access_token>`. The session ends after 30 days without use or 90 days
    in all (the same as a browser session on Tico's own page). An expired or revoked session answers
    `401` with `{"error": {"code": "identity", "sign_in": "/auth/login"}}`: start again at step 1.
    Sign out with `POST /auth/token/revoke` (with the bearer), which ends it on the server at once.
