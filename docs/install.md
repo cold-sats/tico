@@ -387,6 +387,11 @@ in Add computer, then in the Tico checkout on that Mac run the command it prints
 --label "Studio Mac"`, then `scripts/tico -e <env> install bot`; see the README). It connects to
 `https://<TICO_DOMAIN>`, runs under launchd, and reconnects on its own after the server restarts.
 
+**Mac updates.** The runner follows the server's release by itself ([updates.md](updates.md#a-mac-or-linux-checkout)).
+After a healthy update it also restarts the helper jobs installed beside it (`connectors`, `close-calls`, `importers`), and
+each helper exits and restarts when it sees the checkout move to another revision (checked about once a minute), so no job
+keeps old code in memory. `scripts/tico restart` does the same by hand.
+
 ## Slack
 
 Add `slack` to `COMPOSE_PROFILES` to run the Slack service, then paste the app's tokens in Settings. Steps and troubleshooting: [slack.md](slack.md).

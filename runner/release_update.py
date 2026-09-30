@@ -29,6 +29,7 @@ HEALTH_S = 180
 DRAIN_S = 20 * 60            # a long turn may not hold the update back for ever: after this, stop claiming
 STALE_UPDATING_S = 15 * 60   # an update that has said "updating" this long without an outcome died
 KINDS = ("mac", "linux", "docker")
+HELPERS = ("connectors", "close-calls", "importers")   # scripts/tico installs these as launchd jobs beside the bot job
 
 
 def key(value):
@@ -138,6 +139,41 @@ def restart_runner(pid, wait=60):
         pass
 
 
+def helper_labels(env=os.environ):
+    """The launchd label of each helper job. scripts/tico names them from the bot job's label (`team.tico.tico-bot`,
+    or `team.tico.tico.<env>.bot` for a company environment), and launchd gives this process that label."""
+    service = env.get("XPC_SERVICE_NAME", "")
+    prefix = service[:-3] if service.startswith("team.tico") and service.endswith("bot") else "team.tico.tico-"
+    return {helper: prefix + helper for helper in HELPERS}
+
+
+def restart_helpers(env=os.environ, run=subprocess.run, agents=None, uid=None, say=None):
+    """Restart the helper jobs that are installed on this Mac (scripts/tico restart semantics: `launchctl kickstart -k`,
+    or a bootstrap when the job is installed but not loaded), so none keeps the old release in memory. A job with no
+    plist is not installed and is left alone. Returns the restarted job names."""
+    say = say or (lambda line: print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True))
+    agents = Path(agents) if agents else Path.home() / "Library" / "LaunchAgents"
+    domain = f"gui/{os.getuid() if uid is None else uid}"
+    restarted = []
+    for helper, label in helper_labels(env).items():
+        plist = agents / f"{label}.plist"
+        if not plist.is_file():
+            continue
+        try:
+            done = run(["launchctl", "kickstart", "-k", f"{domain}/{label}"], capture_output=True, text=True, timeout=60)
+            if done.returncode:
+                done = run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as exc:
+            say(f"Tico update: could not restart {label}: {type(exc).__name__}")
+            continue
+        if done.returncode:
+            say(f"Tico update: could not restart {label}: launchctl exited {done.returncode}")
+            continue
+        say(f"Tico update: restarted {label} on the new release")
+        restarted.append(helper)
+    return restarted
+
+
 def wait_healthy(directory, commit, since, seconds=HEALTH_S, sleep=time.sleep):
     """True once a runner started on `commit` has heartbeated to the server after `since`."""
     deadline = time.time() + seconds
@@ -159,9 +195,11 @@ def read_json(path):
 
 
 def apply(root, version, directory, *, run=subprocess.run, install=pip_install, restart=None, healthy=None,
-          busy=None, clock=time.time):
+          busy=None, clock=time.time, helpers=None):
     """Move the checkout to release `version` and bring the runner back on it; undo that if it does not
-    come back. Returns the status written: healthy, waiting, blocked, failed or rolled_back."""
+    come back. Once it is healthy, `helpers` restarts the helper jobs so they run the new code too (a rollback
+    needs nothing: a helper that saw the new revision exits again when the old one returns).
+    Returns the status written: healthy, waiting, blocked, failed or rolled_back."""
     tag = "v" + version.lstrip("v")
     version = tag[1:]
 
@@ -214,7 +252,13 @@ def apply(root, version, directory, *, run=subprocess.run, install=pip_install, 
     restart and restart()
     if healthy and not healthy(target, since):
         return back_out(f"the runner did not report in within {HEALTH_S} seconds on {tag}")
-    return say("healthy")
+    result = say("healthy")
+    if helpers:
+        try:
+            helpers()
+        except Exception as exc:     # the runner is on the new release; a helper that is missed follows on its own
+            print(f"Tico update: could not restart the helper jobs: {type(exc).__name__}", flush=True)
+    return result
 
 
 def spawn(root, version, directory, pid):
@@ -237,7 +281,8 @@ def main(argv=None):
         time.sleep(10)
     result = apply(args.root, args.version, args.state_dir, busy=lambda: in_flight(args.state_dir),
                    restart=lambda: restart_runner(args.pid),
-                   healthy=lambda commit, since: wait_healthy(args.state_dir, commit or "", since))
+                   healthy=lambda commit, since: wait_healthy(args.state_dir, commit or "", since),
+                   helpers=restart_helpers if kind() == "mac" else None)
     print(json.dumps(result))
     return 0 if result["state"] == "healthy" else 1
 

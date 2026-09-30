@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Mac helper jobs follow a release.** `connectors`, `close-calls` and `importers` are separate launchd jobs, and a release
+  restarted only the bot job, so a helper kept the old code in memory while it loaded new modules and scripts from the switched
+  checkout. After a healthy update the runner now restarts the helper jobs that are installed (`launchctl kickstart -k`, the way
+  `scripts/tico restart` does; a job that is not installed is left alone), and each helper checks the checkout's revision about
+  once a minute and exits with status 0 when it changes, so launchd starts it on the new code. Every restart is logged. A helper
+  now also stops between mail batches and calendar actions on a stop signal. Docker runners are unchanged: the container is replaced.
+
 ## [0.2.17] - 2026-09-30
 
 ### Added
