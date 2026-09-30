@@ -95,6 +95,13 @@ class ToolUpdateAndRequester(unittest.TestCase):
                          ("tool update", "gmail", "inbox", "read,draft,send", ["mailbox=a@acme.example", "sites="], ""))
         with self.assertRaises(SystemExit):
             hubcli.parser().parse_args(["tool", "update", "gmail"])               # --bot is required
+        mcp = hubcli.parser().parse_args(["tool", "add", "ops", "linear", "--can", "read", "--env", "LINEAR_API_KEY",
+                                          "--mcp-url", "https://mcp.linear.app/mcp", "--transport", "sse",
+                                          "--header", "Authorization: Bearer ${LINEAR_API_KEY}"])
+        self.assertEqual((mcp.fn, mcp.mcp_url, mcp.transport, mcp.headers),
+                         ("tool add", "https://mcp.linear.app/mcp", "sse", ["Authorization: Bearer ${LINEAR_API_KEY}"]))
+        more = hubcli.parser().parse_args(["tool", "update", "linear", "--bot", "ops", "--mcp-url", "https://mcp.linear.app/mcp"])
+        self.assertEqual((more.mcp_url, more.transport, more.headers), ("https://mcp.linear.app/mcp", None, None))
         listed = hubcli.parser().parse_args(["task", "list", "--requester", "me", "--status", "open"])
         self.assertEqual((listed.fn, listed.requester, listed.status), ("task list", "me", ["open"]))
 

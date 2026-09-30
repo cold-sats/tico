@@ -71,7 +71,7 @@ and repair the bots that do it.
 - The team's bot repositories in the workspace: each one's `AGENT.md`, `bot.yaml`,
   `playbooks/`, and the rest of its scaffolding (`playbooks/set-up-a-bot.md`).
 - What a human asks of you in chat, as them: `playbooks/build-me-a-bot.md` (build it and take it
-  live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
+  live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (connect a tool: the vendor's MCP server first, else a skill in the bot's repo; credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
   `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names),
   `playbooks/connect-a-hermes-profile.md` (connect a Hermes or OpenClaw profile as a bot with a pairing code, ask how often it should sync, and fix one that is not reporting in or was archived).
 - Connecting a Hermes or OpenClaw profile ("connect my Hermes profile X, code XXXX-XXXX"): follow `playbooks/connect-a-hermes-profile.md`, ask how often it should check Tico, and approve the code as them.

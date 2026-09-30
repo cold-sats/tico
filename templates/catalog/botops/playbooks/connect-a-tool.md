@@ -4,6 +4,29 @@ Triggered when a bot you build or repair needs a key, token or password, or a hu
 connect a tool. Budget 5 minutes. The human never leaves the chat, and the value never goes through you
 unless they pasted it themselves.
 
+## 0. Choose the route: the vendor's MCP server first
+
+Bots own their tools and skills, and we prefer the vendor's own MCP server to anything we build. **A bot needs a long-lived API
+token**: OAuth expires within hours and needs a person to sign in again, so never set a bot up on OAuth that needs re-signing. In order:
+
+1. **The vendor's official MCP server, if it accepts an API token or key in a header.** Find it: search "<vendor> MCP server", open
+   the vendor's own docs (not a blog or a third-party wrapper) and read the address, the transport (`http` = streamable HTTP, or
+   `sse`) and how it signs in. `docs/connect-tools.md` has Jira and Confluence (basic auth, `email:token`), Linear (API key),
+   PostHog (personal API key), Sentry (auth token) and Trello already checked; say when you could not confirm a fact.
+2. **Otherwise a small REST client with an API token**, in the bot's own repository (`skills/<service>/SKILL.md`, or a script under
+   `software/`) that calls the vendor's REST API with the token from `env`. This is the route when the MCP server is OAuth only
+   (Trello's is), and say why in one line. Keep it read-only first. The skill reads the variable; it never prints it or writes it to a file.
+
+For route 1 declare the server when you add the tool (the same request as any tool, plus three flags):
+
+    hub tool add <bot> <service> --can read --env <VARIABLE> --mcp-url https://<vendor address> --transport http \
+        --header 'Authorization: Bearer ${VARIABLE}'
+
+`${VARIABLE}` must be the `--env` name and nothing else; write it literally, never the value (the server refuses a value, and
+`hub tool update <tool-id> --bot <bot> --mcp-url ...` changes it later, as the requester). Tico passes the server to Claude Code, Codex,
+Gemini CLI and Grok Build with the credential filled in at run time; Cursor, Antigravity and pi cannot take it, so if the bot runs
+on one, say so and offer to move it or use route 2. Then do steps 1 to 6: the credential is stored and granted exactly as below.
+
 ## 1. Open the card
 
     hub credential request <VARIABLE> --for-bot <bot> --label "<your Jira credential>" \
@@ -43,6 +66,10 @@ write it in a file, a task or a commit, or copy it to another bot.
 
 The bot's `bot.yaml` `tools:` entry names the variable (`hub tool add <bot> <service> --can read --env <VARIABLE>`). A stored credential
 reaches a run only when it is granted to that bot; saving it from a card or `hub credential set` grants it to that one bot.
+Then verify with one read-only call the bot itself makes (list one project, read one issue). For an MCP server the bot's
+Tools tab (`hub tool list --bot <bot>`) also says whether Tico's runner reached it: reachable, auth failed (the credential
+was refused: open the card again) or unreachable (the address is wrong or the vendor is down). Never paste a secret into
+`bot.yaml`, a skill, a task or a commit.
 
 ## 5. Close what you filed
 

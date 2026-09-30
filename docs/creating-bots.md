@@ -366,6 +366,9 @@ tools:
   you store it once.
 - `vault: hub` says the value is granted to this bot in Settings → Credentials rather than kept in
   a credential file, so preflight does not look for it on disk.
+- `mcp:` makes the tool a remote MCP server (`{url, transport: http|sse, headers}`): Tico's runner passes it to the bot's
+  harness next to the hub's own tools. The `headers` may use `${VAR}` for this entry's `env` variable, filled only from a
+  credential granted to this bot. See [connect-tools.md](connect-tools.md) for Jira, Confluence, Linear, PostHog, Sentry, Trello and GitHub (and why a bot needs an API token, not OAuth).
 - `note:` records who authorized it and what is excluded; human and bot readers rely on it. A
   browser-based access also names `sites:`, so the tool can refuse everything else.
 
@@ -400,6 +403,9 @@ repository. The row is short by design: past eight tools it shows "+N", which op
   rest are the `tools:` entries above, one each. The runner reads `bot.yaml` from the bot's
   checkout and reports the entries on its heartbeat, so an edit shows up once it is in the checkout
   on the computer. A computer running an older runner shows the model and repository only.
+- **An MCP server** shows as `mcp` with its host. The runner makes one cheap request to it (an MCP `initialize`, a few
+  seconds at most) and the tool's status says reachable, auth failed or unreachable. A harness that cannot take MCP servers
+  (Cursor, Antigravity, pi) gives the bot a readiness warning naming the tool.
 - **The icon** is the service's logo when Tico bundles one (GitHub, Slack, Gmail, Google Drive and
   Calendar, PostHog, MongoDB, PostgreSQL, MySQL, OpenAI, Anthropic, Notion, Linear, Stripe, AWS,
   Cloudflare, Zoom) and the first two letters of the name in a tinted circle for everything else.
@@ -425,7 +431,8 @@ team's own frontend.
 or a human above it on the team chart) can add or remove a tool without opening its repository:
 `POST /api/v2/bots/{bot}/tools`, `DELETE /api/v2/bots/{bot}/tools/{id}`, or the MCP tools
 `hub_tool_add`, `hub_tool_list`, `hub_tool_update` and `hub_tool_remove` (`hub tool add <bot> posthog --can read
---identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`). Tico holds no
+--identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`; a remote MCP server adds
+`--mcp-url https://... --transport http --header 'Authorization: Bearer ${VAR}'`, and `hub tool update` takes the same flags). Tico holds no
 bot repository, so it cannot write `bot.yaml` itself. It checks the entry against the same
 fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
 "Add PostHog access to <bot>" with the exact YAML. BotOps adds it to `bot.yaml`, commits and

@@ -25,6 +25,7 @@ import threading
 import uuid
 
 from .. import isolation
+from clients import mcp_servers
 from .base import Host, HostError, hub_mcp_server, is_auth_retryable, is_limit
 from .codex import iso
 
@@ -152,11 +153,16 @@ class ClaudeHost(Host):
 
     def _argv(self, thread_id, t, effort):
         argv = self.cmd + ["-p"] + STREAM_ARGS
-        # The hub's MCP server for this turn. Not `--strict-mcp-config`: a bot repo's own
-        # `.mcp.json` (an integration's read-only server, say) stays in force.
+        # The hub's MCP server for this turn, and the bot's declared remote ones (their `${VAR}` headers are
+        # expanded by Claude Code from this turn's own environment, so the command line holds no value).
+        # Not `--strict-mcp-config`: a bot repo's own `.mcp.json` (an integration's read-only server, say)
+        # stays in force.
+        servers = mcp_servers.claude_config(t["settings"].get("mcp_servers") or [])
         hub = hub_mcp_server(t["settings"].get("env"))
         if hub:
-            argv += ["--mcp-config", json.dumps({"mcpServers": {"hub": hub}})]
+            servers["hub"] = hub
+        if servers:
+            argv += ["--mcp-config", json.dumps({"mcpServers": servers})]
         model = model_for(t["settings"].get("model"))
         if model:
             argv += ["--model", model]

@@ -17,6 +17,7 @@ import subprocess
 import threading
 import uuid
 
+from clients import mcp_servers
 from .. import isolation
 from .base import Host, HostError, is_limit
 
@@ -252,9 +253,15 @@ class GrokHost(Host):
         self.env = dict(env)
         self.start()
 
+    @staticmethod
+    def _mcp(settings):
+        """The bot's declared remote MCP servers in ACP's shape (headers resolved: ACP has no placeholders;
+        they go over the agent's stdin and nowhere else)."""
+        return mcp_servers.grok_config(settings.get("mcp_servers") or [], settings.get("env") or {})
+
     def start_thread(self, bot, settings):
         self._configure_environment(settings)
-        res = self.request("session/new", {"cwd": settings["cwd"], "mcpServers": []})
+        res = self.request("session/new", {"cwd": settings["cwd"], "mcpServers": self._mcp(settings)})
         sid = (res or {}).get("sessionId")
         if not sid:
             raise HostError(f"session/new for {bot} returned no session id")
@@ -263,7 +270,7 @@ class GrokHost(Host):
     def resume_thread(self, bot, thread_id, settings):
         self._configure_environment(settings)
         self.request("session/load", {"sessionId": thread_id, "cwd": settings["cwd"],
-                                      "mcpServers": []})
+                                      "mcpServers": self._mcp(settings)})
         return thread_id
 
     def fork_thread(self, bot, thread_id, settings):

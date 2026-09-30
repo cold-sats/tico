@@ -14,6 +14,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from clients import mcp_servers
 from .. import isolation
 from .base import Host, HostError, is_limit
 
@@ -119,8 +120,8 @@ class GeminiHost(Host):
         # Keep the prompt out of the process list. In headless mode -p appends stdin.
         return argv + ["-p", ""]
 
-    def _settings(self, model, effort):
-        return {
+    def _settings(self, model, effort, servers=None):
+        settings = {
             "experimental": {"dynamicModelConfiguration": True},
             "security": {"auth": {"selectedType": "gemini-api-key",
                                     "enforcedType": "gemini-api-key"}},
@@ -130,14 +131,20 @@ class GeminiHost(Host):
                     "thinkingConfig": {"thinkingLevel": effort_for(effort)}}},
             }]},
         }
+        # The bot's declared remote MCP servers. The file keeps their `${VAR}` placeholders and the CLI expands
+        # them from this turn's environment, so it holds no value. The home is this host's own, so the
+        # operator's own servers are not here.
+        if servers:
+            settings["mcpServers"] = mcp_servers.gemini_config(servers)
+        return settings
 
-    def _prepare_home(self, model, effort):
+    def _prepare_home(self, model, effort, servers=None):
         isolation.mkdir(self.home)
         os.chmod(self.home, 0o700)
         fd, temporary = tempfile.mkstemp(prefix="settings-", suffix=".json", dir=self.home)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(self._settings(model, effort), stream, indent=2)
+                json.dump(self._settings(model, effort, servers), stream, indent=2)
                 stream.write("\n")
             os.chmod(temporary, 0o600)
             os.replace(temporary, self.home / "settings.json")
@@ -171,7 +178,7 @@ class GeminiHost(Host):
             model = str(settings.get("model") or DEFAULT_MODEL)
             if not self._env(settings).get("GEMINI_API_KEY"):
                 raise HostError("Gemini API key is not configured for this bot")
-            self._prepare_home(model, effort or settings.get("effort"))
+            self._prepare_home(model, effort or settings.get("effort"), settings.get("mcp_servers"))
             turn = str(uuid.uuid4())
             stderr = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
             try:

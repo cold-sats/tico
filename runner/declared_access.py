@@ -10,7 +10,7 @@ computer is a fact the server cannot see, so each entry carries it as `credentia
 
 import re
 
-from clients.access_entry import MAX_CAN, one_line, scope_of
+from clients.access_entry import MAX_CAN, EntryError, clean_mcp, one_line, scope_of
 
 MAX_ENTRIES = 30        # backend/models.py ToolAccess and BotReadiness.tools hold the same limits
 DATABASE_SERVICES = ("postgres", "postgresql", "mysql", "mariadb", "sqlite", "mongodb")
@@ -62,6 +62,13 @@ def declared_tools(access, environment, held=()):
                "credential": credential_state(entry, name, environment)}
         if row["credential"] == "missing" and name in held:
             row["credential"], row["held"] = "present", True
+        if entry.get("mcp") not in (None, {}, ""):
+            # The validated block: a URL, a transport and headers that hold only `${VAR}` placeholders, so none of it is
+            # a value. runner/service.py adds the reachability and the harness note.
+            try:
+                row["mcp"] = clean_mcp(entry["mcp"], name)
+            except EntryError as exc:
+                row["problem"] = text("The MCP block is not valid: " + str(exc), 300)
         if "{{" in str(entry.get("identity") or ""):
             row["problem"] = "The identity is still the template placeholder"
         rows.append(row)

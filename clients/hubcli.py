@@ -118,9 +118,11 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub tool learn <service> "<text>"      add a shared learning under a tool page
     hub tool add <bot> <service> --can read[,post] [--identity "..."] [--scope database=warehouse ...]
                     [--env VAR_NAME] [--note "..."]
-                                           register a tool: BotOps gets a task with the entry; it shows pending
+                    [--mcp-url https://... [--transport http|sse] [--header "Authorization: Bearer ${VAR_NAME}" ...]]
+                                           register a tool (with --mcp-url, a remote MCP server the bot's harness uses): BotOps gets a task with the entry; it shows pending
                                            until the computer reports it. A variable's name, never its value
     hub tool update <tool-id> --bot <bot> [--can read,draft,send] [--scope KEY=VALUE ...] [--note "..."]
+                    [--mcp-url URL] [--transport http|sse] [--header "Name: value" ...]
                                            change a declared tool in place (BotOps: as the requester); never remove
                                            and add it again. `--scope KEY=` takes a key off, `--note ""` clears it
     hub tool remove <bot> <tool-id>        ask BotOps to remove one (or withdraw a pending request)
@@ -803,6 +805,12 @@ def parser():
     s.add_argument("--reason", default="")
     s.set_defaults(fn="listening item resolve")
 
+    def mcp_flags(s):
+        s.add_argument("--mcp-url", dest="mcp_url", help="the tool is a remote MCP server at this https address (http only for localhost)")
+        s.add_argument("--transport", choices=["http", "sse"], help="the MCP server's transport (default http)")
+        s.add_argument("--header", dest="headers", action="append", metavar="'NAME: VALUE'",
+                       help='an MCP header; the value may use ${VAR_NAME} for the tool\'s --env variable, never the value itself; repeatable')
+
     tools = sub.add_parser("tool", help="what the team uses: each tool, what a bot uses, its model, repository and declared tools (docs/creating-bots.md)").add_subparsers(dest="sub")
     s = tools.add_parser("list", help="the team's tools; with --bot, that bot's tools with their status")
     s.add_argument("--bot", help="a bot's slug, or me: that bot's own tools instead of the team's")
@@ -830,6 +838,7 @@ def parser():
     s.add_argument("--scope", action="append", metavar="KEY=VALUE", help="database=warehouse, channels=#a,#b, project=123; repeatable")
     s.add_argument("--env", help="the variable's NAME, such as POSTHOG_KEY; the owner installs the value")
     s.add_argument("--note")
+    mcp_flags(s)
     s.set_defaults(fn="tool add")
     s = tools.add_parser("update", help="change a declared tool's can, scope or note in place; never remove and add again")
     s.add_argument("id", help="the tool id from `hub tool list --bot`")
@@ -837,6 +846,7 @@ def parser():
     s.add_argument("--can", help="the full list from now on: read, draft, post, act, use, send or write; comma separated")
     s.add_argument("--scope", action="append", metavar="KEY=VALUE", help="set a key (database=warehouse, channels=#a,#b); KEY= takes it off; repeatable")
     s.add_argument("--note", help='the new note; "" clears it')
+    mcp_flags(s)
     s.set_defaults(fn="tool update")
     s = tools.add_parser("remove", help="ask BotOps to remove a tool, or withdraw a pending request")
     s.add_argument("bot")

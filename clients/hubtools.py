@@ -1048,11 +1048,38 @@ def _scope_of(value):
     return scope
 
 
+def _mcp_of(args):
+    """The `mcp:` block the arguments name, or None: `mcp_url`, `transport` and `headers` (an object, or "Name: value"
+    strings). A placeholder such as ${JIRA_API_TOKEN} is the variable's name; the server refuses a value."""
+    url, transport, headers = args.get("mcp_url"), args.get("transport"), args.get("headers")
+    if isinstance(headers, str):
+        headers = [headers]
+    if isinstance(headers, list):
+        pairs = {}
+        for item in headers:
+            name, colon, value = str(item).partition(":")
+            if not colon or not name.strip():
+                raise ValueError(f"A header is written Name: value, not {item!r}")
+            pairs[name.strip()] = value.strip()
+        headers = pairs
+    mcp = {k: v for k, v in (("url", url), ("transport", transport), ("headers", headers)) if v}
+    return mcp or None
+
+
+MCP_PROPERTIES = {
+    "mcp_url": _s("The address of a remote MCP server the bot uses (https; plain http only for localhost), such as https://mcp.linear.app/mcp"),
+    "transport": {"type": "string", "enum": ["http", "sse"], "description": "The MCP server's transport: http (streamable, the default) or sse"},
+    "headers": {"type": "object", "description": "Headers for the MCP server, e.g. {\"Authorization\": \"Bearer ${LINEAR_API_KEY}\"}. "
+                "${VAR} may only name the entry's own env variable; never write the value (or a list of \"Name: value\")"}}
+
+
 @tool("hub_tool_add", "Register a tool for a bot you manage (BotOps: one the person who asked you manages): a `tools:` entry for its bot.yaml. The server checks "
       "it and opens a task for BotOps with the exact YAML; the tool shows as pending until the bot's computer reports "
       "it. Names and verbs only: never a credential value. `env` names the variable, which the operator puts on the "
-      "bot's computer.",
+      "bot's computer. To give the bot a vendor's remote MCP server, add `mcp_url`, `transport` and `headers` (the "
+      "credential is a ${VAR} placeholder for `env`).",
       {"bot": _s("The bot's slug"), "service": _s("A short name such as posthog or google-calendar"),
+       **MCP_PROPERTIES,
        "identity": _s("Who it acts as, for a person to read: an account, a project, a role"),
        "can": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                "description": "What it may do: read, draft, post, act, use, send, write (or a comma list)"},
@@ -1063,7 +1090,11 @@ def _scope_of(value):
 def tools_add(api, args):
     can = args["can"]
     can = [part.strip() for part in can.split(",")] if isinstance(can, str) else can
+    mcp = _mcp_of(args)
+    if mcp and not mcp.get("url"):
+        raise ValueError("An MCP server needs its address: mcp_url")
     body = {"service": args["service"], "can": can, "scope": _scope_of(args.get("scope")),
+            **({"mcp": mcp} if mcp else {}),
             **{k: args[k] for k in ("identity", "env", "note") if args.get(k)}}
     return _as_person(api).post(f"bots/{args['bot']}/tools", body, key=_key(args))
 
@@ -1071,8 +1102,10 @@ def tools_add(api, args):
 @tool("hub_tool_update", "Change a tool a bot already declares, in place: what it `can` do, its `scope` or its `note` "
       "(BotOps: as the person who asked you). Only what you send changes; a `scope` key with an empty value comes off. "
       "One task for BotOps carries the whole changed entry and the tool shows as pending its change. Use this, never "
-      "remove and add again: that files a removal nobody wants. The identity and the env name do not change here.",
+      "remove and add again: that files a removal nobody wants. The identity and the env name do not change here. "
+      "An MCP server's `mcp_url`, `transport` or `headers` change the same way: what you send replaces that part.",
       {"bot": _s("The bot's slug"), "id": _s("The tool id from hub_tool_list"),
+       **MCP_PROPERTIES,
        "can": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                "description": "The full list of what it may do from now on: read, draft, post, act, use, send, write (or a comma list)"},
        "scope": {"type": "object", "description": "Keys to set: database, channels, project, mailbox and the like; '' takes one off"},
@@ -1087,8 +1120,10 @@ def tools_update(api, args):
         body["scope"] = _scope_of(args["scope"])
     if args.get("note") is not None:
         body["note"] = args["note"]
+    if _mcp_of(args):
+        body["mcp"] = _mcp_of(args)
     if not body:
-        raise ValueError("Say what changes: can, scope or note")
+        raise ValueError("Say what changes: can, scope, note or an MCP server's mcp_url, transport or headers")
     return _as_person(api).post(f"bots/{args['bot']}/tools/{args['id']}/update", body, key=_key(args))
 
 

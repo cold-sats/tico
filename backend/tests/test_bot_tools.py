@@ -330,3 +330,66 @@ def test_a_google_key_the_computer_holds_is_present_and_a_missing_one_is_named(a
     assert issue and "has no Google service-account key" in issue[0]["text"] and "GOOGLE_SA_KEY is not set" not in issue[0]["text"]
     tool = {t["id"]: t for t in tools_of(api)["tools"]}["gmail"]
     assert tool["status"] == "problem" and tool["problem"] == "Test Mac has no Google service-account key (google-sa.json in its state directory)"
+
+
+MCP_JIRA = {"service": "jira", "can": ["read", "write"], "env": "JIRA_API_TOKEN", "note": "issues only",
+            "mcp": {"url": "https://mcp.atlassian.com/v2/mcp", "transport": "http",
+                    "headers": {"Authorization": "Bearer ${JIRA_API_TOKEN}"}}}
+
+
+def test_an_mcp_tool_shows_its_host_and_the_runners_check_never_its_headers(api):
+    configure(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    for state, status, problem in (("reachable", "ready", None), ("unchecked", "ready", None),
+                                   ("auth_failed", "problem", "refused the credential"), ("unreachable", "problem", "did not answer")):
+        row = {**MCP_JIRA, "credential": "present", "mcp": {**MCP_JIRA["mcp"], "status": state}}
+        assert report(api, machine, "ops", [row]).status_code == 200
+        tool = {t["id"]: t for t in tools_of(api)["tools"]}["jira"]
+        assert (tool["kind"], tool["status"]) == ("mcp", status)
+        assert tool["mcp"] == {"host": "mcp.atlassian.com", "transport": "http", "status": state}
+        assert problem is None or problem in tool["problem"]
+        assert "Bearer" not in json.dumps(tool)
+
+
+def test_registering_an_mcp_tool_checks_the_block_and_hands_botops_the_exact_yaml(api):
+    botops(api)
+    made = register(api, entry=MCP_JIRA)
+    assert made["tool"]["kind"] == "mcp" and made["tool"]["mcp"]["host"] == "mcp.atlassian.com"
+    assert "headers: {Authorization: 'Bearer ${JIRA_API_TOKEN}'}" in made["yaml"]
+    body = api.get("/api/v2/tasks/" + botops_tasks(api)[0]["id"], headers=headers()).json()["task"]["body"]
+    assert "remote MCP server" in body and "never write the value" in body
+    for bad in ({"url": "http://mcp.example.com/mcp"}, {"url": "https://x.example/mcp", "transport": "ws"},
+                {"url": "https://x.example/mcp", "headers": {"Authorization": "Bearer abcdefghijklmnopqrstuvwxyz"}},
+                {"url": "https://x.example/mcp", "headers": {"Authorization": "${POSTHOG_KEY}"}}):
+        r = api.post("/api/v2/bots/ops/tools", json={**MCP_JIRA, "service": "other", "mcp": bad}, headers=headers())
+        assert r.status_code == 422, (bad, r.text)
+
+
+def test_an_mcp_tool_update_replaces_only_what_is_sent_of_the_block(api):
+    botops(api)
+    machine = runner(api)
+    assign(api, machine, "ops")
+    row = {**MCP_JIRA, "credential": "present", "mcp": {**MCP_JIRA["mcp"], "status": "reachable"}}
+    assert report(api, machine, "ops", [row]).status_code == 200
+    r = api.post("/api/v2/bots/ops/tools/jira/update", json={"mcp": {"url": "https://mcp.atlassian.com/v3/mcp"}}, headers=headers())
+    assert r.status_code == 200, r.text
+    assert "url: https://mcp.atlassian.com/v3/mcp" in r.json()["yaml"] and "Bearer ${JIRA_API_TOKEN}" in r.json()["yaml"]
+    # The same address again is no change; the computer reporting the new one settles the request.
+    assert api.post("/api/v2/bots/ops/tools/jira/update", json={"mcp": {"url": "https://mcp.atlassian.com/v2/mcp"}},
+                    headers=headers()).status_code == 409
+    changed = {**row, "mcp": {**row["mcp"], "url": "https://mcp.atlassian.com/v3/mcp"}}
+    assert report(api, machine, "ops", [changed]).status_code == 200
+    assert "pending" not in {t["id"]: t for t in tools_of(api)["tools"]}["jira"]
+    assert api.post("/api/v2/bots/ops/tools/jira/update", json={"mcp": {"url": "http://plain.example/mcp"}}, headers=headers()).status_code == 422
+
+
+def test_the_mcp_add_and_update_tools_take_the_url_transport_and_headers(api):
+    botops(api)
+    err, added = mcp_call(api, "hub_tool_add", {"bot": "ops", "service": "linear", "can": "read", "env": "LINEAR_API_KEY",
+                                                 "mcp_url": "https://mcp.linear.app/mcp", "transport": "http",
+                                                 "headers": ["Authorization: Bearer ${LINEAR_API_KEY}"]})
+    assert not err and added["tool"]["mcp"]["host"] == "mcp.linear.app"
+    assert "Bearer ${LINEAR_API_KEY}" in added["yaml"]
+    err, refused = mcp_call(api, "hub_tool_add", {"bot": "ops", "service": "wiki", "can": "read", "mcp_url": "http://wiki.example/mcp"})
+    assert err and refused["error"] == "entry" and "https" in json.dumps(refused)

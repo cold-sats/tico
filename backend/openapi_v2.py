@@ -371,7 +371,10 @@ SCHEMAS = {
                    pending={"enum": ["add", "remove", "update"], "description": "A request BotOps has not finished: `add` on a tool that is "
                             "not on the bot yet (status `pending`), `remove` on a declared one being taken out, `update` on "
                             "one whose can, scope or note is being changed"},
-                   task_id={"type": "string", "description": "The BotOps task carrying the request"}),
+                   task_id={"type": "string", "description": "The BotOps task carrying the request"},
+                   kind={"enum": ["mcp"], "description": "`mcp` when the tool is a remote MCP server (see `mcp`)"},
+                   mcp={"type": "object", "description": "A remote MCP server: `host` (its URL's host), `transport` (http or sse) and "
+                        "`status` from the runner's cheap check (reachable, auth_failed, unreachable, unchecked). Never the headers"}),
     "BotToolRegistered": obj({"tool": ref("BotTool"), "task_id": "s", "yaml": "s", "credentials": "s"}),
     "BotToolUpdated": obj({"task_id": "s", "yaml": "s", "credentials": "s"}, required=["task_id"], update={"type": "boolean"},
                           tool={"type": "string"}),

@@ -471,11 +471,23 @@ class RuntimeReadiness(Contract):
     profiles: dict[str, ProfileReadiness] = Field(default_factory=dict, max_length=50)
 
 
+class McpReport(Contract):
+    """The `mcp:` block of a tool as the runner reports it: the address, the transport and headers that hold only
+    `${VAR}` placeholders (runner/declared_access.py). `status` is the runner's own cheap check of the server; it is
+    `unchecked` until that has run, or when the credential it needs is not on the computer."""
+    url: str = Field(min_length=1, max_length=500)
+    transport: Literal["http", "sse"] = "http"
+    headers: dict[Annotated[str, Field(max_length=64)], Annotated[str, Field(max_length=500)]] = Field(
+        default_factory=dict, max_length=10)
+    status: Literal["reachable", "auth_failed", "unreachable", "unchecked"] = "unchecked"
+
+
 class ToolAccess(Contract):
     """One `access:` entry of a bot's employee.yaml as the runner reports it (runner/declared_access.py):
     names and verbs, never a value. `credential` is whether the variable is on the runner's computer."""
     service: str = Field(min_length=1, max_length=100)
     identity: str = Field(default="", max_length=300)
+    mcp: McpReport | None = None
     can: list[Annotated[str, Field(max_length=40)]] = Field(default_factory=list, max_length=20)
     scope: dict[Annotated[str, Field(max_length=40)], str | list[Annotated[str, Field(max_length=100)]]] = Field(
         default_factory=dict, max_length=20)
@@ -493,6 +505,8 @@ class ToolRegister(Contract):
     identity: str = Field(default="", max_length=300)
     can: list[str] = Field(min_length=1, max_length=20)
     scope: dict[str, Any] = Field(default_factory=dict, max_length=20)
+    # A remote MCP server: {url, transport: http|sse, headers: {Name: "Bearer ${ENV_NAME}"}} (clients/access_entry.py).
+    mcp: dict[str, Any] | None = None
     env: str = Field(default="", max_length=100)
     note: str = Field(default="", max_length=500)
 
@@ -503,6 +517,7 @@ class ToolUpdate(Contract):
     can: list[str] | None = Field(default=None, min_length=1, max_length=20)
     scope: dict[str, Any] | None = Field(default=None, max_length=20)
     note: str | None = Field(default=None, max_length=500)
+    mcp: dict[str, Any] | None = None       # url, transport, headers: what is sent replaces that key of the tool's `mcp:`
 
 
 class BotReadiness(Contract):
