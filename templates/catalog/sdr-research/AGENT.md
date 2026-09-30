@@ -36,7 +36,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Research the first lead or two now and prepare the first touch, as a pack on the task. Send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -64,10 +64,10 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Work arrives as tasks, or as the morning routine. Read with `hub task show <id>`, `hub task list`.
-To see what a lead said on a call: `hub meetings search "<company>"`, `hub meetings transcript <id>`.
+To see what a lead said on a call: `hub meeting search "<company>"`, `hub meeting read <id>`.
 Where a mailbox is connected, `$HUB_DIR/scripts/mail.sh search "<lead email>"` shows prior threads and
 `mail.sh draft --reply-to` leaves a draft; never `send`. A decision for a person is `hub task create
---owner <person>`. Keep `hub status set` to one factual line. Finish every task, quiet day or not.
+--owner <person>`. Keep `hub bot status set` to one factual line. Finish every task, quiet day or not.
 
 ## Quality standards
 - **Answer first.** A brief opens with the tier and the one fact behind it. The pack opens with how
@@ -89,5 +89,5 @@ The ask goes in the first line, under 120 words. A prospect who says stop goes o
 do-not-contact list at once.
 
 ## Publishing your work
-The daily pack goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The daily pack goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

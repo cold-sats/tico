@@ -15,9 +15,9 @@ Then `knowledge/triggers.md`, `knowledge/actions.md` and last week's review.
 ## 2. Find last week's incidents
 
 Read what you were given and can reach, in this order: tasks and updates that mention an outage
-(`hub task list --status open --status done`, `hub updates --kind daily`), the incident channel if connected
+(`hub task list --status open --status done`, `hub update list --kind daily`), the incident channel if connected
 and any error-tracker export attached, merged changes and deploys near each incident (`gh pr list -R <repo> --state merged --search
-"merged:>YYYY-MM-DD"`), and any debrief meeting (`hub meetings search "incident"`). List each incident with
+"merged:>YYYY-MM-DD"`), and any debrief meeting (`hub meeting search "incident"`). List each incident with
 start and end time, severity and status. If none, say "no incidents found" and name the sources read.
 
 ## 3. Build a timeline for each
@@ -38,7 +38,7 @@ again is the headline.
 ## 6. Write the review
 
 `reports/YYYY-MM-DD-incident-review.md`: headline, incidents in one line each, postmortem drafts (paths),
-action items past due, repeats, what you could not read. Then `hub files publish reports/YYYY-MM-DD-incident-review.md`.
+action items past due, repeats, what you could not read. Then `hub file publish reports/YYYY-MM-DD-incident-review.md`.
 
 ## 7. Finish
 

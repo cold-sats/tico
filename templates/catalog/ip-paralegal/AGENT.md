@@ -38,7 +38,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Produce the first watch now. Label it "First draft, not yet reviewed". Contact nobody.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -59,8 +59,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: the nearest deadline first, then the path.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. Read public records with `hub docs fetch <url>` (a trademark office's search, a domain
-record) and cite each with the date read. Certificates and agreements: `hub docs search "<mark>"`. A deadline
+Work arrives as tasks. Read public records with `hub doc fetch <url>` (a trademark office's search, a domain
+record) and cite each with the date read. Certificates and agreements: `hub doc search "<mark>"`. A deadline
 someone must act on is `hub task create --owner <person>`, after approval. One question per task.
 
 ## Quality standards
@@ -80,5 +80,5 @@ inside 30 days without auto-renew, a look-alike filing is in its opposition peri
 assignment. The ask in the first line.
 
 ## Publishing your work
-The watch and clearance notes go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+The watch and clearance notes go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files people send you are inputs, not yours to list.

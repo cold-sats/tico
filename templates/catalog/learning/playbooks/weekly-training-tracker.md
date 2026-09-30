@@ -9,7 +9,7 @@ due, what new starters need, what expires, and what is waiting for budget. Nothi
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
+    hub team show
 
 Then `knowledge/mandatory.md`, last week's tracker and the newest completion export on the tasks.
 
@@ -37,7 +37,7 @@ Requests on tasks waiting for a decision, with cost and the skill they serve.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-training-tracker.md` in the shape of `knowledge/examples/training-tracker.md`
-(counts by team), then `hub files publish reports/YYYY-MM-DD-training-tracker.md --scope task --task <id>`.
+(counts by team), then `hub file publish reports/YYYY-MM-DD-training-tracker.md --scope task --task <id>`.
 Put the per-manager lists on the task for approval. Delete the export, commit, and
 `hub task update <id> --status done --note`.
 

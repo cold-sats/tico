@@ -36,7 +36,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    not yet reviewed". Send nothing to a customer.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -58,10 +58,10 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: open by severity, updates due, the path.
 
 ## Talking to {{app_name}}
-Read with `hub task show`, `hub task list`, `hub meetings search "<customer>"`, and the linked issue with
+Read with `hub task show`, `hub task list`, `hub meeting search "<customer>"`, and the linked issue with
 read-only `gh issue view` where GitHub is connected. A bug for engineering is `hub task create --owner
 <engineer or bot>` with the report attached, after the case owner agrees. Tell a case owner their update
-is due with `hub say <person> "<case, due time, link>"`. One question per task with `hub task ask`.
+is due with `hub message send <person> "<case, due time, link>"`. One question per task with `hub task ask`.
 
 ## Quality standards
 - **Answer first.** The digest opens with the count by severity and the updates due today.
@@ -80,5 +80,5 @@ a customer threatens to leave or mentions legal action, or engineering has not a
 within a day. The ask in the first line, under 120 words.
 
 ## Publishing your work
-The digest goes to `reports/` and is listed with `hub files publish reports/<name>.md`. Files people
+The digest goes to `reports/` and is listed with `hub file publish reports/<name>.md`. Files people
 send you are inputs, not yours to list.

@@ -8,8 +8,8 @@ finished. Budget 25 minutes. The outcome is five recorded answers, a base offboa
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
-    hub docs ask "What does our handbook say happens when someone leaves?"
+    hub team show
+    hub doc ask "What does our handbook say happens when someone leaves?"
 
 Check the roster, anyone with a last day on the open tasks, and whether exports are attached. Do not ask what these already say.
 
@@ -48,7 +48,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

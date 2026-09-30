@@ -16,7 +16,7 @@ action last week's review proposed: done, slipped or dropped. Say which.
 ## 2. Refresh each deal
 
 For each open deal: the stage and amount as the CRM shows them (a read), the last touch (the seller's
-thread, `hub meetings search "<company>"`), the next step and its date, and the mutual action plan's next
+thread, `hub meeting search "<company>"`), the next step and its date, and the mutual action plan's next
 milestone. Days quiet = today minus the last two-way contact, not the last email we sent.
 
 ## 3. Sort
@@ -41,5 +41,5 @@ think are due (a stage, a close date) go in as proposals for the owner; you chan
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-deal-review.md` in the shape of `knowledge/examples/deal-review.md`, then
-`hub files publish reports/YYYY-MM-DD-deal-review.md`. Commit and `hub task update <id> --status done
+`hub file publish reports/YYYY-MM-DD-deal-review.md`. Commit and `hub task update <id> --status done
 --note`: deals needing a person, follow-ups awaiting approval, sources not read. Always finish the task.

@@ -45,7 +45,7 @@ the result into `knowledge/changes.md`. A change that did not work is a line, no
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-paid-media.md` in the shape of `knowledge/examples/paid-media-review.md`,
-then `hub files publish reports/YYYY-MM-DD-paid-media.md`. Commit, and `hub task update <id> --status
+then `hub file publish reports/YYYY-MM-DD-paid-media.md`. Commit, and `hub task update <id> --status
 done --note`: the headline, the path, what you could not read.
 
 ## When the export is missing

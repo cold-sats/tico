@@ -131,7 +131,7 @@ personal data, gotchas) in the format every integration page has ([integrations/
 database, sql, params}`. Bind parameters as `:name`; `$1`, `$2` also work and mean the params in the
 order listed. A full example for a fictional company is in
 [templates/company-config/](../templates/company-config/). The page and catalog are named after the
-database (`warehouse`), so `hub queries warehouse revenue` searches and `hub db warehouse --query
+database (`warehouse`), so `hub tool query-search warehouse revenue` searches and `hub db warehouse --query
 <id>` runs.
 
 ### 5. Test with the doctor

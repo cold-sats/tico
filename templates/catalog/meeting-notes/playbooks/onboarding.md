@@ -8,8 +8,8 @@ and a routine that is proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub meetings search --limit 10
-    hub org
+    hub meeting search --limit 10
+    hub team show
 
 See which meetings exist, which tool they came from, and who attends. Do not ask what this already
 says. If there are no meetings, say so and tell the person how to get one in: turn on a meeting
@@ -59,7 +59,7 @@ change, adjust `knowledge/coverage.md` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

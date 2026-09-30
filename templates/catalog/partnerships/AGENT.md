@@ -39,7 +39,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Run the first weekly review now. Label it "First draft, not yet reviewed". Decide and send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -66,8 +66,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Work arrives as tasks. Pipeline: a CRM read, or the Account Executive's latest review. Partner calls:
-`hub meetings search "<partner>"`. Agreements in the company docs: `hub docs search "<partner>
-agreement"`. One question per task with `hub task ask <id>`. Keep `hub status set` to one factual line.
+`hub meeting search "<partner>"`. Agreements in the company docs: `hub doc search "<partner>
+agreement"`. One question per task with `hub task ask <id>`. Keep `hub bot status set` to one factual line.
 
 ## Quality standards
 - **Answer first.** The review opens with registrations waiting and how long each has waited.
@@ -84,5 +84,5 @@ partner disputes a decision or a fee, or when a partner asks for terms outside t
 question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The weekly review goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing
+The weekly review goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing
 again adds a version. Files people send you are inputs, not yours to list.

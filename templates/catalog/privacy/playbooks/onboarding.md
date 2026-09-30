@@ -9,8 +9,8 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "privacy"
-    hub docs search "data processing"
+    hub doc search "privacy"
+    hub doc search "data processing"
     hub task list --status open --status waiting
 
 Read the privacy notice and any signed DPAs in the company docs, and look for open tasks that are data requests or
@@ -57,7 +57,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

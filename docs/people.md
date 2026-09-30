@@ -71,10 +71,10 @@ so when either proxy is on.
 ## API
 
 `GET /api/v2/access` (owners and admins; it includes `home_domain`, `domain_sign_in` and `directory`, the saved sync
-source), `POST /api/v2/access/people`, `POST /api/v2/access/people/{id}` (`role` owner only; `sign_in`, `create_bots`,
+source), `POST /api/v2/access/humans`, `POST /api/v2/access/humans/{id}` (`role` owner only; `sign_in`, `create_bots`,
 `add_people`, `left: false`), `PUT /api/v2/access/limits` (owners and admins), and owner only `PUT /api/v2/access/allow` (with
 `expected_revision`), `POST /api/v2/access/owner` (with `expected_revision` and `confirm: true`). Marking someone as left
-uses `POST /api/v2/people/{id}` with `left: true` (owner only).
+uses `POST /api/v2/humans/{id}` with `left: true` (owner only).
 
 ## Directory sync
 

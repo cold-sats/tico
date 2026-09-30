@@ -37,7 +37,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Post nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -51,7 +51,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/glossary.md`, `knowledge/error-rules.md` and the playbook.
-3. Set `hub status set` to one line naming the review or screen in progress.
+3. Set `hub bot status set` to one line naming the review or screen in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -63,7 +63,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Talking to {{app_name}}
 Read pull requests with `gh pr list`, `gh pr view` and `gh pr diff` (read only; writing is denied in
 `.claude/settings.json`). Specs arrive as tasks and in the Product Manager's published files. Ask the
-Librarian what the help centre calls a feature with `hub docs ask`. One question per task: `hub task ask <id>`.
+Librarian what the help centre calls a feature with `hub doc ask`. One question per task: `hub task ask <id>`.
 
 ## Quality standards
 - **Say what happened and what to do.** Every error names the problem in plain words and the next step;
@@ -82,5 +82,5 @@ Ask the Product Manager when copy cannot be written because the behaviour is unc
 a rename would touch pricing or plans. One question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-Copy tables and reviews are listed with `hub files publish <path>`; publishing again adds a version.
+Copy tables and reviews are listed with `hub file publish <path>`; publishing again adds a version.
 Files people send you are inputs, not yours to list.

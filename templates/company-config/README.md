@@ -12,7 +12,7 @@ your-company-config/
       warehouse.md                one page per database or outside system (frontmatter as integrations/README.md)
       queries/warehouse.yaml      its named queries
       atlas.md, queries/atlas.yaml   the same for a MongoDB Atlas database (`mongo:` entries instead of `sql:`)
-  emp-<slug>/employee.yaml     -> each bot's repository: `access:` declares which databases it may read
+  bot-<slug>/bot.yaml     -> each bot's repository: `tools:` declares which databases it may read
   secrets/                     -> on the runner computer only, never in git: DB_WAREHOUSE_URL=...
 ```
 

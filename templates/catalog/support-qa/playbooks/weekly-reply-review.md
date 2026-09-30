@@ -43,7 +43,7 @@ Write `reports/YYYY-MM-DD-reply-review.md` in the shape of `knowledge/examples/r
 how the sample was drawn, the pass rate and trend, patterns, replies that were excellent, drafted
 coaching, unscored replies and why, sources. Then:
 
-    hub files publish reports/YYYY-MM-DD-reply-review.md
+    hub file publish reports/YYYY-MM-DD-reply-review.md
 
 ## 7. Finish
 

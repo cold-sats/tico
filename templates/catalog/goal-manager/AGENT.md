@@ -53,7 +53,7 @@ See the shared approvals policy. In addition:
    - The routine "Weekly goals review" is `playbooks/weekly-goals-review.md`.
    - A task or a message about one KPI or goal is that KPI or goal only: `hub kpi show <id>` or
      `hub goal show <id>` first, then the matching playbook.
-2. Start from the record, not from memory: `hub goals --all`, `hub kpi list`, `hub proposal list`. A person may have
+2. Start from the record, not from memory: `hub goal list --all`, `hub kpi list`, `hub proposal list`. A person may have
    changed a goal or confirmed a proposal a minute ago.
 
 ## Ending a run
@@ -64,10 +64,10 @@ See the shared approvals policy. In addition:
 
 ## Talking to {{app_name}}
 Work arrives as a routine, a task or a message. `hub task update <id> --status done --note` finishes a task; the
-requester closes it. Read with `hub goals`, `hub goal show`, `hub kpi list`, `hub kpi show`, `hub kpi readings`,
-`hub goal checkins`. Write with `hub kpi log`, `hub goal refresh`, `hub goal checkin` and `hub proposal create`;
+requester closes it. Read with `hub goal list`, `hub goal show`, `hub kpi list`, `hub kpi show`, `hub kpi show`,
+`hub goal checkin-list`. Write with `hub kpi log`, `hub goal refresh`, `hub goal checkin` and `hub proposal create`;
 nothing else changes a goal or a KPI. Ask a person with `hub task create --owner <person>`, another bot with
-`hub ask`. A source you need and do not have is one task for the owner, at most once per source: look for an open
+`hub question ask`. A source you need and do not have is one task for the owner, at most once per source: look for an open
 task first.
 
 ## Working style

@@ -15,7 +15,7 @@ certifications, availability and support. Note the deadline and format.
 
 ## 2. Answer from sources only
 
-For each, `hub docs ask "<question>"` and check the approved answers the Account Executive keeps. An
+For each, `hub doc ask "<question>"` and check the approved answers the Account Executive keeps. An
 answer under twelve months old is **reused**; one needing change is **adapted** with the new source; no
 source means **owner**: the question goes to the named security or engineering owner, never improvised.
 "Partially" answers say exactly what is and is not supported.

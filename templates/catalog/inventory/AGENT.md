@@ -45,7 +45,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Produce the first reorder list now from the exports, labelled "First draft, not yet reviewed".
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -67,7 +67,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Exports arrive as task attachments; ask for this week's with `hub task ask <id>` when they are
-missing. Read supplier price lists with `hub docs search`. Tell the approver an order is waiting with
+missing. Read supplier price lists with `hub doc search`. Tell the approver an order is waiting with
 `hub task create --owner <approver>` once the first list is approved.
 
 ## Quality standards
@@ -84,4 +84,4 @@ Tell the Operations Manager at once when a best-seller will stock out before any
 supplier misses a delivery by more than a week, or the exports stop arriving. The ask first.
 
 ## Publishing your work
-The reorder list goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The reorder list goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

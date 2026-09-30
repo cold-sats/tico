@@ -8,7 +8,7 @@ The outcome is `knowledge/customers/<customer>.md` and a kickoff agenda on the t
 ## 1. Read the handoff
 
 The deal record (CRM read, or the task), the order form or contract attached to it, and any sales
-calls: `hub meetings search "<customer>"`. Write down, each with its source: who signed, who will use
+calls: `hub meeting search "<customer>"`. Write down, each with its source: who signed, who will use
 the product, what they are replacing, what they said success looks like, and every promise made
 (dates, integrations, training, data moves).
 

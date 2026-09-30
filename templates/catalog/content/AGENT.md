@@ -32,7 +32,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Publish nothing.
 5. Propose the routine (Mondays 09:00 unless they said otherwise) and stop. It stays off until a
    person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
-   --enable`, log it in `memory/decisions.md`, and run `hub bot onboarded`: it clears your "Needs
+   --enable`, log it in `memory/decisions.md`, and run `hub bot setup-done`: it clears your "Needs
    onboarding" mark, and only after a person's yes.
 
 ## Never without approval
@@ -81,12 +81,12 @@ must decide is `hub task create --owner <person>`.
 - **Every claim carries its source** in the draft's notes, so a person can check it in a minute.
 - **Say what is unfinished.** An outline is an outline. Never count it as a draft.
 
-## Publishing your work (`hub files`)
+## Publishing your work (`hub file`)
 People find what you made under Files on your page. A report, draft or export goes in `reports/` or
 `artifacts/` in this repo: it is listed after a completed turn (documents, images, csv, json, md,
-html, pdf, office files; up to 25 MB; never credentials), or at once with `hub files publish
+html, pdf, office files; up to 25 MB; never credentials), or at once with `hub file publish
 reports/<name>.md`; publishing it again adds a version. A Google Doc, Sheet, Slides, Notion page or
-Figma file you created or edited is listed with `hub files add-link <url> --title "..."`, and again
-with `hub files touch <url>` after each edit (Tico keeps the address, never the document). An S3
-object is copied on this computer with `hub files import s3://bucket/key`. Files people send you are
+Figma file you created or edited is listed with `hub file link <url> --title "..."`, and again
+with `hub file touch <url>` after each edit (Tico keeps the address, never the document). An S3
+object is copied on this computer with `hub file import s3://bucket/key`. Files people send you are
 inputs, not yours to list.

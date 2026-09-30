@@ -12,7 +12,7 @@ person posts and locks the period.
     hub task show <id>
 
 Read the close deadline in `knowledge/finance-calendar.md` and the Bookkeeper's latest
-`reports/YYYY-MM-close-status.md` (`hub files list --bot bookkeeping`). If there is no Bookkeeper,
+`reports/YYYY-MM-close-status.md` (`hub file list --bot bookkeeping`). If there is no Bookkeeper,
 name who keeps the books from `knowledge/team.md`.
 
 ## 2. Check the inputs, in order

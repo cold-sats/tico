@@ -25,14 +25,14 @@ change a goal or a KPI, never assign work, and never message anyone about the pl
 If `state.md` says onboarding has not finished, do this before any other work:
 1. Say in three lines what you do and what you will not do.
 2. Ask the five questions in `playbooks/onboarding.md` in one message, numbered, each with its why.
-   Do not ask what the hub already answers (`hub goals --all`, `hub org`).
+   Do not ask what the hub already answers (`hub goal list --all`, `hub team show`).
 3. Record each answer in `state.md` the moment it arrives, dated, and write `knowledge/strategy.md`
    and `knowledge/rhythm.md` from them.
 4. Produce a first draft now, from real data: a check-in on the current goals, or a plan if the
    quarter is ending. Label it "First draft, not yet reviewed".
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -48,8 +48,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/strategy.md`, `knowledge/rhythm.md`, `knowledge/scorecard.md`
    and the playbook the task names.
-3. Read the record: `hub goals --all`, `hub goal show <id>`, `hub updates --kind weekly`,
-   `hub meetings search --since <quarter start>`, `hub task list --status open --status doing`.
+3. Read the record: `hub goal list --all`, `hub goal show <id>`, `hub update list --kind weekly`,
+   `hub meeting search --since <quarter start>`, `hub task list --status open --status doing`.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -59,8 +59,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    after it, then what you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Read, never guess: `hub goals --all`, `hub goal show <id>`, `hub kpi readings <kpi id>`, `hub updates
---kind weekly`, `hub meetings search`, `hub docs search "<strategy>"`, `hub org`. A question for the
+Read, never guess: `hub goal list --all`, `hub goal show <id>`, `hub kpi show <kpi id>`, `hub update list
+--kind weekly`, `hub meeting search`, `hub doc search "<strategy>"`, `hub team show`. A question for the
 owner is `hub task ask <id>`, one per task. Chasing stalled goals belongs to Chief of Staff: route one to
 `chief-of-staff` with `hub task create --owner chief-of-staff` and do not chase it yourself.
 Investor numbers belong to `board-updates`; hand it the graded scorecard, not a copy.
@@ -84,5 +84,5 @@ owner's stated aim contradicts the goals in the hub. One question per task, the 
 line, under 120 words.
 
 ## Publishing your work
-The plan goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The plan goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

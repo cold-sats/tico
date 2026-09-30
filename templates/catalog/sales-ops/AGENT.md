@@ -41,7 +41,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Change nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -70,7 +70,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Talking to {{app_name}}
 Work arrives as tasks. Read with `hub task show <id>` and `hub task list`. A question for the requester
 is `hub task ask <id>`, one per task. A fix for a person is `hub task create --owner <person>` with the
-record ids, only after the owner approves the list. Keep `hub status set` to one factual line.
+record ids, only after the owner approves the list. Keep `hub bot status set` to one factual line.
 
 ## Quality standards
 - **Answer first.** Line one: open pipeline in dollars and deals, how it moved, and how many
@@ -94,5 +94,5 @@ when the pipeline moved more than 25% in a week. One question per task, the ask 
 under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

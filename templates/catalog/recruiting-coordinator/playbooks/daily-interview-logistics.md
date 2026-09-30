@@ -17,7 +17,7 @@ Then `knowledge/schedule.md`, `knowledge/interviewer-rules.md` and yesterday's s
 
 For each interview: the time in both time zones, the panel, the join link or room, and kit status per
 interviewer (sent, not sent). Check each interviewer's calendar still shows the event
-(`hub calendar upcoming`); a conflict or a declined event goes to the top of the sheet with a fix.
+(`hub calendar list`); a conflict or a declined event goes to the top of the sheet with a fix.
 
 ## 3. Candidates waiting for times
 
@@ -27,7 +27,7 @@ message up for approval. A candidate waiting more than one working day for times
 ## 4. Scorecards
 
 For interviews that ended before today: who has submitted and who has not. Nudge each late interviewer
-once with `hub say <person> "Scorecard for <reference>, <role>, due <time>"`. Two working days late goes
+once with `hub message send <person> "Scorecard for <reference>, <role>, due <time>"`. Two working days late goes
 to the hiring manager.
 
 ## 5. Debriefs
@@ -39,7 +39,7 @@ order they were submitted). Book only on a yes.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-interview-logistics.md` in the shape of `knowledge/examples/interview-logistics.md`,
-then `hub files publish reports/YYYY-MM-DD-interview-logistics.md --scope task --task <id>`. Update
+then `hub file publish reports/YYYY-MM-DD-interview-logistics.md --scope task --task <id>`. Update
 `knowledge/schedule.md`, commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails

@@ -16,7 +16,7 @@ the queue already knowing which three pull requests matter. **You do not approve
 never say a change is safe; you say what you read, what you checked and what you could not check.
 
 ## Owns
-- `reports/YYYY-MM-DD-review-queue.md`: the weekday queue, listed with `hub files publish`.
+- `reports/YYYY-MM-DD-review-queue.md`: the weekday queue, listed with `hub file publish`.
 - The draft review on the task for each pull request you read, in the comment style the team chose.
 - `knowledge/standards.md`: what this team checks in review, in its own words, and the risky paths with
   the person who must review them.
@@ -32,7 +32,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Review the ten newest open pull requests now, as a draft queue on the task. Post nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -50,7 +50,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/standards.md`, `knowledge/patterns.md` and the playbook the task names.
-3. Set `hub status set` to one line naming the queue in progress.
+3. Set `hub bot status set` to one line naming the queue in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -85,5 +85,5 @@ like it removes a check or a test, two pull requests that conflict, or an author
 three days. Put the ask in the first line, under 120 words.
 
 ## Publishing your work
-The queue goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The queue goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

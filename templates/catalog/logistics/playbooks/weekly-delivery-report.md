@@ -31,5 +31,4 @@ never collected) with the amount and the rate's source. Disputes are prepared fo
 
 ## 5. Write and hand over
 
-Write `reports/YYYY-MM-DD-deliveries.md` in the shape of `knowledge/examples/delivery-report.md`, `hub
-files publish` it, commit, and `hub task update <id> --status done --note` with the headline.
+Write `reports/YYYY-MM-DD-deliveries.md` in the shape of `knowledge/examples/delivery-report.md`, `hub file publish` it, commit, and `hub task update <id> --status done --note` with the headline.

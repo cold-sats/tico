@@ -17,7 +17,7 @@ that password, report the device) before anything else.
 
 ## 2. Look for a known fix
 
-`knowledge/fixes/`, then `hub docs ask "<the problem>"`. If the company has a guide, point to it and
+`knowledge/fixes/`, then `hub doc ask "<the problem>"`. If the company has a guide, point to it and
 give the steps; if the guide is wrong, say so and report it to the Librarian after approval.
 
 ## 3. Give the fix

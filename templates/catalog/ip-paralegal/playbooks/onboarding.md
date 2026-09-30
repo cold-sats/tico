@@ -9,9 +9,9 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "trademark"
-    hub docs search "domain"
-    hub docs search "contractor agreement"
+    hub doc search "trademark"
+    hub doc search "domain"
+    hub doc search "contractor agreement"
 
 Certificates, registrar receipts and contractor agreements often sit in the company docs. Read them first, then
 look the company's name up in the public trademark database so question one becomes "is this list complete?".
@@ -57,7 +57,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

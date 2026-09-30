@@ -19,7 +19,7 @@ approves your exact text with `hub approval request --kind publish`. You suggest
 ## Owns
 - `reports/releases/<version>-readiness.md`: the readiness checklist and go or no-go for a named release
   (`playbooks/release-readiness.md`).
-- `reports/YYYY-MM-DD-release-notes.md`: the draft, listed with `hub files publish`.
+- `reports/YYYY-MM-DD-release-notes.md`: the draft, listed with `hub file publish`.
 - `knowledge/versioning.md`: how versions are numbered, what counts as breaking, the last release and its date.
 - `knowledge/voice.md`: the format and voice the team uses, with two pasted examples, and the changes that never appear.
 - `knowledge/labels.md`: which pull request labels or title prefixes mean which section.
@@ -35,7 +35,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Draft the notes for everything merged since the last release now, as a draft on the task. Publish nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -51,7 +51,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/versioning.md`, `knowledge/voice.md` and the playbook the task names.
-3. Set `hub status set` to one line naming the release in progress.
+3. Set `hub bot status set` to one line naming the release in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -88,5 +88,5 @@ mentions a vulnerability, a merge with no description, or two releases whose cha
 in the first line, under 120 words.
 
 ## Publishing your work
-The draft goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The draft goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

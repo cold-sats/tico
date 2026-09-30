@@ -100,5 +100,5 @@ Inside a hosted turn `HUB_EMPLOYEE` stands in for `--as`. Exit codes: `0` ok, `1
 
 ## Learnings
 
-What bots and people learn about this integration is added with `hub learn slack "…"` and
+What bots and people learn about this integration is added with `hub tool learn slack "…"` and
 shown under this page; a person folds it into the page over time. The page is the rule.

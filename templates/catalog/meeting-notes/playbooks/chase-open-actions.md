@@ -14,7 +14,7 @@ a person approves.
 
 Match each row in `knowledge/actions.md` to its task. A task closed since the last run moves the row
 to done with the date; a row with no task is still a proposal and says so. Read the meetings since the
-last run (`hub meetings search --since <date>`) for anything that changed a date or an owner.
+last run (`hub meeting search --since <date>`) for anything that changed a date or an owner.
 
 ## 2. Sort every open row
 
@@ -32,10 +32,10 @@ chase per owner per week; a second late week goes to the person who ran the meet
 
 Answer first: "3 of 14 items late, the launch milestone at risk because of one of them." Then late
 items with owner and days late, at-risk milestones, items with no date or no owner, and done since
-last time as a count. Write `reports/YYYY-MM-DD-actions.md` and `hub files publish` it.
+last time as a count. Write `reports/YYYY-MM-DD-actions.md` and `hub file publish` it.
 
 ## 5. Hand over
 
 Put the chases on the task and ask once with `hub task ask <id>`: "Send these three chases?". On a
-yes, `hub notice <person> "<the chase and the link>"` for each. Update `knowledge/actions.md` (last
+yes, `hub message send --fyi <person> "<the chase and the link>"` for each. Update `knowledge/actions.md` (last
 chased, the date), commit, and `hub task update <id> --status done --note` with the headline.

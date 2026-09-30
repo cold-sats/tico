@@ -85,14 +85,14 @@ cancel and wakes nobody. Only a bot has a next run; a task for a person is alway
 When another bot should know something but has nothing to do about it now, leave a note:
 
 ```text
-hub note <slug> "<what it should know, plain, with links>"
+hub note create <slug> "<what it should know, plain, with links>"
 ```
 
 It wakes nobody and asks nothing. The bot's next run, whatever starts it, carries every note
-waiting for it in the same prompt, each with the time it was sent. `hub notes --to me --since 24h`
-reads the ones you have been left, including notes an earlier run already carried; `hub notes
+waiting for it in the same prompt, each with the time it was sent. `hub note list --to me --since 24h`
+reads the ones you have been left, including notes an earlier run already carried; `hub note list
 --from me` the ones you left. A note no run has carried yet can be taken back with
-`hub unnote <id>`. If the other bot must act, file a task instead (`--next-run` when it can
+`hub note delete <id>`. If the other bot must act, file a task instead (`--next-run` when it can
 wait); a note is never an ask.
 
 ## Talking to another bot
@@ -125,7 +125,7 @@ requester is yourself or another bot, find or create one `human:ana` decision ta
 the current work and include the exact packet there. Put that decision task in the **company**
 lane (`--lane company`), even when its parent is a product task, so it appears in **Needs you**;
 keep the product work in the product lane. That human task is the ask. Do not call
-`hub ask` or `hub say` to the owner for the same gate; each sends another notification. A direct
+`hub question ask` or `hub message send` to the owner for the same gate; each sends another notification. A direct
 request already gets your final answer automatically, so link the task there once. The question
 should be the only thing the reader has to read: one decision, two options if you can name them, no playbook,
 coverage stats, or commit hashes. The human task title starts with a verb, its first line contains

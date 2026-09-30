@@ -13,7 +13,7 @@ its setup started, one test run passed. Not before. The person reads one message
 
 ## The flow
 
-1. **Register it.** `hub bot register <slug> --name "<Display>" --description "<one line>"`. They become
+1. **Register it.** `hub bot create --record-only <slug> --name "<Display>" --description "<one line>"`. They become
    an owner. If they may not add bots, or are at their limit, say exactly that and stop.
 2. **Build it.** Follow `playbooks/set-up-a-bot.md` from step 2: repository from the closest template,
    real instructions, `hub bot check <slug>` clean, committed.
@@ -37,8 +37,8 @@ its setup started, one test run passed. Not before. The person reads one message
 
 ## People, and what always needs their click
 
-    hub people list
-    hub people add <email> --name "<Name>" [--title T] [--reports-to <person id>]
+    hub human list
+    hub human add <email> --name "<Name>" [--title T] [--reports-to <person id>]
 
 A member may add a coworker in the company's email domain; an owner or an admin anyone. Adding a
 person always needs their own click: the command answers `needs_confirm: true` and a card is in their
@@ -55,8 +55,8 @@ off) happen at once, and each can be undone from Settings > Bots history.
   `can: [read]`, add "never push, merge or comment" under `## Never without approval` in its
   `AGENT.md`, run `hub bot check <slug>` and commit. Say plainly that this is its rules and declared
   access, not a narrower login, unless they gave it a separate read-only token.
-- "Turn off the Monday routine": `hub routine off <key> --bot <bot>`.
-- "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub fleet-check`, then fix or explain.
+- "Turn off the Monday routine": `hub routine update <key> --disable --bot <bot>`.
+- "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub health check`, then fix or explain.
 - Anything else in the app: `hub api <METHOD> <path> ['{json}']`, as them, with their rights.
 
 ## When it goes sideways

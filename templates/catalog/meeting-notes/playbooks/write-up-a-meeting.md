@@ -18,7 +18,7 @@ skipped meeting is a stated decision, never silence.
 
 The body has the source's own notes and the transcript. If it is cut off, read the rest:
 
-    hub meetings transcript <id> --offset <next_offset>
+    hub meeting read <id> --offset <next_offset>
 
 Read the whole transcript. The source's summary is a lead, not a fact: check its decisions against
 what was actually said.
@@ -61,12 +61,12 @@ Under 250 words for the summary part. Append each decision to `knowledge/decisio
 
 One question that lists the proposals and the recipients from `knowledge/coverage.md`. On the answer:
 create only the confirmed tasks with `hub task create --owner <person> --link <meeting link>`, then
-`hub notice <person> "<one line and the link>"` to each named recipient. If no answer comes, the write-up
+`hub message send --fyi <person> "<one line and the link>"` to each named recipient. If no answer comes, the write-up
 stays a draft.
 
 ## 7. Finish
 
-Publish with `hub files publish reports/...`, commit, and `hub task update <id> --status done --note`:
+Publish with `hub file publish reports/...`, commit, and `hub task update <id> --status done --note`:
 the headline, counts, and what still waits. Always finish it; an open routine task absorbs the
 next meeting.
 

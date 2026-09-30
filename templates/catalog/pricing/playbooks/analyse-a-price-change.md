@@ -33,5 +33,5 @@ you do not interpret contracts).
 ## 5. Write
 
 `reports/YYYY-MM-DD-impact-<change>.md`: the recommendation-free summary line, the tables, the options,
-the unknowns, and what would reduce them. `hub files publish`, commit, finish the task. The decision and
+the unknowns, and what would reduce them. `hub file publish`, commit, finish the task. The decision and
 every customer message are the owner's.

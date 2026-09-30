@@ -40,7 +40,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Reply to no customer.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -81,5 +81,5 @@ reason causes three losses in a week, or when the policy has no offer for a comm
 the ask first, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`. Files people
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`. Files people
 send you are inputs, not yours to list.

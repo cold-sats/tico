@@ -28,7 +28,7 @@ of budget with no new estimate: list it. A firm billing a matter not on the list
 
 `reports/YYYY-MM-DD-legal-spend.md` in the shape of `knowledge/examples/legal-spend.md`: the headline (total,
 change on the month before, amount in question), the table, the matters, the questions to raise with each firm as
-drafts, then the not-legal-advice line. `hub files publish` it, commit, and `hub task update <id> --status done
+drafts, then the not-legal-advice line. `hub file publish` it, commit, and `hub task update <id> --status done
 --note` with the total and the amount in question first.
 
 ## When a source fails

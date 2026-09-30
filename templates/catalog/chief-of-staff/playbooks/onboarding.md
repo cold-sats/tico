@@ -8,8 +8,8 @@ and a routine that is proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub goals --all
-    hub org
+    hub goal list --all
+    hub team show
     hub task list --status open --status doing --status waiting
 
 Do not ask what these already say. If there are no goals at all, say so, and in step 4 propose three
@@ -62,7 +62,7 @@ adjust `knowledge/rhythm.md` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

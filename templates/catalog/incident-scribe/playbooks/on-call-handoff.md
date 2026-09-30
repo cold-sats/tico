@@ -28,5 +28,5 @@ One line each, with the link and the date. Blameless: describe systems and event
 
 ## 3. Hand over
 
-Write `reports/oncall/YYYY-MM-DD-handoff.md`, attach it, `hub files publish` it, commit, and
+Write `reports/oncall/YYYY-MM-DD-handoff.md`, attach it, `hub file publish` it, commit, and
 `hub task update <id> --status done --note` with the count of open incidents in the first line.

@@ -20,7 +20,7 @@ aliases: [acme-db]
 ## What it is
 
 Acme's reporting replica: PostgreSQL 16, read-only role `tico_readonly`, refreshed continuously from
-production. It is the only database a bot may read. The generic rules are in `hub integration postgres`.
+production. It is the only database a bot may read. The generic rules are in `hub tool show postgres`.
 
 ## What data it has
 
@@ -34,7 +34,7 @@ production. It is the only database a bot may read. The generic rules are in `hu
 ## How a bot uses it
 
 ```bash
-hub queries warehouse revenue                       # find a named query
+hub tool query-search warehouse revenue                       # find a named query
 hub db warehouse --query revenue-by-month --param start=2026-01-01 --param end=2026-07-01
 hub db warehouse "SELECT status, count(*) FROM orders WHERE placed_at >= :since GROUP BY 1" --param since=2026-09-01
 ```
@@ -49,7 +49,7 @@ hub db warehouse "SELECT status, count(*) FROM orders WHERE placed_at >= :since 
 ## Recipes
 
 `revenue-by-month`, `orders-by-status`, `top-products`, `new-customers-by-region` (see
-`hub queries warehouse`).
+`hub tool query-search warehouse`).
 
 ## Gotchas
 
@@ -59,5 +59,5 @@ hub db warehouse "SELECT status, count(*) FROM orders WHERE placed_at >= :since 
 
 ## Learnings
 
-What bots and people learn about this database is added with `hub learn warehouse "..."` and shown
+What bots and people learn about this database is added with `hub tool learn warehouse "..."` and shown
 under this page; a person folds it into the page over time. The page is the rule.

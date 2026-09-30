@@ -13,14 +13,14 @@ by hand. Link each occurrence (task ids, reports). One-off work is routed, not h
 
 ## 2. Pick the template
 
-    hub catalog
-    hub org
+    hub template list
+    hub team show
 
 Choose one template from `team_templates` on this bot's card whose first routine covers the work:
 specs and launch checklists → `product-manager`; usage and experiment questions → `product-analyst`;
 feature-request ledger, betas, release calendar → `product-ops`; interface copy → `ux-writer`; prices
 and packaging → `pricing`; feedback themes → `feedback-analyst`; interviews and studies →
-`product-researcher`. If `hub org` shows it already exists, route to it instead.
+`product-researcher`. If `hub team show` shows it already exists, route to it instead.
 
 ## 3. Propose
 

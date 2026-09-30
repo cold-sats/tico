@@ -9,10 +9,10 @@ finished. Budget 30 minutes. The outcome is six recorded answers, a real draft o
 
     hub task show <id>
     hub task list --status open --status doing --status waiting
-    hub updates --kind weekly
+    hub update list --kind weekly
 
 Check what you can already reach: the repositories in your GitHub access (`gh pr list -R <repo> --state all --limit 30`),
-the other engineering bots' tasks and reports, imported standups (`hub meetings search --since YYYY-MM-DD`). Do not ask what
+the other engineering bots' tasks and reports, imported standups (`hub meeting search --since YYYY-MM-DD`). Do not ask what
 these already say. If you cannot read a repository, that is a gap to name, and a task for the owner if they want it connected.
 
 ## 2. Introduce yourself in three lines
@@ -50,7 +50,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

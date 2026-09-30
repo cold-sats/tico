@@ -32,7 +32,7 @@ Add new ideas with where each came from (a task, a call, a question). Remove wha
 ## 5. Write the plan page and hand over
 
 `reports/YYYY-MM-DD-content-plan.md` in the shape of `knowledge/examples/content-plan.md`. Then
-`hub files publish` it, commit, and `hub task update <id> --status done --note`: the headline, the
+`hub file publish` it, commit, and `hub task update <id> --status done --note`: the headline, the
 draft's path and what you could not read. Always finish it: an open scheduled task absorbs the next.
 
 ## When a source fails

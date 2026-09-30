@@ -9,7 +9,7 @@ records that disagree, letters waiting, acknowledgements outstanding. Nothing is
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
 
 Then `knowledge/leavers.md`, `knowledge/systems.md` and last week's check.
@@ -23,7 +23,7 @@ New leavers from the tasks get a checklist (`playbooks/offboard-a-leaver.md`).
 ## 3. Records audit
 
 If this week's tasks carry an HR export and a payroll export, compare them with each other and with
-`hub org`: name or reference, title, manager, team, start date, employment status, active on payroll.
+`hub team show`: name or reference, title, manager, team, start date, employment status, active on payroll.
 List each mismatch with both values and dates. A person on payroll who is not on the roster, or the
 reverse, goes to the top. Missing documents (a signed contract, a right-to-work check where required)
 are listed by reference and type.
@@ -36,7 +36,7 @@ have not acknowledged each.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-records-check.md` in the shape of `knowledge/examples/records-check.md`, then
-`hub files publish reports/YYYY-MM-DD-records-check.md --scope task --task <id>`. Delete the exports from
+`hub file publish reports/YYYY-MM-DD-records-check.md --scope task --task <id>`. Delete the exports from
 the working tree. Commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails

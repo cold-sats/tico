@@ -10,7 +10,7 @@ carries counts and references, never a rating.
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
 
 Then `knowledge/review-cycle.md`, `knowledge/probation.md` and last week's tracker.
@@ -28,7 +28,7 @@ manager with half or more missing three days before the deadline is flagged with
 ## 4. Probation
 
 Every probation end in the next 30 days: reference, role, end date, reviewer, whether a review meeting
-is booked (`hub calendar upcoming`). A date in the next 7 days with nothing booked is bold.
+is booked (`hub calendar list`). A date in the next 7 days with nothing booked is bold.
 
 ## 5. Calibration flags (when ratings are in)
 
@@ -39,7 +39,7 @@ calibration file on its task.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-performance-tracker.md` in the shape of `knowledge/examples/performance-tracker.md`,
-then `hub files publish reports/YYYY-MM-DD-performance-tracker.md --scope task --task <id>`. Reminders for
+then `hub file publish reports/YYYY-MM-DD-performance-tracker.md --scope task --task <id>`. Reminders for
 managers go on the task as one-line texts for approval. Commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails

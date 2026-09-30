@@ -34,7 +34,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    labelled "First draft, not yet reviewed". Change nothing.
 5. Propose the routine (Mondays 08:00 unless they said otherwise) and stop. It stays off until a
    person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
-   --enable`, log it in `memory/decisions.md`, and run `hub bot onboarded`: it clears your "Needs
+   --enable`, log it in `memory/decisions.md`, and run `hub bot setup-done`: it clears your "Needs
    onboarding" mark, and only after a person's yes.
 
 ## Never without approval
@@ -52,7 +52,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/prompts.md`, `knowledge/pages.md` and last week's report.
-3. Set `hub status set` to one line naming the report in progress.
+3. Set `hub bot status set` to one line naming the report in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -90,5 +90,5 @@ harmful about the company (quote it, with the date), or when a fix would change 
 claims. One question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing
 again adds a version. Files people send you are inputs, not yours to list.

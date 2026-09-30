@@ -10,8 +10,8 @@ proposed but not armed.
 
     hub task show <id>
     hub task list --status open --status doing --status waiting
-    hub calendar upcoming
-    hub docs search "renewal"
+    hub calendar list
+    hub doc search "renewal"
 
 Check what you can already reach: the calendar, open tasks, the Operations bots' published reports, and a
 vendor mailbox if one is in your access. Do not ask what these already say. If you cannot read something,
@@ -56,7 +56,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

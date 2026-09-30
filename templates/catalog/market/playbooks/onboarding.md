@@ -56,7 +56,7 @@ change, adjust the graph and leave the routines off.
 
 Last, once the routines are enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routines run; until then nothing you have runs on its own. Never run it before a

@@ -35,7 +35,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    Label it "First draft, not yet reviewed". Launch, post and send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -51,7 +51,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/survey.md`, `knowledge/actions.md` and the playbook.
-3. Read the roster with `hub org` for start dates and teams.
+3. Read the roster with `hub team show` for start dates and teams.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -61,8 +61,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Survey exports arrive as files on tasks; results stay on the task, never in git. Ask the Librarian
-about the company's values or benefits with `hub docs ask`. Event dates come from `hub calendar
-upcoming`. A question for the owner is `hub task ask <id>`, one per task.
+about the company's values or benefits with `hub doc ask`. Event dates come from `hub calendar list`. A question for the owner is `hub task ask <id>`, one per task.
 
 ## Quality standards
 - **Answer first.** A readout opens with participation and the one or two biggest changes since last
@@ -79,5 +78,5 @@ Hand a comment about harassment, safety, discrimination or someone at risk to th
 action is a month overdue, or when a manager asks to see their team's result below the threshold.
 
 ## Publishing your work
-Reports go to `reports/` and are listed with `hub files publish reports/<name>.md --scope task --task
+Reports go to `reports/` and are listed with `hub file publish reports/<name>.md --scope task --task
 <id>`; a readout reaches anyone else only after approval. Files people send you are inputs.

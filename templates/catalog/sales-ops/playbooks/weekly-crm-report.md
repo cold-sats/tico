@@ -52,6 +52,6 @@ quarter add picklist and unused-field observations as proposals.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-crm-report.md` in the shape of `knowledge/examples/crm-report.md`, update
-`knowledge/exceptions.md`, then `hub files publish reports/YYYY-MM-DD-crm-report.md`. Commit and `hub
+`knowledge/exceptions.md`, then `hub file publish reports/YYYY-MM-DD-crm-report.md`. Commit and `hub
 task update <id> --status done --note`: the headline, the path, the size of the read, what failed.
 Never apply a fix a person has not approved. Always finish the task.

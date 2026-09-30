@@ -10,10 +10,10 @@ Nothing is published by this playbook.
 ## 1. Read what is already planned
 
     hub task show <id>
-    hub calendar upcoming
+    hub calendar list
 
 Read `knowledge/social-calendar.md`, the last two weeks of sweep digests in `reports/sweeps/`, and
-the Content Marketer's plan if the company has one (`hub updates --bot content`). Launches, events
+the Content Marketer's plan if the company has one (`hub update list --bot content`). Launches, events
 and announcements on the calendar come first; do not invent news.
 
 ## 2. Choose the posts

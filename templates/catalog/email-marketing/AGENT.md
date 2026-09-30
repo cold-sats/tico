@@ -35,7 +35,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Send nothing.
 5. Propose the routine (Tuesdays 09:00 unless they said otherwise) and stop. It stays off until a
    person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
-   --enable`, log it in `memory/decisions.md`, and run `hub bot onboarded`: it clears your "Needs
+   --enable`, log it in `memory/decisions.md`, and run `hub bot setup-done`: it clears your "Needs
    onboarding" mark, and only after a person's yes.
 
 ## Never without approval
@@ -94,5 +94,5 @@ company could not stand behind, when results have dropped three campaigns runnin
 asks you to email a list you were not told about. One question per task, under 120 words.
 
 ## Publishing your work
-Drafts go to `reports/` and are listed with `hub files publish reports/<folder>/email.md`; publishing
+Drafts go to `reports/` and are listed with `hub file publish reports/<folder>/email.md`; publishing
 again adds a version. Files people send you are inputs, not yours to list.

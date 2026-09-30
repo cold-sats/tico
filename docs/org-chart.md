@@ -6,10 +6,10 @@ The source is `registry/people.yaml` for the humans and
 `registry/employees.yaml` for the bots. This page explains them; it
 does not duplicate them. The hub renders the same mixed tree in the **Org** sidebar, so the page
 in the app and this document always agree. Edit the YAML, not a list in prose. Bots read the
-same chart through `hub org` / the `hub_org` MCP tool (`GET /api/v2/org`): the people, and every bot the caller may see (its
+same chart through `hub team show` / the `hub_team_show` MCP tool (`GET /api/v2/org`): the people, and every bot the caller may see (its
 See permission, [permissions.md](permissions.md)) with its `reports_to`, its `department` and its `template`. A bot's department
 is its team; a bot with none takes the department of its template in the org builder, then of the bot it reports to, so a
-department head's reports carry the head's department. `hub people list` is the people alone.
+department head's reports carry the head's department. `hub human list` is the people alone.
 
 ## The people
 

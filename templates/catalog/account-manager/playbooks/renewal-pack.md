@@ -32,6 +32,6 @@ words in the owner's voice. Put both on the task.
 
 ## 5. Hand over
 
-Write `reports/YYYY-MM-DD-<account>-renewal.md`, `hub files publish` it, attach it. Once the approver fills
+Write `reports/YYYY-MM-DD-<account>-renewal.md`, `hub file publish` it, attach it. Once the approver fills
 the gaps and approves, request `hub approval request --kind send` with the final file and recipient.
 `hub task update <id> --status done --note`: the options, the gaps, the notice deadline.

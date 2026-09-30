@@ -8,7 +8,7 @@ words that the hiring manager can approve with one edit, and a role file. It is 
 ## 1. Read the brief and the company
 
     hub task show <id>
-    hub docs search "values"
+    hub doc search "values"
 
 If `knowledge/roles/<role>.md` exists, this run updates it. Do not start a second file for the same role.
 

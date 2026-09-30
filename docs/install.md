@@ -104,7 +104,7 @@ half way, running the command again resumes it.
 3. **Sign-in.** Google or Microsoft (OIDC), or Cloudflare Access. It opens the right console page, prints the redirect
    URI to paste (`https://<domain>/auth/callback`, character for character), and asks for the client ID and secret
    (hidden). Optionally limit sign-in to one email domain.
-4. **Company.** Name, owner email (it must be the account you will sign in with), and an optional model key for the
+4. **Team/Company name.** Name, owner email (it must be the account you will sign in with), and an optional model key for the
    server's own decision model.
 5. **Backups.** A bucket (an S3 or R2 bucket it can create, one `setup backup-storage` created from your laptop, or one you already have) or local only, with the warning
    that local copies do not survive losing the server. See [Backups and restore](#backups-and-restore).

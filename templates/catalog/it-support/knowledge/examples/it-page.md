@@ -36,5 +36,5 @@ open, 2 access changes wait on approvers.**
 - AC-012 and AC-019 not encrypted. AC-007 warranty ends 2026-11-02.
 
 ## Sources
-- requests.md, devices.md, hub org, read 2026-09-28
+- requests.md, devices.md, hub team show, read 2026-09-28
 ```

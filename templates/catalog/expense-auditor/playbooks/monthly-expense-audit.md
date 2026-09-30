@@ -33,6 +33,6 @@ what is large, repeated or a duplicate candidate.
 ## 4. Write and hand over
 
 `reports/YYYY-MM-expense-audit.md` in the shape of `knowledge/examples/expense-audit.md`:
-headline, totals, per-approver sections, then "Could not read". `hub files publish` it (finance only),
+headline, totals, per-approver sections, then "Could not read". `hub file publish` it (finance only),
 commit, and `hub task update <id> --status done --note` with the headline and the path. Offer, on the
 task, a prepared note per approver; send nothing until a person says yes.

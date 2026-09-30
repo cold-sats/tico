@@ -56,7 +56,7 @@ is also in the brief.
 In the shape of `knowledge/examples/mail-brief.md`: a headline count, "Needs you today" first, then
 drafts, then routed items, then what you would file, then anything you could not read. Message ids and
 one-line reasons only; never a body or an address list. Then attach it to the task. If it is worth
-keeping, `hub files publish reports/YYYY-MM-DD-mail-brief.md`.
+keeping, `hub file publish reports/YYYY-MM-DD-mail-brief.md`.
 
 ## 7. Finish
 

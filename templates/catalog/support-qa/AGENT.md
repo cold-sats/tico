@@ -36,7 +36,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    Score against the scorecard and send the result to nobody.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -52,7 +52,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/scorecard.md`, `knowledge/calibration.md` and
    `knowledge/patterns.md`, then the playbook the task names.
-3. Set `hub status set` to one line naming the review in progress.
+3. Set `hub bot status set` to one line naming the review in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -88,6 +88,6 @@ loss. That is not held for the weekly review. Ask the owner when two criteria co
 is disputed. One question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The review goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The review goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. It lists replies by ticket reference and never by a person's name unless the owner
 said by-person scores are wanted; anything more personal stays on the task. Files people send you are inputs.

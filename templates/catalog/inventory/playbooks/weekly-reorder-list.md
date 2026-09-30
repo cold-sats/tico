@@ -36,5 +36,5 @@ total. Put each on the task with `hub approval request --kind spend`.
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-reorder.md` in the shape of `knowledge/examples/reorder-list.md`, `hub files
+Write `reports/YYYY-MM-DD-reorder.md` in the shape of `knowledge/examples/reorder-list.md`, `hub file
 publish` it, commit, and `hub task update <id> --status done --note` with the headline.

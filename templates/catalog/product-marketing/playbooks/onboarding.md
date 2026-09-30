@@ -10,7 +10,7 @@ a routine that is proposed but not armed.
 
     hub task show <id>
     hub market show
-    hub goals --all
+    hub goal list --all
 
 Read the company's public product page and what the market graph says about competitors. Do not
 ask what these already say. If there is no market page, that is part of answer two.
@@ -54,7 +54,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

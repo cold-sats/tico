@@ -9,9 +9,9 @@ and a cadence on every control, a first monthly page, and a routine proposed but
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "security policy"
-    hub docs search "SOC 2"
-    hub org
+    hub doc search "security policy"
+    hub doc search "SOC 2"
+    hub team show
 
 Find the last audit report or readiness assessment, the policies and any evidence folder. What they
 already say is not asked again.
@@ -57,7 +57,7 @@ leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

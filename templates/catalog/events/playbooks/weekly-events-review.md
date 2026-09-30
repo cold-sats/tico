@@ -10,7 +10,7 @@ or sent.
 ## 1. Read where things stand
 
     hub task show <id>
-    hub calendar upcoming
+    hub calendar list
 
 Then `knowledge/calendar.md`, `knowledge/rules.md`, `knowledge/results.md` and last week's review.
 
@@ -35,5 +35,5 @@ conversations, meetings, pipeline, and cost per meeting. Write one line per even
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-events.md` in the shape of `knowledge/examples/events-review.md`, then
-`hub files publish reports/YYYY-MM-DD-events.md`. Commit, and `hub task update <id> --status done
+`hub file publish reports/YYYY-MM-DD-events.md`. Commit, and `hub task update <id> --status done
 --note`: the headline, the path, what you could not read.

@@ -16,7 +16,7 @@ review. Check whether last week's ship notices were sent (ask, do not assume).
 ## 2. Take in the week's requests
 
 New tasks tagged as requests, the Customer Insights Analyst's latest report, sales and customer calls
-(`hub meetings search "feature request" --since <last week>`). For each, follow
+(`hub meeting search "feature request" --since <last week>`). For each, follow
 `playbooks/log-a-feature-request.md`. Count new rows and merges.
 
 ## 3. Rank the most asked
@@ -43,5 +43,5 @@ notice text. Put them on the task for a person to approve; nothing is sent.
 ## 7. Write and hand over
 
 Write `reports/YYYY-MM-DD-product-ops-review.md` in the shape of `knowledge/examples/product-ops-review.md`,
-`hub files publish` it, commit, and `hub task update <id> --status done --note`: the headline and what
+`hub file publish` it, commit, and `hub task update <id> --status done --note`: the headline and what
 needs a person.

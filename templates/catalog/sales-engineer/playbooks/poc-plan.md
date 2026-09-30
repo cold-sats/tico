@@ -9,7 +9,7 @@ given and nothing is sent without approval.
 ## 1. Read the deal
 
     hub task show <id>
-    hub meetings search "<company>"
+    hub meeting search "<company>"
 
 From discovery: the business problem, the current state, the future state the buyer described, who
 evaluates and who decides. No clear business problem means the POC is premature: say so to the Account

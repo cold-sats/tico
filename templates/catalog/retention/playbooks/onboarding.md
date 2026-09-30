@@ -8,9 +8,9 @@ first retention report from the last four weeks, and a routine that is proposed 
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status done
-    hub docs ask "What is our cancellation and refund policy?"
+    hub doc ask "What is our cancellation and refund policy?"
 
 Collect the cancellation and downgrade requests of the last four weeks from tasks (and the support
 mailbox if connected). Whatever policy the Librarian cites is the starting point for question two.
@@ -56,7 +56,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so

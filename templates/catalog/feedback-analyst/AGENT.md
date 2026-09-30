@@ -46,7 +46,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    labelled "First draft, not yet reviewed". Send it to nobody.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -64,7 +64,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/themes.md`, `knowledge/trends.md` and the playbook the task
    names.
-3. Set `hub status set` to one line naming the report in progress.
+3. Set `hub bot status set` to one line naming the report in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -75,8 +75,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Work arrives as tasks: `hub task show <id>`, `hub task list`. Feedback comes from tasks and files people
-attach, from Support Agent's digests and known-issues, and from imported customer calls (`hub meetings
-search "<theme>"`, then `hub meetings transcript <id>`). Where a mailbox is connected, `$HUB_DIR/scripts/mail.sh search
+attach, from Support Agent's digests and known-issues, and from imported customer calls (`hub meeting
+search "<theme>"`, then `hub meeting read <id>`). Where a mailbox is connected, `$HUB_DIR/scripts/mail.sh search
 "<query> newer_than:7d"`. Ask the recipient one question with `hub task ask <id>`. Something a person must
 decide is `hub task create --owner <person>`, only after approval. Finish every task, quiet week or not.
 
@@ -100,5 +100,5 @@ overlap and you cannot separate them, or when a spike may be one loud thread. On
 ask in the first line, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

@@ -31,6 +31,6 @@ form collected at onboarding.
 
 ## 5. Write and hand over
 
-`reports/YYYY-MM-tax-calendar.md` in the shape of `knowledge/examples/tax-calendar.md`, `hub files
+`reports/YYYY-MM-tax-calendar.md` in the shape of `knowledge/examples/tax-calendar.md`, `hub file
 publish` it, commit, and `hub task update <id> --status done --note` with the next deadline and
 anything late. Questions for the accountant are prepared on the task for a person to send.

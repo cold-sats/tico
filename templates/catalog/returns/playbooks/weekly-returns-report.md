@@ -33,4 +33,4 @@ Abuse signals, stated as facts, for the owner only.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-returns.md` in the shape of `knowledge/examples/returns-report.md` and
-`hub files publish` it. Commit, and finish the task with the counts and the path.
+`hub file publish` it. Commit, and finish the task with the counts and the path.

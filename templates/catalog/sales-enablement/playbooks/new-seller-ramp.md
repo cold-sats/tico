@@ -9,7 +9,7 @@ deals. It is guidance for them and their manager, never an assessment.
 ## 1. Read the role
 
     hub task show <id>
-    hub org --person <seller>
+    hub team show --person <seller>
 
 Note the role (SDR, Account Executive, Account Manager), start date, manager, and segment or territory.
 

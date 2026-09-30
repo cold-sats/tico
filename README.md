@@ -169,7 +169,7 @@ Rust and the Tauri CLI (`cargo install tauri-cli`) are needed only for the deskt
 
 The whole flow, the answer fields and what each step writes are in
 [`docs/onboarding.md`](docs/onboarding.md). Offline, `python -m backend.manage enrollment <db>
---operator <person-id> --out <file>` mints the same 15 minute enrollment code that **Add computer**
+--owner <human-id> --out <file>` mints the same 15 minute enrollment code that **Add computer**
 downloads, and `enroll` reads either file.
 
 ## Running two companies on one Mac
@@ -280,7 +280,7 @@ named company must also carry a permanent id, or the process refuses to start.
 | `TICO_PROCESSING_OPERATORS` | People whose machines may run the Close transcript importer and connector publishers | `dana` |
 | `TICO_SCHEDULER` | `1` runs the routine scheduler in this process | `1` |
 | `TICO_CREDENTIAL_KMS_KEY` | Credential store key | `alias/tico-acme` |
-| `TICO_TYPESAFE_SECRET_ARN` or `TYPESAFE_API_KEY` | Optional key for the decisions provider (TypeSafe's Jev) behind `hub_decisions` / `POST /api/v2/judge` and the Slack gateway (`skills/decisions/SKILL.md`, `questions/README.md`); without it the route answers 503. Decisions were called "judge" before 0.2.4: the route, the `judge.call` audit events and `TYPESAFE_*` names are unchanged, and `hub_judge` / `hub judge` remain as aliases | |
+| `TICO_TYPESAFE_SECRET_ARN` or `TYPESAFE_API_KEY` | Optional key for the decisions provider (TypeSafe's Jev) behind `hub_decision_ask` / `POST /api/v2/decisions` and the Slack gateway (`skills/decisions/SKILL.md`, `questions/README.md`); without it the route answers 503. Decisions were called "judge" before 0.2.4: the `judge.call` audit events and `TYPESAFE_*` names are unchanged | |
 | `TICO_UPDATE_CHECK`, `TICO_RELEASES_URL`, `TICO_VERSION`, `TICO_UPDATER_URL`, `TICO_UPDATER_TOKEN` | The "New version" notice and owner-only "Update now"; `TICO_UPDATE_CHECK=off` disables it. See [docs/releasing.md](docs/releasing.md) | |
 | `TICO_TELEMETRY`, `DO_NOT_TRACK`, `TICO_TELEMETRY_DEBUG`, `TICO_HQ_URL` | The anonymous usage count: `TICO_TELEMETRY=off` or `DO_NOT_TRACK=1` (or Settings > Privacy) turns it off, `TICO_TELEMETRY_DEBUG=1` prints what would be sent and sends nothing. See [PRIVACY.md](PRIVACY.md) | |
 | `TICO_RELEASE`, `TICO_OBSERVABILITY_*`, `TICO_POSTHOG_*`, `TICO_SENTRY_*` | Optional release id and telemetry. Empty disables all of it | |

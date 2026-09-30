@@ -10,7 +10,7 @@ product owner. Nothing is sent to a customer.
 
     hub task show <id>
 
-Then `knowledge/themes.md`, `knowledge/segments.md` and `knowledge/trends.md`. Set `hub status set` to one
+Then `knowledge/themes.md`, `knowledge/segments.md` and `knowledge/trends.md`. Set `hub bot status set` to one
 line naming the report.
 
 ## 2. Collect the week
@@ -38,7 +38,7 @@ headline, ranked themes with counts and change, two or three anonymised quotes f
 what is new, three suggested actions each with evidence and an owner to ask, what was excluded, what could
 not be read, sources. Then:
 
-    hub files publish reports/YYYY-MM-DD-feedback-report.md
+    hub file publish reports/YYYY-MM-DD-feedback-report.md
 
 ## 6. Finish
 

@@ -9,9 +9,9 @@ an owner proposed for every vendor, a first weekly page from it, and a routine p
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "contract"
-    hub docs search "order form"
-    hub org
+    hub doc search "contract"
+    hub doc search "order form"
+    hub team show
 
 Note which contracts you can already read and who the likely owners are. Do not ask what these answer.
 
@@ -54,7 +54,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -37,6 +37,5 @@ the fee. Put the list on the task and request `hub approval request --kind spend
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-partner-review.md` in the shape of `knowledge/examples/partner-review.md`, `hub
-files publish` it, commit, and `hub task update <id> --status done --note`: registrations waiting, conflicts,
+Write `reports/YYYY-MM-DD-partner-review.md` in the shape of `knowledge/examples/partner-review.md`, `hub file publish` it, commit, and `hub task update <id> --status done --note`: registrations waiting, conflicts,
 fees for approval, sources not read. Always finish the task.

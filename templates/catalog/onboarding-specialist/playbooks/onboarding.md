@@ -8,9 +8,9 @@ customers in onboarding today, and a routine that is proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
-    hub meetings search "kickoff"
+    hub meeting search "kickoff"
 
 Find the customers signed in the last 60 days and any kickoff or training calls. If a CRM is in your
 access, read closed-won deals from the same window. Do not ask what these already show.
@@ -55,7 +55,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so

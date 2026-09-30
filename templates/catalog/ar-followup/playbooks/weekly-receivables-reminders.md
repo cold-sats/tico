@@ -40,7 +40,7 @@ export row it rests on.
 Write `reports/YYYY-MM-DD-ar-followup.md` in the shape of `knowledge/examples/ar-pack.md`: headline,
 aging, needs you now, drafts, held back, could not read, sources. Then:
 
-    hub files publish reports/YYYY-MM-DD-ar-followup.md
+    hub file publish reports/YYYY-MM-DD-ar-followup.md
 
 Attach the drafts to the task. To have one sent, `hub approval request --kind send` with the exact text and
 recipient; otherwise the sender copies it. Never send.

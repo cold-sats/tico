@@ -7,10 +7,10 @@ finished. Budget 25 minutes. The outcome is five recorded answers, a people cale
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
-    hub calendar upcoming
-    hub catalog
+    hub calendar list
+    hub template list
 
 Check which people bots exist and which templates this department could add. If the roster is empty, that is answer one. Do not ask what these already say.
 
@@ -49,7 +49,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

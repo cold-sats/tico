@@ -60,8 +60,8 @@ If the instructions include a `Mailbox: <email>` line (inbox bots), replace ever
 
 The instructions a new bot starts with already say how it publishes what it makes (the "Publishing
 your work" section that comes with every template): reports and exports in `reports/` or
-`artifacts/` are listed on its page after a turn, `hub files publish <path>` lists one at once,
-`hub files add-link <url>` lists a Google Doc, Sheet or Notion page it creates, and `hub files import
+`artifacts/` are listed on its page after a turn, `hub file publish <path>` lists one at once,
+`hub file link <url>` lists a Google Doc, Sheet or Notion page it creates, and `hub file import
 s3://bucket/key` copies an S3 object. Keep that section when you rewrite the role. A bot whose work
 should not be listed sets `files: {publish: []}` in `employee.yaml`; one that writes deliverables
 elsewhere names the folders, `files: {publish: [reports/, deliverables/]}`.
@@ -86,12 +86,12 @@ Commit the new repository with a one line message that says what it is, for exam
 Skip this when the company has not connected GitHub; the bot stays on its computer. Otherwise the
 repository you just committed exists only locally, so create an empty private one:
 
-    hub github create-bot-repo <slug> --empty
+    hub bot repo-create <slug> --empty
 
 Do not push it yourself. Your turn's token is for your own repository only, so a push of another
 bot's history fails. Instead the bot's repository link (Settings, Bots) has to be `<org>/emp-<slug>`
 (a bare `emp-<slug>` also resolves to the connected organization). Its owner sets it there, or you set it
-for the person who asked in chat with `hub bot set <slug>` (it takes their rights); say so in the task note. On the bot's next turn its runner sets `origin` to that
+for the person who asked in chat with `hub bot update <slug>` (it takes their rights); say so in the task note. On the bot's next turn its runner sets `origin` to that
 repository and publishes the history with the bot's own token, and never forces: if the repository
 already holds different history it stops and Health says so. You do not push other bots'
 repositories. If the command says the app was not given permission to create repositories, do not

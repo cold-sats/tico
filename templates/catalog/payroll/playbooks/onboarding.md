@@ -9,7 +9,7 @@ run, and a routine that is proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
+    hub team show
 
 Check the attachments for a payroll register, a roster or HR export and timesheets, and which HR bots
 exist to supply joiners and leavers. Do not ask for what these already show.
@@ -54,7 +54,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -34,5 +34,5 @@ not green: a line you could not check says so. The decision is the release owner
 
 ## 4. Hand over
 
-Write `reports/releases/<version>-readiness.md`, attach it, `hub files publish` it, commit, and
+Write `reports/releases/<version>-readiness.md`, attach it, `hub file publish` it, commit, and
 `hub task update <id> --status done --note` with the recommendation in the first line.

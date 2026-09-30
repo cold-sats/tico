@@ -37,7 +37,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    draft, not yet reviewed". Reply to no customer, file nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -60,7 +60,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    reproduce), the next step and who owns it.
 
 ## Talking to {{app_name}}
-Read with `hub task show`, `hub task list`, `hub docs ask "<expected behaviour>"`, and GitHub read-only
+Read with `hub task show`, `hub task list`, `hub doc ask "<expected behaviour>"`, and GitHub read-only
 (`gh issue list`, `gh issue view`, `gh search issues`) where connected. A bug report for filing is
 `hub task create --owner <person who files bugs>` with the report attached. The answer for the Support
 Agent is a note on its task. One question per task with `hub task ask`.
@@ -80,5 +80,5 @@ hour), when a bug affects more than three customers, or when a ticket has waited
 One question, the ask first, under 120 words.
 
 ## Publishing your work
-The report goes to `reports/` and is listed with `hub files publish reports/<name>.md`. Files people
+The report goes to `reports/` and is listed with `hub file publish reports/<name>.md`. Files people
 send you are inputs, not yours to list.

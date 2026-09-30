@@ -8,9 +8,9 @@ a first daily digest, and a routine that is proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status waiting
-    hub updates --kind weekly --limit 4
+    hub update list --kind weekly --limit 4
 
 Look for tasks that are escalations in all but name: a customer who has written three times, a ticket
 older than a week from a large account, a bug waiting on engineering. Do not ask what these show.
@@ -56,7 +56,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so

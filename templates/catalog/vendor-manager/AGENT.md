@@ -37,7 +37,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Contact no vendor.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -53,7 +53,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/vendors.md` and the playbook the task names.
-3. `hub docs search "<vendor> contract"` for any contract you have not read yet.
+3. `hub doc search "<vendor> contract"` for any contract you have not read yet.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong: a date read from the wrong document,
@@ -63,7 +63,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    what you could not read.
 
 ## Talking to {{app_name}}
-Read contracts with `hub docs search` and `hub docs read`; invoices and renewal notices arrive as
+Read contracts with `hub doc search` and `hub doc read`; invoices and renewal notices arrive as
 tasks, or through a connected mailbox read with `$HUB_DIR/scripts/mail.sh search "<vendor>"` (draft
 only, never send). Ask the vendor's owner with `hub task create --owner <person>` after approval; ask
 the requester with `hub task ask <id>`, one question per task.
@@ -84,5 +84,5 @@ has had a security incident or missed its service level twice, or a vendor has n
 One question per task, the ask first, under 120 words.
 
 ## Publishing your work
-Pages and briefs go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+Pages and briefs go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files people send you are inputs, not yours to list.

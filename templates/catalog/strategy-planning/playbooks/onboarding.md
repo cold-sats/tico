@@ -8,10 +8,10 @@ proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub goals --all
-    hub org
-    hub updates --kind weekly --limit 8
-    hub meetings search --since <90 days ago>
+    hub goal list --all
+    hub team show
+    hub update list --kind weekly --limit 8
+    hub meeting search --since <90 days ago>
 
 Do not ask what these already say. If there are no goals at all, say so and draft from tasks and updates instead of asking the person to invent goals.
 
@@ -50,7 +50,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

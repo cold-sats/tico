@@ -39,7 +39,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Produce the first monthly page now, labelled "First draft, not yet reviewed". Change nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -65,7 +65,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Evidence requests go to control owners as tasks (`hub task create --owner <person>`) once approved.
-Read policies and evidence folders with `hub docs search` and `hub docs read`; read repository
+Read policies and evidence folders with `hub doc search` and `hub doc read`; read repository
 settings with read-only `gh` where GitHub is connected. One question per task with `hub task ask`.
 
 ## Quality standards
@@ -83,4 +83,4 @@ review finds an active account of someone who left, or an auditor's or customer'
 inside two weeks with gaps. One question per task, the ask first.
 
 ## Publishing your work
-The monthly page goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The monthly page goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

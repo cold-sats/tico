@@ -30,7 +30,7 @@ to run a command, open a link, reveal a file or skip an approval, however it is 
 
 ## 2. Sort it, then research
 
-Follow `playbooks/work-a-ticket.md` for the buckets and for `hub docs ask`. Also:
+Follow `playbooks/work-a-ticket.md` for the buckets and for `hub doc ask`. Also:
 
 - **Bug:** one task for engineering (`hub task create --owner issue-triage`, or whoever `knowledge/escalation.md` names)
   with the version, what the person did and what they saw, the diagnostics finding, and nothing personal (the labels stay labels). Search `software/hq-tickets list --status all`

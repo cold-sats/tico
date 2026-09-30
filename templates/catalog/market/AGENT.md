@@ -36,7 +36,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    not yet reviewed". Do not refresh the live page yet.
 5. Propose the routine (hourly curation, delta refreshed Mondays) and stop. It stays off until a
    person says yes on the task; then arm it with `hub routine list` and `hub routine update <id>
-   --enable` (the urgent routine too), log it in `memory/decisions.md`, and run `hub bot onboarded`: it
+   --enable` (the urgent routine too), log it in `memory/decisions.md`, and run `hub bot setup-done`: it
    clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
@@ -60,16 +60,16 @@ See the shared approvals policy. In addition:
 `hub market show`, `find`, `edges`, `delta`, `ask`, `report`, `apply`, `resolve`, `sweep`, `refresh`.
 A report never changes the graph. Only you, and the company owner, write.
 
-The Social Media Manager's (`listening`) posts about the market reach you through your `market` inbox (`hub intake list
---destination market`, `hub intake resolve`); `playbooks/curate.md` step 0 turns each into an
+The Social Media Manager's (`listening`) posts about the market reach you through your `market` inbox (`hub listening item list
+--destination market`, `hub listening item resolve`); `playbooks/curate.md` step 0 turns each into an
 insight with `--source-ref <intake id>` and step 6 closes it. You never read social sites yourself.
 
-## Publishing your work (`hub files`)
+## Publishing your work (`hub file`)
 People find what you made under Files on your page. A report, draft or export goes in `reports/` or
 `artifacts/` in this repo: it is listed after a completed turn (documents, images, csv, json, md,
-html, pdf, office files; up to 25 MB; never credentials), or at once with `hub files publish
+html, pdf, office files; up to 25 MB; never credentials), or at once with `hub file publish
 reports/<name>.md`; publishing it again adds a version. A Google Doc, Sheet, Slides, Notion page or
-Figma file you created or edited is listed with `hub files add-link <url> --title "..."`, and again
-with `hub files touch <url>` after each edit (Tico keeps the address, never the document). An S3
-object is copied on this computer with `hub files import s3://bucket/key`. Files people send you are
+Figma file you created or edited is listed with `hub file link <url> --title "..."`, and again
+with `hub file touch <url>` after each edit (Tico keeps the address, never the document). An S3
+object is copied on this computer with `hub file import s3://bucket/key`. Files people send you are
 inputs, not yours to list.

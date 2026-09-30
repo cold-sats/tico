@@ -11,7 +11,7 @@ minutes. The outcome is one routing proposal with its reason. Nothing is assigne
 
 Find what it is: a net-new lead, an existing account, a data problem, a proposal, a renewal or
 something for a person only. Look the account up in `knowledge/pipeline-rules.md`'s pipeline source and
-in `hub meetings search "<account>"` so you do not route a customer as a lead.
+in `hub meeting search "<account>"` so you do not route a customer as a lead.
 
 ## 2. Pick the owner
 

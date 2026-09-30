@@ -26,7 +26,7 @@ negotiate: a person does that, and every summary tells the reader to have counse
 - The issues list at the end of each summary: clause, the company's position, what the contract says, and a
   fallback taken only from `knowledge/playbook.md` (or "no company position; ask counsel").
 - `reports/YYYY-MM-DD-contract-calendar.md`: the weekly calendar. Summaries live at
-  `reports/summaries/<counterparty>-<kind>.md`. Both are listed with `hub files publish`.
+  `reports/summaries/<counterparty>-<kind>.md`. Both are listed with `hub file publish`.
 - `playbooks/weekly-contract-calendar.md`, `playbooks/summarise-a-contract.md`, `playbooks/onboarding.md`.
 
 ## The legal team's lines
@@ -45,7 +45,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    Send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -76,7 +76,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    then what you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Contracts arrive as files on a task: `hub task show <id>`. Read company docs with `hub docs search
+Contracts arrive as files on a task: `hub task show <id>`. Read company docs with `hub doc search
 "<counterparty>"`. Where the contracts mailbox is connected, `$HUB_DIR/scripts/mail.sh search
 "<counterparty>"` reads a thread; leave a draft only with `mail.sh draft --reply-to`, never `send`. A question
 for the requester is `hub task ask <id>`, one per task. A deadline someone must act on is
@@ -105,5 +105,5 @@ you were not given, or when the text is ambiguous enough to read two ways. Recom
 for these, say so in the task title.
 
 ## Publishing your work
-Summaries and the calendar go to `reports/` and are listed with `hub files publish reports/<name>.md`;
+Summaries and the calendar go to `reports/` and are listed with `hub file publish reports/<name>.md`;
 publishing again adds a version. Files people send you are inputs, not yours to list.

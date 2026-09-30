@@ -21,7 +21,7 @@ and the screen after Create), `hq/recruit.py` (Tico HQ's suggestions), `clients/
 
 ## The screens
 
-Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed tab loses nothing.
+Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab loses nothing.
 
 | Screen | What it asks | What it stores |
 |---|---|---|
@@ -29,9 +29,9 @@ Every **Next** saves the whole draft with `PUT /api/v2/onboarding`, so a closed 
 | Names | Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the catalog cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the org chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the company's reads as `Assistant`) |
 | About the company | What you do, who you sell to, whether software is your product, team size and what must never happen without a person | `answers`. Whether software is the product decides which departments start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your org chart | The departments, then one question per department and the bots to recruit into it, with the chart growing beside it, and the helper switches under the finished chart ([The org builder](#the-org-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a person `human:<id>` or a bot slug). Nothing is created yet |
-| Set up a computer | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/onboarding` every ten seconds and reports the enrolled machine |
+| Set up a computer | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/setup` every ten seconds and reports the enrolled machine |
 | Connect your agent | Optional: **Connect an agent** makes a personal token and the MCP setup to paste into Grok, Dots, Muse or any MCP agent ([Connect an agent](connect-an-agent.md)) | Nothing in onboarding; the token is the owner's own (`POST /api/v2/me/tokens`) |
-| Review and create | A summary of all of it, the team with each bot's reports-to | **Create my team** calls `POST /api/v2/onboarding/complete` |
+| Review and create | A summary of all of it, the team with each bot's reports-to | **Create my team** calls `POST /api/v2/setup/complete` |
 | After Create | One screen, below | Nothing in the record |
 
 ### The answers
@@ -87,8 +87,8 @@ The browser only ever talks to its own server:
 
 | Route | What it answers |
 |---|---|
-| `GET /api/v2/onboarding/departments` | `{version, departments: [{id, name, description, goal, question, placeholder, icon, head, software_only}], cards: [{template, name, department, icon, tags, suggest, summary, lead, business_only}], hq: {available, off_by}}` |
-| `POST /api/v2/onboarding/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], source: "hq" \| "local", shared, off_by}` |
+| `GET /api/v2/setup/groups` | `{version, departments: [{id, name, description, goal, question, placeholder, icon, head, software_only}], cards: [{template, name, department, icon, tags, suggest, summary, lead, business_only}], hq: {available, off_by}}` |
+| `POST /api/v2/setup/recruit` | Body `{department, briefing, share}` (`briefing` at most 500 characters). Answers `{bots: [{template_id, why}], suggested_default: [template_id], source: "hq" \| "local", shared, off_by}` |
 
 Both are for the owner and bot administrators, and neither is part of the stable v2 contract (like the rest of onboarding).
 
@@ -108,7 +108,7 @@ Sales" or "Common in Sales". The same answer always gives the same list.
 
 ### What Create does
 
-**Create my team** (`POST /api/v2/onboarding/complete`) writes to the server only, in one request (a chart of 25 bots takes a fraction of a
+**Create my team** (`POST /api/v2/setup/complete`) writes to the server only, in one request (a chart of 25 bots takes a fraction of a
 second). It reaches no machine.
 
 - BotOps, the assistant, the Librarian and the Goal Manager first, so they exist before anything is addressed to them, then everything picked, each `planned`
@@ -140,7 +140,7 @@ open or not when the button is pressed. It starts the onboarding conversation it
 does the same. While the bot is parked, the runner gives its chat turns one Setup instruction in place of the generic chat rules: follow
 the template's onboarding section and `playbooks/onboarding.md`, ask the questions and stop, and until the person has answered run no
 tool that reaches another system, file no task and edit no file, never `AGENT.md`. The bot introduces itself, asks the template's questions in one message, writes a first draft from the company's own
-data, and proposes its first routine. On the person's yes it arms the routine and calls `hub bot onboarded` (MCP `hub_bot_onboarded`,
+data, and proposes its first routine. On the person's yes it arms the routine and calls `hub bot setup-done` (MCP `hub_bot_setup_done`,
 `POST /api/v2/bots/{bot}/onboarded`). That clears the mark, lets its routines run and counts it toward a member's limit. On a no it stays
 parked and answers people only.
 
@@ -148,8 +148,8 @@ parked and answers people only.
 
 - **Setting up**: each bot with its progress. A starter says *Setting up its repository* until the repository exists,
   then its **Start setup** works.
-- **Invite an admin**: a name and an email. The person joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/people`,
-  then `POST /api/v2/access/people/{id}` with `role: admin`). Tico sends no email.
+- **Invite an admin**: a name and an email. The person joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/humans`,
+  then `POST /api/v2/access/humans/{id}` with `role: admin`). Tico sends no email.
 - **Who owns each bot**: add a person as a co-owner of any bot (`POST /api/v2/bots/{bot}/co-owners`; [permissions](permissions.md#bot-owners)).
 - **Connect your tools**: links to Credentials and Integrations, where keys and connections go. Secrets
   are entered in those fields, **never in a chat with a bot**; the BotOps playbook says the same, and a secret pasted into a chat is treated as
@@ -187,7 +187,7 @@ instead of the graph, the index and the ask box. The owner sees **Research your 
 or links to anything about the market, **Start research**, and an **Attach files** link to the Docs import. Everyone else sees
 "Nothing here yet."
 
-**Start research** calls `POST /api/v2/getting-started/market` `{"text"}`, which files one task, "Set up the market map", to the
+**Start research** calls `POST /api/v2/setup/getting-started/market` `{"text"}`, which files one task, "Set up the market map", to the
 Librarian and answers `{"task_id", "bot": "librarian"}`; `409 librarian` while the Librarian is not running. The Librarian's
 `playbooks/market-setup.md` researches the sources and writes the market pages and graph ([librarian.md](librarian.md)). The page
 then shows "The Librarian is researching your market. This usually takes 5–10 minutes." with a link to the task, until the market
@@ -198,14 +198,14 @@ Market page is drawn. The code is `ui/market-page.js`.
 
 A person's choices are one row in `preferences` (key `onboarding.progress`, the same per-person store as
 `/api/v2/preferences/{key}`): whether they saw the tour.
-`POST /api/v2/getting-started/state` writes only the caller's own row, and the read shows only
+`POST /api/v2/setup/getting-started/state` writes only the caller's own row, and the read shows only
 the caller's own choices. Runners and bots get `403`.
 
 | Endpoint | Who |
 |---|---|
-| `GET /api/v2/getting-started` | Any person (the BotOps line and the tour read it) |
-| `POST /api/v2/getting-started/state` | Any person, for themselves |
-| `POST /api/v2/getting-started/market` | Owner |
+| `GET /api/v2/setup/getting-started` | Any person (the BotOps line and the tour read it) |
+| `POST /api/v2/setup/getting-started/state` | Any person, for themselves |
+| `POST /api/v2/setup/getting-started/market` | Owner |
 
 The code is `backend/getting_started.py` and `ui/getting-started.js`. Tests: `backend/tests/test_getting_started.py`
 and `ui/tests/getting-started.cjs`.
@@ -226,7 +226,7 @@ until BotOps has built it.
 2. Take the template from the bot's server-side config, and use it only if its card says
    `bootstrap: true` or the bot's config says `materialize: true` (only onboarding writes that). A registration made before the catalog existed carries no template, so a bot
    named `coo` falls back to the assistant template and one named `botops` to the botops template.
-3. Read the names from `GET /api/v2/config` and the answers from `GET /api/v2/onboarding` with
+3. Read the names from `GET /api/v2/config` and the answers from `GET /api/v2/setup` with
    this machine's own credential. Both are read fresh, because onboarding is answered after the
    machine is enrolled.
 4. Copy the template folder to `<workspace>/emp-<slug>`, fill the placeholders, set `name:` in
@@ -320,7 +320,7 @@ The catalog ships 94 templates, by department, each with a card; [Starter bots](
   `team_templates`, `kind` (`helper` on a card that serves one person and sits outside the org chart), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`, `approval_required` and `example_output`. The
   server serves all of them except `onboarding` and `example_output`; the org builder reads `department`, `pack`, `lead`, `kind`, `icon`, `tags`,
   `suggest`, `pains`, `summary` and `recommend_when` ([The org builder](#the-org-builder)); `prerequisites` are shown by the bot's own setup, not by onboarding ([Starter bots](starter-bots.md)). After changing a card or `templates/departments.yaml`, run `python3 scripts/build_catalog_json.py` (Tico HQ's copy) and `python3 scripts/build-icon-font.py` (a new icon). A card with a `first_routine` and an
-  `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot onboarded`.
+  `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot setup-done`.
 - Everything else in the folder is the repository the bot starts from: `AGENT.md`,
   `employee.yaml`, `playbooks/`, `knowledge/`, `memory/`, `state.md`, `.env.example`, `.gitignore`.
 - `{{company_name}}`, `{{app_name}}`, `{{assistant_name}}` and `{{bot_name}}` are filled in every
@@ -340,7 +340,7 @@ The catalog ships 94 templates, by department, each with a card; [Starter bots](
 **The wizard does not appear.** It is shown when `GET /api/v2/config` says `onboarding_needed`,
 which is true only for the owner and only while onboarding has no completion time. Someone who is
 not the owner is sent to Tasks, and a bot administrator can read the record but not write it.
-Everyone else gets `403` on `GET /api/v2/onboarding`. To see the finished record again, open
+Everyone else gets `403` on `GET /api/v2/setup`. To see the finished record again, open
 `#/welcome` directly; it opens on the progress screen.
 
 **Bots stay "Missing bot repository or AGENT.md".** For the assistant or BotOps it means no machine
@@ -352,7 +352,7 @@ check that BotOps is `active`, that its repository exists, and read its setup ta
 rows say `waiting` until the machine reports a repository, and a bot no machine has reported on at
 all is also `waiting`.
 
-**`422` on a template name.** `PUT /api/v2/onboarding` and `POST /api/v2/bots` refuse a template
+**`422` on a template name.** `PUT /api/v2/setup` and `POST /api/v2/bots` refuse a template
 the catalog does not have, with the name in the detail. Check the folder exists under
 `templates/catalog/` on the server, that it has a readable `card.yaml` with a `template:` field,
 and that the key is a slug: lowercase letters, digits and single hyphens.
@@ -363,6 +363,6 @@ offer, and the bots screen says so. On a hosted server that means the release di
 
 **A starter does not answer, or a routine never runs.** While it is `needs_onboarding` it answers only a person's chat message: a task
 notice, a Slack route, a bot's request and its routines wait. Press **Start setup**, or say anything to it in its chat, and answer its
-questions. When you approve its first routine it calls `hub bot onboarded`. If it cannot (a member's bot at their limit answers
+questions. When you approve its first routine it calls `hub bot setup-done`. If it cannot (a member's bot at their limit answers
 `bot_limit`), archive a bot you no longer need or ask an admin to raise the limit in Settings > People. An owner or a bot's manager can
 also call `POST /api/v2/bots/{bot}/onboarded` to release a bot whose conversation went wrong.

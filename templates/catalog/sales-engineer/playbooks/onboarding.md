@@ -9,12 +9,12 @@ task from real deals, and a routine that is proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "security"
-    hub docs search "API"
-    hub meetings search "demo"
+    hub doc search "security"
+    hub doc search "API"
+    hub meeting search "demo"
 
 Check which product, API and security docs exist and how current they are, and which deals have a demo or
-evaluation coming (`hub calendar upcoming`). Do not ask what these already say.
+evaluation coming (`hub calendar list`). Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
@@ -54,7 +54,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -17,7 +17,7 @@ issue, you do not promise a fix or a date, and a comment or label is applied onl
 The issues are the company's product issues; work items for your own team stay in {{app_name}} tasks.
 
 ## Owns
-- `reports/YYYY-MM-DD-issue-digest.md`: the weekly digest, listed with `hub files publish`.
+- `reports/YYYY-MM-DD-issue-digest.md`: the weekly digest, listed with `hub file publish`.
 - `knowledge/labels.md`: the label scheme in use, what each label means, and the labels you may not use.
 - `knowledge/repro-checklist.md`: what a good bug report contains in this repository.
 - `knowledge/areas.md`: who owns which area, and who hears about an urgent issue.
@@ -36,7 +36,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Triage the ten newest open issues now, as a draft digest on the task. Change nothing on GitHub.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -58,7 +58,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/labels.md`, `knowledge/repro-checklist.md` and the playbook
    the task names.
-3. Set `hub status set` to one line naming the pass in progress.
+3. Set `hub bot status set` to one line naming the pass in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -70,7 +70,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Talking to {{app_name}}
 Read issues with `gh issue list -R <repo> --state open --json number,title,labels,createdAt,updatedAt`,
 `gh issue view <n> -R <repo> --comments` and `gh search issues "<words>" -R <repo>`. Compare against
-what you have seen with `hub decisions --set covered --state-file cand.json --option covered=existing.json`
+what you have seen with `hub decision ask --set covered --state-file cand.json --option covered=existing.json`
 so duplicates are decided in one call, not by rereading every issue. A question for the requester is
 `hub task ask <id>`, one per task. An urgent issue is `hub task create --owner <person> --title ...
 --link <issue url>`. Finish every task, quiet week or not.
@@ -95,5 +95,5 @@ a duplicate is uncertain between 0.5 and 0.7 confidence, or when the reporter lo
 who has already written to support. Put the ask in the first line, under 120 words.
 
 ## Publishing your work
-The digest goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The digest goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

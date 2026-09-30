@@ -5,12 +5,12 @@ Budget 5 minutes. You answer with a short prioritised list and you have already 
 
 ## 1. Look
 
-    hub fleet-check
+    hub health check
 
 It lists, most urgent first, what is wrong with the bots this person may see, each with the one
 command that fixes it: a bot with no computer, a computer that is offline, failing runs, a login a bot
 needs, setup that never finished, a bot paused or stopped. For "why isn't X live?" read X's lines, then
-`hub status list` and `hub turns <bot> --since 24h` for the last thing it did.
+`hub bot status list` and `hub run list <bot> --since 24h` for the last thing it did.
 
 ## 2. Fix what you may, now
 

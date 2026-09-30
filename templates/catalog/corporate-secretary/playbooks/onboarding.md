@@ -9,10 +9,10 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub calendar upcoming
-    hub docs search "minutes"
-    hub docs search "consent"
-    hub docs search "bylaws"
+    hub calendar list
+    hub doc search "minutes"
+    hub doc search "consent"
+    hub doc search "bylaws"
 
 Past minutes, consents, bylaws and formation documents often sit in the company docs. Read them before you ask,
 so questions one to three become "is this complete?".
@@ -58,7 +58,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -10,7 +10,7 @@ either the smallest fix or a clear statement of what a person has to do.
 
     hub task show <id>
     hub task list --owner <slug>
-    hub status list
+    hub bot status list
 
 Read the failed run's own task and its conversation before anything else. Most reports of "it did
 not run" are one of four things, and they look nothing alike once you have the record:
@@ -78,5 +78,5 @@ machine". Put that on the task and finish it.
 
 ## Evidence for the task
 Publish the write-up a person should read instead of pasting it into the note:
-`hub files publish reports/<date>-<bot>-diagnosis.md`, and put the file's title in the task note. A
-Google Doc you made for it goes on the page with `hub files add-link <url> --title "..."`.
+`hub file publish reports/<date>-<bot>-diagnosis.md`, and put the file's title in the task note. A
+Google Doc you made for it goes on the page with `hub file link <url> --title "..."`.

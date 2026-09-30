@@ -10,7 +10,7 @@ now, and a routine that is proposed but not armed.
 
     hub task show <id>
     hub task list
-    hub org
+    hub team show
 
 Note what is already here: tickets as tasks, who the approver could be, who owns product. Do not ask
 what this already says. Do not test mail or any other connection yet: where support arrives is
@@ -45,7 +45,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 Write each answer to `state.md` under `## Answers`, dated. Write the immediate list to
 `knowledge/escalation.md`, the voice to `knowledge/voice.md` and the nudge rule to
 `knowledge/follow-ups.md`. Do not write standing answers: the Librarian and the docs hold them. Check the
-Librarian is reachable with one `hub docs ask` about a refund window; if the answer is "Not in the docs",
+Librarian is reachable with one `hub doc ask` about a refund window; if the answer is "Not in the docs",
 that is the first task to the Librarian.
 
 ## 5. Work the queue now
@@ -68,7 +68,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -9,9 +9,9 @@ files written, a first weekly IT page, and a routine proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
+    hub team show
     hub task list --status open
-    hub docs ask "Which tools does the company use, and how do people get access to them?"
+    hub doc ask "Which tools does the company use, and how do people get access to them?"
 
 Open tasks about laptops, passwords, access or Wi-Fi are your first requests. Log them with their
 original dates.
@@ -41,7 +41,7 @@ forwarding set by the manager's choice).
 ## 5. Produce the first result now
 
 Follow `playbooks/weekly-it-page.md`. Attach it labelled "First draft, not yet reviewed". A leaver in
-`hub org` whose accounts you cannot confirm removed goes at the top.
+`hub team show` whose accounts you cannot confirm removed goes at the top.
 
 ## 6. Propose the routine and wait
 
@@ -56,7 +56,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

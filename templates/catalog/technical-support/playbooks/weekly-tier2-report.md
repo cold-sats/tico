@@ -30,4 +30,4 @@ for approval. List them.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-tier2.md` in the shape of `knowledge/examples/tier2-report.md` and
-`hub files publish` it. Commit, and finish the task with the counts and the path.
+`hub file publish` it. Commit, and finish the task with the counts and the path.

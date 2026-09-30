@@ -8,12 +8,12 @@ proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
-    hub docs search "policy"
-    hub docs search "agreement"
+    hub doc search "policy"
+    hub doc search "agreement"
 
-Find which legal bots exist (`hub org`), which open tasks are legal in kind (contracts, NDAs, notices, privacy,
+Find which legal bots exist (`hub team show`), which open tasks are legal in kind (contracts, NDAs, notices, privacy,
 employment questions), and which policies the company docs already hold. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
@@ -59,7 +59,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -19,7 +19,7 @@ request is one possible answer, not the problem. If you cannot state the problem
 - Product Operations Manager: how many accounts asked for it (`product-ops` ledger).
 - UX Researcher: any snapshots or opportunities that match (`product-researcher` digest).
 - Product Analyst: how many users touch the area today (ask with a task if no report covers it).
-- `hub goals --all`: which goal it would move, if any.
+- `hub goal list --all`: which goal it would move, if any.
 
 ## 3. Score
 

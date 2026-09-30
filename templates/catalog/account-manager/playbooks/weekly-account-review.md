@@ -29,7 +29,7 @@ commercial proposal this week; list it under "Held for health" with their note.
 ## 4. Find expansion
 
 Compare usage with the contract: seats, locations, modules, usage tiers. Read recent calls for goals the
-customer stated (`hub meetings search "<account>"`). Each opportunity is one line: the account, the evidence
+customer stated (`hub meeting search "<account>"`). Each opportunity is one line: the account, the evidence
 with its number and date, the option to propose. No evidence, no opportunity.
 
 ## 5. Prepare the packs due
@@ -39,5 +39,5 @@ For renewals reaching 60 days, follow `playbooks/renewal-pack.md`.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-account-review.md` in the shape of `knowledge/examples/account-review.md`, update
-`knowledge/renewals.md`, then `hub files publish` it. Commit and `hub task update <id> --status done --note`:
+`knowledge/renewals.md`, then `hub file publish` it. Commit and `hub task update <id> --status done --note`:
 notice deadlines in 30 days, packs waiting on a price, sources not read. Always finish the task.

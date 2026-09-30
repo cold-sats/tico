@@ -9,8 +9,8 @@ a note ready for each manager, survey actions and their status, and what is comi
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
-    hub calendar upcoming
+    hub team show
+    hub calendar list
 
 Then `knowledge/milestones.md`, `knowledge/actions.md`, `knowledge/survey.md` and last week's page.
 
@@ -35,7 +35,7 @@ approval); events in the next 30 days with their budget status.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-milestones-and-actions.md` in the shape of
-`knowledge/examples/milestones-and-actions.md`, then `hub files publish
+`knowledge/examples/milestones-and-actions.md`, then `hub file publish
 reports/YYYY-MM-DD-milestones-and-actions.md --scope task --task <id>`. Manager notes go on the task for
 each manager. Commit, and `hub task update <id> --status done --note`.
 

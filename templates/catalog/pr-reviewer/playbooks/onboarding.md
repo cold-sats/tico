@@ -11,7 +11,7 @@ finished. Budget 30 minutes. The outcome is six recorded answers, draft reviews 
     gh pr list -R <repo> --state open --json number,title,author,createdAt,additions,deletions,reviewDecision
 
 Check what you can already reach: the repositories in your GitHub access, a pull request template or CONTRIBUTING file
-in each (`gh pr view` shows the description), and any written standard in the company docs (`hub docs search "review"`).
+in each (`gh pr view` shows the description), and any written standard in the company docs (`hub doc search "review"`).
 Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
@@ -49,7 +49,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

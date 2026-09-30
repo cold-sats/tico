@@ -14,8 +14,8 @@ requester it has gone there, and stop. Also stop when the person seems distresse
 
 ## 2. Find the page
 
-    hub docs ask "<the question, no personal details>"
-    hub docs read <path>
+    hub doc ask "<the question, no personal details>"
+    hub doc read <path>
 
 The Librarian answers from the docs and cites the page. Open the page it cites and read it whole, not only
 the quoted line. Note its date. Skip any page in `knowledge/stale-pages.md`. If two pages disagree, keep both.

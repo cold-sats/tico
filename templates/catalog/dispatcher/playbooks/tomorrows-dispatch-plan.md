@@ -35,5 +35,5 @@ Yesterday's jobs with no completion note, photos or sign-off, by technician.
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-dispatch.md` in the shape of `knowledge/examples/dispatch-plan.md`, `hub files
+Write `reports/YYYY-MM-DD-dispatch.md` in the shape of `knowledge/examples/dispatch-plan.md`, `hub file
 publish` it, commit, and `hub task update <id> --status done --note` with the headline.

@@ -7,9 +7,9 @@ finished. Budget 25 minutes. The outcome is five recorded answers, a first real 
 
 ## 1. Read before you ask
 
-    hub goals --all
-    hub org
-    hub docs search "spec"
+    hub goal list --all
+    hub team show
+    hub doc search "spec"
     hub task list --status open --status doing
 
 Look for existing specs and the Head of Product's decision log, and check whether GitHub is readable.
@@ -50,7 +50,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

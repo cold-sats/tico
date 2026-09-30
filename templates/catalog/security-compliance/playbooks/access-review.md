@@ -14,7 +14,7 @@ that list.
 
 ## 2. Mark each line
 
-Compare against `hub org` and last quarter's review. For each user: **left** (not on the roster),
+Compare against `hub team show` and last quarter's review. For each user: **left** (not on the roster),
 **role changed** (their job no longer needs this role), **admin** (list every admin separately),
 **dormant** (no login for 45 days, where the tool shows it), **shared or service account** (needs a
 named owner), or **looks right**. Say why for every line not "looks right".

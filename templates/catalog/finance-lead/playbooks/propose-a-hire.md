@@ -14,8 +14,8 @@ Fewer than three occurrences, or one late week, is not a gap; note it in `memory
 
 ## 2. Pick the role
 
-    hub catalog
-    hub org
+    hub template list
+    hub team show
 
 Choose the one template in `team_templates` whose card owns that work, and check it is not already in
 the company. Examples: invoices issued late or wrong goes to `billing`; bills paid twice or late to
@@ -39,5 +39,5 @@ On the task, five lines:
     hub task create --owner botops --title "Set up <template> from the catalog" --body "<the five lines>" --parent <id>
 
 Record the decision in `memory/decisions.md`, add the role to `knowledge/team.md` as "requested", and
-route its work to it once it appears in `hub org`. On a no, record the reason and do not propose the
+route its work to it once it appears in `hub team show`. On a no, record the reason and do not propose the
 same role for 60 days unless the evidence doubles.

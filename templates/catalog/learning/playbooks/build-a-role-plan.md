@@ -9,7 +9,7 @@ colleagues, with at most two courses. Any spend goes to approval.
 ## 1. Read what the level asks for
 
     hub task show <id>
-    hub docs ask "What does the level guide say for <role> at <level>?"
+    hub doc ask "What does the level guide say for <role> at <level>?"
 
 List the four to six skills that separate this level from the one below. If there is no level guide,
 ask the manager for the three things a person at this level does that one below does not.
@@ -27,7 +27,7 @@ them: shadow a call, review each other's work, a monthly conversation.
 ## 4. Courses, only where they earn it
 
 At most two, each tied to a skill that work alone will not teach (a certification, a technical
-foundation). Provider, length, cost, a finish-by date. Read the course page (`hub docs fetch <url>`) and
+foundation). Provider, length, cost, a finish-by date. Read the course page (`hub doc fetch <url>`) and
 note what it actually covers.
 
 ## 5. How to know it worked

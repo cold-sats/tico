@@ -1,6 +1,6 @@
 # Weekly goals review
 
-A short message to the company owner, and to the Chief of Staff if the company has one (`hub org` shows the
+A short message to the company owner, and to the Chief of Staff if the company has one (`hub team show` shows the
 bots; use the one that owns the weekly brief). Under 200 words. It is paused until the owner has read the first
 one; then arm it with `hub routine update <id> --enable`.
 
@@ -11,5 +11,5 @@ interpretation, labelled:
 3. **Suggestions**: colours a person set that the arithmetic disagrees with.
 4. **What owners said**: check-ins from the last 7 days, in their words, marked as their words.
 5. **Needs a decision**: `hub proposal list` pending, one line each.
-Say plainly when nothing needs attention. Send it with `hub say <person> "<text>"`, and to the Chief of Staff
+Say plainly when nothing needs attention. Send it with `hub message send <person> "<text>"`, and to the Chief of Staff
 the same text. Nothing goes outside the company.

@@ -33,7 +33,7 @@ invoices. Add each finding to `knowledge/unbilled.md` and to the run as a propos
 
 ## 5. Write and hand over
 
-`reports/YYYY-MM-DD-invoice-run.md` in the shape of `knowledge/examples/invoice-run.md`, `hub files
+`reports/YYYY-MM-DD-invoice-run.md` in the shape of `knowledge/examples/invoice-run.md`, `hub file
 publish` it, and ask the approver on the task. On a yes, a person issues the batch from the billing
 system (or it goes as `hub approval request --kind send`). Commit, and `hub task update <id> --status
 done --note` with ready, held, unbilled and the path.

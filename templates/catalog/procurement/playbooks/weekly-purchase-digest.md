@@ -30,7 +30,7 @@ inside 60 days that the FP&A Analyst (`spend-watcher`) listed are noted with the
 Write `reports/YYYY-MM-DD-purchase-digest.md`: a headline (open, stalled, decide-by within 14 days), a
 table of requests, then the drafts you prepared, then what you could not read. Then:
 
-    hub files publish reports/YYYY-MM-DD-purchase-digest.md
+    hub file publish reports/YYYY-MM-DD-purchase-digest.md
 
 Sharing it beyond the requester is `hub approval request --kind send`, with the exact text and recipient.
 

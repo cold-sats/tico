@@ -9,7 +9,7 @@ expiries in the next 90 days, plus the summaries waiting for a person. A calenda
 ## 1. Read where things stand
 
     hub task show <id>
-    hub docs search "renewal"
+    hub doc search "renewal"
 
 Then `knowledge/contracts.md`, `knowledge/playbook.md` and last week's calendar. Add any contract that
 arrived since, by following `playbooks/summarise-a-contract.md` at a lighter depth: the key terms table and
@@ -40,7 +40,7 @@ Write `reports/YYYY-MM-DD-contract-calendar.md`: a headline, the urgent items wi
 date, the summaries waiting, and what you could not read. Close with the line "Summaries for a person, not
 legal advice; have counsel review anything that matters."
 
-    hub files publish reports/YYYY-MM-DD-contract-calendar.md
+    hub file publish reports/YYYY-MM-DD-contract-calendar.md
 
 Only the reviewers named in `state.md` receive it. An urgent item is a task for the person who owns the
 relationship, `hub task create --owner <person>`, only after approval. Nothing goes to a counterparty.

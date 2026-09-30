@@ -46,7 +46,7 @@ tax, payroll, capital or personal treatment, with the facts and no recommendatio
 Write `reports/YYYY-MM-close-status.md` in the shape of `knowledge/examples/close-status.md`: headline,
 checklist, proposed categories, owner questions, accountant list, could not read, sources. Then:
 
-    hub files publish reports/YYYY-MM-close-status.md
+    hub file publish reports/YYYY-MM-close-status.md
 
 To send it to anyone other than the requester, `hub approval request --kind send` with the exact
 text and recipient. Do not send it yourself.

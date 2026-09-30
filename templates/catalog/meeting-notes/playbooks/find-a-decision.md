@@ -12,11 +12,11 @@ or an honest "not found".
 
 Then search meetings from the last 90 days:
 
-    hub meetings search "<topic>" --since <90 days ago> --person <name>
+    hub meeting search "<topic>" --since <90 days ago> --person <name>
 
 ## 2. Read the passage, not the summary
 
-Open the transcript at the hit (`hub meetings transcript <id>`) and read the passage around it. A
+Open the transcript at the hit (`hub meeting read <id>`) and read the passage around it. A
 decision counts only if it was confirmed. If the discussion never concluded, say "discussed on <date>,
 not decided".
 

@@ -1,7 +1,7 @@
 # Gaps, the log and the FAQ
 
 Three docs record what people ask and what the docs could not say. You write them after the answer is
-sent, never before. Each is written with `hub docs write <path> --title "<title>" --body-file <file>
+sent, never before. Each is written with `hub doc write <path> --title "<title>" --body-file <file>
 --note "<what>"`. Read the current one first; add to it; never rewrite what is there.
 
 Keep names, emails and any personal detail out of all three. Paraphrase a question to its general form

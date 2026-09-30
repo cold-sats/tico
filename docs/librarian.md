@@ -1,18 +1,18 @@
 # The Librarian
 
 The Librarian is a built-in bot that answers questions from the company's docs. People ask it from **Ask AI** on the Docs
-page; other bots and the Assistant ask it with `hub docs ask`. It cites every claim, says "Not in the docs." plainly when the
+page; other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
 docs do not say, and keeps a map of the docs so the next question is cheaper. It never answers from general knowledge.
 
 ## What it reads
 
-- **Internal docs**: markdown written, pasted or imported in Tico, in folders. It reads them with `hub docs search`,
-  `hub docs read` and `hub docs list`.
+- **Internal docs**: markdown written, pasted or imported in Tico, in folders. It reads them with `hub doc search`,
+  `hub doc read` and `hub doc list`.
 - **Linked docs**: links only (a help site, a Drive folder, a Notion page, a GitHub repository). Tico keeps no copy. It reads
-  them with `hub docs fetch <url>`, on its own computer.
+  them with `hub doc fetch <url>`, on its own computer.
 
-- **The Tico manual**: this release's own docs, read-only and separate from the company's (docs/docs.md). `hub docs search`
-  returns its pages after the company's, labelled "Tico manual", and `hub docs read manual:<name>` reads one. It answers
+- **The Tico manual**: this release's own docs, read-only and separate from the company's (docs/docs.md). `hub doc search`
+  returns its pages after the company's, labelled "Tico manual", and `hub doc read manual:<name>` reads one. It answers
   "how do I ... in Tico" and is cited `[Tico manual · Title](https://...)` with the result's link; it never answers what the
   company decided.
 
@@ -52,7 +52,7 @@ conversation_id?, new_conversation?}` returns `{conversation_id, message_id, res
 (`scope: personal`, `room_key: docs`), like the [Assistant](assistant.md)'s room: only they can read it, and the owner and
 administrators cannot. **New chat** starts a fresh conversation, so the Librarian remembers only what is on screen.
 
-**Bots and the Assistant.** `hub docs ask "question" [--wait 120]`, or the MCP tool `hub_docs_ask`, returns
+**Bots and the Assistant.** `hub doc ask "question" [--wait 120]`, or the MCP tool `hub_doc_ask`, returns
 `{answer, citations: [{type, title, url_or_id}], covered}`. A bot's question is an `ask` message to the Librarian, the ordinary
 ask and answer path: the Librarian's final message is the answer. `covered` is false when the answer starts "Not in the docs".
 The Assistant asking for a person puts the question in that person's own docs conversation.
@@ -60,9 +60,9 @@ The Assistant asking for a person puts the question in that person's own docs co
 The Librarian acts as itself, not as the person who asked. It only reads docs and public links, so it needs no person's
 identity, and none is mapped to it. Docs are company-wide, so what it can read is the same for every asker.
 
-## Reading a link: `hub docs fetch`
+## Reading a link: `hub doc fetch`
 
-`hub docs fetch <url> [--max-chars N]` (MCP: `hub_docs_fetch`) runs on the computer that runs the bot, never on the Tico server,
+`hub doc fetch <url> [--max-chars N]` (MCP: `hub_doc_fetch`) runs on the computer that runs the bot, never on the Tico server,
 which does not offer it. It returns `{url, final_url, title, text, links, truncated}`. What it will and will not do:
 
 - http and https only, on the ordinary web ports, with no user name or password in the address.
@@ -82,7 +82,7 @@ which does not offer it. It returns `{url, final_url, title, text, links, trunca
 
 On an empty Market page the owner gives the Librarian one box of text: a website, a description, links to anything
 about the market. It arrives as a task, "Set up the market map", and `playbooks/market-setup.md` takes it from there: it reads every
-address with `hub docs fetch` (about 40 fetches in all), uses web search when the harness has it (`web-search` is declared in its
+address with `hub doc fetch` (about 40 fetches in all), uses web search when the harness has it (`web-search` is declared in its
 `employee.yaml`), and writes what it finds with `hub market`: the company itself (`company/self`), competitors and lookalikes with
 their tier, segments, channels, people and rules as entities and edges, each with an evidence row (`hub market report`, then
 `hub market apply`, which takes `--tier` and `--new-id`), and the eight market pages (`hub market page`) with a source on every
@@ -107,7 +107,7 @@ steps, `POST /api/v2/librarian/turn-on`), as the Assistant has **Turn on Assista
 ## Trying it: the eval
 
 `scripts/docs-eval.sh` measures answer quality on demand. It loads `docs-eval/fixture/` (seven short docs about the demo
-company) into a live Tico with `hub docs write`, asks each of the questions in `docs-eval/questions.yaml` (eleven answerable
+company) into a live Tico with `hub doc write`, asks each of the questions in `docs-eval/questions.yaml` (eleven answerable
 ones with the docs each answer must cite, and two the docs do not answer) through `POST /api/v2/docs/ask`, waits for the
 answers, and reports the **citation hit rate** (every expected doc cited, and an answer given), the rate at which the
 unanswerable ones were **said unknown**, and a fact spot-check.

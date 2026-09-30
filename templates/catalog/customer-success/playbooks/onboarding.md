@@ -9,8 +9,8 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
-    hub meetings search "<a customer>"    # only if a customer is named
+    hub team show
+    hub meeting search "<a customer>"    # only if a customer is named
 
 Check what you can reach: a CRM entry in your access, a support mailbox, imported calls. Do not ask what these
 already say. If there is no list of customers with renewal dates anywhere, that is answer one.
@@ -52,7 +52,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

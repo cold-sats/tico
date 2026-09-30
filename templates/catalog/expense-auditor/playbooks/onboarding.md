@@ -9,7 +9,7 @@ routine that is proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs ask "What is our expense and travel policy?"
+    hub doc ask "What is our expense and travel policy?"
 
 Check the attachments for an expense or card export and receipts. If the Librarian finds the written
 policy, read it and skip asking for the limits; ask only what it does not say.
@@ -53,7 +53,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

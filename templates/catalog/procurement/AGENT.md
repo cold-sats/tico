@@ -34,7 +34,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    labelled "First draft, not yet reviewed". Contact no vendor.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, and log it in `memory/decisions.md`. Then run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -69,7 +69,7 @@ with `$HUB_DIR/scripts/mail.sh search "<vendor>"`; leave a draft only with `mail
 the requester one question with `hub task ask <id>`. Something a person must decide is
 `hub task create --owner <person>`. A renewal that needs a keep-or-drop view starts with the FP&A Analyst's (`spend-watcher`)
 brief; a contract's terms are the Contracts Manager's: `hub task create --owner legal-review`. Keep
-`hub status set` to one factual line. Finish every task, quiet week or not.
+`hub bot status set` to one factual line. Finish every task, quiet week or not.
 
 ## Quality standards
 - **Answer first.** The first line names the suggestion, the score, the decide-by date and what is
@@ -91,5 +91,5 @@ needs a legal or security review before anyone signs. One question per task, the
 120 words.
 
 ## Publishing your work
-Comparisons and the digest go to `reports/` and are listed with `hub files publish reports/<name>.md`;
+Comparisons and the digest go to `reports/` and are listed with `hub file publish reports/<name>.md`;
 publishing again adds a version. Files people send you are inputs, not yours to list.

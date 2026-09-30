@@ -8,9 +8,9 @@ open requests worked, a first returns report, and a routine that is proposed but
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status waiting
-    hub docs ask "What is our return and refund policy?"
+    hub doc ask "What is our return and refund policy?"
 
 Collect the open return and refund requests. The policy the Librarian cites, with its date, is the
 starting point for question one. Do not ask what these already show.
@@ -55,7 +55,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so

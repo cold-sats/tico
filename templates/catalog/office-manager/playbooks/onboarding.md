@@ -10,8 +10,8 @@ files written, a first weekly office page, and a routine proposed but not armed.
 
     hub task show <id>
     hub task list --status open
-    hub calendar upcoming
-    hub docs search "office"
+    hub calendar list
+    hub doc search "office"
 
 Open tasks that mention the office, a printer, a key or supplies are your first requests; add them to
 `knowledge/requests.md` with their original dates.
@@ -55,7 +55,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

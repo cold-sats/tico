@@ -9,8 +9,8 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "values"
-    hub docs search "job"
+    hub doc search "values"
+    hub doc search "job"
 
 Check what you can already reach: company values and level guides in the docs, past job posts, and the hiring
 mailbox if it is in your access. Do not ask what these already say. If you cannot read applications, that is
@@ -56,7 +56,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

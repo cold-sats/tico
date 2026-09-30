@@ -8,8 +8,8 @@ from the last two weeks of public questions, and a routine that is proposed but 
 
 ## 1. Read before you ask
 
-    hub org
-    hub docs search "API quickstart"
+    hub team show
+    hub doc search "API quickstart"
 
 Find the product's public developer docs and any repository already in your GitHub list. Do not ask what
 these already say.
@@ -56,7 +56,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

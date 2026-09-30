@@ -14,7 +14,7 @@ gets one today (`playbooks/plan-a-new-customer.md`).
 
 ## 2. Read the evidence of progress
 
-For each customer: `hub meetings search "<customer>"`, `hub task list` for tasks naming them, support
+For each customer: `hub meeting search "<customer>"`, `hub task list` for tasks naming them, support
 tickets routed to the hub, and a usage reading if one is in your access. Log each dated fact in the
 plan's progress log. A milestone is done only with evidence.
 
@@ -34,6 +34,6 @@ line) and the recipient, ready for approval. Nothing is sent.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-onboarding-board.md` in the shape of
-`knowledge/examples/onboarding-board.md`, then `hub files publish` it. Put the messages on the task as
+`knowledge/examples/onboarding-board.md`, then `hub file publish` it. Put the messages on the task as
 separate items so each can be approved on its own. Customers who reached go-live get a handover task
 to `customer-success`. Commit, and finish the task with the counts and the path.

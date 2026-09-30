@@ -8,9 +8,9 @@ proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub goals --all
-    hub updates --kind weekly --limit 6
-    hub meetings search --since <first of last month>
+    hub goal list --all
+    hub update list --kind weekly --limit 6
+    hub meeting search --since <first of last month>
 
 Do not ask what these already say. If last month's update is in Docs or the mailbox, read it and copy its metrics and order.
 
@@ -49,7 +49,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

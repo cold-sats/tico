@@ -189,7 +189,7 @@ Every bot can read and schedule appointments through the Hub MCP, without a Gmai
 manifest:
 
 ```text
-hub_calendar_upcoming(calendar="ana@acme.example")
+hub_calendar_list(calendar="ana@acme.example")
 hub_calendar_schedule(title="Murphy hold", start="2026-09-22T09:00:00-07:00",
                       end="2026-09-22T09:30:00-07:00", attendees=["person@example.com"])
 hub_calendar_status(id="<action id>")
@@ -198,7 +198,7 @@ hub_calendar_status(id="<action id>")
 The schedule call queues one idempotent action for the private Mac connector. Only a status of
 `succeeded` means the Google event and invitations exist. `pending` and `running` are unfinished;
 `unknown` must be inspected before retrying. This standing calendar grant does not enable Gmail
-reading, drafting or sending. The equivalent shell commands are `hub calendar upcoming`,
+reading, drafting or sending. The equivalent shell commands are `hub calendar list`,
 `hub calendar schedule` and `hub calendar status`.
 
 The mail-local calendar commands use the same company-wide grant. Every bot can read or create an
@@ -364,7 +364,7 @@ The key can act as any mailbox in the company, so bots must not be able to read 
   Health says so ("Mail key"). Keep such a computer for the inbox bot alone.
 - An inbox bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
   for the inbox bot). Several inbox bots may share one only if the operator allows it with
-  `POST /api/v2/runners/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway.
+  `POST /api/v2/computers/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway.
 - Bots that are not inbox bots but declare `gmail` access do not get mail on an isolated runner.
 
 Instead of the key, the owner can set `TICO_PROCESSING_OPERATORS=<operator>` on the server: that operator's runners run

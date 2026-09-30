@@ -15,7 +15,7 @@ Friday, with amount, segment, competitor and the recorded reason. Also deals mar
 
 ## 2. Read the evidence
 
-For each, `hub meetings search "<company>"` and read the last two or three calls, then the seller's notes.
+For each, `hub meeting search "<company>"` and read the last two or three calls, then the seller's notes.
 Extract four to six decision drivers: what the buyer valued, feared, compared, and who decided. Each is a
 quote or close paraphrase with call and timestamp. Where the evidence and the recorded reason disagree,
 say so; the correction is for the deal's owner and `sales-ops`.
@@ -36,6 +36,6 @@ For each seller in `knowledge/ramp/`, list milestones due this week and the call
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-win-loss.md` in the shape of `knowledge/examples/win-loss.md`, `hub files publish`
+Write `reports/YYYY-MM-DD-win-loss.md` in the shape of `knowledge/examples/win-loss.md`, `hub file publish`
 it, commit, and `hub task update <id> --status done --note`: deals covered, the change proposed, calls not
 imported. Once a quarter (the last Friday), add the synthesis: patterns by segment and competitor, counts.

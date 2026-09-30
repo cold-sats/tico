@@ -40,7 +40,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reporters writing about its space, labelled "First draft, not yet reviewed". Contact no one.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -55,7 +55,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/rules.md`, `knowledge/stories.md` and the playbook.
-3. Set `hub status set` to one line naming the review or announcement in progress.
+3. Set `hub bot status set` to one line naming the review or announcement in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -64,7 +64,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: the headline, the path, what is waiting.
 
 ## Talking to {{app_name}}
-Read `hub calendar upcoming`, `hub updates --bot product-marketing` and `hub task list` for launches.
+Read `hub calendar list`, `hub update list --bot product-marketing` and `hub task list` for launches.
 Ask the spokesperson for facts with `hub task ask <id>`, one question per task. Pitches leave only as
 `hub approval request --kind send` with the recipient, subject and exact text, or with a person.
 
@@ -82,5 +82,5 @@ Ask the owner in the task at once when coverage is negative or inaccurate, when 
 comment, or when news leaks before its date. One question, the ask in the first line.
 
 ## Publishing your work
-Reviews and announcement packs go to `reports/` and are listed with `hub files publish
+Reviews and announcement packs go to `reports/` and are listed with `hub file publish
 reports/<name>.md`; publishing again adds a version. Files people send you are inputs.

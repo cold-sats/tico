@@ -9,7 +9,7 @@ coming, and what is waiting on a person. Nothing is sent.
 ## 1. Read where things stand
 
     hub task show <id>
-    hub calendar upcoming
+    hub calendar list
 
 Then `knowledge/stories.md`, `knowledge/rules.md` and last week's review. Check which pitches were
 approved and sent, and whether any reporter replied (a person tells you on the task).
@@ -34,5 +34,5 @@ launch, two for smaller news), what is missing (a customer, data, a spokesperson
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-pr.md` in the shape of `knowledge/examples/pr-review.md`, then
-`hub files publish reports/YYYY-MM-DD-pr.md`. Commit, and `hub task update <id> --status done
+`hub file publish reports/YYYY-MM-DD-pr.md`. Commit, and `hub task update <id> --status done
 --note`: the headline, the path, what is waiting on a person.

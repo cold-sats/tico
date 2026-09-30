@@ -9,7 +9,7 @@ or ends coverage, what the calendar needs next, and what was handed on. Nothing 
 ## 1. Read where things stand
 
     hub task show <id>
-    hub org
+    hub team show
     hub task list --status open --status doing --status waiting
 
 Then `knowledge/change-log.md`, `knowledge/benefits-calendar.md`, `knowledge/eligibility.md` and last week's page.
@@ -38,7 +38,7 @@ Enrollment opening within 30 days means the comparison (`playbooks/compare-plans
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-benefits-deadlines.md` in the shape of `knowledge/examples/benefits-deadlines.md`,
-then `hub files publish reports/YYYY-MM-DD-benefits-deadlines.md --scope task --task <id>`. Reminders to
+then `hub file publish reports/YYYY-MM-DD-benefits-deadlines.md --scope task --task <id>`. Reminders to
 employees go on the task for approval. Commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails

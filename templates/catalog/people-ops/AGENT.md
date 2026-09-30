@@ -39,7 +39,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    labelled "First draft, not yet reviewed". Create no tasks and send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -57,7 +57,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/systems.md`, `knowledge/leavers.md` and the playbook.
-3. Read the roster with `hub org`.
+3. Read the roster with `hub team show`.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -67,7 +67,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Exports and requests arrive as files on tasks. Letter templates and the leaving policy come from the
-Librarian (`hub docs ask`, `hub docs read`). Where a people mailbox is connected, `mail.sh draft
+Librarian (`hub doc ask`, `hub doc read`). Where a people mailbox is connected, `mail.sh draft
 --reply-to` keeps a verification in its thread for approval; never `send`. A question for the requester
 is `hub task ask <id>`, one per task.
 
@@ -86,5 +86,5 @@ record mismatch touches pay or employment status, or when a verification asks fo
 allows. One question per task, the ask in the first line.
 
 ## Publishing your work
-The weekly check goes to `reports/` and is listed with `hub files publish reports/<name>.md --scope task
+The weekly check goes to `reports/` and is listed with `hub file publish reports/<name>.md --scope task
 --task <id>`. Files people send you are inputs, not yours to list.

@@ -9,8 +9,8 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "contract"
-    hub docs search "agreement"
+    hub doc search "contract"
+    hub doc search "agreement"
 
 Check what you can already reach: the contracts attached to the task, signed agreements in the company docs, and
 the contracts mailbox if it is in your access. Do not ask what these already say. If you were given no contract,
@@ -56,7 +56,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

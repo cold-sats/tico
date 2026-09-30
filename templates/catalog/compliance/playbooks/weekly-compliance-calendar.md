@@ -9,7 +9,7 @@ files it, and what still has no proof. A calendar for a person, not legal advice
 ## 1. Read where things stand
 
     hub task show <id>
-    hub calendar upcoming
+    hub calendar list
 
 Then `knowledge/register.md`, `knowledge/proof.md`, `knowledge/unchecked.md` and last week's calendar. For
 each item last week called urgent, check whether proof arrived.
@@ -18,7 +18,7 @@ each item last week called urgent, check whether proof arrived.
 
 For every register row, compute the next due date from its rule (for example "last day of the anniversary
 month"), and the warning dates from the lead times in `state.md` (default 60, 14 and 3 days). A row whose rule
-was last confirmed more than twelve months ago: re-read the authority's page with `hub docs fetch <url>`, cite
+was last confirmed more than twelve months ago: re-read the authority's page with `hub doc fetch <url>`, cite
 it with today's date, and update the row. A date you cannot compute is "date not confirmed", listed, never dropped.
 
 ## 3. Sort
@@ -37,7 +37,7 @@ For each item in the window with no pack, follow `playbooks/prepare-a-filing-pac
 Write `reports/YYYY-MM-DD-compliance-calendar.md` in the shape of `knowledge/examples/compliance-calendar.md`:
 headline, overdue, urgent, the table, waiting for proof, unchecked places, and the not-legal-advice line.
 
-    hub files publish reports/YYYY-MM-DD-compliance-calendar.md
+    hub file publish reports/YYYY-MM-DD-compliance-calendar.md
 
 A filing that now needs its owner becomes `hub task create --owner <person>` only after the requester approves
 it on this task. Commit, and `hub task update <id> --status done --note` with the overdue count first.

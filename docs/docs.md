@@ -36,12 +36,12 @@ Bots use the same docs through the `hub` CLI and the MCP tools:
 
 | Command | Tool | |
 |---|---|---|
-| `hub docs list [--prefix sales/]` | `hub_docs_list` | paths, titles, who changed them last |
-| `hub docs read <id\|path>` | `hub_docs_read` | one doc in full, with its version |
-| `hub docs search "words" [--manual]` | `hub_docs_search` | internal and linked docs, best first, then the Tico manual (`--manual`: only it) |
-| `hub docs write <path> --title T (--body-file F \| stdin) [--note N]` | `hub_docs_write` | creates or replaces; on a version conflict it reads again and retries once |
-| `hub docs history <id\|path>` | `hub_docs_history` | the versions |
-| `hub docs links` | `hub_docs_links` | the linked docs |
+| `hub doc list [--prefix sales/]` | `hub_doc_list` | paths, titles, who changed them last |
+| `hub doc read <id\|path>` | `hub_doc_read` | one doc in full, with its version |
+| `hub doc search "words" [--manual]` | `hub_doc_search` | internal and linked docs, best first, then the Tico manual (`--manual`: only it) |
+| `hub doc write <path> --title T (--body-file F \| stdin) [--note N]` | `hub_doc_write` | creates or replaces; on a version conflict it reads again and retries once |
+| `hub doc history <id\|path>` | `hub_doc_history` | the versions |
+| `hub doc link-list` | `hub_doc_link_list` | the linked docs |
 
 A bot's writes show in the history as its own ("by Ops"). A locked doc refuses a bot.
 
@@ -57,11 +57,11 @@ remove it. Opening one goes to the source in a new tab, so people need access th
 
 Every install carries the manual for its own release: the `docs/*.md` its image ships, as a **read-only** collection kept
 apart from the company's docs. It is built in memory when the server starts and rebuilt when the release changes; it is never
-stored in the company's docs, so it cannot be edited (`405 read_only`), listed with `hub docs list`, synced or backed up as
+stored in the company's docs, so it cannot be edited (`405 read_only`), listed with `hub doc list`, synced or backed up as
 company content. `GET /api/v2/docs/search?collection=company|manual|all` (default `company`, which is what the Docs page uses)
-and `hub docs search` (all: the company's results first, then the manual's) label each manual result `Tico manual` with its
+and `hub doc search` (all: the company's results first, then the manual's) label each manual result `Tico manual` with its
 file (`docs/backups.md`), a link to that page (the GitHub file at the release tag, `main` on a build with no version) and the
-section's excerpt. `hub docs read manual:<name>` (`GET /api/v2/docs/manual/{name}`) reads one page; `GET /api/v2/docs/manual`
+section's excerpt. `hub doc read manual:<name>` (`GET /api/v2/docs/manual/{name}`) reads one page; `GET /api/v2/docs/manual`
 lists them.
 
 ## Search
@@ -73,7 +73,7 @@ which it is: **Internal** or **Linked**. Where SQLite has no FTS5, search falls 
 
 ## Ask AI
 
-**Ask AI** asks the Librarian, the built-in bot for the company's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub docs ask`.
+**Ask AI** asks the Librarian, the built-in bot for the company's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub doc ask`.
 
 ## Upgrading
 

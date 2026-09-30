@@ -9,8 +9,8 @@ next step with a date and an owner on both sides.
 ## 1. Read the call
 
     hub task show <id>
-    hub meetings search "<company>"
-    hub meetings transcript <meeting-id>
+    hub meeting search "<company>"
+    hub meeting read <meeting-id>
 
 Note, with timestamps: the problem in the buyer's words, what they need to see next, who else must say
 yes (the decision maker, the signer, IT or security, procurement), dates they mentioned, and any question

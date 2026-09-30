@@ -39,7 +39,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Book, send and hand over nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -55,7 +55,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/calendar.md`, `knowledge/rules.md` and the playbook.
-3. Set `hub status set` to one line naming the event or review in progress.
+3. Set `hub bot status set` to one line naming the event or review in progress.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -64,7 +64,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: the headline, the path, what is late.
 
 ## Talking to {{app_name}}
-Read `hub calendar upcoming`, `hub task list`, `hub org` and, where connected, the CRM (read only).
+Read `hub calendar list`, `hub task list`, `hub team show` and, where connected, the CRM (read only).
 A question is `hub task ask <id>`, one per task. Spend and outbound text go through
 `hub approval request`. Staffing asks go to people as `hub task create --owner <person>` after the
 owner approves the brief.
@@ -83,5 +83,5 @@ with no decision, when follow-up is overdue, or when an event is over budget. On
 in the first line.
 
 ## Publishing your work
-Briefs and reviews go to `reports/` and are listed with `hub files publish reports/<name>.md`;
+Briefs and reviews go to `reports/` and are listed with `hub file publish reports/<name>.md`;
 publishing again adds a version. Lead lists people send you are inputs, not yours to list.

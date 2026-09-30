@@ -41,7 +41,7 @@ semantic versioning, suggest a date-based name in its own style.
 3. **Customer-facing notes**, plain language, in the voice in `knowledge/voice.md`, no internal names.
 4. **Could not classify**: pull request, why, the question for a person.
 5. **Left out**: counts by reason.
-Then `hub files publish reports/YYYY-MM-DD-release-notes.md`.
+Then `hub file publish reports/YYYY-MM-DD-release-notes.md`.
 
 ## 6. Finish
 

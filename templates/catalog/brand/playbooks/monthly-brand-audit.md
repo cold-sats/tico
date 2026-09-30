@@ -38,5 +38,5 @@ to use emoji in posts) becomes a proposed rule with an example, for the approver
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-brand-audit.md` in the shape of `knowledge/examples/brand-audit.md`, then
-`hub files publish reports/YYYY-MM-brand-audit.md`. Commit, and `hub task update <id> --status done
+`hub file publish reports/YYYY-MM-brand-audit.md`. Commit, and `hub task update <id> --status done
 --note`. Fix tasks for owners are created only after the marketing head's yes.

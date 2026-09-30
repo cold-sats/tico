@@ -25,7 +25,7 @@ A SQLite file database the company owns, opened by `hub db` for one read-only st
 The setup, the security guidance and troubleshooting are in [docs/databases.md](../docs/databases.md);
 this page is what a bot needs in a turn. Each company database is a name (`warehouse`, `billing`,
 ...) with its own connection string, its own grant per bot and, optionally, its own page and query
-catalog in the company's private config, so `hub integration warehouse` and `hub queries warehouse`
+catalog in the company's private config, so `hub tool show warehouse` and `hub tool query-search warehouse`
 describe it.
 
 ## What data it has
@@ -44,7 +44,7 @@ hub db doctor warehouse                            # grant, credential, connecti
 hub db warehouse "SELECT status, count(*) FROM orders GROUP BY 1"          # aligned table, then "N rows (M ms)"
 hub db warehouse "SELECT * FROM orders WHERE placed_at >= :since LIMIT 20" --param since=2026-09-01 --csv
 hub db warehouse --query orders-by-month --param start=2026-01-01 --param end=2026-07-01
-hub queries warehouse revenue                      # search the company's named queries first
+hub tool query-search warehouse revenue                      # search the company's named queries first
 ```
 
 `--json` prints the result as JSON. The connection string comes from `sqlite:////absolute/path/to/data.db`
@@ -70,7 +70,7 @@ in your environment; you never see or type it, and an error never shows it. The 
 
 - Explore: list the tables, then `SELECT * FROM <table> LIMIT 5` on a table with no personal data.
 - Count before you fetch: `SELECT count(*) FROM orders WHERE placed_at >= :since`.
-- Search the catalog before writing SQL: `hub queries <name> <term>`, then `hub queries <name> --id <id>`
+- Search the catalog before writing SQL: `hub tool query-search <name> <term>`, then `hub tool query-search <name> --id <id>`
   for the statement and its parameters.
 
 ## Gotchas
@@ -83,5 +83,5 @@ in your environment; you never see or type it, and an error never shows it. The 
 
 ## Learnings
 
-What bots and people learn about this integration is added with `hub learn sqlite "..."` and
+What bots and people learn about this integration is added with `hub tool learn sqlite "..."` and
 shown under this page; a person folds it into the page over time. The page is the rule.

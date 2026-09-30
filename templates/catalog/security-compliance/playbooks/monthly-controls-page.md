@@ -32,5 +32,5 @@ vendors holding company or customer data with no security review, or one older t
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-controls.md` in the shape of `knowledge/examples/controls-page.md` and
-`hub files publish` it. For owners on the approved list, `hub task create --owner <person>` with the
+`hub file publish` it. For owners on the approved list, `hub task create --owner <person>` with the
 exact evidence, the control and the due date. Commit, then `hub task update <id> --status done --note`.

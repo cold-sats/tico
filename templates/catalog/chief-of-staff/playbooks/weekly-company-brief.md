@@ -15,11 +15,11 @@ Then `knowledge/rhythm.md` (recipient, thresholds, exclusions) and `knowledge/op
 
 ## 2. Read the company, once each
 
-    hub goals --all
+    hub goal list --all
     hub goal show <id>                     # each goal that is red, yellow, or has no reading
-    hub updates --kind weekly              # the bots' week in review
+    hub update list --kind weekly              # the bots' week in review
     hub task list --status open --status doing --status waiting
-    hub meetings search --since <last Friday>
+    hub meeting search --since <last Friday>
 
 Read only what changed since last week's brief. Company meetings only; you cannot see private ones,
 and you never guess at them. If a source refuses you, note which one and carry on.
@@ -43,7 +43,7 @@ For each stalled item find who owns the next step (`hub goal show`, `hub task sh
 1. Check `knowledge/open-loops.md`. If you already asked this week, do not ask again; say so.
 2. Draft one nudge of one or two sentences that names the item, what has been quiet and for how long,
    and the specific thing you need. Put it in the brief under the item.
-3. Send it only if the owner has approved nudges (`hub notice <person> "..."`) and it is within the
+3. Send it only if the owner has approved nudges (`hub message send --fyi <person> "..."`) and it is within the
    limit of three unsolicited messages to a person a day. Otherwise it stays a draft.
 4. Add the loop to `knowledge/open-loops.md` with today's date.
 
@@ -56,9 +56,9 @@ Follow `playbooks/monday-agenda.md` and place it under the brief as the last sec
 Write `reports/YYYY-MM-DD-weekly-brief.md` in the shape of `knowledge/examples/weekly-brief.md`: one
 page, headline first, every line cited. End with "Could not read" naming any blocked source.
 
-    hub files publish reports/YYYY-MM-DD-weekly-brief.md
+    hub file publish reports/YYYY-MM-DD-weekly-brief.md
 
-Once the routine is armed, tell the owner with `hub notice <owner> "<one line and the link>"`.
+Once the routine is armed, tell the owner with `hub message send --fyi <owner> "<one line and the link>"`.
 Before it is armed, attach the report to the task and say it is a draft.
 
 ## 7. Finish

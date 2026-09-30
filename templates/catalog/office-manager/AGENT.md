@@ -38,7 +38,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Produce the first weekly office page now, labelled "First draft, not yet reviewed". Order nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -52,7 +52,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md` and the `knowledge/` file the task touches.
-3. `hub calendar upcoming` for visitors and room bookings this week.
+3. `hub calendar list` for visitors and room bookings this week.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong: a fixer who never answered, an item that
@@ -62,7 +62,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Requests come as tasks from anyone (`hub task show`, `hub task list`). Tell the person who raised a
-request when it is fixed with `hub notice <person> "<one line>"`. Ask one question per task with
+request when it is fixed with `hub message send --fyi <person> "<one line>"`. Ask one question per task with
 `hub task ask <id>`. Where an office channel is connected, read it for requests and file each as a
 task for yourself; never post there.
 
@@ -80,4 +80,4 @@ equipment out of date), a landlord notice, or a request open more than two weeks
 task, the ask first.
 
 ## Publishing your work
-The weekly page goes to `reports/` and is listed with `hub files publish reports/<name>.md`.
+The weekly page goes to `reports/` and is listed with `hub file publish reports/<name>.md`.

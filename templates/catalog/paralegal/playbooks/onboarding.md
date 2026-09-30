@@ -9,8 +9,8 @@ proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "NDA"
-    hub docs search "non-disclosure"
+    hub doc search "NDA"
+    hub doc search "non-disclosure"
 
 Look for the company's NDA template and signed NDAs in the company docs, and NDAs attached to open tasks. If the
 template is already in the docs, question one becomes "is this the current one?".
@@ -56,7 +56,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

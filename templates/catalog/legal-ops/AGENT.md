@@ -38,7 +38,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    not yet reviewed". Send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -59,8 +59,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: the amount and the lines to question first.
 
 ## Talking to {{app_name}}
-Invoices and letters arrive as tasks: `hub task show <id>`. Engagement letters: `hub docs search "<firm>
-engagement"`. Updates on a matter: `hub meetings search "<matter>"`. A question for the approver is
+Invoices and letters arrive as tasks: `hub task show <id>`. Engagement letters: `hub doc search "<firm>
+engagement"`. Updates on a matter: `hub meeting search "<matter>"`. A question for the approver is
 `hub task ask <id>`, one per task. A matter needing an update from its lead is `hub task create --owner <person>`
 after approval.
 
@@ -79,5 +79,5 @@ Tell the approver at once when an invoice is more than 20 percent over its matte
 from the letter, when a firm bills a matter nobody opened, or when an invoice is due inside 5 days unreviewed.
 
 ## Publishing your work
-Reviews, briefs and the summary go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+Reviews, briefs and the summary go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files people send you are inputs, not yours to list.

@@ -1,7 +1,7 @@
 # Refresh the map
 
 Runs daily as a routine ("Refresh the map of the docs"), and on demand when a person or a bot asks for it
-in a task or a message. Budget: 20 minutes and at most 40 `hub docs fetch` calls. Nothing else is asked of
+in a task or a message. Budget: 20 minutes and at most 40 `hub doc fetch` calls. Nothing else is asked of
 you; do not answer questions in this run.
 
 The outcome is a map (`the-map.md`) that matches the docs as they are today, with only the changed parts
@@ -11,14 +11,14 @@ rewritten, and a task note that says what changed.
 
 ## 1. See what changed
 
-    hub docs list
+    hub doc list
 
-Compare it with `_librarian/index.md` (`hub docs read _librarian/index.md`): each line there carries the
+Compare it with `_librarian/index.md` (`hub doc read _librarian/index.md`): each line there carries the
 version it was written from. The docs to (re)read are the ones that are new, have a newer version, or are
 missing from the map; the lines to remove are for docs that no longer exist. If the map does not exist yet,
 this is a first build: every doc counts as new, oldest folder first.
 
-    hub docs links
+    hub doc link-list
 
 Compare with the `## Linked docs` section: new links, changed descriptions, removed links.
 
@@ -27,7 +27,7 @@ If nothing changed and every linked source was walked in the last 30 days, finis
 
 ## 2. Update the internal-doc entries
 
-For each changed or new doc, `hub docs read` it in full, then write its one-line summary in the
+For each changed or new doc, `hub doc read` it in full, then write its one-line summary in the
 `index.md` format. Add the terms it defines to `glossary.md` and any topic it settles to the topic list in
 `where-things-live.md`. Remove entries for docs that are gone.
 
@@ -39,7 +39,7 @@ continues tomorrow`, oldest changes first. Never leave the index half-written an
 Pick the linked docs that have never been walked, then the ones walked longest ago (30 days is too long),
 up to about five a day. For each:
 
-1. `hub docs fetch <url>`. For a website, also `hub docs fetch <site>/sitemap.xml`.
+1. `hub doc fetch <url>`. For a website, also `hub doc fetch <site>/sitemap.xml`.
 2. Record its structure in `where-things-live.md` (the block format in `the-map.md`): the sections, how
    big it is, what it is good for and what it is not, the pages worth knowing by address, and when you
    walked it. For a Drive folder, its top-level folders and file names. For a repository, its top

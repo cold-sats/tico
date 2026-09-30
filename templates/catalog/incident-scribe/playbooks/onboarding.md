@@ -8,10 +8,10 @@ finished. Budget 30 minutes. The outcome is six recorded answers, a draft postmo
 ## 1. Read before you ask
 
     hub task show <id>
-    hub updates --kind daily
+    hub update list --kind daily
 
 Check what you can already reach: a Slack incident channel in your access, exports a person attached, tasks and updates that mention an outage,
-and imported meetings (`hub meetings search "incident"`). Do not ask what these already say. If you cannot read the incident
+and imported meetings (`hub meeting search "incident"`). Do not ask what these already say. If you cannot read the incident
 channel, that is answer two, and a task for the owner if they want it connected.
 
 ## 2. Introduce yourself in three lines
@@ -49,7 +49,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

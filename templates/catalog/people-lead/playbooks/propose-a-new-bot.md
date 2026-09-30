@@ -13,11 +13,11 @@ three with dates. One-off work is not a reason to add a bot; route it to a perso
 
 ## 2. Pick the template
 
-    hub catalog
-    hub org
+    hub template list
+    hub team show
 
 Choose one template from `team_templates` in this bot's card that owns exactly that work and is not
-already in `hub org`. Read its card: its summary, its first routine and what it needs to start.
+already in `hub team show`. Read its card: its summary, its first routine and what it needs to start.
 
 ## 3. Propose
 

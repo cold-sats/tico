@@ -9,7 +9,7 @@ claim deadlines, a first weekly delivery report, and a routine proposed but not 
 ## 1. Read before you ask
 
     hub task show <id>
-    hub docs search "carrier rates"
+    hub doc search "carrier rates"
     hub task list --status open
 
 Open tasks about late or missing parcels are the first rows of `knowledge/exceptions.md`. If a
@@ -55,7 +55,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -32,5 +32,5 @@ three current waitlist clients how they want to be told, and how fast they can r
 - The 2026-09-25 call has no transcript. It is not counted.
 
 ## Sources
-- hub meetings transcript 2026-09-29, 2026-09-30; knowledge/opportunities.md
+- hub meeting read 2026-09-29, 2026-09-30; knowledge/opportunities.md
 ```

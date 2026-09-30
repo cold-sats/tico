@@ -4,7 +4,7 @@ This employee's own internal documentation of its domain. Not a report and not a
 answer to "what do we actually know about this?" — facts, how things work, who is who, what has
 been tried and what came of it. Every employee repo has this directory. It is the first thing a
 fresh session of this employee should read, and it is readable by any other employee that lists
-this repo under `reads:` in its own `employee.yaml`.
+this repo under `reads:` in its own `bot.yaml`.
 
 It is built up run by run. Each run adds what it learned and corrects what turned out to be wrong,
 so the directory gets more useful the longer the employee runs. Nothing in here is private: assume

@@ -36,7 +36,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Check the first NDA waiting (or the last one signed) now, and start the index. Send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -58,7 +58,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: the status first, the path after it.
 
 ## Talking to {{app_name}}
-NDAs arrive as tasks with the file attached. Find templates and signed copies with `hub docs search
+NDAs arrive as tasks with the file attached. Find templates and signed copies with `hub doc search
 "<party> NDA"`. A question for the requester is `hub task ask <id>`, one per task. Where the contracts mailbox
 is connected, read threads only; a reply is a draft on the task and an approval, never a send.
 
@@ -78,5 +78,5 @@ when both sides will share, an unlimited confidentiality period for ordinary inf
 promised inside 24 hours. One question per task, the ask in the first line.
 
 ## Publishing your work
-Checks, packets and the desk report go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+Checks, packets and the desk report go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files people send you are inputs, not yours to list.

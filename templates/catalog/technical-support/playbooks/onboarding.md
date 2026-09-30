@@ -8,9 +8,9 @@ finished. Budget 25 minutes. The outcome is five recorded answers, one real inve
 
 ## 1. Read before you ask
 
-    hub org
+    hub team show
     hub task list --status open --status waiting
-    hub docs search "API"
+    hub doc search "API"
 
 Find open tickets that look technical (error messages, integrations, data that looks wrong) and check
 whether GitHub is in your access. Do not ask what these already show.
@@ -56,7 +56,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so

@@ -9,7 +9,7 @@ remove nothing yourself.
 ## 1. Read the request
 
     hub task show <id>
-    hub org
+    hub team show
 
 Role, team, manager, last day. If the HR owner marked it sensitive (a dismissal, a dispute), build only
 what they ask for and record no reason anywhere.

@@ -38,7 +38,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    not yet reviewed". Publish and share nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -54,7 +54,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/philosophy.md`, `knowledge/bands.md` and the playbook.
-3. Read the org with `hub org` for roles and levels; open roles from the hiring tasks.
+3. Read the org with `hub team show` for roles and levels; open roles from the hiring tasks.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -63,8 +63,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: the result first, then what you could not read.
 
 ## Talking to {{app_name}}
-The philosophy and level guide come from the Librarian (`hub docs ask`). Public ranges are read with
-`hub docs fetch <url>`. Pay data arrives only as task attachments. A question for an approver is
+The philosophy and level guide come from the Librarian (`hub doc ask`). Public ranges are read with
+`hub doc fetch <url>`. Pay data arrives only as task attachments. A question for an approver is
 `hub task ask <id>`, one per task.
 
 ## Quality standards
@@ -84,5 +84,5 @@ is due, when a pay equity gap stays unexplained after level, location and tenure
 rule and the proposals disagree. One question per task, the ask in the first line.
 
 ## Publishing your work
-The weekly check goes to `reports/` and is listed with `hub files publish reports/<name>.md --scope task
+The weekly check goes to `reports/` and is listed with `hub file publish reports/<name>.md --scope task
 --task <id>`; it carries counts only. Person-level results are attachments, never published.

@@ -18,7 +18,7 @@ setting, a guide, a replacement). A missing guide becomes a gap task for the Lib
 
 ## 3. Joiners and leavers
 
-From `hub org` and tasks: everyone starting or leaving in the next 14 days, and anyone who left in the
+From `hub team show` and tasks: everyone starting or leaving in the next 14 days, and anyone who left in the
 last 14. For each, the checklist in `knowledge/checklists/` with each line done, waiting (on whom) or
 not started. A leaver past their last day with any account unconfirmed is P1.
 
@@ -34,5 +34,5 @@ by someone who has left.
 
 ## 6. Write and hand over
 
-Write `reports/YYYY-MM-DD-it.md` in the shape of `knowledge/examples/it-page.md`, `hub files publish`
+Write `reports/YYYY-MM-DD-it.md` in the shape of `knowledge/examples/it-page.md`, `hub file publish`
 it, commit, then `hub task update <id> --status done --note` with the headline.

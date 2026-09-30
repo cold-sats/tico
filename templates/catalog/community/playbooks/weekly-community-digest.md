@@ -38,6 +38,6 @@ Support cases become tasks for the Support Agent. Doc gaps go to the Librarian.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-community.md` in the shape of `knowledge/examples/community-digest.md`,
-then `hub files publish reports/YYYY-MM-DD-community.md`. Put the reply batch up with
+then `hub file publish reports/YYYY-MM-DD-community.md`. Put the reply batch up with
 `hub approval request --kind send --payload-file <f> --task <id>`. Commit, and
 `hub task update <id> --status done --note`.

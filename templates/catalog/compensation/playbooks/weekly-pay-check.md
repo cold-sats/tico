@@ -33,7 +33,7 @@ Person-level detail (references, figures, compa-ratios) goes into one file attac
 ## 5. Write the page and hand over
 
 Write `reports/YYYY-MM-DD-pay-check.md` with counts only, in the shape of `knowledge/examples/pay-check.md`,
-then `hub files publish reports/YYYY-MM-DD-pay-check.md --scope task --task <id>`. Delete the exports,
+then `hub file publish reports/YYYY-MM-DD-pay-check.md --scope task --task <id>`. Delete the exports,
 commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails

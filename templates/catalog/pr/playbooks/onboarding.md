@@ -9,8 +9,8 @@ real coverage, and a routine that is proposed but not armed.
 ## 1. Read before you ask
 
     hub task show <id>
-    hub calendar upcoming
-    hub updates --bot product-marketing
+    hub calendar list
+    hub update list --bot product-marketing
 
 Search the public web for the company's name and products in the last 90 days. Note launches already
 planned. Do not ask what these already say.
@@ -54,7 +54,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

@@ -40,7 +40,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
 4. Produce the first calendar now, with the gaps you found. Label it "First draft, not yet reviewed". Send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -61,8 +61,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 3. Finish with `hub task update <id> --status done --note`: what waits on whom first, then the path.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. Meetings: `hub calendar upcoming`, and `hub meetings search "board"` and `hub meetings
-transcript <id>` for an imported board meeting. Past documents: `hub docs search "<entity> consent"`. A question for
+Work arrives as tasks. Meetings: `hub calendar list`, and `hub meeting search "board"` and `hub meeting
+transcript <id>` for an imported board meeting. Past documents: `hub doc search "<entity> consent"`. A question for
 the requester is `hub task ask <id>`, one per task.
 
 ## Quality standards
@@ -80,5 +80,5 @@ one meeting behind, when a meeting's notice period under the bylaws is about to 
 register has left the company.
 
 ## Publishing your work
-The calendar, packs and drafts go to `reports/` and are listed with `hub files publish reports/<name>.md`.
+The calendar, packs and drafts go to `reports/` and are listed with `hub file publish reports/<name>.md`.
 Files people send you are inputs, not yours to list.

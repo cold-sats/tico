@@ -7,9 +7,9 @@ finished. Budget 25 minutes. The outcome is five recorded answers and a first pr
 
 ## 1. Read before you ask
 
-    hub docs fetch <the company's public pricing page>
+    hub doc fetch <the company's public pricing page>
     hub market show <competitor>
-    hub goals --all
+    hub goal list --all
 
 Read the company's own pricing page and what the market graph already holds on competitors. Check
 whether the CRM is readable. Do not ask what these already say.
@@ -49,7 +49,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

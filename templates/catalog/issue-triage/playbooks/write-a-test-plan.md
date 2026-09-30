@@ -37,6 +37,6 @@ the product's core flows if it does not exist), plus any flow a recent bug broke
 ## 5. Hand over
 
 Write `reports/test-plans/<release>.md`: headline (the three riskiest changes), the ranked table (change,
-risk, why, cases), the cases, the checklist, and what you could not read. `hub files publish` it, attach it
+risk, why, cases), the cases, the checklist, and what you could not read. `hub file publish` it, attach it
 to the task, commit, then `hub task update <id> --status done --note`. A person runs the plan and records
 the results; a failed case becomes a proposed issue in your next triage pass.

@@ -44,7 +44,7 @@ the task; the label proposal is `needs-info` (the repository's own name for it).
 
 Put the candidate and the existing issues to the decision model:
 
-    hub decisions --set covered --state-file cand.json --option covered=existing.json
+    hub decision ask --set covered --state-file cand.json --option covered=existing.json
 
 At 0.7 or above, propose "duplicate of #n" with the sentence from each issue that shows the match.
 Between 0.5 and 0.7, propose "possibly related to #n" and ask the requester. Below, propose nothing.

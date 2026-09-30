@@ -8,8 +8,8 @@ finished. Budget 25 minutes. The outcome is five recorded answers, the mandatory
 ## 1. Read before you ask
 
     hub task show <id>
-    hub org
-    hub docs ask "Which training is mandatory here and what does the level guide say?"
+    hub team show
+    hub doc ask "Which training is mandatory here and what does the level guide say?"
 
 Check the roster's roles and start dates, any required-training policy the Librarian can cite, and whether a completion export is attached. Do not ask what these already say.
 
@@ -48,7 +48,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

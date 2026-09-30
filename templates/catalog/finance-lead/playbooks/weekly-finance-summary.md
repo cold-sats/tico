@@ -37,7 +37,7 @@ task waiting on a person for more than five days, and any report that did not ar
 
 ## 5. The next 14 days
 
-From `knowledge/finance-calendar.md` and `hub calendar upcoming`: every date in the window, its owner,
+From `knowledge/finance-calendar.md` and `hub calendar list`: every date in the window, its owner,
 and whether its inputs are ready.
 
 ## 6. Decisions and routing
@@ -49,6 +49,6 @@ created until a yes. If uncovered work keeps recurring, follow `playbooks/propos
 ## 7. Write and hand over
 
 Write `reports/YYYY-MM-DD-finance-summary.md` in the shape of `knowledge/examples/finance-summary.md`,
-then `hub files publish reports/YYYY-MM-DD-finance-summary.md`. Commit, and
+then `hub file publish reports/YYYY-MM-DD-finance-summary.md`. Commit, and
 `hub task update <id> --status done --note`: cash, the lowest week, the path, and what you could not
 read. Always finish the task.

@@ -33,7 +33,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    gap, and label it "First draft, not yet reviewed". Send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -50,8 +50,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 1. Read `state.md`, then the task and its conversation with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/metrics.md`, `knowledge/asks.md`,
    `knowledge/exclusions.md`, last month's update and the playbook the task names.
-3. Read the month: `hub goals --all`, `hub kpi readings <kpi id>`, `hub updates --kind weekly`,
-   `hub meetings search --since <first of last month>`.
+3. Read the month: `hub goal list --all`, `hub kpi show <kpi id>`, `hub update list --kind weekly`,
+   `hub meeting search --since <first of last month>`.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -86,5 +86,5 @@ board meeting this month, or when a metric's source changed. One question per ta
 first line, under 120 words.
 
 ## Publishing your work
-The draft goes to `reports/` and is listed with `hub files publish reports/<name>.md`; publishing it
+The draft goes to `reports/` and is listed with `hub file publish reports/<name>.md`; publishing it
 again adds a version. Files people send you are inputs, not yours to list.

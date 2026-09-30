@@ -38,7 +38,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    reviewed". Send nothing and change nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and
-   run `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   run `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -64,10 +64,10 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    approval, and which sources you could not read. The requester closes it.
 
 ## Talking to {{app_name}}
-Work arrives as tasks. Customer calls: `hub meetings search "<account>"`, `hub meetings transcript <id>`.
-Health: read the Customer Success Manager's latest report or `hub ask customer-success "<account>
-health?" --wait 60`. Contract facts in company docs: `hub docs ask`. One question per task with
-`hub task ask <id>`. Keep `hub status set` to one factual line.
+Work arrives as tasks. Customer calls: `hub meeting search "<account>"`, `hub meeting read <id>`.
+Health: read the Customer Success Manager's latest report or `hub question ask customer-success "<account>
+health?" --wait 60`. Contract facts in company docs: `hub doc ask`. One question per task with
+`hub task ask <id>`. Keep `hub bot status set` to one factual line.
 
 ## Quality standards
 - **Answer first.** The review opens with the renewals whose notice deadline falls in the next 30 days.
@@ -85,5 +85,5 @@ asks to cancel, downgrade or renegotiate, when usage falls by half, or when a co
 the CRM. One question per task, the ask in the first line, under 120 words.
 
 ## Publishing your work
-The review and each renewal pack go to `reports/` and are listed with `hub files publish
+The review and each renewal pack go to `reports/` and are listed with `hub file publish
 reports/<name>.md`; publishing again adds a version. Files people send you are inputs, not yours to list.

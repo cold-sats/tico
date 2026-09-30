@@ -10,7 +10,7 @@ one-to-two page pack for the account owner. Nothing goes to the customer.
     hub task show <id>
 
 Read `knowledge/accounts/<account>.md`, the renewal date in `knowledge/renewals.md`, and the calls
-(`hub meetings search "<account>"`) and tickets since the last review.
+(`hub meeting search "<account>"`) and tickets since the last review.
 
 ## 2. Show value in the customer's terms
 
@@ -30,5 +30,5 @@ renewal timeline with a gap for any commercial term. Draft the follow-up note th
 
 ## 5. Hand over
 
-Write `reports/YYYY-MM-DD-<account>-review.md`, `hub files publish` it, attach it to the task, and `hub
+Write `reports/YYYY-MM-DD-<account>-review.md`, `hub file publish` it, attach it to the task, and `hub
 task update <id> --status done --note`: the pack's headline and what you could not read.

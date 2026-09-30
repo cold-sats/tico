@@ -8,9 +8,9 @@ and a routine that is proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub org --team support
+    hub team show --team support
     hub task list --status open
-    hub updates --kind weekly --limit 10
+    hub update list --kind weekly --limit 10
 
 Note which support bots exist, who owns them and what they last reported. Check whether a support
 mailbox is in your access. Do not ask what these already say. If you cannot read the support queue, that
@@ -58,7 +58,7 @@ change, adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run; until then nothing you have runs on its own. Never run it before a

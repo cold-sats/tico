@@ -29,4 +29,4 @@ totals against a known number (signups last week, active studios) before trustin
 
 `reports/YYYY-MM-DD-<question>.md`: the answer in one line, a small table, the query in `queries/`, the
 period, the definitions, and what would change the answer. Say "correlated with", never "causes", unless
-it was an experiment. `hub files publish`, commit, `hub task update <id> --status done --note`.
+it was an experiment. `hub file publish`, commit, `hub task update <id> --status done --note`.

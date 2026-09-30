@@ -14,8 +14,8 @@ Then `knowledge/opportunities.md` (the outcome and the open decision), `knowledg
 
 ## 2. Collect what is new
 
-    hub meetings search --since YYYY-MM-DD
-    hub docs search "interview"
+    hub meeting search --since YYYY-MM-DD
+    hub doc search "interview"
 
 Also tasks that carry interview notes or feedback exports (`hub task list`), and the Customer Insights Analyst's latest
 report if the company runs one. List each source: what it is, when, and whether you can read it.
@@ -40,7 +40,7 @@ to test it that a person can run in a week. Do not choose the solution.
 
 `reports/YYYY-MM-DD-research-digest.md` in the shape of `knowledge/examples/research-digest.md`: the finding
 first, new snapshots, opportunities with source counts, the thing to test, what you could not read. Then
-`hub files publish reports/YYYY-MM-DD-research-digest.md`. Competitor facts you found go to
+`hub file publish reports/YYYY-MM-DD-research-digest.md`. Competitor facts you found go to
 `hub market report`, not into this digest.
 
 ## 7. Finish

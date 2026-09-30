@@ -9,7 +9,7 @@ sources and handoff, each with the fixes and their owners. Nothing in any system
 ## 1. Read where things stand
 
     hub task show <id>
-    hub goals --all
+    hub goal list --all
 
 Then `knowledge/tracking.md`, `knowledge/handoff.md`, `knowledge/campaigns.md` and last week's check.
 Check whether last week's fixes were made.
@@ -37,5 +37,5 @@ nobody. Report the queue, never a seller's name.
 
 Write `reports/YYYY-MM-DD-marketing-data.md` in the shape of `knowledge/examples/marketing-data-check.md`:
 the three shares first, then fixes (what, where, should be, owner), then the four-week trend. Then
-`hub files publish reports/YYYY-MM-DD-marketing-data.md`. Ask once with `hub task ask <id>` whether to
+`hub file publish reports/YYYY-MM-DD-marketing-data.md`. Ask once with `hub task ask <id>` whether to
 create the fix tasks. Commit, and `hub task update <id> --status done --note`.

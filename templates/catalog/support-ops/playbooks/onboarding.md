@@ -8,8 +8,8 @@ audit, and a routine that is proposed but not armed.
 
 ## 1. Read before you ask
 
-    hub org
-    hub files list
+    hub team show
+    hub file list
     hub task list --status open --status done
 
 Look for a configuration export someone attached, and for tasks from the Support Agent about tickets in
@@ -54,7 +54,7 @@ adjust `knowledge/` and leave the routine off.
 
 Last, once the routine is enabled and recorded, run:
 
-    hub bot onboarded
+    hub bot setup-done
 
 It tells {{app_name}} that a person approved your first routine. That clears your "Needs onboarding"
 mark and lets the routine run. Never run it before a yes. If setup began in chat there is no task, so

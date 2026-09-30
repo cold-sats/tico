@@ -11,7 +11,7 @@ anybody anything.
 Read what they wrote, then read the record before you decide anything:
 
     hub task list
-    hub board
+    hub task list --all
 
 Four outcomes, and only four:
 

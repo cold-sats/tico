@@ -7,13 +7,13 @@ Budget 25 minutes. The outcome is one grade per key result, with its evidence, a
 
 ## 1. List the key results
 
-`hub goals --all --status green,yellow,red,done,dropped` and `hub goal show <id>` for each goal that
+`hub goal list --all --status green,yellow,red,done,dropped` and `hub goal show <id>` for each goal that
 was live in the quarter. If there were no written key results, say so and grade the goals' own
 readings instead; do not invent key results after the fact.
 
 ## 2. Grade each on 0 to 1
 
-- Read the final `hub kpi readings <kpi id>` value and compare it with the target and the baseline.
+- Read the final `hub kpi show <kpi id>` value and compare it with the target and the baseline.
 - Grade as a fraction of the way from baseline to target, to one decimal. Binary results are 0 or 1.
 - No reading means "ungraded", never 0 and never 1. Say what was missing.
 - Mark each committed or aspirational. A committed result under 1.0 needs a sentence on why.

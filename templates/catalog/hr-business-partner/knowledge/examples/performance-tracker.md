@@ -30,5 +30,5 @@ no ratings appear here. Nothing has been sent to managers. First draft, not yet 
   from `rating-scale.md` goes on page one of the sheet.
 
 ## Sources
-- Review tasks T-505 to T-520, `hub org`, `hub calendar upcoming`, read 2026-09-30
+- Review tasks T-505 to T-520, `hub team show`, `hub calendar list`, read 2026-09-30
 ```

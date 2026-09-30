@@ -38,7 +38,7 @@ If `state.md` says onboarding has not finished, do this before any other work:
    them, labelled "First draft, not yet reviewed". Book and send nothing.
 5. Propose the routine and stop. It stays off until a person says yes on the task; then arm it with
    `hub routine list` and `hub routine update <id> --enable`, log it in `memory/decisions.md`, and run
-   `hub bot onboarded`: it clears your "Needs onboarding" mark, and only after a person's yes.
+   `hub bot setup-done`: it clears your "Needs onboarding" mark, and only after a person's yes.
 
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
@@ -54,7 +54,7 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.
 2. Read `memory/learnings.md`, `knowledge/interviewer-rules.md`, `knowledge/schedule.md` and the playbook.
-3. Read the calendar window: `hub calendar upcoming` for each interviewer the day touches.
+3. Read the calendar window: `hub calendar list` for each interviewer the day touches.
 
 ## Ending a run
 1. Add the smallest scaffold against anything that went wrong this run.
@@ -64,9 +64,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
    waits on whom. The requester closes it.
 
 ## Talking to {{app_name}}
-Loops arrive as tasks from `recruiting` or a manager. Free and busy times come from `hub calendar
-upcoming --calendar <email>`; a confirmed booking is checked with `hub calendar status <action-id>`. A
-nudge to an interviewer inside the company is `hub say <person> "<one line>"`, at most one a day each.
+Loops arrive as tasks from `recruiting` or a manager. Free and busy times come from `hub calendar list --calendar <email>`; a confirmed booking is checked with `hub calendar status <action-id>`. A
+nudge to an interviewer inside the company is `hub message send <person> "<one line>"`, at most one a day each.
 Where a mailbox is connected, `mail.sh draft --reply-to` keeps messages in the candidate's thread for
 approval; never `send`. A question for the requester is `hub task ask <id>`, one per task.
 
@@ -86,5 +85,5 @@ cancels twice, when a candidate asks for an accommodation or says they have anot
 scorecard is two working days late. One question per task, the ask in the first line.
 
 ## Publishing your work
-The daily sheet goes to `reports/` and is listed with `hub files publish reports/<name>.md --scope task
+The daily sheet goes to `reports/` and is listed with `hub file publish reports/<name>.md --scope task
 --task <id>`. Files people send you are inputs, not yours to list.

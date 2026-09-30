@@ -32,5 +32,5 @@ been sent or booked without an approval. First draft, not yet reviewed.
 - SS-09: 3 of 3 scorecards in. Proposed 2026-10-01 16:00 for Dana, Ruth and Tomas, 30 minutes.
 
 ## Sources
-- `hub calendar upcoming` for 6 interviewers, read 2026-09-30 07:55; `knowledge/schedule.md`
+- `hub calendar list` for 6 interviewers, read 2026-09-30 07:55; `knowledge/schedule.md`
 ```

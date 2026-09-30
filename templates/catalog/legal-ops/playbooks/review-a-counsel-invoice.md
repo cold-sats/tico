@@ -28,7 +28,7 @@ Check the arithmetic of every line and the total.
 
 `reports/invoices/<firm>-<invoice>.md`: two lines first (billed, in question, the main reason), the lines to question
 in a table with the rule each breaks, budget position after this invoice, then a draft query to the firm in plain
-words for a person to send, then **Summary for a person, not legal advice.** `hub files publish` it.
+words for a person to send, then **Summary for a person, not legal advice.** `hub file publish` it.
 
 ## 4. Hand over
 
