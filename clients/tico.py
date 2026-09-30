@@ -49,7 +49,7 @@ class Client:
             raise ValueError("Use the Tico origin URL without credentials, path, query, or fragment")
         self.opener = urllib.request.build_opener(NoRedirect())
 
-    def request(self, method, path, body=None, key=None, extra_headers=None, binary=False, raw=None):
+    def request(self, method, path, body=None, key=None, extra_headers=None, binary=False, raw=None, delegate=False):
         if not path.startswith("/api/v2/"):
             raise ValueError("Use a versioned Tico API path")
         key = key or str(uuid.uuid4())
@@ -67,6 +67,9 @@ class Client:
                 raise APIError("stale_lease", "No active Hub turn; wait for a new request", status=409)
         headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
                    "User-Agent": "Tico-Client/" + CLIENT_VERSION}
+        if delegate:
+            # BotOps doing what the person who asked it could do: the server answers as them, or with a Confirm card.
+            headers["X-Tico-On-Behalf-Of"] = delegate if isinstance(delegate, str) else "turn"
         if extra_headers:
             if set(extra_headers) != {"X-Tico-Processing-Token"}:
                 raise ValueError("Only a scoped processing credential may be added")
@@ -121,6 +124,13 @@ class Client:
 
     def patch(self, path, body=None, key=None):
         return self.request("PATCH", "/api/v2/" + path, body or {}, key)
+
+    def call(self, method, path, body=None, key=None, query=None, delegate=False):
+        """Any v2 route by method, path relative to /api/v2/; `delegate` acts as the person BotOps works for."""
+        filtered = {k: v for k, v in (query or {}).items() if v is not None}
+        suffix = "?" + urllib.parse.urlencode(filtered) if filtered else ""
+        return self.request(method.upper(), "/api/v2/" + path.lstrip("/") + suffix,
+                            body if body is not None or method.upper() == "GET" else {}, key, delegate=delegate)
 
     def post_bytes(self, path, data, key=None):
         """One opaque binary body (an audio chunk), under the same retry rule as a JSON write."""

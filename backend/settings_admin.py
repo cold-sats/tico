@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from . import access as Access
 from . import bot_access as BA
 from . import models as M
+from . import placement
 from . import providers
 from . import rooms
 from .auth import Identity
@@ -241,6 +242,8 @@ class SettingsAdmin:
         if runner:
             assignment = self.execution.assign(c, who, body.slug, SimpleNamespace(
                 runner_id=runner["id"], expected_generation=0))
+        elif body.status == "active" and placement.auto_place(c, self.execution, body.slug, who.actor):
+            assignment = dict(c.execute("SELECT * FROM assignments WHERE bot=?", (body.slug,)).fetchone())
         H.event(c, who.actor, "bot.definition_created", body.slug,
                 {"operator": operator, "owners": owners, "runner": body.runner_id})
         return {**self.definition(c, body.slug), "owners": owners, "assignment": assignment,
@@ -369,6 +372,8 @@ class SettingsAdmin:
         teams = self._roster(c).get("teams", {})
         for slug in entries:
             c.execute("UPDATE bot_config SET team=? WHERE bot=?", (P.team_of(slug, entries, teams), slug))
+        if values["status"] == "active" and before.get("status") != "active":
+            placement.auto_place(c, self.execution, bot, who.actor)     # never active and silent
         after = self.definition(c, bot)
         self.record(c, who.actor, bot, "definition", before, after)
         H.event(c, who.actor, "bot.definition_changed", bot,

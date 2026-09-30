@@ -108,6 +108,15 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
     ("POST", r"/api/v2/people/[^/]+"), ("POST", r"/api/v2/access/people(/[^/]+)?"),
     ("PUT", r"/api/v2/providers"), ("PATCH", r"/api/v2/files/[^/]+"),
 )]
+# What only BotOps may propose, for a person who asked it in chat (backend/botops_act.py lists the routes it
+# answers with a card): the same click, on more routes.
+_PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
+    ("PUT", r"/api/v2/access/(limits|allow)"), ("POST", r"/api/v2/runners/[^/]+/(member-bots|revoke|restart)"),
+    ("POST", r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke"), ("POST", r"/api/v2/system/update"),
+    ("POST", r"/api/v2/goal-proposals/[^/]+/decide"), ("POST", r"/api/v2/support/tickets"),
+    ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
+    ("POST", r"/api/v2/(slack|github/app)/disconnect"),
+)]
 _SHAPE = re.compile(r"/api/v2/[A-Za-z0-9_.\-/]+")
 
 
@@ -123,11 +132,12 @@ def normalize_path(path):
     return path
 
 
-def valid_operation(method, path, settings=None):
+def valid_operation(method, path, settings=None, proposer="assistant"):
     path = normalize_path(path)
     if not path or (settings is not None and path == "/api/v2/chat/" + settings.assistant_bot):
         return False
-    return any(m == method and p.fullmatch(path) for m, p in _PROPOSABLE)
+    routes = _PROPOSABLE + (_PROPOSABLE_BOTOPS if proposer == "botops" else [])
+    return any(m == method and p.fullmatch(path) for m, p in routes)
 
 
 def describe(c, method, path, body):
@@ -197,6 +207,17 @@ def describe(c, method, path, body):
         (r"/api/v2/access/people/([^/]+)", lambda g: "Change " + who("human:" + g[0]) + ": "
          + ", ".join(f"{k} to {v}" for k, v in body.items())),
         (r"/api/v2/providers", lambda g: "Change the company's AI providers"),
+        (r"/api/v2/access/(limits|allow)", lambda g: "Change who may sign in or what members may do: " + fields(body)),
+        (r"/api/v2/runners/([^/]+)/(member-bots|revoke|restart)", lambda g: {
+            "member-bots": "Let a computer take members' bots" if body.get("accepts") else "Stop a computer taking members' bots",
+            "revoke": "Remove a computer", "restart": "Restart a computer's runner"}[g[1]]
+         + " (" + ((c.execute("SELECT label FROM runners WHERE id=?", (g[0],)).fetchone() or {"label": g[0]})["label"]) + ")"),
+        (r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke", lambda g: "Take a stored credential away from a bot"),
+        (r"/api/v2/system/update", lambda g: "Update this Tico to the newest version"),
+        (r"/api/v2/goal-proposals/[^/]+/decide", lambda g: str(body.get("decision") or "Decide").title() + " a goal proposal"),
+        (r"/api/v2/support/tickets", lambda g: "Send this to the Tico team: " + str(body.get("message") or "")[:300]),
+        (r"/api/v2/directory(/sync|/preview)?", lambda g: "Change the people directory sync"),
+        (r"/api/v2/(slack|github/app)/disconnect", lambda g: "Disconnect " + g[0].split("/")[0].title()),
         (r"/api/v2/files/([^/]+)", lambda g: "Change a file's listing"),
     )
     for pattern, fn in rules:
@@ -212,13 +233,18 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
     that always needs their own click (adding people, roles, shared credentials, a computer that does not
     take members' bots). Either way only the person's own confirm runs it, as them."""
     path = normalize_path(path)
-    if not valid_operation(method, path, settings):
+    if not valid_operation(method, path, settings, proposer):
         raise Problem("operation", "That is not something that can be proposed: it is not on the list of routes "
                       "a person confirms", 422)
     if c.execute("SELECT count(*) FROM assistant_actions WHERE owner=? AND status='pending'",
                  (who.actor,)).fetchone()[0] >= MAX_PENDING:
         raise Problem("too_many", "Too many proposals are waiting; confirm or cancel some first", 409)
     body = {k: v for k, v in (body or {}).items() if k != "on_behalf_of"}
+    same = c.execute("SELECT * FROM assistant_actions WHERE owner=? AND status='pending' AND method=? AND path=? "
+                     "AND body_json=? AND proposer=?", (who.actor, method, path, json.dumps(body), proposer)).fetchone()
+    if same:
+        # The same card again is the same card: a retried command never leaves two to click.
+        return {"action": action_view(dict(same)), "message_id": None, "repeated": True}
     what, diff = describe(c, method, path, body)
     if not re.fullmatch(r"/api/v2/tasks/[^/]+", path):
         # The card lists every field the request carries, so nothing that runs is missing from what is confirmed.
@@ -830,7 +856,7 @@ def install(app, store, auth, mutate, onboarding):
         ok, result = False, {"status_code": 0, "error": "It did not finish; ask again"}
         try:
             path = normalize_path(row["path"])
-            if not valid_operation(row["method"], path, settings):
+            if not valid_operation(row["method"], path, settings, row.get("proposer") or "assistant"):
                 raise Problem("operation", "This proposal is not on the list of routes a person confirms", 422)
             api = Internal(request)
             api.headers["x-tico-assistant-action"] = aid + "." + secret

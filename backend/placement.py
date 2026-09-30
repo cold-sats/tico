@@ -1,0 +1,64 @@
+"""Every active bot has a computer.
+
+A bot that becomes active (added, built by BotOps, activated, resumed) with no computer is placed here, so it never
+sits active and silent: on the company's only computer, or the least busy one that takes it. A member's bot goes
+on that member's own computer or one an admin opened to members' bots, the same rule a person placing it meets
+(`Execution.assign`). With no computer that takes it the bot stays as it is and Health says so; the sweep
+in the scheduler tries again as computers arrive.
+"""
+from types import SimpleNamespace
+
+from .getting_started import _online_runners
+from .store import H, Problem
+
+SWEEP_LIMIT = 20
+
+
+def candidates(c, auth, bot):
+    """The computers that may host `bot`, best first: online before offline, then the fewest bots, then the oldest."""
+    config = c.execute("SELECT operator FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    if not config:
+        return []
+    operator, owner, member = config["operator"], auth.owner_id(c), auth.member_bot(c, bot)
+    online = {r["id"] for r in _online_runners(c)}
+    load = {r["runner_id"]: r["n"] for r in c.execute(
+        "SELECT a.runner_id, count(*) n FROM assignments a JOIN bots b ON b.slug=a.bot WHERE b.state='active' "
+        "GROUP BY a.runner_id")}
+    def takes(r):
+        # A member's bot: its member's computer, or one opened to members' bots. Any other: its operator's or the owner's.
+        return (r["operator"] == operator or bool(r["accepts_member_bots"])) if member else r["operator"] in (operator, owner)
+    rows = [r for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL") if takes(r)]
+    return sorted(rows, key=lambda r: (r["id"] not in online, load.get(r["id"], 0), r["created"], r["id"]))
+
+
+def auto_place(c, execution, bot, by=""):
+    """Put an active bot with no computer on one. `{runner_id, label}`, or None when nothing was needed or nothing takes it."""
+    row = H.bot(c, bot)
+    if not row or row["state"] != "active" or c.execute("SELECT 1 FROM assignments WHERE bot=?", (bot,)).fetchone():
+        return None
+    from .agents import external_harness
+    if external_harness(c, bot):
+        return None                    # an external agent has a credential, not a computer
+    try:
+        who = execution.auth.owner_identity(c)
+    except Problem:
+        return None
+    for runner in candidates(c, execution.auth, bot):
+        c.execute("SAVEPOINT auto_place")
+        try:
+            execution.assign(c, who, bot, SimpleNamespace(runner_id=runner["id"], expected_generation=0))
+        except Problem:
+            c.execute("ROLLBACK TO auto_place")
+            c.execute("RELEASE auto_place")
+            continue                   # this one refuses (inbox isolation, closed, busy): the next may not
+        c.execute("RELEASE auto_place")
+        H.event(c, by or who.actor, "bot.auto_placed", bot, {"runner": runner["id"], "label": runner["label"]})
+        return {"runner_id": runner["id"], "label": runner["label"]}
+    return None
+
+
+def sweep(c, execution):
+    """Place the active bots that still have no computer (one arrived, a runner came back). Cheap when there are none."""
+    rows = c.execute("SELECT b.slug FROM bots b JOIN bot_config bc ON bc.bot=b.slug LEFT JOIN assignments a ON a.bot=b.slug "
+                     "WHERE b.state='active' AND a.bot IS NULL ORDER BY b.slug LIMIT ?", (SWEEP_LIMIT,)).fetchall()
+    return [(r["slug"], placed) for r in rows if (placed := auto_place(c, execution, r["slug"]))]

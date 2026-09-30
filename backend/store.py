@@ -502,6 +502,8 @@ class Store:
             c.executescript(_bot_tools.SCHEMA)
             from . import support as _support
             c.executescript(_support.SCHEMA)
+            from . import credential_cards as _credential_cards
+            c.executescript(_credential_cards.SCHEMA)
             from . import watchers as _watchers
             c.executescript(_watchers.SCHEMA)
             _updates.purge_rejected(c)

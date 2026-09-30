@@ -1251,6 +1251,210 @@ def people_list(api, args):
             for p in api.get("org")["people"]]
 
 
+# ----------------------------------------------------------------------------- BotOps: what the app can do, as the requester
+class _Requester:
+    """The same `api`, acting as the person BotOps works for: the server answers each call with that person's own rights
+    and records it "via BotOps", or answers with a Confirm card for what always needs their click."""
+
+    def __init__(self, api):
+        self.api = api
+
+    def call(self, method, path, body=None, key=None, query=None):
+        return self.api.call(method, path, body, key, query, delegate=True)
+
+    def get(self, path, **query):
+        return self.call("GET", path, query=query)
+
+    def post(self, path, body=None, key=None):
+        return self.call("POST", path, body if body is not None else {}, key)
+
+    def patch(self, path, body=None, key=None):
+        return self.call("PATCH", path, body if body is not None else {}, key)
+
+
+def _as_person(api):
+    """`api` itself for a person's own token; the requester's for a bot (only BotOps is let)."""
+    if "_tico_is_bot" not in api.__dict__:
+        api.__dict__["_tico_is_bot"] = str(api.get("me").get("actor", "")).startswith("bot:")
+    return _Requester(api) if api.__dict__["_tico_is_bot"] else api
+
+
+def _api_path(path):
+    path = str(path or "").strip()
+    return path[len("/api/v2/"):] if path.startswith("/api/v2/") else path.lstrip("/")
+
+
+@tool("hub_api", "BotOps: do what the person who asked you could do in the app, on any v2 route, as them. Their own rights "
+      "decide: a member is refused what only an owner may do. It answers at once, or with `needs_confirm: true` and a card in "
+      "their chat for what always needs their click (people and admin changes, deleting, computers for members, messages in "
+      "their name): say it is waiting there. Never put a secret in `body` (use hub_credential_request or hub_credential_set). "
+      "Prefer the friendly tools (hub_bot_place, hub_bot_go-live, hub_bot_model, hub_bot_access, hub_routine_on) when one fits.",
+      {"method": _s("GET, POST, PUT, PATCH or DELETE", enum=["GET", "POST", "PUT", "PATCH", "DELETE"]),
+       "path": _s("A v2 route: /api/v2/bots/jira-manager/model or bots/jira-manager/model"),
+       "body": {"type": "object", "description": "The JSON body for a write"},
+       "query": {"type": "object", "description": "Query parameters for a read"}},
+      required=("method", "path"), writes=True)
+def api_call(api, args):
+    return _as_person(api).call(str(args["method"]).upper(), _api_path(args["path"]), args.get("body"), _key(args), args.get("query"))
+
+
+@tool("hub_bot_place", "Put a bot on a computer, as the person who asked you: the one named (label or id), or the best one that "
+      "takes it (the only computer, else the least busy that accepts it). Safe to repeat. A computer that does not take "
+      "members' bots is a Confirm card for an admin.",
+      {"bot": _s("The bot's slug"), "computer": _s("A computer's label or id; leave out to pick one")},
+      required=("bot",), writes=True)
+def bot_place(api, args):
+    return _as_person(api).post(f"bots/{args['bot']}/place", {"computer": args.get("computer") or ""}, key=_key(args))
+
+
+@tool("hub_bot_go-live", "Take a built bot to working, as the person who asked you: place it if it has no computer, turn it on and "
+      "start its setup with the person. Then send it one small task to test it and report what happened.",
+      {"bot": _s("The bot's slug"), "computer": _s("A computer's label or id; leave out to pick one"),
+       "setup": {"type": "boolean", "default": True, "description": "Start its setup chat when it is a starter bot"}},
+      required=("bot",), writes=True)
+def bot_go_live(api, args):
+    return _as_person(api).post(f"bots/{args['bot']}/go-live", {"computer": args.get("computer") or "",
+                                                              "setup": args.get("setup", True)}, key=_key(args))
+
+
+@tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
+      "run in progress to end.",
+      {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
+       "effort": _s("Reasoning effort that model supports")},
+      required=("bot",), writes=True)
+def bot_model(api, args):
+    who = _as_person(api)
+    catalog = who.get("models")
+    if not args.get("model"):
+        enabled = set(catalog.get("enabled_providers") or [])
+        return {"models": [{k: m.get(k) for k in ("id", "label", "provider", "efforts", "default_effort", "harnesses")}
+                           for m in catalog.get("models", []) if not m.get("deprecated") and (not enabled or m.get("provider") in enabled)],
+                "current": who.get(f"bots/{args['bot']}").get("model")}
+    wanted = str(args["model"]).strip().lower()
+    choices = [m for m in catalog.get("models", []) if not m.get("deprecated")]
+    hit = [m for m in choices if wanted in (str(m.get("id")).lower(), str(m.get("label")).lower())] or [
+        m for m in choices if wanted in str(m.get("id")).lower() or wanted in str(m.get("label")).lower()]
+    if len(hit) != 1:
+        raise ValueError(("No model matches " if not hit else "More than one model matches ") + args["model"]
+                         + ". Models: " + ", ".join(str(m.get("id")) for m in choices))
+    revision = who.get(f"bots/{args['bot']}/access")["revision"]
+    body = {"model": hit[0]["id"], "expected_revision": revision, **({"effort": args["effort"]} if args.get("effort") else {})}
+    return who.post(f"bots/{args['bot']}/model", body, key=_key(args))
+
+
+def _control(action):
+    def run(api, args):
+        who = _as_person(api)
+        revision = who.get(f"bots/{args['bot']}/access")["revision"]
+        return who.post(f"bots/{args['bot']}/control", {"action": action, "expected_revision": revision}, key=_key(args))
+    return run
+
+
+tool("hub_bot_pause", "Pause a bot, as the person who asked you: it takes no new work until resumed.",
+     {"bot": _s("The bot's slug")}, required=("bot",), writes=True)(_control("pause"))
+tool("hub_bot_resume", "Resume a paused bot, as the person who asked you; one with no computer is placed on one.",
+     {"bot": _s("The bot's slug")}, required=("bot",), writes=True)(_control("resume"))
+
+
+def _routine_switch(enabled):
+    def run(api, args):
+        who = _as_person(api)
+        rows = who.get(f"bots/{args['bot']}/routines")["routines"]
+        row = next((r for r in rows if args["routine"] in (r.get("id"), r.get("key"))), None)
+        if not row:
+            raise ValueError("No routine " + args["routine"] + ". Routines: " + ", ".join(str(r.get("key") or r.get("id")) for r in rows))
+        return who.post(f"routines/{row['id']}", {"enabled": enabled}, key=_key(args))["routine"]
+    return run
+
+
+for _word, _on in (("on", True), ("off", False)):
+    tool("hub_routine_" + _word, f"Turn a bot's routine {_word}, as the person who asked you: by its key or id.",
+         {"bot": _s("The bot's slug"), "routine": _s("The routine's key or id")},
+         required=("bot", "routine"), writes=True)(_routine_switch(_on))
+
+
+@tool("hub_computers", "The computers a bot may go on, as the person who asked you: label, whether it is online, whether it "
+      "takes members' bots, and which bots run there.", {})
+def computers(api, args):
+    return _as_person(api).get("computers")
+
+
+@tool("hub_fleet-check", "What is wrong with the bots the person may see, most urgent first: bots with no computer, computers offline, "
+      "failing runs, a credential a bot needs, setup that never finished, paused or stopped bots. Each issue has a plain sentence "
+      "and the one command that fixes it. Fix what you may, then report.", {})
+def fleet_check(api, args):
+    return _as_person(api).get("fleet/check")
+
+
+@tool("hub_credential_request", "Open a card in the conversation for the person to type a secret into: what it is for, the format, "
+      "where to get one. The value goes straight to Credentials and is granted to the bot; you never see it. You are woken when "
+      "it is saved: then test the connection and report, or open the card again if it fails. Use this whenever a bot needs a "
+      "key, token or password. Never ask for the value in words.",
+      {"env": _s("The variable's name, like JIRA_BASIC_AUTH"),
+       "for_bot": _s("The bot that needs it; you, when you leave it out"),
+       "label": _s("What it is, for the card's title: 'your Jira login'"),
+       "format": _s("The exact shape, as the input's placeholder: you@company.com:API token"),
+       "help_url": _s("An https page where they create one, when you know it"),
+       "kind": _s("api_key, token, password or connection", enum=["api_key", "token", "password", "connection"])},
+      required=("env",), writes=True)
+def credential_request(api, args):
+    body = {k: args[k] for k in ("env", "for_bot", "label", "format", "help_url", "kind") if args.get(k)}
+    if _as_person(api) is not api:
+        body["on_behalf_of"] = "turn"
+    return api.post("credential-requests", body, key=_key(args))
+
+
+@tool("hub_credential_set", "Store a credential a person gave you in chat, for the bot they name, as them: it is kept in Credentials "
+      "(named for the variable) and granted to that bot alone, replacing the old value. Only a credential admin, or someone "
+      "who manages the bot, may. Then the pasted words are taken out of the chat and this run's record. Never print, log, "
+      "commit or copy the value anywhere else, and tell the person in one line that it was saved and removed from the chat, "
+      "and that next time the card keeps it off the model entirely. Prefer hub_credential_request.",
+      {"env": _s("The variable's name, like JIRA_BASIC_AUTH"), "for_bot": _s("The bot that needs it"),
+       "value": _s("The secret, exactly as given"), "name": _s("What to call it in Credentials; the variable's name by default"),
+       "kind": _s("api_key, token, password or connection", enum=["api_key", "token", "password", "connection"]),
+       "username": _s("The account it belongs to, if any"),
+       "redact": {"type": "boolean", "default": True, "description": "Take the pasted value out of the conversation"}},
+      required=("env", "for_bot", "value"), writes=True)
+def credential_set(api, args):
+    body = {"env": args["env"], "for_bot": args["for_bot"], "value": args["value"],
+            **{k: args[k] for k in ("name", "kind", "username") if args.get(k)}, "redact": args.get("redact", True)}
+    if _as_person(api) is not api:
+        body["on_behalf_of"] = "turn"
+    return api.post("credential-set", body)
+
+
+@tool("hub_credential_list", "The credentials this person may see: name, variable, kind and which bots have each. Never a value.", {})
+def credential_list(api, args):
+    listing = _as_person(api).get("credentials")
+    return {"configured": listing.get("configured"), "can_manage": listing.get("can_manage"),
+            "credentials": [{"name": c.get("name"), "env": c.get("env"), "kind": c.get("kind"), "stored": c.get("stored"),
+                             "bots": [g.get("subject") for g in c.get("grants", []) if str(g.get("subject")).startswith("bot:")]}
+                            for c in listing.get("credentials", [])]}
+
+
+@tool("hub_message_redact", "Take a secret out of a message the person sent, replacing it with a mark. Only the writer, or a "
+      "credential admin. hub_credential_set already does this for the message you were woken with.",
+      {"message_id": _s("The message's id"), "value": _s("The secret text to remove"), "label": _s("What it was saved as")},
+      required=("message_id", "value"), writes=True)
+def message_redact(api, args):
+    body = {"span": args["value"], "label": args.get("label") or ""}
+    if _as_person(api) is not api:
+        body["on_behalf_of"] = "turn"
+    return api.post(f"messages/{args['message_id']}/redact", body)
+
+
+@tool("hub_support_file", "Tell the Tico team about something the product cannot do, or a fault you cannot fix. A card in the person's "
+      "chat shows the exact message and sends nothing until they confirm. Say what they asked for, what you tried, what the "
+      "product answered, the bot and the version. No secrets, no other people's details.",
+      {"message": _s("What happened and what is missing, in plain words")}, required=("message",), writes=True)
+def support_file(api, args):
+    return _as_person(api).post("support/tickets", {"message": "[BotOps] " + args["message"], "include_ids": True}, key=_key(args))
+
+
+alias("hub_person_add", "hub_people_add")
+alias("hub_person_list", "hub_people_list")
+
+
 # ----------------------------------------------------------------------------- approvals
 @tool("hub_approval_request", "Ask a person for a yes or no on one exact action. Only a person "
       "decides; an approval is spent once. If the owner already told you in Tico to send a "

@@ -19,6 +19,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from clients.agent_skill import WHO_NEEDS_ME
 
 from . import agents, batch, grokbot, inbox_isolation, harness_actions, model_login, oidc, personal_tokens, views
+from . import placement as placing
 from . import turns as turn_work
 from . import goals as G
 from . import models as M
@@ -39,6 +40,9 @@ from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
 from .settings_admin import SettingsAdmin
+from . import fleet_check as fleet_check_module
+from .getting_started import _online_runners
+from .credential_cards import install_credential_cards, scrub_attempt
 from .github import PATH as GITHUB_WEBHOOK_PATH
 from .store import H, P, Problem, Store, encode, message_page, repo_url, task_message_page
 
@@ -209,6 +213,8 @@ def create_app(settings=None):
     app.state.timing = Timing()
 
     from .assistant import write_allowed as assistant_writes, own_room as assistant_room, create_proposal
+    from .assistant import describe as describe_action
+    from . import botops_act
 
     def assistant_owns(task_id, actor):
         """The task is the person's alone: theirs, no bot on it and none delegated."""
@@ -295,7 +301,17 @@ def create_app(settings=None):
                     raise Problem("confirm_required", "The " + settings.assistant_name + " may not do this on its "
                                   "own. Propose it with `hub assistant propose` (or POST /api/v2/assistant/actions); "
                                   "the person confirms it in " + settings.app_name, 403)
-            response = await call_next(request)
+            early = None
+            on_behalf = request.headers.get(botops_act.HEADER)
+            if on_behalf and getattr(request.state, "identity", None) is not None:
+                # BotOps doing what the person who asked it could do in the app (backend/botops_act.py).
+                early, acted = await asyncio.get_running_loop().run_in_executor(
+                    None, act_for_requester, request, on_behalf)
+                if acted is not None:
+                    request.state.identity = acted
+                    if via_reset is None:
+                        via_reset = H.VIA.set("botops")
+            response = early or await call_next(request)
             if response.status_code >= 500 and not getattr(request.state, "telemetry_captured", False):
                 telemetry.capture("request", status=response.status_code)
             # The page and its files (StaticFiles sends an ETag) may be kept by the browser and
@@ -2152,6 +2168,29 @@ def create_app(settings=None):
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
         return replace(person, via="botops")
 
+    def act_for_requester(request, ref):
+        """`(card, None)` when this request is one the person confirms with their own click, `(None, person)` when it
+        runs at once as them (checked with their rights, recorded via BotOps), else a refusal."""
+        who = request.state.identity
+        if who.actor != "bot:" + BOTOPS:
+            raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
+        kind = botops_act.classify(request.method, request.url.path)
+        if kind is None:
+            raise Problem("not_delegable", botops_act.DETAIL_ROUTE, 403)
+        body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
+        if botops_act.secret_in(body):
+            raise Problem("secret_in_request", botops_act.DETAIL_SECRET, 422)
+        if kind == "confirm":
+            with store.transaction() as c:
+                person = delegated_identity(c, who, ref)
+                path = botops_act.normalize(request.url.path)
+                if botops_act.admin_only(request.method, path) and not (person.role == "owner" or auth.bot_admin(person)):
+                    raise Problem("forbidden", "Only an owner or an admin can do that", 403)
+                what = describe_action(c, request.method, path, body or {})[0]
+                return JSONResponse(propose_card(c, person, request.method, path, body or {}, what)), None
+        with store.read() as c:
+            return None, delegated_identity(c, who, ref)
+
     def propose_card(c, acting, method, path, body, summary):
         """What always needs the requesting person's own click: a Confirm card in their chat with BotOps,
         and the answer BotOps reports back instead of asking them to go to Settings."""
@@ -2469,6 +2508,111 @@ def create_app(settings=None):
             return execution.assign(c, who, bot, body)
         return mutate(request, body, work)
 
+    def find_computer(c, name):
+        """A computer by id or label (any case), or a refusal that lists the ones there are."""
+        rows = c.execute("SELECT id,label FROM runners WHERE revoked_at IS NULL ORDER BY label").fetchall()
+        hit = [r for r in rows if r["id"] == name or r["label"].strip().lower() == str(name).strip().lower()]
+        if len(hit) != 1:
+            raise Problem("not_found", ("No computer is called " + name if not hit else "More than one computer is called " + name)
+                          + ". The computers: " + (", ".join(r["label"] for r in rows) or "none yet"), 404)
+        return hit[0]
+
+    def place_now(c, who, bot, computer=""):
+        """`hub bot place`: on the computer named, or the one the company's own rule picks (backend/placement.py)."""
+        settings_admin._manager(c, who, bot)
+        row = H.bot(c, bot)
+        if not row:
+            raise Problem("not_found", "Bot not found", 404)
+        current = c.execute("SELECT a.*,r.label FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?",
+                            (bot,)).fetchone()
+        wanted = find_computer(c, computer) if computer else None
+        if current and (not wanted or wanted["id"] == current["runner_id"]):
+            return {"bot": bot, "computer": current["label"], "placed": False, "already": True}
+        from .agents import external_harness
+        if external_harness(c, bot):
+            raise Problem("harness", "This bot is run by an external agent; it has no computer to place it on", 422)
+        options = [wanted] if wanted else placing.candidates(c, auth, bot)
+        if not options:
+            raise Problem("no_computer", "No computer can take this bot yet: add one, or ask an admin to open one to members' bots", 409)
+        generation = current["generation"] if current else 0
+        refusal = None
+        for runner in options:
+            if risky(who) and closed_computer(c, who, bot, runner["id"]):
+                return propose_card(c, who, "POST", "/api/v2/bots/" + bot + "/assignment",
+                                    {"runner_id": runner["id"], "expected_generation": generation},
+                                    placement_summary(c, bot, runner["id"]))
+            c.execute("SAVEPOINT place_now")
+            try:
+                execution.assign(c, who, bot, M.Assignment(runner_id=runner["id"], expected_generation=generation))
+            except Problem as exc:
+                c.execute("ROLLBACK TO place_now")
+                c.execute("RELEASE place_now")
+                if wanted:
+                    raise
+                refusal = exc
+                continue
+            c.execute("RELEASE place_now")
+            return {"bot": bot, "computer": runner["label"], "placed": True, "already": False}
+        raise refusal
+
+    @app.get("/api/v2/fleet/check")
+    def fleet_check(request: Request):
+        """What is wrong with the bots this person may see, most urgent first, each with its one fix."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            return fleet_check_module.check(c, who, auth, settings)
+
+    @app.get("/api/v2/computers")
+    def computers(request: Request):
+        """The computers this person may put a bot on, with what runs on each: owners and admins see every one, a
+        member their own and the ones opened to members' bots."""
+        who = request.state.identity
+        auth.domain(who)
+        with store.read() as c:
+            online = {r["id"] for r in _online_runners(c)}
+            everyone = who.role == "owner" or auth.bot_admin(who)
+            mine = H.actor_id(who.actor)
+            rows = []
+            for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL ORDER BY label"):
+                if not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
+                    continue
+                bots = [x["bot"] for x in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (r["id"],))]
+                rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online, "platform": r["platform"] or "",
+                             "operator": r["operator"], "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots})
+            return {"computers": rows}
+
+    @app.post("/api/v2/bots/{bot}/place")
+    def place_bot(request: Request, bot: str, body: M.BotPlace):
+        who = request.state.identity
+        return mutate(request, body, lambda c: place_now(c, who, bot, body.computer))
+
+    @app.post("/api/v2/bots/{bot}/go-live")
+    def go_live(request: Request, bot: str, body: M.BotGoLive):
+        """Everything between "built" and "working": a computer, active, and its setup started with the person.
+        Each step is the same one the app's own buttons take, checked with the caller's rights."""
+        who = request.state.identity
+
+        def work(c):
+            placed = place_now(c, who, bot, body.computer)
+            if placed.get("proposed"):
+                return placed                     # a computer that needs the person's own click: nothing else yet
+            row = H.bot(c, bot)
+            if row["state"] == "quarantined":
+                raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
+            activated = row["state"] != "active"
+            if activated:
+                settings_admin.update_bot(c, who, bot, M.BotDefinitionUpdate(
+                    status="active", expected_revision=settings_admin._config(c, bot)["revision"]))
+            setup = False
+            config = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (bot,)).fetchone()
+            if body.setup and config and config["onboarding_state"] == "needs_onboarding" and who.role in ("owner", "human"):
+                send(c, who, M.MessageCreate(to="bot:" + bot, text="Let's set you up."))
+                setup = True
+            return {"bot": bot, "state": H.bot(c, bot)["state"], "computer": placed["computer"], "placed": placed["placed"],
+                    "activated": activated, "setup_started": setup}
+        return mutate(request, body, work)
+
     @app.post("/api/v2/runners/{rid}/member-bots")
     def runner_member_bots(request: Request, rid: str, body: M.RunnerMemberBots):
         """Whether a computer takes the bots members create. Owners and admins."""
@@ -2761,6 +2905,8 @@ def create_app(settings=None):
                 H.status_set(c, H.KEEPER, bot, state="paused" if body.action == "pause" else "idle")
             c.execute("UPDATE bot_config SET revision=revision+1 WHERE bot=?", (bot,))
             H.event(c, who.actor, "bot." + body.action, bot)
+            if body.action == "resume":
+                placing.auto_place(c, execution, bot, who.actor)
             return {"bot": bot, "action": body.action, "revision": config["revision"] + 1}
         return mutate(request, body, work)
 
@@ -2784,6 +2930,7 @@ def create_app(settings=None):
 
     @app.post("/api/v2/attempts/{aid}/events")
     def events(request: Request, aid: str, body: M.EventBatch):
+        body = scrub_attempt(aid, body)          # a secret set in this run never reaches the record
         return mutate(request, body, lambda c: execution.events(c, request.state.identity, aid, body))
 
     @app.post("/api/v2/attempts/{aid}/inputs")
@@ -2796,6 +2943,7 @@ def create_app(settings=None):
 
     @app.post("/api/v2/attempts/{aid}/complete")
     def complete(request: Request, aid: str, body: M.Completion):
+        body = scrub_attempt(aid, body)
         return mutate(request, body, lambda c: execution.complete(c, request.state.identity, aid, body))
 
     @app.get("/api/v2/bots/{bot}/execution-review")
@@ -2875,6 +3023,7 @@ def create_app(settings=None):
     install_imports(app, store, auth, execution, mutate)
     from .credentials import install_credentials
     install_credentials(app, store, delegate=delegated_identity, propose=propose_card)
+    install_credential_cards(app, store, app.state.vault, auth, BOTOPS, delegated_identity, settings_admin._manager)
     from .sql import install_sql
     install_sql(app, store, auth)
     from .judge import install_judge

@@ -973,6 +973,17 @@ class BotControl(Contract):
     expected_revision: int = Field(ge=1)
 
 
+class BotPlace(Contract):
+    """Put a bot on a computer: the one named (its label or id), or the best one that takes it."""
+    computer: str = Field(default="", max_length=200)
+
+
+class BotGoLive(Contract):
+    """Place it if it has no computer, activate it, and start its setup with the person."""
+    computer: str = Field(default="", max_length=200)
+    setup: bool = True
+
+
 class Empty(Contract):
     pass
 

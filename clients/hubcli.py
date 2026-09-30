@@ -160,7 +160,29 @@ the server (`backend/hubdb.py`), never here.
     hub bot onboarded [slug]               a starter bot marks itself onboarded once a person approved its first routine
     hub people add <email> [--name N] [--title T] [--reports-to P]
                                            add a person to the roster and sign-in list (a Confirm card first)
+                                           (`hub person add` is the same)
     hub people list                        the people on the roster
+    hub api GET|POST|PUT|PATCH|DELETE <path> ['{json}']
+                                           BotOps: any v2 route, as the person who asked; a Confirm card for what
+                                           always needs their click. Never a secret in the body
+    hub bot place <bot> [--computer <label|id>]
+                                           put a bot on a computer: the one named, or the best one that takes it
+    hub bot go-live <bot> [--computer C] [--no-setup]
+                                           place it if needed, turn it on, start its setup
+    hub bot model <bot> [<model>] [--effort E]
+                                           list the models, or change the bot's
+    hub bot pause|resume <bot>             stop or restart a bot (resume places one that has no computer)
+    hub routine on|off <key|id> --bot <bot>  turn a routine on or off
+    hub computers                          the computers a bot may go on, and what runs on each
+    hub fleet-check                        what is wrong with the bots, most urgent first, each with its fix
+    hub credential request <ENV> [--for-bot B] [--label "your Jira login"] [--format "you@x.com:API token"]
+                    [--help-url https://...] [--kind api_key|token|password]
+                                           open a card in the chat for the person to type the secret into
+    hub credential set <ENV> --for-bot B [--name N] [--kind K] [--username U] [--no-redact]
+                                           store a secret a person gave you (read from stdin, never the command line)
+    hub credential list                    names, variables and which bots have each; never a value
+    hub message redact <message-id> [--label L]   take a secret (read from stdin) out of a message
+    hub support file "<message>"           tell the Tico team about a gap or fault (a Confirm card first)
 
 Exit codes: 0 fine, 2 `{"refused": <rule>, "detail": "..."}` or a non-retryable API error,
 1 `{"error": "..."}` (bad arguments, no identity, or the API could not be reached).
@@ -786,6 +808,11 @@ def parser():
     switch.add_argument("--enable", action="store_true")
     switch.add_argument("--disable", action="store_true")
     s.set_defaults(fn="routine update")
+    for name, word in (("on", "on"), ("off", "off")):
+        s = routine.add_parser(name, help=f"turn a routine {word}")
+        s.add_argument("routine", help="its key or id")
+        s.add_argument("--bot", help="the bot it belongs to; yours by default")
+        s.set_defaults(fn="routine " + name)
     s = routine.add_parser("delete")
     s.add_argument("id", help="the routine id from `hub routine list`")
     s.set_defaults(fn="routine delete")
@@ -865,6 +892,7 @@ def parser():
     s.add_argument("--team", help="a team name from the registry, like engineering or sales")
     s.set_defaults(fn="org")
     sub.add_parser("fleet").set_defaults(fn="fleet")
+    sub.add_parser("fleet-check", help="what is wrong with the bots, most urgent first, each with its fix").set_defaults(fn="fleet-check")
     upd = sub.add_parser("update", help="post, read and reply to the bots' daily and weekly updates").add_subparsers(dest="sub")
     s = upd.add_parser("post", help="post your update when the hub asks for it: 1-5 plain-English bullets")
     s.add_argument("body", help="one to five lines, each starting with '- '")
@@ -1029,7 +1057,25 @@ def parser():
     s = bot.add_parser("onboarded", help="a starter bot marks itself onboarded, after a person approved its first routine")
     s.add_argument("slug", nargs="?", help="the bot; the one running this command by default")
     s.set_defaults(fn="bot onboarded")
-    people = sub.add_parser("people", help="the roster: add someone, list who is on it").add_subparsers(dest="sub")
+    s = bot.add_parser("place", help="put a bot on a computer, as the person who asked (BotOps)")
+    s.add_argument("bot")
+    s.add_argument("--computer", help="a computer's label or id; the best one that takes it by default")
+    s.set_defaults(fn="bot place")
+    s = bot.add_parser("go-live", help="place it if needed, turn it on and start its setup (BotOps)")
+    s.add_argument("bot")
+    s.add_argument("--computer")
+    s.add_argument("--no-setup", dest="no_setup", action="store_true", help="do not start its setup chat")
+    s.set_defaults(fn="bot go-live")
+    s = bot.add_parser("model", help="list the models, or change this bot's (BotOps)")
+    s.add_argument("bot")
+    s.add_argument("model", nargs="?", help="a model id or name; leave out to list")
+    s.add_argument("--effort")
+    s.set_defaults(fn="bot model")
+    for verb in ("pause", "resume"):
+        s = bot.add_parser(verb, help=f"{verb} a bot (BotOps)")
+        s.add_argument("bot")
+        s.set_defaults(fn="bot " + verb)
+    people = sub.add_parser("people", aliases=["person"], help="the roster: add someone, list who is on it").add_subparsers(dest="sub")
     s = people.add_parser("add", help="add a person to the roster and the sign-in list")
     s.add_argument("email")
     s.add_argument("--name")
@@ -1037,6 +1083,39 @@ def parser():
     s.add_argument("--reports-to")
     s.set_defaults(fn="people add")
     people.add_parser("list", help="the people on the roster").set_defaults(fn="people list")
+    s = sub.add_parser("api", help="BotOps: any v2 route, as the person who asked")
+    s.add_argument("method", type=str.upper, choices=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    s.add_argument("path", help="/api/v2/... or the part after it")
+    s.add_argument("body", nargs="?", help="a JSON body for a write; - reads it from standard input")
+    s.set_defaults(fn="api")
+    sub.add_parser("computers", help="the computers a bot may go on").set_defaults(fn="computers")
+    cred = sub.add_parser("credential", help="ask for a secret in the chat, store one, list them").add_subparsers(dest="sub")
+    s = cred.add_parser("request", help="open a card in the chat for the person to type the secret into")
+    s.add_argument("env", help="the variable's name, like JIRA_BASIC_AUTH")
+    s.add_argument("--for-bot", dest="for_bot")
+    s.add_argument("--label", help="what it is: 'your Jira login'")
+    s.add_argument("--format", help="its shape: you@company.com:API token")
+    s.add_argument("--help-url", dest="help_url", help="an https page where they make one")
+    s.add_argument("--kind", choices=["api_key", "token", "password", "connection"])
+    s.set_defaults(fn="credential request")
+    s = cred.add_parser("set", help="store a secret a person gave you, for one bot; the value is read from stdin")
+    s.add_argument("env")
+    s.add_argument("--for-bot", dest="for_bot", required=True)
+    s.add_argument("--name")
+    s.add_argument("--kind", choices=["api_key", "token", "password", "connection"])
+    s.add_argument("--username")
+    s.add_argument("--no-redact", dest="no_redact", action="store_true", help="leave the pasted words in the chat")
+    s.set_defaults(fn="credential set")
+    cred.add_parser("list", help="names, variables and which bots have each; never a value").set_defaults(fn="credential list")
+    msg = sub.add_parser("message", help="take a secret out of a message").add_subparsers(dest="sub")
+    s = msg.add_parser("redact", help="replace a secret (read from stdin) in a message with a mark")
+    s.add_argument("message_id")
+    s.add_argument("--label", help="what it was saved as")
+    s.set_defaults(fn="message redact")
+    support = sub.add_parser("support", help="tell the Tico team about a gap or a fault").add_subparsers(dest="sub")
+    s = support.add_parser("file", help="a Confirm card shows the message; nothing is sent until the person confirms")
+    s.add_argument("message")
+    s.set_defaults(fn="support file")
     return p
 
 

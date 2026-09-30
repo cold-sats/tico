@@ -1,0 +1,150 @@
+"""What BotOps may do for the person who asked it, on any v2 route (`hub api`).
+
+BotOps is the company's bot engineer: a person asks it in chat for something they could click in the app, and it
+does that as them. A request carries `X-Tico-On-Behalf-Of` (`turn`, the person whose chat message started this
+turn, or the id of one of their messages); `backend/app.py` then answers it as that person, so the server's own
+permission checks are the only gate: a member is refused what only an owner may do, and an owner is not.
+
+This module is only the list of routes and the two guards around it:
+
+* a route is `do` (it runs at once, as the person, recorded "via BotOps" and undoable where the app is),
+  `confirm` (it comes back as a Confirm card in their chat and runs only on their click) or not delegable;
+* a secret never travels in a request body here. A key, password or token goes in through a credential card
+  (backend/credential_cards.py), which the model never sees the value of.
+
+Reads are delegated the same way, so BotOps sees what the person sees, no more.
+"""
+import json
+import re
+
+HEADER = "x-tico-on-behalf-of"
+API = "/api/v2/"
+_S = r"[^/]+"
+
+
+def _routes(*rows):
+    return [(method, re.compile(API + path)) for method, path in rows]
+
+
+# Runs at once, as the person. Some of these keep their own "always a click" rule inside the route (adding a
+# person, a role, a credential grant, a computer that does not take members' bots): the route answers with the card.
+DO = _routes(
+    ("POST", r"bots"), ("POST", r"bots/register"),
+    ("POST", rf"bots/{_S}/(definition|assignment|placement|place|go-live|model|fallback|transitions|control|owners|co-owners|"
+             rf"onboarded|goals|updates|routines|tools|quarantine/clear)"),
+    ("POST", rf"bots/{_S}/tools/{_S}/delete"), ("DELETE", rf"bots/{_S}/tools/{_S}"),
+    ("POST", rf"bots/{_S}/access"), ("PUT", rf"bots/{_S}/access"),
+    ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"),
+    ("POST", rf"routines/{_S}"), ("POST", rf"routines/{_S}/(delete|run)"),
+    ("POST", rf"settings/history/{_S}/undo"),
+    ("POST", rf"settings/transitions/{_S}/(apply-without-checkpoint|cancel)"),
+    # Goals and KPIs: a goal's or KPI's own rules decide who may change what.
+    ("POST", r"goals"), ("POST", rf"goals/{_S}"), ("POST", rf"goals/{_S}/(status|status/auto|checkins|kpis)"),
+    ("POST", rf"goals/{_S}/kpis/{_S}"), ("POST", rf"goals/{_S}/kpis/{_S}/unlink"), ("POST", r"goals/refresh"),
+    ("POST", r"kpis"), ("POST", rf"kpis/{_S}"), ("POST", rf"kpis/{_S}/readings"), ("POST", r"goal-proposals"),
+    # Tasks, docs and what the people asked of BotOps.
+    ("POST", r"tasks"), ("POST", r"tasks/dry-run"), ("POST", rf"tasks/{_S}"),
+    ("POST", rf"tasks/{_S}/(comments|links|ask|run-now)"),
+    ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
+    ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
+    ("POST", rf"integrations/{_S}/learnings"), ("POST", rf"integrations/{_S}/learnings/{_S}/delete"),
+    ("POST", r"health/bot-access/dismiss"),
+    # People and access. The route asks for the click on what needs it.
+    ("POST", r"access/people"), ("POST", rf"access/people/{_S}"),
+    ("POST", rf"credentials/{_S}/grants"),
+    ("POST", r"system/update/check"),
+)
+
+# Comes back as a Confirm card; it runs only on the person's own click, as them.
+CONFIRM = _routes(
+    ("POST", rf"bots/{_S}/archive"),
+    ("POST", rf"people/{_S}"),
+    ("PUT", r"providers"), ("PUT", r"access/limits"), ("PUT", r"access/allow"),
+    ("POST", rf"runners/{_S}/(member-bots|revoke|restart)"),
+    ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
+    ("POST", r"system/update"),
+    ("POST", rf"goal-proposals/{_S}/decide"),
+    ("POST", r"support/tickets"),
+    ("POST", rf"chat/{_S}"), ("POST", r"messages"),
+    ("PATCH", rf"files/{_S}"),
+    ("PUT", r"directory"), ("POST", r"directory/sync"), ("POST", r"directory/preview"),
+    ("POST", r"slack/disconnect"), ("POST", r"github/app/disconnect"),
+)
+
+# Confirm-card routes only an owner or an admin may ask for: a member is told so at once, not handed a card that fails.
+ADMIN_ONLY = _routes(
+    ("PUT", r"providers"), ("PUT", r"access/(limits|allow)"), ("POST", rf"runners/{_S}/member-bots"),
+    ("POST", r"system/update"), ("PUT", r"directory"), ("POST", r"directory/(sync|preview)"),
+    ("POST", r"(slack|github/app)/disconnect"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
+)
+
+# Read as the person, except what hands back a secret or is a computer's own channel.
+NO_READ = re.compile(API + r"(credential-runtime|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*|runners/[^/]+/logins.*"
+                     r"|runner-logins.*|runners/desired|runners/assignments|runners/eligible|directory/scim-token)")
+
+# Named like a secret: refused whatever route it is on.
+SECRET_KEYS = re.compile(r"^(secret|password|passwd|passphrase|token|access_token|refresh_token|api_key|apikey|"
+                         r"private_key|client_secret|authorization|bearer)$", re.I)
+
+DETAIL_SECRET = ("A secret does not go in a request. Ask the person for it with a credential card "
+                 "(`hub credential request`): the value goes straight to Credentials and never through you.")
+DETAIL_ROUTE = ("BotOps does not do this for a person. If the app can do it and this list should, say so with "
+                "`hub support file`.")
+
+
+def normalize(path):
+    """The route as `/api/v2/...` with plain characters only, or None."""
+    from .assistant import normalize_path
+    path = str(path or "")
+    if not path.startswith(API):
+        path = API + path.lstrip("/")
+    return normalize_path(path)
+
+
+def classify(method, path):
+    """`do`, `confirm` or None (not delegable) for this request."""
+    path = normalize(path)
+    method = str(method or "").upper()
+    if not path:
+        return None
+    if method == "GET":
+        return None if NO_READ.fullmatch(path) else "do"
+    if any(m == method and p.fullmatch(path) for m, p in CONFIRM):
+        return "confirm"
+    if any(m == method and p.fullmatch(path) for m, p in DO):
+        return "do"
+    return None
+
+
+def admin_only(method, path):
+    path = normalize(path)
+    return bool(path) and any(m == str(method).upper() and p.fullmatch(path) for m, p in ADMIN_ONLY)
+
+
+def secret_in(value, _depth=0):
+    """The first key named like a secret anywhere in a JSON body, or None."""
+    if _depth > 8:
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if SECRET_KEYS.match(str(key)):
+                return str(key)
+            found = secret_in(item, _depth + 1)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value[:200]:
+            found = secret_in(item, _depth + 1)
+            if found:
+                return found
+    return None
+
+
+def parse_body(raw):
+    """The request body as JSON, or None when there is none."""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None

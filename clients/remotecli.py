@@ -27,11 +27,13 @@ def run(args, who=None):
         return client.post("github/repos", {"slug": args.slug, **({"empty": True} if args.empty else {"template": args.template})})
     if args.cmd in ("catalog", "bot"):
         return bots(client, args)
-    if args.cmd == "people":
+    if args.cmd in ("people", "person"):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v is not None}
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
         return hubtools.BY_NAME["hub_people_" + args.sub]["fn"](client, fields)
+    if args.cmd in ("api", "computers", "credential", "message", "support", "fleet-check"):
+        return botops_tools(client, args)
     if args.cmd in ("decisions", "judge"):     # `judge` is the old name
         return judge(client, args)
     if args.cmd in ("context", "meetings"):
@@ -318,6 +320,9 @@ def run(args, who=None):
             return post(f"bots/{bot}/routines", {"key": args.key, "title": args.title, "text": text,
                         "cron": args.cron or "", "on": args.on or "", "timezone": args.timezone or "",
                         "enabled": not args.disabled})["routine"]
+        if sub in ("on", "off"):
+            from clients import hubtools
+            return hubtools.BY_NAME["hub_routine_" + sub]["fn"](client, {"bot": bot, "routine": args.routine, "operation_id": key})
         if sub == "delete":
             return post(f"routines/{args.id}/delete", {})["routine"]
         text = Path(args.text_file).read_text() if args.text_file else args.text
@@ -380,6 +385,31 @@ def run(args, who=None):
     raise APIError("unsupported", "This command is not supported by the remote API")
 
 
+def botops_tools(client, args):
+    """`hub api`, `hub credential ...`, `hub computers`, `hub fleet-check`, `hub message redact`, `hub support file`: the
+    tool of the same name. A secret is read from standard input, never from the command line."""
+    from clients import hubtools
+    key = os.environ.get("HUB_OPERATION_ID")
+    if args.fn == "api":
+        text = sys.stdin.read() if args.body == "-" else args.body
+        try:
+            body = json.loads(text) if text else None
+        except ValueError:
+            raise APIError("body", "The body must be JSON") from None
+        return hubtools.BY_NAME["hub_api"]["fn"](client, {"method": args.method, "path": args.path, "body": body, "operation_id": key})
+    name = "hub_" + args.fn.replace(" ", "_")
+    fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn", "what", "no_redact") and v is not None}
+    if args.fn in ("credential set", "message redact"):
+        value = sys.stdin.read().rstrip("\n")
+        if not value:
+            raise APIError("value", "Give the secret on standard input: printf '%s' \"$VALUE\" | hub " + args.fn)
+        fields["value"] = value
+        if args.fn == "credential set" and getattr(args, "no_redact", False):
+            fields["redact"] = False
+    fields["operation_id"] = key
+    return hubtools.BY_NAME[name]["fn"](client, fields)
+
+
 # ----------------------------------------------------------------------------- bots
 def bots(client, args):
     """`hub catalog` and `hub bot create|check`: how BotOps sets the chosen bots up.
@@ -407,9 +437,11 @@ def bots(client, args):
             return hubtools.BY_NAME["hub_bot_set"]["fn"](client, fields)
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
-    if args.sub in ("register", "access", "owners", "onboarded"):
+    if args.sub in ("register", "access", "owners", "onboarded", "place", "go-live", "model", "pause", "resume"):
         from clients import hubtools
-        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn") and v not in (None, [])}
+        fields = {k: v for k, v in vars(args).items() if k not in ("cmd", "sub", "fn", "no_setup") and v not in (None, [])}
+        if getattr(args, "no_setup", False):
+            fields["setup"] = False
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
         return hubtools.BY_NAME["hub_bot_" + args.sub]["fn"](client, fields)
     if args.sub == "check":

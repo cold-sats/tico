@@ -43,12 +43,14 @@ class InProcessApi:
         self.headers = {"Authorization": authorization, "Accept": "application/json",
                         "User-Agent": "Tico-MCP/" + hubtools.SERVER_INFO["version"]}
 
-    def _run(self, method, path, body=None, key=None, query=None):
+    def _run(self, method, path, body=None, key=None, query=None, delegate=False):
         async def go():
             transport = httpx.ASGITransport(app=self.app)
             async with httpx.AsyncClient(transport=transport, base_url=self.base_url,
                                          timeout=INTERNAL_TIMEOUT_S) as client:
                 headers = dict(self.headers)
+                if delegate:
+                    headers["X-Tico-On-Behalf-Of"] = delegate if isinstance(delegate, str) else "turn"
                 if body is not None:
                     headers["Idempotency-Key"] = key or hubtools_key()
                 return await client.request(method, "/api/v2/" + path, json=body, headers=headers,
@@ -75,6 +77,11 @@ class InProcessApi:
 
     def patch(self, path, body=None, key=None):
         return self._run("PATCH", path, body=body if body is not None else {}, key=key)
+
+    def call(self, method, path, body=None, key=None, query=None, delegate=False):
+        method = method.upper()
+        return self._run(method, path.lstrip("/"), body=body if body is not None or method != "GET" else None,
+                         key=key, query={k: v for k, v in (query or {}).items() if v is not None}, delegate=delegate)
 
 
 def hubtools_key():

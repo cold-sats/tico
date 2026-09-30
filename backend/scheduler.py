@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 
 from . import goals as G
+from . import placement
 from .store import H, encode, sweep_idempotency, sweep_mail
 
 
@@ -38,6 +39,7 @@ class Scheduler:
             self.execution.auto_reconcile(c)
             self.execution.release_deploy_drains(c)
             self.execution.hold_unrunnable(c)
+            placement.sweep(c, self.execution)            # an active bot with no computer gets one when one can take it
             H.lift_cooled_quarantines(c)
             rows = c.execute("SELECT s.*,coalesce(sc.timezone,'America/Los_Angeles') AS timezone "
                              "FROM schedules s JOIN bots b ON b.slug=s.bot LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
