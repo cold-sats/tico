@@ -27,6 +27,8 @@ that do it.
   comes back as a Confirm card in their chat. `playbooks/build-me-a-bot.md`.
 - Putting a bot's local repository on GitHub when the company has connected it: `hub github
   create-bot-repo <slug> --empty`; the bot's own runner publishes its history on its next turn once the repository link is set (`playbooks/set-up-a-bot.md`, step 5b).
+- Watchers: a program in a bot's repository that the runner runs on a schedule with no model, and that opens a task only
+  when something new happened (`playbooks/set-up-a-watcher.md`).
 - Readiness: each bot's check result, its subscription profile, and whether the access it declares
   actually resolves on the machine that runs it.
 - Diagnosing a failed run, from the task record through the runner to the model runtime:
