@@ -51,7 +51,7 @@ once the test in step 2 passes, or once you did the work yourself: `hub task clo
 connected."`. Change what a bot's tool `can` do or its scope with `hub tool update <tool-id> --bot <bot> ...`,
 never by removing and adding it.
 
-## 5. What stops you
+## 6. What stops you
 
 - The server says only a credential admin can store it: say who (the message names them). They can fill
   the same card.
