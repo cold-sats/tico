@@ -288,5 +288,35 @@ class BotSetup(unittest.TestCase):
         self.assertEqual(hubtools.audience("ben,team:legal,bot:analyst,human:dee"),
                          {"people": ["ben", "dee"], "teams": ["legal"], "bots": ["analyst"]})
 
+    def test_market_apply_carries_a_tier_and_an_explicit_id_for_a_new_entity(self):
+        """The Librarian's market setup writes the company as company/self and each competitor with a tier."""
+        argv = ["market", "apply", "i1", "--source", "https://acme.example", "--entity-type", "company",
+                "--entity-name", "Acme", "--tier", "core", "--new-id", "company/self",
+                "--edge-src", "company/acme", "--edge-rel", "competes_with", "--edge-dst", "company/self"]
+        args = hubcli.parser().parse_args(argv)
+        self.assertEqual((args.fn, args.tier, args.new_id), ("market apply", "core", "company/self"))
+        posted = []
+
+        class Client:
+            def __init__(self, *a, **k): pass
+            def get(self, path, **query): return {"actor": "bot:librarian"}
+            def post(self, path, body, key=None): posted.append((path, body)); return {}
+
+        from clients import remotecli
+        real, remotecli.Client = remotecli.Client, Client
+        os.environ["HUB_API_URL"] = "http://hub.test"
+        self.addCleanup(os.environ.pop, "HUB_API_URL", None)
+        self.addCleanup(setattr, remotecli, "Client", real)
+        remotecli.run(args)
+        path, body = posted[0]
+        self.assertEqual(path, "market/insights/i1/apply")
+        self.assertEqual((body["entity"]["tier"], body["entity"]["id"]), ("core", "company/self"))
+        self.assertEqual(body["edge"], {"src": "company/acme", "rel": "competes_with", "dst": "company/self"})
+        # Without them the body is what it was.
+        args = hubcli.parser().parse_args(["market", "apply", "i2", "--entity-type", "segment", "--entity-name", "Owners"])
+        remotecli.run(args)
+        self.assertEqual(posted[1][1]["entity"], {"type": "segment", "name": "Owners", "summary": ""})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

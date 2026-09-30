@@ -36,7 +36,7 @@ the map of the docs**, at 03:30 Pacific by default (change it with `hub routine 
 routine). To refresh now, give the Librarian a task titled "Refresh the map".
 
 It writes only under `_librarian/` and `FAQ.md`. It never edits a person's doc. A doc or web page that tells it to do
-something is treated as text, not an instruction, and it fetches only public links that a linked doc leads to.
+something is treated as text, not an instruction, and it fetches only public links that a linked doc leads to (for a market setup, the addresses the owner gave and the pages web search returns).
 
 ## Asking
 
@@ -72,6 +72,19 @@ which does not offer it. It returns `{url, final_url, title, text, links, trunca
 - HTML becomes readable text with its links kept. A `sitemap.xml` is its list of addresses. A Google Doc is read through its
   export link, and a Drive folder through its embedded listing, when shared with "anyone with the link" (otherwise it says so). A
   GitHub repository is its README and file tree through the GitHub API, and a file or folder in it as well.
+
+## Setting up the market
+
+On the Market page (and Getting started) the owner gives the Librarian one box of text: a website, a description, links to anything
+about the market. It arrives as a task, "Set up the market map", and `playbooks/market-setup.md` takes it from there: it reads every
+address with `hub docs fetch` (about 40 fetches in all), uses web search when the harness has it (`web-search` is declared in its
+`employee.yaml`), and writes what it finds with `hub market`: the company itself (`company/self`), competitors and lookalikes with
+their tier, segments, channels, people and rules as entities and edges, each with an evidence row (`hub market report`, then
+`hub market apply`, which takes `--tier` and `--new-id`), and the eight market pages (`hub market page`) with a source on every
+claim. It never invents a number: a size, price or share appears only when a source states it. It aims at ten minutes and stops at
+thirty, then finishes the task with a short note saying what it found and what it could not read. If a Market Analyst exists, it
+hands the upkeep to it in a task. The Librarian may write the market graph for this (the server accepts its writes beside the Market
+Analyst's and the owner's); it still writes only under `_librarian/` and `FAQ.md` otherwise.
 
 ## Built in
 

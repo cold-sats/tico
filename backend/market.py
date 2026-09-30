@@ -21,6 +21,8 @@ from . import models as M
 from .store import Problem, digest, encode
 
 CURATOR = "bot:market-analyst"
+LIBRARIAN = "bot:librarian"          # builds the first map from what the owner gave (playbooks/market-setup.md)
+WRITERS = (CURATOR, LIBRARIAN)
 SEED_ACTOR = "seed"
 RELATIONS = (
     "competes_with", "partners_with", "integrates_with", "distributes_through", "sells_to",
@@ -107,9 +109,9 @@ def _writer_actor(actor):
 
 
 def require_writer(who):
-    if who.role == "owner" or who.actor == CURATOR:
+    if who.role == "owner" or who.actor in WRITERS:
         return
-    raise Problem("forbidden", "Only the market analyst and the company owner can change the market graph", 403)
+    raise Problem("forbidden", "Only the market analyst, the librarian and the company owner can change the market graph", 403)
 
 
 def _event(conn, kind, subject, actor, field, old, new, insight_id=None, note=""):
@@ -905,6 +907,8 @@ def write_page(conn, actor, doc_id, title, body, category, *, replace=False, ins
     now = H.now()
     payload = {"id": doc_id, "title": title, "content": body, "category": category, "collection": "market",
                "search": body, "format": "markdown", "owner": CURATOR, "fetched": now}
+    if actor == SEED_ACTOR:
+        payload["seeded"] = True    # the seed's own text: the Market page hides it while the graph is empty
     raw = encode(payload)
     hashed = digest(raw)
     conn.execute("INSERT OR IGNORE INTO document_versions VALUES(?,?,?,?)", (doc_id, hashed, raw, now))

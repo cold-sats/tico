@@ -15,13 +15,12 @@ const MARKET_TYPES = [
 
 const MARKET_BRIEF = 'brief';
 
-const MARKET_OVERVIEW = `# The market, and where your company fits
-
-This note is a short starting point. Replace it, in the Market pages, with what your company knows: who the buyers are, how the market is shaped, and what it costs to serve them.
-
-The graph holds the companies, segments, channels and people around your company, each connection backed by evidence. Core competitors and lookalikes sit nearest your company; tools and neighbours sit further out.
-
-The pages and the graph are the working map. Ask the librarian when you want a specific name.`;
+// Nothing about the market is written here: the Overview is the page the Librarian writes
+// (playbooks/market-setup.md), and until it exists there is only the setup card in getting-started.js.
+const marketStyle = document.createElement('style');
+marketStyle.textContent = '.market-blank{margin:0;color:#9a9a9a}.market-hint{display:none}'
+  + 'body:has(#gs-card [data-gs-market]) .market-hint{display:inline}';
+document.head.appendChild(marketStyle);
 
 // The node for your own company sits at the centre of the graph. The hub may name it in its
 // status (company_entity); otherwise the convention is company/self.
@@ -38,6 +37,17 @@ function marketHref(id) {
 
 window.marketStop = function marketStop() {
   if (MARKET_VIEW) MARKET_VIEW.stop();
+};
+
+// The research notice (getting-started.js) calls this when the market has new content. A question being
+// typed is left alone.
+window.marketReload = function marketReload() {
+  if (!MARKET_VIEW || !(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) return;
+  const ask = $('#market-q');
+  if (ask && (ask.value || document.activeElement === ask)) return;
+  MARKET_VIEW.stop();
+  MARKET_VIEW = null;
+  void pageMarket();
 };
 
 window.pageMarket = async function pageMarket() {
@@ -66,7 +76,8 @@ async function mountMarket(shell) {
   const nodes = (entities.entities || []).filter(row => row.status !== 'retired' && row.status !== 'merged');
   const byId = new Map(nodes.map(row => [row.id, row]));
   const links = (edges.edges || []).filter(edge => byId.has(edge.src) && byId.has(edge.dst));
-  const pages = (library.documents || []).slice().sort((a, b) => a.title.localeCompare(b.title));
+  // A fresh install starts with pages the seed wrote ("None in the seed."): they are not shown until the graph has rows.
+  const pages = (library.documents || []).filter(doc => nodes.length || !doc.seeded).sort((a, b) => a.title.localeCompare(b.title));
   shell.innerHTML = `<aside class="market-list" aria-label="Market notes">
       <a id="market-overview" class="market-overview-btn" href="${marketHref(MARKET_BRIEF)}">Overview</a>
       <input id="market-filter" type="search" placeholder="Search the market" aria-label="Search the market" autocomplete="off">
@@ -103,7 +114,7 @@ async function mountMarket(shell) {
     index.innerHTML = groups.filter(([, rows]) => rows.length).map(([label, rows]) =>
       `<section><h2>${esc(label)}</h2><ul>${rows.map(row =>
         `<li><a href="${marketHref(row.id)}" data-market-note="${esc(row.id)}">${esc(row.name || row.title)}</a></li>`).join('')}</ul></section>`
-    ).join('') || '<p class="market-empty">Nothing matches.</p>';
+    ).join('') || (q ? '<p class="market-empty">Nothing matches.</p>' : '');
   }
   renderIndex('');
   filter.oninput = () => renderIndex(filter.value);
@@ -143,8 +154,15 @@ async function mountMarket(shell) {
       if (on) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
     });
     const read = $('#market-read');
+    const showDoc = async doc => {
+      const full = await get('/company-docs/' + doc.id.split('/').map(encodeURIComponent).join('/'));
+      read.innerHTML = `<p class="market-kicker">Market</p><div class="md market-md">${safeMd(full.content || '')}</div>`;
+      graph.focus(null);
+    };
     if (onBrief) {
-      read.innerHTML = `<div class="md market-md">${safeMd(MARKET_OVERVIEW)}</div>`;
+      const overview = pages.find(row => row.id === 'market/overview');
+      if (overview) { await showDoc(overview); return; }
+      read.innerHTML = '<p class="market-blank">Nothing here yet.<span class="market-hint"> Start the research above.</span></p>';
       graph.focus(null);
       return;
     }
@@ -156,15 +174,13 @@ async function mountMarket(shell) {
       if (current) current.scrollIntoView({block: 'nearest'});
       return;
     }
-    const doc = pages.find(row => row.id === id) || pages.find(row => row.id === 'market/overview');
+    const doc = pages.find(row => row.id === id);
     if (!doc) {
       read.innerHTML = '<p class="market-empty">That note is not in the market.</p>';
       graph.focus(null);
       return;
     }
-    const full = await get('/company-docs/' + doc.id.split('/').map(encodeURIComponent).join('/'));
-    read.innerHTML = `<p class="market-kicker">Market</p><div class="md market-md">${safeMd(full.content || '')}</div>`;
-    graph.focus(null);
+    await showDoc(doc);
   }
 
   return {shell, open, stop: () => graph.stop()};

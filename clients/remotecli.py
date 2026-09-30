@@ -251,6 +251,10 @@ def run(args, who=None):
             if args.entity_type and args.entity_name:
                 body["entity"] = {"type": args.entity_type, "name": args.entity_name,
                                   "summary": args.summary or ""}
+                if args.tier:
+                    body["entity"]["tier"] = args.tier
+                if args.new_id:
+                    body["entity"]["id"] = args.new_id
             if args.entity_id:
                 body["entity_id"] = args.entity_id
                 if args.summary is not None:

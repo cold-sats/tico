@@ -88,6 +88,19 @@ All notable changes to Tico are recorded here. The format follows
   "Connect a source or add a note" and shows the same tiles large. Uploading or pasting a transcript is part of **Add notes**.
   The filters appear once there is a meeting, on one line, and each meeting is a row with its source logo, date, people and
   "N tasks" when bots pulled any.
+- **Setting up the Market is one box, and the Librarian does the research.** The four-question card is now **Research your
+  market**: one text box for a website, a description or links to anything about the market (with an **Attach files** link to the
+  Docs import) and **Start research**, on the Market page and Getting started while the market is empty. It files a task,
+  "Set up the market map", to the Librarian, so the Market Analyst is no longer needed first. The Librarian has a new playbook,
+  `market-setup.md`: it reads every link with `hub docs fetch` (about 40 fetches), uses web search (declared in its `employee.yaml`),
+  and writes the company, its competitors, segments, channels, people and rules into the graph and fills the eight market pages, with
+  a source on every claim and no number a source does not state, then finishes with a note of what it found and what it could not
+  read. It hands the upkeep to the Market Analyst if there is one. `POST /api/v2/getting-started/market` now takes `{"text"}` and
+  answers `{"task_id", "bot": "librarian"}` (`409 librarian` while the Librarian is not running). While it works the Market page
+  shows "The Librarian is researching your market. This usually takes 5–10 minutes." for at least two minutes and until the market
+  has content (at most thirty, kept in the browser, polling every 30 seconds), then redraws. The Overview is the page the Librarian
+  writes, or a one-line empty state, in place of the fixed placeholder text. The Librarian may now write the market graph
+  alongside the Market Analyst and the owner, and `hub market apply` takes `--tier` and `--new-id`.
 
 ### Fixed
 - **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched
