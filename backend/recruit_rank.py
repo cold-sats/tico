@@ -128,31 +128,33 @@ def head_of(catalog, department_id):
 
 
 def _match(card, found):
-    """The words of the answer that fit this card, as the person wrote them, strongest first: a whole tag phrase, then
-    a word of its name, then (two or more) words of its summary."""
+    """The words of the answer that fit this card, as the person wrote them, strongest first: a tag, then a word of its
+    name, then (two or more) words of its summary. Returns (score, the words)."""
     stems = {stem for stem, _ in found}
     said = {}
     for stem, word in found:
         said.setdefault(stem, word)
     score, hits = 0, []
     for tag in card["tags"]:
-        wanted = [stem for stem, _ in _words(tag)]
-        if wanted and set(wanted) <= stems:
-            score += 3 * len(set(wanted))
-            hits.append(" ".join(dict.fromkeys(said[stem] for stem in wanted)))
-    for stem in _stems(card["name"]) & stems:
+        # A short tag ("cold email") matches whole; a longer phrase (a card's `pains` sentence) on any two of its words.
+        wanted = list(dict.fromkeys(stem for stem, _ in _words(tag)))
+        matched = [stem for stem in wanted if stem in stems]
+        if wanted and len(matched) >= min(len(wanted), 2):
+            score += 3 * len(matched)
+            hits.append(matched)
+    for stem in sorted(_stems(card["name"]) & stems):
         score += 2
-        hits.append(said[stem])
+        hits.append([stem])
     shared = _stems(card["summary"]) & stems
     if len(shared) >= 2:
         score += len(shared)
-        hits.extend(said[stem] for stem in sorted(shared))
-    seen, unique = set(), []
-    for hit in hits:
-        if hit.lower() not in seen:
-            seen.add(hit.lower())
-            unique.append(hit)
-    return score, unique
+        hits.append(sorted(shared))
+    covered, words = set(), []
+    for group in hits:                      # "campaign emails" and then "emails" is said once
+        if not set(group) <= covered:
+            covered.update(group)
+            words.append(" ".join(said[stem] for stem in group))
+    return score, words
 
 
 def rank(catalog, department_id, briefing="", about=None, limit=MAX_BOTS):
@@ -165,8 +167,10 @@ def rank(catalog, department_id, briefing="", about=None, limit=MAX_BOTS):
     if not dept:
         return {"bots": [], "suggested_default": []}
     head = head_of(catalog, department_id)
-    briefing_words = _words(_text(briefing, BRIEFING_LIMIT))
-    about_words = _words(_text(about.get("what"), BRIEFING_LIMIT))
+    # The department's own name matches every card in it ("support" in Customer Support), so it says nothing.
+    own = _stems(dept["name"] + " " + dept["id"])
+    briefing_words = [row for row in _words(_text(briefing, BRIEFING_LIMIT)) if row[0] not in own]
+    about_words = [row for row in _words(_text(about.get("what"), BRIEFING_LIMIT)) if row[0] not in own]
     consumers = str(about.get("sells_to") or "") == "consumers"
     scored = []
     for card in (card for card in catalog["cards"] if card["department"] == department_id):
@@ -179,10 +183,10 @@ def rank(catalog, department_id, briefing="", about=None, limit=MAX_BOTS):
         # a business-only card when the company sells only to consumers.
         tier = 0 if card["template"] == head else 2 if consumers and card["business_only"] else 1
         score = 10 * text + {"default": 30, "common": 10}.get(card["suggest"], 0)
-        if hits or more:
-            why = "Matches “" + "”, “".join((hits + [m for m in more if m not in hits])[:2]) + "”"
-        elif card["template"] == head:
+        if card["template"] == head:
             why = "Heads " + dept["name"] + " and reports to you"
+        elif hits or more:
+            why = "Matches “" + "”, “".join((hits + [m for m in more if m not in hits])[:2]) + "”"
         elif card["suggest"] == "default":
             why = "A starting point for " + dept["name"]
         else:
