@@ -225,7 +225,7 @@ which case the bundle is ad-hoc signed and Gatekeeper asks for **Open Anyway** t
 A bot is one durable git repository in the environment's workspace plus one row on the server. The
 repository holds `AGENT.md`, playbooks, knowledge and memory; the server holds runtime, model,
 effort, assignment, tasks and approvals. The runner looks for the checkout at
-`<workspace>/emp-<slug>` unless the registration's `repos` map says otherwise.
+`<workspace>/bot-<slug>` (an older `emp-<slug>` folder keeps working) unless the registration's `repos` map says otherwise.
 
 A new bot starts from a template, `templates/catalog/<template>/`: a card saying what the bot is
 for, and the repository it is created from. **Settings → Bots → Add from template** creates the bot
@@ -333,10 +333,10 @@ change, change this repository.
 
 | Change | Location |
 |---|---|
-| One bot's instructions | `emp-<slug>/AGENT.md` |
-| One bot's repeatable method | `emp-<slug>/playbooks/` |
-| Domain facts, learnings and decisions for one bot | `emp-<slug>/knowledge/`, `memory/` |
-| One bot's routines, tools or send switch | `emp-<slug>/employee.yaml` |
+| One bot's instructions | `bot-<slug>/AGENT.md` |
+| One bot's repeatable method | `bot-<slug>/playbooks/` |
+| Domain facts, learnings and decisions for one bot | `bot-<slug>/knowledge/`, `memory/` |
+| One bot's routines, tools or send switch | `bot-<slug>/bot.yaml` |
 | Roster, hierarchy, status, model, effort, assigned computer, repository link | **Settings** in the app. The registry directory seeds a new database only |
 | Rules every bot must follow | `policies/` |
 | The server, runner, tools, interface, or the starting point for future bots | This repository's code |

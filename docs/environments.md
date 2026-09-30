@@ -30,11 +30,11 @@ lowercase letters, digits and single hyphens.
 
 The **workspace** is deliberately outside this directory, because it is the team's own material
 rather than the product's state. It defaults to `~/Companies/<Company>`, is created mode 0700, and
-holds `emp-<slug>/` bot checkouts, their uncommitted `emp-<slug>.data/` siblings, and `secrets/`
+holds `bot-<slug>/` bot checkouts (older `emp-<slug>/` folders keep working), their uncommitted `bot-<slug>.data/` siblings, and `secrets/`
 (mode 0700) with the `.env` files bots are given. `env remove` never deletes it.
 
 Every run is given the workspace as `HUB_WORKSPACE`, alongside `HUB_API_URL`, `HUB_TOKEN`,
-`HUB_EMPLOYEE` and `HUB_DIR` (this checkout). It is how `hub bot create` knows where a new bot
+`HUB_BOT` and `HUB_DIR` (this checkout). It is how `hub bot create` knows where a new bot
 repository goes, and how a bot finds a sibling's work.
 
 ### `environment.json`
@@ -79,7 +79,7 @@ enforced on every command. Profiles add three more keys:
  "bot_profiles": {"sales": "acme"}}
 ```
 
-A `repos` map (`{"sales": "/some/other/checkout"}`) overrides the `<workspace>/emp-<slug>`
+A `repos` map (`{"sales": "/some/other/checkout"}`) overrides the `<workspace>/bot-<slug>`
 convention for a bot whose checkout is elsewhere.
 
 ## The legacy default
@@ -358,11 +358,11 @@ re-run `server install` (the plist carries the port), and rebuild the Mac app if
 against the old URL.
 
 **`doctor` says NOT READY.** The problem strings are literal: *Missing bot repository or AGENT.md*
-(no `emp-<slug>/AGENT.md` in the workspace; the assistant and `botops` are the exception, since the
+(no `bot-<slug>/AGENT.md` in the workspace; the assistant and `botops` are the exception, since the
 runner materializes those two from the templates on the computer they are assigned to),
 *Runtime executable is not on PATH*, *Antigravity CLI
 is not on PATH*, *`<profile>`: ...* (that subscription is signed out or its check failed),
-*Unsupported runtime*, and *Configuration differs from server* (`employee.yaml`'s `name`, `runtime`
+*Unsupported runtime*, and *Configuration differs from server* (`bot.yaml`'s `name`, `runtime`
 or `model` disagrees with Settings; the simplest repository omits runtime and model entirely).
 
 **"server: not answering at .../healthz"** means the api job is not running or is crash-looping:

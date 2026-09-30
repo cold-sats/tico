@@ -7,7 +7,7 @@ handles Gmail actions. A messaging icon beside a human in the team chart opens t
 The old `#/mail` route remains available for existing deep links.
 
 Mail is one shared tool, `$HUB_DIR/scripts/mail.sh`. One Google service account acts as every
-mailbox; who may act as which one comes from the `access:` block in your `employee.yaml`
+mailbox; who may act as which one comes from the `tools:` block in your `bot.yaml`
 (`policies/access.md`), never from a prompt. Every read of a body and every label, archive or
 star is written to an audit log with your slug and the task.
 
@@ -16,7 +16,7 @@ from your own `software/`. The access checks, the rules, the audit log and the r
 live in the tool; a direct call skips all four and is a policy violation, not a shortcut. The
 service-account key is not in your environment, so a direct call would not work anyway.
 
-The dispatcher gives every run `HUB_EMPLOYEE` (your slug) and `HUB_DIR` (the Tico clone), so
+The dispatcher gives every run `HUB_BOT` (your slug) and `HUB_DIR` (the Tico clone), so
 `mail.sh` already knows who you are. `--as <slug>` is only for running it by hand.
 
 ## What you can do today
@@ -131,7 +131,7 @@ which of those you have.
 
 ```json
 { "ok": true, "sent": false, "downgraded": "draft", "gate": "outbound_send",
-  "reason": "outbound_send is false in emp-influencer/employee.yaml",
+  "reason": "outbound_send is false in bot-influencer/bot.yaml",
   "draft": "r-882...", "to": ["ava@creator.example"],
   "note": "the draft is still in ana@acme.example Drafts; Ana can send it, or close the gate
            that refused it." }
@@ -172,7 +172,7 @@ and a fix, and the ids are stable enough to quote on a task:
 
 The rules, in short: no forbidden phrases (for example `we guarantee`, `AI Agent`,
 `outsource`, `is locked`, `our crew`; the list is yours to set in the policy); acme.example links only, and if you have a
-required CTA every link must be it; no placeholders, key-shaped strings, `s3://`, `emp-` or Tico
+required CTA every link must be it; no placeholders, key-shaped strings, `s3://`, `emp-`, `bot-<slug>/` or Tico
 task numbers; a subject under 120 characters, a body of 20-2500, at most three exclamation
 marks, a signature naming Ana, one external recipient; and for times offered: at least two, in
 order, in the future, on a weekday, in business hours, with the zone spelled out. Confirmation
@@ -231,14 +231,14 @@ and answers with the draft plus `"would_schedule": {...}` so Ana can do it in on
 
 ## Verbs, and the one thing that is implied
 
-Your `access:` entry lists verbs: `read`, `draft`, `send`.
+Your `tools:` entry lists verbs: `read`, `draft`, `send`.
 
 `read` also allows `label`, `archive`, `mark-read`, `star` and `triaged` **on your own
 mailbox**. Moving a message between folders is not a send: nothing leaves the team, the
 change is visible in Gmail, and Ana undoes it by relabelling.
 
 `draft` is needed for `draft`, `reply` and `schedule`. `send` is needed on top of that for
-anything to leave, and `send` also needs `outbound_send: true` in your `employee.yaml`. With the
+anything to leave, and `send` also needs `outbound_send: true` in your `bot.yaml`. With the
 flag false, every send is a draft, whatever an older instruction says.
 
 Anything you are not granted is refused with exit code 2 and a line telling you what to ask

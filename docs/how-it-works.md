@@ -4,7 +4,7 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
 
 ## The six nouns
 
-- **Bot** — an AI teammate (teammates are humans or bots) with its own `emp-<slug>` repository, run on one registered computer,
+- **Bot** — an AI teammate (teammates are humans or bots) with its own `bot-<slug>` repository, run on one registered computer,
   or run by an external agent such as a Hermes profile that reaches Tico with its own
   credential and is never dispatched to ([Hermes agents](hermes-agents.md)).
   Record states: `active`, `paused`, `planned`, `quarantined`. Live status while it works:
@@ -114,13 +114,13 @@ state (`backend/judge.py`); the decisions themselves are versioned files in `que
 (`questions/README.md`), which the meeting brain and the mail CLI read the same way a bot does.
 `skills/decisions/SKILL.md` says when to reach for it.
 
-**The bot's repository** — `acme/emp-<slug>`, checked out at `<projects>/emp-<slug>` on the
+**The bot's repository** — `acme/bot-<slug>`, checked out at `<projects>/bot-<slug>` on the
 Mac that runs it (`~/tico-work` on Ana's Mac). The contract (`templates/employee-repo/`):
 
 | File | What |
 |---|---|
 | `AGENT.md` (with `AGENTS.md`/`CLAUDE.md` pointing at it) | its instructions, what it owns, how it starts and ends a run; read every run |
-| `employee.yaml` | `name`, `runtime`, `model`, `reasoning_effort`, `max_run_minutes`, `access:`, `outbound_send` (`schedules:` only in a template, as the seed) |
+| `bot.yaml` | `name`, `runtime`, `model`, `reasoning_effort`, `max_run_minutes`, `tools:`, `outbound_send` (`routines:` only in a template, as the seed) |
 | `state.md` | current focus, open threads, next step |
 | `memory/learnings.md`, `memory/decisions.md` | how to do the job; dated decisions |
 | `knowledge/` | what is true in its domain, one topic per file, dated sources |
@@ -200,7 +200,7 @@ Tico is seeded with Gemini CLI as its fallback from Antigravity, so a usage limi
 the cloud cooldown applies.
 
 **A bot's session is its own.** Each bot has one provider thread: chat, tasks and
-routines resume it in the same local `emp-<slug>` checkout, and only that Mac knows which thread
+routines resume it in the same local `bot-<slug>` checkout, and only that Mac knows which thread
 it is. Tico never ends a thread, never asks the bot for a checkpoint before a model or computer
 change, and never rebuilds history into a prompt: when the conversation fills the model's window
 the runtime compacts it, and a run carries only what the room said since the bot last answered.
@@ -222,14 +222,14 @@ bot-requested task closes itself after three days). Every run is listed under **
 the bot's **More** tab.
 
 **You change a bot's instructions.** Edit `AGENT.md` (or a playbook, `memory/`, `knowledge/`) in
-`emp-<slug>` and commit. The runner reads the checkout on its Mac at the start of every run, so
+`bot-<slug>` and commit. The runner reads the checkout on its Mac at the start of every run, so
 the change is live on the next run once that checkout has it: push, and pull on the runner Mac
 if you edited elsewhere. Do not edit while the bot is running there.
 
 **You change a routine.** Routines are rows in Tico (`docs/routines.md`): edit one on the
 site under Tasks → Routines, or a bot changes its own with `hub routine set`. The change is in
 the table at once; a sleeping Mac does not block it. **You change a bot's switches.** Tools
-read `outbound_send` and `access:` from the Mac checkout each time a bot sends or posts. Model, effort, computer, humans, name,
+read `outbound_send` and `tools:` from the Mac checkout each time a bot sends or posts. Model, effort, computer, humans, name,
 status and reporting line are changed in **Settings → Bots**, not in the file.
 
 ## Calling the API from a script
@@ -247,7 +247,7 @@ hub sql "SELECT slug FROM bots"
 curl -H "Authorization: Bearer $HUB_TOKEN" https://hub.acme.example/api/v2/bots
 ```
 
-No `HUB_EMPLOYEE`: the token is you, not a bot. It is you for every purpose, with the rights you
+No `HUB_BOT`: the token is you, not a bot. It is you for every purpose, with the rights you
 have in the browser (a member sees what a member sees, an admin adds bots for their own
 account, the owner does what the owner does), and it leaves the same audit trail. The one thing a token cannot do is make
 or revoke tokens; that takes a signed-in browser, so a leaked token cannot extend its own life.

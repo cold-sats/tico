@@ -43,7 +43,7 @@ has its own image, database and compose file. An install reaches it only through
 HQ has no templates of its own. `scripts/build_catalog_json.py` builds `hq/catalog.json` (the groups and each card's template,
 name, group, icon, tags, suggest level, one-sentence summary and head flag, with no instructions) and copies the recommender
 `backend/recruit_rank.py` to `hq/recruit_rank.py`. The Tico server builds its own template list with the same function, so the two agree on
-`catalog_version`. Run the script after changing a card or `templates/departments.yaml`; `--check` (run by the test suite) fails when
+`catalog_version`. Run the script after changing a card or `templates/groups.yaml`; `--check` (run by the test suite) fails when
 either copy is stale.
 
 ### Running it

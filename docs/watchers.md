@@ -9,7 +9,7 @@ something happened.
 
 ## Declare it
 
-In the bot's `employee.yaml`:
+In the bot's `bot.yaml`:
 
     watchers:
       - name: hq-tickets

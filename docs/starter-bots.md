@@ -11,7 +11,7 @@ session. The template format is in [Finish setup](onboarding.md); how to write a
 
 ## Groups
 
-`templates/departments.yaml` lists the nine groups in the order Finish setup offers them. For each: `id`, `name`, a
+`templates/groups.yaml` lists the nine groups in the order Finish setup offers them. For each: `id`, `name`, a
 one-sentence `description`, a short `goal`, the one briefing `question` and an example answer (`placeholder`), a Material
 Symbols `icon`, the template id of the group's `head`, and `software_only: true` for Product and Engineering, which are
 offered only when software is the product. The team builder takes one group at a time: it shows the description and goal,
@@ -217,11 +217,11 @@ confirms anything that would send, post, pay, change a record or delete.
 2. **A first result in the same session.** It produces a real draft of its `first_routine` output from
    the team's own data, labelled "First draft, not yet reviewed". A human reacts to something real.
 3. **A routine that starts with setup.** It confirms the first routine and tells the human what it does. The routine is declared in
-   `employee.yaml` with `enabled: false`, so `hub bot create` seeds it off; starting the setup (**Start setup**, go-live) switches it on,
+   `bot.yaml` with `enabled: false`, so `hub bot create` seeds it off; starting the setup (**Start setup**, go-live) switches it on,
    so nobody approves it separately, and the bot logs it.
 4. **An approval before anything external.** The card's `approval_required` list is what the bot never
    does alone. The platform's own gates still apply (`outbound_send: false`, the approvals policy).
-5. **Parked until then.** Finish setup creates every starter `needs_onboarding`: it answers a human's message and nothing else
+5. **Parked until then.** Finish setup creates every starter `needs_setup`: it answers a human's message and nothing else
    (no routine, task notice, Slack route or bot request wakes it) until its setup playbook ends with `hub bot setup-done`,
    which it calls once its answers and first result are recorded. **Set up** on its page, or any first message, begins the
    conversation. Parked starters do not count toward a member's bot limit. See [Finish setup](onboarding.md#needs-setup).
@@ -236,13 +236,13 @@ A starter's own prompt is not the gate. What the platform does, checked for ever
 |---|---|---|
 | Send, reply to or forward email | The email tool downgrades a send to a Gmail draft unless the mailbox declares the `send` verb, `outbound_send: true` is set and the recipient is internal, allowed or covered by an approval. The starters declare `read` and `draft` only and `outbound_send: false`; a test refuses `send` in any starter's `access:` | `connectors/mail/policy.py`, `clients/tests/test_catalog.py` |
 | Post to Slack | A post needs the `post` verb in the bot's Slack access, and the channel must not say `post: false` in `registry/slack-channels.yaml`; reading grants no posting right. Externally shared channels are always refused. The starters declare Slack read only, commented out until the owner connects it | [Slack gateway](slack-gateway.md) |
-| Comment on or label a GitHub issue, or review a pull request | **Added in this release.** The team's GitHub App token carries Issues: write, so nothing but a prompt stood between the QA Engineer (`issue-triage`) and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a human runs them. Senior Software Engineer, Release Manager, Technical Writer, Security Engineer, DevOps Engineer and Head of Engineering read GitHub the same way: `read` access, only `gh pr list`, `view`, `diff` and `checks` allowed, and `gh pr review`, `comment`, `merge`, `close`, `edit` and `create` denied, so a review is a draft on the task that a human posts. Turning writing on is the owner's edit of `employee.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
+| Comment on or label a GitHub issue, or review a pull request | **Added in this release.** The team's GitHub App token carries Issues: write, so nothing but a prompt stood between the QA Engineer (`issue-triage`) and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a human runs them. Senior Software Engineer, Release Manager, Technical Writer, Security Engineer, DevOps Engineer and Head of Engineering read GitHub the same way: `read` access, only `gh pr list`, `view`, `diff` and `checks` allowed, and `gh pr review`, `comment`, `merge`, `close`, `edit` and `create` denied, so a review is a draft on the task that a human posts. Turning writing on is the owner's edit of `bot.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
 | Invite someone to a calendar event | Any address may be invited. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to limit bots to humans on the team roster (`403 external_attendee` otherwise); an invitation to anyone else is then a human's act | `backend/connectors.py`, `backend/tests/test_security_review.py` |
 | Message a human inside the team | Bot-to-human messages are linted and capped at ten unsolicited a day | `hub message send` |
 | Change a record in a CRM, the support tool, the books or a repository | The starters declare no such access. Sales Operations Manager reads the CRM and only lists the fixes; the finance roles read exports and never post, pay or send (Accounts Payable Specialist proposes the payment run as a `spend` approval). A CRM stage change is on `approval_required`, and a tool the team adds is the owner's decision | the card |
 | Act on a public review surface | Reputation Manager declares `read` on its review surfaces and on Slack, and keeps `act` and `post` as a commented block the owner uncomments after a human has approved the first batch; until then a human carries out each approved batch | `templates/catalog/reputation`, `clients/tests/test_catalog.py` |
 
-No template declares a `send`, `write`, `modify` or `delete` verb in `access:`, and the template test fails one that does. A template's `.claude/settings.json` allows only its own repository's `git` and, for the GitHub bots, the read-only `gh` commands above; none allows `gh issue *` or `gh pr *` as a whole.
+No template declares a `send`, `write`, `modify` or `delete` verb in `tools:`, and the template test fails one that does. A template's `.claude/settings.json` allows only its own repository's `git` and, for the GitHub bots, the read-only `gh` commands above; none allows `gh issue *` or `gh pr *` as a whole.
 
 ## The card
 
@@ -253,8 +253,8 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 | Field | What it holds |
 |---|---|
 | `name` | The job title, as it would appear on a real team chart ("Accounts Payable Specialist"), never a feature, document or task |
-| `department` | One of the ids in `templates/departments.yaml` (`sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`), or `leadership` for the extra. What the team builder groups by |
-| `lead` | `true` on exactly one template per group: its head, the template `departments.yaml` names as `head`. The template test requires exactly one and that they agree |
+| `group` | One of the ids in `templates/groups.yaml` (`sales`, `marketing`, `support`, `finance`, `operations`, `legal`, `hr`, `product`, `engineering`), or `leadership` for the extra. What the team builder groups by |
+| `lead` | `true` on exactly one template per group: its head, the template `groups.yaml` names as `head`. The template test requires exactly one and that they agree |
 | `team_templates` | Heads only: every other template in the group. What the head hires from |
 | `kind` | `helper` for a message bot template that serves one human (the Inbox Manager): no group, pack, head or `suggest`, and never on the team chart. Every other template is a role and leaves it out |
 | `icon` | A Material Symbols name that fits the role; it must be in `ui/vendor/fonts/icons.txt` (run `scripts/build-icon-font.py` after adding a template) |
@@ -280,7 +280,7 @@ for a team whose product is software; anyone may pick them.
 template: sales
 slug: sales
 name: Account Executive
-department: sales
+group: sales
 pack: sales
 icon: handshake
 suggest: default
@@ -313,7 +313,7 @@ A head adds `lead: true` and its group:
 ```yaml
 template: finance-lead
 name: Head of Finance
-department: finance
+group: finance
 pack: basics
 lead: true
 icon: account_balance_wallet
@@ -331,8 +331,8 @@ Same layout as every template, plus what makes a starter reviewable:
 - `playbooks/`: one for the first routine, one for the most common request, and `onboarding.md`.
 - `knowledge/examples/`: one sample of excellent output for the fictional team Acme. Never a real
   team or person.
-- `employee.yaml`: `outbound_send: false`, the first routine declared with `enabled: false`, and
-  `access:` with `read` unless drafting needs more. A tool the team may not have is a commented block
+- `bot.yaml`: `outbound_send: false`, the first routine declared with `enabled: false`, and
+  `tools:` with `read` unless drafting needs more. A tool the team may not have is a commented block
   the owner uncomments when it is connected, because changing access is an owner decision.
 
 ## What a good bot looks like
@@ -518,8 +518,8 @@ routine, and ask BotOps to set it up only after the owner says yes.
 Copy the nearest template in the same group and keep the card fields above; give it a job title, an icon from Material
 Symbols, and add it to its head's `team_templates`, then run `scripts/build-icon-font.py` so the icon is in the UI's font.
 `clients/tests/test_catalog.py` checks every template except the four built-ins (no list to update) for those
-fields: a group from `templates/departments.yaml` with `pack` following it, an icon the UI font holds, `suggest` and
-`tags`, exactly one head per group matching `departments.yaml` and listing the rest of it, at least 90 templates, the 150
+fields: a group from `templates/groups.yaml` with `pack` following it, an icon the UI font holds, `suggest` and
+`tags`, exactly one head per group matching `groups.yaml` and listing the rest of it, at least 90 templates, the 150
 line limit, a first sentence of the summary that fits the setup line, a declared but paused routine, an example that names
-the fictional team, no pain phrase used twice and no `send`, `write`, `modify` or `delete` verb in `access:`. The card's
-`first_routine.title` must be the title of the routine in `employee.yaml`.
+the fictional team, no pain phrase used twice and no `send`, `write`, `modify` or `delete` verb in `tools:`. The card's
+`first_routine.title` must be the title of the routine in `bot.yaml`.

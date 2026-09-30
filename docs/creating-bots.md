@@ -35,12 +35,12 @@ are in [Finish setup](onboarding.md).
 A message bot is assigned to one human on the roster. **Settings → Bots → Add from template** (and
 the Finish setup cards) show a human picker when the template is `inbox`. The chosen address is
 appended to the instructions as `Mailbox: <email>`, and BotOps fills `{{mailbox}}` in
-`employee.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
+`bot.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
 routine, the weekday 07:30 email brief, declared off and switched on when its setup starts, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
 `org_read: true`, which also reads everyone who reports to the human, is added by the owner
 deliberately. It starts with filing off (no labels, no archive) and shows what it would do.
 
-There is no per-user OAuth. One Google service account acts as every mailbox; the access block
+There is no per-user OAuth. One Google service account acts as every mailbox; the `tools:` block
 names the address, never a personal login. Calendar access is broader than Gmail access: every
 bot can read and create events on every address in `registry/people.yaml`, whether or not its
 manifest includes that mailbox and even when Gmail is read-only. After the first message bot, pick
@@ -54,9 +54,10 @@ each message by the answer of the `mail-triage` decision set. What still needs a
 
 A bot is **one durable git repository plus one row in the server**. Three parts:
 
-- The repository is `emp-<slug>`, checked out in the environment's workspace (where that
+- The repository is `bot-<slug>`, checked out in the environment's workspace (where that
   environment keeps its repositories, alongside the shared repository and `secrets/`). It holds
-  everything the bot knows and everything it has learned.
+  everything the bot knows and everything it has learned. Existing `emp-<slug>` repositories keep working under
+  their old names; only new bots get `bot-<slug>`.
 - The runner on a registered computer claims the bot's work, does each run inside that checkout with a
   model CLI signed in on that computer, and streams the reply back. Subscriptions never leave the computer.
 - The server holds the record: tasks, conversations, approvals, routines, runs and the bot's
@@ -69,7 +70,7 @@ A bot is **one durable git repository plus one row in the server**. Three parts:
 | Record status: `planned`, `active`, `paused`, `quarantined` | `knowledge/`, what is true in the domain |
 | Display name, reporting line, owner and primary human | `memory/`, dated learnings and decisions |
 | The repository link recorded on the bot | `state.md`, where the bot is right now |
-| Tasks, approvals, runs, routines and their history | `employee.yaml`: `access:`, `outbound_send` |
+| Tasks, approvals, runs, routines and their history | `bot.yaml`: `tools:`, `outbound_send` |
 
 A one-off request is a **task**, not an edit. Only change the repository when the change should
 hold next month too.
@@ -77,20 +78,20 @@ hold next month too.
 ## 2. Repository anatomy
 
 A template produces this layout already; `templates/employee-repo/` is the generic version
-of it. Copy it to `<workspace>/emp-<slug>` and fill it in. Slugs are lowercase,
-hyphenated and stable: the slug appears in the repository name, in `employee.yaml` and in the bot's
+of it. Copy it to `<workspace>/bot-<slug>` and fill it in. Slugs are lowercase,
+hyphenated and stable: the slug appears in the repository name, in `bot.yaml` and in the bot's
 own paths, so renaming later is real work.
 
 | Path | What it is for |
 |---|---|
 | `AGENT.md` | The standing instructions. Read at the start of every run. **Required.** `AGENTS.md` and `CLAUDE.md` are one-line pointers at it, so any model CLI finds it |
-| `employee.yaml` | Identity and switches: `name`, optional runtime overrides, `access:`, `outbound_send`, `reads:` |
+| `bot.yaml` | Identity and switches: `name`, optional runtime overrides, `tools:`, `outbound_send`, `reads:`. An older `employee.yaml` (with `access:` and `schedules:`) is still read for one release; the template refresh renames it |
 | `state.md` | Current focus, open threads, next step. Rewritten at the end of each run |
 | `memory/learnings.md` | How to do the job: the flag it forgot, the tool that refused, dated |
 | `memory/decisions.md` | What was decided, when, why. Dated. This is where history goes |
 | `knowledge/` | The domain: one topic per file, dated sources. Other bots may read it |
 | `playbooks/` | One file per repeated kind of work. Routines point at these |
-| `software/` and `watchers:` | Small programs the bot wrote for itself. A `watchers:` entry in `employee.yaml` has the runner run one on a schedule with no model and wake the bot only when it prints something new ([watchers.md](watchers.md)) |
+| `software/` and `watchers:` | Small programs the bot wrote for itself. A `watchers:` entry in `bot.yaml` has the runner run one on a schedule with no model and wake the bot only when it prints something new ([watchers.md](watchers.md)) |
 | `reports/`, `software/`, `skills/` | Dated deliverables, the small scripts the bot wrote for itself, runtime skills |
 | `.env.example`, `.gitignore` | The names of the credentials it expects (names only), and the ignore rules that keep `.env` out of git |
 
@@ -102,16 +103,16 @@ The runner checks these before it will run the bot, and the preflight script
 - **`AGENT.md` must exist.** A missing `AGENT.md` reads to the runner as a missing repository.
 - **`AGENT.md` must not be the untouched template**, and it must contain an `## Owns` section with
   at least one non-empty bullet. Preflight fails otherwise.
-- **`state.md` must exist**, and **`employee.yaml` must parse with `name:` equal to the slug**
-  (`name: sales` in `emp-sales`).
+- **`state.md` must exist**, and **`bot.yaml` must parse with `name:` equal to the slug**
+  (`name: sales` in `bot-sales`).
 - **`runtime:` and `model:` in the file must match the server, or be left out.** A mismatch reads
   as "Configuration differs from server" and the bot does not run. The simplest repository omits
   both and lets Settings decide.
-- **`schedules:` in a template is a seed.** `hub bot create` turns it into the new bot's
+- **`routines:` in a template is a seed.** `hub bot create` turns it into the new bot's
   first routines in Tico; after that Tico's rows are the routines (`docs/routines.md`).
   Preflight validates the block so a broken template is caught before a bot is made from it.
 - **`.env` is never committed.** Credentials live on the computer or in the vault. Declaring a credential in
-  `access:` does not create it.
+  `tools:` does not create it.
 - **The working tree should be clean and have a remote.** A dirty tree or no remote is flagged:
   the bot commits and pushes after each run, and it cannot push without a remote.
 
@@ -124,7 +125,7 @@ full check, including credentials, runtime and mail, and is what to run before f
 
 ### The `.data/` sibling
 
-Large or regenerable files go in `<workspace>/emp-<slug>.data/`, a sibling directory that is never
+Large or regenerable files go in `<workspace>/bot-<slug>.data/`, a sibling directory that is never
 committed: raw API pulls, downloaded pages, seen-item stores, intermediate JSON. If losing it costs
 nothing but a re-run, it belongs there, and the repository stays small enough to read as a diff.
 
@@ -301,7 +302,7 @@ hub routine set daily-stock-pass --title "Daily stock pass" --cron "0 7 * * 1-5"
     --text-file playbooks/daily-stock-pass.md
 ```
 
-A template may declare the same thing under `schedules:` in its `employee.yaml`
+A template may declare the same thing under `routines:` in its `bot.yaml`
 (`id`, `title`, `cron` or `on`, `timezone`, `template: playbooks/<file>.md`, and optionally
 `enabled: false`); `hub bot create` seeds the new bot's routines from it once, and from then on
 Tico's rows are the routines. The starter templates declare their first routine with `enabled: false`:
@@ -333,19 +334,19 @@ quietly stops the routine. Quiet day or not, the run ends with the task marked d
 note saying what was checked and what was found.
 
 **The read-only period pattern.** A new bot can run fully while nothing it produces leaves the
-building: set `outbound_send: false`, give it `read` in `access:` and no `post` or `send`, and let
+building: set `outbound_send: false`, give it `read` in `tools:` and no `post` or `send`, and let
 it write drafts onto tasks. Routines fire, the work is real, the output is reviewed, and nobody
 wakes up to a message the bot sent. Turn sends on per bot, later, deliberately.
 
 ## 6. Access and credentials
 
-`access:` in `employee.yaml` declares what the bot may touch. **Not listed means not allowed.** It
+`tools:` in `bot.yaml` declares what the bot may touch. **Not listed means not allowed.** It
 is shown on the bot's page, it is what the shared tools check, and it is what preflight
 resolves against the computer before a bot goes active.
 
 ```yaml
 outbound_send: false           # no email, DM, post or invite leaves the team
-access:
+tools:
   - service: gmail
     identity: "desk@example.com"
     can: [read, draft]         # send only with outbound_send: true and an approval
@@ -395,7 +396,7 @@ repository. The row is short by design: past eight tools it shows "+N", which op
 
 - **Where it comes from.** The first icon is the model and harness the bot runs on (for example
   "Codex · openai/gpt-6-luna"), the second its GitHub repository when it has an address, and the
-  rest are the `access:` entries above, one each. The runner reads `employee.yaml` from the bot's
+  rest are the `tools:` entries above, one each. The runner reads `bot.yaml` from the bot's
   checkout and reports the entries on its heartbeat, so an edit shows up once it is in the checkout
   on the computer. A computer running an older runner shows the model and repository only.
 - **The icon** is the service's logo when Tico bundles one (GitHub, Slack, Gmail, Google Drive and
@@ -424,9 +425,9 @@ or a human above it on the team chart) can add or remove a tool without opening 
 `POST /api/v2/bots/{bot}/tools`, `DELETE /api/v2/bots/{bot}/tools/{id}`, or the MCP tools
 `hub_tool_add`, `hub_tool_list` and `hub_tool_remove` (`hub tool add <bot> posthog --can read
 --identity "PostHog project 340585 (US)" --scope project=340585 --env POSTHOG_KEY`). Tico holds no
-bot repository, so it cannot write `employee.yaml` itself. It checks the entry against the same
+bot repository, so it cannot write `bot.yaml` itself. It checks the entry against the same
 fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
-"Add PostHog access to <bot>" with the exact YAML. BotOps adds it to `employee.yaml`, commits and
+"Add PostHog access to <bot>" with the exact YAML. BotOps adds it to `bot.yaml`, commits and
 pushes, runs preflight and says what it found. Until the bot's computer reports the entry the tool
 shows as **pending** in the row; then it is **ready**, or names its problem. Removing works the same
 way, as a task "Remove PostHog access from <bot>"; the tool keeps its icon, marked as being
@@ -475,13 +476,13 @@ it ratchets up and never down: take the busiest routine, read what its last ten 
 decided, and drop a level if nothing needed the extra thinking.
 
 Because these live on the server, changing them takes effect on the next run with no commit, no
-push and no wait. If `employee.yaml` also names a runtime or model, it has to agree with Settings
+push and no wait. If `bot.yaml` also names a runtime or model, it has to agree with Settings
 or the bot will not run, which is why the plainest repository names neither.
 
 ## 8. A bot's first week
 
 1. **Create it `planned`.** **Settings → Bots → Add bot**, then copy `templates/employee-repo/` to
-   `<workspace>/emp-<slug>` on the computer that will run it, fill in `AGENT.md` and `employee.yaml`,
+   `<workspace>/bot-<slug>` on the computer that will run it, fill in `AGENT.md` and `bot.yaml`,
    commit, push, and record the repository link on the bot. Leave `outbound_send: false` and
    add no routines yet.
 2. **Run preflight** and fix everything it fails on. Warnings can wait; failures cannot.
@@ -510,7 +511,7 @@ Drawn from real bot reviews, stated generically.
   Report successful sources, blocked sources and findings as three separate things.
 - **Non-idempotent routines.** A coalesced or retried occurrence repeats an external effect.
   Watermark it, check before you write, make a repeat cost nothing.
-- **Undeclared access.** The bot reaches a service not in its `access:` block, or reuses a
+- **Undeclared access.** The bot reaches a service not in its `tools:` block, or reuses a
   credential that was in the environment for another reason. Declare it or stop.
 - **The completion note buries the result.** Lead with the result, under 120 words, link the rest.
 - **Near-duplicate knowledge files** instead of an edit to the file that already covers the topic.
@@ -525,8 +526,8 @@ Drawn from real bot reviews, stated generically.
 ## 9. More than one environment
 
 The same slug can exist in two environments, and they are different bots: separate repositories,
-separate tasks, separate credentials, separate history. `emp-sales` in one environment's workspace
-has nothing to do with `emp-sales` in another's. Paths in instructions should therefore be written
+separate tasks, separate credentials, separate history. `bot-sales` in one environment's workspace
+has nothing to do with `bot-sales` in another's. Paths in instructions should therefore be written
 relative to the repository, or relative to the environment's workspace, never hard-coded to one
 computer's home directory.
 

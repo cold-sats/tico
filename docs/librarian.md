@@ -83,7 +83,7 @@ which does not offer it. It returns `{url, final_url, title, text, links, trunca
 On an empty Market page the owner gives the Librarian one text box: a website, a description, links to anything
 about the market. It arrives as a task, "Set up the market map", and `playbooks/market-setup.md` takes it from there: it reads every
 address with `hub doc fetch` (about 40 fetches in all), uses web search when the harness has it (`web-search` is declared in its
-`employee.yaml`), and writes what it finds with `hub market`: the team itself (`company/self`), competitors and lookalikes with
+`bot.yaml`), and writes what it finds with `hub market`: the team itself (`company/self`), competitors and lookalikes with
 their tier, segments, channels, people and rules as entities and edges, each with an evidence row (`hub market report`, then
 `hub market apply`, which takes `--tier` and `--new-id`), and the eight market pages (`hub market page`) with a source on every
 claim. It never invents a number: a size, price or share appears only when a source states it. It aims at ten minutes and stops at

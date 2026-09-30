@@ -72,7 +72,7 @@ it ran, and a link to the task. `hub sql` reads the same rows: `schedules`,
 
 ## Templates
 
-A template's `employee.yaml` may declare `schedules:` (`id`, `title`, `cron` or `on`,
+A template's `bot.yaml` may declare `routines:` (`id`, `title`, `cron` or `on`,
 `timezone`, `template:` a playbook path, and optionally `enabled: false`). That block is a seed: when BotOps runs
 `hub bot create`, the rendered playbooks become the new bot's first routines in Tico, keyed by
 their `id`. After that Tico's rows are the routines. Editing the file in the bot's repository
@@ -84,11 +84,11 @@ broken template is caught before a bot is made from it.
 
 ## What this replaced
 
-Until runner 0.5.4 a routine was declared in the bot repository's `employee.yaml` and copied into
+Until runner 0.5.4 a routine was declared in the bot repository's `bot.yaml` and copied into
 Tico by runner heartbeats (or a server-side Git sync behind `TICO_ROUTINES`), with a
 version snapshot per change and a task gated on the Mac having checked out the declaring
 revision. All of that is gone: `routine_versions`, `routine_tasks`, `routine_sources`,
 `routine_deliveries`, the webhook route and the `TICO_ROUTINES*` settings. Migration 28 drops
 the tables and keeps every `schedules` row, its settings and its occurrence history. A runner
-older than 0.5.4 still reports the manifest's schedules in its heartbeat; the server accepts
+older than 0.5.4 still reports the manifest's routines in its heartbeat; the server accepts
 and ignores them.

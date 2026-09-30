@@ -56,7 +56,7 @@ checked (on a phone the chart is a strip above the card that opens to the whole 
 chart: there is no fixed team any more.
 
 1. **Groups.** "What groups do you want?" as tiles: Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
-   Product and Engineering (`templates/departments.yaml`). Sales, Marketing, Customer Support, Finance and Operations start picked;
+   Product and Engineering (`templates/groups.yaml`). Sales, Marketing, Customer Support, Finance and Operations start picked;
    Product and Engineering (`software_only`) start picked only when software is the product. Pick any.
 2. **One group at a time.** A card with the group's icon, a one-line description and goal, its one question and a single-line
    answer ("What kind of sales do you do today?"). **Recruit bots** (or Enter) shows "Recruiting bots…" for a moment, then the suggested
@@ -76,10 +76,10 @@ otherwise). A message bot reports to the owner and is never offered as a manager
 built-ins, each group's head and its bots, then message bots. A worker the human re-points keeps its new manager; two bots that would
 report to each other are refused on the screen.
 
-**Where a card sits.** A card's `department` (one of the nine ids). A card of `kind: helper` and a card whose group the builder does
-not offer (the Leadership extra) are in none. A card with no `department` sits in the group whose `head` it is, or that lists it in its
+**Where a card sits.** A card's `group` (one of the nine ids). A card of `kind: helper` and a card whose group the builder does
+not offer (the Leadership extra) are in none. A card with no `group` sits in the group whose `head` it is, or that lists it in its
 head's `team_templates`, or its `pack`'s (`basics` is Operations). A group's head is its card with `lead: true`, else the `head`
-`templates/departments.yaml` names. `icon` is a Material Symbols name, drawn from the app's own icon font
+`templates/groups.yaml` names. `icon` is a Material Symbols name, drawn from the app's own icon font
 (`scripts/build-icon-font.py` reads every card's and group's `icon`); a card without one takes its group's. `suggest` is
 `default`, `common` (the default) or `niche`. `tags` are the words the recommender matches; a card without tags uses its `pains`.
 
@@ -114,7 +114,7 @@ Sales" or "Common in Sales". The same answer always gives the same list.
 second). It reaches no computer.
 
 - BotOps, the assistant, the Librarian and the Goal Manager first, so they exist before anything is addressed to them, then everything picked, each `planned`
-  with the card's summary as its description, `emp-<slug>` as its repository, the card's runtime, model and reasoning effort, the human
+  with the card's summary as its description, `bot-<slug>` as its repository, the card's runtime, model and reasoning effort, the human
   it reports to, and the owner as its owner. A model a deployment does not offer falls back to the product default.
 - **No AI provider and no computer are needed.** The team is created first. With no provider chosen a bot names no runtime or model and
   follows the team default, so it runs once a provider is added in Settings > AI providers. With no computer enrolled the bots stay
@@ -123,7 +123,7 @@ second). It reaches no computer.
 - The template and the reviewed instructions are stored in the bot's server-side config, with the **template version** (the release whose
   templates it came from: `template_version`).
 - A **starter** template (a card with a `first_routine` and an `onboarding` conversation) is created whole and parked:
-  - `onboarding_state: needs_onboarding`, exposed on `/api/v2/bots`, `/api/v2/bots/{bot}` and `/api/v2/org`;
+  - `onboarding_state: needs_setup`, exposed on `/api/v2/bots`, `/api/v2/bots/{bot}` and `/api/v2/org`;
   - its first routine is seeded off (the template declares `enabled: false`) and goes on when its setup starts (**Start setup**, a first message from someone who manages it, or go-live), so nobody approves it separately;
   - **no task is filed for BotOps**: the computer materializes its repository from its template as soon as the bot is placed on it
     (`materialize: true` in its config, which only the wizard writes), and the bot is activated as soon as it is placed;
@@ -235,8 +235,8 @@ until BotOps has built it.
 3. Read the names from `GET /api/v2/config` and the answers from `GET /api/v2/setup` with
    this computer's own credential. Both are read fresh, because the wizard is answered after the
    computer is enrolled.
-4. Copy the template folder to `<workspace>/emp-<slug>`, fill the placeholders, set `name:` in
-   `employee.yaml` to the slug, write `knowledge/company.md` from the answers, replace `AGENT.md`
+4. Copy the template folder to `<workspace>/bot-<slug>`, fill the placeholders, set `name:` in
+   `bot.yaml` to the slug, write `knowledge/company.md` from the answers, replace `AGENT.md`
    with the reviewed instructions when there are any, then `git init` and one commit.
 
 An existing directory is never touched. A failure is a readiness problem on that bot rather than an
@@ -322,13 +322,13 @@ Tico ships 94 templates, by group, each with a card; [Starter bots](starter-bots
 - `card.yaml` describes the template to whoever is choosing. It is never copied into a bot's
   repository. Fields: `template`, `slug` (the default bot slug), `name`, `required`, `bootstrap`,
   `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`, `pack` (its group: `basics`, `sales`,
-  `marketing`, `support`, `operations` or `engineering`), `lead` (on each group head), `department`, `icon`, `tags`, `suggest`,
+  `marketing`, `support`, `operations` or `engineering`), `lead` (on each group head), `group`, `icon`, `tags`, `suggest`,
   `team_templates`, `kind` (`helper` on a card that serves one human and sits outside the team chart), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`, `approval_required` and `example_output`. The
-  server serves all of them except `onboarding` and `example_output`; the team builder reads `department`, `pack`, `lead`, `kind`, `icon`, `tags`,
-  `suggest`, `pains`, `summary` and `recommend_when` ([The team builder](#the-team-builder)); `prerequisites` are shown by the bot's own setup, not by the wizard ([Starter bots](starter-bots.md)). After changing a card or `templates/departments.yaml`, run `python3 scripts/build_catalog_json.py` (Tico HQ's copy) and `python3 scripts/build-icon-font.py` (a new icon). A card with a `first_routine` and an
-  `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot setup-done`.
+  server serves all of them except `onboarding` and `example_output`; the team builder reads `group`, `pack`, `lead`, `kind`, `icon`, `tags`,
+  `suggest`, `pains`, `summary` and `recommend_when` ([The team builder](#the-team-builder)); `prerequisites` are shown by the bot's own setup, not by the wizard ([Starter bots](starter-bots.md)). After changing a card or `templates/groups.yaml`, run `python3 scripts/build_catalog_json.py` (Tico HQ's copy) and `python3 scripts/build-icon-font.py` (a new icon). A card with a `first_routine` and an
+  `onboarding` list is a **starter**: Create parks it (`needs_setup`), so its `onboarding` playbook must end with `hub bot setup-done`.
 - Everything else in the folder is the repository the bot starts from: `AGENT.md`,
-  `employee.yaml`, `playbooks/`, `knowledge/`, `memory/`, `state.md`, `.env.example`, `.gitignore`.
+  `bot.yaml`, `playbooks/`, `knowledge/`, `memory/`, `state.md`, `.env.example`, `.gitignore`.
 - `{{company_name}}`, `{{app_name}}`, `{{assistant_name}}` and `{{bot_name}}` are filled in every
   text file before the first commit, and in the card's own words wherever a human reads it.
 - `required: true` means the wizard always includes it. `bootstrap: true` means the computer
@@ -367,7 +367,7 @@ and that the key is a slug: lowercase letters, digits and single hyphens.
 offer, and the bots screen says so. On a hosted server that means the release did not carry
 `templates/catalog`, or `TICO_CATALOG_DIR` points somewhere empty.
 
-**A starter does not answer, or a routine never runs.** While it is `needs_onboarding` it answers only a human's chat message: a task
+**A starter does not answer, or a routine never runs.** While it is `needs_setup` it answers only a human's chat message: a task
 message, a Slack route, a bot's request and its routines wait. Press **Set up**, or say anything to it in its chat, and answer its
 questions. When its setup is done it calls `hub bot setup-done`. If it cannot (a human's bot at their limit answers
 `bot_limit`), archive a bot you no longer need or ask an admin to raise the limit in Settings > Humans. An owner or a bot's manager can

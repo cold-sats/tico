@@ -1,7 +1,7 @@
 # Shared credentials
 
 How a credential reaches a bot. A bot only ever sees the environment variable named in its own
-`access:` entry; it never reads the vault, 1Password or a credential file itself. The runner masks a run's
+`tools:` entry; it never reads the vault, 1Password or a credential file itself. The runner masks a run's
 granted values (as typed, URL-encoded or base64) with `••••` in everything it posts and logs, in the text
 files the run changed in the repository, and holds back a push whose commits contain one (`runner/redact.py`).
 
@@ -35,7 +35,7 @@ what it posts and logs. `hub message redact <id>` does the same for one message.
 
 `<workspace>/secrets/_shared.env` (every run on that computer inherits it) and
 `secrets/<slug>.env` (one bot; it wins), mode 600, never in git. The runner loads both at the
-start of a run. `credential_profile` on an `access:` entry loads one named variable from
+start of a run. `credential_profile` on an `tools:` entry loads one named variable from
 `secrets/<profile>.env`, not the whole file.
 
 ## 1Password references
@@ -61,9 +61,9 @@ breaks the `op://` form; reference it by its item id.
   pastes and removes it from the conversation.
 - A missing credential is not yours to work around: open the card (`hub credential request`), or for a task no human is in,
   name the variable on the task and stop. `$HUB_DIR/scripts/preflight.sh <slug>` shows every declared credential as present or missing.
-- Saving a credential is not permission to use it. Only an `access:` entry (and, for the Tico
-  vault, a grant) connects a bot to a credential. Changing `access:` is a task for the owner.
+- Saving a credential is not permission to use it. Only an `tools:` entry (and, for the Tico
+  vault, a grant) connects a bot to a credential. Changing `tools:` is a task for the owner.
 - A granted value exists only for that run; do not copy it anywhere that outlives the run.
 - A shared read credential and a narrower write credential can carry the same variable name: the bot's own
-  file wins over `_shared.env`, and its `access:` entry must say `write` before it may write.
+  file wins over `_shared.env`, and its `tools:` entry must say `write` before it may write.
 - The launchd job on a Mac does not see a shell export; a credential must be in a credential file.

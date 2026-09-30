@@ -29,7 +29,7 @@ What is different:
 | A message to it | queues a job the runner claims | waits until the agent reads it |
 | Liveness | runner heartbeat every 15 s; offline after 60 s | a plain heartbeat every minute; offline after 180 s |
 | Runs, tokens, usage limits, fallback, interrupted review | yes | no: nothing is dispatched, so there is nothing to lease or review |
-| Repository | `emp-<slug>`, pushed by the runner after each run | `emp-<slug>` for backup; the profile directory minus credentials and sessions, pushed by the computer |
+| Repository | `bot-<slug>`, pushed by the runner after each run | `bot-<slug>` for backup; the profile directory minus credentials and sessions, pushed by the computer |
 
 ## Register one
 
@@ -109,7 +109,7 @@ The heartbeat reply carries `waiting: {messages, tasks}`, so a Hermes cron job c
 
 ## The repository
 
-Keep `emp-<slug>` for backup: the profile directory's `config.yaml`, `SOUL.md`, `memories/`,
+Keep `bot-<slug>` for backup: the profile directory's `config.yaml`, `SOUL.md`, `memories/`,
 `skills/` and cron definitions, with `.env` and the sessions database ignored. Hermes's own
 profile distributions deliberately leave memories out, so a plain repository is the right shape.
 A commit-and-push from the same timer, or a Hermes cron job, keeps it current. The bot record's

@@ -56,13 +56,13 @@ refused. Remove a repository from the list to take it back out; tokens already i
 
 ## Creating bot repositories
 
-With administration allowed, the owner can create `<org>/emp-<slug>` privately from a template:
+With administration allowed, the owner can create `<org>/bot-<slug>` privately from a template:
 
     hub bot repo-create botops            # from ticoteam/botops
     hub bot repo-create sales --template <org>/bot-template
 
 The BotOps bot (`bot:botops`) may make the same call, because the owner allowed repository creation
-when connecting the app. It is limited to the name `emp-<slug>` for a bot that exists (planned or
+when connecting the app. It is limited to the name `bot-<slug>` for a bot that exists (planned or
 active, not archived), always private, in the connected organization, from the default template or
 one in that organization. Every creation is audited (`github.repo_created`) with the acting bot.
 Anyone else gets 403 with the reason. Without the administration permission the command says so and
@@ -73,13 +73,13 @@ new repository to the installation.
 
 A bot BotOps built locally (no GitHub yet) has history to keep, so it needs an empty repository, not
 a template copy. `--empty` (API `{"slug": ..., "empty": true}`, no template) creates a private
-`<org>/emp-<slug>` with nothing in it (`POST /orgs/<org>/repos`, `auto_init` false). Then, from the
+`<org>/bot-<slug>` with nothing in it (`POST /orgs/<org>/repos`, `auto_init` false). Then, from the
 bot's checkout:
 
     hub bot repo-create <slug> --empty
 
-Then set the bot's repository (Settings, Bots) to `<org>/emp-<slug>`; a bare `emp-<slug>` there also
-works and means the connected organization. Nobody pushes by hand: a run's token
+Then set the bot's repository (Settings, Bots) to `<org>/bot-<slug>`; a bare `bot-<slug>` there also
+works and means the connected organization (an existing `emp-<slug>` repository keeps its name). Nobody pushes by hand: a run's token
 (`POST /api/v2/github/token {"bot": "<slug>"}`) is scoped to that bot's own repository, so BotOps
 cannot push another bot's history. Instead the runner does it in the bot's own run, at the start
 and again after a completed run: when the checkout has commits but no upstream, it sets `origin` to

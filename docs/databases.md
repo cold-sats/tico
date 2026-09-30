@@ -33,7 +33,7 @@ Layers, in order of strength (MongoDB has its own list under [MongoDB Atlas](#mo
    statement. This turns mistakes into clear messages; do not rely on it alone.
 4. **Limits**: a row cap (default 500, ceiling 10,000) and a statement timeout (default 20 s,
    ceiling 120 s). A result that hit the cap says `truncated`.
-5. **The grant**: the bot must declare the database under `access:` in its `employee.yaml`.
+5. **The grant**: the bot must declare the database under `tools:` in its `bot.yaml`.
 6. **The audit**: each query is recorded in Tico as a `db.query` event (statement, row count,
    time, parameter names; never a value or a row) before the rows are shown. If Tico cannot
    record it the result is withheld.
@@ -99,11 +99,11 @@ bot's environment for the length of a run, and the access entry says `vault: hub
 
 ### 3. Grant bots
 
-Add an `access:` entry to each bot's `employee.yaml` ([creating-bots.md](creating-bots.md),
+Add a `tools:` entry to each bot's `bot.yaml` ([creating-bots.md](creating-bots.md),
 "Access and credentials"). Not listed means not allowed, and the owner decides:
 
 ```yaml
-access:
+tools:
   - service: postgres            # postgres | mysql | sqlite
     identity: read-only role on the reporting replica
     database: warehouse          # the name after `hub db`
@@ -176,7 +176,7 @@ Input is Extended JSON in its relaxed form: plain JSON plus `{"$oid": "..."}` an
    `$lookup` sub-pipeline too), as are `system.*` collections and `$currentOp`-style stages. This holds
    even if the user was given a write role by mistake, and turns a mistake into a clear message.
 3. **Read preference**: `secondaryPreferred` by default, so reads go to a secondary when there is one.
-   Change it per bot with `read_preference:` in the `access:` entry, or `?readPreference=` in the URL.
+   Change it per bot with `read_preference:` in the `tools:` entry, or `?readPreference=` in the URL.
 4. **Limits**: `maxTimeMS` (default 20 s, ceiling 120 s) on every operation and a cap on documents
    (default 500, ceiling 10,000; an aggregation gets a `$limit` appended on the server). A result that
    hit the cap says `truncated`.
@@ -238,7 +238,7 @@ self-managed replica set works too: `mongodb://user:pass@host1:27017,host2:27017
 ### 3. Grant bots
 
 ```yaml
-access:
+tools:
   - service: mongodb
     identity: Atlas user with the read role on app
     database: atlas              # the name after `hub db`
@@ -337,7 +337,7 @@ audit records the entry with `{"$param": ...}` left in and the parameter names, 
 
 | You see | Usually |
 |---|---|
-| `grant: ... does not declare database` | the bot's `employee.yaml` has no `access:` entry with `database: <name>` (step 3) |
+| `grant: ... does not declare database` | the bot's `bot.yaml` has no `tools:` entry with `database: <name>` (step 3) |
 | `credential: DB_X_URL is not set` | step 2: wrong file, wrong name, or the bot's computer is not the one holding it |
 | `driver: the postgres driver is not installed` | `pip install 'psycopg[binary]'` (MySQL: `PyMySQL`) in the runner's environment; both are in `backend/requirements.txt` |
 | `timeout` | add a date window or an index, or lower the work; the limit is 20 s unless the entry raises `timeout_seconds` (ceiling 120 s) |
@@ -366,7 +366,7 @@ company-config/                    # a private git repository
     integrations/                  # layered over the release's integrations/
       warehouse.md
       queries/warehouse.yaml
-  emp-<slug>/                      # one repository per bot (employee.yaml `access:`, instructions)
+  bot-<slug>/                      # one repository per bot (bot.yaml `tools:`, instructions)
   skills/                          # team skills your bots read
 ```
 
@@ -395,7 +395,7 @@ process, so restart the server after a change.
 **Deploying to the runners.** A runner needs three things and no query files:
 
 1. The Tico release (`hub`, `clients/dbquery.py`), which is what the runner already runs.
-2. Each bot's repository with its `employee.yaml` `access:` entries: that is the grant.
+2. Each bot's repository with its `bot.yaml` `tools:` entries: that is the grant.
 3. `secrets/` on the computer with the `DB_<NAME>_URL` values, kept out of git and out of the
    config repository.
 
@@ -410,7 +410,7 @@ Do not send upstream pull requests that contain them.
 
 `hub db` speaks PostgreSQL, MySQL/MariaDB, MongoDB and SQLite. For a warehouse with its own CLI, keep the
 same shape by hand: credentials in the runner's credential files, a read-only role or service account,
-a bot `access:` entry, and a tool page in your private config saying how to call the CLI.
+a bot `tools:` entry, and a tool page in your private config saying how to call the CLI.
 Examples: `bq query --use_legacy_sql=false --maximum_bytes_billed=1000000000 --format=csv 'SELECT ...'`
 (a service account with only `roles/bigquery.dataViewer` and `roles/bigquery.jobUser`, and a
 billing cap) or `snowsql -o friendly=false -o output_format=csv -q 'SELECT ...'` (a role with only

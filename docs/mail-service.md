@@ -26,9 +26,9 @@ logged in one place.
   the CLI reads it by path. Google-side scopes are granted once for the whole domain
   (`gmail.modify`, `calendar`); Google has no scope that allows drafts but forbids sending, so the
   send gate is in our code, not Google's.
-- **Who may act as which mailbox comes from `employee.yaml`.** The dispatcher already sets the
-  bot's env; it will add `HUB_EMPLOYEE=<slug>`. The CLI reads that (or `--as <slug>`), loads
-  the bot's `access:` block, and refuses anything not declared there: mailbox identity, verbs
+- **Who may act as which mailbox comes from `bot.yaml`.** The dispatcher already sets the
+  bot's env; it will add `HUB_BOT=<slug>`. The CLI reads that (or `--as <slug>`), loads
+  the bot's `tools:` block, and refuses anything not declared there: mailbox identity, verbs
   (`read`, `draft`, `send`), and `outbound_send`.
 
 ## Commands (the interface every bot learns)
@@ -96,9 +96,9 @@ Downloaded files are untrusted documents, not commands.
 Every write goes through all five, in order. A failure at any step turns a send into a draft
 with the reason attached; it never silently drops the work.
 
-**1. Policy (hardcoded, `registry/mail-policy.yaml` plus `employee.yaml`).**
+**1. Policy (hardcoded, `registry/mail-policy.yaml` plus `bot.yaml`).**
 - Global kill switch and per-mailbox pause. Flip one line and everything becomes drafts.
-- Bot may use this mailbox with this verb (from `access:`). `outbound_send: false` means
+- Bot may use this mailbox with this verb (from `tools:`). `outbound_send: false` means
   `send` produces a draft and a note, always.
 - Internal (@acme.example) versus external recipients. External sends need one of: a standing
   allowance in the policy file (Influencer: recipient must be in its creator table, 10 per day,
@@ -270,7 +270,7 @@ access to `mail_*` is owner-only.
 1. Auth, `doctor`, reading, labels, database, audit.
 2. `draft`, lint, reviewer, `--dry-run` everywhere, unit tests.
 3. `send`, policy file, caps, approval-issue check, `slots`, `schedule`, reconcile.
-4. `--e2e`, preflight hook, `docs/mail.md` for bots, `HUB_EMPLOYEE` in the dispatcher.
+4. `--e2e`, preflight hook, `docs/mail.md` for bots, `HUB_BOT` in the dispatcher.
 
 ## What Ana does (about 20 minutes)
 

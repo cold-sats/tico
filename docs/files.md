@@ -58,7 +58,7 @@ A bot can write only its own files: the authenticated bot decides, never a param
 
 **Automatically**, at the end of a completed run, the runner uploads new or changed files under
 the bot checkout's `reports/` and `artifacts/`, comparing against what it published before. Choose
-other folders (or none) per bot in `employee.yaml`:
+other folders (or none) per bot in `bot.yaml`:
 
 ```yaml
 files:

@@ -39,7 +39,7 @@ starts the conversation.
 | Where | What |
 |---|---|
 | Server | The web app and API, sign-in, the human roster, tasks, chats, approvals, the routine scheduler (the clock), files, the credential store, Litestream backups, and the optional updater. |
-| Each computer | The runner, the harnesses installed on it, the workspace with one `emp-<slug>` git repository per bot, the bots' credentials, and the model logins. |
+| Each computer | The runner, the harnesses installed on it, the workspace with one `bot-<slug>` git repository per bot, the bots' credentials, and the model logins. |
 | Model providers | Bots reach them from computers, using that computer's logins. The server reaches only the decision provider, when decisions or Slack routing are on. |
 | GitHub | Reached from computers with short-lived tokens the server mints per bot. |
 
