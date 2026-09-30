@@ -1,6 +1,7 @@
 """Updates this Tico install to another image version, and undoes it when the server does not come back.
 
-POST /update {"version": "1.2.3" | "v1.2.3" | "latest"}   start an update (409 while one runs)
+POST /update {"version": "1.2.3" | "v1.2.3" | "latest", "from": "1.2.2"}   start an update (409 while one runs);
+                                                 "from" is the release the server runs, which status reports as "from"
 GET  /status                                     {"state", "from", "to", "message"}
 GET  /diagnostics                                versions, each container's state and restart count, and the last
                                                  failures: what a support bundle a person chooses to send holds
@@ -134,13 +135,23 @@ def running_image():
     return out[0], out[1].rsplit(":", 1)[-1]
 
 
-def older_than_running(version):
-    """True when `version` is a release older than the image now running. `latest` and anything unparsable pass."""
+def release_name(value):
+    """A release as the image tag spells it (v1.2.3), or "" when `value` is not a version. The server reports the
+    release it is running; a `latest` or other tag says nothing about which release that is."""
+    value = value.strip() if isinstance(value, str) else ""
+    if not value or not VERSION.fullmatch(value) or value == "latest":
+        return ""
+    return "v" + value if value[0].isdigit() else value
+
+
+def older_than_running(version, running=""):
+    """True when `version` is a release older than the one now running (the server's own report, else the image tag).
+    `latest` and anything unparsable pass."""
     def core(tag):
         found = re.match(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)", tag)
         return tuple(int(part) for part in found.groups()) if found else None
     try:
-        running = core(running_image()[1])
+        running = core(running or running_image()[1])
     except (RuntimeError, OSError, IndexError, subprocess.SubprocessError):
         return False
     wanted = core(version)
@@ -526,13 +537,15 @@ def replace_self():
     return 1
 
 
-def update(version):
+def update(version, running=""):
+    """`running` is the release the server reported it was running when the update was asked for: what "from" says.
+    The image tag only says what to put back if this fails, and can be `latest`."""
     staging = None
     bundled = False
     snapshot, switched = "", False
     try:
         image_id, previous = running_image()
-        set_status(state="pulling", **{"from": previous, "to": version}, message="", snapshot="", restored=False)
+        set_status(state="pulling", **{"from": release_name(running) or previous, "to": version}, message="", snapshot="", restored=False)
         if BUNDLE != "never":
             # Everything that can refuse the update happens here, before any file or container changes.
             try:
@@ -642,20 +655,24 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, {"error": "not found"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            version = json.loads(self.rfile.read(min(length, 1024)) or b"{}").get("version", "")
+            asked = json.loads(self.rfile.read(min(length, 1024)) or b"{}")
+            version, running = asked.get("version", ""), release_name(asked.get("from", ""))
         except (ValueError, AttributeError):
-            version = ""
+            version, running = "", ""
         if not isinstance(version, str) or not VERSION.fullmatch(version):
             return self.reply(422, {"error": "version is latest or X.Y.Z"})
         if version[0].isdigit():
             version = "v" + version  # the server names a release 1.2.3; its image tag is v1.2.3
-        if older_than_running(version):   # a bot could otherwise move the box to a release that predates the bot user
+        if older_than_running(version, running):   # a bot could otherwise move the box to a release that predates the bot user
             return self.reply(409, {"error": "older than the running version"})
         with lock:
             if status["state"] in ("pulling", "restarting"):
                 return self.reply(409, {"error": "an update is already running", **status})
-            status.update(state="pulling", to=version, message="")
-        threading.Thread(target=update, args=(version,), daemon=True).start()
+            # A whole new status, in one step: a read before the thread gets going must not show the last update's
+            # "from", snapshot or outcome next to this one's "to". update() settles "from" against the image.
+            status.update(state="pulling", to=version, message="", snapshot="", restored=False)
+            status["from"] = running or ""
+        threading.Thread(target=update, args=(version,), kwargs={"running": running}, daemon=True).start()
         self.reply(202, dict(status))
 
     def log_message(self, *args):
