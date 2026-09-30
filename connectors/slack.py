@@ -387,8 +387,13 @@ def load_yaml(path, what):
         raise Failure(f"{what} at {p} is not valid YAML: {e}")
 
 
+SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+
+
 def bot_folder(slug):
     """The bot's folder: bot-<slug> if it exists, else emp-<slug> if that does, else bot-<slug> (this repeats clients/manifest.py)."""
+    if not SLUG.fullmatch(slug or ""):                  # a slug is one folder name: never a path out of PROJECTS
+        raise Refused(f"{slug!r} is not a bot slug")
     for prefix in ("bot-", "emp-"):
         if (PROJECTS / (prefix + slug)).exists():
             return PROJECTS / (prefix + slug)

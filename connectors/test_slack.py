@@ -160,6 +160,7 @@ class DmGates(FakeSlack):
         self.assertIn("hub-access.yaml", body["hint"])
         self.assertEqual(self.audited, [])
 
+
 class Workspace(unittest.TestCase):
     """A bot's bot.yaml is found under TICO_PROJECTS_DIR when the runner sets it, else beside the checkout."""
 
@@ -177,6 +178,27 @@ class Workspace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             self.assertEqual(self.projects(workspace), [workspace] * 2)
         self.assertEqual(self.projects(None), [str(Path(__file__).resolve().parents[2])] * 2)
+
+    def test_a_slug_cannot_name_a_folder_outside_the_workspace(self):
+        import browser
+        with tempfile.TemporaryDirectory() as root:
+            workspace, outside = Path(root, "work"), Path(root, "outside")
+            (workspace / "bot-real").mkdir(parents=True)
+            outside.mkdir()
+            (workspace / "bot-real" / "bot.yaml").write_text("tools: []\n")
+            (outside / "bot.yaml").write_text("tools: []\n")
+            saved = browser.PROJECTS, slack.PROJECTS
+            browser.PROJECTS = slack.PROJECTS = workspace
+            try:
+                self.assertEqual(slack.manifest_of("real")[0], workspace / "bot-real" / "bot.yaml")
+                self.assertEqual(browser.load_manifest("real"), {"tools": []})
+                for slug in ("real/../../outside", "../outside", "/tmp", "", "real/.."):
+                    with self.assertRaises(slack.Refused, msg=slug):
+                        slack.manifest_of(slug)
+                    with self.assertRaises(browser.Refused, msg=slug):
+                        browser.load_manifest(slug)
+            finally:
+                browser.PROJECTS, slack.PROJECTS = saved
 
 
 if __name__ == "__main__":

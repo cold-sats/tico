@@ -75,7 +75,12 @@ class Failed(Exception):
     pass
 
 
+SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+
+
 def load_manifest(slug):
+    if not SLUG.fullmatch(slug or ""):                  # a slug is one folder name: never a path out of PROJECTS
+        raise Refused(f"{slug!r} is not a bot slug")
     folder = next((PROJECTS / (prefix + slug) for prefix in ("bot-", "emp-") if (PROJECTS / (prefix + slug)).exists()),
                   PROJECTS / ("bot-" + slug))           # bot-<slug>, else an older emp-<slug> (this repeats clients/manifest.py)
     p = next((folder / name for name in ("bot.yaml", "employee.yaml") if (folder / name).is_file()), folder / "bot.yaml")
