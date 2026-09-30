@@ -23,7 +23,8 @@ A bot that needs a key opens a **credential card** in the conversation where it 
 The server checks its shape (a `:` where the format has one; never echoing the value), stores it in this vault under the variable's name
 (a credential already holding that name for that bot is replaced, one shared with other bots is left alone), grants it to that one bot, and wakes the
 asking bot with "Saved". The value is in no message, event, receipt or log, and never reaches the model. Only the person who was asked, or a
-credential admin, can fill a card, and only a credential admin can store (the vault's rule); anyone else sees who to ask.
+credential admin, can fill a card, and only a credential admin can store (the vault's rule: the owner and the Admins, unless
+the owner limits it to the owner in Settings > People); anyone else sees who to ask.
 
 If a person pastes a secret into the chat instead, BotOps stores it with `hub credential set <VARIABLE> --for-bot <bot>` (the value on standard input,
 never on the command line) as that person, and the server takes the pasted words out of their messages, the run's recorded events and the answers kept

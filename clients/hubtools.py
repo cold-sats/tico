@@ -1235,9 +1235,9 @@ def bot_onboarded(api, args):
 
 
 @tool("hub_people_add", "Add a person to the company roster and the sign-in list, as the person who asked you. A "
-      "member may add a coworker in the company's email domain, an owner or admin anyone. The person always has to "
-      "click Confirm first: this answers with `needs_confirm: true` and a card in their chat with you, and nothing "
-      "changes until they do.",
+      "member may add a coworker in the company's email domain, an owner or admin anyone. A coworker in the domain is "
+      "added at once; anyone outside it needs the person's click on Confirm first: this answers with `needs_confirm: "
+      "true` and a card in their chat with you, and nothing changes until they do.",
       {"email": _s("Their email address"), "name": _s("Their name"), "title": _s("Their title"),
        "reports_to": _s("A person id they report to")},
       required=("email",), writes=True)
@@ -1288,8 +1288,8 @@ def _api_path(path):
 
 @tool("hub_api", "BotOps: do what the person who asked you could do in the app, on any v2 route, as them. Their own rights "
       "decide: a member is refused what only an owner may do. It answers at once, or with `needs_confirm: true` and a card in "
-      "their chat for what always needs their click (people and admin changes, deleting, computers for members, messages in "
-      "their name): say it is waiting there. Never put a secret in `body` (use hub_credential_request or hub_credential_set). "
+      "their chat for what needs their click (people outside the company's domain, admin changes, deleting, computers for "
+      "members, messages to a person in their name): say it is waiting there. Never put a secret in `body` (use hub_credential_request or hub_credential_set). "
       "Prefer the friendly tools (hub_bot_place, hub_bot_go-live, hub_bot_model, hub_bot_access, hub_routine_on) when one fits.",
       {"method": _s("GET, POST, PUT, PATCH or DELETE", enum=["GET", "POST", "PUT", "PATCH", "DELETE"]),
        "path": _s("A v2 route: /api/v2/bots/jira-manager/model or bots/jira-manager/model"),

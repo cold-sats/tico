@@ -51,7 +51,7 @@ Everyone on the roster has one company role:
 | Role | Who | Can |
 | --- | --- | --- |
 | **Owner** | whoever the company was set up for (one at a time) | everything: sign-in domains, ownership, providers, roles |
-| **Admin** | people the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot but the built-in ones (below), people and computers (enrol, revoke, open to members' bots); set what members may do and the bot limit. They cannot make or remove admins or owners, and they are not credential administrators |
+| **Admin** | people the owner makes admins (the old "bot administrators": the list is read under either name for one release) | manage every bot but the built-in ones (below), people and computers (enrol, revoke, open to members' bots); set what members may do and the bot limit. They cannot make or remove admins or owners. They are credential administrators and see the SQL page, unless the owner turns that off ([Team rules](#team-rules)) |
 | **Member** | everyone else | create and manage their own bots, add coworkers, and use the bots they are allowed to |
 
 Settings > People (owners and admins) shows each person on one row: their role (the owner switches Admin and Member there), a
@@ -71,8 +71,25 @@ actually sign in.
 on again. Owners and admins switch it for members; only the owner switches it for an admin; nobody switches it for themselves or
 for the owner.
 
-**Credential administrators** are the owner and whoever `TICO_CREDENTIAL_ADMINS` names, nobody else: being an Admin does not
-let someone write shared credentials, whatever an earlier version did. Add a person to that list to give them the vault.
+**Credential administrators** are the owner and the Admins, so a team gets going without the owner storing every key. When the
+server names its own list with `TICO_CREDENTIAL_ADMINS` it is that list (the owner and whoever it names), nobody else: the Admins
+are then not credential administrators. The owner may turn **Admins store credentials** off ([Team rules](#team-rules)); a member is
+never one.
+
+## Team rules
+
+The product favours getting going fast, and the owner tightens it later. Settings > People (owner only, saved as they change;
+`GET` and `PUT /api/v2/access/rules`) has five switches, all **on** by default:
+
+| Rule | On (default) | Off |
+| --- | --- | --- |
+| **Assistant acts without asking** | the Assistant makes tasks for bots, comments on tasks no other person is on, and messages bots directly; a card is for anything else ([Assistant](assistant.md)) | the Assistant acts directly only on the person's own tasks; a task, message or comment involving a bot is a card |
+| **BotOps changes providers and limits without asking** | BotOps sets the company's AI providers and raises spending limits at once (lowering a limit is always direct) | both are a Confirm card |
+| **Admins store credentials** | Admins are credential administrators | only the owner (and `TICO_CREDENTIAL_ADMINS`) stores credentials |
+| **Admins see SQL** | Admins open the SQL page | the SQL page is the owner's |
+| **Members make personal tokens** | any person makes a personal API token, which sees what they see | the owner and the Admins do |
+
+Only the owner changes them, and BotOps cannot: the route is not delegable.
 
 **The built-in bots** (the Assistant, BotOps, the Librarian and the Goal Manager) act for the whole company, so only the owner changes their settings,
 routines, access or place, and only the owner may add them. A member cannot register a bot with the name `assistant`, `botops`,
@@ -103,18 +120,17 @@ Every bot on a computer shares that computer's trust: the same OS user, workspac
 created by a member has instructions the company has not reviewed, so it does not go on just any computer. Each computer has
 **Accepts members' bots** (Settings > Devices, owners and admins):
 
-- **Off** for every computer that existed before this release and for every new one, whoever enrols it: only an owner or an admin
-  turns it on. A computer a member enrols is theirs, and hosts their own bots because they are its operator; it is not open to other
-  members' bots.
-- A bot created by a member can only be placed on **its own operator's computer, or a computer an admin has opened to members' bots**.
-  Otherwise it stays planned, and the answer says to ask an admin to place it or to open a computer. Admins may place a member's
+- **On** for every new computer, whoever enrols it, so members' bots go on any computer without asking; an owner or an admin turns
+  it off per computer. A computer that existed before this default keeps what it had: turn it on where you want it.
+- A bot created by a member can only be placed on **its own operator's computer, or a computer that takes members' bots**.
+  With none, it stays planned, and the answer says to ask an admin to place it or to open a computer. Admins may place a member's
   bot on any computer. Placing a member's bot never hands it to the computer's operator: it stays theirs.
 - Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its operator's
-  or open to members' bots.
+  or takes members' bots.
 - Settings > Health warns when bots members created run on a computer whose `secrets/_shared.env` holds keys, since the bot
-  instructions could ask a run for them. Give members a computer with no shared keys and open only that one.
+  instructions could ask a run for them. Give members a computer with no shared keys and close the others.
 
-A computer still hosts its operator's bots and the owner's; opening it to members' bots adds members' bots, it does not move anyone else's.
+A computer still hosts its operator's bots and the owner's; taking members' bots adds members' bots, it does not move anyone else's.
 
 ## BotOps acts as the person who asked
 
@@ -154,31 +170,39 @@ The commands (with MCP tools of the same names):
 
 `hub api` (and every friendly command above) sends `X-Tico-On-Behalf-Of: turn`. The server answers the request **as the requester**, so its own
 checks are the only gate: a member is refused what only an owner may do, an owner is not. A route is one of three kinds
-(`backend/botops_act.py`): it **runs at once** (bots, routines, goals, tasks, docs, access, models, placement, credential grants), it comes
+(`backend/botops_act.py`): it **runs at once** (bots, routines, goals, tasks, docs, access, models, placement, credential grants and revoking them, a computer's restart
+and model sign-in, providers and spending limits, messages and chat to bots, coworkers in the team's domain), it comes
 back as a **Confirm card** (below), or it is **not delegable** at all: tokens and enrollment codes, approvals, transferring ownership, a
 stored secret's own routes, agent credentials. Reads are the requester's reads. A secret never travels in a `hub api` body (a key named
 `secret`, `password`, `token`, `api_key` and the like is refused).
 
 Everyday edits to a bot the person owns happen at once, and each is undoable from Settings > Bots history.
 
-### What always needs their click
+### What still needs their click
 
 These are proposed instead: the command answers `needs_confirm: true` and a **Confirm card** appears in the person's chat with BotOps
 (the same card the Assistant uses: "Runs as you, only when you confirm"). Nothing changes until they click, and only they can:
 BotOps, the owner and the admins cannot confirm for them.
 
-- adding a person (any), including anyone outside the company domain (owners and admins only);
+- adding a person from outside the company domain (owners and admins only); a coworker in the domain is added at once;
 - making someone an Admin, granting `add_people`, changing roles, or changing a person's email (it decides who is an Admin) or team
   (it is an access audience);
 - giving a bot a stored credential (a tool registration that uses a shared credential or another bot's);
 - placing a member's bot on a computer that is neither its operator's nor open to members' bots (admins only);
-- deleting (archiving) a bot, removing a computer, and letting a computer take members' bots;
-- changing the company's AI providers, who may sign in, or a spending limit (raising what a bot may spend);
+- deleting (archiving) a bot, removing a computer, and changing whether a computer takes members' bots;
+- who may sign in, and what members may do (the bot limit);
 - updating Tico, the directory sync, disconnecting Slack or GitHub;
-- a message in their name (`/messages`, `/chat`), a decision on a goal proposal, and a support message to the Tico team.
+- a message in their name to a person (a message or chat to a bot goes at once), a decision on a goal proposal, and a support message to the Tico team.
 
-What only an owner or an admin may ask for (providers, sign-in and member limits, the company spending limit, a computer taking members' bots,
-updates, directory, disconnecting) is refused at once for a member, not handed over as a card that would fail.
+The company's AI providers and raising a spending limit go at once too, unless the owner turns **BotOps changes providers and limits
+without asking** off ([Team rules](#team-rules)); then they are cards, and lowering a limit still is not. BotOps can start a model
+sign-in on a computer (`POST /api/v2/runners/<id>/logins`, and read its link and code): the code a person pastes back is theirs to
+give in the app. It can turn inbox sharing on for a computer (`POST /api/v2/runners/<id>/inbox-sharing`, [Mail](mail.md)) only where
+one owner runs every computer and bot; anywhere else an owner or an admin does it. It still never turns on a bot's sending outside the
+company, and never deletes a bot or a repository; it may delete a branch that is already merged.
+
+What only an owner or an admin may ask for (sign-in and member limits, a computer taking members' bots, providers and the company
+spending limit when they are cards, updates, directory, disconnecting) is refused at once for a member, not handed over as a card that would fail.
 
 The card shows every field the request carries, and its description, written by the server and never by the bot, names each field it
 changes and, for a placement, the computer and whether it takes members' bots.

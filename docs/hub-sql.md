@@ -6,7 +6,8 @@ the caller and not by prompt text.
 
 ## Three ways in
 
-- **The SQL page** (`#/sql`, under your email next to Credentials; owner only). Type, press
+- **The SQL page** (`#/sql`, under your email next to Credentials; the owner and admins, and the owner may limit it to
+  the owner in Settings > People). Type, press
   ⌘↩, read the rows. The last query is remembered in the browser.
 - **`hub sql "<select>"`** from a bot turn or from a Mac. Prints an aligned table and a
   trailing `N rows (M ms)` line; `--json` for the API response, `--csv` for CSV, `--max-rows N`
@@ -14,7 +15,7 @@ the caller and not by prompt text.
   turn it is the bot. Outside a turn, `hub sql` alone falls back to the Mac's runner credential
   (`~/.config/tico/runner.json`) and queries as the person who registered the machine, so a
   script or an agent on Ana's Mac needs no browser session. From any other machine, a
-  personal API token (Settings, Devices, API tokens; the owner and bot administrators) makes
+  personal API token (Settings, Devices, API tokens; any person, unless the owner limits it to admins) makes
   `hub` you: `export HUB_API_URL=https://hub.acme.example HUB_TOKEN=tico_pt_...` and no
   `HUB_EMPLOYEE` ([How Tico works](how-it-works.md), "Calling the API from a script").
 - **`POST /api/v2/sql`** with `{"sql": "...", "params": [...] | {...}, "max_rows": N}` →

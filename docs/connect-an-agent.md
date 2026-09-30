@@ -4,8 +4,8 @@ Your own AI agent (Grok, Muse, Claude, Cursor, Codex or any other that speaks MC
 as you: read and act on your tasks, goals, docs and bots, with your rights and no more. It connects
 to Tico's MCP server with a personal token.
 
-**Connect an agent** is the plug button beside your email (and a step in the first-run wizard). Only
-the owner and bot administrators can make personal tokens.
+**Connect an agent** is the plug button beside your email (and a step in the first-run wizard). Any person can
+make a personal token, and it sees what they see; the owner may limit tokens to admins (Settings > People).
 
 1. Pick the agent.
 2. **Create token**. It is named after the agent and the day (`Grok · 2026-09-30`), lasts 90 days, and

@@ -276,7 +276,7 @@ named company must also carry a permanent id, or the process refuses to start.
 | `TICO_COGNITO_LOGOUT_URL` | For `aws-alb`: where `/api/v2/logout` sends the browser after clearing the ALB session | `https://acme.auth.us-west-2.amazoncognito.com/logout?client_id=...&logout_uri=...` |
 | `TICO_LOCAL_OWNER_TOKEN_FILE` | Loopback owner sign-in. Refused unless `TICO_PUBLIC_URL` is loopback | `.../environments/acme/local-owner.token` |
 | `TICO_GITHUB_OWNER` | Organization that completes bare bot repository names | `acme-inc` |
-| `TICO_CREDENTIAL_ADMINS` | Comma-separated emails allowed to write shared credentials. The owner when empty | `you@example.com` |
+| `TICO_CREDENTIAL_ADMINS` | Comma-separated emails allowed to write shared credentials. The owner and the Admins when empty | `you@example.com` |
 | `TICO_PROCESSING_OPERATORS` | People whose machines may run the Close transcript importer and connector publishers | `dana` |
 | `TICO_SCHEDULER` | `1` runs the routine scheduler in this process | `1` |
 | `TICO_CREDENTIAL_KMS_KEY` | Credential store key | `alias/tico-acme` |

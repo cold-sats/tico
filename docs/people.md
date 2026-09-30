@@ -41,7 +41,7 @@ The owner picks an active person, ticks whether they stay an Admin, and types th
 owner's email to confirm. On commit the new owner is the owner at once, in the same transaction that
 writes the `owner.transferred` audit event. The previous owner becomes a normal person. Owner-only
 routes, the runner rule that only the owner's machines host any bot, onboarding's machine wiring,
-the credential administrators (when `TICO_CREDENTIAL_ADMINS` is unset), mail and calendar defaults
+the credential administrators (the owner and the Admins, when `TICO_CREDENTIAL_ADMINS` is unset), mail and calendar defaults
 all read the owner in force. A machine stays with the person who enrolled it: if a bot the new
 owner operates was placed on the old owner's machine, reassign it in Settings > Devices.
 

@@ -50,13 +50,17 @@ started in your own Assistant chat acts for you; its other work (Slack routing, 
 assistant's own. Every write it makes is recorded as yours **via assistant**: the audit `events` carry `"via":
 "assistant"`, task history rows and comments carry `via`, and the UI shows "<name> (via Assistant)".
 
-**Direct writes only ever touch you, and never speak to a bot:** creating a task owned by you, updating a task that is
-yours alone (not finishing, declining or closing it, and not handing it to someone else), commenting on such a task,
-marking updates read. "Yours alone" means you own it and no bot is on it (owner, requester, origin or delegate), so nothing
-wakes a bot as you. Owners are compared as full actor ids (`human:<id>`), never bare names. Everything else the server
-refuses (`403 confirm_required`) and the assistant must propose, including a task for a bot or another person (how it
-routes work and asks BotOps for a bot), a note, message or chat to any bot, a comment on a task with a bot on it, and
-running a task now. An assistant turn's credential works only while its lease is live.
+**Direct writes stay inside the team:** creating a task owned by you or by a bot (how it routes work and asks BotOps for a
+bot), updating a task that is yours alone (not finishing, declining or closing it, and not handing it to someone else),
+commenting on a task no other person is on, a message or chat to a bot, marking updates read. "Yours alone" means you own it
+and no bot is on it (owner, requester, origin or delegate). What it writes to a bot is marked "via assistant", so BotOps
+never takes it for your request. Owners are compared as full actor ids (`human:<id>`), never bare names, and a recipient
+that resolves to a person is not a bot. Everything else the server refuses (`403 confirm_required`) and the assistant must
+propose, including a task or message for another person, a note to a bot, a comment on a task another person is on, and
+running a task now. The owner may turn **Assistant acts without asking** off (Settings > People, or `PUT
+/api/v2/access/rules {"assistant_direct": false}`): then only your own tasks, and comments on tasks with no bot on them, are
+direct, and a task, message or comment involving a bot is a card again. An assistant turn's credential works only while its
+lease is live.
 
 **Every proposal is shown for what it is.** The card carries the server's own one-line description (route kind and target
 name, never the bot's words), the request body as a key: value list (a long value is folded behind "Show more", never cut), for an approval its kind, requester and subject, and the exact field changes for a task update. Only routes
@@ -65,8 +69,8 @@ the path must be plain (`/api/v2/...` without `//`, `..`, `%` or `\`), and exact
 error's detail are kept of the result, never the answer's body.
 
 **Anything with a side effect that matters is proposed, and only your click runs it:** approving or declining a Needs-you
-item, sending anything outside the company, spending, changing people, access or settings, archiving or deleting,
-activating a bot. The assistant calls `hub assistant propose` (`hub_assistant_propose`, `POST /api/v2/assistant/actions`)
+item, sending anything outside the company or to another person, spending, changing people, access or settings, archiving or
+deleting, activating a bot. The assistant calls `hub assistant propose` (`hub_assistant_propose`, `POST /api/v2/assistant/actions`)
 with the exact API operation. That leaves a **pending action** and a Confirm / Cancel card in your chat. The server
 refuses these operations when the assistant tries them itself (`403 confirm_required`). **Confirm** runs the recorded
 operation through the same routes with *your* credential, once (a claim makes a second click a `409`), and

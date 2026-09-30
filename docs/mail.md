@@ -364,7 +364,9 @@ The key can act as any mailbox in the company, so bots must not be able to read 
   Health says so ("Mail key"). Keep such a computer for the inbox bot alone.
 - An inbox bot and any other bot are never placed on the same computer (the server answers 409 `inbox_isolation`: add a computer
   for the inbox bot). Several inbox bots may share one only if the operator allows it with
-  `POST /api/v2/runners/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway.
+  `POST /api/v2/runners/<id>/inbox-sharing {"allowed": true}`, since they would hold the same key anyway. Where one owner runs every
+  computer and bot, the refusal offers this and BotOps turns it on as the person who asked; anywhere else an owner or an admin does it
+  (an inbox bot still never shares a computer with another kind of bot).
 - Bots that are not inbox bots but declare `gmail` access do not get mail on an isolated runner.
 
 Instead of the key, the owner can set `TICO_PROCESSING_OPERATORS=<operator>` on the server: that operator's runners run
