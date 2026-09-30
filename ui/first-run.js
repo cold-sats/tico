@@ -187,7 +187,7 @@ function frRowHTML(state, card) {
         ${state.team.leads.has(slug) ? '<span class="pill ok" title="Leads its team">Lead</span>' : ''}</div>
       <p class="team-why" data-team-why="${esc(slug)}">${esc(frWhy(state, card))}</p>
       ${frPrereqHTML(state, card)}
-      ${card.first_routine?.title ? `<p class="team-routine muted">First routine, off until you approve it: ${esc(card.first_routine.title)}</p>` : ''}
+      ${card.first_routine?.title ? `<p class="team-routine muted">First routine: ${esc(card.first_routine.title)}</p>` : ''}
       ${mailbox}
     </div>
     <div class="team-bot-side">
@@ -206,7 +206,7 @@ function frListHTML(state) {
     return `<section class="team-group" data-team-group="${esc(team)}"><h3>${esc(team)}${lead ? `<span class="muted"> · led by ${esc(catalogName(cat, lead))}</span>` : ''}</h3>
       ${rows.map(card => frRowHTML(state, card)).join('')}</section>`;
   }).join('');
-  return groups || '<div class="empty" data-team-empty>No bots on your team yet. Add one below, or continue with just the built-ins.</div>';
+  return groups || '<div class="empty" data-team-empty>No bots on your team yet.</div>';
 }
 function frAddHTML(state) {
   const cat = state.catalog, held = state.record.held_back || [];
@@ -216,7 +216,7 @@ function frAddHTML(state) {
     const missing = (card.prerequisites || []).filter(row => row.required && !have.has(row.tool));
     return `<div class="team-add-row" data-team-add-row="${esc(card.slug)}"><div><strong>${esc(catalogName(cat, card))}</strong>
         <p class="muted">${esc(frSentence(card.summary))}</p>${frPrereqHTML(state, card)}
-        ${missing.length ? `<p class="muted" data-team-needs>Needs ${esc(missing.map(row => FR_TOOL_NAME[row.tool] || row.tool).join(' and '))}, which you did not tick. You can add it and connect that later.</p>` : ''}</div>
+        ${missing.length ? `<p class="muted" data-team-needs>Needs ${esc(missing.map(row => FR_TOOL_NAME[row.tool] || row.tool).join(' and '))}, which you did not tick.</p>` : ''}</div>
       <button class="ghost" type="button" data-team-add="${esc(card.slug)}" aria-label="Add ${esc(catalogName(cat, card))}">Add</button></div>`;
   };
   return `<details class="team-add" id="team-add"${state.team.addOpen ? ' open' : ''}><summary>Add a bot${rows.length ? ` <span class="muted">(${rows.length} more in the catalog)</span>` : ''}</summary>
@@ -229,12 +229,11 @@ function frTeamHTML(state, actions) {
   const option = (value, title, text) => `<label class="team-start-opt${mode === value ? ' on' : ''}" data-team-start="${value}">
       <input type="radio" name="onb-start" value="${value}" ${mode === value ? 'checked' : ''}><span><strong>${esc(title)}</strong><small>${esc(text)}</small></span></label>`;
   return `<div class="team-start" role="radiogroup" aria-label="Starting point">
-      ${option('starter', 'Starter team', `${starter.length} bot${starter.length === 1 ? '' : 's'}: the best matches for what hurts, plus Chief of Staff. The easiest place to start.`)}
-      ${option('full', 'Full org chart', `${full} bot${full === 1 ? '' : 's'} in ${teams.length} team${teams.length === 1 ? '' : 's'}, a lead for each, like a company. Bots you have not set up yet stay parked and cost nothing.`)}
-      ${option('empty', 'Just the built-ins', 'Start with the Assistant, BotOps and the Librarian and add bots as you go.')}
+      ${option('starter', 'Starter team', `${starter.length} bot${starter.length === 1 ? '' : 's'}`)}
+      ${option('full', 'Full org chart', `${full} bot${full === 1 ? '' : 's'} in ${teams.length} team${teams.length === 1 ? '' : 's'}`)}
+      ${option('empty', 'Just the built-ins', 'Add bots as you go')}
     </div>
-    <p class="team-builtin muted" data-team-builtin>Always included: ${esc(state.catalog.cards.filter(card => card.required).map(card => catalogName(state.catalog, card)).join(', ') || 'BotOps')}. They work as soon as a computer is online.</p>
-    <p class="team-note muted">Change anything before you create it: rename a bot, choose who it reports to, remove it, or add another. Nothing exists until <strong>Create my team</strong>.</p>
+    <p class="team-builtin muted" data-team-builtin>Built in: ${esc(state.catalog.cards.filter(card => card.required).map(card => catalogName(state.catalog, card)).join(', ') || 'BotOps')}</p>
     <div id="team-list">${frListHTML(state)}</div>
     <div id="team-add-host">${frAddHTML(state)}</div>
     <p class="err" id="team-problem" role="alert" hidden></p>
@@ -298,7 +297,7 @@ function frBotRowHTML(state, bot, botOps) {
   const bootstrap = bot.slug === assistantBot() || !!card?.bootstrap;
   const ready = !!bot.repository_present, active = bot.status === 'active', parked = bot.onboarding_state === 'needs_onboarding';
   const where = bootstrap ? 'Set up automatically once a computer is online.'
-    : parked ? (ready ? 'Repository ready. It does nothing until you set it up together.' : 'Setting up its repository on your computer…')
+    : parked ? (ready ? 'Repository ready.' : 'Setting up its repository…')
     : `${esc(botOps)} is setting this up.`;
   return `<div class="onb-bot" data-onb-bot="${esc(bot.slug)}">${avatar(bot.slug, 27)}
       <div class="onb-bot-main"><strong>${esc(bot.display_name || bot.slug)}</strong>${parked ? ' <span class="pill needs" data-needs-onboarding>Needs onboarding</span>' : ''}
@@ -315,19 +314,18 @@ function frNextHTML(state) {
       <select data-fr-owner="${esc(bot.slug)}" aria-label="Add an owner for ${esc(bot.display_name || bot.slug)}"><option value="">Add an owner…</option>${frPeople().map(person =>
         `<option value="${esc(person.id)}">${esc(person.name || person.id)}${('human:' + person.id) === frOwner() ? ' (you)' : ''}</option>`).join('')}</select>
       <span class="muted" data-fr-owned="${esc(bot.slug)}">${esc(frPersonName(S.me?.id))} owns it</span></div>`).join('');
-  return `<section class="card fr-card" id="fr-admin"><header><h2>Invite an admin</h2><span class="sub">someone who can manage every bot but the built-in ones</span></header>
+  return `<section class="card fr-card" id="fr-admin"><header><h2>Invite an admin</h2></header>
       <form id="fr-admin-form" class="fr-form"><label class="onb-field"><span class="k">Name</span><input name="name" autocomplete="off" placeholder="Sam Ortiz"></label>
         <label class="onb-field"><span class="k">Email</span><input name="email" type="email" autocomplete="off" required placeholder="sam@company.com"></label>
         <div class="onb-actions"><button class="primary" type="submit">Invite as admin</button><span class="muted" id="fr-admin-status" role="status"></span></div></form>
-      <small class="muted">They join the roster and can sign in with that address. Tico does not send them an email, so tell them.</small></section>
-    <section class="card fr-card" id="fr-owners"><header><h2>Who owns each bot</h2><span class="sub">a person answers for it, not only you</span></header>
-      ${owners || '<p class="muted">No bots yet. Add owners from Settings > Bots when you have some.</p>'}
-      <small class="muted">An owner can edit the bot, set who can use it, and pause or archive it.</small></section>
-    <section class="card fr-card" id="fr-tools"><header><h2>Connect your tools</h2><span class="sub">once, in the hub's own fields</span></header>
+      <small class="muted">Tico sends no email: tell them.</small></section>
+    <section class="card fr-card" id="fr-owners"><header><h2>Who owns each bot</h2></header>
+      ${owners || '<p class="muted">No bots yet.</p>'}</section>
+    <section class="card fr-card" id="fr-tools"><header><h2>Connect your tools</h2></header>
       <ul class="fr-tools">${tools.map(tool => `<li>${esc(FR_TOOL_LINK[tool][0])} <a href="${esc(FR_TOOL_LINK[tool][1])}" data-fr-link="${esc(tool)}">Open</a></li>`).join('')}
         <li>Keys and tokens <a href="#/credentials" data-fr-link="credentials">Credentials</a></li>
         <li>Everything else <a href="#/integrations" data-fr-link="integrations">Integrations</a></li></ul>
-      <p class="fr-secrets" data-fr-secrets><strong>Enter secrets in those fields, never in a chat with a bot.</strong> A bot cannot keep a secret you type to it: if one is pasted into a chat, treat it as leaked and rotate it.</p></section>`;
+      <p class="fr-secrets" data-fr-secrets><strong>Enter secrets in those fields, never in a chat with a bot.</strong> One pasted into a chat is leaked: rotate it.</p></section>`;
 }
 function frWireDone(state) {
   document.querySelectorAll('[data-fr-start]').forEach(button => button.onclick = () => void frStartSetup(button.dataset.frStart, button));

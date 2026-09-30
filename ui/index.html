@@ -11347,16 +11347,8 @@ const ONB_STEPS = ['names', 'about', 'needs', 'team', 'machine', 'agent', 'revie
 const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEPS] : ONB_STEPS;
 const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the company', needs: 'What hurts, and what you use',
                     team: 'Your team', machine: 'Add the computer that runs your bots', agent: 'Connect your agent', review: 'Review and create'};
-const ONB_BLURB = {
-  providers: 'Tico assumes no vendor. Tick the ones you use; bots run on the default model unless you pick another for them.',
-  names: 'Two names the whole app uses. You can change them later in Settings.',
-  about: 'Every bot is created with these answers in front of it, so say it the way you would say it to a new hire.',
-  needs: 'This picks which bots to suggest. It stays on this computer: nothing is sent anywhere.',
-  team: 'Start from a small team or a full org chart, then change anything. Nothing exists until you create it.',
-  machine: 'Bots run on computers you control: a Mac, or a Linux or cloud server. They use a model subscription or an API key. This registers a computer.',
-  agent: 'Optional. Work your bots from Grok Bot, Meta Muse or your own agent, through the hub\'s MCP.',
-  review: 'Last look. Creating your team makes every bot at once; each one waits for you to set it up.',
-  done: 'Your team exists. Each bot is being set up on your computer and stays idle until you start its setup. Three things to do while it does.'};
+// At most one short hint line under a step's title; most steps have none.
+const ONB_BLURB = {needs: 'Stays on this computer.', team: 'Nothing exists until you create it.', agent: 'Optional.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
@@ -11460,7 +11452,7 @@ function onbRender(state) {
   if (key === 'team') frEnterTeam(state);
   const heading = done ? `Setting up ${state.record.names.company_name || companyName()}` : ONB_TITLES[key];
   host.innerHTML = `<div class="onb-head"><div class="onb-brand">${brandLogo()}</div><div class="mono muted">FIRST RUN</div>
-      <h1>${esc(heading)}</h1><p>${esc(ONB_BLURB[key])}</p></div>
+      <h1>${esc(heading)}</h1>${ONB_BLURB[key] ? `<p data-onb-hint>${esc(ONB_BLURB[key])}</p>` : ''}</div>
     ${done ? '' : `<ol class="onb-progress" aria-label="Setup steps">${state.steps.map((step, i) =>
       `<li class="${i < state.step ? 'done' : i === state.step ? 'cur' : ''}"${i === state.step ? ' aria-current="step"' : ''}>${esc(ONB_TITLES[step])}</li>`).join('')}</ol>
       <p class="onb-count" id="onb-count">Step ${state.step + 1} of ${state.steps.length}</p>`}
@@ -11476,16 +11468,13 @@ function onbStepHTML(state, key) {
     ${actions('Next')}`;
   if (key === 'names') return `
     <label class="onb-field"><span class="k">Company name</span>
-      <input type="text" id="onb-company" maxlength="120" value="${esc(names.company_name)}" autocomplete="organization">
-      <small>The company these bots work for. Bots use it when they write to the outside world.</small></label>
+      <input type="text" id="onb-company" maxlength="120" value="${esc(names.company_name)}" autocomplete="organization"></label>
     <label class="onb-field"><span class="k">App name</span>
-      <input type="text" id="onb-app" maxlength="60" value="${esc(names.app_name)}">
-      <small>What this app calls itself, in the browser tab and in its own writing. The Mac app's name is set when the Mac app is built, not here.</small></label>
+      <input type="text" id="onb-app" maxlength="60" value="${esc(names.app_name)}"></label>
     ${actions('Next')}`;
   if (key === 'about') return `
     <label class="onb-field"><span class="k">What you do</span>
-      <textarea id="onb-what" maxlength="2000" placeholder="We rent out short-stay apartments and sell the software that runs them.">${esc(a.what_we_do)}</textarea>
-      <small>A few sentences, in your words.</small></label>
+      <textarea id="onb-what" maxlength="2000" placeholder="We rent out short-stay apartments and sell the software that runs them.">${esc(a.what_we_do)}</textarea></label>
     <div class="onb-field"><span class="k">Who you sell to</span>
       <div class="onb-choices">${ONB_CUSTOMERS.map(([value, label]) =>
         `<label><input type="radio" name="onb-customers" value="${value}" ${a.customers === value ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
@@ -11497,8 +11486,7 @@ function onbStepHTML(state, key) {
         `<option value="${esc(size)}" ${a.team_size === size ? 'selected' : ''}>${esc(size)}</option>`).join('')}</select></label>
     <div class="onb-field"><span class="k">What must never happen without a person</span>
       <div class="onb-choices">${ONB_NEVER.map(([value, label]) =>
-        `<label><input type="checkbox" data-onb-never value="${value}" ${(a.never_without_person || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div>
-      <small>These become a rule in every bot this wizard creates. Leave them on unless you mean it.</small></div>
+        `<label><input type="checkbox" data-onb-never value="${value}" ${(a.never_without_person || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
     ${actions('Next')}`;
   if (key === 'needs') return frNeedsHTML(state, actions);
   if (key === 'team') return frTeamHTML(state, actions);
@@ -11512,7 +11500,7 @@ function onbStepHTML(state, key) {
       <label><input type="radio" name="onb-kind" data-onb-kind value="linux" ${linux ? 'checked' : ''}>A Linux or cloud server (Docker)</label></div>
     <p class="onb-field"><span class="k">1 · ${linux ? 'Create a one-time code for this computer' : "Download this computer's setup file"}</span>
       <button class="primary" type="button" id="onb-enroll">Add computer</button>
-      <small id="onb-enroll-note">${linux ? 'A private 15-minute code.' : 'A private 15-minute setup file.'} It never assigns bots by itself.</small></p>
+      <small id="onb-enroll-note">${linux ? 'A 15-minute code.' : 'A 15-minute setup file.'}</small></p>
     ${onbCommandsHTML(state)}`;
     const status = `<p class="onb-machine" id="onb-machine-status" role="status">${esc(onbMachineStatus(state.record))}</p>`;
     return online
@@ -11526,8 +11514,7 @@ function onbStepHTML(state, key) {
   }
   if (key === 'agent') return `
     <p class="onb-field"><span class="k">Your own agent</span>
-      <button class="primary" type="button" id="onb-connect">Connect an agent</button>
-      <small>One token and one paste. Skip it if you have none; the button next to your account does the same later.</small></p>
+      <button class="primary" type="button" id="onb-connect">Connect an agent</button></p>
     ${actions('Next')}`;
   if (key === 'review') return `${onbSummaryHTML(state)}
     <div class="onb-actions">${back}<button class="primary" type="button" id="onb-finish">Create my team</button>
@@ -11555,7 +11542,7 @@ function onbCommandsHTML(state) {
   return onbCommands(state).map(([label, command], i) => `<div class="onb-cmd"><span class="k">${esc(label)}</span>
     <code>${esc(command)}</code>
     <button class="ghost" type="button" data-onb-copy="${i}">Copy</button></div>`).join('') +
-    (state.kind === 'linux' ? '' : '<p class="muted" style="font-size:12.5px">Replace <code class="mono">&lt;slug&gt;</code> with the environment slug you used when you created this company on that Mac.</p>');
+    (state.kind === 'linux' ? '' : '<p class="muted" style="font-size:12.5px">Replace <code class="mono">&lt;slug&gt;</code> with your environment slug.</p>');
 }
 function onbMachineStatus(record) {
   const runners = (record.machine?.runners || []).filter(Boolean);

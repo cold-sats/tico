@@ -120,6 +120,10 @@ All notable changes to Tico are recorded here. The format follows
   shows two for each of Leadership, Sales, Marketing, Support, Operations and Engineering (`FEATURED_PAINS`), plus the free-text box; a
   pain ticked earlier stays on screen, and every card's `pains` still match what is ticked or typed. `pain_options` carries each
   phrase's `team` and whether it is `featured`.
+- **The first-run wizard has less text.** The paragraph under each step's title is gone, with the help lines under the fields and the
+  subtitles on the after-Create cards. At most one short line is left: "Stays on this computer." on what hurts, "Nothing exists until you
+  create it." on your team, "Optional." on your agent. The starting points say only how many bots they hold. A bot's reason on
+  the team step is the card's own summary: the "It fits how you described the company." line is gone.
 
 ### Fixed
 - **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched

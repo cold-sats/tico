@@ -85,11 +85,14 @@ const BOTS_AFTER = [
    setup_task_id: 'task-social', repository_present: false},
 ];
 // What the server proposes from the answers (backend/onboarding.py `choose` and `full_chart`, tested there).
-const PAINS = [{text: 'I don\'t know what is really going on across the company', template: 'chief-of-staff', team: 'Leadership', featured: true},
+const FEATURED = [['Leadership', 'chief-of-staff', 'I don\'t know what is really going on across the company', 'too much email'],
+  ['Sales', 'sales', 'leads go cold', 'I can\'t tell which deals are really moving'],
+  ['Marketing', 'content', 'we don\'t post regularly', 'we don\'t have a clear picture of our competitors'],
+  ['Support', 'support', 'support inbox is overflowing', 'customers wait too long for an answer'],
+  ['Operations', 'meeting-notes', 'meetings without follow-up', 'renewals and deadlines sneak up on us'],
+  ['Engineering', 'issue-triage', 'issues pile up untriaged', 'pull requests wait days for a first review']];
+const PAINS = [...FEATURED.flatMap(([team, template, ...texts]) => texts.map(text => ({text, template, team, featured: true}))),
                {text: 'goals stall and nobody notices', template: 'chief-of-staff', team: 'Leadership', featured: false},
-               {text: 'too much email', template: 'inbox', team: 'Leadership', featured: true},
-               {text: 'support inbox is overflowing', template: 'support', team: 'Support', featured: true},
-               {text: 'customers wait too long for an answer', template: 'support', team: 'Support', featured: true},
                {text: 'we answer the same questions again and again', template: 'support', team: 'Support', featured: false}];
 const rec = (slug, why, pain = '') => {
   const card = CATALOG.find(row => row.slug === slug);
@@ -102,7 +105,7 @@ const advice = answers => {
   const support = rec('support', 'You said "support inbox is overflowing". Answers customers and keeps the queue short.', 'support inbox is overflowing');
   support.prerequisites = support.prerequisites.map(row => ({...row, met: ticked.has(row.tool)}));
   const recommendations = [...(said ? [support] : []), rec('chief-of-staff', 'Turns goals, tasks and updates into a weekly brief.')];
-  const member = (slug, reports_to, lead) => ({...rec(slug, 'It fits how you described the company.'), lead, reports_to});
+  const member = (slug, reports_to, lead) => ({...rec(slug, 'Runs the weekly brief.'), lead, reports_to});
   return {recommendations, pain_options: PAINS, home: 'human:ana',
     held_back: ticked.has('meetings') ? [] : [{template: 'meeting-notes', name: 'Meeting Notes', needs: ['meetings'],
       why: 'It matches "meetings without follow-up" but it needs meetings, which you did not tick.'}],
@@ -210,12 +213,13 @@ const advice = answers => {
     assert.match(await page.locator('#nav-welcome').textContent(), /Finish setup/);
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 1 of 7');
 
-    // ---- a: names, prefilled from config, each with one line saying what it is for. The assistant
+    // ---- a: names, prefilled from config, with no explanation under them. The assistant
     // works in the background and is not named here; its configured name rides along unchanged.
     assert.equal(await page.locator('#onb-company').inputValue(), 'Initech');
     assert.equal(await page.locator('#onb-app').inputValue(), 'Initech Hub');
     assert.equal(await page.locator('#onb-assistant').count(), 0);
-    assert.match(await page.locator('#onb-step').textContent(), /Mac app's name is set when the Mac app is built/);
+    await shot(page, 'desktop-0-names');
+    assert.equal(await page.locator('#onb-step small').count(), 0);
     await page.locator('#onb-next').click();
     await page.locator('#onb-what').waitFor();
     assert.equal(puts.length, 1);
@@ -244,12 +248,14 @@ const advice = answers => {
     // ---- c: what hurts (chips from the starter cards, and free text) and what the company uses. Nothing leaves this computer.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 3 of 7');
     await shot(page, 'desktop-2-needs-empty');
-    assert.match(await page.locator('#onb-step').evaluate(el => el.parentElement.textContent), /stays on this computer: nothing is sent anywhere/);
+    assert.equal(await page.locator('[data-onb-hint]').textContent(), 'Stays on this computer.');
+    assert.equal(await page.locator('#onb-step small').count(), 0);           // one hint line, under the title
     // Only the featured pains show, grouped by team; the others still match what is typed.
-    assert.deepEqual(await page.locator('[data-onb-pain]').evaluateAll(els => els.map(el => el.value)),
-      ['I don\'t know what is really going on across the company', 'too much email', 'support inbox is overflowing', 'customers wait too long for an answer']);
-    assert.deepEqual(await page.locator('[data-pain-team]').evaluateAll(els => els.map(el => el.dataset.painTeam)), ['Leadership', 'Support']);
+    assert.equal(await page.locator('[data-onb-pain]').count(), 12);
+    assert.deepEqual(await page.locator('[data-pain-team]').evaluateAll(els => els.map(el => el.dataset.painTeam)),
+      ['Leadership', 'Sales', 'Marketing', 'Support', 'Operations', 'Engineering']);
     assert.equal(await page.locator('[data-pain-team=Support] [data-onb-pain]').count(), 2);
+    assert.equal(await page.locator('[data-onb-pain][value="goals stall and nobody notices"]').count(), 0);     // not featured
     await page.locator('[data-onb-pain][value="support inbox is overflowing"]').check();
     await page.locator('#onb-pains-text').fill('Weekend support mail waits until Monday.');
     await page.locator('[data-onb-tool][value=mail]').check();
@@ -266,17 +272,17 @@ const advice = answers => {
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 7');
     assert.equal(await page.locator('[data-team-start=starter] input').isChecked(), true);
     assert.deepEqual(await page.locator('[data-team-bot]').evaluateAll(els => els.map(el => el.dataset.teamBot)), ['chief-of-staff', 'support']);
-    assert.match(await page.locator('[data-team-builtin]').textContent(), /Always included: Ace, BotOps/);
+    assert.match(await page.locator('[data-team-builtin]').textContent(), /Built in: Ace, BotOps/);
     assert.equal(await page.locator('[data-team-why=support]').textContent(),
       'You said "support inbox is overflowing". Answers customers and keeps the queue short.');
     assert.match(await page.locator('[data-team-prereq=support]').textContent(), /Mail/);       // ticked: met, not "Needs Mail"
     assert.doesNotMatch(await page.locator('[data-team-prereq=support]').textContent(), /Needs/);
-    assert.match(await page.locator('[data-team-bot=support]').textContent(), /First routine, off until you approve it: Daily support triage/);
+    assert.match(await page.locator('[data-team-bot=support]').textContent(), /First routine: Daily support triage/);
     assert.equal(await page.locator('[data-team-reports=support]').inputValue(), 'human:ana');    // the company owner, by default
-    assert.match(await page.locator('[data-team-start=starter]').textContent(), /2 bots: the best matches for what hurts, plus Chief of Staff/);
+    assert.match(await page.locator('[data-team-start=starter]').textContent(), /2 bots/);
     // No limit and no nagging about the count: the note is only that nothing exists until Create.
     assert.doesNotMatch(await page.locator('#onb-step').textContent(), /start with a few|too many|at most|no more than/i);
-    assert.match(await page.locator('#onb-step').textContent(), /Nothing exists until Create my team/);
+    assert.equal(await page.locator('[data-onb-hint]').textContent(), 'Nothing exists until you create it.');
     await shot(page, 'desktop-4-team-starter');
     // A pain with no tool to serve it is held back and said so, under Add a bot.
     await page.locator('#team-add summary').click();
@@ -288,7 +294,7 @@ const advice = answers => {
     assert.deepEqual(await page.locator('[data-team-group]').evaluateAll(els => els.map(el => el.dataset.teamGroup)),
       ['Leadership', 'Marketing', 'Support', 'Operations']);
     assert.match(await page.locator('[data-team-group=Leadership] h3').textContent(), /led by Chief of Staff/);
-    assert.match(await page.locator('[data-team-start=full]').textContent(), /5 bots in 4 teams, a lead for each/);
+    assert.match(await page.locator('[data-team-start=full]').textContent(), /5 bots in 4 teams/);
     assert.equal(await page.locator('[data-team-reports=inbox]').inputValue(), 'chief-of-staff');   // a member reports to its lead
     assert.equal(await page.locator('[data-team-reports=chief-of-staff]').inputValue(), 'human:ana');
     assert.equal(await page.locator('[data-team-bot=social] .pill.ok', {hasText: 'Lead'}).count(), 1);
@@ -323,10 +329,11 @@ const advice = answers => {
     // ---- d: this Mac. The enrollment file is the Settings flow; the commands keep <slug> literal.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 5 of 7');
     assert.equal(await page.locator('#onb-machine-status').textContent(), 'No computer enrolled yet');
+    await shot(page, 'desktop-5b-machine');
     // Not a Mac-only story: computers can be Macs or Linux/cloud boxes, on a subscription or an API key.
     const blurb = await page.locator('#onb-step').evaluate(el => el.parentElement.textContent);
-    assert.match(blurb, /a Mac, or a Linux or cloud server/);
-    assert.match(blurb, /subscription or an API key/);
+    assert.match(blurb, /A Mac/);
+    assert.match(blurb, /A Linux or cloud server/);
     assert.doesNotMatch(blurb, /Mac you own/);
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> profile add default/);
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> install bot/);
@@ -365,6 +372,7 @@ const advice = answers => {
 
     // ---- e: connect your agent. Optional: the button opens the same modal as the sidebar's plug.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 6 of 7');
+    await shot(page, 'desktop-5c-agent');
     await page.locator('#onb-connect').click();
     await page.locator('dialog.connect-agent[open]').waitFor();
     await page.locator('dialog.connect-agent [data-close]').click();
@@ -375,6 +383,7 @@ const advice = answers => {
 
     // ---- g: review, then create exactly once.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 7 of 7');
+    await shot(page, 'desktop-5d-review');
     const review = await page.locator('#onb-step').textContent();
     assert.match(review, /Initech Hub/);
     assert.match(review, /Businesses/);
@@ -408,8 +417,8 @@ const advice = answers => {
     assert.match(await page.locator('[data-onb-bot=botops]').textContent(), /Set up automatically once a computer is online\./);
     assert.equal(await page.locator('[data-onb-bot=coo] [data-needs-onboarding]').count(), 0);        // the built-ins work at once
     assert.match(await page.locator('[data-onb-bot=support]').textContent(), /Needs onboarding/);
-    assert.match(await page.locator('[data-onb-bot=support]').textContent(), /Repository ready\. It does nothing until you set it up together\./);
-    assert.match(await page.locator('[data-onb-bot=chief-of-staff]').textContent(), /Setting up its repository on your computer/);
+    assert.match(await page.locator('[data-onb-bot=support]').textContent(), /Repository ready\./);
+    assert.match(await page.locator('[data-onb-bot=chief-of-staff]').textContent(), /Setting up its repository/);
     assert.equal(await page.locator('[data-fr-start=chief-of-staff]').isDisabled(), true);
     assert.equal(await page.locator('[data-fr-start=support]').isDisabled(), false);
     assert.match(await page.locator('[data-onb-bot=social]').textContent(), /BotOps is setting this up\./);         // not a starter: BotOps builds it

@@ -343,7 +343,7 @@ def choose(cards, answers, limit=STARTER_TEAM_MAX):
     if not picks:
         # Nothing said matches a card's words: the best fit for who they sell to and how work arrives.
         for row in [row for row in scored if row["tags"] > 0 and "always" not in row["card"]["recommend_when"]][:1]:
-            take(row, {"matched_pain": "", "signal": "it fits how you described the company"})
+            take(row, {"matched_pain": "", "signal": ""})
     for row in scored:
         signals = [SIGNAL_TAGS[tag] for tag in sorted(set(row["card"]["recommend_when"]) & derived & set(SIGNAL_TAGS))]
         if signals:
