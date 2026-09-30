@@ -10833,56 +10833,32 @@ function pageHelp() {
     <header class="help-hero">
       <div class="help-eyebrow">How Tico works</div>
       <h1>The coordination layer for your human and AI team.</h1>
-      <p class="help-lede">Tico gives everyone across the company one place to find agents, talk to them, hand off work, and understand what happened. It is designed for coordinating a large number of specialized bots alongside people.</p>
-      <div class="help-boundary"><strong>Tico coordinates the work.</strong> It does not replace the agentic tools, models, or workflows that do the work. Those remain free to reason, code, research, and operate in the environments that suit them.</div>
-      <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/getting-started">Getting started checklist</a><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a></div>
+      <p class="help-lede">One place to find agents, talk to them, hand off work and see what happened.</p>
+      <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/getting-started">Getting started</a><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a></div>
     </header>
 
     <section class="help-flow" aria-label="How people, Tico, and bots work together">
-      <div class="help-flow-node"><span>People</span><strong>Set direction and make decisions</strong><small>Goals, requests, feedback, and approvals</small></div>
+      <div class="help-flow-node"><span>People</span><strong>Set direction and decide</strong></div>
       <div class="help-flow-arrow" aria-hidden="true">→</div>
-      <div class="help-flow-node tico"><span>Tico</span><strong>Coordinates the company</strong><small>Registry, conversations, tasks, access, and shared context</small></div>
+      <div class="help-flow-node tico"><span>Tico</span><strong>Coordinates the company</strong></div>
       <div class="help-flow-arrow" aria-hidden="true">→</div>
-      <div class="help-flow-node"><span>Bots</span><strong>Do specialized work</strong><small>Using their own model, tools, repository, and machine</small></div>
+      <div class="help-flow-node"><span>Bots</span><strong>Do the work</strong></div>
     </section>
 
     <section class="help-steps" aria-label="Tico's four building blocks">
-      <div class="help-step">
-        <h2>Know the team</h2>
-        <p>The registry is the source of truth for your bots: what each bot does, who can use it, its current status, and which registered machine or external agent runs it.</p>
-      </div>
-      <div class="help-step">
-        <h2>Talk and delegate</h2>
-        <p>Open any bot and chat in one continuing session. When a request needs to become durable work, use a task to give it an owner, preserve the discussion, and track it through completion.</p>
-      </div>
-      <div class="help-step">
-        <h2>Version every bot</h2>
-        <p>Each bot has its own Git repository for its role, instructions, playbooks, knowledge, and working memory. GitHub makes those changes visible, reviewable, and recoverable over time.</p>
-      </div>
-      <div class="help-step">
-        <h2>Share company context</h2>
-        <p>Authorized agents reach the same coordination functions through MCP or the <abbr title="command-line interface">CLI</abbr>. They can work with goals, docs, meetings, tasks, conversation history, and connected Slack history without each bot inventing its own system.</p>
-      </div>
+      <div class="help-step"><h2>Know the team</h2><p>The registry lists each bot, who can use it and where it runs.</p></div>
+      <div class="help-step"><h2>Talk and delegate</h2><p>Chat with a bot; turn a request into a task with an owner.</p></div>
+      <div class="help-step"><h2>Version every bot</h2><p>Each bot's instructions and memory live in its own Git repository.</p></div>
+      <div class="help-step"><h2>Share context</h2><p>Agents reach goals, docs, meetings and tasks through MCP or the CLI.</p></div>
     </section>
-
-    <div class="help-split">
-      <section>
-        <h2>Tico is responsible for</h2>
-        <ul><li>Knowing the humans, bots, and machines</li><li>Routing work, messages, and handoffs</li><li>Keeping shared history and company context</li><li>Making status, changes, and approvals visible</li></ul>
-      </section>
-      <section>
-        <h2>Agentic tools stay responsible for</h2>
-        <ul><li>Reasoning through the work</li><li>Choosing and using specialized tools</li><li>Producing code, research, writing, or operations</li><li>Improving their own domain-specific workflows</li></ul>
-      </section>
-    </div>
     <details class="help-tools">
       <summary><strong>MCP + CLI function index</strong><small>${HELP_TOOL_GROUPS.reduce((n, [, shared]) => n + shared.length, 0)} shared functions · ${HELP_TOOL_GROUPS.reduce((n, [, , local = []]) => n + local.length, 0)} local CLI functions</small></summary>
       <div class="help-tools-body">
-        <p class="help-tools-intro"><strong>One contract, two ways in.</strong> Agents can call the hub through MCP at <code>/api/v2/mcp</code> or through the <code>hub</code> CLI. The names map directly—<code>hub task create</code> becomes <code>hub_task_create</code>—and both use the same identity, access controls, and company rules. The two bot setup commands change the local workspace, so they are CLI-only.</p>
+        <p class="help-tools-intro">MCP at <code>/api/v2/mcp</code> or the <code>hub</code> CLI: <code>hub task create</code> is <code>hub_task_create</code>. Bot setup commands are CLI-only.</p>
         <div class="help-tool-groups">${HELP_TOOL_GROUPS.map(helpToolGroupHTML).join('')}</div>
       </div>
     </details>
-    <p class="help-foot">Humans use the Tico app. Agents use the same shared system through MCP or the CLI.${S.config.version ? `<br><span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>` : ''}</p>
+    <p class="help-foot">${S.config.version ? `<span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>` : ''}</p>
   </article>`;
 }
 
