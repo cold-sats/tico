@@ -1,0 +1,61 @@
+/* ui/styles/updates.css — Updates feed.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* updates feed: friendly, dense, fast; one column, like a feed */
+.upd-page{max-width:720px;margin:0 auto}
+.upd-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.upd-head h1{font-size:22px;margin-right:4px}
+.upd-seg{display:inline-flex;background:var(--surface2);border-radius:999px;padding:3px}
+.upd-seg button{border:0;background:none;border-radius:999px;padding:5px 14px;font-weight:500;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.upd-seg .nav-icon,.upd-chip .nav-icon{display:none;font-size:20px;width:20px;height:20px;color:inherit}
+.upd-chip{display:inline-flex;align-items:center;gap:6px}
+.upd-seg button[aria-selected=true]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.upd-chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px;cursor:pointer;color:var(--muted)}
+.upd-chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.upd-allread{font-size:13px}
+.upd-feed{display:flex;flex-direction:column;gap:8px}
+.upd-card{display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:14px;position:relative;outline:none;transition:border-color .12s}
+.upd-card.unread{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.upd-card.unread::before{content:"";position:absolute;left:-1px;top:14px;bottom:14px;width:3px;border-radius:3px;background:var(--accent)}
+.upd-card.sel{box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent)}
+.upd-av .av{width:36px!important;height:36px!important}
+.upd-meta{display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap}
+.upd-name{color:var(--ink);font-weight:600}
+.upd-pill{font-size:11px;font-weight:600;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--run) 15%,transparent);color:var(--run)}
+.upd-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:2px}
+.upd-body{font-size:15px;line-height:1.45;color:var(--ink);cursor:pointer;margin-top:4px}
+.upd-body p{margin:0 0 6px}.upd-body ul{margin:0;padding-left:18px}.upd-body li{margin:2px 0}.upd-body h1,.upd-body h2,.upd-body h3{font-size:14px;margin:6px 0 2px}
+.upd-actions{display:flex;gap:4px;margin:6px 0 0 -8px}
+.upd-act{display:inline-flex;align-items:center;gap:5px;border:0;background:none;border-radius:999px;padding:5px 10px;color:var(--muted);font-size:13px;cursor:pointer}
+.upd-act:hover{background:var(--surface2);color:var(--ink)}
+.upd-act .nav-icon{font-size:17px;width:17px;height:17px}
+.upd-thread{border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.upd-msg{font-size:13.5px;padding:6px 10px;border-radius:10px;background:var(--surface2)}
+.upd-msg.bot{background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+.upd-msg.pending{opacity:.6}
+.upd-msg .md p{margin:2px 0}
+.upd-msg .muted{font-size:11.5px;margin-left:4px}
+.upd-reply{display:flex;gap:8px;align-items:flex-end}
+.upd-reply textarea{flex:1;resize:none;min-height:38px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--bg)}
+.upd-hint{font-size:11.5px}
+.upd-empty{display:flex;flex-direction:column;align-items:center;gap:4px;padding:48px 16px;text-align:center}
+.upd-empty .nav-icon{font-size:34px;width:34px;height:34px;color:var(--accent)}
+.upd-skel{height:108px;border-radius:14px;background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:updskel 1.1s linear infinite}
+@keyframes updskel{from{background-position:200% 0}to{background-position:-200% 0}}
+.upd-more{align-self:center;margin:8px 0}
+.nav-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;margin-left:auto}
+.mobile-nav-item{position:relative}
+.mobile-nav-item .nav-badge{position:absolute;top:2px;left:calc(50% + 6px);margin:0}
+.upd-switch{display:flex;align-items:center;gap:8px;padding:4px 0}
+.bot-update{margin:0 0 10px;padding:10px 14px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:12px;background:var(--surface)}
+.bot-update-meta{display:flex;align-items:center;gap:6px;font-size:13px}.bot-update-meta .spacer{flex:1}
+.bot-update-meta .nav-icon{font-size:18px;width:18px;height:18px;color:var(--accent)}
+.bot-update-x{padding:2px 8px;font-size:14px}
+.bot-update .upd-body{margin-top:4px}
+.bot-history{display:flex;flex-direction:column}
+.bot-history-item{padding:10px 0;border-top:1px solid var(--line)}.bot-history-item:first-child{border-top:0;padding-top:0}
+.bot-history-item .upd-meta{font-size:12.5px}
+@media (prefers-reduced-motion:reduce){.upd-skel{animation:none}}
+@media (max-width:760px){.upd-card{padding:12px;gap:10px;border-radius:12px}.upd-head h1{font-size:20px}.upd-allread{display:none}
+  /* Day, week, unread and my bots are icons on a phone */
+  .upd-seg .nav-icon,.upd-chip .nav-icon{display:inline-flex}.upd-lbl{display:none}
+  .upd-seg button{padding:6px 12px}.upd-chip{padding:6px 10px}}

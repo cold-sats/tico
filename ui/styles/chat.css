@@ -1,0 +1,230 @@
+/* ui/styles/chat.css — Bot chat, composer, session tab, desktop two-column layout.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* a bot's chat is the page itself (#514): no card, no state pills, no name over every line; a
+   person's line keeps a quiet bubble, the bot's reads as page text. The time shows on hover, and
+   on a phone when the thread is dragged left. */
+.chat-stamp{display:none}
+#pane-chat .card.conv{padding:0;border:0;border-radius:0;background:transparent}
+#pane-chat .conv-top{display:none}
+#pane-chat .conv-run.chat{position:relative;padding:8px 0;border-top:0;transform:translateX(calc(-1 * var(--stamp-shift, 0px)))}
+#pane-chat .conv-run.chat>.conv-run-head{display:none}
+#pane-chat .conv-run.chat .bubble.bot.reply{padding:0;background:transparent;border-radius:0}
+#pane-chat .conv-run.chat .bubble.bot .who,#pane-chat .conv-run.chat.from-me .bubble .who{display:none}
+#pane-chat .conv-run.chat .bubble.you{border:0}
+#pane-chat .conv-deliv{margin:2px 0 0}
+#pane-chat .conv-deliv .fchip{font-size:11px;padding:1px 7px}
+#pane-chat .chat-stamp{display:block;position:absolute;top:-4px;right:0;color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums;opacity:0;transition:opacity .15s;pointer-events:none}
+#pane-chat #conv-thread{overflow-x:hidden}
+#pane-chat .stamps-settle .conv-run.chat{transition:transform .2s ease}
+@media (hover:hover){#pane-chat .conv-run.chat:hover .chat-stamp{opacity:1}}
+@media (hover:none){#pane-chat .chat-stamp{top:50%;right:-70px;width:62px;text-align:right;opacity:1;transform:translateY(-50%)}}
+/* the composer: a small arrow for Send */
+.p-send-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.p-send-icon svg{width:18px;height:18px}
+.p-send-icon:hover:not(:disabled){filter:brightness(1.06)}
+.p-send-icon:disabled{opacity:.45;cursor:default}
+/* a phone gives the bot page the whole screen: no bottom bar, the composer on the bottom edge */
+@media (max-width:760px){
+  body.bot-page #mobile-nav{display:none}
+  body.bot-page #main{padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
+  body.bot-page #main.chat-layout{padding:max(8px,env(safe-area-inset-top)) 12px 0}
+  body.bot-page #main.bot-chat-layout #chat-composer{position:static;margin:4px -12px 0;padding:6px 8px max(6px,env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
+  body.bot-page .toast{bottom:calc(env(safe-area-inset-bottom) + 72px)}
+}
+/* conversation card: one group per run, newest at the bottom */
+.conv-top{display:flex;justify-content:flex-end;color:var(--muted);font-size:12.5px;min-height:18px;margin-bottom:var(--s2)}
+.conv-older{margin-bottom:6px}
+.conv-bots{margin-top:10px}
+.conv-bots-box>summary{cursor:pointer;font-size:12.5px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.conv-bots-one{margin:8px 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.conv-bots-one .bubble{margin:6px 0;max-width:100%}
+/* a long-lived thread is tall: scroll it inside the card so the rest of the bot page stays reachable */
+#conv-thread{max-height:min(64vh,620px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.conv-run{display:flex;flex-direction:column;align-items:stretch;padding:12px 0;border-top:1px solid var(--line)}
+.conv-run:first-child{border-top:0;padding-top:2px}
+.conv-run-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-bottom:2px}
+.conv-run-head .ttl{color:var(--ink);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(56ch,100%)}
+.conv-break{display:flex;align-items:center;gap:10px;margin:16px 0 2px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.conv-break::before,.conv-break::after{content:"";flex:1;height:1px;background:var(--line)}
+.bubble{max-width:min(78ch,100%);min-width:0;border-radius:10px;padding:8px 12px;margin:6px 0;overflow-wrap:anywhere}
+.bubble .who{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:3px}
+.bubble.you{align-self:flex-end;background:var(--surface2);border:1px solid var(--line);border-bottom-right-radius:3px;white-space:pre-wrap}
+.bubble.you .who{text-align:right}
+.bubble.bot{align-self:flex-start;padding-left:0;padding-right:0}
+.bubble.bot .md{max-width:none;overflow-x:auto}
+.bubble.bot .md>:first-child{margin-top:0}
+.bubble.pending{opacity:.75}
+.conv-act{margin:4px 0 2px}
+.conv-act>summary{color:var(--muted);font-size:12.5px;padding:3px 0}
+.conv-act>summary:hover{color:var(--ink)}
+.conv-ev{border-left:2px solid var(--line);padding:5px 0 5px 10px;margin:4px 0;font-size:12.5px;min-width:0;overflow-x:auto}
+.conv-ev code{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.conv-ev pre{background:var(--surface2);border-radius:6px;padding:8px 10px;margin:5px 0 0;max-height:260px;overflow:auto;font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.conv-deliv{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin:6px 0 2px}
+.conv-deliv img{max-width:min(100%,340px);border:1px solid var(--line);border-radius:8px;display:block}
+.conv-deliv .file{background:var(--surface2);border-radius:10px;padding:2px 9px;font-size:12px}
+/* a scheduled run's body is a template: quiet it down and fold it away */
+.bubble.sched{align-self:flex-start;background:transparent;border:1px dashed var(--line);color:var(--muted);padding:7px 11px}
+.bubble.sched .who{color:var(--muted)}
+.bubble.sched .sched-body{margin-top:5px}
+.bubble.sched .sched-body summary{font-size:12px}
+.bubble.sched .sched-body .q{max-height:240px;overflow:auto;white-space:pre-wrap;background:var(--surface2);border-radius:6px;padding:8px 10px;color:var(--ink)}
+/* inline output of a slash command: never leaves the browser */
+.cmd-out{margin-top:var(--s2);padding:var(--s3);border-radius:var(--radius);background:var(--surface2);font-size:13px}
+.cmd-out .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:5px}
+.cmd-out code{font-family:var(--mono);font-size:12.5px}
+/* the answer is the point; the work that produced it folds away */
+.bubble.bot.reply{background:var(--surface2);border-radius:var(--radius);padding:var(--s2) var(--s3)}
+.bubble.bot.reply .md{max-width:none}
+.bubble.bot.reply .md>:first-child{margin-top:0}
+.bubble.bot.reply .md>:last-child{margin-bottom:0}
+.conv-act .conv-ev .md{max-width:none;font-size:13px;color:var(--muted)}
+.conv-note{padding:5px 0;font-size:12.5px}
+.thinking{display:flex;align-items:center;gap:8px;padding:7px 0;color:var(--muted);font-size:13px}
+.thinking:not(.late){width:max-content;max-width:100%;cursor:default}
+.thinking-word{font-size:12px;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.typing{display:inline-flex;align-items:center;gap:3px;padding:7px 9px;border-radius:12px;background:var(--surface2)}
+.typing i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:typingbob 1.2s ease-in-out infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+.typing.wait i{animation:typingbreathe 2.4s ease-in-out infinite;opacity:.35}
+.typing.wait i:nth-child(2){animation-delay:.4s}.typing.wait i:nth-child(3){animation-delay:.8s}
+@keyframes typingbob{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-3px);opacity:1}}
+@keyframes typingbreathe{0%,100%{opacity:.25}50%{opacity:.6}}
+@media (prefers-reduced-motion:reduce){.typing i{animation:none!important;opacity:.6}}
+.thinking .dismiss{padding:0;border:0;background:none;color:var(--muted);font:inherit;text-decoration:underline;cursor:pointer}
+.thinking .dismiss:hover{color:var(--ink)}
+/* A PR, issue, card or client as a small mark and its number (#524); the full URL is the tooltip. */
+a.ref{white-space:nowrap;font-variant-numeric:tabular-nums;text-decoration:none}
+a.ref:hover{text-decoration:underline}
+a.ref::before,.run-did .ref::before{content:'';display:inline-block;width:.8em;height:.8em;margin-right:.22em;vertical-align:-.06em;background:currentColor;opacity:.75;-webkit-mask:var(--ref-icon) center/contain no-repeat;mask:var(--ref-icon) center/contain no-repeat}
+.ref-pr{--ref-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='4' cy='3.5' r='1.6'/%3E%3Ccircle cx='4' cy='12.5' r='1.6'/%3E%3Ccircle cx='12' cy='12.5' r='1.6'/%3E%3Cpath d='M4 5.1v5.8M12 10.9V7a2.5 2.5 0 0 0-2.5-2.5H7'/%3E%3C/g%3E%3C/svg%3E")}
+.ref-issue{--ref-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5.8' fill='none' stroke='black' stroke-width='1.8'/%3E%3Ccircle cx='8' cy='8' r='1.7' fill='black'/%3E%3C/svg%3E")}
+/* What a reply's turn did: muted one-line rows under it, then its steps folded to one line (#524). */
+.run-did{display:flex;flex-direction:column;align-items:flex-start;gap:1px;margin:3px 0 0;max-width:100%;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.run-did .did{display:flex;align-items:baseline;gap:5px;max-width:100%;min-width:0;padding:0;border:0;background:none;color:var(--muted);font:inherit;text-align:left;text-decoration:none;white-space:nowrap}
+.run-did button.did,.run-did a.did{cursor:pointer}
+.run-did button.did:hover .did-what,.run-did a.did:hover .did-what{color:var(--ink);text-decoration:underline}
+.run-did .did-arrow{flex:none;width:1em;text-align:center}
+.run-did .did-verb{flex:none}
+.run-did .did-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.run-did .did.failed .did-arrow{color:var(--fail)}
+.run-did .ref{white-space:nowrap}
+.run-steps{max-width:100%}
+.run-steps>summary{list-style:none;cursor:pointer;padding-left:calc(1em + 5px);color:var(--muted)}
+.run-steps>summary::-webkit-details-marker{display:none}
+.run-steps>summary::before{content:'▸';display:inline-block;width:1em;margin-left:calc(-1em - 5px);margin-right:5px;text-align:center}
+.run-steps[open]>summary::before{content:'▾'}
+.run-steps>summary:hover{color:var(--ink)}
+.steps-list{display:flex;flex-direction:column;gap:1px;margin:2px 0 4px calc(1em + 5px);padding-left:8px;border-left:1px solid var(--line)}
+.steps-list .step{display:flex;gap:8px;min-width:0;white-space:nowrap}
+.steps-list .step-tool{flex:none;color:var(--ink);font-family:var(--mono);font-size:11.5px}
+.steps-list .step-sum{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.steps-list .step.err .step-tool,.steps-list .step.err .step-sum{color:var(--fail)}
+.steps-list .think>summary{cursor:pointer;font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+.steps-list .step-text{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:2px 0 4px}
+/* Scrolled up while something new arrived: one small pill above the composer takes you down. */
+#conv{position:relative}
+.conv-jump{position:absolute;left:50%;bottom:10px;z-index:3;transform:translateX(-50%);padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:pointer;white-space:nowrap}
+.conv-jump:hover{border-color:var(--accent)}
+/* Files dragged anywhere over the chat: the composer says where they will land. */
+#chat-composer .p-pill{position:relative}
+#chat-composer .p-pill.over::after{content:'Drop to attach';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:inherit;background:color-mix(in srgb,var(--surface) 90%,transparent);color:var(--accent);font-size:13.5px;font-weight:500;pointer-events:none}
+/* A desktop composer has room for a long message; a phone keeps its short cap. */
+@media (min-width:761px){#chat-composer .ask textarea{max-height:min(300px,100vh / 3)}}
+.conv-paused{flex:none;margin:var(--s2) 0 0;padding:6px 10px;border-radius:var(--radius);background:var(--wait-bg);color:var(--wait);font-size:12.5px}
+.conv-paused.agent{background:var(--idle-bg);color:var(--muted)}
+.settings-agent-cell{display:flex;flex-direction:column;gap:2px}.settings-agent-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.settings-agents-title{margin:var(--s3) 0 var(--s1);font-size:14px}
+.agent-credential .agent-credential-body{display:flex;flex-direction:column;gap:var(--s2);max-width:720px}
+.agent-credential label{display:flex;flex-direction:column;gap:6px;font-size:13px}.agent-credential code{white-space:pre-wrap;word-break:break-all;flex:1;padding:6px 8px;background:var(--surface2);border-radius:var(--radius)}
+.settings-token-form{margin-top:var(--s2);align-items:flex-end;flex-wrap:wrap;gap:var(--s2)}.settings-token-form label{display:flex;flex-direction:column;gap:4px;font-size:13px}.settings-token-form input[type=number]{width:5em}
+.agent-credential pre{white-space:pre-wrap;word-break:break-all;background:var(--surface2);padding:8px;border-radius:var(--radius);font-size:12px}
+.bfiles{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.fchip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;background:var(--bg);font-size:11.5px}
+.chat-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.conv-run.from-me .chat-files{justify-content:flex-end}
+.chat-thumb{padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface2);width:120px;height:90px;cursor:zoom-in;display:inline-flex;align-items:center;justify-content:center}
+.chat-thumb:not(.ready){cursor:progress}
+.chat-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.chat-thumb img[hidden]{display:none}
+.chat-thumb:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.img-lightbox{padding:0;border:0;background:transparent;max-width:96vw;max-height:96vh;cursor:zoom-out}
+.img-lightbox::backdrop{background:rgba(0,0,0,.82)}
+.img-lightbox img{display:block;max-width:96vw;max-height:88vh;object-fit:contain;border-radius:8px}
+.img-lightbox-bar{display:flex;gap:12px;justify-content:space-between;color:#fff;font-size:13px;padding:8px 2px}
+.img-lightbox-bar a{color:#fff}
+.fchip svg{width:13px;height:13px}
+/* Session tab: the runtime's own file, read straight through. The replay says where it came from */
+.sess-head{font-size:12.5px;color:var(--muted);padding-bottom:8px;border-bottom:1px solid var(--line);margin-bottom:8px;overflow-wrap:anywhere}
+.sess-head strong{color:var(--ink);font-weight:500}
+.sess-head .mono{display:block;margin-top:2px}
+#sess-turns{max-height:min(64vh,620px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.sess-turn{padding:6px 0;border-top:1px solid var(--line)}
+.sess-turn:first-child{border-top:0}
+.sess-turn .when{float:right;color:var(--muted);font-size:11.5px;margin-left:10px;font-variant-numeric:tabular-nums}
+.sess-turn .who{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:3px}
+.sess-turn.user .body{white-space:pre-wrap;background:var(--surface2);border-radius:10px;padding:8px 12px;overflow-wrap:anywhere}
+.sess-turn.reasoning{color:var(--muted);font-size:12.5px}
+.sess-turn.system .body,.sess-turn.reasoning .body{white-space:pre-wrap;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+.sess-turn.tool>details>summary{color:var(--muted);font-size:12.5px;padding:2px 0;cursor:pointer}
+.sess-turn.tool>details>summary code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+.sess-turn.tool pre{background:var(--surface2);border-radius:6px;padding:8px 10px;margin:5px 0 0;max-height:300px;overflow:auto;font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.conv-replay{font-size:11.5px;color:var(--muted);margin:0 0 4px}
+/* on a bot page the pill is the composer, at the bottom of the Chat tab */
+#chat-composer{margin-top:12px}
+#chat-composer .ask{margin-bottom:0}
+.bot-chat-tasks{position:relative;flex:none;margin:0 0 8px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.bot-chat-task-groups{max-height:calc(2 * 1.4em + 12px);overflow-y:auto;overscroll-behavior:contain;padding:6px 34px 6px 11px;font-size:13.5px;line-height:1.4}
+.bot-chat-task-row{display:block;width:100%;padding:0;border:0;background:none;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.bot-chat-task-row+.bot-chat-task-row{margin-top:4px}.bot-chat-task-row:hover{color:var(--accent)}
+.bot-chat-tasks-x{position:absolute;top:2px;right:2px;width:30px;height:30px;border:0;border-radius:6px;background:none;color:var(--muted);font-size:19px;line-height:1;cursor:pointer}
+.bot-chat-tasks-x:hover{color:var(--ink);background:var(--surface2)}
+/* Composer notices and attachment state sit above the input, so the input itself owns the edge. */
+#chat-composer .ask{display:flex;flex-direction:column}
+#chat-composer .p-pill{order:2}
+#chat-composer .p-menu{top:auto;bottom:calc(100% + 6px)}
+/* Chat owns the viewport: chrome and composer stay visible while only history scrolls. */
+#main.chat-layout{display:flex;flex-direction:column;height:100vh;height:100dvh;min-height:0;overflow:hidden;padding-bottom:max(var(--s3),env(safe-area-inset-bottom))}
+/* On desktop the body grid sizes the row (the app nudge may sit above); 100vh here would push the composer below the fold. */
+@media (min-width:761px){#main.chat-layout{height:100%}}
+#main.bot-chat-layout>#bot-work:not([hidden]),#main.bot-chat-layout #pane-chat:not([hidden]){display:flex;flex:1;flex-direction:column;min-height:0}
+#main.bot-chat-layout #pane-chat>.conv{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden;margin-bottom:0}
+/* desktop (#514): chat left, the bot's tasks right, each column scrolling on its own under the goal */
+#main.bot-split-layout{max-width:none}
+#main.bot-split-layout>#bot-work:not([hidden]){display:grid;grid-template-columns:minmax(0,1.3fr) minmax(320px,1fr);gap:var(--s4)}
+#main.bot-split-layout #pane-tasks:not([hidden]){min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+#main.bot-split-layout #pane-tasks>.card:last-child{margin-bottom:0}
+#main.bot-split-layout #bot-chat-tasks{display:none!important}
+#pane-tasks .trow summary{grid-template-columns:auto minmax(0,1fr) auto auto}   /* a long state pill never runs into the title */
+#main.chat-layout #conv-thread{flex:1;min-height:0;max-height:none;scrollbar-gutter:stable}
+#main.bot-chat-layout #conv-bots{flex:none;max-height:min(30vh,240px);overflow-y:auto}
+#main.bot-chat-layout #chat-composer{position:static;flex:none;z-index:auto;margin:var(--s3) 0 0;padding:0;background:transparent}
+#main.chat-layout .conv-top,#main.chat-layout .conv-older{flex:none}
+#main.chat-layout .conv-older:empty{display:none}
+@media (max-width:760px){
+  body:has(#main.chat-layout){min-height:0;height:100dvh;overflow:hidden}
+  #main.chat-layout{position:fixed;top:var(--chat-viewport-top,0px);left:0;right:0;height:var(--chat-viewport-height,100dvh);padding:max(var(--s3),env(safe-area-inset-top)) 12px calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 8px)}
+  body.mobile-composer-focus #main.chat-layout{padding-bottom:max(var(--s2),env(safe-area-inset-bottom))}
+  #main.chat-layout .card.conv{padding:10px}
+  .bot-chat-tasks{margin-bottom:8px}
+
+  #main.chat-layout .conv-top{margin-bottom:4px}
+  #conv-access .muted{display:none}
+  #chat-composer .p-pill{display:grid;grid-template-columns:36px minmax(0,1fr) auto auto;gap:2px;padding:4px;border-radius:24px;align-items:center}
+  #chat-composer .p-pill:has(.p-bot){grid-template-columns:36px 36px minmax(0,1fr) auto auto}
+  #chat-composer .p-text{grid-column:-4;grid-row:1;order:0;flex:none;width:100%;height:36px;padding:6px 4px}
+  #chat-composer .p-attach{grid-column:-5;grid-row:1;width:36px;height:36px;padding:0;justify-content:center}
+  #chat-composer .p-go{grid-column:-2;grid-row:1;margin:0}
+  #chat-composer .p-send-icon{grid-column:-2;grid-row:1}
+  /* The bot you're chatting with, left of the chat bar; a tap opens the switcher */
+  #chat-composer .p-bot{display:inline-flex;grid-column:1;grid-row:1;width:36px;height:36px;padding:0;border:0;background:none;border-radius:50%;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  #chat-composer .p-go button{height:36px}
+  #chat-composer .p-go .go{max-width:118px;padding:0 12px}
+  #chat-composer .p-go .caret{padding:0 7px}
+}
+.p-bot{display:none}
+.chat-system{margin:10px 0;padding:0 2px;font-size:13px;color:var(--muted);line-height:1.45}
+.chat-system b{color:var(--ink);font-weight:600}
+.plain-message{white-space:pre-wrap;overflow-wrap:anywhere}
+.chat-time{font-size:10.5px;color:var(--muted);padding:0 4px}
+.p-hint{padding:0 4px 7px;font-size:12.5px}

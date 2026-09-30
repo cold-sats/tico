@@ -20,7 +20,9 @@ def test_the_icons_the_page_manifest_and_desktop_app_name_exist():
 
 
 def test_the_page_uses_the_brand_files_only():
-    page = (UI / "index.html").read_text()
+    # The page is index.html plus the styles and scripts it links (ui/styles, ui/app).
+    page = "".join(p.read_text() for p in [UI / "index.html", *sorted((UI / "styles").glob("*.css")),
+                                            *sorted((UI / "app").glob("*.js"))])
     for old in ("tico-tile", "tico-monochrome", "assets/tico/tico.svg", "bowtie"):
         assert old not in page
     assert "assets/tico/tico-glyph.svg" in page and "tico-wordmark-reversed.svg" in page

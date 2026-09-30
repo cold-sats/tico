@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild the Material Symbols Outlined subset the UI ships.
 
-Scans ui/index.html and ui/*.js for icon names, adds the `icon:` of every catalog card
+Scans ui/index.html, ui/*.js, ui/app/*.js and ui/styles/*.css for icon names, adds the `icon:` of every catalog card
 (templates/catalog/*/card.yaml) and department (templates/departments.yaml), writes them to
 ui/vendor/fonts/icons.txt and downloads a woff2 that holds just those glyphs from Google Fonts. Run it
 after adding an icon or a template:
@@ -10,7 +10,7 @@ after adding an icon or a template:
     python3 scripts/build-icon-font.py --check  # rescan only; exit 1 if icons.txt is stale
 
 The font is a ligature font: an icon missing from it shows as its raw name. The axes match the
-CSS in ui/index.html (FILL 0, wght 300, GRAD 0, opsz 24).
+CSS in ui/styles/ (FILL 0, wght 300, GRAD 0, opsz 24).
 """
 import re
 import sys
@@ -27,7 +27,7 @@ USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.3
               "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
 NAME = r"[a-z][a-z0-9_]*"
-# Classes whose text content is an icon name (each is styled with the icon font in ui/index.html).
+# Classes whose text content is an icon name (each is styled with the icon font in ui/styles/).
 ICON_CLASSES = ("nav-icon", "mobile-nav-icon", "int-key", "agent-mark", "person-mail-link", "material-symbols-outlined",
                 "ob-ms")
 PATTERNS = [
@@ -59,7 +59,7 @@ def template_icons():
 
 
 def sources():
-    files = [UI / "index.html"] + sorted(UI.glob("*.js"))
+    files = [UI / "index.html"] + sorted(UI.glob("*.js")) + sorted(UI.glob("app/*.js")) + sorted(UI.glob("styles/*.css"))
     return [f for f in files if f.is_file()]
 
 

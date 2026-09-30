@@ -1,0 +1,91 @@
+/* ui/styles/tasks.css — Tasks card and toolbar.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* tasks card */
+.tasks>header{align-items:center}
+.tasks>header .sub{margin-left:auto}
+.tabs.slim{border:0;margin:0 0 0 8px;gap:2px}
+.tabs.slim button{padding:4px 10px;border-radius:6px;border-bottom:0;margin:0;font-size:13px}
+.tabs.slim button.cur{background:var(--surface2)}
+.tabs .cnt{color:var(--muted);font-size:11.5px;margin-left:2px;font-variant-numeric:tabular-nums}
+/* Tasks alone has a compact, single-line desktop toolbar; Goals shares .tasks-head. */
+.tasks-head.find{flex-wrap:nowrap;gap:8px;min-width:0}
+.tasks-head.find h1{flex:none;margin:0 2px 0 0;white-space:nowrap}
+.tasks-head.find .task-strip{display:contents}
+.tasks-head.find .task-find{order:2;display:flex;align-items:center;flex:1 1 auto;min-width:0;height:36px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.tasks-head.find .task-find:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.tasks-head.find .task-find>.nav-icon{margin-left:9px;width:18px;height:18px;font-size:18px}
+.tasks-head.find #task-q{flex:1;min-width:0;width:0;height:34px;padding:0 8px;border:0;border-radius:0;background:none;box-shadow:none;font-size:13px}
+.tasks-head.find #task-q:focus{outline:0;box-shadow:none}
+.tasks-head.find #task-filter{flex:none;align-self:stretch;display:flex;align-items:center;gap:4px;padding:0 10px;border:0;border-left:1px solid var(--line);border-radius:0;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap;cursor:pointer}
+.tasks-head.find #task-filter:hover,.tasks-head.find #task-filter.active{color:var(--accent);background:var(--surface2)}
+.tasks-head.find #task-new{order:3}
+.tasks-head.find #task-view{order:4;flex:none;margin:0;white-space:nowrap}
+.tasks-head.find #task-view button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0}
+.tasks-head.find #task-view .nav-icon{color:inherit;font-size:19px}
+#task-filter-pop{position:fixed;inset:auto;z-index:50;width:min(330px,calc(100vw - 24px));max-height:min(70vh,520px);overflow-y:auto;margin:0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);box-shadow:0 12px 36px rgba(0,0,0,.18)}
+#task-filter-pop .task-filter-row{display:grid;gap:7px;margin-bottom:16px}
+#task-filter-pop .task-filter-row[hidden]{display:none}
+#task-filter-pop .task-filter-row>label,#task-filter-pop .task-filter-row>.lbl{color:var(--muted);font-size:12px;font-weight:600}
+#task-filter-pop .tfilters{flex-wrap:wrap}
+#task-filter-pop select{width:100%;max-width:none}
+#task-filter-pop .task-filter-foot{display:flex;justify-content:flex-end;padding-top:4px;border-top:1px solid var(--line)}
+#task-filter-pop #task-filter-clear{border:0;background:none;color:var(--accent);padding:7px 0 0;cursor:pointer;font-size:12px}
+@media (max-width:1050px) and (min-width:761px){
+  .tasks-head.find{gap:4px}
+  .tasks-head.find h1{font-size:18px;margin:0}
+  .tasks-head.find #task-view button{width:27px}
+  .tasks-head.find #task-filter{padding:0 6px;font-size:11px}
+}
+@media (max-width:760px){
+  .tasks-head.find{flex-wrap:wrap;gap:8px}
+  .tasks-head.find h1{order:0}
+  .tasks-head.find .task-find{order:1;flex:1 1 0}
+  .tasks-head.find #task-new{order:2}
+  .tasks-head.find .task-strip{order:3;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex:0 0 100%;min-width:0;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+  .tasks-head.find .task-strip::-webkit-scrollbar{display:none}
+  .tasks-head.find #task-view{flex:none}
+  #task-filter-pop{inset:auto 0 0 0!important;width:100%;max-height:min(75vh,620px);padding:18px 18px max(18px,env(safe-area-inset-bottom));border-radius:16px 16px 0 0}
+  #task-filter-pop:popover-open::backdrop{background:rgba(0,0,0,.25)}
+}
+.trow{border-bottom:1px solid var(--line)}
+.trow:last-child{border-bottom:0}
+.trow summary{display:grid;grid-template-columns:44px 1fr auto 60px;gap:10px;align-items:center;padding:8px 2px;cursor:pointer;list-style:none;font-size:13.5px;color:var(--ink)}
+.trow summary::-webkit-details-marker{display:none}
+.trow summary:hover{background:var(--surface2);border-radius:6px}
+.trow .ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .tags{display:flex;gap:4px}
+.trow .st-ic,.trow .who-av{display:none}
+.st-ic{width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;font-weight:700;line-height:1;box-sizing:border-box}
+.st-ic .nav-icon{font-size:17px}
+.st-needs{background:var(--needs,#d64545);color:#fff}
+.st-waiting{color:var(--muted)}
+.st-doing{border:2px solid var(--line);border-top-color:var(--accent);animation:stspin .9s linear infinite}
+.st-todo{border:1.5px solid var(--muted)}
+.st-doing-idle{border:2px solid var(--line);border-top-color:color-mix(in srgb,var(--accent) 55%,transparent);border-right-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+@keyframes stspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.st-doing{animation:none;border-style:dotted}}
+.trow .tbody{padding:4px 2px 12px 54px;font-size:13px}
+.trow .tbody .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:4px}
+.trow .tbody .q{white-space:pre-wrap;background:var(--surface2);padding:8px 10px;border-radius:6px;max-height:280px;overflow:auto;margin-bottom:8px}
+form.task{display:flex;flex-direction:column;gap:10px;padding-top:6px;border-radius:6px}
+form.task.over{outline:2px dashed var(--accent);outline-offset:6px}
+form.task .r1{display:grid;grid-template-columns:1fr 110px 110px;gap:10px}
+form.task textarea{min-height:64px}
+form.task .r3{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px}
+form.task .attach{color:var(--accent);cursor:pointer}
+form.task .files{display:flex;gap:6px;flex-wrap:wrap}
+form.task .files span{background:var(--surface2);padding:2px 8px;border-radius:10px;font-size:12px}
+form.task .hint{font-size:12px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px;flex-wrap:wrap}
+.tabs button{background:none;border:0;padding:8px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.cur{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.md{font-size:14px;max-width:78ch}
+.md h1,.md h2,.md h3{margin:18px 0 6px;font-size:15px}.md h1{font-size:17px}
+.md pre{background:var(--surface2);padding:10px;border-radius:6px;overflow-x:auto;font:12.5px/1.5 var(--mono)}
+.md code{font-family:var(--mono);font-size:12.5px;background:var(--surface2);padding:0 4px;border-radius:3px}
+.md pre code{background:none;padding:0}
+.md table td,.md table th{border:1px solid var(--line);padding:4px 8px}
+.md blockquote{border-left:3px solid var(--line);margin:8px 0;padding:2px 12px;color:var(--muted)}
+details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;background:var(--surface2);border-radius:6px;max-height:300px;overflow:auto}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:420px}

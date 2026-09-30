@@ -12,6 +12,9 @@ const path = require('node:path');
       const url=new URL(route.request().url()), p=url.pathname;
       if(p==='/auth/login'){login=url.search;return route.fulfill({contentType:'text/html',body:'<title>login</title>'});}
       if(p==='/')return route.fulfill({contentType:'text/html',body:fs.readFileSync(path.join(__dirname,'../index.html'),'utf8')});
+      // The page's own scripts and styles come from disk; every other script stubs out.
+      const own=p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
+      if(own&&fs.existsSync(path.join(__dirname,'..',own[1])))return route.fulfill({contentType:own[1].endsWith('.css')?'text/css':'application/javascript',body:fs.readFileSync(path.join(__dirname,'..',own[1]),'utf8')});
       if(p.endsWith('.js'))return route.fulfill({contentType:'application/javascript',body:''});
       if(p.startsWith('/api/'))return route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:{code:'identity',detail:'Sign in',sign_in:'/auth/login'}})});
       return route.fulfill({contentType:'application/json',body:'{}'});

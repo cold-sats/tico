@@ -41,10 +41,10 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       const request = route.request(), p = new URL(request.url()).pathname, method = request.method();
       const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
-      const module = p.match(/\/tico\/ui\/([^/]+\.js)$/);
+      const module = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (module) {
         const file = path.join(__dirname, '..', module[1]);
-        if (fs.existsSync(file)) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(file, 'utf8')});
+        if (fs.existsSync(file)) return route.fulfill({contentType: module[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')});
       }
       if (p === '/api/me') return json(me);
       if (p === '/api/v2/config') return json(CONFIG);

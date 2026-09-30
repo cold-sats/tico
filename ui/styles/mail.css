@@ -1,0 +1,63 @@
+/* ui/styles/mail.css — Mail page.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* Mail: choose a person's inbox, then read its messages or the inbox agent's instructions. */
+#main.mail-layout{max-width:1280px}
+.mail-shell{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;align-items:start}
+.mail-boxes{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.mail-boxes h2{font-size:12px;color:var(--muted);font-weight:600;margin:0;padding:14px 14px 8px}
+.mail-box-link{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:10px 14px;border:0;background:none;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.mail-box-link:hover{background:var(--surface2)}
+.mail-box-link.on{background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent)}
+.mail-box-link .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-box-link .count{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mail-box-link .agent-mark{font-family:"Material Symbols Outlined";font-size:17px;color:var(--accent)}
+.mail-main{min-width:0}
+.mail-main-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.mail-main-head h2{font-size:17px;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.mail-tab{border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);padding:8px 10px;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
+.mail-tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.mail-agent-view{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:18px 20px;min-height:240px}
+.mail-agent-view .mail-agent-text{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.6 var(--mono);margin:12px 0 0}
+.mail-agent-view .mail-agent-meta{font-size:12px;color:var(--muted)}
+.mail-toolbar{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.mail-toolbar input[type=search]{flex:1;min-width:0}
+.mail-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.mail-chip{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
+.mail-chip:hover{color:var(--ink);border-color:var(--ink)}
+.mail-chip.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.mail-fresh{font-size:12.5px;color:var(--muted);margin:0 0 12px}
+.mail-split{display:grid;grid-template-columns:minmax(300px,.95fr) minmax(340px,1.15fr);border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);min-height:min(68vh,720px);overflow:hidden}
+.mail-list{border-right:1px solid var(--line);min-width:0;overflow-y:auto;max-height:min(68vh,720px)}
+.mail-row{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px 10px;width:100%;padding:10px 14px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.mail-row:hover{background:var(--surface2)}
+.mail-row.on{background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.mail-row .when{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
+.mail-row .who{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-row .subj{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-row .snip{color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-row .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.mail-thread{min-width:0;overflow-y:auto;max-height:min(68vh,720px);padding:18px 20px 24px}
+.mail-thread .empty{padding:24px 8px}
+.mail-thread h2{font-size:18px;line-height:1.3;margin:0 0 14px}
+.mail-msg{padding:14px 0;border-top:1px solid var(--line)}
+.mail-msg:first-of-type{border-top:0;padding-top:0}
+.mail-msg .meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin:0 0 8px;font-size:13px}
+.mail-msg .who{font-weight:500}
+.mail-body{margin:0;padding:12px 14px;background:var(--bg);border-radius:8px;font:13px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.mail-more{display:flex;justify-content:center;padding:10px}
+@media (max-width:860px){
+  .mail-shell{grid-template-columns:1fr}
+  .mail-boxes{border:0;background:none;overflow:auto}
+  .mail-boxes h2{padding:0 0 8px}
+  .mail-box-list{display:flex;gap:6px}
+  .mail-box-link{width:auto;flex:none;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--surface)}
+  .mail-toolbar{flex-wrap:wrap}
+  .mail-toolbar input[type=search]{flex-basis:100%}
+  .mail-split{grid-template-columns:1fr;min-height:0}
+  .mail-list,.mail-thread{max-height:none}
+  .mail-split.thread-open .mail-list{display:none}
+  .mail-split:not(.thread-open) .mail-thread{display:none}
+  .mail-back{display:inline-block;margin:0 0 10px;border:0;background:none;color:var(--accent);padding:0;cursor:pointer;font:inherit}
+}
+@media (min-width:861px){.mail-back{display:none}}

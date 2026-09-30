@@ -1,0 +1,81 @@
+/* ui/styles/layout.css — Main column, desktop-app nudge, the phone shell (bottom nav, drawer).
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* main */
+#main{grid-column:2;grid-row:2;min-width:0;padding:8px 28px 60px;overflow-y:auto;max-width:1180px}
+#tree .node[draggable="true"]{cursor:grab}#tree .node.dragging{opacity:.5}#tree .node.drop-target{outline:2px solid var(--accent);outline-offset:1px;border-radius:6px}
+/* The nudge to the desktop app: browsers only, dismissable for a week (ui: appNudge). */
+/* The top bar holds the desktop-app nudge; search lives above the account in the sidebar. */
+#topbar{grid-column:2;grid-row:1;flex-wrap:wrap;display:flex;align-items:flex-start;justify-content:flex-end;gap:12px;padding:10px 28px 0}
+#app-nudge{flex:1;display:flex;align-items:center;gap:12px;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font-size:13.5px}
+#app-nudge .app-nudge-text{flex:1;min-width:0}
+#app-nudge .app-nudge-get{padding:6px 12px;border-radius:8px;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;white-space:nowrap}
+#app-nudge .app-nudge-close{border:0;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:4px}
+body.native #app-nudge{display:none}
+.row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+@media (max-width:1100px){body{grid-template-columns:300px 1fr}}
+@media (max-width:900px){body{grid-template-columns:270px 1fr}#side{width:270px}}
+/* phone: the frequent destinations live under the thumb; the full sidebar stays a drawer */
+#mobile-nav{display:none}
+#side-backdrop{display:none}
+@media (max-width:760px){
+  body{display:block}
+  #side{position:fixed;top:0;left:0;bottom:0;width:min(88vw,360px);height:auto;transform:translateX(-100%);transition:transform .2s}
+  body.drawer #side{transform:none;box-shadow:0 0 40px rgba(0,0,0,.35)}   /* a shadow on the closed drawer bleeds onto the page's left edge */
+  .side-close{display:block}
+  .side-head{display:flex;min-height:46px}
+  /* A phone drawer: full width, thumb-sized rows, and a chevron you can actually hit. */
+  #side{width:100vw;padding:0 10px}
+  .nav-link{font-size:16px;min-height:46px;padding:8px 12px;gap:12px}
+  .nav-icon{width:24px;height:24px;font-size:24px}
+  .side-scroll{padding:4px 0 12px}
+  .tree a.node{font-size:16px;min-height:46px;padding:6px 8px}
+  .tree .dept-label{font-size:13px;min-height:44px;display:flex;align-items:center;cursor:pointer}
+  .tree .cnt{font-size:12px;padding:1px 8px}
+  .chev{width:44px;height:44px;font-size:24px;margin-left:-8px}
+  .tree li:not(.dept) .noderow{padding-left:36px}
+  .tree ul{margin-left:14px}
+  .section-toggle{min-height:44px;font-size:13px}
+  /* iOS Safari zooms into any field whose text is under 16px and leaves the page zoomed, so on a
+     phone every text field is 16px. Zoom itself stays allowed. */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),textarea,select{font-size:16px!important}
+  .help-link{width:44px;height:44px;font-size:16px}
+  #side-backdrop{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.38)}
+  body.drawer #side-backdrop{display:block}
+  body.drawer{overflow:hidden}
+  #main{padding:18px 12px calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 12px);max-width:none}
+  #mobile-nav{position:fixed;z-index:18;left:0;right:0;bottom:0;height:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:start;padding:6px 4px env(safe-area-inset-bottom);border-top:1px solid var(--line);background:var(--surface);background:color-mix(in srgb,var(--surface) 94%,transparent);box-shadow:0 -5px 20px rgba(0,0,0,.08);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);transition:transform .16s ease,visibility .16s}
+  .mobile-nav-item{min-width:0;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:3px 2px;border:0;background:transparent;color:var(--muted);font:500 10.5px/1.1 var(--sans);cursor:pointer;text-decoration:none;-webkit-tap-highlight-color:transparent}
+  .mobile-nav-item:hover{text-decoration:none}
+  .mobile-nav-item.cur{color:var(--accent)}
+  .mobile-nav-icon{
+    width:25px;height:25px;display:flex;align-items:center;justify-content:center;border-radius:50%;
+    overflow:hidden;user-select:none;font-family:"Material Symbols Outlined";
+    font-weight:300;font-style:normal;font-size:24px;line-height:1;
+    letter-spacing:normal;text-transform:none;white-space:nowrap;
+    font-variation-settings:"FILL" 0,"wght" 300,"GRAD" 0,"opsz" 24;
+    font-feature-settings:"liga";-webkit-font-feature-settings:"liga";
+    -webkit-font-smoothing:antialiased;
+  }
+  body.mobile-composer-focus #mobile-nav{visibility:hidden;pointer-events:none;transform:translateY(100%)}
+  /* Org pops the bots up like floating action buttons, recent ones nearest the
+     thumb. No animation ("just make it instant and fast"); a tap anywhere outside a bot, the
+     button that opened it included, closes it. */
+  .org-fan{position:fixed;inset:0;z-index:17;display:flex;align-items:flex-end;padding:calc(env(safe-area-inset-top) + 12px) 12px calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 10px);background:rgba(0,0,0,.28);cursor:pointer}   /* the pointer cursor makes iOS deliver a tap on the backdrop */
+  .org-fan[hidden]{display:none}
+  .org-fan-list{list-style:none;display:flex;flex-direction:column-reverse;align-items:flex-start;gap:12px;max-height:100%;overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;padding:12px 24px 20px 12px;margin:0 0 -20px -12px}
+  .org-fan-list>li{margin:0;padding:0;border:0;background:none}
+  .org-fan-item{display:flex;align-items:center;gap:12px;min-height:52px;min-width:180px;padding:8px 20px 8px 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);font:500 16px/1.2 var(--sans);box-shadow:0 6px 18px rgba(0,0,0,.22);-webkit-tap-highlight-color:transparent}
+  .org-fan-item .org-fan-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--wait);color:#111;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+  .org-fan-search-icon{width:34px;height:34px;border-radius:50%;background:var(--surface2);color:var(--ink);font-size:20px}
+  .org-fan-item .org-fan-recent{color:var(--muted);font-size:11px;font-weight:400}
+  .toast{bottom:calc(var(--mobile-nav-height) + env(safe-area-inset-bottom) + 12px)}
+  body.mobile-composer-focus .toast{bottom:12px}
+  #rail{flex:none}
+  .ln .who{max-width:96px}.ln .age{font-size:11px}
+  form.task .r1{grid-template-columns:1fr 1fr}form.task .r1 input{grid-column:1/-1}
+  .trow summary{grid-template-columns:40px 1fr auto}.trow summary .muted.tnum{display:none}
+  .acc-summary .k{width:auto;display:block}
+  .tabs.slim{margin-left:0}
+  section.card,details.card{padding:12px 12px;border-radius:6px}
+  .ln{max-width:100%;overflow:hidden}
+}

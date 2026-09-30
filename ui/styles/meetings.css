@@ -1,0 +1,230 @@
+/* ui/styles/meetings.css — Meetings page: ask pill, list, detail dialog, Import, sections and Push.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* the ask pill: one line at the top of the Notes page - talk, type, attach, send */
+.ask{margin:0 0 16px}
+.p-pill{display:flex;align-items:center;gap:6px;min-height:46px;padding:5px 6px 5px 5px;background:var(--surface);border:1px solid var(--line);border-radius:24px}
+.p-pill:focus-within{border-color:var(--accent)}
+.p-pill.over{border-color:var(--accent);box-shadow:0 0 0 3px var(--run-bg)}
+.ask textarea{flex:1;min-width:0;height:32px;max-height:120px;padding:5px 4px;border:0;background:transparent;border-radius:0;resize:none;overflow-y:auto;line-height:1.5}
+.ask textarea:focus{outline:0}
+.p-icon{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:0;border-radius:18px;background:transparent;color:var(--muted);cursor:pointer}
+.p-icon:hover{background:var(--surface2);color:var(--ink)}
+.p-icon svg{width:17px;height:17px;display:block}
+@keyframes askblink{50%{opacity:.3}}
+.p-go{position:relative;display:flex;flex:none}
+.p-go button{height:34px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:500;cursor:pointer}
+.p-go .go{max-width:190px;padding:0 14px;border-radius:17px 0 0 17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p-go .caret{padding:0 9px;border-radius:0 17px 17px 0;box-shadow:inset 1px 0 0 rgba(0,0,0,.16)}
+.p-go button:hover{filter:brightness(1.06)}
+.p-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:236px;max-height:330px;overflow:auto;padding:5px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.2)}
+.p-menu button{display:flex;align-items:center;gap:9px;width:100%;height:auto;padding:6px 9px;border-radius:7px;background:transparent;color:var(--ink);font:inherit;font-weight:400;text-align:left}
+.p-menu button:hover{background:var(--surface2);filter:none}
+.p-menu button>span:nth-child(2){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.p-menu .auto{width:18px;text-align:center;color:var(--accent)}
+.p-menu .tick{margin-left:auto;color:var(--accent)}
+.p-menu .sep{height:1px;margin:5px 2px;background:var(--line)}
+.p-save{flex:none;height:34px;padding:0 13px;border:1px solid var(--line);border-radius:17px;background:transparent;color:var(--ink);cursor:pointer}
+.p-save:hover:not(:disabled){background:var(--surface2)}
+.p-save:disabled,.p-go button:disabled{opacity:.45;cursor:default}
+.chat-meta{display:flex;align-items:center;gap:6px}
+   running (spinner) or finished. Muted, iconed, never a bubble. */
+/* unsent notes: a quiet count under the pill, expanding to the list */
+/* the kind glyph is used in the strip, the Notes list and the detail heading */
+.nk{flex:none;display:inline-flex;align-items:center;color:var(--muted)}
+.nk svg{width:15px;height:15px;display:block}
+.p-chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px}
+.p-chips:not(:empty){padding-top:7px}
+.p-chips span{padding:2px 8px;border-radius:10px;background:var(--surface2);font-size:12px}
+.p-chips span.has-thumb{display:inline-flex;align-items:center;gap:6px;padding:3px 8px 3px 3px}
+.p-thumb{flex:none;width:44px;height:44px;padding:0;border:0;border-radius:7px;overflow:hidden;background:var(--bg);cursor:zoom-in}
+.p-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+@media (max-width:760px){
+  .p-pill{flex-wrap:wrap;border-radius:14px;padding:8px}
+  /* iOS Safari zooms focused controls below 16px. Keep page zoom available, but not automatic. */
+  .ask textarea{order:-1;flex:1 0 100%;padding:4px 6px;font-size:16px;touch-action:manipulation}
+  .p-chips{padding-left:var(--s1);padding-right:var(--s1)}
+  .p-go{margin-left:0}
+  /* the bot page composer stays in reach while the thread scrolls */
+  #chat-composer{position:sticky;bottom:0;z-index:6;margin:12px -12px 0;padding:0 12px 6px;background:var(--bg)}
+}
+
+/* notes page */
+.meeting-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:16px}
+.meeting-head h1{font-size:24px;line-height:1.2;margin:2px 0 3px}
+/* notes page: one card, list on the left, the open note on the right; below 900px the two swap
+   in and out like a phone mail app (the .detail class on .notes shows the open note) */
+.notes-head{display:grid;grid-template-columns:auto minmax(180px,1fr) auto;align-items:center;gap:12px;margin-bottom:14px}
+.notes-head h1{font-size:24px;line-height:1.2;margin:0 0 2px}
+.notes-head .primary{flex:none;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.notes-head input[type=search]{width:100%;min-width:0;max-width:440px;justify-self:end}
+.round-add.primary{flex:0 0 36px;width:36px;height:36px;min-width:36px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;font-size:25px;font-weight:400;line-height:1}
+.notes{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.notes-list{min-width:0}
+.notes-filters{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);overflow-x:auto}
+.notes-filters[hidden]{display:none}
+.notes-filters select{flex:none;width:auto;max-width:220px;font:inherit;font-size:13px;color:var(--ink);padding:5px 8px}
+.notes-filters .notes-count{margin-left:auto;padding-left:8px;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.notes-rows{overflow:auto}
+.meet-sources{margin:0 0 14px}
+.meet-sources[hidden]{display:none}
+.meet-sources-label{margin:0 0 6px;font-size:12px;font-weight:500;color:var(--muted)}
+.meet-tiles{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
+.meet-tile{flex:1 0 152px;display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;text-align:left;text-decoration:none;cursor:pointer}
+.meet-tile:hover:not(:disabled){border-color:var(--accent)}
+.meet-tile:disabled{cursor:default;opacity:1}
+.meet-tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mt-text{display:flex;flex-direction:column;min-width:0;line-height:1.3}
+.mt-text b{font-size:13px;font-weight:600;white-space:nowrap}
+.mt-status{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap}
+.mt-status .dot{width:7px;height:7px}
+.meet-tile[data-state=on] .dot{background:var(--ok)}
+.meet-tile[data-state=delayed] .dot,.meet-tile[data-state=wait] .dot{background:var(--wait)}
+.meet-tile[data-state=error] .dot{background:var(--fail)}
+.meet-tile[data-state=error] .mt-status{color:var(--fail)}
+.meet-tile[data-state=off] .mt-status{color:var(--accent);font-weight:500}
+.meet-tiles.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));overflow:visible}
+.meet-tile.big{flex-direction:column;justify-content:center;gap:10px;padding:18px 10px 16px;text-align:center}
+.meet-tile.big .mt-text{align-items:center}
+.meet-tile.big .mt-text b{font-size:14px}
+.msrc-logo{flex:none;width:var(--s,32px);height:var(--s,32px);border-radius:50%;display:inline-grid;place-items:center;background:var(--surface2);border:1px solid var(--line);color:var(--ink)}
+.msrc-logo svg{width:60%;height:60%}
+.msrc-logo.tint{border-color:transparent;background:color-mix(in srgb,hsl(var(--h) 60% 50%) 20%,var(--surface));color:color-mix(in srgb,hsl(var(--h) 65% 42%) 72%,var(--ink))}
+.msrc-logo .tool-initials{font-size:calc(var(--s,32px) * .36);font-weight:600}
+.meet-blank{display:flex;flex-direction:column;align-items:center;gap:14px;padding:36px 24px 40px;text-align:center}
+.meet-blank h2{margin:0;font-size:18px}
+.meet-blank .meet-tiles{width:100%;max-width:840px}
+.meet-blank .primary{padding:9px 22px}
+.meet-or{font-size:12.5px;color:var(--muted)}
+.meet-list{list-style:none;margin:0;padding:0}
+.meet-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+.meet-row:last-child{border-bottom:0}
+.meet-row:hover{background:var(--surface2)}
+.meet-main{min-width:0}
+.note-title{display:block;max-width:100%;border:0;background:none;padding:0;color:var(--ink);font:inherit;font-weight:500;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meet-row:hover .note-title{color:var(--accent)}
+.meet-meta{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;margin-top:2px;font-size:12.5px;color:var(--muted)}
+.meet-meta>*+*::before{content:'·';margin-right:6px}
+.meet-who{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.meet-side{display:flex;align-items:center;gap:8px}
+.meet-tasks{padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--accent)}
+.meet-faces{display:flex;align-items:center}
+.meet-faces .av{flex:none;border:2px solid var(--surface);margin-left:-6px}
+.meet-faces .av:first-child{margin-left:0}
+.notes-modal{width:100vw;height:100vh;max-width:none;max-height:none;margin:0;border-radius:0}
+.notes-modal[open]{display:flex;flex-direction:column}
+.notes-modal .notes-detail{padding-top:0;flex:1;min-height:0}
+.notes-modal-close{display:flex;justify-content:flex-end;padding:10px 14px;flex:none}
+.notes-modal-close button{padding:4px 10px}
+.notes.detail .notes-list{display:none}
+.notes:not(.detail) .notes-detail{display:none}
+.notes-empty{padding:28px 18px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5}
+.notes-empty button{margin-top:10px}
+.notes-detail{padding:18px 22px 20px;min-width:0}
+.notes-back{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:0 0 10px;color:var(--accent);font:inherit;cursor:pointer}
+.note-head{display:flex;align-items:flex-start;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.note-head>div{flex:1;min-width:0}
+.note-head h2{display:flex;align-items:center;gap:8px;font-size:19px;line-height:1.25;min-width:0;overflow-wrap:anywhere}
+.note-head h2 .nk svg{width:17px;height:17px}
+.note-head .meta{color:var(--muted);font-size:12.5px;margin-top:3px}
+.note-head .pill{margin-top:5px}
+.note-head input{font-size:17px;font-weight:600;padding:6px 9px}
+.note-content{margin-top:14px;line-height:1.55}
+.note-body{white-space:pre-wrap;max-height:340px;overflow:auto;overflow-wrap:anywhere}
+.note-body.aside{margin-top:12px;padding:8px 12px;border-left:2px solid var(--line);color:var(--ink)}
+.note-body.aside .lbl{display:block;color:var(--muted);font-size:11.5px;margin-bottom:2px}
+.note-links{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:12.5px;color:var(--muted)}
+.note-links .linkish{text-decoration:none}.note-links .linkish:hover{text-decoration:underline}
+.note-links details{flex:1 0 100%}.note-links summary{cursor:pointer;color:var(--muted)}.note-links summary:hover{color:var(--ink)}
+.note-links details[open] summary{margin-bottom:6px}
+.note-edit textarea{min-height:140px}
+.note-transcript{max-height:320px;overflow:auto;border-radius:var(--radius);padding:var(--s2) var(--s3);background:var(--bg)}
+.note-transcript p{margin:7px 0;font-size:13px}.note-transcript strong{font-weight:600}
+.note-send{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:20px;padding-top:14px;border-top:1px solid var(--line)}
+.note-send select{width:auto;flex:1 1 180px;max-width:280px}
+.note-send textarea{flex:1 0 100%;min-height:42px;resize:vertical}
+.note-send .spacer{flex:1}.note-send .danger{color:var(--fail)}
+.note-send .hint{flex:1 0 100%;color:var(--muted);font-size:12px}.note-send .hint:empty{display:none}
+
+/* the meeting dialog: text on the left, the sections on the right */
+.notes-modal:has(.meet-done-cols) .notes-detail{display:flex;flex-direction:column;height:calc(100% - 44px);min-height:0}
+.meet-live-items{min-width:0;display:flex;flex-direction:column;min-height:0}
+.meet-live-items .meet-sections{flex:1;min-height:0;display:flex;flex-direction:column}
+.meet-live-items .meet-sections{margin-top:0}
+.meet-live-items .meet-sections .cols{grid-template-columns:1fr}
+.meet-live-items .meet-sec{border:0;padding:0 0 8px}
+.meet-live-items .meet-sec>header{position:sticky;top:0;background:var(--surface);padding:6px 0;z-index:1}
+.meet-live-items .meet-sec>header .count{font-size:11px;color:var(--muted);background:var(--bg);border-radius:10px;padding:1px 7px}
+.meet-item .sec-tag{display:inline-block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-right:6px}
+.meet-item .at{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:6px;cursor:pointer}
+.meet-item .at:hover{color:var(--ink)}
+.meet-done-cols{display:grid;grid-template-columns:minmax(300px,5fr) minmax(320px,6fr);gap:16px;margin-top:14px;align-items:start}
+@media (max-width:900px){.meet-done-cols{grid-template-columns:1fr}}
+.meet-done-main{min-width:0;display:flex;flex-direction:column;gap:10px}
+.meet-done-main .note-content{margin-top:0}
+.meet-done-cols .meet-sections{margin-top:0}
+.note-head h2[data-editable]{cursor:text;border-radius:6px;padding:2px 6px;margin-left:-6px}
+.note-head h2[data-editable]:hover{background:var(--bg)}
+.note-head input.meet-title{font-size:19px;font-weight:600;width:100%;padding:2px 6px;margin-left:-6px}
+.meta .note-sub{margin-left:8px}
+.meet-comments{border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.meet-comments h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0}
+.meet-comment{font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.meet-comment .who{font-weight:600;margin-right:6px}
+.meet-comment .when{font-size:11px;color:var(--muted);margin-left:6px;font-family:var(--mono)}
+.meet-comment-form{display:flex;gap:6px;align-items:flex-end}
+.meet-comment-form textarea{flex:1;min-height:36px;max-height:120px;resize:vertical;font-size:13px}
+
+/* Import dialog */
+.import-modal{width:min(640px,94vw);max-height:92vh;overflow:auto}
+.import-form{display:flex;flex-direction:column;gap:12px;padding:18px 20px}
+.import-form header{display:flex;align-items:center;justify-content:space-between}
+.import-form h2{margin:0;font-size:18px}
+.import-form label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.import-form label input,.import-form label textarea,.import-form label select{color:var(--ink);font-size:14px}
+.import-people{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:8px}.import-people legend{font-size:13px;color:var(--muted);padding:0;margin-bottom:4px}.import-form .bot-editor-owners label{flex-direction:row;align-items:center;color:var(--ink)}
+.import-form textarea{resize:vertical}
+.import-form .hint{margin:-6px 0 0;color:var(--muted);font-size:12.5px}
+.import-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:640px){.import-grid{grid-template-columns:1fr}}
+.meet-drop{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px dashed var(--line);border-radius:8px;font-size:13px;color:var(--muted)}
+.meet-drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+.import-form label.import-private{flex-direction:row;align-items:center;gap:8px}
+.import-form .row{display:flex;gap:8px;align-items:center}
+/* the three sections and Push */
+.meet-sections{margin-top:18px}
+.meet-sections:empty{display:none}
+.meet-sections .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.meet-sec{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;min-width:0}
+.meet-sec>header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.meet-sec>header h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0;flex:1}
+.meet-sec>header .linkish{font-size:12px;text-decoration:none}
+.meet-sec>header .linkish:hover{text-decoration:underline}
+.meet-item{padding:8px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.5;min-width:0}
+.meet-sec .meet-item:first-of-type{border-top:0}
+.meet-item.gone{opacity:.55}
+.meet-item .t{overflow-wrap:anywhere}
+.meet-item .sub{display:block;color:var(--muted);font-size:11.5px;margin-top:2px;overflow-wrap:anywhere}
+.meet-item blockquote{margin:5px 0 0;padding-left:8px;border-left:2px solid var(--line);color:var(--muted);font-size:12px;cursor:pointer;overflow-wrap:anywhere}
+.meet-item blockquote:hover{color:var(--ink)}
+.meet-item .row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;margin-top:5px}
+.meet-item .row .linkish{font-size:12px;text-decoration:none}
+.meet-item .row .linkish:hover{text-decoration:underline}
+.meet-item .dup{margin-top:5px;font-size:12px;color:var(--muted)}
+.meet-item form{margin-top:6px;display:flex;flex-direction:column;gap:6px}
+.meet-item textarea{min-height:52px;resize:vertical}
+.meet-item input,.meet-item textarea{font-size:12.5px;padding:5px 7px}
+.meet-empty{color:var(--muted);font-size:12px;padding:4px 0}
+.meet-seeked{background:color-mix(in srgb,var(--accent) 18%,transparent);border-radius:4px}
+@media (max-width:640px){.meet-sections .cols{grid-template-columns:1fr}}
+
+@media (max-width:900px){
+  .notes{grid-template-columns:1fr;min-height:0}
+  .notes-list{border-right:0}.notes-rows{max-height:none}
+  .notes.detail .notes-list{display:none}
+  .notes:not(.detail) .notes-detail{display:none}
+  .notes:not(.detail) .note-row.cur{background:transparent;box-shadow:none}
+  .notes-back{display:inline-flex}
+  .notes-detail{padding:12px 14px 18px}
+  .note-send select{max-width:none}
+}
+@media (max-width:640px){.meeting-head{align-items:flex-start;flex-direction:column}.notes-head{grid-template-columns:minmax(0,1fr) auto}.notes-head input[type=search]{grid-column:1 / -1;grid-row:2;max-width:none;justify-self:stretch}.note-send select{flex:1 0 100%;max-width:none}.kbd-hint{display:none}.meet-row{padding:12px}.meet-blank{padding:24px 14px 28px}.meet-meta .meet-who{flex-basis:100%;margin-top:1px}.meet-meta .meet-who::before{content:none}.meet-tiles.big{grid-template-columns:1fr 1fr}.meet-tile.big{flex-direction:row;justify-content:flex-start;gap:10px;padding:10px 12px;text-align:left}.meet-tile.big .mt-text{align-items:flex-start}.meet-tile.big .mt-text b{font-size:13px}}

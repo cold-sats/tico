@@ -1,0 +1,41 @@
+/* ui/styles/forms.css — Form controls: text inputs, search box, file inputs, checkboxes and radios.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* Form controls. One base rule for every text-like control (any type, or no type at all), wrapped in :where() so it
+   has no specificity of its own: every component rule below (bot editor, compact search fields, pill composers) still wins.
+   color-scheme is set per theme on :root, so date pickers, spinners, dropdowns and scrollbars follow the theme. */
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select){box-sizing:border-box;width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;accent-color:var(--accent)}
+:where(textarea){resize:vertical;line-height:1.45}
+:where(select){cursor:pointer;text-overflow:ellipsis}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):hover{border-color:color-mix(in srgb,var(--muted) 55%,var(--line))}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):focus{border-color:var(--accent);outline:3px solid color-mix(in srgb,var(--accent) 28%,transparent);outline-offset:0}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):disabled{background:var(--surface2);color:var(--muted);cursor:not-allowed;opacity:.7}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea)[readonly]{background:var(--surface2);color:var(--muted)}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):user-invalid{border-color:var(--fail);outline-color:color-mix(in srgb,var(--fail) 28%,transparent)}
+:where(input,textarea)::placeholder{color:var(--muted);opacity:1}
+:where(input,textarea):disabled::placeholder{opacity:.6}
+option,optgroup{background:var(--surface);color:var(--ink)}
+/* the browser's autofill (Chrome, Safari, 1Password) paints its own pale yellow or blue: keep the theme */
+input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,textarea:-webkit-autofill,select:-webkit-autofill{-webkit-text-fill-color:var(--ink);caret-color:var(--ink);box-shadow:0 0 0 1000px var(--surface) inset;transition:background-color 9999s ease-out}
+input:autofill,textarea:autofill,select:autofill{color:var(--ink);box-shadow:0 0 0 1000px var(--surface) inset}
+/* numbers: no stepper arrows (they are tiny and clash with the rounded field); type, or use the arrow keys */
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+/* one search box everywhere: no native chrome, a magnifier on the left, a clear button on the right, the same height and radius on every page */
+input[type=search]{-webkit-appearance:none;appearance:none;padding:9px 12px 9px 34px;line-height:1.3;border-radius:8px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237f8a96' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:11px center}
+input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button{-webkit-appearance:none;display:none}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:block;width:14px;height:14px;margin:0 0 0 6px;cursor:pointer;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E") center/contain no-repeat;opacity:.7}
+input[type=search]::-webkit-search-cancel-button:hover{opacity:1}
+.settings-combo input[type=search]::-webkit-search-cancel-button{display:none}
+/* file inputs: the browser's "Choose file" button is drawn like the app's ghost button */
+input[type=file]{box-sizing:border-box;max-width:100%;padding:5px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+input[type=file]::file-selector-button{margin:0 10px 0 0;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink);font:inherit;font-weight:500;cursor:pointer}
+input[type=file]:hover::file-selector-button{background:var(--surface2)}
+input[type=file]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* checkboxes and radios: one size, the accent colour, centred on their label's first line */
+:where(input[type=checkbox],input[type=radio]){accent-color:var(--accent);width:16px;height:16px;margin:0 4px 0 0;vertical-align:-3px;cursor:pointer;flex:none}
+:where(input[type=checkbox],input[type=radio]):disabled{cursor:not-allowed}
+input[type=checkbox]:focus-visible,input[type=radio]:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus-visible,a:focus-visible,summary:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
+button.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:8px 14px;font-weight:500;cursor:pointer}
+button.ghost{background:transparent;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--ink)}
+button:disabled{opacity:.5;cursor:default}

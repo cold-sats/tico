@@ -20,9 +20,9 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
       await page.route('**/*', route => {
         const req = route.request(), p = new URL(req.url()).pathname;
         const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
-        const ui = p.match(/\/tico\/ui\/([^/]+\.js)$/);
+        const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
         if (ui && fs.existsSync(path.join(__dirname, '..', ui[1])))
-          return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
+          return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
         if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
         if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
         const config = {version: update ? update.current : '0.1.0', update, app_name: 'Tico'};

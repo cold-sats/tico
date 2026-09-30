@@ -173,10 +173,10 @@ function recruitFor({department, briefing, share}) {
       // The page's own modules come from disk: index.html shares state with them (docs-page.js
       // declares DOC_POLL, which route() clears on every navigation), so an empty stub would
       // break every route. Everything else that ends in .js still stubs out.
-      const module = p.match(/\/tico\/ui\/([^/]+\.js)$/);
+      const module = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (module) {
         const file = path.join(__dirname, '..', module[1]);
-        if (fs.existsSync(file)) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(file, 'utf8')});
+        if (fs.existsSync(file)) return route.fulfill({contentType: module[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')});
       }
       // The icon font, so the screenshots show icons and not their names.
       if (p.startsWith('/vendor/')) {

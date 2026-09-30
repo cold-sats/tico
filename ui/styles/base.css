@@ -1,0 +1,35 @@
+/* ui/styles/base.css — Demo, stale-tab and usage banners; spacing scale and element defaults.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+/* Demo mode (python -m backend.demo): a strip nobody can close, and the page below it shortened to fit. */
+#demo-banner{display:none}
+#stale-banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+#stale-banner[hidden]{display:none}
+#usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+#usage-notice[hidden]{display:none}
+.privacy-row{display:flex;align-items:center;gap:8px;font-size:14px}.privacy-row input{width:auto;flex:none}
+html.demo{--demo-h:30px;padding-top:var(--demo-h)}
+html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:12.5px;line-height:1.2;white-space:nowrap;overflow:hidden}
+html.demo #demo-banner strong{color:var(--ink);font-weight:650}
+html.demo #demo-banner span{overflow:hidden;text-overflow:ellipsis}
+html.demo body{min-height:calc(100vh - var(--demo-h))}
+html.demo #side{top:var(--demo-h)}
+html.demo #main.chat-layout{height:calc(100dvh - var(--demo-h))}
+@media (min-width:761px){html.demo #main.chat-layout{height:100%}}
+@media (max-width:760px){
+  html.demo #demo-banner span{display:none}
+  html.demo #side{height:auto;bottom:0}
+  html.demo body:has(#main.chat-layout){height:calc(100dvh - var(--demo-h))}
+  html.demo #main.chat-layout{top:calc(var(--chat-viewport-top,0px) + var(--demo-h));height:calc(var(--chat-viewport-height,100dvh) - var(--demo-h))}
+}
+/* one spacing scale, used everywhere instead of ad-hoc pixel values */
+:root{--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:22px;--s6:32px;--radius:9px;--mobile-nav-height:64px}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:14px/1.5 var(--sans);color:var(--ink);background:var(--bg);display:grid;grid-template-columns:328px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+button,input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
+h2{font-size:15px;color:var(--ink);letter-spacing:.01em}
+.mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.tnum{font-variant-numeric:tabular-nums}

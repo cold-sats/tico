@@ -1,0 +1,21 @@
+/* ui/styles/tokens.css — Font face, light and dark colour tokens.
+   The cascade runs in the order index.html links these files; keep rules in order. */
+@font-face{font-family:"Material Symbols Outlined";font-style:normal;font-weight:300;font-display:block;src:url(/vendor/fonts/material-symbols-outlined.woff2) format("woff2")}
+:root{
+  --bg:#f4f6f5;--surface:#ffffff;--surface2:#eceff0;--ink:#1a222c;--muted:#66717f;--line:#dde2e0;
+  --accent:#0f6e56;--accent-ink:#ffffff;
+  --run:#2b6cb0;--wait:#b7791f;--fail:#c53030;--idle:#9aa5b1;--ok:#2f855a;
+  --run-bg:#e6f0fb;--wait-bg:#fbf1dc;--fail-bg:#fde8e8;--ok-bg:#e3f4ea;--idle-bg:#eef1f3;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12161b;--surface:#1a2027;--surface2:#232b34;--ink:#e6eaf0;--muted:#94a0ad;--line:#2b343e;
+  --accent:#3fb593;--accent-ink:#0b1a15;
+  --run:#7fb3f0;--wait:#e2b25a;--fail:#f08080;--idle:#6f7d8b;--ok:#6cc48f;
+  --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:#232b34;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161b;--surface:#1a2027;--surface2:#232b34;--ink:#e6eaf0;--muted:#94a0ad;--line:#2b343e;
+  --accent:#3fb593;--accent-ink:#0b1a15;
+  --run:#7fb3f0;--wait:#e2b25a;--fail:#f08080;--idle:#6f7d8b;--ok:#6cc48f;
+  --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:#232b34;color-scheme:dark}
