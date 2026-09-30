@@ -15,6 +15,12 @@ All notable changes to Tico are recorded here. The format follows
   calls, error reporting or updater, and no uploads to an attachments bucket. A banner on every page says "Rehearsal: nothing runs
   or leaves this server", and the config carries `rehearsal: true`. See docs/install.md, "Rehearse a migration".
 
+### Changed
+- **Open-source basics.** SECURITY.md now names supported versions (the latest release) and what to expect from a report;
+  CONTRIBUTING.md covers running the tests, releases by tag and a DCO sign-off (`git commit -s`, no CLA); a Contributor Covenant 2.1
+  CODE_OF_CONDUCT.md, issue forms (bug report, feature request), a pull request template and a Community section in the README
+  were added.
+
 ### Fixed
 - **The Docker server no longer overrides `TICO_SCHEDULER=0`.** The entrypoint forced `TICO_SCHEDULER=1`, so an explicit off was
   ignored (and compose did not pass the variable to the container at all). Unset still means on. compose.yaml now also passes

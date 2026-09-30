@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Tico does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Using Tico? **Help > Contact support** can attach redacted diagnostics, so you may not need to fill this in by hand.
+
+        Security problem? Do not file it here: [report it privately](https://github.com/ticoteam/tico/security/advisories/new).
+        Never paste a password, token, key or real customer data.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown in Settings, or `TICO_VERSION`, or `git describe --tags` in a checkout.
+      placeholder: v0.2.17
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install type
+      options:
+        - Docker server
+        - Docker runner
+        - Mac runner
+        - Other (say which below)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happened instead. Error text and the relevant log lines help (`docker compose logs server`, `scripts/tico logs`), with secrets removed.
+    validations:
+      required: true
