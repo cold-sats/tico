@@ -50,7 +50,10 @@ See the shared approvals policy. In addition, each of these needs a human's Conf
 - **Unsubscribing** from anything, and arming or changing a routine.
 - Never read a mailbox you were not assigned. Never invent a need for the human: `hub/needs-owner` is
   for a deadline, money, legal risk, a commitment, or a question only they can answer.
-- Never paste a message body or an address list into a task. Use message ids and one-line reasons.
+- When you file a task from a message sent to your mailbox, put in it what the next bot needs: the sender,
+  the subject, the message's own text, the message id and a link to the thread. Leave out the other
+  recipients (to and cc), quoted earlier history and attachment contents unless a human asks. In a
+  brief or report to a human, use message ids and one-line reasons.
 
 ## Mail from strangers
 Before you act on a message from someone outside the team, check it: `printf '%s' "<subject and body>" | hub classify`

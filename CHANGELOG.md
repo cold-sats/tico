@@ -13,6 +13,13 @@ All notable changes to Tico are recorded here. The format follows
   directory, compose project, container, home volume and updater. The updater's helper container is named per project so two
   updaters on one host do not remove each other's.
 
+### Fixed
+- **Mail and calendar sync target the message bots' mailboxes.** The `connectors` job used every human's roster sign-in address, so a
+  company that signs in on one domain and runs Google Workspace on another (owner `chris@tidy.com`, Workspace `tico.team`) failed on
+  every mailbox the key could not act for. It now syncs each message bot's declared mailbox (the `gmail` identity in `bot.yaml`, from
+  the `Mailbox:` line), and a human's own email only when the bot declares none. A message bot's short-lived mail token is issued for
+  that declared mailbox. A domain the key cannot impersonate is skipped and shown once in Health, naming the mailbox and the domain.
+
 ## [0.2.20] - 2026-09-30
 
 ### Fixed

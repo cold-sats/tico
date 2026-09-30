@@ -99,8 +99,8 @@ def supervisor_token(mailbox, scopes):
         return credential_socket.request_mail(path, os.environ["HUB_TOKEN"], service, mailbox)
     except (OSError, ValueError) as e:
         raise Failure(f"the runner would not give this turn access to {mailbox}: {e}",
-                      "Only an inbox bot may read mail on an isolated runner, and only its own person's mailbox "
-                      "and the people below them. docs/mail.md, Works on Linux runners.")
+                      "Only an inbox bot may read mail on an isolated runner, and only the mailbox it declares "
+                      "and those of the people below its person. docs/mail.md, Works on Linux runners.")
 
 
 def credentials(mailbox, scopes=None, path=None, key_only=False):

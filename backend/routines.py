@@ -7,6 +7,7 @@ a Git branch. When one is due the hub opens a task for the bot with that text, a
 takes it from there like any other task.
 """
 import json
+import re
 from datetime import datetime, timezone
 
 from clients.manifest import tools_of
@@ -190,6 +191,77 @@ def _roster(c):
     if found:
         return P.load(json.loads(found[0]))
     return P.load({"people": H.humans(c)})
+
+
+MAILBOX = re.compile(r"^[^\s@{}<>]+@[^\s@{}<>]+\.[^\s@{}<>]+$")
+
+
+def declared_mailbox(config):
+    """The address a bot declares: the identity of its `gmail` tool in bot.yaml (BotOps fills it from the
+    `Mailbox:` line in the instructions). Empty when there is none, or when `{{mailbox}}` was never filled."""
+    for entry in tools_of(config) or []:
+        if isinstance(entry, dict) and str(entry.get("service", "")).lower() == "gmail":
+            addr = str(entry.get("identity") or "").strip().lower()
+            if MAILBOX.fullmatch(addr):
+                return addr
+    return ""
+
+
+def message_bot_mailboxes(c, roster=None):
+    """The mailboxes the message bots manage, one per person who has an `inbox_bot`:
+    [{"address", "person_id", "bot", "declared"}]. The address is the bot's declared mailbox, and the
+    person's own email only when the bot declares none. People who left (hidden) and archived bots are
+    skipped, and so is a mailbox that two bots share (listed once)."""
+    roster = roster if roster is not None else _roster(c)
+    out, seen = [], set()
+    for person in (roster or {}).get("people") or []:
+        bot = person.get("inbox_bot")
+        if not bot or person.get("hidden"):
+            continue
+        row = H.bot(c, bot)
+        if not row or row["state"] == "archived":
+            continue
+        found = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+        try:
+            config = json.loads(found["config_json"] or "{}") if found else {}
+        except ValueError:
+            config = {}
+        declared = declared_mailbox(config)
+        address = declared or str(person.get("email") or "").strip().lower()
+        if not MAILBOX.fullmatch(address) or address in seen:
+            continue
+        seen.add(address)
+        out.append({"address": address, "person_id": person["id"], "bot": bot, "declared": bool(declared)})
+    return out
+
+
+def mailbox_of(person, boxes):
+    """The address that stands for this person: their message bot's mailbox, else their own email."""
+    found = next((b["address"] for b in boxes if b["person_id"] == person.get("id")), "")
+    return found or str(person.get("email") or "").strip().lower()
+
+
+def person_for_mailbox(address, boxes, roster):
+    """The roster person a mailbox belongs to: by a bot's declared mailbox first, then by email."""
+    wanted = str(address or "").strip().lower()
+    found = next((b for b in boxes if b["address"] == wanted), None)
+    return (P.person(found["person_id"], roster) if found else None) or P.person_by_email(wanted, roster)
+
+
+def token_mailboxes(c, bot, roster=None):
+    """The mailboxes a message bot's turn may ask its runner for a token for: its person's (the mailbox the
+    bot declares, else their email), then the people below them in the org chart. Any other bot gets none."""
+    roster = roster if roster is not None else _roster(c)
+    who = P.inbox_person(bot, roster)
+    if not who:
+        return []
+    boxes = message_bot_mailboxes(c, roster)
+    out = []
+    for person in P.below(who["id"], roster):
+        addr = mailbox_of(person, boxes)
+        if addr and "@" in addr and addr not in out:
+            out.append(addr)
+    return out
 
 
 def inbox_of(bot, config, roster):

@@ -80,7 +80,7 @@ $HUB_DIR/scripts/mail.sh sync ack <id> ... --mailbox you@acme.example
 `mail sync` copies normalized messages into `<projects>/runtime/mail/mail.db` (`messages` plus a
 per-mailbox `sync_state` cursor). First run backfills `--backfill 90d`; later runs use Gmail
 history and, if that cursor has expired, `after:<last_run − 2d>`. `--all-roster` is every
-address on `registry/people.yaml`. The same rows are also written whenever `inbox`, `thread` or
+address on `registry/people.yaml`; it is for running the command by hand, and the runner's `connectors` job does not use it (see "Which mailboxes the sync covers" below). The same rows are also written whenever `inbox`, `thread` or
 `search` already fetches a message. Export/ack print and acknowledge a batch only — this
 command does not hold a Tico token or push to the server.
 
@@ -319,9 +319,12 @@ What the requester should know: the renewal needs a number I do not have.
 Audit: scripts/mail.sh audit --since 24h --employee <slug>
 ```
 
-Never paste a full message body into a task, and never paste an address list. Message ids and
-one line of context are enough for Ana to open the thread herself. Nothing from a mailbox
-goes into Slack.
+When a message bot files a task from an email sent to its mailbox, the task may include the
+sender, the subject, the message's own text, the message id and a link to the thread. That is
+what lets the next bot, such as a Support Agent, answer the question. Leave out the other
+recipients (to and cc), quoted earlier history and attachment contents unless a human asks.
+In a report or closing comment, message ids and one line of context are enough. Nothing from a
+mailbox goes into Slack.
 
 ## When something is wrong
 
@@ -352,13 +355,33 @@ looks are named instead of guessed.
 4. Check: `python -m runner --config <runner.json> connectors-doctor`, then Settings shows the mail and calendar
    tool health.
 
+### Which mailboxes the sync covers
+
+The `connectors` job syncs the mailboxes the message bots manage, and nothing else. It does not go through every person on the
+roster. For each message bot (the bot named as someone's `inbox_bot`), the mailbox is the address the bot declares: the
+identity of its `gmail` entry in `bot.yaml`, which BotOps fills from the `Mailbox: <email>` line in the bot's instructions
+(`{{mailbox}}` in the template). Only when a bot declares none does the sync use its person's email from the roster. A person
+who left, and an archived bot, are skipped.
+
+This is what lets a company sign in on one domain and keep its Google Workspace on another. If the owner signs in as
+`chris@tidy.com` but the Workspace, and so the service account's delegation, is for `tico.team`, the message bot declares
+`chris@tico.team` and that is the mailbox that is synced and read. The calendar sync and the bot's token use the same address.
+
+If the key cannot act for a mailbox's domain (Google answers `unauthorized_client`: no domain-wide delegation there), the job
+does not fail on every cycle. It says so once in the runner's log, skips every mailbox on that domain, tries the domain again
+after an hour, and shows one issue in Settings > Health that names the mailbox and the domain, for example
+`Mail can't refresh for chris@tidy.com: the Google service account has no domain-wide delegation for the domain tidy.com`.
+Fix it by adding the delegation for that domain in the Google Workspace admin console, or by giving the message bot a mailbox on
+a domain the key covers. The issue goes away on its own once the mailbox syncs.
+
 ### Who can read the key
 
 The key can act as any mailbox in the team, so bots must not be able to read it.
 
 - **Docker runner with the two-user layout** (the current `runner.compose.yaml`): the key is in the runner's state directory,
   closed to the bots' user. The `connectors` job reads it there. A message bot's run gets, from the runner over its credential
-  socket, a Gmail or Calendar access token that lasts an hour for one mailbox: its human's, and the humans below them in the
+  socket, a Gmail or Calendar access token that lasts an hour for one mailbox at a time. The mailboxes it may ask for are the
+  one the bot declares (its human's own email only if it declares none), then those of the humans below that human in the
   team chart. Any other bot, and any other mailbox, is refused.
 - **A Mac, or Docker started the old way**: bots run as the same user as the runner and can read the key file, and Settings >
   Health says so ("Mail key"). Keep such a computer for the message bot alone.

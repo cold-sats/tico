@@ -3,7 +3,7 @@
 import json
 import secrets
 
-from . import inbox_isolation, providers, runner_versions, usage_limits
+from . import inbox_isolation, providers, routines, runner_versions, usage_limits
 from .harnesses import reports_tool_calls
 from .statuses import PARKED_SQL
 from .store import H, P, Problem, bot_readiness, digest, encode, message_page, readiness_document
@@ -558,8 +558,9 @@ class Execution:
         return {"attempt": {"routine": routine, "id": aid,
                             # A starter bot's chat while it is `needs_setup` is its setup (runner prompt).
                             "onboarding": (parked["onboarding_state"] if parked else "") or "",
-                            # The mailboxes an inbox bot's turn may ask its runner for mail access to.
-                            "mailboxes": P.mailboxes_below(inbox["id"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
+                            # The mailboxes an inbox bot's turn may ask its runner for mail access to: the one it declares
+                            # (its person's email when it declares none), then the people below them.
+                            "mailboxes": routines.token_mailboxes(c, row["bot"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
                             "credential_vault": bool(self.store.settings.credential_kms_key),
                             "generation": row["generation"], "lease_until": until,
                             "lease_seconds": self.store.settings.lease_seconds, "token": token,

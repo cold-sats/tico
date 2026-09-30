@@ -11,6 +11,7 @@ import sqlite3
 
 from fastapi import Request
 
+from . import routines
 from .store import H, P, Problem
 from .views import human_only, roster
 
@@ -46,7 +47,9 @@ def visible_addresses(c, who):
         return out
     if who.role != "human":
         return []
-    addrs = P.mailboxes_below(H.actor_id(who.actor), people)
+    boxes = routines.message_bot_mailboxes(c, people)
+    addrs = list(dict.fromkeys(routines.mailbox_of(p, boxes) for p in P.below(H.actor_id(who.actor), people)
+                               if "@" in routines.mailbox_of(p, boxes)))
     if addrs:
         return addrs
     email = str(who.email or "").strip().lower()
@@ -122,7 +125,7 @@ def message_public(row, body=False):
 
 def mailbox_view(c, address, people, who, auth):
     row = c.execute("SELECT * FROM mail_mailboxes WHERE address=?", (address,)).fetchone()
-    person = P.person_by_email(address, people)
+    person = routines.person_for_mailbox(address, routines.message_bot_mailboxes(c, people), people)
     bot = (person or {}).get("inbox_bot") or ""
     bot_row = H.bot(c, bot) if bot else None
     bot = bot if bot_row and bot_row["state"] != "archived" and auth.bot_access(c, who, bot)["read"] else ""
@@ -159,7 +162,8 @@ def install_mail(app, store, auth):
         human_only(who)
         with store.read() as c:
             addr, _ = require_mailbox(c, who, mailbox)
-            person = P.person_by_email(addr, roster(c))
+            people = roster(c)
+            person = routines.person_for_mailbox(addr, routines.message_bot_mailboxes(c, people), people)
             bot = (person or {}).get("inbox_bot") or ""
             bot_row = H.bot(c, bot) if bot else None
             if not bot_row or bot_row["state"] == "archived" or not auth.bot_access(c, who, bot)["read"]:
