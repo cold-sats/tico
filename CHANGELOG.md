@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Settings > Recurring and Settings > Bots filters fit on one line**: a search box and compact menus with no labels
+  beside them (each menu names itself, e.g. "All bots"); two menus a row on a phone.
+
 ## [0.2.15] - 2026-09-30
 
 ### Added

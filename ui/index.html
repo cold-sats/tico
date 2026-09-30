@@ -845,10 +845,11 @@ p:empty{display:none}
 .prov .muted{font-size:13px;min-width:0}
 .prov-routed{gap:6px 14px;padding-top:10px}
 .prov-chip{display:inline-flex;align-items:center;gap:4px;font-size:13.5px}
-.settings-bots-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.settings-bots-filters label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);min-width:0}
-.settings-bots-filters .settings-inline-select{min-width:0;max-width:min(240px,100%)}
-.settings-bots-count{font-size:12px;color:var(--muted);margin-left:auto}
+.settings-bots-filters{display:flex;align-items:center;gap:8px;margin-bottom:10px;min-width:0}
+.settings-bots-filters .settings-inline-select{flex:0 1 auto;min-width:0;max-width:170px}
+.settings-filter-search{flex:1 1 160px;min-width:120px;max-width:280px;padding:7px 10px 7px 32px;font-size:12px;border-radius:6px;background-position:10px center}
+.settings-bots-count{font-size:12px;color:var(--muted);margin-left:auto;white-space:nowrap}
+@media (max-width:760px){.settings-bots-filters{flex-wrap:wrap}.settings-filter-search{flex-basis:100%;max-width:none}.settings-bots-filters .settings-inline-select{flex:1 1 calc(50% - 4px);max-width:none}}
 .settings-bulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:13px}
 .settings-bulk[hidden]{display:none}
 .settings-bulk-list{list-style:none;margin:10px 0 0;padding:0;max-height:min(46vh,420px);overflow:auto;border:1px solid var(--line);border-radius:7px}
@@ -9523,9 +9524,9 @@ function renderSettingsRecurring() {
     && (!f.q || searchIncludes([r.title, cadenceWords(r), empName(r.employee || r.bot), r.employee || r.bot], f.q)))
     .sort((a, b) => (a.active ? 0 : 1) - (b.active ? 0 : 1) || String(a.next || '~').localeCompare(String(b.next || '~')) || a.title.localeCompare(b.title));
   const opt = (v, label, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label)}</option>`;
-  const sel = (name, label, options) => `<label>${label}<select class="settings-inline-select" data-recurring-filter="${name}">${options}</select></label>`;
+  const sel = (name, label, options) => `<select class="settings-inline-select" data-recurring-filter="${name}" aria-label="${label}">${options}</select>`;
   el.innerHTML = `<div class="settings-bots-filters">
-      <label>Search<input type="search" autocomplete="off" data-recurring-filter="q" value="${esc(f.q)}" placeholder="Title, bot or schedule" aria-label="Search routines"></label>
+      <input class="settings-filter-search" type="search" autocomplete="off" data-recurring-filter="q" value="${esc(f.q)}" placeholder="Search routines" aria-label="Search routines">
       ${sel('bot', 'Bot', opt('', 'All bots', f.bot) + bots.map(b => opt(b, empName(b), f.bot)).join(''))}
       ${sel('computer', 'Computer', opt('', 'All computers', f.computer) + opt('mine', 'My computer', f.computer) + [...computers].sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => opt(k, v, f.computer)).join(''))}
       ${sel('kind', 'Kind', [['all', 'Any kind'], ['cron', 'Scheduled'], ['event', 'On an event'], ['inbox', 'Inbox']].map(([k, v]) => opt(k, v, f.kind)).join(''))}
@@ -10239,8 +10240,8 @@ function settingsBotsVisible(rows) {
     && (!effort || (!e.agent && settingsBotEffort(e) === effort)));
 }
 function settingsBotsFilterHTML(options, shown, total) {
-  const select = (name, label, all, list) => `<label>${label}<select class="settings-inline-select" data-bots-filter="${name}" aria-label="Filter bots by ${label.toLowerCase()}">
-      <option value="">${all}</option>${list.map(row => `<option value="${esc(row.key)}" ${row.key === SETTINGS_BOTS_VIEW[name] ? 'selected' : ''}>${esc(row.label)} (${row.n})</option>`).join('')}</select></label>`;
+  const select = (name, label, all, list) => `<select class="settings-inline-select" data-bots-filter="${name}" aria-label="Filter bots by ${label.toLowerCase()}">
+      <option value="">${all}</option>${list.map(row => `<option value="${esc(row.key)}" ${row.key === SETTINGS_BOTS_VIEW[name] ? 'selected' : ''}>${esc(row.label)} (${row.n})</option>`).join('')}</select>`;
   return `<div class="settings-bots-filters">${select('computer', 'Computer', 'All computers', options.computers)}
     ${select('model', 'Model', 'All models', options.models)}${select('effort', 'Effort', 'Any effort', options.efforts)}
     <span class="settings-bots-count" data-bots-count>${shown === total ? `${total} bots` : `${shown} of ${total} bots`}</span></div>
