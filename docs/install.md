@@ -200,12 +200,22 @@ one later, edit `/opt/tico/.env` and run `docker compose up -d` there. `.env.exa
 No open ports, and Cloudflare Access can do the sign-in. The wizard creates the tunnel when you give it a token; by hand:
 
 1. In Cloudflare Zero Trust, create a tunnel (Networks > Tunnels > Create > Cloudflared) and copy its token.
-2. In the tunnel's **Public Hostname** tab, route your hostname to `HTTP` `server:8765`.
+2. Nothing to route by hand: the compose file runs cloudflared with a small config that sends `TICO_DOMAIN` to
+   `http://server:8765` and answers anything else with a 404. The server writes it at every start. Only the DNS
+   record is yours: a proxied CNAME for the hostname to `<tunnel id>.cfargotunnel.com` (the wizard creates it).
 3. Create an Access application for the hostname with your identity provider and a policy for your people.
    Note the team URL (`https://<team>.cloudflareaccess.com`) and the application's Audience tag.
 4. In `.env`: `COMPOSE_PROFILES=cloudflared,updater`, `TICO_DOMAIN=<hostname>`, `CLOUDFLARE_TUNNEL_TOKEN=<token>`,
    `TICO_AUTH_PROXY=cloudflare`, `TICO_ACCESS_ISSUER=<team URL>`, `TICO_ACCESS_AUDIENCE=<AUD tag>`.
 5. `docker compose up -d`
+
+**Which route wins.** cloudflared prefers the configuration Cloudflare holds for the tunnel. A tunnel you created in the
+dashboard, or that setup created through the API, is remotely managed and keeps the **Public Hostname** route you set
+there: the config the server writes is ignored, so keep that route at `HTTP` `server:8765`. A locally managed tunnel
+(made with `cloudflared tunnel create` and reused here by its token) has none, and the server's config is what routes
+it. Before this was shipped such a tunnel logged `No ingress rules ... cloudflared will return 503` and answered every
+request with a 503 while its container showed as running. `python3 -m setup doctor` now fails on that 503 and on that log
+line, and says what to run: `docker compose pull && docker compose up -d` in `/opt/tico`.
 
 Computers join through the same hostname. If Access sits in front of all of it, give the runners a bypass or a
 service token for `/api/v2/runners/*` (the runner authenticates itself with its own token).

@@ -65,7 +65,17 @@ def _get(url: str, follow: bool = True, opener=None):
         return e.code, dict(e.headers), ""
 
 
-def check_health(domain: str, get=_get) -> Check:
+def tunnel_route_hint(domain: str) -> str:
+    """What to do when the tunnel is connected but sends nothing to Tico: cloudflared has no route for the hostname."""
+    d = contract.REMOTE_DIR
+    return (f"The tunnel is connected but has no route to Tico. The compose file gives cloudflared a route from TICO_DOMAIN "
+            f"({domain} -> http://{contract.SERVICE_SERVER}:{contract.SERVER_PORT}): on the server run `cd {d} && docker compose pull "
+            f"&& docker compose up -d` (a Tico older than that needs the update first). If the tunnel is managed in Cloudflare, add the "
+            f"route there instead: Zero Trust > Networks > Tunnels > your tunnel > Public Hostname > {domain}, HTTP, "
+            f"{contract.SERVICE_SERVER}:{contract.SERVER_PORT}; cloudflared uses the route Cloudflare holds over the local file.")
+
+
+def check_health(domain: str, get=_get, front_door: str = "") -> Check:
     try:
         code, _, _ = get(f"https://{domain}{contract.HEALTH_PATH}")
     except (OSError, urllib.error.URLError) as e:
@@ -73,7 +83,25 @@ def check_health(domain: str, get=_get) -> Check:
                      "On the server: `docker compose ps` (server should be healthy) and `docker compose logs server`.")
     if code == 200:
         return Check("/healthz", True, "ok")
+    if front_door == "cloudflared" and code in TUNNEL_ERRORS:
+        return Check("/healthz", False, f"HTTP {code} from the tunnel", tunnel_route_hint(domain)
+                     + " If the route is right, the server is the problem: `docker compose logs server`.")
     return Check("/healthz", False, f"HTTP {code}", "The front door answers but the server does not: `docker compose logs server`.")
+
+
+NO_INGRESS = "No ingress rules"
+# What Cloudflare answers when the tunnel has no route (503, or 502 when the connector cannot reach the origin).
+TUNNEL_ERRORS = (502, 503, 530)
+
+
+def check_tunnel_route(r: Shell, domain: str) -> Check:
+    """cloudflared can be up and healthy while every request gets a 503: its log says so when it has no ingress rules."""
+    d = contract.REMOTE_DIR
+    res = r.run(f"cd {d} && (docker compose logs --no-color --tail 200 cloudflared 2>&1 || "
+                f"sudo -n docker compose logs --no-color --tail 200 cloudflared 2>&1)")
+    if NO_INGRESS in res.stdout:
+        return Check("Tunnel route", False, "cloudflared reports no ingress rules, so it answers 503 to every request", tunnel_route_hint(domain))
+    return Check("Tunnel route", True, "cloudflared has a route")
 
 
 def check_signin(domain: str, provider: str, client_id: str, get=_get) -> Check:
@@ -123,8 +151,8 @@ def check_env_perms(r: Shell) -> Check:
     return Check(".env permissions", False, f"mode {mode or 'unknown'}", f"chmod 600 {contract.REMOTE_DIR}/.env")
 
 
-def _https_checks(domain, provider, client_id) -> list[Check]:
-    out = [check_tls(domain), check_health(domain)]
+def _https_checks(domain, provider, client_id, front_door="") -> list[Check]:
+    out = [check_tls(domain), check_health(domain, front_door=front_door)]
     if provider in contract.OIDC_HOSTS:
         out.append(check_signin(domain, provider, client_id))
     return out
@@ -135,20 +163,23 @@ def run_all(*, domain: str, provider: str, client_id: str, front_door: str, reco
             say: Callable[[str], None] | None = None) -> list[Check]:
     """`wait_https` seconds of retrying the HTTPS checks: right after `docker compose up` Caddy has no certificate yet."""
     dns_check = check_dns(domain, records, resolvers)
-    https = _https_checks(domain, provider, client_id)
+    https = _https_checks(domain, provider, client_id, front_door)
     waited, delay = 0.0, 3.0
     while wait_https and not all(c.ok for c in https) and waited < wait_https:
         if not waited and say:
-            say(f"  waiting for the HTTPS certificate (up to {int(wait_https // 60)} min; Caddy is still asking Let's Encrypt) ...")
+            what = "the tunnel to answer" if front_door == "cloudflared" else "the HTTPS certificate"
+            say(f"  waiting for {what} (up to {int(wait_https // 60)} min"
+                + ("" if front_door == "cloudflared" else "; Caddy is still asking Let's Encrypt") + ") ...")
         sleep(delay)
         waited += delay
         delay = min(delay + 3, 15)
-        https = _https_checks(domain, provider, client_id)
+        https = _https_checks(domain, provider, client_id, front_door)
     out = [dns_check, *https]
     if shell is not None:
         out.append(check_service(shell, contract.SERVICE_SERVER, "Server container"))
         if front_door == "cloudflared":
             out.append(check_service(shell, "cloudflared", "Tunnel connector"))
+            out.append(check_tunnel_route(shell, domain))
         out.append(check_env_perms(shell))
     return out
 

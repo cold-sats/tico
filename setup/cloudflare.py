@@ -31,6 +31,15 @@ def _urllib_transport(method: str, url: str, headers: dict, body: bytes | None) 
             return e.code, {}
 
 
+def ingress_config(hostname: str) -> dict:
+    """The route a Tico tunnel needs: the hostname to the server, anything else a 404. It is what setup stores in a tunnel it
+    creates through the API, and what the server writes for the cloudflared container from TICO_DOMAIN at every start
+    (docker/entrypoint.sh `tunnel-config`, read by compose.yaml's cloudflared service), so a tunnel run with only its token
+    still has a route. A tunnel managed in the Cloudflare dashboard keeps its own: cloudflared prefers it to the local file."""
+    return {"ingress": [{"hostname": hostname, "service": f"http://{contract.SERVICE_SERVER}:{contract.SERVER_PORT}"},
+                        {"service": "http_status:404"}]}
+
+
 class Cloudflare:
     def __init__(self, token: str, transport: Transport = _urllib_transport):
         self._token, self._t = token, transport
@@ -62,9 +71,7 @@ class Cloudflare:
         return made["id"], made["token"]
 
     def configure_tunnel(self, account_id: str, tunnel_id: str, hostname: str) -> None:
-        cfg = {"ingress": [{"hostname": hostname, "service": f"http://{contract.SERVICE_SERVER}:{contract.SERVER_PORT}"},
-                           {"service": "http_status:404"}]}
-        self.call("PUT", f"/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations", {"config": cfg})
+        self.call("PUT", f"/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations", {"config": ingress_config(hostname)})
 
     def upsert_cname(self, zone_id: str, name: str, target: str) -> str:
         body = {"type": "CNAME", "name": name, "content": target, "proxied": True, "ttl": 1}

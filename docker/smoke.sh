@@ -113,6 +113,12 @@ retry 180 healthy || fail "the server did not become healthy"
 id="$(environment_id)"
 [ -n "$id" ] || fail "the server reports no environment id"
 
+step "the tunnel's route can be written for the cloudflared container"
+# The server user owns the tico-tunnel volume, as it does in a real install, and cloudflared (another user) can read the file.
+dc exec -T -e TICO_DOMAIN=smoke.example.test server tico-entrypoint tunnel-config || fail "the server cannot write the tunnel's route"
+dc exec -T server cat /tunnel/cloudflared.yml | grep -q 'hostname: smoke.example.test' || fail "the tunnel's route names the wrong host"
+[ "$(dc exec -T server stat -c %a /tunnel/cloudflared.yml)" = 644 ] || fail "the tunnel's route is not readable by cloudflared"
+
 step "runner joins with a one-time code"
 join_runner
 retry 120 online || fail "the runner did not enroll and come online"

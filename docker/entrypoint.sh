@@ -44,6 +44,28 @@ server_environment() {
   esac
 }
 
+# The Cloudflare tunnel's route. cloudflared's image has no shell and reads no environment for routes, and a tunnel that
+# is run with only its token has none of its own ("No ingress rules ... cloudflared will return 503"), so the one route
+# it needs is written here from TICO_DOMAIN into a volume the tunnel container reads: the domain to this server, anything
+# else a 404. Written on every start, so a changed TICO_DOMAIN follows, and by the server image itself, so an update that
+# replaces compose.yaml never needs a file the old updater does not know about. A tunnel managed in the Cloudflare
+# dashboard keeps its own route: cloudflared prefers the configuration Cloudflare holds and uses this file only when the
+# tunnel has none. docs/install.md, "Cloudflare Tunnel".
+TUNNEL_DIR=${TICO_TUNNEL_DIR:-/tunnel}
+
+tunnel_config() {
+  [ -n "${TICO_DOMAIN:-}" ] && [ -d "$TUNNEL_DIR" ] && [ -w "$TUNNEL_DIR" ] || return 0
+  case "$TICO_DOMAIN" in *[!A-Za-z0-9.-]*|.*|*.|'') die "TICO_DOMAIN is not a plain hostname: $TICO_DOMAIN" ;; esac
+  {
+    echo "ingress:"
+    echo "  - hostname: $TICO_DOMAIN"
+    echo "    service: http://server:8765"
+    echo "  - service: http_status:404"
+  } > "$TUNNEL_DIR/cloudflared.yml.new"
+  chmod 0644 "$TUNNEL_DIR/cloudflared.yml.new"
+  mv -f "$TUNNEL_DIR/cloudflared.yml.new" "$TUNNEL_DIR/cloudflared.yml"
+}
+
 # Backups are on unless TICO_BACKUP=off: TICO_BACKUP_URL is the off-server copy; without it the copy goes to
 # the tico-backups volume, which survives a deleted data volume but not a lost server.
 BACKUPS=${TICO_BACKUP_DIR:-/backups}
@@ -151,6 +173,7 @@ prepare() {  # everything `server` does before it starts serving: also what the 
   done
   seed
   environment_identity
+  tunnel_config
   backup_configuration || true
   python -m backend.replication mark-environment "$DATA" "$TICO_ENVIRONMENT_ID"
 }
@@ -237,6 +260,7 @@ demo() {
 case "${1:-server}" in
   server) shift; server "$@" ;;
   prepare) shift; prepare "$@" ;;
+  tunnel-config) tunnel_config ;;
   demo) demo "$@" ;;
   restore) shift; restore "$@" ;;
   slack-gateway) slack_gateway ;;

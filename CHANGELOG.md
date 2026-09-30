@@ -150,6 +150,13 @@ All notable changes to Tico are recorded here. The format follows
   `seeded` only at seed time, so an older install kept showing them next to the empty state. At start-up the hub now marks each of
   them `seeded` once, when its content is still exactly the seed's text; a page anyone wrote or edited, or one the graph has since
   outgrown, is left alone, and a second start marks nothing.
+- **A Cloudflare tunnel reused with only its token routed nowhere.** A locally managed tunnel has no ingress of its own, so
+  cloudflared logged `No ingress rules ... cloudflared will return 503`, its container showed as running and every request got a
+  503, and `setup` still passed. The `cloudflared` service now always runs with a small config the server writes from `TICO_DOMAIN`
+  at every start (into a new `tico-tunnel` volume the tunnel container reads): the domain goes to `http://server:8765`, anything
+  else gets a 404. It ships in the image and `compose.yaml`, so an update from an older release needs no new file. A tunnel managed
+  in the Cloudflare dashboard keeps its own Public Hostname route, which cloudflared prefers over the local file. `setup` and
+  `setup doctor` now fail on a 502, 503 or 530 from the tunnel and on cloudflared's "No ingress rules" log line, with the fix.
 
 ### Security
 - A bot may invite only people on the company roster to a calendar event (`hub calendar schedule`); an invitation to any other address is

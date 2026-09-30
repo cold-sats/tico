@@ -99,7 +99,8 @@ COPY --from=litestream /out/litestream /usr/local/bin/litestream
 COPY docker/entrypoint.sh /usr/local/bin/tico-entrypoint
 # A named volume copies the ownership of the directory it first covers.
 RUN chmod 0755 /usr/local/bin/tico-entrypoint \
-    && install -d -m 0700 -o tico -g tico /data /control /backups
+    && install -d -m 0700 -o tico -g tico /data /control /backups \
+    && install -d -m 0755 -o tico -g tico /tunnel
 EXPOSE 8765
 USER 10001:10001
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=4 CMD curl -fsS --max-time 4 http://127.0.0.1:8765/healthz >/dev/null
