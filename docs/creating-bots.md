@@ -30,6 +30,39 @@ Read this page when you are writing those instructions, tailoring what BotOps pr
 a bot up outside that flow. The wizard, the template folder format and the ways to add a bot later
 are in [Finish setup](onboarding.md).
 
+## Copy a bot
+
+Ask BotOps to copy a bot ("make me a copy of the support bot"), or run `hub bot copy <bot> [--name "..."] [--with-memory]`
+on the computer that holds its repository. Anyone who may read the bot can ask. The copy is an ordinary, independent bot: it belongs
+to the person who asked, reports to them, counts toward their limit of bots like any bot they add, and starts `planned`. It has the
+original's model where the person may use it (else the team's default), and a new repository `bot-<slug>` made from the original's
+files at its current commit: `AGENT.md`, `skills/`, `playbooks/`, `knowledge/` and the `tools:` list, as one fresh commit (`Copied
+from <original> at <commit>`), without the history. The original's memory, notes, state and reports are left out unless you say
+`--with-memory`. A credential, `.env`, key file or `secrets/` is never copied, and neither are routines.
+
+The credentials the original's tools need are listed: a credential administrator (the owner or an admin) has each one the original
+holds granted to the copy at once; the rest come back as "needs credential X" for BotOps to ask for with a card. Nothing else is shared:
+after the copy the two bots change on their own, and the server keeps only `copied_from: {bot, sha}`, for two requests you make
+explicitly:
+
+- **Update my copy from the original** (`hub bot update-from-original <copy>`): the original's `AGENT.md`, `skills/` and `playbooks/`
+  since the copy was made are merged file by file with git into one commit on the copy; if a file changed on both sides nothing is
+  changed and BotOps settles each conflict with you.
+- **Suggest this to the original** (`hub bot suggest-to-original <copy> [--paths ...]`): the copy's changed instructions become a pull
+  request on the original's repository when you may write to it and GitHub is connected, else a task for the original's owner
+  with the diff.
+
+The server holds no bot repositories, so it decides and records (your rights, the limit, the credentials, `POST
+/api/v2/bots/<bot>/copy`, `update-from-original` and `suggest-to-original`) and BotOps's computer makes the commits in its
+workspace: the original's repository has to be on that computer. The steps BotOps follows are in `playbooks/copy-a-bot.md`.
+
+## Copy a skill
+
+A skill is a folder, `skills/<name>/`, in a bot's repository, and each bot owns its own. BotOps copies one to other bots when you ask
+("give the support bot the triage skill the scribe has"), or run `hub skill copy <skill> --from <bot> --to <bot> [<bot> ...]`: a commit in
+each target's repository, for bots whose source you may read and whose repositories you manage. A target that already has a different
+skill of that name is left alone unless you say to replace it. Nothing stays linked (`playbooks/copy-a-skill.md`).
+
 ## Message bots
 
 A message bot is assigned to one human on the roster. **Settings → Bots → Add from template** (and
