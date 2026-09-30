@@ -240,6 +240,7 @@ async function pageBot(slug, tab) {
   const limited = botLimited(e);       // seen, not read: no activity anywhere on the page
   const work = botTabs(slug).filter(t => t === 'chat' || t === 'tasks');
   const base = `#/bot/${encodeURIComponent(slug)}`;
+  const typing = BOT_PILL?.slug === slug && document.activeElement === pq(BOT_PILL, '.p-text');   // the redraw below must not take the cursor
   const tabsShown = [...work, ...(isKeeper(slug) && !limited ? ['history'] : []), 'more'];
   // The goal leads the page; chat and tasks sit side by side under it on a
   // desktop. Narrower, one top line holds back, the bot and Chat · Tasks · More, with the goal as one
@@ -425,6 +426,7 @@ async function pageBot(slug, tab) {
 
   if (!limited) bindRoutineExpand($('#pane-more'));
   showBotTab(tab);
+  if (typing) pq(BOT_PILL, '.p-text')?.focus();   // once the pane is shown; a hidden box cannot take it
 }
 // A desktop is wide enough for both: chat on the left, the bot's tasks on the right, each scrolling
 // on its own (#514). A phone keeps one at a time behind the Chat | Tasks switch.

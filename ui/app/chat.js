@@ -24,7 +24,7 @@ async function v2ChatLoad(slug) {
   const member = S.me?.role === 'owner' || (bot?.users || []).some(u => u.id === S.me?.id);
   const mode = slug === assistantBot() || !member || (bot?.my_access && !bot.my_access.read) ? 'personal'
     : (configured || (slug === 'cpo' ? 'shared' : 'personal'));
-  const state = V2C = {slug, mode, conv: null, messages: [], live: null, es: null, poll: 0, rendered: false, followLatest: true,
+  const state = V2C = {slug, mode, conv: null, messages: [], mine: [], live: null, es: null, poll: 0, rendered: false, followLatest: true,
                        loaded: false, failed: false};
   const seen = CHAT_CACHE.get(slug);
   if (seen && seen.mode === mode) {
@@ -71,12 +71,14 @@ async function v2ChatFind(state) {
     if (!state.listed) {
       const list = await v2Get(`/v2/conversations?chat_with=${encodeURIComponent(state.slug)}`);
       if (!list) continue;
-      state.listed = true;
-      state.conv = (list.conversations || []).find(c => String(c.kind) === 'chat' && !c.task_id
-        && !c.closed_at
-        && (c.participants || []).includes(`bot:${state.slug}`)
-        && String(c.scope || 'direct') === state.mode
-        && (!me || (c.participants || []).includes(me))) || null;
+      if (!state.listed) {                        // a message sent while this loaded already put its chat in place
+        state.listed = true;
+        state.conv = (list.conversations || []).find(c => String(c.kind) === 'chat' && !c.task_id
+          && !c.closed_at
+          && (c.participants || []).includes(`bot:${state.slug}`)
+          && String(c.scope || 'direct') === state.mode
+          && (!me || (c.participants || []).includes(me))) || null;
+      }
     }
     if (!state.conv || await v2ChatMessages(state)) { state.loaded = true; state.failed = false; return; }
   }
@@ -112,11 +114,15 @@ async function v2BotsLoad(state) {
 }
 async function v2ChatMessages(state) {
   if (!state.conv) return false;
+  const sent = state.mine.length;
   const d = await v2Get(`/v2/conversations/${encodeURIComponent(state.conv.id)}/${S.me?.cloud ? 'snapshot' : 'messages'}`);
   if (V2C !== state || !d) return false;
-  state.messages = d.messages || [];
+  // A message sent while this was loading is newer than the copy that came back: keep it, and leave the
+  // live turn to the stream (this copy has not seen it start).
+  const late = state.mine.slice(sent).filter(m => !(d.messages || []).some(x => x.id === m.id));
+  state.messages = [...(d.messages || []), ...late];
   state.nextBefore = d.next_before;
-  if (S.me?.cloud) {
+  if (S.me?.cloud && !late.length) {
     state.execution = d.execution;
     state.live = d.execution && d.execution.state !== 'completed' ? {text: d.execution.text} : null;
   }
@@ -398,7 +404,7 @@ function v2ChatAdopt(slug, j) {
   const state = V2C;
   if (!state || state.slug !== slug) { CHAT_CACHE.delete(slug); return; }
   if (j.conversation) { state.conv = j.conversation; state.listed = true; state.loaded = true; state.failed = false; }
-  if (j.message) state.messages.push(j.message);
+  if (j.message) { state.messages.push(j.message); state.mine.push(j.message); }
   state.live = {text: ''};
   state.execution = null; state.sentAt = Date.now();
   state.followLatest = true;
