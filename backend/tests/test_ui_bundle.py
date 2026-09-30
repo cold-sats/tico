@@ -5,12 +5,15 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from backend import ui_bundle
 from backend.app import create_app
 from backend.auth import Identity
 from backend.config import ROOT, Settings
 from backend.tests.test_api import api  # noqa: F401
 
 AUTH = {"Authorization": "Bearer ana-test"}
+# TICO_UI_BUNDLE=off runs the suite on the separate files: what is about the served bundle does not apply then.
+served = pytest.mark.skipif(not ui_bundle.enabled(), reason="TICO_UI_BUNDLE=off")
 UI = ROOT / "ui"
 
 
@@ -21,6 +24,7 @@ def listed(kind):
     return [m[len("/tico/ui/"):] for m in re.findall(r'(?:src|href)="([^"]+)"', region)]
 
 
+@served
 def test_the_page_names_one_versioned_script_and_one_stylesheet(api):
     r = api.get("/", headers=AUTH)
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
@@ -36,6 +40,7 @@ def test_the_page_names_one_versioned_script_and_one_stylesheet(api):
     assert api.get("/tico/ui/", headers=AUTH).text == r.text
 
 
+@served
 def test_the_config_carries_the_build_the_page_names_so_an_open_tab_can_tell_it_is_out_of_date(api):
     page = api.get("/", headers=AUTH).text
     js = re.search(r'app\.bundle\.js\?v=([0-9a-f]{16})', page).group(1)
@@ -48,6 +53,7 @@ def test_the_config_names_no_build_when_the_files_are_served_as_they_are(api, mo
     assert api.get("/api/v2/config", headers=AUTH).json()["ui_build"] == ""
 
 
+@served
 @pytest.mark.parametrize("kind,path,tag,mark", [("js", "/tico/ui/app.bundle.js", "// file: ", "'use strict';"),
                                                  ("css", "/tico/ui/app.bundle.css", "/* file: ", "/* file: styles/tokens.css */")])
 def test_a_bundle_is_the_listed_files_in_order_and_kept_for_a_year(api, kind, path, tag, mark):
@@ -69,6 +75,7 @@ def test_a_bundle_is_the_listed_files_in_order_and_kept_for_a_year(api, kind, pa
     assert api.get(path, headers={**AUTH, "If-None-Match": r.headers["etag"]}).status_code == 304
 
 
+@served
 def test_the_bundle_is_strict_once_and_needs_a_session(api):
     js = api.get("/tico/ui/app.bundle.js", headers=AUTH).text
     assert js.startswith("'use strict';\n")
@@ -76,7 +83,6 @@ def test_the_bundle_is_strict_once_and_needs_a_session(api):
 
 
 def test_a_change_to_a_listed_file_changes_the_url(tmp_path):
-    from backend import ui_bundle
     ui = tmp_path / "ui"
     (ui / "app").mkdir(parents=True)
     (ui / "styles").mkdir()
