@@ -39,7 +39,7 @@ so there is no public receiver and no signing secret. What it does, in order, fo
 6. **Read the channels like an employee reads them.** Every other message in a channel Tico is
    in (`message.channels`, `message.groups`) is stored as it arrives, bots' posts included,
    with edits and deletions applied to the stored row. Each reader a channel names in
-   `registry/slack-channels.yaml` (`readers:`) has a cursor per channel in `slack_reads`; every
+   the channel list in Settings > Tools > Slack (`readers`) has a cursor per channel in `slack_reads`; every
    `slack_digest_minutes` the gateway fills any gap the socket left (`conversations.history`
    since the newest stored message, `conversations.replies` for the threads it knows), then
    hands each reader what is unread, grouped by thread with the thread so far as context, as
@@ -72,6 +72,7 @@ from . import hubdb as H
 from . import people as P
 from . import providers
 from . import slack_app
+from . import slack_channels as SC
 from .config import Settings, slack_credentials
 from clients import judge as J
 from .store import Store
@@ -181,6 +182,18 @@ class SlackAPI:
 
     def conversations_info(self, channel):
         return self.call("conversations.info", {"channel": channel}).get("channel") or {}
+
+    def conversations_list(self):
+        """Every public and private channel the app can see, every page."""
+        out, cursor = [], ""
+        for _ in range(50):
+            data = self.call("conversations.list", {"types": "public_channel,private_channel", "exclude_archived": "true",
+                                                    "limit": 200, "cursor": cursor})
+            out.extend(data.get("channels") or [])
+            cursor = str((data.get("response_metadata") or {}).get("next_cursor") or "").strip()
+            if not cursor:
+                break
+        return out
 
     def history(self, channel, oldest="", limit=HISTORY_PAGE):
         """Top-level messages newer than `oldest` (exclusive), oldest first, one page."""
@@ -395,25 +408,8 @@ def channel_event_from(payload, bot_user_id):
 
 
 def registry_channels(registry_dir):
-    try:
-        data = yaml.safe_load((registry_dir / "slack-channels.yaml").read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-    rows = data.get("channels") if isinstance(data, dict) else data
-    out = {}
-    for row in rows or []:
-        if isinstance(row, dict) and row.get("id"):
-            readers = row.get("readers") or []
-            if isinstance(readers, str):
-                readers = [readers]
-            try:
-                hours = max(0.0, float(row.get("digest_hours") or 0))
-            except (TypeError, ValueError):
-                hours = 0.0
-            out[str(row["id"])] = {"name": str(row.get("name") or ""), "purpose": str(row.get("purpose") or ""),
-                                   "post": row.get("post") is not False, "digest_hours": hours,
-                                   "readers": [str(r).strip() for r in readers if str(r or "").strip()]}
-    return out
+    """The channels the old `registry/slack-channels.yaml` lists, by id (the list now lives in the database)."""
+    return SC.file_channels(registry_dir)
 
 
 def channel_link(team_url, channel):
@@ -626,9 +622,13 @@ class Gateway:
             return None, "channel is shared outside the workspace"
         if channel.get("is_im"):
             return {"kind": "im", "name": "DM", "purpose": "a direct message to " + self.settings.assistant_name}, None
-        registry = registry_channels(self.settings.registry_dir).get(event["channel"]) or {}
-        name = str(channel.get("name") or registry.get("name") or event["channel"])
-        return {"kind": "channel", "name": "#" + name.lstrip("#"), "purpose": registry.get("purpose") or ""}, None
+        with self.store.read() as c:
+            listed, by_name = SC.lookup(c, self.settings, event["channel"], str(channel.get("name") or ""))
+        if listed and by_name:                      # the list named the channel before its id was known
+            with self.store.transaction() as c:
+                SC.fill_ids(c, {listed["name"]: event["channel"]})
+        name = str(channel.get("name") or (listed or {}).get("name") or event["channel"])
+        return {"kind": "channel", "name": "#" + name.lstrip("#"), "purpose": (listed or {}).get("note") or ""}, None
 
     # ------------------------------------------------------------------ the state the decision model reads
     def blocked(self, c, person):
@@ -1102,8 +1102,29 @@ class Gateway:
 
     # ------------------------------------------------------------------ the readers' pass
     def readable(self):
-        """Registry channels with readers, by channel id."""
-        return {cid: entry for cid, entry in registry_channels(self.settings.registry_dir).items() if entry["readers"]}
+        """The listed channels (Settings > Tools > Slack) that have readers, by channel id."""
+        self.resolve_names()
+        with self.store.read() as c:
+            return {cid: entry for cid, entry in SC.channel_map(c, self.settings).items() if entry["readers"]}
+
+    def resolve_names(self):
+        """A channel listed by name only gets its id from Slack, at most every ten minutes while Slack cannot tell."""
+        with self.store.read() as c:
+            if not SC.unresolved(c):
+                return
+        now = time.monotonic()
+        if now < getattr(self, "_names_retry", 0):
+            return
+        self._names_retry = now + 600
+        try:
+            ids = {str(ch.get("name") or "").lower(): str(ch["id"]) for ch in self.slack.conversations_list()
+                   if ch.get("id") and not is_external(ch)}
+        except (SlackError, SlackUnreachable) as exc:
+            LOG.warning("Cannot look up channel ids: %s", getattr(exc, "code", type(exc).__name__))
+            return
+        with self.store.transaction() as c:
+            if SC.fill_ids(c, ids):
+                self._names_retry = 0
 
     def newest_ts(self, c, channel, thread_ts=None):
         if thread_ts:
@@ -1331,7 +1352,7 @@ class Gateway:
             return {"reader": reader, "state": "nothing", "count": 0}
         head = (f"Slack, what is new in the channels you read: {count} message(s) in {', '.join(names)}"
                 + (f", {skipped} more not shown" if skipped else "") + ". Channel posts follow your Slack access and "
-                "registry/slack-channels.yaml (post: false blocks them); a reply in a thread here is not through this conversation.")
+                "the channel's Slack settings (post off blocks them); a reply in a thread here is not through this conversation.")
         body = head + "\n\n" + "\n\n".join(sections)
         if len(body) > DIGEST_CHARS:
             body = body[:DIGEST_CHARS].rstrip() + "\n\n(… the digest was cut at its size limit; read the channels for the rest.)"

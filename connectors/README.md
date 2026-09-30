@@ -34,7 +34,7 @@ recipes, gotchas, and the learnings bots add): `hub tool show slack`, `hub tool 
 `hub tool show aside`, or the **Integrations** page. Other outside systems the company uses
 get pages in its own config (`integrations/README.md`).
 
-Which channels exist is `registry/slack-channels.yaml`; a bot may post to any of them unless the entry says `post: false`.
+Which channels bots may use is the list under Settings > Tools > Slack (`hub slack channel list`), kept in Tico's database; a bot may post to any of them unless an owner or admin turned posting off for it. A run reads the list from the hub; `registry/slack-channels.yaml` is only read until someone imports it there.
 What the mail rules do to new messages is `registry/mail-rules.yaml`. Which employee may post at
 all, and which mailbox it may act as, is the `access:` block in its own `employee.yaml`
 (`policies/access.md`). All of it is checked in code on every call.
@@ -74,8 +74,8 @@ all, and which mailbox it may act as, is the `access:` block in its own `employe
        SLACK_BOT_TOKEN=xoxb-... connectors/slack.py doctor
 
    It prints the workspace, the bot user, and every channel the bot is a member of, and exits 1 if
-   anything is wrong. Then fill any blank `id:` in `registry/slack-channels.yaml` from
-   `connectors/slack.py channels`.
+   anything is wrong. Then list the channels the bots use: Settings > Tools > Slack channels (an
+   owner or admin), or `hub slack channel add '#name' --reader <bot>`. A channel listed by name gets its id from Slack.
 
 ## Using it (bots)
 

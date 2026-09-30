@@ -44,7 +44,8 @@ def run(args, who=None):
               "update create", "update list", "update show", "update mark-read", "update reply", "update settings",
               "needs-you start", "needs-you next", "needs-you respond", "needs-you commit", "needs-you abandon",
               "brief", "mcp stats", "calendar list", "calendar status", "routine update", "team show", "run list",
-              "message list", "message mark-read", "bot recent", "agent pair approve", "agent pair decline"):
+              "message list", "message mark-read", "bot recent", "agent pair approve", "agent pair decline",
+              "slack channel list", "slack channel add", "slack channel remove", "slack channel import"):
         if fn == "routine update":                  # --enable / --disable are the tool's `enabled`; a key or an id names it
             more = {"text": Path(args.text_file).read_text()} if args.text_file else {}
             if args.enable or args.disable:

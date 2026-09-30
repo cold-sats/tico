@@ -66,7 +66,7 @@ Rules:
 - A Slack entry may set `channels: [channel-name, ...]`. When present, `history --as <slug>` (or a
   hosted run carrying `HUB_BOT`) refuses reads outside that allow-list before calling Slack.
   Omit it only for existing roles that intentionally need every registered readable channel. A
-  channel in this list still needs to exist in `registry/slack-channels.yaml` and the hub app must
+  channel in this list still needs to be on the Slack channel list (Settings > Tools > Slack channels) and the hub app must
   be a member. Set `dms: false` when the role must not read the shared app's DM inbox; `inbox`
   enforces it from `--as <slug>` or `HUB_BOT`.
 - Changing `tools:` is a Tico-level decision: create a task for the owner rather than editing

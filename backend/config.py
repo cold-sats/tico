@@ -179,7 +179,7 @@ class Settings:
     slack_ask_threshold: float = 0.5
     slack_max_recipients: int = 3
     # Channels read like an employee reads them: every message in a channel Tico is in is stored;
-    # the readers a channel names in registry/slack-channels.yaml get what is unread every
+    # the readers a channel names in the list in Settings > Tools > Slack get what is unread every
     # `slack_digest_minutes` (0 pauses delivery, storage goes on), at most `slack_digest_cap`
     # messages per channel per pass.
     slack_digest_minutes: int = 60

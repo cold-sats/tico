@@ -24,7 +24,7 @@
 # in, `message.im` for DMs to it, and `message.channels` / `message.groups` for everything
 # else said in a channel it is in. A person's DM or @Tico wakes the bot the router picks
 # to at once; every other channel message is stored and reaches the channel's readers
-# (registry/slack-channels.yaml) on the hourly pass (docs/slack-gateway.md).
+# (the channel list in Settings > Tools > Slack) on the hourly pass (docs/slack-gateway.md).
 # The app-level token (connections:write) is minted under Basic Information > App-Level Tokens.
 
 display_information:
@@ -35,8 +35,8 @@ display_information:
     Tico is your AI COO and the single Slack app for your company's bots. DM it, or
     @Tico in a channel it has been invited to, and the message reaches the bot it is for; the reply
     comes back in the same thread under that employee's name. Bots also call the hub's connectors/slack.py to
-    read channel history (including threads) and, for the small set of channels approved in
-    registry/slack-channels.yaml, to post an update. Every post is recorded in the company's audit log with
+    read channel history (including threads) and, for the channels an owner or admin lists in Tico,
+    to post an update. Every post is recorded in the company's audit log with
     the employee that made it.
 
 features:

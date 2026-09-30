@@ -10,7 +10,8 @@ from fastapi import Request
 
 from . import routines
 from .mail import message_public, visible_addresses
-from .slack_gateway import permalink, registry_channels
+from . import slack_channels as SC
+from .slack_gateway import permalink
 from .store import H, P, Problem
 from .views import human_only, roster
 
@@ -46,7 +47,7 @@ def _sources(c, who, settings, bot, config, people, allowed, channels, mailboxes
 def _catalog(c, who, auth, settings):
     allowed = set(visible_addresses(c, who))
     people = roster(c)
-    channels = registry_channels(settings.registry_dir) if who.role == "owner" else {}
+    channels = SC.channel_map(c, settings) if who.role == "owner" else {}
     mailboxes = {row["address"]: dict(row) for row in c.execute("SELECT * FROM mail_mailboxes")
                  if row["address"] in allowed}
     if mailboxes:
@@ -209,7 +210,8 @@ def install_messaging(app, store, auth):
         human_only(who)
         if who.role != "owner":
             raise Problem("forbidden", "Slack channel history is available only to the owner", 403)
-        channels = registry_channels(store.settings.registry_dir)
+        with store.read() as c:
+            channels = SC.channel_map(c, store.settings)
         if not channel or bot not in (channels.get(channel) or {}).get("readers", []):
             raise Problem("forbidden", "This bot does not read this channel", 403)
         if not thread_ts:
@@ -232,7 +234,8 @@ def install_messaging(app, store, auth):
         human_only(who)
         if who.role != "owner":
             raise Problem("forbidden", "Slack channel history is available only to the owner", 403)
-        channels = registry_channels(store.settings.registry_dir)
+        with store.read() as c:
+            channels = SC.channel_map(c, store.settings)
         covered = {cid for cid, entry in channels.items() if bot in entry["readers"]}
         with store.read() as c:
             if not H.bot(c, bot):
