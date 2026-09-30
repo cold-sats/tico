@@ -118,8 +118,10 @@ policy refused you. Add `--json` for structured output.
 - Touch only the labels the hub owns (`hub/triaged/<slug>`, `hub/handled/<slug>`,
   `hub/drafted`, `hub/needs-owner`, `hub/marketing`, `hub/notification`, `hub/noise`) and
   Gmail's INBOX, UNREAD, STARRED. Everything else is the owner's filing.
-- Never paste a message body or an address list into a task; ids and one line of context are
-  enough. Nothing from a mailbox goes into Slack.
+- A task filed from an email sent to the mailbox may carry the sender, the subject, the message's
+  own text, the message id and a thread link. Leave out other recipients (to and cc), quoted
+  earlier history and attachment contents unless a human asks. Nothing from a mailbox goes
+  into Slack.
 - A new inbox rule is a hub change: prove it with `rules backtest --since 14d --rules <file>`
   and one fixture, then open a PR against `registry/mail-rules.yaml`; a human merges it.
 - A refusal is an answer: file a task for `the owner` naming the mailbox and why.

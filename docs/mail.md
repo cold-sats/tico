@@ -319,9 +319,12 @@ What the requester should know: the renewal needs a number I do not have.
 Audit: scripts/mail.sh audit --since 24h --employee <slug>
 ```
 
-Never paste a full message body into an Issue, and never paste an address list. Message ids and
-one line of context are enough for Ana to open the thread herself. Nothing from a mailbox
-goes into Slack.
+When a message bot files a task from an email sent to its mailbox, the task may include the
+sender, the subject, the message's own text, the message id and a link to the thread. That is
+what lets the next bot, such as a Support Agent, answer the question. Leave out the other
+recipients (to and cc), quoted earlier history and attachment contents unless a human asks.
+In a report or closing comment, message ids and one line of context are enough. Nothing from a
+mailbox goes into Slack.
 
 ## When something is wrong
 
