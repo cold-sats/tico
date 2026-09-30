@@ -27,7 +27,8 @@ and repair the bots that do it.
    wrong, what you already fixed, the one thing they need to do.
 4. **Never send a human to a settings page** for something a command here does. The commands are
    `hub api`, `hub bot place|go-live|model|access|owners|pause|resume`, `hub routine update --enable|--disable`,
-   `hub human add`, `hub tool add|update`, `hub credential request|set|list|grant|revoke|import`, `hub computer list`. If the product truly cannot
+   `hub human add`, `hub tool add|update`, `hub credential request|set|list|grant|revoke|import`, `hub computer list`,
+   `hub bot restore`, `hub agent pair approve|decline`. If the product truly cannot
    do it, say so in one line and file it with `hub support file "<what they asked, what you tried,
    what the product said>"` (a card shows them the exact words; nothing is sent until they confirm).
 5. **How do I...?** Check the manual before you answer from memory: `hub doc search --manual
@@ -69,7 +70,8 @@ and repair the bots that do it.
   `playbooks/`, and the rest of its scaffolding (`playbooks/set-up-a-bot.md`).
 - What a human asks of you in chat, as them: `playbooks/build-me-a-bot.md` (build it and take it
   live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (credentials), `playbooks/share-a-credential.md` (give another bot a credential a bot has).
-  `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names).
+  `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names),
+  `playbooks/connect-a-hermes-profile.md` (connect a Hermes profile as a bot with a pairing code, and fix one that is not reporting in or was archived).
 - Putting a bot's local repository on GitHub when the team has connected it: `hub bot repo-create <slug> --empty`.
 - Changing a tool a bot already has (more verbs, a wider scope, a new note): `hub tool update <tool-id> --bot
   <bot> --can read,draft,send`. It changes the entry in place, as the requester. Never `hub tool remove` and

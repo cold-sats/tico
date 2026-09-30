@@ -23,6 +23,7 @@ Do each fix as the human, with their rights. Do not ask first.
 | Paused | `hub bot resume <bot>` (unless they paused it on purpose: then only mention it) |
 | A credential a bot needs | open the card: `playbooks/connect-a-tool.md` |
 | Failing runs | `playbooks/diagnose-a-failed-run.md`; fix instructions in the bot's repository if that is the cause |
+| A Hermes bot that is not reporting in, or archived and still reporting | `playbooks/connect-a-hermes-profile.md` |
 | A computer is offline | nothing you can do: say which one, and that its bots wait for it |
 | Stopped after refusing something | `hub api POST /api/v2/bots/<bot>/quarantine/clear` only after you read why |
 
