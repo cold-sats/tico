@@ -29,6 +29,11 @@ start every `app/` file with it. `TICO_UI_BUNDLE=off` serves the files separatel
 tests run the real bundler and serve the bundle by default; `TICO_UI_BUNDLE=off npm run test:ui` runs them on
 the separate files. Files outside the markers (`ui/*.js`, `vendor/`) load on their own.
 
+An open tab does not pick up a new release by itself. The config carries the release (`version`) and the served build
+(`ui_build`, the `?v=` of the two bundle tags joined by a dot); `app/notices.js` compares both with what the page loaded with, on the
+config poll and when a hidden tab is shown, and shows "New version · Reload" (`#stale-banner`). It is empty when the files are served
+unbundled, so only the release is compared then.
+
 ## The rule
 
 **One feature per file; load order is in index.html.** Add a page or feature as its own file and add its

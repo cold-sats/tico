@@ -74,7 +74,8 @@ included:
 
 - `GET /api/v2/bots` and `GET /api/v2/org` return only the bots the caller can **see**, each with
   `access: {"see": true, "read": false, "write": true}` for that caller. `?can=read` or `?can=write` keeps
-  only the ones the caller holds that level on. A bot they may only see has no status, machine or queue.
+  only the ones the caller holds that level on. A bot they may only see has no status, machine or queue. Each bot in the
+  org chart carries its `reports_to`, `department` and `template`.
 - A bot the caller cannot see answers `404`. One they can see but not read, or not write to, answers
   `403 forbidden` with what is missing. A task, update, file or run of a bot they cannot read is left out of
   lists (counts and pages included) and answers `403` when asked for by id.
