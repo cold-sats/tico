@@ -84,6 +84,7 @@ staff key. Bodies are JSON, at most 16 KB (48 KB for staff), with strict fields;
 | `GET /v1/support/{id}` | ticket secret | Header `X-Ticket-Secret` (or `?secret=`). `{ticket_id, status, created, updated, messages: [{id, created, from: "staff"\|"person", body}]}`. An unknown ticket and a wrong secret are the same `404`. 600 an hour per address. |
 | `POST /v1/support/{id}/messages` | ticket secret | `{message}` from the human; reopens an answered ticket; `409` when closed or at 60 messages. |
 | `DELETE /v1/support/{id}` | ticket secret | The human deletes their ticket. |
+| `GET /v1/staff/stats` | staff key | `{by_version: {"0.2.24": 2, ...}, window_days: 7}`: installs heard from in the last 7 days on each exact release, with no suppression (the public `/v1/stats` still leaves out counts under 5). |
 | `GET /v1/staff/tickets?status=open\|answered\|closed\|all&since=<UTC time>&limit=` | staff key | Oldest activity first. `since` is `YYYY-MM-DDTHH:MM:SSZ` and matches `updated`, which moves when the human writes or the team replies. Each ticket has `body`, `email`, `version`, `install_id`, `email_pending`, `has_diagnostics` and `messages`. |
 | `GET /v1/staff/tickets/{id}` | staff key | One ticket, with its `diagnostics` bundle when the human attached one (support.md, PRIVACY.md). No other route returns it. |
 | `POST /v1/staff/tickets/{id}/reply` | staff key | `{body}` (up to 8000 characters). Sets the ticket to `answered`; with an email on the ticket it is marked `email_pending`. HQ sends no email. `409` when closed. |

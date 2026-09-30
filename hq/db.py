@@ -85,3 +85,13 @@ class Database:
             shown["other"] = other
         return {"tried": tried, "active_7d": active, "retained_30d": retained, "by_version": shown,
                 "as_of": now.isoformat()}
+
+    def release_counts(self):
+        """Staff only: installs heard from in the last 7 days on each exact release (0.2.24, not 0.2), with no
+        suppression. No public route serves this."""
+        week = (self.clock() - timedelta(days=WINDOW_DAYS)).isoformat()
+        with self.lock:
+            rows = self.conn.execute("SELECT last_version, count(*) FROM installs WHERE last_seen>=? GROUP BY last_version",
+                                     (week,)).fetchall()
+        key = lambda kv: [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in re.split(r"[.\-]", kv[0])]
+        return dict(sorted(((r[0], r[1]) for r in rows), key=key))

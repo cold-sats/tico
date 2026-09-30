@@ -4,6 +4,7 @@
     GET    /v1/support/{ticket_id}         that person's app asks for its status and messages (the ticket's secret)
     POST   /v1/support/{ticket_id}/messages   the person adds a message to a ticket that is not closed (the secret)
     DELETE /v1/support/{ticket_id}         the person deletes their ticket (the secret)
+    GET    /v1/staff/stats                 exact active installs per release, last 7 days (HQ_STAFF_KEY)
     GET    /v1/staff/tickets               the team lists tickets              (HQ_STAFF_KEY)
     GET    /v1/staff/tickets/{id}          one ticket with its messages and diagnostics (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/reply    a reply the person's app will fetch (HQ_STAFF_KEY)
@@ -443,6 +444,13 @@ def install(app, tickets, address, staff_key="", judge=None):
 
     def known(ticket_id):
         return TICKET_ID.fullmatch(ticket_id)
+
+    @app.get("/v1/staff/stats")
+    def staff_stats(request: Request):
+        denied = staff_only(request)
+        if denied:
+            return denied
+        return no_store({"by_version": tickets.db.release_counts(), "window_days": 7})
 
     @app.get("/v1/staff/tickets")
     def staff_list(request: Request):
