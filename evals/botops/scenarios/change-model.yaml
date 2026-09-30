@@ -1,0 +1,17 @@
+id: change-model
+title: Change a bot's model
+as: owner
+seed:
+  - bot: {slug: scribe, name: Scribe, status: active}
+prompt: "Switch Scribe to a different model than it has now: the other one we have enabled."
+person: []
+done:
+  - bot_model_changed: {bot: scribe}
+reply: "Scribe now runs on the other model. Its next run uses it."
+limits: {person_steps: 0, jargon: 0, duplicates: 0, sent_elsewhere: 0}
+script:
+  - tool: hub_bot_model
+    args: {bot: scribe}
+    capture: models
+  - tool: hub_bot_model
+    args: {bot: scribe, model: "$other_model"}

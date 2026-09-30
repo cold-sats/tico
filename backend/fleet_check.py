@@ -5,7 +5,7 @@ credential it declares but does not have, setup that never finished, paused (and
 Each issue says in a plain sentence what is wrong and the one command that fixes it, so BotOps can fix what it may and
 report the rest.
 """
-from . import bot_tools
+from . import bot_tools, usage_limits
 from .getting_started import _online_runners
 from .store import H
 
@@ -58,6 +58,14 @@ def check(c, who, auth, settings):
                 add(bot, "computer_offline", HIGH, f"{name} cannot run: its computer, {where[1]}, is offline.", "hub computers")
             if bot["onboarding_state"] == "needs_onboarding" and (bot["created"] or "") < H.shift(H.now(), hours=-24):
                 add(bot, "needs_setup", MEDIUM, f"{name} is waiting for its first setup with its owner.", f"hub bot go-live {slug}")
+        if state == "active":
+            try:
+                met = usage_limits.blocked(c, slug, default=usage_limits.company(c))
+            except Exception:
+                met = None
+            if met:
+                add(bot, "paused_over_limit", HIGH, f"{name} is paused: it reached its spending limit.",
+                    f"hub api PUT usage/limits/{slug} (a card: raising a limit is their click)")
         if failed.get(slug):
             n = failed[slug]
             add(bot, "failing_runs", HIGH if n >= 3 else MEDIUM, f"{name} had {n} failed run{'s' if n != 1 else ''} today.",

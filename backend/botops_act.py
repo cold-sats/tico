@@ -60,6 +60,7 @@ CONFIRM = _routes(
     ("POST", rf"bots/{_S}/archive"),
     ("POST", rf"people/{_S}"),
     ("PUT", r"providers"), ("PUT", r"access/limits"), ("PUT", r"access/allow"),
+    ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),                 # spending: always their click
     ("POST", rf"runners/{_S}/(member-bots|revoke|restart)"),
     ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
     ("POST", r"system/update"),
@@ -73,7 +74,7 @@ CONFIRM = _routes(
 
 # Confirm-card routes only an owner or an admin may ask for: a member is told so at once, not handed a card that fails.
 ADMIN_ONLY = _routes(
-    ("PUT", r"providers"), ("PUT", r"access/(limits|allow)"), ("POST", rf"runners/{_S}/member-bots"),
+    ("PUT", r"providers"), ("PUT", r"access/(limits|allow)"), ("PUT", r"usage/limits"), ("POST", rf"runners/{_S}/member-bots"),
     ("POST", r"system/update"), ("PUT", r"directory"), ("POST", r"directory/(sync|preview)"),
     ("POST", r"(slack|github/app)/disconnect"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
 )

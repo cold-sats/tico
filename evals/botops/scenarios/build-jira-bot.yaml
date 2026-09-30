@@ -1,0 +1,27 @@
+id: build-jira-bot
+title: Build a Jira-like bot end to end, the login through the card
+as: owner
+prompt: "Please build me a bot that reads our Jira and tells me each morning which issues to solve first. It should just work."
+person:
+  # What the simulated person does when this appears in the chat. Each is one step.
+  - when: credential_card
+    value: "ana@acme.example:atl-EVAL-token-0123456789"
+done:
+  - bot_matches: "jira"
+  - bot_state: {state: active}
+  - bot_placed: {}
+  - credential_granted: {env_matches: "JIRA|ATLASSIAN"}
+  - task_for_bot: {}
+reply: "Jira Manager is live on your computer and can read your Jira. I opened a field in this chat for your Jira login, you saved it, and a first test read one project fine. Ask it which issues to solve first."
+limits: {person_steps: 1, jargon: 0, duplicates: 0, sent_elsewhere: 0}
+script:
+  - tool: hub_bot_register
+    args: {slug: jira-manager, name: Jira Manager, description: Reads Jira and says which issues to solve first}
+  - tool: hub_credential_request
+    args: {env: JIRA_BASIC_AUTH, for_bot: jira-manager, label: your Jira login, format: "you@company.com:API token", help_url: "https://id.atlassian.com/manage-profile/security/api-tokens"}
+  - person: fill_card
+  - next_turn: true
+  - tool: hub_bot_go-live
+    args: {bot: jira-manager}
+  - tool: hub_task_create
+    args: {owner: jira-manager, title: Read one Jira project and name its top issue, body: "Read one project and say which issue to solve first. Change nothing."}

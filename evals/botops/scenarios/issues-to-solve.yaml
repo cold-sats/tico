@@ -1,0 +1,19 @@
+id: issues-to-solve
+title: 'Tell me issues to solve: one prioritised list, fixing what it can'
+as: owner
+seed:
+  - bot: {slug: scribe, name: Scribe, status: planned}
+  - bot: {slug: writer, name: Writer, status: paused}
+prompt: "Tell me issues to solve."
+person: []
+done:
+  - bot_state: {bot: scribe, state: active}
+  - bot_placed: {bot: scribe}
+  - reply_matches: "writer|paused"
+reply: "Two things. Scribe had no computer, so I put it on your Mac and turned it on. Writer is paused; I left it that way, say the word and I will turn it back on."
+limits: {person_steps: 0, jargon: 0, duplicates: 0, sent_elsewhere: 0}
+script:
+  - tool: hub_fleet-check
+    args: {}
+  - tool: hub_bot_go-live
+    args: {bot: scribe, setup: false}

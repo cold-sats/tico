@@ -111,7 +111,8 @@ _PROPOSABLE = [(m, re.compile(p)) for m, p in (
 # What only BotOps may propose, for a person who asked it in chat (backend/botops_act.py lists the routes it
 # answers with a card): the same click, on more routes.
 _PROPOSABLE_BOTOPS = [(m, re.compile(p)) for m, p in (
-    ("PUT", r"/api/v2/access/(limits|allow)"), ("POST", r"/api/v2/runners/[^/]+/(member-bots|revoke|restart)"),
+    ("PUT", r"/api/v2/access/(limits|allow)"), ("PUT", r"/api/v2/usage/limits(/[^/]+)?"),
+    ("POST", r"/api/v2/runners/[^/]+/(member-bots|revoke|restart)"),
     ("POST", r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke"), ("POST", r"/api/v2/system/update"),
     ("POST", r"/api/v2/goal-proposals/[^/]+/decide"), ("POST", r"/api/v2/support/tickets"),
     ("PUT", r"/api/v2/directory"), ("POST", r"/api/v2/directory/(sync|preview)"),
@@ -208,6 +209,8 @@ def describe(c, method, path, body):
          + ", ".join(f"{k} to {v}" for k, v in body.items())),
         (r"/api/v2/providers", lambda g: "Change the company's AI providers"),
         (r"/api/v2/access/(limits|allow)", lambda g: "Change who may sign in or what members may do: " + fields(body)),
+        (r"/api/v2/usage/limits(?:/([^/]+))?", lambda g: ("Change the spending limit of " + bot(g[0]) if g[0] else "Change the company's spending limit")
+         + ": " + ", ".join(f"{k} {'none' if v is None else '$' + format(v, 'g')}" for k, v in body.items() if k.endswith("_usd"))),
         (r"/api/v2/runners/([^/]+)/(member-bots|revoke|restart)", lambda g: {
             "member-bots": "Let a computer take members' bots" if body.get("accepts") else "Stop a computer taking members' bots",
             "revoke": "Remove a computer", "restart": "Restart a computer's runner"}[g[1]]
