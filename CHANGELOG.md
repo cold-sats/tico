@@ -8,72 +8,67 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- **94 bot templates in nine departments, each a real role with an icon.** The catalog grows from 38 starters to 94, organised
-  for the new org builder into Sales (8), Marketing (14), Customer Support (10), Finance (11), Operations (11), Legal (8),
-  HR (11), Product (8) and Engineering (10), plus a Leadership extra (Chief of Staff, Executive Assistant, Strategy Analyst)
-  that the picker does not offer. Every template is a job title a company would hire (Sales Development Representative,
-  Bookkeeper, Recruiter, Site Reliability Engineer) that does the work and owns an outcome; approvals gate what leaves the
-  company, and every one still ships `outbound_send: false`, read-only access and a paused, draft-only first routine.
-  57 templates are new, among them Account Manager, Sales Engineer, Paid Media Manager, Retention Specialist, Accounts Payable
-  Specialist, Payroll Specialist, Vendor Manager, IT Support Specialist, Dispatcher, Paralegal, Privacy Manager, Sourcer,
-  Product Manager, Security Engineer and DevOps Engineer. The existing ones take job-title names (Sales Lead becomes Sales
-  Manager, Issue Triage QA Engineer, Spend Watcher FP&A Analyst, Mail Drafts Executive Assistant, and so on; slugs are
-  unchanged). Sales Drafter (`sales`) is rewritten as the Account Executive, and Proposal Writer is removed, its proposals and
-  RFP answers folded into the Account Executive.
-- **`templates/departments.yaml`.** Each department's id, name, one-sentence description, goal, the one briefing question
-  with an example answer, a Material Symbols icon, its head's template and `software_only` (Product and Engineering).
-- **Department heads that hire.** Each department has one head (`lead: true`): Sales Manager, Head of Marketing, Head of
-  Customer Support, Head of Finance, Operations Manager, General Counsel, Head of People, Head of Product and Head of
-  Engineering (Head of Finance, General Counsel, Head of People and Head of Product are new). A head lists its department in
-  `team_templates`, and when recurring work is not covered it proposes a specific worker with the reason and its first routine,
-  and asks BotOps to set it up only after the owner confirms.
-- **New card fields:** `department`, `icon`, `tags` (keywords a briefing is matched against) and `suggest` (`default`,
-  `common` or `niche`). `pack` stays for the current chooser and follows the department (finance, legal and HR map to
-  `basics`, product to `engineering`). The three built-ins also carry an icon.
-- **Icons for every bot and department**, from Material Symbols in the UI's existing style. `scripts/build-icon-font.py` now
-  adds every card's and department's `icon` to the subset font, which grows from 38 to 141 glyphs (about 17 KB).
-- **The catalog test** checks every card's department, icon (against the font's `icons.txt`), `suggest` and `tags`, that
-  `pack` follows the department, that each department has exactly one head matching `departments.yaml` and listing the rest of
-  it, and that the catalog holds at least 90 templates. [Starter bots](docs/starter-bots.md) lists every template by
-  department, with its icon, and cites the public best practice each new role draws on.
-- **First run builds your org chart, department by department.** The "Your team" step (a starter team, a full org chart or just the
-  built-ins) is replaced by **Your org chart**. "What departments do you want?" offers nine tiles: Sales, Marketing, Customer Support,
-  Finance, Operations, Legal, HR, Product and Engineering (`templates/departments.yaml`; Product and Engineering start picked only when
-  software is the product). Then one department at a time: its icon, a one-line description and goal, one question ("What kind of sales
-  do you do today?") and a one-line answer; **Recruit bots** shows "Recruiting bots…" and then the suggested bots as checkable cards with
-  an icon, a summary and why each fits. The department head and the `default` cards start checked, `common` ones are shown, the rest are
-  under More, and Back and Skip department are always there. The org chart is drawn beside it and grows as bots are checked (a strip above
-  the card on a phone); the finished chart ("5 departments · 12 bots") lets you rename a bot or change who it reports to by clicking it.
-  Each department head reports to the owner and each other bot to its head. Create is unchanged: starters are parked "Needs onboarding"
-  and materialized in the background. The departments and answers are saved as `answers.departments` and `answers.briefings`, and the
-  answers reach BotOps's setup tasks.
-- **Suggestions from Tico HQ, with a local fallback.** `POST /api/v2/onboarding/recruit` answers one department's suggestions and
-  `GET /api/v2/onboarding/departments` serves the departments and cards. While the card's toggle "Suggestions from Tico HQ (sends this
-  answer)" is on, and unless demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` or the usage-count setting turn it off, the server sends
-  the department, the answer, three facts from About and the catalog version to `POST <TICO_HQ_URL>/v1/recruit`, waits at most 6 seconds
-  and keeps only its own template ids. Otherwise, or on any failure, `backend/recruit_rank.py` ranks locally. PRIVACY.md says what is
-  sent; HQ stores none of it. Tico HQ's `/v1/recruit` (`hq/recruit.py`) validates strictly, ranks with GPT-6 Luna under a JSON schema of
-  template ids, caps model calls per day (`HQ_RECRUIT_DAILY_CAP`), falls back to local ranking, caches answers in memory for an hour under
-  a hash, never logs a body, and rate-limits per address and install id. `scripts/build_catalog_json.py` builds HQ's `hq/catalog.json` and
-  its copy of the recommender ([Tico HQ](docs/tico-hq.md)).
-- Cards and departments carry a Material Symbols `icon`, and `scripts/build-icon-font.py` adds every one to the app's icon font. A card
-  also takes `department`, `tags`, `suggest` (`default`, `common` or `niche`) and `team_templates`.
+- **First run builds your org chart, one department at a time.** Step 3 is now **Your org chart**, in place of the starter team
+  and full org chart. "What departments do you want?" offers nine tiles: Sales, Marketing, Customer Support, Finance, Operations,
+  Legal, HR, Product and Engineering (Product and Engineering start picked only when software is the product). Then, for each: its
+  icon, a one-line description and goal, one question ("What kind of sales do you do today?") and a one-line answer. **Recruit
+  bots** shows "Recruiting bots…", then the suggested bots as cards to check, each with its avatar, summary and why it fits. The
+  head and the `default` cards start checked, `common` ones are shown and the rest are under **More**; Back and Skip department are
+  always there. The chart grows beside it (a strip above the card on a phone): the owner, each department and its bots, the head
+  first. On the finished chart ("5 departments · 11 bots") a click renames a bot or changes who it reports to. Each head reports
+  to the owner and each other bot to its head. The departments and answers are saved as `answers.departments` and
+  `answers.briefings`, and reach BotOps's setup tasks. Create is unchanged. See [First run](docs/onboarding.md#the-org-builder).
+- **Suggestions from Tico HQ, with a local fallback.** `GET /api/v2/onboarding/departments` serves the departments and cards, and
+  `POST /api/v2/onboarding/recruit` one department's suggestions. While the card's toggle "Suggestions from Tico HQ (sends this
+  answer)" is on, the server sends the department, the answer, three facts from About, the catalog version and (once the usage
+  count's notice has been shown) its install id to `POST <TICO_HQ_URL>/v1/recruit`, waits at most 6 seconds and keeps only its own
+  template ids. Demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` and the usage count's setting turn the toggle off. Otherwise, or on
+  any failure, `backend/recruit_rank.py` ranks on the install with no network. HQ stores none of it ([PRIVACY.md](PRIVACY.md)).
+  Tico HQ's `/v1/recruit` (`hq/recruit.py`) checks its input strictly, ranks with GPT-6 Luna under a JSON schema of template ids,
+  caps model calls a day (`HQ_RECRUIT_DAILY_CAP`), falls back to the same local ranking, caches answers in memory for an hour under
+  a hash, never logs a body, and limits requests per address and per install id. `scripts/build_catalog_json.py` writes HQ's
+  `hq/catalog.json` and its copy of the recommender; its `--check` fails when either is stale ([Tico HQ](docs/tico-hq.md)).
+- **94 bot templates by department, each a real job title with an icon.** Sales (8), Marketing (14), Customer Support (10),
+  Finance (11), Operations (11), Legal (8), HR (11), Product (8) and Engineering (10), a Leadership extra (Chief of Staff and
+  Strategy Analyst) the picker does not offer, and one helper. 57 are new, among them Account Manager, Sales Engineer, Paid Media
+  Manager, Retention Specialist, Accounts Payable Specialist, Payroll Specialist, Vendor Manager, IT Support Specialist,
+  Dispatcher, Paralegal, Privacy Manager, Sourcer, Product Manager, Security Engineer and DevOps Engineer. Each does the work and
+  prepares the action; a person's approval sends, posts, pays or signs, and every template still ships `outbound_send: false`,
+  read-only access and a paused, draft-only first routine.
+- **Department heads that hire.** Each department has one head (`lead: true`): Sales Manager, Head of Marketing, Head of Customer
+  Support, Head of Finance, Operations Manager, General Counsel, Head of People, Head of Product and Head of Engineering. A head
+  lists its department in `team_templates` and, when recurring work is not covered, proposes a specific worker with the reason and
+  its first routine; it asks BotOps to set it up only after the owner confirms.
+- **`templates/departments.yaml`**: each department's id, name, description, goal, briefing question with an example answer,
+  icon, head and `software_only`. New card fields: `department`, `icon`, `tags`, `suggest` (`default`, `common` or `niche`),
+  `team_templates` and `kind` (`helper`). Every card, built-in and department has a Material Symbols icon, and
+  `scripts/build-icon-font.py` adds each to the app's subset font (146 glyphs, about 17 KB). The catalog test checks every card's
+  department, head, icon, `suggest` and `tags`; [Starter bots](docs/starter-bots.md) lists every template by department.
 
 ### Changed
+- **Bot avatars are soft blobs that breathe while the bot works**, with the template's icon inside. Every bot avatar (sidebar, bot
+  page, chat, Settings > Bots, tasks, Updates, Goals, the org builder) is a slightly organic outline drawn from the bot's slug, so
+  each bot keeps its own shape everywhere; people stay plain circles. While a bot runs a turn or answers in the open chat, its outline
+  eases to a second shape and back; with reduced motion it stays still. `/api/employees` carries each bot's `icon`, from its definition or
+  its template's card.
+- **Helpers are not roles.** Roles are real job titles on the org chart; helpers (Assistant, BotOps, Librarian, Goal Manager and
+  the Inbox Manager) have plain function names and live outside it. The `inbox` template is now the **Inbox Manager** (it was Mail
+  Drafts; slug unchanged), a `kind: helper` card in no department. The org builder offers it under **Helpers** below the finished
+  chart, off by default, with the mailbox picker; the chart itself shows no helpers. The sidebar lists helpers in a Helpers group
+  after the org tree, and `/api/employees` marks a bot made from a helper card with `helper`; `reports_to` is unchanged.
+- **Existing templates take job-title names** (slugs unchanged): Sales Lead is the Sales Manager, Issue Triage the QA Engineer,
+  PR Reviewer the Senior Software Engineer, Spend Watcher the FP&A Analyst, and so on. Sales Drafter (`sales`) is rewritten as the
+  Account Executive, which also takes Proposal Writer's proposals and RFP answers.
 - **Tico HQ's address is now `https://updates.tico.team`** (was `hq.tico.team`, which never went live). It is the default
-  `TICO_HQ_URL`, and the address PRIVACY.md and docs/telemetry.md name. An install on 0.2.15 asks the old address, gets no
-  answer, and checks GitHub directly as before until it updates.
-- **Bot avatars are soft blobs that breathe while the bot works.** Every bot avatar (org panel, bot page, chat, Settings > Bots, tasks,
-  Updates, Goals) is now a slightly organic outline instead of a circle: six to eight points a few percent in or out from round, drawn
-  from the bot's slug so each bot keeps its own shape on every page and load. People stay plain circles, so the two read apart at a glance.
-  The colour and the symbol, initials or Assistant mark inside are unchanged. While a bot runs a turn, or answers in the open chat, its
-  outline eases to a second shape and back every few seconds (CSS `d` in Chrome and Firefox, SMIL in Safari and the macOS app); with
-  reduced motion it stays still. A bot whose template names an `icon` shows that Material Symbol inside its blob: `/api/employees`
-  now carries each bot's `icon`, from its own definition or its template's card.
+  `TICO_HQ_URL` and the address PRIVACY.md and docs/telemetry.md name. An install on 0.2.15 asks the old address, gets no answer,
+  and checks GitHub directly until it updates.
+- Bot pages no longer show the automatic KPI tiles; link a bot's KPIs to a goal from the Goals page.
+- The Done list on a bot page shows its focus ring only for the keyboard.
 
 ### Removed
-- The fixed starter team and the full org chart: `choose()`, `full_chart()` and `recommend()` in `backend/onboarding.py`, and
-  `recommended`, `recommendations`, `full_chart`, `held_back` and `pain_options` in the onboarding record. The org builder replaces them.
+- The starter team and the full org chart: `choose()`, `full_chart()` and `recommend()` in `backend/onboarding.py`, and
+  `recommended`, `recommendations`, `full_chart`, `held_back` and `pain_options` in the onboarding record.
+- The Proposal Writer template, folded into the Account Executive.
 
 ## [0.2.15] - 2026-09-30
 
