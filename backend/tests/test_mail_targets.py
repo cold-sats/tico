@@ -124,23 +124,23 @@ def test_an_undelegated_domain_is_reported_once_and_skipped_afterwards(tmp_path,
     def mail(args):
         box = args[args.index("--mailbox") + 1]
         calls.append(box)
-        if box.endswith("@tidy.com"):
+        if box.endswith("@acme-signin.example"):
             raise RuntimeError("Local mail lookup failed: unauthorized_client: Client is unauthorized")
         return {"messages": []}
-    hub = Hub(["chris@tidy.com", "chris@tico.team"])
+    hub = Hub(["ana@acme-signin.example", "ana@acme.example"])
     work = publisher(tmp_path, hub, mail)
     for _ in range(4):
         work.mail_tick()
-    assert calls.count("chris@tidy.com") == 1                    # tried once, then left alone
-    assert calls.count("chris@tico.team") >= 3                   # the delegated mailbox keeps syncing
-    assert all({"account": "chris@tidy.com", "reason": "delegation"} in r["failing"] for r in hub.reports[1:])
-    assert capsys.readouterr().out.count("cannot act for the domain tidy.com") == 1
+    assert calls.count("ana@acme-signin.example") == 1                    # tried once, then left alone
+    assert calls.count("ana@acme.example") >= 3                   # the delegated mailbox keeps syncing
+    assert all({"account": "ana@acme-signin.example", "reason": "delegation"} in r["failing"] for r in hub.reports[1:])
+    assert capsys.readouterr().out.count("cannot act for the domain acme-signin.example") == 1
 
 
 def test_the_health_issue_names_the_mailbox_and_the_domain(api):
     machine = runner(api)
     post(api, "connectors/health", {"service": "mail", "failing": [
-        {"account": "chris@tidy.com", "reason": "delegation"}]}, machine["token"])
+        {"account": "ana@acme-signin.example", "reason": "delegation"}]}, machine["token"])
     with api.app.state.store.read() as c:
         error = c.execute("SELECT last_error FROM service_health WHERE service='connector:mail'").fetchone()[0]
-    assert "chris@tidy.com" in error and "domain tidy.com" in error and "delegation" in error
+    assert "ana@acme-signin.example" in error and "domain acme-signin.example" in error and "delegation" in error

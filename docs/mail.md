@@ -364,13 +364,13 @@ identity of its `gmail` entry in `bot.yaml`, which BotOps fills from the `Mailbo
 who left, and an archived bot, are skipped.
 
 This is what lets a company sign in on one domain and keep its Google Workspace on another. If the owner signs in as
-`chris@tidy.com` but the Workspace, and so the service account's delegation, is for `tico.team`, the message bot declares
-`chris@tico.team` and that is the mailbox that is synced and read. The calendar sync and the bot's token use the same address.
+`ana@acme-signin.example` but the Workspace, and so the service account's delegation, is for `acme.example`, the message bot declares
+`ana@acme.example` and that is the mailbox that is synced and read. The calendar sync and the bot's token use the same address.
 
 If the key cannot act for a mailbox's domain (Google answers `unauthorized_client`: no domain-wide delegation there), the job
 does not fail on every cycle. It says so once in the runner's log, skips every mailbox on that domain, tries the domain again
 after an hour, and shows one issue in Settings > Health that names the mailbox and the domain, for example
-`Mail can't refresh for chris@tidy.com: the Google service account has no domain-wide delegation for the domain tidy.com`.
+`Mail can't refresh for ana@acme-signin.example: the Google service account has no domain-wide delegation for the domain acme-signin.example`.
 Fix it by adding the delegation for that domain in the Google Workspace admin console, or by giving the message bot a mailbox on
 a domain the key covers. The issue goes away on its own once the mailbox syncs.
 

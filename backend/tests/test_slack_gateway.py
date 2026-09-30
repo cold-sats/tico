@@ -535,7 +535,7 @@ def test_a_decision_the_model_refuses_ends_failed_with_the_reason_and_tells_the_
 
 
 def test_a_decision_outage_retries_for_ten_minutes_and_then_fails_instead_of_looping(gateway, hub):
-    gateway._judge = CappedJudge({}, fail=J.JudgeError("unavailable", "TypeSafe answered 503", 503, retryable=True))
+    gateway._judge = CappedJudge({}, fail=J.JudgeError("unavailable", "the decision model answered 503", 503, retryable=True))
     assert send(gateway, "hello there", channel=DM, kind="message")["state"] == "received"
     assert gateway.slack.posts == [], "a short outage tells nobody"
     gateway.clock.advance(G.RETRY_SECONDS)
