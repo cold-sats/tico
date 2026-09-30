@@ -84,7 +84,7 @@ function settingsShow(tab) {
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
   if (history) history.hidden = SETTINGS_TAB !== 'history';
   const peoplePane = $('#settings-people');
-  if (peoplePane) { peoplePane.hidden = SETTINGS_TAB !== 'people'; if (SETTINGS_TAB === 'people') void renderSettingsPeople(); }
+  if (peoplePane) { peoplePane.hidden = SETTINGS_TAB !== 'people'; if (SETTINGS_TAB === 'people' && !formBusy(peoplePane)) void renderSettingsPeople(); }
   const privacyPane = $('#settings-privacy');
   if (privacyPane) { privacyPane.hidden = SETTINGS_TAB !== 'privacy'; if (SETTINGS_TAB === 'privacy') void renderSettingsPrivacy(); }
   const healthPane = $('#settings-health');
@@ -92,7 +92,7 @@ function settingsShow(tab) {
   const providersPane = $('#settings-providers');
   if (providersPane) { providersPane.hidden = SETTINGS_TAB !== 'providers'; if (SETTINGS_TAB === 'providers') void renderSettingsProviders(); }
   const recurring = $('#settings-recurring');
-  if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring') renderSettingsRecurring(); }
+  if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring' && !formBusy(recurring)) renderSettingsRecurring(); }
 }
 // Settings > Privacy: the one switch for the anonymous usage count, and a new random install ID (PRIVACY.md).
 async function renderSettingsPrivacy() {
@@ -136,7 +136,8 @@ async function loadSettings() {
     document.dispatchEvent(new Event('tico:settings-loaded'));
     renderTree();
     if (S.route !== SETTINGS) return;
-    renderSettingsIssues(); renderSettingsBots(); renderSettingsMachines(); renderSettingsServices(); renderSettingsHistory(); renderSettingsRecurring();
+    renderSettingsIssues(); renderSettingsBots(); renderSettingsMachines(); renderSettingsServices(); renderSettingsHistory();
+    if (!formBusy($('#set-recurring'))) renderSettingsRecurring();   // not while its search box has the cursor
     void renderSettingsTokens();
     const add = $('#settings-add-bot');
     if (add) { add.onclick = () => settingsEditBot(); add.disabled = false; }
