@@ -22,11 +22,16 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
   `merge`. Only a person decides; an approval is spent once. Rules: `policies/approvals.md`.
 - **Routine** — a cron schedule owned by a bot: `id`, `title`, `cron`, `timezone`, `template`
   (a playbook file) or inline `instructions`, `labels`. Each occurrence becomes a task.
-- **Goal** — what a person or a bot is for: a title, an owner, the goal it supports (`parent_id`,
-  optional), a colour the owner sets with one sentence (`red`, `yellow`, `green`;
-  `done` or `dropped` when it ends; none while proposed) and KPIs whose readings anyone logs at
-  any time. A task may name the goal it serves. Bots read theirs with `hub goals`; nothing is
-  pushed into a run.
+- **Goal** — what a person or a bot is for: a title, an owner (`company`, a person or a bot), the goal it
+  supports (`parent_id`, optional) and a colour with a one-line note. The colour is set automatically
+  from the goal's KPIs (or its owner's check-ins and tasks) by the built-in **Goal Manager**; a person
+  may override it, and it stays theirs until they hand it back. `done` or `dropped` when it ends. A task
+  may name the goal it serves. Bots read theirs with `hub goals`; nothing is pushed into a run.
+- **KPI** — a measure that stands on its own: a name, definition, unit, direction, cadence and one owner.
+  A goal links to zero or more KPIs and the target lives on the link (an improvement by a deadline, or a
+  range to stay inside). Readings are facts with a period, evidence and a quality; they are never edited,
+  and a correction is a new reading. A KPI with no fresh data is gray, never zero. Every bot also has
+  automatic KPIs computed from Tico's own data. See [Goals and KPIs](goals-and-kpis.md).
 
 The rules for all six live in the backend's write layer, not in prompts: a bot acts only as
 itself; it may message only active bots and people; at most 20 bot-to-bot messages per
@@ -51,7 +56,7 @@ Pages: **Tasks** (where the app opens), **Meetings** (imported transcripts, sour
 action items), **Docs**,
 **Integrations**, **Changelog**, the **Org** tree, and under your email **Runs**, **Settings**, **Credentials**
 and, for the owner, **SQL**. Tasks has List, Board, Recurring and Done. A bot's page has **Chat**,
-**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps and the Librarian are built in to every company and cannot be archived or deleted (`409 system_bot`); the assistant
+**Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian and the Goal Manager are built in to every company and cannot be archived or deleted (`409 system_bot`); the assistant
 and the Librarian work in the background and are not listed for people. Each person has one private **Assistant** chat, the first tab on their own page
 and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that person, and
 proposes anything with a side effect for their own click ([The Assistant](assistant.md)). There is no shared

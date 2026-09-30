@@ -7,6 +7,53 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **KPIs are records of their own, and goals are coloured from them.** A KPI has a name, definition, unit, direction (`up`,
+  `down`, `range`), cadence (`daily`, `weekly`, `monthly`), one accountable owner (the company, a person or a bot), a source note
+  and a `definition_version` that goes up when what it measures changes. A goal links to zero or more KPIs and one KPI can serve
+  several goals; the target lives on the link, either an improvement (baseline, target, deadline, paced in a straight line) or a
+  maintenance range (min and/or max). A reading is a fact: the value, the period it describes (`period_start`, `period_end`) apart
+  from `collected_at`, an evidence link or note, a quality (`measured`, `estimate`, `partial`) and the definition version. Readings
+  are never edited; a correction is a new reading that `supersedes` the old one. A KPI is fresh, stale (one period missed) or missing
+  (never read, or two or more periods missed); missing is never zero and shows gray. The colour of a KPI is arithmetic: green on
+  pace or inside the range, yellow within 10% of the needed pace or near an edge, red further behind or outside, gray with no fresh
+  data. See `docs/goals-and-kpis.md`.
+- **Goal colours are automatic, and a person can override.** A goal's colour is worked out from its KPIs (the worst of them, with a
+  one-line reason such as "Activation 52% vs 58% needed on pace"), or from its owner's check-ins and its tasks when it has none,
+  or gray "no data". A colour a person sets sticks: it shows "set by <name>" with their note until a person chooses **Let Goal
+  Manager set it** (`hub goal auto`), and the automatic pass only ever *suggests* a different colour on such a goal. `goals` and
+  every `goal_events` row now say who set a colour (`status_by`) and how (`status_source`, `auto` or `person`). Automatic colours
+  are worked out again on every reading, target, link and check-in, by the Goal Manager's status pass, and once an hour.
+- **The Goal Manager**, a fourth built-in bot (with Tico, BotOps and the Librarian), created for every company and for existing
+  companies on update once a computer and a model exist. It is the steward of every KPI: one folder per KPI in its repository
+  (`kpis/<slug>/`: definition, sources, the query or script, a known-values check, a changelog), one scheduled pass that computes
+  each KPI with a time budget and posts readings with evidence, stale and missing marked, a failing KPI skipped and reported. It
+  also checks that goals make sense (vague, duplicate or unmeasured goals, as proposals), asks a goal's owner what is happening
+  when a KPI slips and records the answer as a check-in, and sends the owner a short weekly goals review. It cannot change a
+  definition or a target it is judged against: those are **proposals** the goal's or KPI's owner confirms. Its routines start
+  paused; the daily KPI pass starts once the first KPI exists.
+- **Automatic bot KPIs** computed from Tico's own data, no steward needed: tasks completed (7 days), median time to first response,
+  approval rate, failed runs and model cost. A row on each bot's page shows them, and they link to goals like any KPI
+  (`auto:<bot>:<metric>`).
+- **The Goals page shows the KPIs.** Each goal has its colour dot and note, its KPIs inline (dot, name, latest value and period,
+  target, sparkline), a panel with the history, evidence, definition and version, owner and the Goal Manager's latest check-in,
+  **+ KPI** on each goal and at the bottom, an **Other KPIs** list, and **Needs you** for red KPIs on goals you own, stale data on
+  KPIs you own and definitions or targets waiting for your confirmation.
+- **API, `hub` and MCP.** New stable v2 routes for goals (list, tree, get, status override and hand-back, refresh, check-ins,
+  needs-you), KPIs (list, get, create, update), readings, links and targets, bot KPIs and proposals, all in `docs/openapi/v2.json`.
+  `hub goal auto|refresh|checkin|checkins|needs-you`, `hub kpi list|show|add|update|link|unlink|log|readings` and
+  `hub proposal create|list|decide`, with MCP tools of the same meaning.
+
+### Changed
+- **`hub kpi add` takes the KPI's name first.** `hub kpi add "<name>" [--goal ID]` makes a standalone KPI and links it when
+  `--goal` is given, with `--baseline/--target/--deadline` or `--min/--max` for the target. A target needs a deadline. `hub kpi log`
+  takes `--period-start`, `--period-end` (`--at` still works), `--evidence`, `--quality` and `--supersedes`.
+- **Who may log a reading.** A KPI's owner (or anyone above them), the Goal Manager, or the owner of a goal that uses it. It used
+  to be anyone signed in.
+- **Existing KPIs migrate forward.** Every old KPI and reading is kept. Each KPI becomes standalone, owned by its goal's owner and
+  monthly, linked to its old goal; an old `target` becomes an improvement target on that link (with no deadline until someone sets
+  one), and a colour someone set on a goal is now their override.
+
 ## [0.2.14] - 2026-09-30
 
 ### Added
