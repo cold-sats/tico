@@ -60,3 +60,18 @@ def test_group_tools_list_create_and_update_and_botops_acts_as_the_requester():
     except ValueError as exc:
         assert "Name the new group" in str(exc)
     assert "hub_group_update" in hubtools.AUDIENCE and "assistant" not in hubtools.offered_to(fn["hub_group_update"])
+
+
+def test_tool_add_and_remove_are_the_requesters_when_botops_calls_them():
+    fn = hubtools.BY_NAME
+    entry = {"bot": "inbox-manager", "service": "gmail", "can": "read,draft,send", "identity": "a@acme.example"}
+    person, botops = _Groups(), _Groups("bot:botops")
+    fn["hub_tool_add"]["fn"](person, entry)
+    fn["hub_tool_remove"]["fn"](person, {"bot": "inbox-manager", "id": "gmail"})
+    assert [c[:2] for c in person.calls if c[1] != "me"] == [("POST", "bots/inbox-manager/tools"),
+                                                            ("POST", "bots/inbox-manager/tools/gmail/delete")]
+    fn["hub_tool_add"]["fn"](botops, entry)
+    fn["hub_tool_remove"]["fn"](botops, {"bot": "inbox-manager", "id": "gmail"})
+    assert [c[:2] + (c[3],) for c in botops.calls if c[1] != "me"] == [
+        ("POST", "bots/inbox-manager/tools", True), ("POST", "bots/inbox-manager/tools/gmail/delete", True)]
+    assert "botops" in hubtools.offered_to(fn["hub_tool_add"]) and "bot" not in hubtools.offered_to(fn["hub_tool_add"])

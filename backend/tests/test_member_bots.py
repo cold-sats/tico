@@ -332,3 +332,28 @@ def test_domain_sign_in_is_the_company_domain_on_the_allow_list(api):
     view = get(api, "access", "ana-test")
     assert view["domain_sign_in"] is True and view["allowed_domains"] == ["acme.example"]
     assert auth.admits("dan@acme.example") and not auth.admits("dan@other.example")
+
+
+GMAIL_SEND = {"service": "gmail", "identity": "cara@acme.example", "can": ["read", "draft", "send"]}
+
+
+def test_botops_changes_a_bots_tools_as_the_requester_who_owns_it_and_never_for_a_bot_that_is_not_hers(api, botops):
+    attempt = turn(api, botops, text="Let my inbox bot send mail")
+    register(api, attempt, "cara-mail", template="inbox")
+    # With the header the requester's rights decide; without it (an older client) the turn's person still does.
+    delegated = {**headers(attempt["token"]), "X-Tico-On-Behalf-Of": "turn"}
+    with_header = api.post("/api/v2/bots/cara-mail/tools", json=GMAIL_SEND, headers=delegated)
+    assert with_header.status_code == 200, with_header.text
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT requested_by FROM bot_tool_requests WHERE bot='cara-mail'").fetchone()[0] == "human:cara"
+    api_no_header = api.post("/api/v2/bots/cara-mail/tools", json={**GMAIL_SEND, "identity": "cara@other.example"},
+                             headers=headers(attempt["token"]))
+    assert api_no_header.status_code == 200, api_no_header.text
+    # A bot that is not hers stays closed, with or without the header: owner-only protection is unchanged.
+    assert api.post("/api/v2/bots/ops/tools", json=GMAIL_SEND, headers=delegated).status_code == 403
+    assert api.post("/api/v2/bots/ops/tools", json=GMAIL_SEND, headers=headers(attempt["token"])).status_code == 403
+    # No person's turn, no authority: a plain call from BotOps with nobody asking is still refused.
+    finish(api, botops, attempt)
+    idle = api.post("/api/v2/bots/cara-mail/tools", json={**GMAIL_SEND, "identity": "x@acme.example"},
+                    headers=headers(botops["token"]))
+    assert idle.status_code in (401, 403)

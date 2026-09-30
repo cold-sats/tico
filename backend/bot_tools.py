@@ -336,7 +336,11 @@ def reconcile(c, reported):
                 c.execute("UPDATE bot_tool_requests SET state='done' WHERE id=?", (request["id"],))
 
 
-def install(app, store, auth, mutate, settings_admin):
+def install(app, store, auth, mutate, settings_admin, requester=None):
+    """`requester(c, who)` is the person BotOps is acting for when `who` is BotOps in a turn a person's chat message
+    started, else `who`: a tool is a bot's owner's to add, and BotOps is nobody's bot but the requester's to manage."""
+    acting = requester or (lambda c, who: who)
+
     @app.get("/api/v2/bots/{bot}/tools")
     def bot_tools(request: Request, bot: str):
         who = request.state.identity
@@ -352,11 +356,11 @@ def install(app, store, auth, mutate, settings_admin):
         """Register a tool for a bot: checked, kept as a pending request, and handed to BotOps as a task
         with the exact `tools:` entry. A credential is never accepted; `env` is a variable's name."""
         who = request.state.identity
-        return mutate(request, body, lambda c: register(c, auth, settings_admin, store.settings, who, bot, body))
+        return mutate(request, body, lambda c: register(c, auth, settings_admin, store.settings, acting(c, who), bot, body))
 
     def remove(request, bot, tool_id):
         who = request.state.identity
-        return mutate(request, M.Empty(), lambda c: unregister(c, auth, settings_admin, store.settings, who, bot, tool_id))
+        return mutate(request, M.Empty(), lambda c: unregister(c, auth, settings_admin, store.settings, acting(c, who), bot, tool_id))
 
     @app.delete("/api/v2/bots/{bot}/tools/{tool_id}")
     def delete_tool(request: Request, bot: str, tool_id: str):

@@ -3129,7 +3129,16 @@ def create_app(settings=None):
     from .usage import install as install_usage
     install_usage(app, store, auth, mutate, settings)
     from .bot_tools import install as install_bot_tools
-    install_bot_tools(app, store, auth, mutate, settings_admin)
+    def as_requester(c, who):
+        """BotOps with no `X-Tico-On-Behalf-Of` header is still doing a person's errand in a turn their chat message
+        started (an older client, a route's plain tool): check the person, never BotOps, who manages no one's bot."""
+        if who.actor != "bot:" + BOTOPS:
+            return who
+        try:
+            return delegated_identity(c, who, "turn")
+        except Problem:
+            return who
+    install_bot_tools(app, store, auth, mutate, settings_admin, as_requester)
     from .groups import install as install_groups
     install_groups(app, store, auth, mutate, settings)
     from .support import install as install_support

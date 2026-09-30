@@ -1043,7 +1043,7 @@ def _scope_of(value):
     return scope
 
 
-@tool("hub_tool_add", "Register a tool for a bot you manage: a `tools:` entry for its bot.yaml. The server checks "
+@tool("hub_tool_add", "Register a tool for a bot you manage (BotOps: one the person who asked you manages): a `tools:` entry for its bot.yaml. The server checks "
       "it and opens a task for BotOps with the exact YAML; the tool shows as pending until the bot's computer reports "
       "it. Names and verbs only: never a credential value. `env` names the variable, which the operator puts on the "
       "bot's computer.",
@@ -1060,7 +1060,7 @@ def tools_add(api, args):
     can = [part.strip() for part in can.split(",")] if isinstance(can, str) else can
     body = {"service": args["service"], "can": can, "scope": _scope_of(args.get("scope")),
             **{k: args[k] for k in ("identity", "env", "note") if args.get(k)}}
-    return api.post(f"bots/{args['bot']}/tools", body, key=_key(args))
+    return _as_person(api).post(f"bots/{args['bot']}/tools", body, key=_key(args))
 
 
 @tool("hub_tool_remove", "Ask BotOps to remove a tool from a bot you manage (its id from `hub_tool_list`), or withdraw "
@@ -1068,7 +1068,7 @@ def tools_add(api, args):
       {"bot": _s("The bot's slug"), "id": _s("The tool id from hub_tool_list")},
       required=("bot", "id"), writes=True)
 def tools_remove(api, args):
-    return api.post(f"bots/{args['bot']}/tools/{args['id']}/delete", {}, key=_key(args))
+    return _as_person(api).post(f"bots/{args['bot']}/tools/{args['id']}/delete", {}, key=_key(args))
 
 
 def _bot_of(api, args):
@@ -2000,7 +2000,8 @@ AUDIENCE = {
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
-                                    "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update")},
+                                    "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
+                                    "hub_tool_add", "hub_tool_remove")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
