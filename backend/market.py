@@ -1018,6 +1018,41 @@ def seed_pages(conn, actor=SEED_ACTOR):
     return written
 
 
+def mark_seeded_pages(conn):
+    """One-time, idempotent startup fix for installs made before pages carried `seeded`: a market page whose
+    content is still exactly what the seed wrote (the "None in the seed." text) is marked `seeded`, so the Market
+    page hides it while the graph is empty. A page anyone has written or edited, or one the graph has since
+    outgrown, is left alone. Returns the ids it marked; a second run marks none."""
+    marked = []
+    weekly = re.compile(r"^# Weekly delta\n\nChanges since (\d{4}-\d{2}-\d{2})\.")
+    rows = conn.execute("SELECT id, payload_json FROM documents WHERE collection='market' AND id IN (%s)"
+                        % ",".join("?" * len(PAGES)), [page[0] for page in PAGES]).fetchall()
+    documents = {row["id"]: json.loads(row["payload_json"]) for row in rows}
+    if not documents:
+        return marked
+    fresh = narrative(conn, datetime.now(timezone.utc).date())
+    for doc_id, payload in documents.items():
+        if payload.get("seeded") or not isinstance(payload.get("content"), str):
+            continue
+        body = payload["content"]
+        if doc_id == "market/weekly-delta":
+            since = weekly.match(body)
+            if not since:
+                continue
+            # The seed wrote it before it wrote the other pages' own events, so it says nothing changed.
+            fresh[doc_id] = f"# Weekly delta\n\nChanges since {since.group(1)}.\n\nNo market changes in this week."
+        if body != fresh.get(doc_id):
+            continue
+        payload["seeded"] = True
+        raw = encode(payload)
+        hashed = digest(raw)
+        now = H.now()
+        conn.execute("INSERT OR IGNORE INTO document_versions VALUES(?,?,?,?)", (doc_id, hashed, raw, now))
+        conn.execute("UPDATE documents SET payload_json=?, digest=? WHERE id=?", (raw, hashed, doc_id))
+        marked.append(doc_id)
+    return marked
+
+
 def refresh_delta(conn, actor, today=None):
     """Monday rewrites the weekly delta from market_events. Any other day leaves it alone."""
     if actor != SEED_ACTOR:

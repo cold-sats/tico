@@ -143,3 +143,46 @@ def test_the_librarian_writes_the_first_map_and_another_bot_still_cannot(api, tm
     assert "Acme sells cleaning" in shown_page["content"]
     _, _, listening = setup_attempt(api, "listening")
     post(api, "market/pages/overview", {"body": "no"}, token=listening["token"], expected=403)
+
+
+def test_a_startup_fix_marks_the_untouched_seed_pages_of_an_older_install_as_seeded(api):
+    """Installs made before pages carried `seeded` hide their "None in the seed." pages once, at startup; a page
+    somebody wrote, or one the graph has outgrown, stays visible, and running it again marks nothing."""
+    store = api.app.state.store
+    with store.transaction() as c:
+        M.seed(c, {}, Blobs(store.settings), document={})
+        rows = c.execute("SELECT id, payload_json FROM documents WHERE collection='market'").fetchall()
+        assert {row["id"] for row in rows} == {page[0] for page in M.PAGES} and len(rows) == 9
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            assert payload.get("seeded") is True                       # a new install tags them at seed time
+            payload.pop("seeded")                                      # what an older install stored
+            c.execute("UPDATE documents SET payload_json=? WHERE id=?", (json.dumps(payload), row["id"]))
+        # The curator's own theses page: not the seed's text.
+        payload = json.loads(c.execute("SELECT payload_json FROM documents WHERE id='market/theses'").fetchone()[0])
+        payload["content"] = "# Theses\n\nBuyers pay for speed. [Source](https://acme.example)"
+        c.execute("UPDATE documents SET payload_json=? WHERE id='market/theses'", (json.dumps(payload),))
+
+    def listed():
+        rows = api.get("/api/company-docs?collection=market", headers=headers()).json()["documents"]
+        return {row["id"]: row for row in rows}
+    assert not any(row.get("seeded") for row in listed().values())
+    with store.transaction() as c:
+        marked = M.mark_seeded_pages(c)
+    assert sorted(marked) == sorted(page[0] for page in M.PAGES if page[0] != "market/theses") and len(marked) == 8
+    seen = listed()
+    assert all(seen[doc_id].get("seeded") is True for doc_id in marked)
+    assert "seeded" not in seen["market/theses"] and "Buyers pay" in api.get(
+        "/api/company-docs/market/theses", headers=headers()).json()["content"]
+    assert "None in the seed." in api.get("/api/company-docs/market/overview", headers=headers()).json()["content"]
+    # Idempotent, and a start-up does the same thing on its own.
+    with store.transaction() as c:
+        assert M.mark_seeded_pages(c) == []
+        c.execute("UPDATE documents SET payload_json=json_remove(payload_json,'$.seeded') WHERE id='market/channels'")
+    store.initialize()
+    assert listed()["market/channels"].get("seeded") is True
+    # A page whose graph has moved on (a company added since) is not the seed's text any more and is left alone.
+    with store.transaction() as c:
+        M.create_entity(c, M.SEED_ACTOR, entity_id="company/acme", type="company", name="Acme", tier="core", summary="")
+        c.execute("UPDATE documents SET payload_json=json_remove(payload_json,'$.seeded') WHERE id='market/coverage-universe'")
+        assert M.mark_seeded_pages(c) == []

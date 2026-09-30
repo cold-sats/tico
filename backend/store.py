@@ -910,6 +910,10 @@ class Store:
                     document = Market.load_snapshot(self.settings.registry_dir)
                     sources = Market.locate_sources(self.settings.registry_dir.parent)
                     Market.seed(c, sources, Blobs(self.settings), document=document)
+                # Market pages the seed wrote before pages carried `seeded`: hide the untouched ones while the graph
+                # is empty (backend/market.py). Idempotent, no migration number.
+                from . import market as Market
+                Market.mark_seeded_pages(c)
                 c.commit()
             except Exception:
                 c.rollback()

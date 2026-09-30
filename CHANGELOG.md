@@ -146,6 +146,10 @@ All notable changes to Tico are recorded here. The format follows
   radios, in both themes. Inputs also carry the right `type`, `autocomplete`, `inputmode` and `spellcheck`.
 - The docs no longer say the catalog has six starter templates: Creating bots, the Onboarding guide and the README say 38 and point to
   Starter bots, which lists them; First run documents the card's `lead` and the featured pains.
+- **The Market page hid nothing on installs made before the market setup box.** The nine seed pages ("None in the seed.") are tagged
+  `seeded` only at seed time, so an older install kept showing them next to the empty state. At start-up the hub now marks each of
+  them `seeded` once, when its content is still exactly the seed's text; a page anyone wrote or edited, or one the graph has since
+  outgrown, is left alone, and a second start marks nothing.
 
 ### Security
 - A bot may invite only people on the company roster to a calendar event (`hub calendar schedule`); an invitation to any other address is
