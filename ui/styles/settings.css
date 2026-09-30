@@ -59,6 +59,7 @@ input.people-switch:disabled{opacity:.45;cursor:not-allowed}
 .people-row.is-left{grid-template-columns:minmax(0,1fr) auto}.people-row.is-left .people-who{opacity:.6}
 .people-limit{margin-top:var(--s2);padding-top:var(--s3);border-top:1px solid var(--line)}
 .people-limit input{width:76px}
+.people-rules{display:grid;gap:var(--s2);margin-top:var(--s2);padding-top:var(--s3);border-top:1px solid var(--line)}
 button.people-danger{background:var(--fail);color:var(--surface)}
 /* Sync with directory (ui/directory-sync.js) */
 .ds-form{display:grid;gap:10px;max-width:560px}.ds-form [hidden]{display:none!important}

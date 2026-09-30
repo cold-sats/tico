@@ -9,6 +9,9 @@
 const PEOPLE_PROXY = {cloudflare: 'Cloudflare Access', 'aws-alb': 'your Cognito user pool'};
 const PEOPLE_ROLE = {owner: 'Owner', admin: 'Admin', member: 'Member'};
 const PEOPLE_SOURCE = {google: 'Google Workspace', entra: 'Microsoft Entra ID', scim: 'SCIM'};
+// Team rules the owner turns off to tighten (backend/team_rules.py): all on by default.
+const PEOPLE_RULES = [['assistant_direct', 'Assistant acts without asking'], ['botops_direct', 'BotOps changes providers and limits without asking'],
+  ['admin_credentials', 'Admins store credentials'], ['admin_sql', 'Admins see SQL'], ['member_tokens', 'Members make personal tokens']];
 let PEOPLE_MODE = '';        // 'manual' or 'sync' picked on this page; '' follows the saved directory source
 let PEOPLE_ADDED = '';       // who was just let in, for the one-line identity proxy reminder
 function peopleDialog(title, body) {
@@ -89,6 +92,7 @@ async function renderSettingsPeople() {
           <div class="people-who">${personAvatar(p, 32)}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div></div></div>
           <div class="people-cell-more"><button class="ghost" type="button" data-person-act="restore">Restore</button></div></li>`).join('')}</ul></details>` : ''}
         <label class="people-line people-limit">Bot limit per member<input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+        ${owner ? `<div class="people-rules">${PEOPLE_RULES.map(([key, label]) => `<label class="people-line">${peopleSwitch(`data-rule="${key}"`, view.rules?.[key] !== false, false, label)}<span>${label}</span></label>`).join('')}</div>` : ''}
       </section>`;
     if (mode === 'sync' && owner) window.mountDirectorySync?.($('#directory-sync'), renderSettingsPeople);   // ui/directory-sync.js
     const person = id => view.people.find(p => p.id === id);
@@ -152,6 +156,7 @@ async function renderSettingsPeople() {
       const x = button.dataset.allowRemove;
       void change(() => allow(view.allowed.filter(e => e !== x), view.allowed_domains.filter(d => d !== x)), `Removed ${x}`);
     });
+    el.querySelectorAll('[data-rule]').forEach(box => box.onchange = () => change(() => put('/v2/access/rules', {[box.dataset.rule]: box.checked}), 'Saved'));
     $('#member-bot-limit').onchange = event => change(() => put('/v2/access/limits', {member_bot_limit: Number(event.target.value)}), 'Bot limit saved');
     el.querySelectorAll('.people-row').forEach(row => {
       const p = person(row.dataset.person), path = `/v2/access/people/${encodeURIComponent(p.id)}`;
