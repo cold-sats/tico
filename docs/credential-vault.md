@@ -1,7 +1,9 @@
 # Shared credentials
 
 How a secret reaches a bot. A bot only ever sees the environment variable named in its own
-`access:` entry; it never reads the vault, 1Password or a secrets file itself.
+`access:` entry; it never reads the vault, 1Password or a secrets file itself. The runner masks a turn's
+granted values (as typed, URL-encoded or base64) with `••••` in everything it posts and logs, in the text
+files the turn changed in the repository, and holds back a push whose commits contain one (`runner/redact.py`).
 
 ## The hub's Credentials
 

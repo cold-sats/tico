@@ -96,7 +96,7 @@ def test_vault_injects_only_granted_secrets_and_removes_temporary_files(api, liv
         assert not service.vault_values and not service.vault_files
         messages=get(api,f"conversations/{msg['conversation_id']}/messages")
         assert file_secret not in json.dumps(messages)
-        assert '[redacted]' in messages[-1]['body']
+        assert '••••' in messages[-1]['body']
     finally:
         service.pool.shutdown()
 

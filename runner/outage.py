@@ -6,7 +6,8 @@ from clients.tico import APIError
 
 
 def log(line):
-    print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + line, flush=True)
+    from .redact import scrub_log            # a running turn's secrets never reach the log
+    print(time.strftime("%Y-%m-%d %H:%M:%S") + " " + scrub_log(line), flush=True)
 
 
 def span(seconds):

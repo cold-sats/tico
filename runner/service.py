@@ -17,6 +17,7 @@ import yaml
 
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles
+from . import redact as redact_mod
 from .release_update import Follower
 from .login import Logins
 from .hosts.base import is_auth_rejected, rejection_reason, settings as host_settings
@@ -1405,6 +1406,7 @@ class Runner:
         reply, outcome, tokens, limited, retryable, fallback = "", "interrupted", {}, False, False, None
         unavailable, base_env, execution_path, drive = False, None, None, None
         auth_rejected = {}
+        redactor, started_at, tree = None, "", {}
         try:
             try:
                 env = base_env = self.environment(attempt)
@@ -1416,24 +1418,18 @@ class Runner:
                         env[credential_socket.SOCKET_ENV] = str(socket_path)     # the mail CLI asks for its mailbox here
                 git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
                 self.publish(bot, self.local_path(bot), env)
-                secret_values = [v for k, v in env.items() if len(v) > 8 and any(s in k.upper() for s in ("TOKEN", "SECRET", "PASSWORD", "API_KEY"))]
-                secret_values.extend(self.vault_values.get(aid, []))
+                redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))
+                if redactor:
+                    redactor.register(aid)
                 def redact(value):
-                    if isinstance(value, str):
-                        for secret in secret_values:
-                            value = value.replace(secret, "[redacted]")
-                        return value
-                    if isinstance(value, dict):
-                        return {k: redact(v) for k, v in value.items()}
-                    if isinstance(value, list):
-                        return [redact(v) for v in value]
-                    return value
+                    return redactor.scrub_json(value) if redactor else value
                 runtime = config.get("runtime") or ""
                 if persistent:
                     runtime += ":antigravity"
                 conv = BOT_THREAD
                 execution_path = self.local_path(bot)
                 self.refresh_workspace(bot, execution_path, env)
+                started_at = redact_mod.head(execution_path) if redactor else ""
                 # A bot keeps one thread and stays on it; this machine alone remembers which.
                 # When the conversation fills the model's window the runtime compacts it, which
                 # is what a long-lived assistant does; nothing here ends a thread that still works.
@@ -1593,6 +1589,16 @@ class Runner:
                 # at once, so a retry there must start fresh. Every other runtime resumes an
                 # interrupted session as it is; the session is the bot's, not the runner's.
                 self.state.forget_session(bot, conv, runtime, thread)
+            if redactor:
+                reply = redactor.scrub_text(reply)
+                if execution_path:
+                    # What the turn left in the checkout is scrubbed before anything is pushed or published.
+                    tree = redactor.scrub_tree(execution_path, started_at)
+                    for path in tree["left_out"]:
+                        reply = (reply + "\n\n" if reply else "") + f"left out of the commit: {Path(path).relative_to(execution_path)} (contains a secret)"
+                    if tree["committed"]:
+                        reply = (reply + "\n\n" if reply else "") + "not pushed: a commit made this turn contains a secret"
+                        log(f"Tico runner: {bot}: a commit made this turn contains a granted secret; it was not pushed")
             if outcome == "completed":
                 scrubbed = scrub_reply(reply, bot)
                 if scrubbed != reply:
@@ -1614,9 +1620,12 @@ class Runner:
                     self.state.cursor(thread, attempt["message"]["id"])
                 self.state.phase(aid, "synced")
                 if outcome == "completed":
-                    self.publish(bot, self.local_path(bot), env)
-                    pushed = self.push(self.local_path(bot), env)
-                    files_publish.after_turn(self, attempt, self.local_path(bot), pushed)
+                    held = bool(tree and tree["committed"])
+                    if not held:
+                        self.publish(bot, self.local_path(bot), env)
+                    pushed = False if held else self.push(self.local_path(bot), env)
+                    files_publish.after_turn(self, attempt, self.local_path(bot), pushed,
+                                             skip=[str(Path(p).relative_to(execution_path)) for p in (tree or {}).get("left_out", [])])
             except APIError as exc:
                 if not exc.retryable:
                     # This Mac holds the only copy of the result until the cloud takes it, so a
@@ -1639,6 +1648,7 @@ class Runner:
                     self.warm.release(host, outcome == "completed")
                 if self.credentials:
                     self.credentials.unregister(attempt["token"])
+                redact_mod.release(aid)
                 self.vault_values.pop(aid, None)
                 for filename in self.vault_files.pop(aid, []):
                     Path(filename).unlink(missing_ok=True)

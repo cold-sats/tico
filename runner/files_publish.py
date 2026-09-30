@@ -84,13 +84,16 @@ def candidates(root, folders):
     return found[:MAX_PER_TURN * 5]
 
 
-def prepare(state, bot, attempt_id, root, config, pushed=False):
-    """Queue what changed since the last publish; return (queued, refused) counts."""
+def prepare(state, bot, attempt_id, root, config, pushed=False, skip=()):
+    """Queue what changed since the last publish; return (queued, refused) counts. `skip` names files that hold a
+    granted secret (runner/redact.py): they are never queued."""
     queued = refused = 0
     with state.connect() as c:
         c.executescript(TABLES)
     for rel, why in candidates(root, folders_for(config, root)):
         try:
+            if rel in skip:
+                raise BF.Refused("holds a secret")
             if why:
                 raise BF.Refused(why)
             path, rel = BF.local_file(root, rel)
@@ -180,12 +183,12 @@ def report_not_synced(client, row):
         pass
 
 
-def after_turn(runner, attempt, root, pushed=False):
+def after_turn(runner, attempt, root, pushed=False, skip=()):
     """The one call the runner makes when a turn has completed. It never raises: a report that
     cannot be published must not turn a finished turn into a failure."""
     try:
         bot = attempt["bot"]
-        queued, refused = prepare(runner.state, bot, attempt["id"], root, attempt.get("config") or {}, pushed)
+        queued, refused = prepare(runner.state, bot, attempt["id"], root, attempt.get("config") or {}, pushed, skip)
         if queued:
             log(f"Tico runner: {bot}: publishing {queued} file{'s' if queued != 1 else ''}")
         drain(runner)
