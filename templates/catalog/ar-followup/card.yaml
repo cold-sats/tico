@@ -40,7 +40,7 @@ prerequisites:
     why: "Optional. A shared folder for the aging export, and the payment terms document."
     required: false
 onboarding:
-  - ask: "Where do I get the list of open invoices: an aging export from the accounting system, Stripe, a spreadsheet? Can you attach the current one?"
+  - ask: "Where do I get the list of open invoices: an aging export from the accounting system or payment processor, a spreadsheet? Can you attach the current one?"
     why: "I only draft for invoices I can see. A real list lets me show a first pack today."
   - ask: "What are your usual payment terms, and what may a reminder say about them (due date, payment link, late fee)?"
     why: "A reminder never states a term I was not given. Anything else is a marked gap for the sender."

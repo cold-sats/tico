@@ -5,7 +5,7 @@ kind: mail
 summary: Read, file, draft and (with approval) send email as a company mailbox, and read or book calendars, through the one shared mail service.
 access: "`$HUB_DIR/scripts/mail.sh` (connectors/mail) — never the Gmail or Calendar API, an SDK or curl"
 credentials:
-  - GOOGLE_SA_KEY — the Google service account with domain-wide delegation, key file secrets/google-sa.json on the runner Mac; the CLI reads it by path and it is never loaded into a bot's environment
+  - GOOGLE_SA_KEY — the Google service account with domain-wide delegation, key file secrets/google-sa.json on the runner computer; the mail service reads it by path and it is never loaded into a bot's environment
 declared_as: |
   - service: gmail
     identity: owner@example.com          # the mailbox it acts as
@@ -28,7 +28,7 @@ service account acts as every mailbox. Gmail authority comes from the `access:` 
 `employee.yaml` (`policies/access.md`), never from a prompt. Company calendar access is the
 standing fleet-wide exception: every bot may read and create events on every roster address with
 the Hub tools or the audited `mail calendar` commands, even when its Gmail access is read-only or
-absent. The Hub queues and audits provider actions; the private Mac connector performs them
+absent. The Hub queues and audits provider actions; the connector on the runner computer performs them
 without exposing the Google credential. Every read of a body and every label, archive, star,
 draft, send and calendar change is written to an audit log with the bot's slug. A direct API call
 skips the checks and is a policy violation, not a shortcut (and would not work: the key is not in
@@ -70,11 +70,11 @@ $HUB_DIR/scripts/mail.sh search "from:stripe.com newer_than:7d"      # any Gmail
 $HUB_DIR/scripts/mail.sh attachments 18f2... --format json           # references a1, a2, ...
 $HUB_DIR/scripts/mail.sh attachment 18f2... a1 --out /private/dir/file.pdf
 $HUB_DIR/scripts/mail.sh label add 18f2... hub/needs-owner           # label remove, archive, mark-read, star, triaged
-$HUB_DIR/scripts/mail.sh draft --to ava@creator.example --subject "..." --body-file out/ava.txt --issue 128
+$HUB_DIR/scripts/mail.sh draft --to person@example.org --subject "..." --body-file out/draft.txt --issue 128
 $HUB_DIR/scripts/mail.sh draft --reply-to 18f2... --body-file out/reply.txt --issue 128
 $HUB_DIR/scripts/mail.sh send --draft r-882... --issue 128 [--approval-issue 131]
 $HUB_DIR/scripts/mail.sh reply --thread 18f2... --body-file out/reply.txt --issue 128   # draft, then send if allowed
-$HUB_DIR/scripts/mail.sh lint --body-file out/ava.txt --subject "..." [--to addr]
+$HUB_DIR/scripts/mail.sh lint --body-file out/draft.txt --subject "..." [--to addr]
 $HUB_DIR/scripts/mail.sh review --body-file out/reply.txt --thread 18f2...
 $HUB_DIR/scripts/mail.sh slots --for owner@example.com --n 2 --minutes 30
 $HUB_DIR/scripts/mail.sh upcoming --for owner@example.com --hours 24

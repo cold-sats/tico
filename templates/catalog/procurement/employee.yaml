@@ -29,9 +29,6 @@ schedules:
 # Public research needs no key. Optional, uncomment when connected (changing access is an owner
 # decision). Reading a mailbox where quotes arrive may only ever read and draft.
 access:
-  - service: web-search
-    can: [use]
-    note: "native web search for public pricing, documentation and security pages; no key"
   - service: public-web
     identity: "Unauthenticated public sources"
     can: [read]

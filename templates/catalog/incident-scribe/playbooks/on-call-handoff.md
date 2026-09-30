@@ -12,7 +12,7 @@ silence and change nothing.
     hub task list --status open --status doing --status waiting
 
 Then `knowledge/actions.md`, this week's incident files in `reports/incidents/`, and any alert or error
-source named in `knowledge/triggers.md` that you can read (a channel, Sentry). Note the shift's dates.
+source named in `knowledge/triggers.md` that you can read (a channel, an attached export). Note the shift's dates.
 
 ## 2. Write the handoff
 

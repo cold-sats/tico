@@ -31,7 +31,7 @@ prerequisites:
     why: "The company's public pages, its competitors' pages and what an AI assistant or search result shows are what the report is built from."
     required: true
   - tool: docs
-    why: "Optional. Google Search Console or Peec exports the owner drops in (or read-only access, when connected) add real clicks, impressions and AI-answer tracking."
+    why: "Optional. Search performance or AI-visibility exports the owner attaches (from Google Search Console, for example) add real clicks, impressions and AI-answer tracking."
     required: false
   - tool: github
     why: "Optional. Read-only access to the site's repository lets it find the file behind a page and draft the exact change."
@@ -43,7 +43,7 @@ onboarding:
     why: "Seeds knowledge/prompts.md, the questions checked in search and in AI assistants every week."
   - ask: "Which three companies do buyers compare you with?"
     why: "Visibility only means something against alternatives: who is named next to you, and who is named instead."
-  - ask: "Do you have Search Console or an AI-visibility tool such as Peec? Can you export a month of data, or connect it read-only?"
+  - ask: "Do you track search performance or AI-answer visibility today? Can you export a month of data and attach it?"
     why: "Without it the report uses public checks only and says so. With it, numbers come from real queries."
   - ask: "Who edits the website, and how does a change get made? Anything on the site that must never change?"
     why: "Every fix is drafted for that person in the form they can apply, and protected pages are marked."
@@ -55,7 +55,7 @@ first_routine:
 approval_required:
   - "Change a live page, title, description, redirect, robots file or sitemap"
   - "Publish, submit or request anything outside the company, including links and directory listings"
-  - "Grant or change access to Search Console, Peec or the site's repository"
+  - "Grant or change access to a search, analytics or AI-visibility account, or the site's repository"
   - "Hand a brief to the content bot as a task (a proposal until a person approves it)"
   - "Arm, change or delete a routine"
 example_output: knowledge/examples/visibility-report.md

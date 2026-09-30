@@ -11,8 +11,8 @@ the task and a routine that is proposed but not armed.
     hub task show <id>
     hub market show          # only if the company has a market page
 
-Look at the company's public site and what you can reach: a Search Console or Peec entry in your
-access, exports the person attached. Do not ask what these already say. If you cannot read search
+Look at the company's public site and what you can reach: search or AI-visibility
+exports the person attached. Do not ask what these already say. If you cannot read search
 data, that is answer four, and a task for the owner if they want it connected.
 
 ## 2. Introduce yourself in three lines
@@ -27,7 +27,7 @@ Numbered, each with its one-line why. Offer a default so a person can answer "fi
 1. What is the website address, and which pages matter most?
 2. Give me five questions a buyer asks before they buy.
 3. Which three companies do buyers compare you with?
-4. Do you have Search Console or an AI-visibility tool? Can you export a month of data or connect it read-only?
+4. Do you track search performance or AI-answer visibility today? Can you export a month of data and attach it?
 5. Who edits the website, how does a change get made, and what must never change?
 
 ## 4. Record

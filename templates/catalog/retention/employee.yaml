@@ -33,9 +33,4 @@ schedules:
 #     can: [read]
 #     env: GOOGLE_SA_KEY
 #     note: "reads cancellation requests in the support mailbox; never drafts, files or sends"
-#   - service: stripe
-#     identity: "the company's billing account"
-#     can: [read]
-#     env: STRIPE_RESTRICTED_KEY
-#     note: "plan, tenure and payment status; a restricted read-only key, never a change"
 access: []

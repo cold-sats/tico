@@ -15,8 +15,8 @@ Then `knowledge/triggers.md`, `knowledge/actions.md` and last week's review.
 ## 2. Find last week's incidents
 
 Read what you were given and can reach, in this order: tasks and updates that mention an outage
-(`hub task list --status open --status done`, `hub updates --kind daily`), the incident channel and Sentry if
-connected, merged changes and deploys near each incident (`gh pr list -R <repo> --state merged --search
+(`hub task list --status open --status done`, `hub updates --kind daily`), the incident channel if connected
+and any error-tracker export attached, merged changes and deploys near each incident (`gh pr list -R <repo> --state merged --search
 "merged:>YYYY-MM-DD"`), and any debrief meeting (`hub meetings search "incident"`). List each incident with
 start and end time, severity and status. If none, say "no incidents found" and name the sources read.
 

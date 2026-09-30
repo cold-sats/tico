@@ -29,9 +29,6 @@ schedules:
 # bot files a task for the owner rather than editing this file. Uncomment what the onboarding says
 # is connected. Neither entry may ever carry write or send.
 access:
-  - service: web-search
-    can: [use]
-    note: "native web search for public research; no key"
   - service: public-web
     identity: "Unauthenticated public sources"
     can: [read]

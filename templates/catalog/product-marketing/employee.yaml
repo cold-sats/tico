@@ -35,9 +35,6 @@ schedules:
 #     env: CLOSE_API_KEY
 #     note: "won and lost reasons and competitors named in deals; read only, never a write"
 access:
-  - service: web-search
-    can: [use]
-    note: "native web search for public competitor research; no key"
   - service: public-web
     identity: "Unauthenticated public sources"
     can: [read]

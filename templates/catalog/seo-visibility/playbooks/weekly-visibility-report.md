@@ -22,7 +22,7 @@ A single answer is an anecdote; report movement only where it repeated.
 
 ## 3. Read search performance
 
-Where Search Console is connected, read clicks, impressions and position for the pages in
+Where a search performance export is attached, read clicks, impressions and position for the pages in
 `knowledge/pages.md`, and the queries that gained or lost most since last week. Where it is not,
 say so in the report and use public checks only. Never estimate a number.
 

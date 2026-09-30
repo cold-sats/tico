@@ -26,12 +26,6 @@ schedules:
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
-# Optional, uncomment when connected. Reporting access only: never an account that can change a bid,
-# a budget or an ad. Until then the bot works from exports a person attaches to its task.
-# access:
-#   - service: google-ads
-#     identity: "a read-only user on the company's ads account"
-#     can: [read]
-#     env: GOOGLE_ADS_READONLY_TOKEN
-#     note: "campaign, ad group, keyword and search-term reports; read only, never an edit"
+# Ad reports arrive as exports a person attaches to its task, so no access is declared: the bot never
+# gets an account that can change a bid, a budget or an ad.
 access: []

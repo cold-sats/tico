@@ -182,8 +182,8 @@ version for a bot:
 - Test before you trust. Run a new question over ten rows you already know the answer to and
   read the misses: missing evidence in the state, a literal reading of your words, a model
   miss, or a code bug are four different fixes. Cookbook thresholds are examples, not rules.
-- What you learn about a question set goes in a pull request on the set, or
-  `hub learn typesafe "…"` for a gotcha. Do not keep a private copy of a shared set.
+- What you learn about a question set goes in a pull request on the set. Do not keep a private
+  copy of a shared set.
 
 ## The live docs
 
@@ -192,7 +192,23 @@ path. Worth a targeted read before designing a new decision: `primitives.md` and
 `primitives/advanced.md` (structured questions), `confidence.md`, `patterns/fan-out.md`, and
 the cookbook nearest your shape (`cookbooks/rerank_typesafe.md`, `hierarchical_classification.md`,
 `function_calling.md`, `citation_check.md`, `sde_cascade.md`, `pre_parsed_value_extraction_cookbook.md`).
-`integrations/typesafe.md` is the hub's page: limits, cost, what the audit keeps.
+
+## Limits and the audit
+
+- The hub's audit keeps each call's label, question ids, the value and confidence per answer,
+  token usage and latency, never the state. Read a set's history back with `hub sql "SELECT ts,
+  actor, target, detail_json FROM events WHERE action='judge.call' AND target='mail-triage@1'
+  ORDER BY ts DESC LIMIT 200"`.
+- A 422 is the request's shape, not its content: an unknown key on a question, a criteria map with
+  one option, levels outside two to ten. `clients/judge.py` refuses these before sending.
+- A 429 or 529 is retried twice with backoff by the client, then `judge_unavailable`.
+- Context is 64k tokens a call, 32k for the state plus the longest question; the client refuses a
+  state over about 120k characters. Accuracy falls with unrelated material well before that.
+- The answer's `model` field names the version that answered, and the audit keeps it. A threshold
+  tuned on one version is worth re-checking on the next.
+- The state is not treated as hostile: text written to argue for its own classification can move
+  the answer. Keep criteria tight and the protections' thresholds low.
+- English is the primary language; others answer with lower accuracy.
 
 ## Worked examples
 

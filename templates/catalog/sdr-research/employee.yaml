@@ -27,9 +27,6 @@ schedules:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 access:
-  - service: web-search
-    can: [use]
-    note: "native web search for public research; no key"
   - service: public-web
     identity: "Unauthenticated public sources"
     can: [read]

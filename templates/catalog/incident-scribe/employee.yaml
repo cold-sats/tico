@@ -27,7 +27,7 @@ schedules:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 access: []
-# Optional, uncomment when the owner connects them. Neither entry may ever carry write or send.
+# Optional, uncomment when the owner connects it. It may never carry write or send.
 #   - service: slack
 #     identity: the company workspace
 #     can: [read]
@@ -35,8 +35,3 @@ access: []
 #     dms: false
 #     env: SLACK_BOT_TOKEN
 #     note: "reads one incident channel to build the timeline; never posts, never reads DMs"
-#   - service: sentry
-#     identity: the company's Sentry organization (name its projects)
-#     can: [read]
-#     env: SENTRY_TOKEN
-#     note: "read only, GET only: the errors and their first and last seen times around an incident"

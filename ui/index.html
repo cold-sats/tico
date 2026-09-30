@@ -754,7 +754,7 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 @media (max-width:900px){.msg-workspace{grid-template-columns:1fr;gap:8px}.msg-example-inbox{border-left:0;border-top:1px solid var(--line);padding:24px 0 0}.msg-detail-head{flex-wrap:wrap}}
 @media (max-width:520px){.msg-actions{justify-content:flex-start}}
 .int-page{max-width:1080px}.int-list td:first-child a{font-weight:600;color:var(--ink);text-decoration:none}.int-list td:first-child a:hover{color:var(--accent)}
-.int-list td.tnum{text-align:right;white-space:nowrap}.int-search{width:100%;margin-bottom:10px}
+.int-list td.tnum{text-align:right;white-space:nowrap}.int-search{width:100%;margin-bottom:10px}.int-search[hidden]{display:none}
 .int-list .int-creds code{font-size:11.5px;margin-right:6px}
 .int-list td:last-child{width:1%;white-space:nowrap}
 .int-key{
@@ -774,8 +774,8 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 #int-cred-dialog .int-cred-decl li:last-child{border-bottom:0}
 .int-meta{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;font-size:13px;margin:12px 0 4px}.int-meta dt{color:var(--muted);white-space:nowrap}.int-meta dd{margin:0;overflow-wrap:anywhere}.int-meta pre{margin:0;font-size:12px;white-space:pre-wrap}
 .int-query{border-top:1px solid var(--line);padding:8px 0}.int-query summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.int-query summary .id{font-family:var(--mono);font-size:12px;color:var(--muted)}.int-query summary .desc{color:var(--muted);font-size:12.5px;flex-basis:100%}
-.int-query pre{font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--idle-bg);padding:10px;border-radius:6px;margin:8px 0}.int-query .params{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}.int-query .params label{font-size:12px;color:var(--muted)}.int-query .params input{width:auto;min-width:140px}
-.int-query .sql-results{margin-top:8px;max-height:40vh}.int-learning{display:flex;gap:10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.5}.int-learning .who{color:var(--muted);font-size:12px;white-space:nowrap}.int-learning .text{flex:1;overflow-wrap:anywhere}
+.int-query pre{font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--idle-bg);padding:10px;border-radius:6px;margin:8px 0}.int-query .params{margin:6px 0;font-size:12px;color:var(--muted)}
+.int-learning{display:flex;gap:10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.5}.int-learning .who{color:var(--muted);font-size:12px;white-space:nowrap}.int-learning .text{flex:1;overflow-wrap:anywhere}
 .int-learn textarea{min-height:64px;margin-bottom:8px}
 @media(max-width:800px){.int-meta{grid-template-columns:1fr}.int-meta dt{margin-top:6px}}
 /* person chips and compact settings administration */
@@ -9499,7 +9499,7 @@ let INT_LOAD = 0, INT_ROWS = [], INT_CRED_SERVICE = '';
 const credEnvs = texts => {
   const out = [];
   for (const t of texts || []) {
-    for (const m of String(t).match(/\b[A-Z][A-Z0-9_]{2,}\b/g) || []) if (!out.includes(m)) out.push(m);
+    for (const m of String(t).match(/\b[A-Z](?:[A-Z0-9_]|<[A-Z]+>){2,}/g) || []) if (!out.includes(m)) out.push(m);
   }
   return out;
 };
@@ -9593,7 +9593,7 @@ async function pageIntegrations() {
           <td>${esc(r.summary)}</td>
           <td class="int-creds">${credSummary(r.credentials)}</td>
           <td><button class="int-key" type="button" data-int-cred="${esc(r.service)}" title="Credentials for ${esc(r.title)}" aria-label="Credentials for ${esc(r.title)}">key_vertical</button></td></tr>`).join('')}</tbody></table>`
-        : '<div class="empty">No integration matches.</div>';
+        : `<div class="empty">${INT_ROWS.length ? 'No integration matches.' : 'No integrations.'}</div>`;
     };
     let rows;
     try { rows = (await get('/v2/integrations')).integrations; }
@@ -9604,6 +9604,8 @@ async function pageIntegrations() {
     }
     if (load !== INT_LOAD || !$('#int-list')) return;
     INT_ROWS = rows || [];
+    // A short list reads at a glance; the filter earns its place once the company adds its own pages.
+    $('#int-filter').hidden = INT_ROWS.length <= 10;
     draw();
     $('#int-filter').oninput = draw;
     $('#int-list').onclick = ev => {
@@ -9624,12 +9626,12 @@ async function pageIntegrations() {
   }
   if (load !== INT_LOAD || !$('#int-detail')) return;
   if (page.service !== service) { location.hash = INTEGRATIONS + '/' + page.service; return; }
-  const runnable = page.service === 'hub-sql';
+  // A catalog entry carries `sql`, or `mongo` for a MongoDB database; bots run either with `hub db`.
+  const queryText = q => q.sql ? q.sql.trim() : JSON.stringify(q.mongo, null, 2);
   const queryHtml = q => `<details class="int-query" data-query="${esc(q.id)}"><summary><span class="id">${esc(q.id)}</span><strong>${esc(q.title)}</strong>${q.database ? `<span class="pill">${esc(q.database)}</span>` : ''}<span class="desc">${esc(q.description || '')}</span></summary>
-      <pre>${esc(q.sql.trim())}</pre>
-      ${q.params.length ? `<div class="params">${q.params.map(p => `<label>${esc(p.label || p.name)}${p.required ? ' *' : ''}<br><input type="text" data-param="${esc(p.name)}" data-type="${esc(p.type || 'text')}" value="${esc(p.default ?? '')}" placeholder="${esc(p.name)}"></label>`).join('')}</div>` : ''}
-      <div class="row" style="gap:8px"><button class="ghost" type="button" data-copy-sql>Copy SQL</button>${runnable ? '<button class="primary" type="button" data-run-sql>Run</button>' : ''}<span class="mono muted" data-query-meta role="status"></span></div>
-      <div class="err" data-query-error hidden></div><div class="sql-results" data-query-results></div></details>`;
+      <pre>${esc(queryText(q))}</pre>
+      ${q.params.length ? `<div class="params mono">${q.params.map(p => esc(p.name) + (p.required ? ' *' : '')).join(' · ')}</div>` : ''}
+      <div class="row" style="gap:8px"><button class="ghost" type="button" data-copy-sql>Copy</button></div></details>`;
   const learningHtml = n => `<div class="int-learning" data-learning="${esc(n.id)}"><span class="who" title="${esc(n.created)}">${esc(n.created.slice(0, 10))} · ${esc(n.actor)}</span><span class="text">${esc(n.text)}</span>${S.me?.role === 'owner' ? '<button class="linkish danger" type="button" data-delete-learning>Delete</button>' : ''}</div>`;
   INT_ROWS = [{service: page.service, title: page.title, kind: page.kind, summary: page.summary,
                access: page.access, credentials: page.credentials, aliases: page.aliases || [],
@@ -9659,7 +9661,7 @@ async function pageIntegrations() {
     const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
     for (const el of document.querySelectorAll('#int-query-list .int-query')) {
       const q = page.queries.find(x => x.id === el.dataset.query);
-      const text = [q.id, q.title, q.description, q.category, ...(q.tags || []), q.sql].join(' ').toLowerCase();
+      const text = [q.id, q.title, q.description, q.category, ...(q.tags || []), queryText(q)].join(' ').toLowerCase();
       el.hidden = !words.every(w => text.includes(w));
     }
   };
@@ -9669,26 +9671,7 @@ async function pageIntegrations() {
     const copy = ev.target.closest('[data-copy-sql]');
     if (copy) {
       const q = page.queries.find(x => x.id === copy.closest('.int-query').dataset.query);
-      try { await copyText(q.sql.trim()); toast('SQL copied'); } catch { toast('Could not copy', true); }
-      return;
-    }
-    const run = ev.target.closest('[data-run-sql]');
-    if (run) {
-      const box = run.closest('.int-query'), q = page.queries.find(x => x.id === box.dataset.query);
-      const params = {};
-      for (const input of box.querySelectorAll('[data-param]')) {
-        const v = input.value.trim(); if (!v) continue;
-        params[input.dataset.param] = input.dataset.type === 'number' && /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v;
-      }
-      const meta = box.querySelector('[data-query-meta]'), err = box.querySelector('[data-query-error]'), out = box.querySelector('[data-query-results]');
-      run.disabled = true; err.hidden = true; meta.textContent = 'Running…';
-      try {
-        const r = await post('/v2/sql', {sql: q.sql.trim(), params});
-        const cell = v => v === null ? '<span class="muted">null</span>' : esc(typeof v === 'object' ? JSON.stringify(v) : v);
-        out.innerHTML = r.columns.length ? `<table><thead><tr>${r.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${r.rows.map(row => `<tr>${row.map(v => `<td title="${esc(v ?? '')}">${cell(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '';
-        meta.textContent = `${r.row_count} row${r.row_count === 1 ? '' : 's'}${r.truncated ? ' shown, more available' : ''} · ${r.ms} ms`;
-      } catch (e) { err.textContent = e.message; err.hidden = false; meta.textContent = ''; out.innerHTML = ''; }
-      finally { run.disabled = false; }
+      try { await copyText(queryText(q)); toast('Copied'); } catch { toast('Could not copy', true); }
       return;
     }
     const del = ev.target.closest('[data-delete-learning]');

@@ -26,18 +26,6 @@ schedules:
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
-# Exports arrive as files on a task, so no access is declared to start. Optional read-only views,
-# uncomment when the owner connects one (changing access is an owner decision). Neither entry may
-# ever carry write or send; the token is read-only at the source (integrations/brex.md, mercury.md).
-# access:
-#   - service: brex
-#     identity: the company account
-#     can: [read]
-#     env: BREX_TOKEN
-#     note: "reads card transactions and budgets for the weekly report; never creates or changes a card"
-#   - service: mercury
-#     identity: the company account
-#     can: [read]
-#     env: MERCURY_API_TOKEN
-#     note: "reads accounts and transactions for the weekly report; read-only token"
+# Card and bank exports arrive as files on a task, so no access is declared: the bot reads what a
+# person attaches, and never gets an account that can move money.
 access: []

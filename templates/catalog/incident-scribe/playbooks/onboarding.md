@@ -10,7 +10,7 @@ finished. Budget 30 minutes. The outcome is six recorded answers, a draft postmo
     hub task show <id>
     hub updates --kind daily
 
-Check what you can already reach: a Slack incident channel or Sentry in your access, tasks and updates that mention an outage,
+Check what you can already reach: a Slack incident channel in your access, exports a person attached, tasks and updates that mention an outage,
 and imported meetings (`hub meetings search "incident"`). Do not ask what these already say. If you cannot read the incident
 channel, that is answer two, and a task for the owner if they want it connected.
 

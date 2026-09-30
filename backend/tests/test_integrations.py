@@ -18,14 +18,29 @@ from backend.tests.test_api import api, headers
 
 PAGES = sorted(p for p in (ROOT / "integrations").glob("*.md") if p.name != "README.md")
 CATALOGS = sorted((ROOT / "integrations" / "queries").glob("*.yaml"))
-EXPECTED = {"hub-sql", "slack", "mail", "aside", "credential-vault",
-            "posthog", "close-crm", "sentry", "google-ads", "meta-ads", "calendly", "github", "aws", "hub-storage"}
+# Only outside services Tico has built-in support for ship; a company adds its own pages in its
+# config (<registry>/integrations or TICO_INTEGRATIONS_DIR), layered over these.
+SHIPPED = {"github", "slack", "mail", "aside", "close-crm", "postgres", "mysql", "mongodb", "sqlite"}
 
 
 def get(api, path, token="ana-test", expected=200):
     r = api.get("/api/v2/" + path, headers=headers(token))
     assert r.status_code == expected, r.text
     return r.json()
+
+
+def test_the_release_ships_only_built_in_services_and_every_page_parses():
+    pages, _ = I.load(ROOT / "integrations")
+    assert set(pages) == SHIPPED
+
+
+def test_a_company_page_adds_a_service_and_replaces_a_shipped_one(tmp_path):
+    github = (ROOT / "integrations" / "github.md").read_text()
+    (tmp_path / "github.md").write_text(github.replace("title: GitHub", "title: GitHub (our org)"))
+    (tmp_path / "stripe.md").write_text(github.replace("service: github", "service: stripe"))
+    pages, _ = I.load(ROOT / "integrations", tmp_path)
+    assert pages["github"]["title"] == "GitHub (our org)"
+    assert set(pages) == SHIPPED | {"stripe"}
 
 
 @pytest.mark.parametrize("path", CATALOGS, ids=[p.stem for p in CATALOGS])

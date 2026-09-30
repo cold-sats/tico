@@ -34,9 +34,4 @@ schedules:
 #     can: [read, draft]          # never send: outbound_send stays false
 #     env: GOOGLE_SA_KEY
 #     note: "reads the sender's threads with a customer and leaves a draft; never files or sends"
-#   - service: stripe
-#     identity: the company account
-#     can: [read]
-#     env: STRIPE_API_KEY
-#     note: "reads invoices and payments to check what is paid; read-only restricted key (integrations/stripe.md)"
 access: []

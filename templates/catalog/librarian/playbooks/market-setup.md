@@ -52,7 +52,7 @@ Then write a first Overview (see step 5) so the page has something within a few 
 
 ## 3. Research the market around it
 
-Use web search when the harness has it (this bot declares `web-search`), and `hub docs fetch` on what the
+Use web search when the harness has it, and `hub docs fetch` on what the
 results point at. **A search result is not evidence; the page it points at is.** Without search, work from
 the links on the pages you already read, and say in the note that no search was available.
 

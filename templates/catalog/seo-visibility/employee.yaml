@@ -27,21 +27,7 @@ schedules:
 # arrives in, never the value; declaring access here does not create it. Changing access is an
 # owner decision, so the bot files a task for the owner rather than editing this file.
 access:
-  - service: web-search
-    can: [use]
-    note: "native web search for public research; no key"
   - service: public-web
     identity: "Unauthenticated public sources"
     can: [read]
     note: "the company's public pages and competitors' pages; no forms, no messages, no accounts"
-# Optional, uncomment when connected (each is read only, and the owner grants it):
-#   - service: google-search-console
-#     identity: "the company's properties explicitly granted to the SEO service account"
-#     can: [read]
-#     env: GSC_SERVICE_ACCOUNT_FILE
-#     note: "read-only search performance and URL inspection; do not claim access until a query check returns rows"
-#   - service: peec
-#     identity: "the company's Peec project"
-#     can: [read]
-#     env: PEEC_API_KEY
-#     note: "read tools only through the Peec MCP server; never create, update, archive, delete or assign"

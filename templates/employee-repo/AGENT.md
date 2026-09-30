@@ -62,11 +62,11 @@ question sets in hub `questions/`, how to write a state and a question, and how 
 confidence. Judge before you open things; your own model writes what the answers say to write.
 
 ## Integrations
-Before you use an outside system in a turn (Slack, mail, Close, PostHog, the browser, a
+Before you use an outside system in a turn (Slack, mail, GitHub, the browser, a CRM, a
 database, any API), call `hub integrations` (MCP: `hub_integrations`). It lists every system
 plus how you reach it, the credentials or env names you need, and how it is declared. Then
-read the page: `hub integration <service>` (the same page is `$HUB_DIR/integrations/<service>.md`;
-`hub queries <service> <term>` finds a ready query). It says what you may do and what never to do.
+read the page: `hub integration <service>` (`hub queries <service> <term>` finds a ready
+query). It says what you may do and what never to do.
 When you learn something reusable about it — a limit, a working command, a gotcha — add it with
 `hub learn <service> "<text>"`; a person folds learnings into the page over time.
 

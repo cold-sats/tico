@@ -38,9 +38,6 @@ access:
     sites: [yelp.com, bbb.org, google.com, trustpilot.com, capterra.com, g2.com, getapp.com,
             softwareadvice.com, glassdoor.com, indeed.com, apps.apple.com, play.google.com, sitejabber.com]
     note: "reads every listing; on a sign in wall or a challenge, record the surface as blocked. Until the owner turns execution on, a person carries out each approved batch"
-  - service: web-search
-    can: [use]
-    note: "finding review pages and listings under the company's name and its old names"
   - service: public-web
     identity: "Unauthenticated public sources"
     can: [read]

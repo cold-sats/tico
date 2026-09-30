@@ -59,8 +59,8 @@ See the shared approvals policy. In addition, each of these needs a person's Con
 
 ## Talking to {{app_name}}
 Read what you were given: `hub task show <id>`, `hub task list --status open --status done`, `hub updates --kind daily`,
-`hub meetings search "<incident>"` for a debrief, and, where the owner connected them, the incident channel and Sentry
-(read only). Merged changes near the incident: `gh pr list -R <repo> --state merged --search "merged:>YYYY-MM-DD"`.
+`hub meetings search "<incident>"` for a debrief, and, where the owner connected them, the incident channel and
+error-tracker exports (read only). Merged changes near the incident: `gh pr list -R <repo> --state merged --search "merged:>YYYY-MM-DD"`.
 A question for the requester is `hub task ask <id>`, one per task. An action item, once the lead confirms, is
 `hub task create --owner <person> --title ... --parent <id>`. Finish every task, quiet week or not.
 
