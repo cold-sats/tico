@@ -10,7 +10,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 
 async function access(browser) {
   const FULL = {see: true, read: true, write: true};
@@ -38,8 +38,8 @@ async function access(browser) {
     const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
     if (url.origin !== 'https://tico-ui.test') return route.abort();
     const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-    if (ui && fs.existsSync(path.join(__dirname, '..', ui[1])))
-      return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
+    if (ui && fs.existsSync(uiFile(ui[1])))
+      return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json(ME);
     if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana', org_parent: ''}, {id: 'ben', name: 'Ben Cole', org_parent: ''}],
@@ -219,8 +219,8 @@ async function roles(browser) {
     const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
     if (url.origin !== 'https://tico-ui.test') return route.abort();
     const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-    if (ui && fs.existsSync(path.join(__dirname, '..', ui[1])))
-      return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
+    if (ui && fs.existsSync(uiFile(ui[1])))
+      return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
     if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
     if (p === '/api/me') return json(ME);
     if (p === '/api/people') return json({people: [{id: 'ana', name: 'Ana', org_parent: ''}, {id: 'ben', name: 'Ben Cole', org_parent: ''},

@@ -5,7 +5,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
 
 const LONG = 'Publish one deeply researched comparison page every week for each of the twelve competitor keywords we track, with fresh pricing, screenshots and a customer quote on every page';
@@ -53,7 +53,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (url.origin !== 'http://tico-ui.test') return route.abort();
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
       const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-      if (ui) { const file = path.join(__dirname, '..', ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
+      if (ui) { const file = uiFile(ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
       if (p.startsWith('/api/')) requests.push(req.method() + ' ' + p);
       const body = post ? req.postDataJSON() : null;
       if (post) posted.push({path: p, body});

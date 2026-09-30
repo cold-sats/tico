@@ -8,7 +8,7 @@ const {chromium, webkit} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 
 async function offlineRetry(browser) {
   const page = await browser.newPage({viewport:{width:390,height:844},serviceWorkers:'block'});
@@ -21,7 +21,7 @@ async function offlineRetry(browser) {
     if(p==='/')return route.fulfill({contentType:'text/html',body:html});
     const ui=p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
     if(ui){
-      const file=path.join(__dirname,'..',ui[1]);
+      const file=uiFile(ui[1]);
       if(fs.existsSync(file))return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript',body:fs.readFileSync(file,'utf8')});
     }
     if(p==='/api/me')return json({id:'ana',name:'Ana',role:'owner',cloud:true});
@@ -77,7 +77,7 @@ async function liveReply(browser) {
     const json=body=>route.fulfill({contentType:'application/json',body:JSON.stringify(body)});
     if(p==='/')return route.fulfill({contentType:'text/html',body:html});
     const ui=p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-    if(ui){const file=path.join(__dirname,'..',ui[1]);
+    if(ui){const file=uiFile(ui[1]);
       if(fs.existsSync(file))return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript',body:fs.readFileSync(file,'utf8')});}
     if(/\/marked\.min\.js$/.test(p))return route.fulfill({contentType:'application/javascript',body:fs.readFileSync(path.join(__dirname,'../vendor/marked.min.js'),'utf8')});
     if(p==='/api/me')return json({id:'ana',name:'Ana',role:'owner',cloud:true});

@@ -4,7 +4,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 const INSTALL = '6f1c2a9e-3b7d-4c58-9a10-2d4e8b7f5a63';
 const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
 
@@ -24,8 +24,8 @@ const HOSTILE = '<img src=x onerror="window.__pwned=1"> <b>bold</b>';
         const req = route.request(), p = new URL(req.url()).pathname;
         const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
         const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-        if (ui && fs.existsSync(path.join(__dirname, '..', ui[1])))
-          return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
+        if (ui && fs.existsSync(uiFile(ui[1])))
+          return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
         if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
         if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
         const config = {version: '0.2.17', update: null, app_name: 'Tico', usage_count_notice: false};

@@ -1,0 +1,19 @@
+// The page the browser tests serve: ui/index.html as the server sends it, with its bundle regions replaced by
+// the two bundle tags (backend/ui_bundle.py builds them, so the tests run the real bundler), and uiFile() for
+// the files a test serves from disk. TICO_UI_BUNDLE=off serves the separate files as index.html lists them.
+const {execFileSync} = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const ui = path.join(__dirname, '../..');
+const bundled = !['off', '0', 'false', 'no'].includes((process.env.TICO_UI_BUNDLE || 'on').toLowerCase());
+let out = null;
+if (bundled) {
+  out = fs.mkdtempSync(path.join(os.tmpdir(), 'tico-ui-bundle-'));
+  execFileSync(process.env.TICO_PYTHON || 'python3', ['-m', 'backend.ui_bundle', ui, out], {cwd: path.join(ui, '..')});
+  process.on('exit', () => { try { fs.rmSync(out, {recursive: true, force: true}); } catch {} });
+}
+exports.bundled = bundled;
+exports.html = fs.readFileSync(path.join(out || ui, 'index.html'), 'utf8');
+// A path under ui/ (what follows /tico/ui/ in a URL) to the file on disk; the bundles live in the temp folder.
+exports.uiFile = name => out && (name === 'app.bundle.js' || name === 'app.bundle.css') ? path.join(out, name) : path.join(ui, name);

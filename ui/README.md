@@ -3,14 +3,31 @@
 The web UI: plain HTML, CSS and classic scripts, served as they are. There is no build step and no
 module system. Every script shares the page's globals (`S`, `$`, `esc`, `get`, `post`, `route`, ...).
 
-    index.html        the markup skeleton, then <link> and <script> tags in load order; no inline script
+    index.html        the markup skeleton, then <link> and <script> tags in load order; no inline script.
+                      The tags between the `<!-- bundle:css:start/end -->` and `<!-- bundle:js:start/end -->`
+                      markers are the styles and app scripts; the server bundles them (below)
     styles/*.css      the stylesheet, one file per area, linked in cascade order
     app/*.js          the app: routing, state, sidebar and one file per page or feature
     *.js              features that mount into a page through a small `window.*` API
                       (docs-page.js, goals-kpis.js, first-run.js, support.js, ...)
     assets/, vendor/  images, the icon font, marked
     tests/*.cjs       browser tests (`npm run test:ui`)
-    sw.js             the service worker; it caches nothing, so a new file needs no entry here
+    sw.js             the service worker; it caches nothing (it lets the hashed bundle through to the browser cache)
+
+## One request each: the bundle
+
+The many files are for editing. The server (`backend/ui_bundle.py`) concatenates the files listed between the
+markers, in that order, into `/tico/ui/app.bundle.js` and `/tico/ui/app.bundle.css` (each file after a
+`// file: app/name.js` comment), and serves index.html with each region replaced by one tag,
+`?v=<content hash>`. The bundles are immutable for that URL (`Cache-Control: public, max-age=31536000,
+immutable`, strong ETag, gzip when the browser accepts it); index.html is revalidated on every load. It
+rebuilds when a listed file changes, so editing needs no step. index.html is the only list: adding a file to it
+adds it to the bundle.
+
+A file that is not strict cannot share the bundle's one script (the bundle opens with `'use strict'` once), so
+start every `app/` file with it. `TICO_UI_BUNDLE=off` serves the files separately, as listed. The browser
+tests run the real bundler and serve the bundle by default; `TICO_UI_BUNDLE=off npm run test:ui` runs them on
+the separate files. Files outside the markers (`ui/*.js`, `vendor/`) load on their own.
 
 ## The rule
 

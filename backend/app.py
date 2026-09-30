@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -34,7 +34,7 @@ from .openapi_v2 import STABLE as STABLE_ROUTES
 from . import updates
 from . import providers as Providers
 from . import access as Access
-from . import releases, runner_versions
+from . import releases, runner_versions, ui_bundle
 from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
@@ -311,6 +311,9 @@ def create_app(settings=None):
                            and str(response.headers.get("cache-control", "")).startswith("private, max-age="))
             if route_keeps:
                 pass                    # the route's own "private, max-age=…" stands
+            elif request.url.path in ui_bundle.PATHS and response.status_code in (200, 304) \
+                    and "immutable" in str(response.headers.get("cache-control", "")):
+                pass                    # a hashed script or stylesheet (ui_bundle): kept for a year
             elif not request.url.path.startswith("/api") and "etag" in response.headers:
                 response.headers["Cache-Control"] = ("private, max-age=3600" if request.url.path.startswith("/assets/")
                                                      else "private, no-cache")
@@ -2916,6 +2919,46 @@ def create_app(settings=None):
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts and styles from /tico/ui/ (ui/index.html), so the same directory is
     # mounted there as well as at the root.
+    # One script and one stylesheet instead of ~80 files (backend/ui_bundle.py): index.html is served with
+    # its bundle regions replaced by the versioned bundle tags. TICO_UI_BUNDLE=off serves the files as listed.
+    if ui_bundle.enabled():
+        ui_bundles = ui_bundle.UiBundle(settings.ui_dir)
+
+        def ui_reply(request, body, media_type, etag, cache_control=None, gz=None, gz_etag=None):
+            headers = {"ETag": etag}
+            if cache_control:
+                headers["Cache-Control"] = cache_control
+            if gz is not None:
+                headers["Vary"] = "Accept-Encoding"
+                if "gzip" in request.headers.get("accept-encoding", ""):
+                    body, etag, headers["ETag"], headers["Content-Encoding"] = gz, gz_etag, gz_etag, "gzip"
+            # A weak form of the tag (Cloudflare sends one) matches too: a 304 needs only the same content.
+            if etag in [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]:
+                return Response(status_code=304, headers=headers)
+            return Response(body if request.method == "GET" else None, media_type=media_type, headers=headers)
+
+        @app.api_route("/tico/ui/app.bundle.js", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/tico/ui/app.bundle.css", methods=["GET", "HEAD"], include_in_schema=False)
+        async def ui_bundle_asset(request: Request):
+            bundle = ui_bundles.get()
+            if bundle is None:
+                raise Problem("not_found", "Not found", 404)
+            js = request.url.path == ui_bundle.JS_PATH
+            return ui_reply(request, bundle.js if js else bundle.css,
+                            "text/javascript; charset=utf-8" if js else "text/css; charset=utf-8",
+                            bundle.etag[request.url.path], ui_bundle.IMMUTABLE,
+                            bundle.gz[request.url.path], bundle.gz_etag[request.url.path])
+
+        @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/index.html", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/tico/ui/", methods=["GET", "HEAD"], include_in_schema=False)
+        @app.api_route("/tico/ui/index.html", methods=["GET", "HEAD"], include_in_schema=False)
+        async def ui_page(request: Request):
+            bundle = ui_bundles.get()
+            if bundle is None:                       # cannot be bundled: the files, as they are
+                return FileResponse(settings.ui_dir / "index.html")
+            return ui_reply(request, bundle.page, "text/html; charset=utf-8", bundle.page_etag)
+
     app.mount("/tico/ui", StaticFiles(directory=settings.ui_dir, html=True), name="ui-prefixed")
     app.mount("/", StaticFiles(directory=settings.ui_dir, html=True), name="ui")
     if settings.demo:

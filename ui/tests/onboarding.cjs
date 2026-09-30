@@ -12,7 +12,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 // TICO_SCREENSHOT_DIR=<dir> saves screenshots of the first-run screens.
 // TICO_SHOT_SCHEME=dark takes them in the dark theme.
 const shots = process.env.TICO_SCREENSHOT_DIR, scheme = process.env.TICO_SHOT_SCHEME === 'dark' ? 'dark' : 'light';
@@ -175,7 +175,7 @@ function recruitFor({department, briefing, share}) {
       // break every route. Everything else that ends in .js still stubs out.
       const module = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (module) {
-        const file = path.join(__dirname, '..', module[1]);
+        const file = uiFile(module[1]);
         if (fs.existsSync(file)) return route.fulfill({contentType: module[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')});
       }
       // The icon font, so the screenshots show icons and not their names.

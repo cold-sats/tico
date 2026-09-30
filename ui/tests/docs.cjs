@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ui = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(ui, 'index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const shot = async (page, name) => {
   if (!shots) return;
@@ -64,7 +64,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       const problem = (code, detail, status, extra = {}) => json({error: {code, detail, retryable: false, ...extra}}, status);
       if (url.origin !== 'https://tico-ui.test') return route.fulfill({contentType: 'text/html', body: '<p>an external page</p>'});
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
-      const file = p.startsWith('/tico/ui/') ? path.join(ui, p.slice(9)) : p.startsWith('/vendor/') ? path.join(ui, p) : '';
+      const file = p.startsWith('/tico/ui/') ? uiFile(p.slice(9)) : p.startsWith('/vendor/') ? path.join(ui, p) : '';
       if (file && fs.existsSync(file)) return route.fulfill({contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.woff2') ? 'font/woff2' : 'application/octet-stream', body: fs.readFileSync(file)});
       if (p === '/api/me') return json(me);
       if (p === '/api/employees') return json([]);

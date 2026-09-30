@@ -4,7 +4,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 const shots = process.env.TICO_SCREENSHOT_DIR;
 const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https://github.com/ticoteam/tico/releases/tag/v0.2.0',
                 published_at: '2026-10-20T10:00:00Z', name: 'Tico 0.2.0'};
@@ -21,8 +21,8 @@ const UPDATE = {current: '0.1.0', latest: '0.2.0', available: true, url: 'https:
         const req = route.request(), p = new URL(req.url()).pathname;
         const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
         const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
-        if (ui && fs.existsSync(path.join(__dirname, '..', ui[1])))
-          return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(path.join(__dirname, '..', ui[1]), 'utf8')});
+        if (ui && fs.existsSync(uiFile(ui[1])))
+          return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
         if (p.endsWith('.js')) return route.fulfill({contentType: 'application/javascript', body: ''});
         if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
         const config = {version: update ? update.current : '0.1.0', update, app_name: 'Tico'};

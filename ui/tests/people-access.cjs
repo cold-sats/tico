@@ -6,7 +6,7 @@ const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 
 const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'Initech Hub',
   assistant_name: 'Ace', assistant_bot: 'coo', public_url: 'https://initech.test',
@@ -43,7 +43,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
       const module = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (module) {
-        const file = path.join(__dirname, '..', module[1]);
+        const file = uiFile(module[1]);
         if (fs.existsSync(file)) return route.fulfill({contentType: module[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')});
       }
       if (p === '/api/me') return json(me);

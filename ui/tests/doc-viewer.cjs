@@ -4,7 +4,7 @@ const {chromium, webkit} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const {html, uiFile} = require('./support/page.cjs');
 // Offline stand-in for marked (a CDN script): headings, lists, bold and [text](url) links.
 const markedStub = () => { window.marked = {parse: src => String(src).split(/\n\n+/).map(block => {
   const inline = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -27,7 +27,7 @@ const markedStub = () => { window.marked = {parse: src => String(src).split(/\n\
       if(p==='/')return route.fulfill({contentType:'text/html',body:html});
       const ui=p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if(ui){
-        const file=path.join(__dirname,'..',ui[1]);
+        const file=uiFile(ui[1]);
         if(fs.existsSync(file))return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript',body:fs.readFileSync(file,'utf8')});
       }
       if(p==='/api/me')return json({id:'ana',name:'Ana',role:'owner',cloud:true});
