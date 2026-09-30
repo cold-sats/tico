@@ -1,7 +1,7 @@
 # Onboarding guide: your first bots
 
-A practical guide to getting real work out of your first bots. The screens themselves are in [First run](onboarding.md); what each
-starter template does is in [Starter bots](starter-bots.md). BotOps and the Librarian can answer questions from this page.
+A practical guide to getting real work out of your first bots. The screens themselves are in [First run](onboarding.md); what each of
+the 38 starter templates does is in [Starter bots](starter-bots.md). BotOps and the Librarian can answer questions from this page.
 
 ## Pick your first bots
 

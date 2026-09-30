@@ -19,8 +19,8 @@ and a task goes to **BotOps**, the bot engineer every environment has (built in,
 repository, puts the reviewed instructions in, runs the readiness check, and finishes the task with
 the one thing to read before you activate the bot. Activation stays a person's decision.
 
-The six starter templates (Chief of Staff, Support Triage, Sales Drafter, Meeting Notes, Mail Drafts
-and Issue Triage) are described in [Starter bots](starter-bots.md), with the card fields and the
+The 38 starter templates, in six packs (Leadership, Sales, Marketing, Support, Operations and
+Engineering), are described in [Starter bots](starter-bots.md), with the card fields and the
 quality bar this page's advice is measured against.
 
 Read this page when you are writing those instructions, tailoring what BotOps produced, or standing

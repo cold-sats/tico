@@ -124,7 +124,7 @@ parked and answers people only.
 
 ### After Create: one screen
 
-- **Setting up**: each bot with its progress. A starter says *Setting up its repository on your computer* until the repository exists,
+- **Setting up**: each bot with its progress. A starter says *Setting up its repository* until the repository exists,
   then its **Start setup** works.
 - **Invite an admin**: a name and an email. The person joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/people`,
   then `POST /api/v2/access/people/{id}` with `role: admin`). Tico sends no email.
@@ -309,12 +309,14 @@ the same template is one of the two command line routes, with a slug of your own
 
 ## Adding a template to the catalog
 
+The catalog ships 38 starter templates in six packs, each with a card; [Starter bots](starter-bots.md) lists them all.
+
 `templates/catalog/<template>/` is one template. The folder name is what `--template` takes.
 
 - `card.yaml` describes the template to whoever is choosing. It is never copied into a bot's
   repository. Fields: `template`, `slug` (the default bot slug), `name`, `required`, `bootstrap`,
   `summary`, `owns`, `never`, `runtime`, `model`, `reasoning_effort`, `recommend_when`, `pack` (its team: `basics`, `sales`,
-  `marketing`, `support`, `operations` or `engineering`), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`,
+  `marketing`, `support`, `operations` or `engineering`), `lead` (one per pack: it leads its team on the full org chart), `pains`, `prerequisites` and, for a starter, `onboarding`, `first_routine`,
   `approval_required` and `example_output`. The server serves all of them except `onboarding` and `example_output`, and the chooser reads
   `pack`, `pains`, `prerequisites` and `recommend_when` ([Starter bots](starter-bots.md)). A card with a `first_routine` and an
   `onboarding` list is a **starter**: Create parks it (`needs_onboarding`), so its `onboarding` playbook must end with `hub bot onboarded`.

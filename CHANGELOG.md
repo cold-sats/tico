@@ -144,6 +144,8 @@ All notable changes to Tico are recorded here. The format follows
   now styles every text-like control, with hover, focus, disabled, read-only, invalid and placeholder states, themed autofill, no
   number spinners, a clear button on search, "Choose file" buttons drawn like the app's buttons, and accent-coloured checkboxes and
   radios, in both themes. Inputs also carry the right `type`, `autocomplete`, `inputmode` and `spellcheck`.
+- The docs no longer say the catalog has six starter templates: Creating bots, the Onboarding guide and the README say 38 and point to
+  Starter bots, which lists them; First run documents the card's `lead` and the featured pains.
 
 ### Security
 - A bot may invite only people on the company roster to a calendar event (`hub calendar schedule`); an invitation to any other address is
