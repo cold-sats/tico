@@ -1,11 +1,15 @@
 template: docs-writer
 slug: docs-writer
-name: Docs Writer
+name: "Technical Writer"
 required: false
 bootstrap: false
+department: engineering
 pack: engineering
+icon: description
+suggest: niche
+tags: [saas, developer-tools, api, documentation, github]
 when: "Offer when GitHub is connected and the product has READMEs, API reference or developer docs people rely on. Company docs and answers are the Librarian's."
-summary: "Finds READMEs and API docs in the product repositories that contradict last week's merged changes, and drafts the fix or a new how-to page as a file for an engineer to commit. It never edits the repository."
+summary: "Keeps the READMEs and API docs in the product repositories true to what shipped. Each week it finds pages that merged changes made wrong and writes the fix, ready for an engineer to commit."
 pains:
   - "our README and API docs are out of date"
   - "docs don't match what we shipped"

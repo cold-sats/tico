@@ -27,8 +27,9 @@ review after the review threshold, or open past the open threshold, is stuck.
 ## 3. Read the team's own output
 
 `hub task list --status open --status doing --status waiting` for tasks on the engineering bots, and their
-latest reports: PR Reviewer's queue, Issue Triage's digest, Release Notes' draft, Incident Scribe's review,
-Docs Writer's drift report. Take one line from each: the headline and the path. A bot that produced nothing
+latest reports: the Senior Software Engineer's review queue, the QA Engineer's issue digest, the Release
+Manager's notes, the Site Reliability Engineer's incident review, the Technical Writer's drift report, the
+Security Engineer's advisory report and the DevOps Engineer's CI health report. Take one line from each: the headline and the path. A bot that produced nothing
 is named as such, not omitted.
 
 ## 4. Compute only the measures the person chose

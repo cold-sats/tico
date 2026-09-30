@@ -9,7 +9,9 @@
       "Bash(gh pr view *)",
       "Bash(gh release list *)",
       "Bash(gh release view *)",
-      "Bash(gh search prs *)"
+      "Bash(gh search prs *)",
+      "Bash(gh run list *)",
+      "Bash(gh issue list *)"
     ],
     "deny": [
       "Bash(gh pr review *)",

@@ -1,5 +1,5 @@
 name: docs-writer                     # the slug: it matches the repository emp-docs-writer and the label owner:docs-writer
-display_name: "Docs Writer"
+display_name: "Technical Writer"
 labels: [owner:docs-writer]
 reads: []                        # other bot repositories this one may clone read-only
 
