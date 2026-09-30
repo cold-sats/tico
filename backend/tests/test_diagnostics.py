@@ -55,7 +55,7 @@ def test_the_redactor_leaves_what_is_not_a_secret(raw):
 
 def test_names_become_labels_that_are_the_same_all_through_a_bundle():
     r = redactor()
-    out = r.text("Morgan Reed (morgan@acme.example, morgan) asked coo; BotOps and botops; Riley Quinn later; morgan again")
+    out = r.text("Morgan Reed (morgan@acme.example, morgan) asked bot:coo; BotOps and botops; Riley Quinn later; morgan again")
     assert out == "person-1 (person-1, person-1) asked bot-2; bot-1 and bot-1; person-2 later; person-1 again"
     assert r.label("BOTOPS") == "bot-1" and r.label("Zed") is None
     # Whole words only, and every string, however nested, goes through it.
@@ -65,6 +65,25 @@ def test_names_become_labels_that_are_the_same_all_through_a_bundle():
     # Another bundle with the same people in a different order gets its own labels: they mean nothing outside one bundle.
     other = D.Redactor([], [], [("riley", []), ("morgan", [])])
     assert other.text("riley") == "person-2" and other.text("morgan") == "person-1"
+
+
+def test_a_short_name_is_not_a_word_but_an_exact_actor_reference_or_an_email_is_always_relabeled():
+    r = D.Redactor([], [("coo", ["COO"]), ("pm", []), ("sage", ["Sage"])],
+                   [("ana", ["Ana", "ana@acme.example"]), ("bo", ["Bo Li", "bo@acme.example"]), ("riley", ["Riley Quinn"])])
+    # Ordinary words that happen to be a short slug, name or id stay as they are.
+    for plain in ("the coo signed off", "COO and PM sat with Ana and Bo", "a bo staff, a pm", "Li joined"):
+        assert r.text(plain) == plain
+    # Four letters or more is a word, a full name too.
+    assert r.text("ask sage or Sage, then riley and Riley Quinn, Bo Li wrote") == "ask bot-3 or bot-3, then person-3 and person-3, person-2 wrote"
+    # An exact actor reference is relabeled whatever its length, by kind, and only when the slug or id is known.
+    assert r.text("bot:coo asked bot:pm; human:ana and human:bo, bot:coo.") == "bot-1 asked bot-2; person-1 and person-2, bot-1."
+    assert r.text("bot:sage and human:riley; bot:zed and human:coo and xbot:coo") == "bot-3 and person-3; bot:zed and human:coo and xbot:coo"
+    # An email is always relabeled when it is a person's, and redacted when it is anyone else's, short local part or not.
+    assert r.text("ana@acme.example, bo@acme.example and coo@acme.example") == "person-1, person-2 and [email]"
+    assert r.text("bo.li@else.org") == "[email]"
+    # The exact lookup still knows a short slug.
+    assert r.label("coo") == "bot-1" and r.label("BO") == "person-2"
+    assert r.clean({"actor": "bot:coo", "note": "the coo"}) == {"actor": "bot-1", "note": "the coo"}
 
 
 def test_control_characters_are_dropped():
@@ -150,7 +169,7 @@ def test_a_computers_readiness_is_summarised_with_labels_and_redacted_problems(e
                                    "state": "ready", "detail": "Signed in with ChatGPT"}]
     assert runner["bots"] == 1 and runner["bots_ready"] == 0
     assert runner["problems"] == ["bot-2: repository missing at /Users/person-1/work"]
-    assert runner["log"] == ["2026-09-29T10:00:00Z Tico runner: bot-2 failed for person-1"]
+    assert runner["log"] == ["2026-09-29T10:00:00Z Tico runner: coo failed for person-1"]     # `coo` alone is a word, not a name
 
 
 def test_a_member_may_preview_and_only_a_person_may(environment, hq):

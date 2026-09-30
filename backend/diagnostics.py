@@ -114,19 +114,30 @@ def _ipv6(match):
     return "[ip]"
 
 
+WORD_MIN = 4        # a name or slug shorter than this is not a word: `coo` or `pm` would relabel ordinary text
+ACTOR = re.compile(r"(?<![A-Za-z0-9])(bot|human):([A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?)")
+
+
 class Redactor:
     """Every string in a bundle goes through `text()`. `people` and `bots` are the names to turn into labels; a label is
-    made once per bundle, in sorted order, so the same person is the same `person-N` wherever they appear."""
+    made once per bundle, in sorted order, so the same person is the same `person-N` wherever they appear.
+
+    A name or slug is relabeled as a word only when it has WORD_MIN letters or more. A short one (`coo`) is still
+    relabeled where it cannot be an ordinary word: as an exact `bot:<slug>` or `human:<id>` actor reference, in `label()`,
+    and inside an email address, which is always relabeled (or, for an address nobody here owns, `[email]`)."""
 
     def __init__(self, company_domains=(), bots=(), people=()):
         self.domains = sorted({d.lower().strip(".") for d in company_domains if d and "." in d}, key=len, reverse=True)
         self.labels = {}                      # lower-case spelling -> label
         self.exact = {}                       # case-sensitive short aliases (given names) -> label
+        self.actors = {"bot": {}, "human": {}}    # the slug or person id, lower case -> label
         self._names = []                      # (compiled pattern, label), longest spelling first
         for number, (slug, names) in enumerate(sorted(bots), 1):
             self._alias("bot-%d" % number, [slug, *names])
+            self.actors["bot"].setdefault(str(slug or "").strip().lower(), "bot-%d" % number)
         for number, (ident, names) in enumerate(sorted(people), 1):
             self._alias("person-%d" % number, [ident, *names], parts=True)
+            self.actors["human"].setdefault(str(ident or "").strip().lower(), "person-%d" % number)
         self._names.sort(key=lambda item: len(item[0]), reverse=True)
         self._pattern = re.compile("|".join("(?<![A-Za-z0-9])%s(?![A-Za-z0-9])" % re.escape(spelling)
                                           for spelling, _ in self._names), re.I) if self._names else None
@@ -141,11 +152,16 @@ class Redactor:
             key = spelling.lower()
             if key not in self.labels:
                 self.labels[key] = label
-                self._names.append((spelling, label))
+                if len(spelling) >= WORD_MIN or "@" in spelling:
+                    self._names.append((spelling, label))
             if parts and " " in spelling:
                 for word in spelling.split():
-                    if len(word) >= 3 and word not in self.exact and word.lower() not in self.labels:
+                    if len(word) >= WORD_MIN and word not in self.exact and word.lower() not in self.labels:
                         self.exact[word] = label
+
+    def _actor(self, match):
+        label = self.actors[match.group(1)].get(match.group(2).lower())
+        return label or match.group(0)
 
     def label(self, value):
         """The label for a bot slug, name or person known to this bundle, else None."""
@@ -153,6 +169,7 @@ class Redactor:
 
     def text(self, value):
         s = CONTROL.sub("", str(value if value is not None else ""))
+        s = ACTOR.sub(self._actor, s)
         if self._pattern:
             s = self._pattern.sub(lambda m: self.labels[m.group(0).lower()], s)
         if self._exact:
@@ -305,8 +322,10 @@ def _runner_rows(c, fleet, online_ids):
         doc = readiness_document(row["readiness_json"])
         bots = doc.get("bots") or {}
         problems = []
-        for b in bots.values():
+        for slug, b in bots.items():
             for text in (b or {}).get("problems") or []:
+                if str(text).startswith(str(slug) + ": "):        # the runner leads a bot's problem with its slug: an exact reference
+                    text = "bot:" + str(text)
                 if text not in problems:
                     problems.append(text)
         update = runner_versions.view(fleet.get(row["id"]))

@@ -191,7 +191,8 @@ it. It never contains a task, message, doc, meeting or ticket, or the text of on
 keys and tokens (`sk-`, `ghp_`, `gho_`, `xox[abpr]-`, `AKIA`, bearer tokens, JWTs, long base64 or hex runs), IPv4 and IPv6
 addresses, URL query strings, your company's domain and every hostname that is not one of the product's own (`tico.team`, GitHub,
 the model providers), and the names and emails of your bots and people, which become labels (`bot-3`, `person-1`) that are the same
-all through one bundle and mean nothing outside it. It is built when you press **Preview** (or Send) and what you previewed is what
+all through one bundle and mean nothing outside it. A name or slug is relabeled as a word from four characters; a shorter one (`coo`)
+is relabeled only as an exact `bot:<slug>` or `human:<id>` reference, and an email is always relabeled or redacted. It is built when you press **Preview** (or Send) and what you previewed is what
 is sent: Send names the preview by its SHA-256 and your Tico sends those exact bytes. Untick the box and none of it is built or sent.
 
 Every field:
