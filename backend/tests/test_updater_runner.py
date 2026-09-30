@@ -121,3 +121,18 @@ def test_the_runner_compose_keeps_the_socket_in_the_sidecar():
     assert sockets == ["updater"]
     assert compose["services"]["runner"]["environment"]["TICO_UPDATER_URL"] == "http://updater:8080"
     assert "runner-control:/control:ro" in compose["services"]["runner"]["volumes"]
+
+
+def test_from_is_the_release_the_server_reported_not_the_last_updates(monkeypatch, tmp_path):
+    updater = load(monkeypatch, "runner", tmp_path)
+    docker = Docker(updater, monkeypatch, [True])
+    monkeypatch.setattr(updater, "running_image", lambda: ("sha256:old", "latest"))   # a tag that names no release
+    updater.status.update(state="healthy", **{"from": "v0.2.19", "to": "v0.2.20"})
+    updater.update("v0.2.21", running="0.2.20")
+    assert (updater.status["from"], updater.status["to"], updater.status["state"]) == ("v0.2.20", "v0.2.21", "healthy")
+    # No report (an older server): the image tag, as before. A report that is no version is not believed.
+    docker.answers[:] = [True]
+    updater.update("v0.2.22", running="dev")
+    assert updater.status["from"] == "latest"
+    assert updater.release_name("0.2.20") == "v0.2.20" and updater.release_name("latest") == "" and updater.release_name(None) == ""
+    assert updater.older_than_running("v0.2.19", "0.2.20") and not updater.older_than_running("v0.2.21", "0.2.20")

@@ -148,6 +148,17 @@ def valid_operation(method, path, settings=None, proposer="assistant"):
     return any(m == method and p.fullmatch(path) for m, p in routes)
 
 
+PREVIEW = 160
+
+
+def preview(text, limit=PREVIEW):
+    """The start of a long text, cut at a word and marked with an ellipsis, so a short line never reads as the whole."""
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(text) <= limit:
+        return text
+    return (text[:limit].rsplit(" ", 1)[0] or text[:limit]).rstrip(" ,;:.") + "…"
+
+
 def describe(c, method, path, body):
     """A one-line, server-derived description of what confirming would do (never the bot's words), and
     for a task update the exact field changes."""
@@ -226,7 +237,8 @@ def describe(c, method, path, body):
         (r"/api/v2/credentials/[^/]+/grants/[^/]+/revoke", lambda g: "Take a stored credential away from a bot"),
         (r"/api/v2/system/update", lambda g: "Update this Tico to the newest version"),
         (r"/api/v2/(?:goal-proposals|proposals)/[^/]+/decide", lambda g: str(body.get("decision") or "Decide").title() + " a goal proposal"),
-        (r"/api/v2/support/tickets", lambda g: "Send this to the Tico team: " + str(body.get("message") or "")[:300]),
+        # Only a preview: the card lists the whole message among its fields, and what is sent is exactly that.
+        (r"/api/v2/support/tickets", lambda g: "Send this to the Tico team: " + preview(body.get("message"))),
         (r"/api/v2/directory(/sync|/preview)?", lambda g: "Change the people directory sync"),
         (r"/api/v2/(slack|github/app)/disconnect", lambda g: "Disconnect " + g[0].split("/")[0].title()),
         (r"/api/v2/files/([^/]+)", lambda g: "Change a file's listing"),
@@ -247,6 +259,11 @@ def create_proposal(c, settings, who, room, proposer, summary, method, path, bod
     if not valid_operation(method, path, settings, proposer):
         raise Problem("operation", "That is not something that can be proposed: it is not on the list of routes "
                       "a person confirms", 422)
+    if path == "/api/v2/support/tickets":
+        # The person approves the exact text, so it must be one the ticket will take: no card for a message that
+        # would fail (too long, control characters) only after the click.
+        from .support import clean_message
+        clean_message((body or {}).get("message"))
     if c.execute("SELECT count(*) FROM assistant_actions WHERE owner=? AND status='pending'",
                  (who.actor,)).fetchone()[0] >= MAX_PENDING:
         raise Problem("too_many", "Too many proposals are waiting; confirm or cancel some first", 409)

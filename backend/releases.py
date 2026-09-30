@@ -232,6 +232,7 @@ def start(target):
     if not _updater()[0]:
         raise Problem("manual_update", "This installation has no updater. Run this on the server: " + MANUAL_COMMAND,
                       409, extra={"command": MANUAL_COMMAND})
-    _call("POST", "/update", {"version": str(target).lstrip("v")})
+    # "from" is the release this server is running, not whatever an earlier update left in the updater's status.
+    _call("POST", "/update", {"version": str(target).lstrip("v"), "from": version()})
     log.info("Update to %s requested", target)
     return status()

@@ -60,6 +60,24 @@ administrator; anyone else is told who to ask. It runs at once, with no Confirm 
 The same three steps are the tools `hub_credential_import`, `hub_credential_grant` and `hub_credential_revoke`, and Settings → Credentials
 does the grant and revoke by hand. A grant to a person, or to every computer, still asks for the person's own click when it comes through BotOps.
 
+## The local credential key and backups
+
+Without `TICO_CREDENTIAL_KMS_KEY`, the data key is 32 random bytes in `/data/credential.key` (mode 0600) on the server's data
+volume. The database holds ciphertext only, so **a database restored without that file cannot decrypt a credential**. Litestream
+copies the database and not the file, so the backup loop copies the key to the same backup destination: the bucket and prefix in
+`TICO_BACKUP_URL` (object `credential-key/credential.key`), else the `tico-backups` volume. It copies it when the key first
+appears and whenever it changes, and never logs it or sends it anywhere else. The object is encrypted at rest as the bucket is;
+because the database backup is in the same bucket, keep it private, limit its access key to it, and turn on versioning.
+
+Health shows **Backups** as a warning while a local key exists, backups are set up, and the key has not been copied yet; with
+backups only on this server the note says the key is lost with the server too.
+
+To restore: `docker compose run --rm --no-deps server restore` brings back the database, attachments and the key (see
+[Backups and restore](install.md#backups-and-restore)). By hand, copy `credential-key/credential.key` from the backup
+location to `/data/credential.key` (32 bytes, mode 0600, owned by the server's user) before the server starts. Tico never makes a
+new key over an existing vault, so putting the file back loses nothing. Setting `TICO_CREDENTIAL_KMS_KEY` replaces the file
+as the thing to protect: the data key is then wrapped by KMS in the database.
+
 ## Credentials asked for in the chat
 
 A bot that needs a credential opens a **credential card** in the conversation where it asked (`hub credential request <VARIABLE> --for-bot <bot> --label

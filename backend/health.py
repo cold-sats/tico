@@ -214,19 +214,36 @@ def _backups(config, settings):
     mode = str(backup["mode"]).replace("_", "-")
     last = backup.get("last_replicated_at") or ""
     target = str(backup.get("target_kind") or "")
+    key = backup.get("credential_key") if isinstance(backup.get("credential_key"), dict) else {}
+    key_here = bool(key.get("present"))                  # a local credential key (/data/credential.key) is in use
+    key_copied = bool(key.get("current"))
     if mode == "off":
-        return _check("backups", "Backups", "bad", "Backups are off.", [fix])
+        return _check("backups", "Backups", "bad",
+                      "Backups are off." + (KEY_LOST if key_here else ""), [fix])
     if mode in ("local-only", "local"):
+        note = (" The credential key, which opens every saved credential, is only in this server's volumes too."
+                if key_here else "")
+        if key_here and not key_copied:
+            note += " It has not been copied to the backup volume yet."
         if settings.loopback:
             # A quick start on this computer has no other place to copy to until it has a domain.
-            return _check("backups", "Backups", "info", "Copies stay on this computer. Add a domain to copy them elsewhere.")
+            return _check("backups", "Backups", "warn" if key_here and not key_copied else "info",
+                          "Copies stay on this computer. Add a domain to copy them elsewhere." + note,
+                          [fix] if key_here and not key_copied else [])
         return _check("backups", "Backups", "warn",
-                      "Copies stay on this server only. A lost disk loses everything.", [fix])
+                      "Copies stay on this server only. A lost disk loses everything." + note, [fix])
     if last and last < H.shift(H.now(), hours=-BACKUP_STALE_HOURS):
         return _check("backups", "Backups", "warn", f"Last copy to {target or 'the remote'} was {last}.", [fix])
     if not last:
         return _check("backups", "Backups", "warn", "Set up, but nothing has been copied yet.", [fix])
+    if key_here and not key_copied:
+        return _check("backups", "Backups", "warn",
+                      f"The database is copied to {target or 'a remote'}, but the credential key has not been. A database restored "
+                      "without it cannot open any saved credential. Check the server log for the backup warning.", [fix])
     return _check("backups", "Backups", "ok", f"Copied to {target or 'a remote'}.")
+
+
+KEY_LOST = " The credential key, which opens every saved credential, is on this server's disk only."
 
 
 def _signin(settings):
