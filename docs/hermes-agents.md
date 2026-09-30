@@ -20,7 +20,8 @@ address of your Tico: the hostname in **Settings → Computers → Add computer*
    It prints a code like `K7QM-4F2P` and waits up to 10 minutes. No token to copy.
 2. In Tico, tell BotOps: **"Connect my Hermes profile `<name>`, code K7QM-4F2P."** BotOps adds
    the bot if it does not exist yet, then approves the code as you. You can also approve it
-   yourself in **Settings → Bots → Pair**. Only a bot's owner or an admin can approve.
+   yourself: in **Settings → Bots**, press **Pair** in the bot's Computer column (also on the bot's page, More → Setup),
+   and type the code. Only a bot's owner or an admin can approve.
 3. In the profile's chat, run `/reload-mcp` (or restart its gateway). The profile now has every
    `hub_*` tool.
 4. Test it: message the bot in Tico, then ask the profile to check its inbox. It should answer
@@ -34,7 +35,7 @@ you get a sign-in page instead, you used the public address: use `runner.<domain
 
 ### The manual way
 
-1. **Settings → Bots → Add bot.** Pick the model `hermes/profile's own model`. The computer
+1. **Settings → Bots → Add bot.** Pick the model **Hermes/profile's own model**. The computer
    field goes grey: a Hermes bot has no computer. Save.
 2. **Create credential** in the bot's Computer column. The credential is shown once. The dialog
    gives one install command to run on the computer that runs the profile:
@@ -79,19 +80,29 @@ tasks, questions, approvals, status, SQL and the rest. With a Tico checkout on t
 
 ## Keep it working
 
-- **Update.** `python3 hermes_agent.py update --profile <name>` fetches the current script and
-  replaces the copy the timer runs. Run it after each Tico update. It also removes older duplicate
-  heartbeat jobs; a reinstall does the same.
+These commands run from the copy the connector installed, `~/.config/tico/agents/hermes_agent.py`; the
+downloaded `hermes_agent.py` in your current folder works the same while it is there.
+
+- **Update.** `python3 hermes_agent.py update --profile <name>` fetches the current script from Tico,
+  replaces the copy the timer runs and installs again. Run it after each Tico update. It also removes
+  older duplicate heartbeat jobs.
+- **Reinstall.** `python3 hermes_agent.py reinstall --profile <name>` runs the install steps again with
+  the credential saved by `pair` or `install`: config entry, `.env`, timer. `update` ends by running it.
+- **Status.** `python3 hermes_agent.py status --profile <name>` prints the saved settings and the last
+  heartbeat reply. It never prints the credential.
 - **Doctor.** `python3 hermes_agent.py doctor --profile <name>` checks the setup (config,
-  credential, reach to Tico, timer, last heartbeat) and scans the profile's saved prompts and cron
-  jobs for old tool names. It says what to fix.
+  credential, reach to Tico, timer, last heartbeat) and scans the profile's `SOUL.md`, skills, cron
+  jobs and memories for old tool names. It changes nothing and says what to fix.
 - **Move to another computer.** Run `pair` on the new computer with the same profile name and
   approve it. Approving replaces the credential, so the old computer stops with a 401. On the old
   computer run `python3 hermes_agent.py uninstall --profile <name>`.
 - **Rotate or revoke.** Settings → Bots → the bot's Computer column, or ask BotOps. Rotating
   replaces the credential at once; pair again, or install the new one. Revoking stops it for
-  good. Revoke if the computer is lost. When you archive a Hermes bot, Tico offers to revoke its
-  credential.
+  good. Revoke if the computer is lost. When you remove (archive) a Hermes bot in Settings → Bots, the
+  dialog has a **Revoke its credential** box, on by default.
+- **Remove the connector.** `python3 hermes_agent.py uninstall --profile <name>` removes the timer, the
+  `.env` lines, the `mcp_servers.tico` entry and the credential file. It does not revoke the credential
+  in Tico.
 - **Renamed tools (0.2.21).** The `hub_*` tools were renamed: `hub_inbox` is now
   `hub_message_list`, `hub_say` is `hub_message_send`, `hub_ack` is `hub_message_mark_read`.
   Old names now answer "X was renamed Y". After updating, `/reload-mcp`, change any saved prompt
@@ -101,8 +112,8 @@ tasks, questions, approvals, status, SQL and the rest. With a Tico checkout on t
 
 | You see | What it means | Do this |
 |---|---|---|
-| Heartbeat or tool says **409**, "bot is archived" | The bot was archived. The agent stops and retries only once an hour. | Restore the bot (Restore button, `hub bot restore <slug>`, or ask BotOps). It reconnects by itself. |
-| **401** | The credential was revoked or replaced. | Pair again (`pair`) and approve it. |
+| Heartbeat or tool says **409**, "bot is archived" | The bot was archived. The agent stops and retries only once an hour. | Restore the bot (**Settings → Bots → Archived → Restore**, `hub bot restore <slug>`, or ask BotOps). The connector tries again within the hour and reconnects by itself. |
+| **401** | The credential was revoked or replaced (archiving with the revoke box on does this). | Restore the bot if it is archived, then pair again (`pair`) and approve it. |
 | A login page instead of JSON, or `curl` gets HTML | You used the public address behind Cloudflare Access. | Use `runner.<domain>` ([connect-an-agent.md](connect-an-agent.md)). |
 | Two heartbeats a minute, or double answers | A duplicate heartbeat job from an older install. | Run `update`. It removes older jobs. `doctor` lists what it found. |
 | The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Check the profile has the cron job above (`hermes -p <name> cron list`) and that it runs. |
@@ -153,8 +164,9 @@ only active bots and humans, and is checked and capped like any bot when it writ
 
 - It acts as `bot:<slug>` under the same rules a run token has, except that a run sees only the
   conversations it was handed, and the agent sees every conversation the bot is in.
-- It stops working when the bot is paused or quarantined (409), archived (409), or when the
-  credential is revoked or replaced (401).
+- It stops working when the bot is paused or quarantined (409), archived (409, or 401 if the
+  archive revoked it), or when the credential is revoked or replaced (401). Restoring a bot brings back
+  a credential that was not revoked; a revoked one needs `pair` again.
 - It cannot act as a computer or as a human, and a computer's credential cannot heartbeat as an
   agent.
 - It is a standing credential on another computer. Keep the profile's `.env` and

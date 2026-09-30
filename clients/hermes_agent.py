@@ -250,7 +250,7 @@ def load_config(profile):
             raise Failure(f"{path} must be readable only by its owner (chmod 600)")
         return json.loads(path.read_text())
     except OSError:
-        raise Failure(f"No agent configuration for profile {profile!r}; run install first")
+        raise Failure(f"No agent configuration for profile {profile!r}; run pair (or install) first")
 
 
 def save_config(profile, value):
@@ -522,7 +522,7 @@ def cmd_pair(args):
         raise Failure("The hub did not start a pairing; is this the hub's runner address?")
     wait = max(1, int(created.get("expires_in") or 600))
     every = min(30, max(1, int(created.get("poll_every") or 3)))
-    print(f"Tell BotOps (or open Settings → Bots → <bot> → Pair): {pair_code_sentence(args.profile, code)}")
+    print(f"Tell BotOps (or press Pair on the bot in Settings → Bots): {pair_code_sentence(args.profile, code)}")
     print(f"Waiting for approval (the code works for {wait // 60 or 1} minute(s); Ctrl-C to stop)...", flush=True)
     deadline = time.monotonic() + wait
     trouble = 0

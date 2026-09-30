@@ -23,7 +23,7 @@ to (the human by default), then:
 
     hub bot create <slug> --record-only --model hermes --name "<Name>" --description "<what it does>" --reports-to <bot or human:id>
 
-`--model hermes` is what makes it a Hermes bot: it gets a credential, not a computer. Turn it on with `hub bot go-live <slug>`;
+`--model hermes` is what makes it a Hermes bot: it gets a credential, not a computer. Turn it on with `hub bot go-live <slug> --no-setup` (no computer, no setup chat);
 a bot that is only planned cannot report in.
 
 ## 3. Approve the code
@@ -51,7 +51,7 @@ If it is not online after five minutes, use the troubleshooting below.
 Nothing pushes to a Hermes profile; it reads its messages when its own schedule says so. The bot only needs a Hermes cron job.
 Give the human this, to paste into the profile's own chat (Hermes creates the job itself):
 
-> Every 10 minutes, run `python3 hermes_agent.py status --profile <name>`. If `waiting` shows messages or tasks, list them
+> Every 10 minutes, run `python3 ~/.config/tico/agents/hermes_agent.py status --profile <name>`. If `waiting` shows messages or tasks, list them
 > with `hub_message_list`, answer each with `hub_message_send` in the same conversation (or move the task with `hub_task_update`),
 > then `hub_message_mark_read`. If nothing is waiting, do nothing.
 
@@ -63,10 +63,10 @@ Start with `hub health check` and `hub api GET bots/<slug>`. Then the first row 
 
 | What you see | Cause | You do |
 | --- | --- | --- |
-| The bot is archived (`state: archived`), or Health says its Hermes agent is still reporting in but the bot is archived | Someone archived it; the profile keeps trying | `hub bot restore <slug>` if they want it back (its routines do not come back; say so). Otherwise revoke the credential: `hub api POST bots/<slug>/agent-credential/revoke` |
+| The bot is archived (`state: archived`), or Health says its Hermes agent is still reporting in but the bot is archived | Someone archived it; the profile keeps trying | `hub bot restore <slug>` if they want it back (its routines do not come back; say so). If its answer shows `agent.credential: false` the credential was revoked: pair again (steps 1 and 3). Otherwise revoke the credential: `hub api POST bots/<slug>/agent-credential/revoke` |
 | The profile's heartbeat is refused with 401 ("revoked") | The credential was revoked or replaced | Pair again: steps 1 and 3. A new pairing makes a new credential and replaces the old one |
-| The bot is planned, paused or quarantined | The server refuses its heartbeat (409) | `hub bot go-live <slug>` for planned; `hub bot resume <slug>` for paused (unless they paused it on purpose); quarantined only after you read why (`playbooks/health-check.md`) |
-| Active, credential exists, no recent heartbeat | The timer on their computer is not running, or the computer is off | Ask them to run `python3 hermes_agent.py status --profile <name>` and paste the output; it shows the last reply. If it shows no timer or an old version, `python3 hermes_agent.py update --profile <name>` (it fetches the current connector and reinstalls the timer). If the computer is asleep or off, say so: nothing here can wake it |
+| The bot is planned, paused or quarantined | The server refuses its heartbeat (409) | `hub bot go-live <slug> --no-setup` for planned; `hub bot resume <slug>` for paused (unless they paused it on purpose); quarantined only after you read why (`playbooks/health-check.md`) |
+| Active, credential exists, no recent heartbeat | The timer on their computer is not running, or the computer is off | Ask them to run `python3 ~/.config/tico/agents/hermes_agent.py status --profile <name>` and paste the output; it shows the last reply. `doctor --profile <name>` (same file) says what is wrong. If it shows no timer or an old version, `update --profile <name>` (it fetches the current connector and reinstalls the timer). If the computer is asleep or off, say so: nothing here can wake it |
 | Nothing works and the credential is lost | The token cannot be shown again | `hub api POST bots/<slug>/agent-credential` replaces it; the new token is not shown to you, so pair again (steps 1 and 3) |
 
 Rotating or revoking is yours to do as them, with no card. Archiving a Hermes bot is a card; when you propose it say
