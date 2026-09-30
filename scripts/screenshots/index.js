@@ -46,6 +46,10 @@ const PAGES = [
     await page.getByText('Transcript \u00b7 Zoom').click();
     await page.getByText('Ana').first().waitFor();
   }},
+  {name: 'usage', route: '#/usage', ready: 'Estimated', steps: async page => {
+    await page.locator('.use-line').first().click();
+    await page.locator('.use-col').first().waitFor();
+  }},
   {name: 'settings-health', route: '#/settings', tab: 'health', ready: 'Failed runs'},
   {name: 'devices', route: '#/settings', tab: 'devices', ready: "Ana's MacBook"},
   {name: 'tour', route: '#/help', ready: 'Take the tour', steps: async page => {

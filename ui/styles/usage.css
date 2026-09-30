@@ -30,7 +30,7 @@
 .use-share i{display:block;height:100%;border-radius:3px;background:var(--accent)}
 .use-detail{padding:var(--s2) var(--s4) var(--s4);display:flex;flex-direction:column;gap:var(--s3);align-items:flex-start}
 .use-detail[hidden]{display:none}
-.use-chart{display:flex;align-items:flex-end;gap:2px;height:96px;width:100%}
+.use-chart{display:flex;align-items:flex-end;gap:2px;height:96px;width:100%;border-bottom:1px solid var(--line)}
 .use-col{flex:1 1 0;min-width:2px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:2px}
 .use-col:hover{opacity:.8}
 .use-col i{display:block;width:100%;min-height:0}
@@ -49,6 +49,7 @@
 @media (max-width:760px){
   .use-page{max-width:none}
   .use-total{font-size:20px}
+  .use-seg button{padding:5px 8px;font-size:13px}
   .use-line{grid-template-columns:1fr auto;grid-template-areas:"who cost" "runs tok" "share share";gap:var(--s1) var(--s3);padding:var(--s3)}
   .use-who{grid-area:who}.use-cost{grid-area:cost}.use-runs{grid-area:runs}.use-tok{grid-area:tok;text-align:right}.use-share{grid-area:share;margin-top:var(--s1)}
   .use-detail{padding:var(--s2) var(--s3) var(--s3)}

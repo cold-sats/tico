@@ -159,7 +159,7 @@ async function useDetail(slug) {
     <div class="use-axis"><span>${esc(days[0]?.day || '')}</span><span>${peak ? useMoney(peak) + ' a day at most' : ''}</span><span>${esc(days[days.length - 1]?.day || '')}</span></div>
     ${both ? `<div class="use-key"><span><i class="use-api"></i>Spend</span><span><i class="use-subs"></i>API-equivalent</span></div>` : ''}
     <table class="use-routines"><thead><tr><th>Routine</th><th>Runs</th><th>Estimate</th></tr></thead><tbody>${routines.map(r =>
-      `<tr><td>${esc(r.title)}</td><td class="tnum">${r.runs}</td><td class="tnum use-cost">${useCost(r)}</td></tr>`).join('')
+      `<tr><td>${esc(r.title)}</td><td class="tnum">${r.runs}</td><td class="tnum"><span class="use-cost">${useCost(r)}</span></td></tr>`).join('')
       || '<tr><td colspan="3" class="muted">No routines.</td></tr>'}</tbody></table>
     <button type="button" class="ghost" data-use-csv>Export CSV</button>`;
 }
