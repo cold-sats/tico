@@ -117,3 +117,35 @@ def test_a_mail_run_by_the_connectors_job_leaves_files_a_group_member_can_write(
     target = tmp_path / "mail.db"
     subprocess.run([sys.executable, "-c", f"open({str(target)!r}, 'w').close()"], check=True, **mail_umask())
     assert stat.S_IMODE(target.stat().st_mode) == 0o664
+
+
+def test_a_bot_the_hub_named_no_mailbox_is_told_so_not_that_the_key_is_missing(channel, monkeypatch):
+    from connectors.mail import auth
+    channel.register("attempt-helper", "helper")                          # the hub sent no mailboxes
+    channel.register("attempt-inbox", "ana-inbox", ["ana@acme.team"])
+    monkeypatch.setenv(auth.SOCKET_ENV, channel.path)
+    monkeypatch.setenv("HUB_TOKEN", "attempt-helper")
+    with pytest.raises(auth.Failure) as refused:
+        auth.supervisor_token("ana@acme.example", [auth.GMAIL_SCOPE])
+    assert "no mailbox" in refused.value.msg and "message bot" in refused.value.msg and "key is not at" not in refused.value.msg
+    assert '"inbox_bot"' in refused.value.hint
+    monkeypatch.setenv("HUB_TOKEN", "attempt-inbox")                      # the server's address, not the one in bot.yaml
+    with pytest.raises(auth.Failure) as wrong:
+        auth.supervisor_token("ana@acme.example", [auth.GMAIL_SCOPE])
+    assert "ana@acme.team" in wrong.value.msg and '"mailbox"' in wrong.value.hint
+    assert channel.minted == []
+
+
+def test_every_isolated_turn_is_pointed_at_the_socket_and_a_plain_runner_is_not():
+    from types import SimpleNamespace
+    from runner.service import Runner as Service
+    registered = []
+    socket = SimpleNamespace(path="/run/tico-runner/git-credential.sock",
+                             register=lambda token, bot, boxes: registered.append((token, bot, list(boxes))))
+    for boxes in ([], ["ana@acme.team"]):
+        env = {}
+        arm = Service.arm_credentials(SimpleNamespace(credentials=socket), env, {"token": "t", "mailboxes": boxes}, "bot")
+        assert arm == socket.path and env[C.SOCKET_ENV] == socket.path
+    assert registered == [("t", "bot", []), ("t", "bot", ["ana@acme.team"])]
+    env = {}
+    assert Service.arm_credentials(SimpleNamespace(credentials=None), env, {"token": "t"}, "bot") is None and env == {}

@@ -144,3 +144,46 @@ def test_the_health_issue_names_the_mailbox_and_the_domain(api):
     with api.app.state.store.read() as c:
         error = c.execute("SELECT last_error FROM service_health WHERE service='connector:mail'").fetchone()[0]
     assert "ana@acme-signin.example" in error and "domain acme-signin.example" in error and "delegation" in error
+
+
+def named(api, person, body, token="ana-test", expected=200):
+    return post(api, f"access/people/{person}", body, token=token, expected=expected)
+
+
+def test_an_owner_names_a_message_bot_and_the_address_it_reads(api):
+    seed_org(api)
+    named(api, "ben", {"inbox_bot": "coo", "mailbox": "Ben@Acme.team"})
+    with api.app.state.store.read() as c:
+        assert routines.token_mailboxes(c, "coo") == ["ben@acme.team"]     # Ben has no reports; the address is the owner's word
+        assert routines.declared_mailbox(json_config(c, "coo")) == "ben@acme.team"
+    assert "ben@acme.team" in [b["address"] for b in mail_targets(api)]     # the sync follows it too
+    named(api, "ben", {"inbox_bot": ""})
+    with api.app.state.store.read() as c:
+        assert routines.token_mailboxes(c, "coo") == []
+
+
+def json_config(c, bot):
+    import json
+    return json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()[0])
+
+
+def test_only_an_owner_or_admin_names_a_message_bot_and_one_bot_serves_one_person(api):
+    seed_org(api)
+    named(api, "ben", {"inbox_bot": "coo", "mailbox": "ben@acme.team"}, token="cara-test", expected=403)   # a member cannot
+    named(api, "ben", {"inbox_bot": "inbox"}, expected=409)                # Ana's message bot
+    named(api, "ben", {"mailbox": "ben@acme.team"}, expected=422)          # an address needs the bot that reads it
+    named(api, "ben", {"inbox_bot": "no-such-bot"}, expected=404)
+    named(api, "ben", {"inbox_bot": "coo", "mailbox": "not an address"}, expected=422)
+    with api.app.state.store.read() as c:
+        assert routines.token_mailboxes(c, "coo") == []
+
+
+def test_naming_the_mailbox_keeps_the_bots_other_tools(api):
+    seed_org(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='coo'", (encode({
+            "name": "coo", "tools": [{"service": "slack", "identity": "Acme"}, {"service": "gmail", "identity": "old@acme.team", "can": ["read"]}]}),))
+    named(api, "ben", {"inbox_bot": "coo", "mailbox": "ben@acme.team"})
+    with api.app.state.store.read() as c:
+        assert json_config(c, "coo")["tools"] == [{"service": "slack", "identity": "Acme"},
+                                                  {"service": "gmail", "identity": "ben@acme.team", "can": ["read"]}]

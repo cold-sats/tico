@@ -97,10 +97,21 @@ def supervisor_token(mailbox, scopes):
     from runner import credential_socket                # noqa: PLC0415
     try:
         return credential_socket.request_mail(path, os.environ["HUB_TOKEN"], service, mailbox)
-    except (OSError, ValueError) as e:
+    except OSError as e:
+        raise Failure(f"could not reach the runner to ask for access to {mailbox}: {e}",
+                      "The runner holds the Google key on this computer and gives a run a token; it did not answer.")
+    except ValueError as e:
+        if getattr(e, "reason", "") == "no mailbox":
+            raise Failure("this bot has no mailbox: the key is on this computer's runner, which gives a token only to a "
+                          "message bot, and the server has not named this bot as anyone's",
+                          "An owner or admin sets it: POST /api/v2/access/people/<person> "
+                          '{"inbox_bot": "<this bot>", "mailbox": "<address>"}. docs/mail.md, Who can read the key.')
+        if getattr(e, "mailboxes", None):
+            raise Failure(f"the runner would not let this turn act as {mailbox}; this bot may use {', '.join(e.mailboxes)}",
+                          "The server names those for this bot, not its bot.yaml. If the address is wrong, an owner or admin "
+                          'sets it: POST /api/v2/access/people/<person> {"mailbox": "<address>"}. docs/mail.md, Who can read the key.')
         raise Failure(f"the runner would not give this turn access to {mailbox}: {e}",
-                      "Only an inbox bot may read mail on an isolated runner, and only the mailbox it declares "
-                      "and those of the people below its person. docs/mail.md, Works on Linux runners.")
+                      "The run's attempt is not known to the runner, or it has ended. docs/mail.md, Works on Linux runners.")
 
 
 def credentials(mailbox, scopes=None, path=None, key_only=False):

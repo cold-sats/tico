@@ -21,7 +21,7 @@ from fastapi import Request
 
 from clients import access_entry
 from . import models as M
-from . import providers
+from . import providers, routines
 from .harnesses import EXTERNAL_HARNESSES, resolve_harness
 from .store import H, Problem, encode, readiness_document, repo_url
 
@@ -204,6 +204,15 @@ def listing(c, settings, bot):
                 if _same(entry, request["entry"]):
                     tool["pending"], tool["task_id"] = "remove", request["task_id"]
                     tool["detail"] = "Removal requested; waiting for BotOps to take it out of bot.yaml"
+    # The computer holds the Google key and gives a token, but only to a message bot the server has named
+    # (routines.token_mailboxes): for any other bot "present" would be a promise its runs cannot keep.
+    if any(entry.get("held") for entry in state["raw"]) and not routines.token_mailboxes(c, bot):
+        for tool, entry in zip(declared, state["raw"]):
+            if entry.get("held"):
+                tool.update(status="problem", held=True, detail="", problem=(
+                    f"{label} holds the Google key, but {bot} is nobody's message bot on the server, so its runs get no mail "
+                    "token. An owner or admin names it: POST /api/v2/access/people/<person> "
+                    '{"inbox_bot": "' + bot + '", "mailbox": "<address>"}'))
     adding = [_pending_tool(r) for r in requests if r["kind"] == "add"
               and not any(_same(entry, r["entry"]) for entry in state["raw"])]
     tools = [_model_tool(c, settings, bot, state["config"], state["readiness"], label)]

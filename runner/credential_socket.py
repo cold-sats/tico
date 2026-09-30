@@ -12,7 +12,8 @@ One JSON line each way: {"token": "<attempt token>"} then {"token": "<github tok
 The same socket serves an inbox bot's mail access (runner/mail_key.py holds the Google key, which
 bots cannot read): {"token": "<attempt token>", "mail": {"service": "gmail", "mailbox": "ana@..."}}
 answers {"token": "<Gmail access token>", "expiry": "..."}. The hub named the mailboxes this attempt's
-bot may open when it handed the attempt out; any other mailbox, and any attempt of any other bot, gets an error.
+bot may open when it handed the attempt out; any other mailbox, and any attempt of any other bot, gets an error
+("no mailbox" when the hub named none: the bot is nobody's message bot).
 """
 import json
 import os
@@ -73,8 +74,10 @@ class Server:
         mailbox = str(asked.get("mailbox") or "").strip().lower() if isinstance(asked, dict) else ""
         if not self.mail or service not in MAIL_SERVICES:
             return {"error": "no mail access"}
+        if not allowed:
+            return {"error": "no mailbox", "mailboxes": []}
         if mailbox not in allowed:
-            return {"error": "not this bot's mailbox"}
+            return {"error": "not this bot's mailbox", "mailboxes": sorted(allowed)}
         try:
             granted = self.mail(service, mailbox)
         except Exception as exc:
@@ -145,6 +148,15 @@ def request(path, attempt_token, timeout=20):
     return reply["token"]
 
 
+class MailRefused(ValueError):
+    """The supervisor said no: `reason` ("no mailbox": the hub named none for this bot, "not this bot's mailbox")
+    and, when it is the mailbox that was wrong, the ones this run may ask for."""
+
+    def __init__(self, reason, mailboxes=None):
+        super().__init__(reason)
+        self.reason, self.mailboxes = reason, [m for m in mailboxes or [] if isinstance(m, str)]
+
+
 def request_mail(path, attempt_token, service, mailbox, timeout=60):
     """{"token", "expiry"} to act as `mailbox` in `service`, for the attempt's inbox bot. Raises OSError/ValueError."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
@@ -154,5 +166,5 @@ def request_mail(path, attempt_token, service, mailbox, timeout=60):
         line = connection.makefile("rb").readline(MAX_LINE)
     reply = json.loads(line)
     if not reply.get("token"):
-        raise ValueError(reply.get("error") or "refused")
+        raise MailRefused(reply.get("error") or "refused", reply.get("mailboxes"))
     return reply

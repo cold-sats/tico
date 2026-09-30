@@ -867,6 +867,11 @@ class AccessPersonEdit(Contract):
     role: Literal["admin", "member"] | None = None
     create_bots: bool | None = None
     add_people: bool | Literal["default"] | None = None
+    # Who this person's message bot is ("" takes it away), and the address it reads for them when that is not
+    # their sign-in email (the Google Workspace may be on another domain). Together they are what lets the bot's
+    # runs ask their computer for a mail token: only owners and admins set them (docs/mail.md).
+    inbox_bot: str | None = Field(default=None, max_length=80)
+    mailbox: str | None = Field(default=None, max_length=320)
     # BotOps making the change a person asked for in chat (a Confirm card for the risky ones).
     on_behalf_of: ID | None = None
 

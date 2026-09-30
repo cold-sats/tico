@@ -14,7 +14,7 @@ from clients.manifest import tools_of
 from clients.routines import DEFAULT_ZONE, validate_schedules
 from . import people as P
 from .scheduler import next_due, stamp
-from .store import H, Problem
+from .store import H, Problem, encode
 
 OCCURRENCE_LIMIT = 50
 DEFAULT_TEXT = "Run this scheduled routine."
@@ -205,6 +205,27 @@ def declared_mailbox(config):
             if MAILBOX.fullmatch(addr):
                 return addr
     return ""
+
+
+def set_declared_mailbox(c, bot, address):
+    """Record the address `bot` reads, as the identity of its `gmail` tool in the bot's stored config (the owner's
+    word, not the bot's repository: a bot cannot widen what its runs may open). Other tools are kept."""
+    address = str(address or "").strip().lower()
+    if not MAILBOX.fullmatch(address):
+        raise Problem("mailbox", "That is not an email address", 422)
+    found = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()
+    if not found:
+        raise Problem("not_found", "Bot not found", 404)
+    config = json.loads(found["config_json"] or "{}")
+    tools = [dict(t) if isinstance(t, dict) else t for t in (config.get("tools") or config.get("access") or [])]
+    gmail = next((t for t in tools if isinstance(t, dict) and str(t.get("service", "")).lower() == "gmail"), None)
+    if gmail is None:
+        tools.append({"service": "gmail", "identity": address, "can": ["read", "draft"]})
+    else:
+        gmail["identity"] = address
+    config.pop("access", None)
+    config["tools"] = tools
+    c.execute("UPDATE bot_config SET config_json=?,revision=revision+1 WHERE bot=?", (encode(config), bot))
 
 
 def message_bot_mailboxes(c, roster=None):

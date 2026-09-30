@@ -383,6 +383,11 @@ The key can act as any mailbox in the team, so bots must not be able to read it.
   socket, a Gmail or Calendar access token that lasts an hour for one mailbox at a time. The mailboxes it may ask for are the
   one the bot declares (its human's own email only if it declares none), then those of the humans below that human in the
   team chart. Any other bot, and any other mailbox, is refused.
+  A bot is a message bot to the server when an owner or admin names it as its person's `inbox_bot`, which is what the server
+  checks before it names any mailbox for a run. Creating the bot does not do it, so a bot made from the `inbox` template needs one call
+  (owner or admin; the address is only for a Workspace on another domain than the person's sign-in email):
+  `hub api POST access/people/<person> '{"inbox_bot": "<bot>", "mailbox": "ana@acme.example"}'`. Until then the runner holds the key
+  but gives the bot no token, and the mail tool says "this bot has no mailbox" (the bot's Tools row shows a problem; it is not "ready").
   Because the key is not in the bot's environment, the Tools row shows `GOOGLE_SA_KEY` as "present (held by the computer)" when the
   computer has the key and runs the `connectors` job, and as missing only when the computer has no key. The `mail.db` and
   `audit.jsonl` files in `workspace/runtime/mail` are group-writable so the bot's `mail.sh` and the job can both write them.

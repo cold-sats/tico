@@ -237,6 +237,12 @@ def test_a_google_key_the_computer_holds_is_present_and_a_missing_one_is_named(a
     assign(api, machine, "ops")
     gmail = {"service": "gmail", "identity": "ana@acme.example", "can": ["read"], "env": "GOOGLE_SA_KEY"}
     assert report(api, machine, "ops", [{**gmail, "credential": "present", "held": True}]).status_code == 200
+    # The computer has the key, but the server has not named ops as anyone's message bot: no token, so not "ready".
+    tool = {t["id"]: t for t in tools_of(api)["tools"]}["gmail"]
+    assert tool["status"] == "problem" and "nobody's message bot" in tool["problem"] and '"inbox_bot": "ops"' in tool["problem"]
+    issue = [i for i in get(api, "fleet/check", token="ana-test")["issues"] if i["kind"] == "missing_credential"]
+    assert issue and "nobody's message bot" in issue[0]["text"] and "has no Google service-account key" not in issue[0]["text"]
+    post(api, "access/people/ana", {"inbox_bot": "ops", "mailbox": "ana@acme.example"}, token="ana-test")
     tool = {t["id"]: t for t in tools_of(api)["tools"]}["gmail"]
     assert tool["status"] == "ready" and "problem" not in tool
     assert tool["detail"] == "GOOGLE_SA_KEY is present (held by the computer); a run gets a short-lived token, never the key"

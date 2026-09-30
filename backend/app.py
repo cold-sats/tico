@@ -935,9 +935,9 @@ def create_app(settings=None):
                 target = H.human(c, pid) or {}
                 if who.role != "owner" and str(target.get("email") or "").lower() in auth.bot_admins:
                     raise Problem("forbidden", "Only an owner turns an admin's sign-in on or off", 403)
-            # A role, add_people or sign-in is authority; an email rewrites who is an Admin, and a team is an access
+            # A role, add_people, sign-in or a message bot (it opens a mailbox) is authority; an email rewrites who is an Admin, and a team is an access
             # audience: each needs the requester's own click through BotOps.
-            if (roles or any(getattr(body, k) is not None for k in ("add_people", "sign_in", "email", "team"))) and risky(who):
+            if (roles or any(getattr(body, k) is not None for k in ("add_people", "sign_in", "email", "team", "inbox_bot", "mailbox"))) and risky(who):
                 changes = body.model_dump(exclude_none=True, exclude={"on_behalf_of"})
                 return propose_card(c, who, "POST", "/api/v2/access/people/" + pid, changes,
                                     "Change " + ", ".join(changes) + " for "

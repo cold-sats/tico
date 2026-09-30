@@ -1613,6 +1613,16 @@ class Runner:
                     return
                 renewal.failed(exc)
 
+    def arm_credentials(self, env, attempt, bot):
+        """Register this attempt with the credential socket (isolated runners) and point the turn at it. Every
+        isolated turn gets it, message bot or not: the Google key is not in the turn, so the mail CLI asks here,
+        and a bot the hub named no mailbox for is told so instead of being told the key is missing."""
+        socket_path = self.credentials.path if self.credentials else None
+        if socket_path:
+            self.credentials.register(attempt["token"], bot, attempt.get("mailboxes") or ())
+            env[credential_socket.SOCKET_ENV] = str(socket_path)
+        return socket_path
+
     def execute(self, attempt):
         aid, bot = attempt["id"], attempt["bot"]
         self.state.record(attempt)
@@ -1633,11 +1643,7 @@ class Runner:
             try:
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
-                socket_path = self.credentials.path if self.credentials else None
-                if socket_path:
-                    self.credentials.register(attempt["token"], bot, attempt.get("mailboxes") or ())
-                    if attempt.get("mailboxes"):
-                        env[credential_socket.SOCKET_ENV] = str(socket_path)     # the mail CLI asks for its mailbox here
+                socket_path = self.arm_credentials(env, attempt, bot)
                 git_credentials.apply(env, self.client, bot, self.config_path, socket_path)
                 self.publish(bot, self.local_path(bot), env)
                 redactor = redact_mod.for_turn(env, self.vault_values.get(aid, []))

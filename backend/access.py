@@ -364,6 +364,33 @@ def join_on_sign_in(c, email):
     return row["id"]
 
 
+def assign_message_bot(c, roster, row, body):
+    """Name `row`'s message bot, and the address it reads for them when that is not their own email. This is the
+    one thing that lets a bot's runs ask a Docker computer for a mail token (backend/routines.token_mailboxes), so
+    it is an owner's or admin's word: a bot cannot claim a mailbox by describing itself in its own repository."""
+    from . import inbox_isolation, routines
+    bot = row.get("inbox_bot") if body.inbox_bot is None else P._clean(body.inbox_bot)
+    if bot:
+        found = H.bot(c, bot)
+        if not found or found["state"] == "archived":
+            raise Problem("not_found", "That bot was not found", 404)
+        other = next((p for p in roster["people"] if p["id"] != row["id"] and p.get("inbox_bot") == bot), None)
+        if other:
+            raise Problem("conflict", f"{bot} is already {other['name'] or other['id']}'s message bot", 409)
+        row = {**row, "inbox_bot": bot}
+        placed = c.execute("SELECT runner_id FROM assignments WHERE bot=?", (bot,)).fetchone()
+        if placed:
+            inbox_isolation.check(c, bot, placed["runner_id"], {**roster, "people": [
+                row if p["id"] == row["id"] else p for p in roster["people"]]})
+        if body.mailbox is not None:
+            routines.set_declared_mailbox(c, bot, body.mailbox)
+    elif body.mailbox is not None:
+        raise Problem("mailbox", "Name the message bot that reads it (inbox_bot) too", 422)
+    else:
+        row = {**row, "inbox_bot": None}
+    return row
+
+
 def edit_person(c, actor, roster, pid, body, access, owner_email):
     """Owner edits of a roster person. Returns (roster, access_changes)."""
     person = P.person(pid, roster)
@@ -403,6 +430,9 @@ def edit_person(c, actor, roster, pid, body, access, owner_email):
         if role == "admin":
             admins.append(row["email"])
         changed["role"] = role
+    if body.inbox_bot is not None or body.mailbox is not None:
+        row = assign_message_bot(c, roster, row, body)
+        changed["inbox_bot"] = row.get("inbox_bot") or ""
     if body.create_bots is not None:
         row["create_bots"], changed["create_bots"] = bool(body.create_bots), bool(body.create_bots)
     if body.add_people is not None:
