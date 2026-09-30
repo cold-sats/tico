@@ -112,6 +112,10 @@ class HeadlessLogin(unittest.TestCase):
         (self.root / "secrets" / "_shared.env").write_text("")
         self.assertEqual(self.readiness("codex", ("ana",))["authenticated"], "missing")
 
+    def test_a_turn_is_told_where_the_projects_are_so_the_mail_tool_builds_its_venv_in_the_volume(self):
+        env = self.runner.environment({"bot": "ana", "token": "t", "config": {}})
+        self.assertEqual(env["TICO_PROJECTS_DIR"], str(self.root))
+
 
 if __name__ == "__main__":
     unittest.main()

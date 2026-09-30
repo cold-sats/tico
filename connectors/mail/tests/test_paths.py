@@ -30,3 +30,10 @@ def venv_of(env):
                           capture_output=True, text=True, env={"PATH": os.environ["PATH"], **env})
     return done.stdout.strip()
 
+
+
+def test_the_venv_follows_the_projects_folder_a_runner_names_and_a_named_venv_wins():
+    """The image's checkout is read-only and has no sibling folders, so the default must not be /opt/runtime."""
+    assert venv_of({"TICO_PROJECTS_DIR": "/home/runner/workspace"}) == "/home/runner/workspace/runtime/mail/venv"
+    assert venv_of({"TICO_PROJECTS_DIR": "/w", "TICO_MAIL_VENV": "/tools/mail-venv"}) == "/tools/mail-venv"
+    assert venv_of({}) == str(ROOT.parent / "runtime/mail/venv")

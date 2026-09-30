@@ -750,6 +750,9 @@ class Runner:
                     # Where this company's bot repositories live. BotOps sets a new bot up here
                     # with `hub bot create`; every other bot reads it to find a sibling's work.
                     "HUB_WORKSPACE": str(self.config["projects_dir"]),
+                    # The mail tool keeps its venv and database under this (scripts/mail.sh): the checkout is
+                    # read-only in the image and has no sibling folders there.
+                    "TICO_PROJECTS_DIR": str(self.config["projects_dir"]),
                     # The runner's own interpreter comes first so `hub` (and any `python3` a bot
                     # runs) uses a Python that can reach the cloud. A machine's system python3
                     # may lack TLS certificates (python.org builds do until their certificate

@@ -7,12 +7,12 @@
 #
 # First use builds a venv at <projects>/runtime/mail/venv from connectors/mail/requirements.txt;
 # after that it is just an exec. Rebuild it any time by deleting that directory.
-# A Linux runner has no such folder layout: TICO_MAIL_VENV names the venv (its volume, not the
-# image), TICO_PROJECTS_DIR the bot repos and secrets (connectors/mail/__init__.py).
+# A Linux runner has no such folder layout: a turn gets TICO_PROJECTS_DIR (the bot repos and secrets, in the
+# runner's volume and writable by the bot user), so the venv lands under it; TICO_MAIL_VENV names another.
 # `scripts/mail.sh --setup` only builds or updates the venv, so a caller can do it with a long timeout.
 set -euo pipefail
 HUB="$(cd "$(dirname "$0")/.." && pwd)"
-VENV="${TICO_MAIL_VENV:-$(dirname "$HUB")/runtime/mail/venv}"
+VENV="${TICO_MAIL_VENV:-${TICO_PROJECTS_DIR:-$(dirname "$HUB")}/runtime/mail/venv}"
 REQ="$HUB/connectors/mail/requirements.txt"
 
 if [ ! -x "$VENV/bin/python" ]; then
