@@ -7,7 +7,18 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Rehearsal mode.** `TICO_REHEARSAL=1` starts a server on a copy of real data for trying a migration. Migrations and
+  initialization run as usual; nothing runs on a timer and nothing leaves the server: no scheduler or directory sync, no
+  backups (no Litestream or replication loop, and nothing is written to `TICO_BACKUP_URL`, so restored production data cannot
+  write into the production replica), no release check or usage count, no contact support or HQ calls, no Slack gateway, GitHub App
+  calls, error reporting or updater, and no uploads to an attachments bucket. A banner on every page says "Rehearsal: nothing runs
+  or leaves this server", and the config carries `rehearsal: true`. See docs/install.md, "Rehearse a migration".
+
 ### Fixed
+- **The Docker server no longer overrides `TICO_SCHEDULER=0`.** The entrypoint forced `TICO_SCHEDULER=1`, so an explicit off was
+  ignored (and compose did not pass the variable to the container at all). Unset still means on. compose.yaml now also passes
+  `TICO_SUPPORT`, which docs/support.md already told owners to set in `.env`.
 - **Mac helper jobs follow a release.** `connectors`, `close-calls` and `importers` are separate launchd jobs, and a release
   restarted only the bot job, so a helper kept the old code in memory while it loaded new modules and scripts from the switched
   checkout. After a healthy update the runner now restarts the helper jobs that are installed (`launchctl kickstart -k`, the way

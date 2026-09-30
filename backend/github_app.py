@@ -151,6 +151,8 @@ class GitHubApp:
                           self.private_key(c, row), algorithm="RS256")
 
     def _call(self, method, path, **kw):
+        if self.settings.rehearsal:
+            raise Problem("rehearsal", "GitHub is not contacted from a rehearsal", 409)
         try:
             with _client() as http:
                 return http.request(method, path, **kw)

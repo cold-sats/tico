@@ -31,6 +31,18 @@ MARKER = "environment.json"
 LOCAL_MARKER = ".tico-environment"
 
 
+def rehearsal_on(env=None):
+    """TICO_REHEARSAL=1: a server on a copy of real data that must write nothing back to it and send nothing out
+    (docs/install.md, "Rehearse a migration"). One reading of the switch for the entrypoint, the server and this module."""
+    env = os.environ if env is None else env
+    return (env.get("TICO_REHEARSAL") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def no_mirror(env):
+    """Whether nothing may be written to the off-server copy: backups are off, or this is a rehearsal."""
+    return env.get("TICO_BACKUP_MODE") in ("off", "rehearsal") or rehearsal_on(env)
+
+
 def target_kind(url="", endpoint=""):
     if not url:
         return "local"
@@ -53,6 +65,8 @@ def _now():
 def status(env=None, path=None):
     """{mode, last_replicated_at, target_kind, warning} for the config payload."""
     env = os.environ if env is None else env
+    if rehearsal_on(env) or env.get("TICO_BACKUP_MODE") == "rehearsal":
+        return {"mode": "rehearsal", "last_replicated_at": None, "target_kind": "none", "warning": ""}
     if not env.get("TICO_BACKUP_MODE"):
         # Not started by the container entrypoint (a VM install, tests). VM stacks run Litestream from
         # their own service config, so absence of TICO_BACKUP_URL says nothing: report unknown, not off.
@@ -267,6 +281,9 @@ def write_status(mirror, path):
 
 def loop(env=None, interval=30, warn_every=3600, sleep=time.sleep, rounds=None):
     env = os.environ if env is None else env
+    if no_mirror(env):
+        print("tico: rehearsal: nothing is copied to the backup location", flush=True)
+        return
     mirror = mirror_from_env(env)
     blob_dir = env.get("TICO_BLOB_DIR", "/data/blobs")
     path = env.get("TICO_BACKUP_STATUS_FILE") or STATUS_FILE
@@ -298,13 +315,13 @@ def main(argv=None):
     elif command == "is-empty":
         return 0 if is_empty(argv[1]) else 1
     elif command == "check-new-company":   # DIR [--restore-failed] [--initialize-empty]; backups off: no mirror
-        mirror = None if env.get("TICO_BACKUP_MODE") == "off" else mirror_from_env(env)
+        mirror = None if env.get("TICO_BACKUP_MODE") == "off" else mirror_from_env(env)   # a rehearsal still reads it
         message = check_new_company(argv[1], mirror, "--restore-failed" in argv, "--initialize-empty" in argv)
         if message:
             print("tico: error: " + message, file=sys.stderr)
             return 1
     elif command == "mark-environment":    # DIR ID
-        write_markers(argv[1], argv[2], None if env.get("TICO_BACKUP_MODE") == "off" else mirror_from_env(env))
+        write_markers(argv[1], argv[2], None if no_mirror(env) else mirror_from_env(env))
     else:
         print("usage: python -m backend.replication loop|restore-blobs|is-empty DIR|check-new-company DIR|mark-environment DIR ID", file=sys.stderr)
         return 2

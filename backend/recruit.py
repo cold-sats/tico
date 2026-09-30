@@ -40,6 +40,8 @@ def off_reason(c, settings):
     The same switches as the anonymous usage count (backend/census.py), so turning that off turns this off too."""
     if settings.demo:
         return "demo"
+    if settings.rehearsal:
+        return "TICO_REHEARSAL"
     return C.env_off() or ("" if C._load(c).get("enabled", True) else "setting")
 
 

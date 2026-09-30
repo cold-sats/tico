@@ -15,6 +15,7 @@ import os
 import time
 import uuid
 
+from .replication import rehearsal_on
 from .store import H, Problem, encode
 
 log = logging.getLogger("tico.census")
@@ -40,7 +41,9 @@ def debug():
 
 def env_off():
     """The environment's own switches, which the Settings toggle cannot override: TICO_TELEMETRY=off, and the
-    DO_NOT_TRACK convention (consoledonottrack.com: any value other than empty or 0 means "do not track")."""
+    DO_NOT_TRACK convention (consoledonottrack.com: any value other than empty or 0 means "do not track"), and a rehearsal."""
+    if rehearsal_on():
+        return "TICO_REHEARSAL"
     if os.environ.get("TICO_TELEMETRY", "").strip().lower() in _OFF:
         return "TICO_TELEMETRY"
     if os.environ.get("DO_NOT_TRACK", "").strip().lower() not in ("", "0", "false", "no"):
@@ -69,6 +72,8 @@ class Census:
         """Why nothing is sent: "demo", "TICO_TELEMETRY", "DO_NOT_TRACK", "setting", or "" when counting is on."""
         if self.settings.demo:
             return "demo"
+        if self.settings.rehearsal:
+            return "TICO_REHEARSAL"
         env = env_off()
         if env:
             return env

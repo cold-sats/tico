@@ -138,8 +138,10 @@ def create_app(settings=None):
                     await asyncio.wait_for(stop.wait(), timeout=60)
                 except TimeoutError:
                     pass
-        scheduler_task = asyncio.create_task(schedule_loop()) if settings.scheduler_enabled else None
-        directory_task = asyncio.create_task(directory_loop()) if settings.scheduler_enabled else None
+        # A rehearsal never runs them, whatever else says so (docs/install.md, "Rehearse a migration").
+        timers = settings.scheduler_enabled and not settings.rehearsal
+        scheduler_task = asyncio.create_task(schedule_loop()) if timers else None
+        directory_task = asyncio.create_task(directory_loop()) if timers else None
         # A demo runs no scheduler: nothing fires, and nothing waits for a bot that will never run.
         demo_task = None
         if settings.demo:

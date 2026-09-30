@@ -337,7 +337,9 @@ def view(c, who, settings, auth, github, config):
         if slack:
             checks.append(slack)
         checks.append(_check("backups", "Backups", "ok", "Demo data: there is nothing to back up.")
-                      if settings.demo else _backups(config))
+                      if settings.demo else
+                      _check("backups", "Backups", "ok", "Rehearsal: backups are off on purpose.")
+                      if settings.rehearsal else _backups(config))
         checks.append(_signin(settings))
     checks.append(_check("failed", "Failed runs", "warn" if failed else "ok",
                          f"{_plural(failed, 'run')} failed in the last day." if failed else "No failed runs in the last day.",

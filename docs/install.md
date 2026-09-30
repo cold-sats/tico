@@ -486,6 +486,35 @@ bucket, so with the default local-only backups you can only rebuild on the same 
 
 Runners hold no company data that is not in a git remote, but back up their volume if bots keep local work.
 
+### Rehearse a migration
+
+To try a move (a new server, a new release, a new host) on a copy of the real data first, start the copy with
+`TICO_REHEARSAL=1`. It runs the same migrations and initialization as any start and shows the whole company, but nothing runs
+on a timer and nothing leaves the server:
+
+| Off in a rehearsal | |
+|---|---|
+| Scheduler and directory sync | routines make no jobs, and the directory is not read (so nobody is marked as having left) |
+| Backups | no Litestream, no replication loop, and nothing is written to `TICO_BACKUP_URL`; the log says so at start |
+| Release check and usage count | nothing goes to GitHub or Tico HQ |
+| Outbound from the server | contact support and org suggestions (HQ), the Slack gateway (its container waits), GitHub App calls, error and analytics reporting, and **Update now** |
+| Uploads to an attachments bucket | reading works; adding to the company's `TICO_BLOB_BUCKET` is refused |
+
+The server sends no email of its own. The app shows a banner on every page, **Rehearsal: nothing runs or leaves this server**,
+and `GET /api/v2/config` carries `"rehearsal": true`.
+
+```
+# a separate directory and a separate .env, never the production ones
+TICO_REHEARSAL=1
+TICO_BACKUP_URL=s3://my-bucket/tico     # optional: an empty volume restores from it, read only
+docker compose up -d                    # or copy the production data volume in first
+```
+
+Set `TICO_REHEARSAL=1` before the first start of the copy. Do not enrol runners against it or give it the production
+domain: a runner that connects would run bots against the copy's queue. Leave rehearsal by building a new server without
+the variable; a copy that ran in rehearsal was never backed up. An explicit `TICO_SCHEDULER=0` (without `TICO_REHEARSAL`)
+turns off only the scheduler and directory sync; unset, the server starts them.
+
 ## Operating it
 
 | | |
