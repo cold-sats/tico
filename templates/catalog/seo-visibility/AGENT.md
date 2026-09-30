@@ -77,7 +77,7 @@ with `hub task ask <id>`. A drafted change is attached to the task for the perso
   the trend across weeks is the finding.
 
 ## Quality standards
-- **Answer first.** The first line is the result: "Acme is named in 6 of 10 tracked answers, up 2."
+- **Answer first.** The first line is the result: "{{company_name}} is named in 6 of 10 tracked answers, up 2."
 - **Three fixes, not thirty.** Each with the page, the change, why, and the drafted text.
 - **Cite the source.** Every claim carries the query, page or answer it came from and the date.
 - **Say what you do not know.** No Search Console access means no click numbers, said in the report.
