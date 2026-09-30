@@ -57,6 +57,16 @@ separate_users() {
   # The supervisor hands the secrets folder to the bot user before a turn (runner/isolation.py adopt), so after
   # the first turn it is not ticorun's to chmod: give it to the bot user and set its mode as that user.
   chown "$BOT_UID:$SUPERVISOR_GID" "$HOME/workspace/secrets" && as_bot chmod 0770 "$HOME/workspace/secrets"
+  # The mail tool's folder, <workspace>/runtime/mail: a bot's first `mail.sh` builds its venv there, and the
+  # supervisor's connectors job keeps mail.db there. The job made these folders as ticorun (0755) on a new
+  # computer, so the bot user could not create the venv ("permission denied", run blocked). They are the bot
+  # user's, setgid and group-writable, so both users can write in them. Only these two folders change hands:
+  # the state directory, runner.json and the mail key stay 0600/0700 for ticorun.
+  local mail_runtime="$HOME/workspace/runtime"
+  if [ ! -L "$mail_runtime" ] && [ ! -L "$mail_runtime/mail" ]; then
+    mkdir -p "$mail_runtime/mail" && chown "$BOT_UID:$SUPERVISOR_GID" "$mail_runtime" "$mail_runtime/mail" \
+      && as_bot chmod 2770 "$mail_runtime" "$mail_runtime/mail"
+  fi
   # The Codex login lives in the bot user's setgid, group-writable home, so `codex login` as `bot` works and the
   # supervisor can still read the 0600 files Codex leaves there (`codex login status`, the model list).
   local codex_home="${CODEX_HOME:-$HOME/.codex}"
