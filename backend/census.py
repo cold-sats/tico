@@ -106,6 +106,13 @@ class Census:
             _save(w, record)
             return record["install_id"]
 
+    def install_id(self):
+        """This install's random ID, made if there is none yet. A support request the person chooses to send with it
+        uses this, whatever the counting choice is (PRIVACY.md, "Support tickets")."""
+        with self.store.read() as c:
+            record = _load(c)
+        return self._id(record)
+
     def query(self, version):
         """What the release check adds to its request to HQ, or None to go straight to GitHub. In debug mode the
         exact payload is logged and nothing is sent."""

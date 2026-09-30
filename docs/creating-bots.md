@@ -88,6 +88,7 @@ own paths, so renaming later is real work.
 | `memory/decisions.md` | What was decided, when, why. Dated. This is where history goes |
 | `knowledge/` | The domain: one topic per file, dated sources. Other bots may read it |
 | `playbooks/` | One file per recurring kind of work. Routines point at these |
+| `software/` and `watchers:` | Small programs the bot wrote for itself. A `watchers:` entry in `employee.yaml` has the runner run one on a schedule with no model and wake the bot only when it prints something new ([watchers.md](watchers.md)) |
 | `reports/`, `software/`, `skills/` | Dated deliverables, the small scripts the bot wrote for itself, runtime skills |
 | `.env.example`, `.gitignore` | The names of the secrets it expects (names only), and the ignore rules that keep `.env` out of git |
 

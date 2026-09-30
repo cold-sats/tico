@@ -2906,6 +2906,10 @@ def create_app(settings=None):
     install_goal_routes(app, store, auth, mutate, settings)
     from .bot_tools import install as install_bot_tools
     install_bot_tools(app, store, auth, mutate, settings_admin)
+    from .support import install as install_support
+    install_support(app, store, settings, census)
+    from .watchers import install as install_watchers
+    install_watchers(app, store, auth, execution, mutate)
 
     # Only the frontend directory is served. No project root, runtime DB, or secrets.
     # The page loads its scripts from /tico/ui/ (ui/index.html), so the same directory is

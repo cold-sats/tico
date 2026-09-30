@@ -8,7 +8,7 @@ which the page turns into one-click links. People who are not administrators see
 
 import json
 
-from . import access, inbox_isolation, model_login, providers, releases, runner_versions
+from . import access, inbox_isolation, model_login, providers, releases, runner_versions, watchers
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
 from .store import H, Problem, readiness_document
 from .views import roster
@@ -303,6 +303,11 @@ def view(c, who, settings, auth, github, config):
     else:
         checks.append(_check("queue", "Work queueing", "ok", "No work is waiting long."))
 
+    if full and (stuck := watchers.problems(c, online_ids)):
+        checks.append(_check("watchers", "Watchers", "warn",
+                             "; ".join(f"{bot}/{name} {why}" for bot, name, why in stuck[:3])
+                             + ("." if len(stuck) <= 3 else f"; and {len(stuck) - 3} more."),
+                             [_fix("Open Runs", "#/runs")]))
     if full and (mixed := inbox_isolation.violations(c, roster(c))):
         checks.append(_check("inbox", "Inbox bots", "warn",
                              "An inbox bot shares a computer with " + "; ".join(

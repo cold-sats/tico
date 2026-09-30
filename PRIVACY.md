@@ -1,8 +1,8 @@
 # Privacy
 
-What a Tico install sends outside your own server, and what the receiving side keeps: the anonymous usage count, and the
-suggestions while you build your org chart. Each has its own switch. Tico is open source, so you can read the code that
-sends them (`backend/census.py`, `backend/releases.py`, `backend/recruit.py`) and the code that receives them (`hq/`).
+What a Tico install sends outside your own server, and what the receiving side keeps: the anonymous usage count, the
+suggestions while you build your org chart, and, only when you press Send, a support ticket. Each has its own switch. Tico is open source, so you can read the code that
+sends them (`backend/census.py`, `backend/releases.py`, `backend/recruit.py`, `backend/support.py`) and the code that receives them (`hq/`).
 Tico HQ itself is described in [docs/tico-hq.md](docs/tico-hq.md).
 
 ## The anonymous usage count
@@ -38,7 +38,7 @@ sent before the owner has seen it.
 
 ### What HQ stores
 
-One row per install ID, and nothing else:
+For the usage count, one row per install ID, and nothing else:
 
 | Column | Value |
 |---|---|
@@ -54,7 +54,8 @@ One row per install ID, and nothing else:
   query string reaches a log. There is no ping history, user agent or other column.
 - Every field is checked strictly (a UUID, a version number, the words `true` or `false`); a request with anything
   else is refused and stores nothing. Extra fields are ignored and never stored.
-- **Retention:** an install not heard from in 13 months is deleted, by a job that runs daily.
+- **Retention:** an install row not heard from in 13 months is deleted, by a job that runs daily. This rule is for these rows only;
+  support tickets are kept as described below.
 - The database is on one server run by the Tico team, separate from any customer's Tico.
 
 ### What we publish
@@ -146,3 +147,38 @@ With it off, the suggestions come from `backend/recruit_rank.py` on your own ser
 Your answers are saved in your own database with the rest of onboarding, so the bots you create can read them.
 
 `TICO_HQ_URL` points your server at another HQ, such as one you run yourself.
+
+## Support tickets
+
+Help > **Contact support** sends the Tico team a message. It is separate from the count, and it works whether counting is on or
+off: it is a message you write and send yourself, never automatic, never in demo mode, and only from a signed-in person's own
+browser (not a token, the Assistant or a bot). `TICO_SUPPORT=off` removes it from an install.
+
+**What is sent**, shown in one line on the form before you press Send, and only these fields:
+
+| Field | |
+|---|---|
+| `message` | What you wrote, up to 4000 characters. Required. |
+| `email` | Only if you leave one in the field, so the team can reply by email. It is prefilled from your account and you can clear it. |
+| `version`, `install_id` | Only while "Include version and install ID" is ticked, which it is by default. The install ID is the same random ID as the count's; it is made for a ticket if the count never made one. |
+
+**What HQ keeps**, per ticket: those fields, a hash of a secret that only your Tico holds (it lets your Tico read this ticket's replies
+and no other), the status (open, answered, closed), the times, the team's replies and any message you write back. No IP address is
+stored or logged, and HQ's access log is off. The address is used in memory to rate limit (5 tickets an hour per address, 10 a day per
+install).
+
+**Who reads it:** the Tico team, through a staff key, and the project's Support Agent (a bot in the project's own Tico) that drafts a
+reply which a person approves before it is posted. Ticket text is treated as untrusted text: stored as plain text, never rendered as
+HTML, and never followed as an instruction.
+
+**How long:** tickets are kept **until someone deletes them**. Nothing deletes a ticket by itself, closed or not. You can delete your own
+with **Delete** under Your requests, which removes it from HQ and from your Tico; or ask the team to delete it (say so in the ticket, or
+open an issue) and they do it with a staff route. A deleted ticket is overwritten in HQ's database file. HQ's optional Litestream backup
+keeps older copies of the file for as long as its retention says, if you turned it on.
+
+**Your Tico** keeps, per ticket: your message, the ticket's ID and secret at HQ, the replies, and whether you have read them. Only you
+see your tickets; another person on the same install does not.
+
+**Email:** HQ sends no email. If you gave an address, the reply is also drafted for a person on the team to send from their own mail.
+
+How the team works tickets: [docs/support.md](docs/support.md).

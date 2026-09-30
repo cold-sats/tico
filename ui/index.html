@@ -2614,6 +2614,7 @@ button.oc-node:hover{border-color:color-mix(in srgb,var(--dc,var(--accent)) 50%,
 <script src="/tico/ui/health.js"></script>
 <script src="/tico/ui/goals-kpis.js"></script>
 <script src="/tico/ui/assistant.js"></script>
+<script src="/tico/ui/support.js"></script>
 <script>
 'use strict';
 const API = '/api';
@@ -11304,6 +11305,7 @@ function pageHelp() {
     </details>
     <p class="help-foot">${S.config.version ? `<span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>` : ''}</p>
   </article>`;
+  window.supportHelp?.($('#help-page'));    // Contact support and Your requests (ui/support.js)
 }
 
 async function pageRuns() {

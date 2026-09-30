@@ -25,6 +25,7 @@ from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import Outage, describe, log
 from .state import BOT_THREAD, State
 from .warm import WarmSessions
+from .watchers import Watchers
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -428,6 +429,8 @@ class Runner:
                                 "readiness check succeeded again")
         self.published_agent_instructions = {}
         self.logins = Logins(self)
+        self.assignments_seen = []    # the last runners/assignments answer, for the watchers (runner/watchers.py)
+        self.watchers = Watchers(self)
         self.restart_due = None       # monotonic time a self-update asked for a restart
         self.restart_forced = False   # a person asked (Restart): drain after SELF_UPDATE_DRAIN_S
 
@@ -1600,6 +1603,7 @@ class Runner:
 
     def maintain(self):
         assignments = self.client.get("runners/assignments")
+        self.assignments_seen = assignments
         eligible = self.client.get("runners/eligible")
         candidates = self.readiness_candidates(assignments, eligible)
         runtimes = self.runtime_report(candidates)
@@ -1714,6 +1718,7 @@ class Runner:
         self.warm.prune()
         self.poll_logins()
         self.step_harnesses()
+        self.step_watchers()
         if self.restart_due is not None:
             if not self.active:
                 log("Tico runner: no turn running; exiting so the supervisor starts the updated runner")
@@ -1749,6 +1754,15 @@ class Runner:
             if getattr(self, "_harness_poll_error", None) != describe(exc):
                 self._harness_poll_error = describe(exc)
                 log(f"Tico runner: harness step failed ({self._harness_poll_error}); will retry")
+
+    def step_watchers(self):
+        """Programs bots declare in `watchers:` (runner/watchers.py). A failure is logged and never stops the runner."""
+        try:
+            self.watchers.tick()
+        except Exception as exc:
+            if getattr(self, "_watcher_error", None) != describe(exc):
+                self._watcher_error = describe(exc)
+                log(f"Tico runner: watcher step failed ({self._watcher_error}); will retry")
 
     def enabled_providers(self):
         """The company's enabled AI providers, from the server; the last answer when it cannot be reached."""
@@ -1793,6 +1807,7 @@ class Runner:
         finally:
             self.stop.set()
             self.logins.stop()
+            self.watchers.stop()
             self.tools.stop()
             if self.credentials:
                 self.credentials.stop()

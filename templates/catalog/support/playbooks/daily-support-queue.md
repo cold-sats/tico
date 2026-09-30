@@ -38,6 +38,13 @@ the answer. `covered: false` means the docs do not say, and the ticket is "new".
   nudge rule, draft the nudge on the task; after the last nudge, mark it "closed quiet" and say so.
   For each ticket waiting on a colleague or a fix, name who and since when.
 
+### Tico HQ tickets and GitHub threads
+
+If this bot works them (`playbooks/tico-hq-tickets.md`, `playbooks/tico-github.md`), the watchers already opened a task for
+each; you do not fetch them here. Add one heading to the digest: opened since the last pass, replies posted, drafts waiting
+on an approval or for a maintainer to post (and for how long), bugs handed to engineering, and threads that closed. Counts
+and one line each, no ticket or thread text.
+
 ## 4. Write the digest
 
 In the shape of `knowledge/examples/support-queue.md`: counts first, what needs a person today, then

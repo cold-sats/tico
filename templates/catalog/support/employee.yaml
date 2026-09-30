@@ -23,6 +23,19 @@ schedules:
     labels: [priority:p2]
     enabled: false
 
+# Programs the runner runs on this bot's computer every 5 minutes, with no model (docs/watchers.md). A run costs
+# nothing: the program looks, and only when there is something new does it open a task, which wakes the bot. Each does
+# nothing until it has its settings, so a company that does not use it loses nothing.
+#   hq-tickets: Tico HQ support tickets, when HQ_STAFF_KEY and TICO_HQ_URL are in this bot's secrets (docs/support.md)
+#   gh-support: GitHub issues and Discussions, when config/github.yaml names the repositories (playbooks/tico-github.md)
+watchers:
+  - name: hq-tickets
+    run: software/hq-tickets watch
+    every: 5m
+  - name: gh-support
+    run: software/gh-support watch
+    every: 5m
+
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
 # arrives in, never the value; declaring access here does not create it. The intake is tasks in the
 # hub until an owner connects a source: changing access is an owner decision, so the bot files a task
@@ -30,6 +43,17 @@ schedules:
 # A support mailbox is read with the Google Workspace key. On a computer shared with other bots that
 # key is closed to them (docs/mail.md, "Who can read the key"), so route support mail to this bot as
 # tasks from the owner's Inbox Manager bot instead.
+# The project team's own Support Agent also declares these two (docs/support.md), then sets the variables in its secrets:
+#   - service: tico-hq
+#     identity: "Tico HQ support tickets"
+#     can: [read]
+#     env: HQ_STAFF_KEY           # with TICO_HQ_URL in the same secrets file; a reply goes out only after an approval
+#     note: "lists and reads tickets; posts a reply only with an approved payload"
+#   - service: github
+#     identity: "the public repositories named in config/github.yaml"
+#     can: [read]
+#     env: GITHUB_TOKEN           # optional for issues, required for Discussions; read access only
+#     note: "reads issues and Discussions; never comments, labels or closes"
 # access:
 #   - service: gmail
 #     identity: "support@example.com"
