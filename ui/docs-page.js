@@ -92,7 +92,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     const internal = docs.length
       ? [...(folders.get('') || []).map(docItem),
          ...dirs.map(dir => `<details open data-docs-folder="${esc(dir)}"><summary>${esc(dir)} <span class="muted">${folders.get(dir).length}</span></summary>${folders.get(dir).map(docItem).join('')}</details>`)].join('')
-      : `<div class="docs-empty-note"><p>Nothing written yet. Write a doc, paste one in, or import a file. Everyone in the company can read and edit, and every change is kept.</p>
+      : `<div class="docs-empty-note"><p>No docs yet.</p>
           <div class="docs-empty-actions"><a class="docs-new" href="${docsHref('new')}" role="button">Write a doc</a><button class="ghost" type="button" data-docs-import>Import a file</button></div></div>`;
     const links = linked.length ? linked.map(linkRow).join('')
       : `<div class="docs-empty-note"><p>Point Tico at where your other docs live: a help site, a Drive folder, a Notion page or a repository. Tico stores only the link.</p>
@@ -141,13 +141,13 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   const back = `<a class="docs-back" href="${docsHref()}">← Back to docs</a>`;
   if (!selected) {
     reader.innerHTML = docs.length || linked.length
-      ? '<div class="docs-welcome"><h2>Read, write and search your company\'s docs</h2><p class="muted">Choose an internal doc on the left to read it here, or search across internal and linked docs. Linked docs open where they live.</p></div>'
+      ? '<div class="docs-welcome"><p class="muted">Pick a doc, or search.</p></div>'
       : '<div class="docs-welcome"><h2>Your company\'s docs, in one place</h2><p class="muted">Write what your team and your bots should know, import files, and link the docs that live elsewhere. Search covers all of it.</p></div>';
     return;
   }
   if (creating) {
     const folder = params.get('folder') || '';
-    reader.innerHTML = back + '<header class="docs-reader-head"><div class="docs-reader-title"><h2>New doc</h2><p class="muted">Everyone in the company can read and edit it, and every change is kept.</p></div></header>';
+    reader.innerHTML = back + '<header class="docs-reader-head"><div class="docs-reader-title"><h2>New doc</h2></div></header>';
     reader.append(DocsEditor.editor({folder, onSaved: doc => { location.hash = docsHref(doc.id); }, onCancel: () => { location.hash = docsHref(); }}));
     reader.querySelector('input[name=title]').focus();
     return;

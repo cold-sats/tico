@@ -27,15 +27,15 @@
     form.className = 'docs-editor';
     form.setAttribute('aria-label', isNew ? 'New doc' : 'Edit ' + doc.title);
     form.innerHTML = `<div class="docs-editor-fields">
-        <label class="gs-field"><span>Title</span><input name="title" maxlength="300" required autocomplete="off" placeholder="Refund policy"></label>
-        <label class="gs-field"><span>Path <em>(folder and file)</em></span><input name="path" maxlength="300" autocomplete="off" placeholder="support/refund-policy.md"></label>
+        <label class="gs-field"><span>Title</span><input name="title" type="text" maxlength="300" required autocomplete="off" placeholder="Refund policy"></label>
+        <label class="gs-field"><span>Path <em>(folder and file)</em></span><input name="path" type="text" maxlength="300" autocomplete="off" spellcheck="false" placeholder="support/refund-policy.md"></label>
       </div>
       <div class="docs-editor-bar"><div class="docs-seg" role="group" aria-label="Write or preview">
           <button type="button" data-tab="write" aria-pressed="true">Write</button><button type="button" data-tab="preview" aria-pressed="false">Preview</button></div>
         <span class="muted">Markdown</span></div>
-      <textarea name="body" class="docs-textarea" spellcheck="true" aria-label="Markdown" placeholder="Write in Markdown. # Heading, **bold**, - lists, [links](https://…), | tables |"></textarea>
+      <textarea name="body" class="docs-textarea" spellcheck="true" aria-label="Markdown" placeholder="# Heading"></textarea>
       <div class="docs-preview md docs-content" hidden aria-label="Preview"></div>
-      <label class="gs-field"><span>What changed? <em>(optional)</em></span><input name="note" maxlength="300" autocomplete="off" placeholder="Shortened the refund window"></label>
+      <label class="gs-field"><span>What changed? <em>(optional)</em></span><input name="note" type="text" maxlength="300" autocomplete="off" placeholder="Shortened the refund window"></label>
       <div class="docs-conflict" role="alert" hidden></div>
       <p class="err" data-error role="alert" hidden></p>
       <div class="docs-editor-actions"><button class="primary" type="submit">Save</button>
@@ -164,11 +164,10 @@
   function linkDialog({link = null, onDone}) {
     const box = dialog(`<form data-link-form novalidate><header><h2>${link ? 'Edit linked doc' : 'Add a link'}</h2>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
-      <p class="muted docs-dialog-lead">Tico keeps only the address. Opening it goes to where the doc lives, so people need access there.</p>
-      <label class="gs-field"><span>Address</span><input name="url" maxlength="2000" required autocomplete="off" inputmode="url" placeholder="https://drive.google.com/drive/folders/…"></label>
+      <label class="gs-field"><span>Address</span><input name="url" type="url" maxlength="2000" required autocomplete="off" inputmode="url" spellcheck="false" placeholder="https://drive.google.com/drive/folders/…"></label>
       <p class="docs-detected muted" data-detected aria-live="polite"></p>
-      <label class="gs-field"><span>Title <em>(optional)</em></span><input name="title" maxlength="300" autocomplete="off" placeholder="Defaults to the address"></label>
-      <label class="gs-field"><span>What is in it? <em>(optional, one line)</em></span><input name="description" maxlength="300" autocomplete="off" placeholder="Help centre articles customers read"></label>
+      <label class="gs-field"><span>Title <em>(optional)</em></span><input name="title" type="text" maxlength="300" autocomplete="off" placeholder="Defaults to the address"></label>
+      <label class="gs-field"><span>Description <em>(optional)</em></span><input name="description" type="text" maxlength="300" autocomplete="off" placeholder="Help centre articles customers read"></label>
       <p class="err" data-error role="alert" hidden></p>
       <div class="gs-card-actions"><button class="primary" type="submit">${link ? 'Save' : 'Add link'}</button>
         <button class="ghost" type="button" data-close>Cancel</button>
@@ -204,10 +203,10 @@
   function importDialog({onDone}) {
     const box = dialog(`<form data-import-form><header><h2>Import a file</h2>
         <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
-      <p class="muted docs-dialog-lead">The file becomes an internal doc in Markdown, so the whole company can read, search and edit it. Word, PDF, HTML, Markdown and text files, up to 20 MB.</p>
+      <p class="muted docs-dialog-lead">Word, PDF, HTML, Markdown or text, up to 20 MB.</p>
       <label class="gs-field"><span>File</span><input type="file" name="file" accept="${IMPORT_TYPES}" required></label>
-      <label class="gs-field"><span>Title <em>(optional)</em></span><input name="title" maxlength="300" autocomplete="off" placeholder="Defaults to the first heading or the file name"></label>
-      <label class="gs-field"><span>Path <em>(optional)</em></span><input name="path" maxlength="300" autocomplete="off" placeholder="sales/pricing.md"></label>
+      <label class="gs-field"><span>Title <em>(optional)</em></span><input name="title" type="text" maxlength="300" autocomplete="off" placeholder="Defaults to the first heading or the file name"></label>
+      <label class="gs-field"><span>Path <em>(optional)</em></span><input name="path" type="text" maxlength="300" autocomplete="off" spellcheck="false" placeholder="sales/pricing.md"></label>
       <p class="err" data-error role="alert" hidden></p><p class="muted" data-status role="status"></p>
       <div class="gs-card-actions"><button class="primary" type="submit">Import</button><button class="ghost" type="button" data-close>Cancel</button></div></form>`,
       {label: 'Import a file'});

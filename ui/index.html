@@ -501,6 +501,7 @@ td.tags .pill{margin-right:2px}
 .search-box{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .search-box .nav-icon{color:var(--muted)}
 .search-box input{flex:1;min-width:0;border:0;outline:0;background:none;font:inherit;font-size:16px;color:var(--ink)}
+.search-box input[type=search]{padding:0;background-image:none;border-radius:0}
 .search-results{list-style:none;margin:0;padding:6px;max-height:min(60vh,520px);overflow:auto}
 .search-results li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;min-height:40px}
 .search-results li[aria-selected=true],.search-results li:hover{background:var(--surface2)}
@@ -779,6 +780,15 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-people{min-width:560px}
 .settings-people th:nth-child(1){width:34%}.settings-people th:nth-child(2){width:20%}.settings-people th:nth-child(3){width:16%}.settings-people th:nth-child(5){width:40px}
 .settings-people .settings-cell-note{color:var(--muted)}
+@media (max-width:760px){
+  /* tables of people and computers become stacked cards: nothing is cut off behind a sideways scroll */
+  .settings-people,.settings-people tbody,.settings-people tr,.settings-people td,.settings-table.settings-machines,.settings-machines tbody,.settings-machines tr,.settings-machines td{display:block;width:100%;min-width:0}
+  .settings-people thead,.settings-machines thead{display:none}
+  .settings-people tr,.settings-machines tr{padding:10px 0;border-bottom:1px solid var(--line)}
+  .settings-people td,.settings-machines td{border:0;padding:2px 0}
+  .settings-people td.row-actions{display:flex;flex-wrap:wrap;gap:6px;padding-top:6px}
+}
+p:empty{display:none}
 .person-bot-logos{display:flex;align-items:center;min-height:25px;gap:3px}
 .person-bot-logos a{display:inline-flex;border-radius:50%;padding:2px;margin-left:-4px;border:2px solid var(--surface);background:var(--surface)}
 .person-bot-logos a:first-child{margin-left:0}
@@ -786,9 +796,52 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .bot-logo-more{font-size:11px;color:var(--muted);margin-left:5px}
 .settings-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .settings-toolbar p{margin:0;color:var(--muted);font-size:13px}
-.settings-bots-table{min-width:1010px;table-layout:fixed}
-.settings-bots-table th:nth-child(1){width:34px}.settings-bots-table th:nth-child(2){width:16%}.settings-bots-table th:nth-child(3){width:14%}.settings-bots-table th:nth-child(4){width:20%}.settings-bots-table th:nth-child(5){width:20%}.settings-bots-table th:nth-child(6){width:9%}.settings-bots-table th:nth-child(7){width:12%}.settings-bots-table th:nth-child(8){width:9%}
-.settings-bots-table .settings-pick{padding-right:0;vertical-align:top}.settings-pick input{margin:4px 0 0;cursor:pointer}.settings-pick input:disabled{cursor:not-allowed}
+.settings-bots-table{table-layout:fixed;min-width:0}
+.settings-bots-table th:nth-child(1){width:30px}.settings-bots-table th:nth-child(2){width:23%}.settings-bots-table th:nth-child(3){width:11%}.settings-bots-table th:nth-child(4){width:19%}.settings-bots-table th:nth-child(5){width:14%}.settings-bots-table th:nth-child(6){width:9%}.settings-bots-table th:nth-child(8){width:64px}
+.settings-bots-table td{vertical-align:middle;min-width:0;padding-right:var(--s2)}
+.settings-bots-table .settings-pick{padding-right:0}.settings-pick input{margin:0;cursor:pointer}.settings-pick input:disabled{cursor:not-allowed}
+.sb-bot{display:flex;align-items:center;gap:8px;min-width:0}
+.sb-bot>.av,.sb-bot>.avatar,.sb-bot>svg,.sb-bot>img{flex:none}
+.sb-text{min-width:0}
+.sb-line{display:flex;align-items:center;gap:6px;min-width:0}
+.sb-problem{color:var(--fail)}
+.sb-line .sb-name{min-width:6ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:600}
+.sb-line .pill{flex:none}
+.sb-text small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-access{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-stack{display:inline-flex;align-items:center}
+.sb-stack .av{border:2px solid var(--surface);box-sizing:content-box;margin-left:-6px}
+.sb-stack .av:first-child{margin-left:0}
+.sb-stack .more{font-size:11px;color:var(--muted);margin-left:4px}
+.settings-bots-table .settings-row-actions{text-align:right;white-space:nowrap}
+.sb-rows{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.sb-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:8px;font-size:13px}
+.sb-row>span:first-child{color:var(--muted);font-size:12px}
+.sb-row .settings-combo,.sb-row select{max-width:100%}
+.sb-row .settings-inline-select{width:100%;max-width:none;font-size:13px}
+.bot-editor-grid .sb-row .settings-combo input[type=search]{font-size:13px;padding:7px 9px}
+.sb-row .settings-owner-list{gap:4px}
+.sb-row .settings-agent-cell{grid-column:2/-1}
+@media (max-width:760px){
+  .settings-bots-table,.settings-bots-table tbody{display:block;width:100%}
+  .settings-bots-table thead{display:none}
+  .settings-bots-table tr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+  .settings-bots-table td{display:block;padding:0;border:0;min-width:0}
+  .settings-bots-table td.settings-pick{grid-column:1;grid-row:1}
+  .settings-bots-table td.sb-cell-name{grid-column:2;grid-row:1}
+  .settings-bots-table td.settings-row-actions{grid-column:3;grid-row:1}
+  .settings-bots-table td.sb-cell-access{grid-column:2/-1;grid-row:2}
+  .settings-bots-table td.sb-cell-model{grid-column:2/-1;grid-row:3}
+  .settings-bots-table td.sb-cell-fallback,.settings-bots-table td.sb-cell-owners,.settings-bots-table td.sb-cell-computer{display:none}
+  .settings-bots-table .sb-cell-access::before{content:"Access · ";color:var(--muted)}
+  .sb-row{grid-template-columns:minmax(0,1fr) auto}.sb-row>span:first-child{grid-column:1/-1}
+}
+.prov-list{display:grid;gap:2px;margin:0 0 var(--s4)}
+.prov{display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px;padding:6px 0;min-height:36px}
+.prov strong{font-weight:600}
+.prov .muted{font-size:13px;min-width:0}
+.prov-routed{gap:6px 14px;padding-top:10px}
+.prov-chip{display:inline-flex;align-items:center;gap:4px;font-size:13.5px}
 .settings-bots-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .settings-bots-filters label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);min-width:0}
 .settings-bots-filters .settings-inline-select{min-width:0;max-width:min(240px,100%)}
@@ -814,7 +867,7 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-bot-name small .linkish:hover{color:var(--accent);text-decoration:underline}
 .settings-owner-list{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
 .settings-owner-list .pchip{margin:0}
-.settings-bots-table .settings-inline-select{width:100%;min-width:0;max-width:none;padding:7px 22px 7px 7px;font-size:12px}
+.settings-bots-table .settings-inline-select{width:100%;min-width:0;max-width:none;padding:6px 22px 6px 7px;font-size:12px}
 .settings-inline-select{min-width:135px;max-width:220px;padding:7px 28px 7px 8px;font-size:12px}
 .settings-row-actions{white-space:nowrap;text-align:right}
 .settings-row-actions button{padding:6px 8px}
@@ -858,9 +911,6 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .settings-services-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px 14px;margin-top:12px;font-size:12px}
 .owner-picker{width:min(520px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .owner-picker-body{padding:18px}
-.settings-access{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:170px}
-.settings-access-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.settings-works-for{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
 .access-editor{width:min(660px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .access-body{padding:18px;display:flex;flex-direction:column;gap:12px;max-height:82vh;overflow:auto}
 .access-body p{margin:0}
@@ -875,10 +925,10 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .access-list .muted{font-size:12px}
 .bot-editor{width:min(680px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .bot-editor-body{padding:18px}.bot-editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.bot-editor-grid label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.bot-editor-grid label{display:grid;align-content:start;gap:5px;font-size:12px;color:var(--muted)}
 .bot-editor-grid label.bot-editor-check{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--text)}
 .bot-editor-check small{flex-basis:100%;color:var(--muted)}
-.bot-editor-grid input,.bot-editor-grid select,.bot-editor-grid textarea{width:100%;font-size:16px}
+.bot-editor-grid input:not([type=checkbox]):not([type=radio]),.bot-editor-grid select,.bot-editor-grid textarea{width:100%;font-size:16px}
 .bot-editor-grid textarea{min-height:88px;resize:vertical}.bot-editor-wide{grid-column:1/-1}
 .bot-editor-owners{display:flex;gap:7px;flex-wrap:wrap;padding:8px 0}
 .bot-editor-owners label{display:flex;align-items:center;gap:5px;color:var(--ink)}
@@ -891,7 +941,7 @@ tr.cred.failed td:first-child,tr.cred.missing td:first-child{box-shadow:inset 3p
 .transition-dialog{width:min(580px,92vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .transition-body{padding:16px 18px 18px}.transition-progress{margin:12px 0;padding:10px;border-radius:7px;background:var(--bg)}
 .transition-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-@media (max-width:760px){.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
+@media (max-width:760px){.tlabels form.inline input,.tlinks form.inline input,.tcontrols select,.tcontrols input{min-height:36px}.tree .ub{display:none}.settings-toolbar{align-items:flex-start}.machine-enroll{align-items:stretch}.machine-enroll select,.machine-enroll input,.machine-enroll button{width:100%}.settings-role-guide dl{grid-template-columns:1fr}.bot-editor-grid{grid-template-columns:1fr}.bot-editor-wide{grid-column:auto}}
 
 /* needs-you list: compact at rest, complete and actionable in place when opened */
 .needs-more{display:flex;justify-content:center;padding:8px 0 2px}
@@ -934,13 +984,42 @@ button.ghost.danger,.linkish.danger{color:var(--fail)}
   .req>summary{grid-template-columns:22px minmax(0,1fr) auto 14px;gap:8px}.req-meta{font-size:11px}
   .req-body{padding-left:4px;padding-right:4px}.issue-actions .github{margin-left:0}
 }
-textarea,input[type=text],input[type=password],select{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px;width:100%}
-/* one search box everywhere: no native chrome, a magnifier on the left, the same height and radius on every page */
-input[type=search]{-webkit-appearance:none;appearance:none;box-sizing:border-box;width:100%;padding:9px 12px 9px 34px;font-size:14px;line-height:1.3;color:var(--ink);border:1px solid var(--line);border-radius:8px;background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237f8a96' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px center}
-input[type=search]::placeholder{color:var(--muted)}
-input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button,input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
-input[type=search]:focus{outline:none;border-radius:8px;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
-textarea:focus,input:focus,select:focus,button:focus-visible,a:focus-visible,summary:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
+/* Form controls. One base rule for every text-like control (any type, or no type at all), wrapped in :where() so it
+   has no specificity of its own: every component rule below (bot editor, compact search fields, pill composers) still wins.
+   color-scheme is set per theme on :root, so date pickers, spinners, dropdowns and scrollbars follow the theme. */
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select){box-sizing:border-box;width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;accent-color:var(--accent)}
+:where(textarea){resize:vertical;line-height:1.45}
+:where(select){cursor:pointer;text-overflow:ellipsis}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):hover{border-color:color-mix(in srgb,var(--muted) 55%,var(--line))}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):focus{border-color:var(--accent);outline:3px solid color-mix(in srgb,var(--accent) 28%,transparent);outline-offset:0}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):disabled{background:var(--surface2);color:var(--muted);cursor:not-allowed;opacity:.7}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea)[readonly]{background:var(--surface2);color:var(--muted)}
+:where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]),textarea,select):user-invalid{border-color:var(--fail);outline-color:color-mix(in srgb,var(--fail) 28%,transparent)}
+:where(input,textarea)::placeholder{color:var(--muted);opacity:1}
+:where(input,textarea):disabled::placeholder{opacity:.6}
+option,optgroup{background:var(--surface);color:var(--ink)}
+/* the browser's autofill (Chrome, Safari, 1Password) paints its own pale yellow or blue: keep the theme */
+input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,textarea:-webkit-autofill,select:-webkit-autofill{-webkit-text-fill-color:var(--ink);caret-color:var(--ink);box-shadow:0 0 0 1000px var(--surface) inset;transition:background-color 9999s ease-out}
+input:autofill,textarea:autofill,select:autofill{color:var(--ink);box-shadow:0 0 0 1000px var(--surface) inset}
+/* numbers: no stepper arrows (they are tiny and clash with the rounded field); type, or use the arrow keys */
+input[type=number]{-moz-appearance:textfield;appearance:textfield}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+/* one search box everywhere: no native chrome, a magnifier on the left, a clear button on the right, the same height and radius on every page */
+input[type=search]{-webkit-appearance:none;appearance:none;padding:9px 12px 9px 34px;line-height:1.3;border-radius:8px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237f8a96' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:11px center}
+input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button{-webkit-appearance:none;display:none}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:block;width:14px;height:14px;margin:0 0 0 6px;cursor:pointer;background:var(--muted);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E") center/contain no-repeat;opacity:.7}
+input[type=search]::-webkit-search-cancel-button:hover{opacity:1}
+.settings-combo input[type=search]::-webkit-search-cancel-button{display:none}
+/* file inputs: the browser's "Choose file" button is drawn like the app's ghost button */
+input[type=file]{box-sizing:border-box;max-width:100%;padding:5px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+input[type=file]::file-selector-button{margin:0 10px 0 0;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink);font:inherit;font-weight:500;cursor:pointer}
+input[type=file]:hover::file-selector-button{background:var(--surface2)}
+input[type=file]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* checkboxes and radios: one size, the accent colour, centred on their label's first line */
+:where(input[type=checkbox],input[type=radio]){accent-color:var(--accent);width:16px;height:16px;margin:0 4px 0 0;vertical-align:-3px;cursor:pointer;flex:none}
+:where(input[type=checkbox],input[type=radio]):disabled{cursor:not-allowed}
+input[type=checkbox]:focus-visible,input[type=radio]:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus-visible,a:focus-visible,summary:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:5px}
 button.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:8px 14px;font-weight:500;cursor:pointer}
 button.ghost{background:transparent;border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--ink)}
 button:disabled{opacity:.5;cursor:default}
@@ -1959,7 +2038,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .gs-field{display:grid;gap:3px;margin:0 0 8px;max-width:520px}
 .gs-field[hidden]{display:none}
 .gs-field span{font-size:12.5px;color:var(--muted)}
-.gs-field input,.gs-field textarea{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+.gs-field input:not([type=checkbox]):not([type=radio]),.gs-field textarea{width:100%}
 .gs-link-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:0 var(--s3);max-width:760px;align-items:start}
 .gs-link-row .gs-field{max-width:none}.gs-kind{grid-column:1/-1;margin:-4px 0 8px;font-size:12px;min-height:1.2em}
 .gs-alt{margin:var(--s3) 0 0;font-size:12.5px}
@@ -2046,7 +2125,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .allow-chip .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
 .allow-chip[data-allow-kind=domain]{border-color:var(--accent)}
 .onb-choices label{display:flex;align-items:center;gap:6px;font-size:13.5px}
-.onb-choices input{width:auto;flex:none}
+.onb-choices input{flex:none}
 .onb-actions{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s4)}
 .onb-actions .spacer{flex:1}
 .onb-summary{margin:0 0 var(--s3)}
@@ -2061,7 +2140,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .cat-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:var(--s3);min-width:0}
 .cat-card.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .cat-pick{display:flex;align-items:center;gap:var(--s2);margin-bottom:6px}
-.cat-pick input[type=checkbox]{width:auto;flex:none}
+.cat-pick input[type=checkbox]{flex:none}
 .cat-name{flex:1;min-width:0;font-weight:600}
 .cat-summary{margin:0 0 6px;font-size:13px}
 .cat-when{margin:0 0 6px;font-size:12.5px;color:var(--muted)}
@@ -2996,7 +3075,12 @@ document.addEventListener('click', ev => {
 });
 setInterval(() => { if (!document.hidden && !nvBusy && S.me) get('/v2/config').then(c => applyConfig(c)).catch(() => {}); }, 30000);  // with the app's poll: a release the server just learned of shows within a poll, not an hour
 // The main assistant is shown under the environment's assistant name, never its slug.
-const namedRoster = rows => rows.map(e => e.name === assistantBot() ? {...e, display_name: assistantName()} : e);
+// The built-in assistant reads as what it is. An assistant named after the company (the old default) is just "Assistant".
+const assistantShownName = () => {
+  const name = String(assistantName() || '').trim(), company = String(S.config.company_name || '').trim().toLowerCase();
+  return !name || name.toLowerCase() === company ? 'Assistant' : name;
+};
+const namedRoster = rows => rows.map(e => e.name === assistantBot() ? {...e, display_name: assistantShownName()} : e);
 // Small compatibility hook for separately loaded UI modules. It exposes only deployment mode,
 // never identity or credentials.
 window.ticoIsCloud = () => !!S.me?.cloud;
@@ -3835,7 +3919,7 @@ function issueComposer(host, n, mode) {
     <textarea aria-label="${closing ? 'Optional closing note' : 'Comment'} on #${esc(n)}" placeholder="${closing ? 'Optional closing note…' : 'What should the bot know?'}"></textarea>
     <div class="row"><button class="${closing ? 'ghost danger' : 'primary'}" type="submit">${closing ? 'Close issue' : 'Send to bot'}</button>
       <button class="ghost" type="button" data-issue-cancel>Cancel</button><span class="muted" data-issue-msg></span></div>
-    <p class="issue-help">${closing ? 'Closing resolves this item; it does not approve the proposed action.' : 'This leaves Needs you while the bot works. It returns only if the bot needs another decision.'}</p>
+    <p class="issue-help">${closing ? 'Closing does not approve the proposed action.' : 'Leaves Needs you until the bot needs another decision.'}</p>
   </form>`;
   const form = $('form', host), box = $('textarea', host), msg = $('[data-issue-msg]', host);
   $('[data-issue-cancel]', host).onclick = () => { host.hidden = true; host.innerHTML = ''; };
@@ -3969,17 +4053,17 @@ function accessTable(e) {
   const mail = acc.filter(a => /gmail|email/.test(a.service));
   const emailLine = mail.length
     ? mail.map(a => `can ${a.can.includes('send') && e.outbound_send ? '<strong>send</strong>' : 'read and draft'} as <strong>${esc(a.identity || 'unknown address')}</strong>${a.can.includes('send') && !e.outbound_send ? ' <span class="muted">(send is declared but outbound is off)</span>' : ''}`).join('; ')
-    : '<strong>cannot send or read email</strong> from any address';
+    : '<strong>none</strong>';
   const verb = (v, a) => `<span class="pill ${SEND_VERBS.has(v) ? (e.outbound_send ? 'ok' : 'waiting') : ''}" title="${SEND_VERBS.has(v) && !e.outbound_send ? 'gated: outbound_send is off' : ''}">${v}</span>`;
   const rows = acc.map(a => `<tr><td><strong>${esc(SERVICE_NAMES[a.service] || a.service)}</strong></td><td>${esc(a.identity || '—')}</td>
     <td class="tags">${(a.can || []).map(v => verb(v, a)).join(' ')}</td>
     <td>${a.connected ? '<span class="pill ok">connected</span>' : '<span class="pill">not connected</span>'}</td><td class="muted">${esc(a.note || '')}</td></tr>`).join('');
   return `<div class="acc-summary">
       <div><span class="k">Email</span> ${emailLine}</div>
-      <div><span class="k">Outbound</span> ${e.outbound_send ? '<strong>on</strong>: may send, post, and invite where a verb below allows it' : '<strong>off</strong>: drafts only, nothing leaves the company'}</div>
-      <div><span class="k">Always</span> hub Issues as the shared GitHub identity, its own folder in the S3 bucket${e.secrets_file ? '' : ' · <span class="muted">no secrets file yet, so nothing below is connected</span>'}</div>
+      <div><span class="k">Outbound</span> ${e.outbound_send ? '<strong>on</strong>' : '<strong>off</strong>: drafts only'}</div>
+      ${e.secrets_file ? '' : '<div><span class="muted">No secrets file yet: nothing is connected.</span></div>'}
     </div>
-    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No connectors declared. This bot works only with hub Issues and its repo.</div>'}`;
+    ${rows ? `<div class="scroll"><table><tr><th>Service</th><th>As</th><th>Can</th><th>Status</th><th></th></tr>${rows}</table></div>` : '<div class="empty">No connectors.</div>'}`;
 }
 
 // ----------------------------------------------------------------- hub v2 (docs/history/hub-v2.md)
@@ -4301,7 +4385,7 @@ function taskOutcomeNote(task, action) {
     const closing = !!action.close;
     dialog.innerHTML = `<form class="tmodal-body">
       <h2>${closing ? 'Close this request' : 'Finish this request'}</h2>
-      <p class="muted">${closing ? 'Why are you closing it?' : 'What did you decide or complete?'} ${esc(actorLabel(task.requester))} will receive this result.</p>
+      <p class="muted">${closing ? 'Why close it?' : 'What did you decide or do?'}</p>
       <textarea required maxlength="4000" aria-label="Result or decision" placeholder="State the result or decision explicitly."></textarea>
       <div class="row"><button class="ghost" type="button" data-cancel>Cancel</button>
         <button class="primary" type="submit">${closing ? 'Close task' : 'Mark done'}</button></div>
@@ -4328,7 +4412,7 @@ function v2ReplyBox(button, conversation) {
     <textarea aria-label="Reply in this conversation" placeholder="Your reply…"></textarea>
     <div class="row"><button class="primary" type="submit">Send</button>
       <button class="ghost" type="button" data-v2-cancel>Cancel</button><span class="muted" data-v2-msg></span></div>
-    <p class="issue-help">This goes into the conversation as a message; the bot picks it up on its next turn.</p></form>`;
+    </form>`;
   const form = $('form', host), box = $('textarea', host), msg = $('[data-v2-msg]', host);
   $('[data-v2-cancel]', host).onclick = () => { host.hidden = true; host.innerHTML = ''; };
   form.onsubmit = async ev => {
@@ -5357,7 +5441,7 @@ async function pageNotes() {
     sourcesPoll: 0, items: {}, itemEdit: '', itemAdd: '', itemConfirm: '', itemDup: {},
     confirmDelete: '', editing: false, open: false};
   $('#main').innerHTML = `<div class="notes-head"><h1>Meetings</h1>
-      <input type="search" id="notes-search" aria-label="Search meetings" placeholder="Search meetings">
+      <input type="search" id="notes-search" autocomplete="off" aria-label="Search meetings" placeholder="Search meetings">
       <button class="primary" type="button" id="notes-manual">Add notes</button></div>
     <section class="meet-sources" id="meet-sources" aria-label="Sources"></section>
     <div class="notes" id="notes">
@@ -5839,12 +5923,12 @@ function meetNotesOpen(state) {
   dialog.innerHTML = `<form class="import-form" id="manual-form">
       <header><h2>Add notes</h2><button class="ghost" type="button" id="manual-close" aria-label="Close">✕</button></header>
       <div class="import-grid">
-        <label>Title <input type="text" id="manual-title" maxlength="300"></label>
+        <label>Title <input type="text" id="manual-title" maxlength="300" autocomplete="off"></label>
         <label>Date and time <input type="datetime-local" id="manual-when" value="${local}"></label>
       </div>
       <fieldset class="import-people"><legend>Participants</legend>
         <div class="bot-editor-owners">${people.map(p => `<label><input type="checkbox" name="manual-person" value="${esc(p.email || p.name)}">${esc(p.name || p.email)}</label>`).join('')}</div>
-        <label>Others <input type="text" id="manual-others" placeholder="Emails or names, separated by commas"></label>
+        <label>Others <input type="text" id="manual-others" autocomplete="off" spellcheck="false" placeholder="Emails or names, separated by commas"></label>
       </fieldset>
       <label>Notes (markdown) <textarea id="manual-notes" rows="6" placeholder="What was discussed and decided"></textarea></label>
       <div class="meet-drop" id="manual-drop"><span>Transcript</span>
@@ -6227,7 +6311,7 @@ function pagePerson(id, tab) {
     ${tabs.map(t => `<button data-pt="${t}" role="tab" class="${t === tab ? 'cur' : ''}">${PERSON_TAB_LABELS[t]}</button>`).join('')}
   </div>
   ${tabs.includes('assistant') ? `<div id="pane-assistant" ${tab === 'assistant' ? '' : 'hidden'}>
-    <section class="card conv"><header><h2>Assistant</h2><span class="sub">private to you; acts as you, never more</span></header>
+    <section class="card conv"><header><h2>Assistant</h2></header>
       <div id="assistant-chat"></div></section></div>` : ''}
   <div id="pane-profile" ${tab === 'profile' ? '' : 'hidden'}>
     <section class="card"><header><h2>Contact</h2></header>
@@ -6243,18 +6327,18 @@ function pagePerson(id, tab) {
       <div id="person-id">${p.title || p.team ? `<div class="meta">${esc([...new Set([p.title, p.team ? teamLabel(p.team) : ''].filter(Boolean))].join(' · '))}</div>` : ''}
         ${p.about ? `<div class="role">${esc(about.lead)}${about.rest ? `<span id="goal-rest" hidden> ${esc(about.rest)}</span> <button class="linkish" type="button" id="goal-more" aria-expanded="false">more</button>` : ''}</div>`
           : edit && !p.title ? '<div class="muted">No title or description yet.</div>' : ''}</div></section>` : ''}
-    <section class="card tasks" id="person-tasks-card"><header><h2>Tasks</h2><span class="sub">assigned to ${esc(firstName(p.name) || p.id)}</span>
+    <section class="card tasks" id="person-tasks-card"><header><h2>Tasks</h2>
         <button class="ghost" type="button" id="person-task-add" aria-haspopup="dialog">+ Add task</button></header>
       <div id="person-tasks">Loading…</div></section>
     ${fieldEditor('Goals', p.goals, {placeholder: 'What they are trying to get done.', save: edit})}
     ${fieldEditor('Notes', p.notes, {placeholder: 'Working notes about this person. Visible to people who can open this profile.', rows: 8, save: edit})}
     ${reports.length ? `<section class="card"><header><h2>Reports</h2></header>
       <div>${reports.map(row => `<a class="chip" href="#/person/${encodeURIComponent(row.id)}">${personAvatar(row, 20)}<span>${esc(firstName(row.name) || row.id)}</span></a>`).join('')}</div></section>` : ''}
-    ${(bots.length || under.length) ? `<section class="card"><header><h2>Bots</h2><span class="sub">primary user and direct reports in the tree</span></header>
+    ${(bots.length || under.length) ? `<section class="card"><header><h2>Bots</h2></header>
       <div>${[...new Map([...bots, ...under].map(e => [e.name, e])).values()].map(e => `<a class="chip" href="#/bot/${esc(e.name)}">${avatar(e.name, 20, stateOf(e.name))}<span>${shownName(e)}</span>${runtimeTag(e)}</a>`).join('')}</div></section>` : ''}
   </div>
   <div id="pane-pslack" ${tab === 'slack' ? '' : 'hidden'}>
-    <section class="card conv"><header><h2>Tico in Slack</h2><span class="sub">DMs through the one Tico Slack app, including their replies</span></header>
+    <section class="card conv"><header><h2>Tico in Slack</h2></header>
       <div id="person-slack">Loading…</div></section>
   </div>`;
   void headGoalsLoad('human:' + p.id);
@@ -6683,26 +6767,26 @@ async function pageBot(slug, tab) {
   </div>
 
   ${limited ? '' : `<div id="pane-history" hidden>
-    <section class="card"><header><h2>Updates</h2><span class="sub">what it reported, newest first</span></header>
+    <section class="card"><header><h2>Updates</h2></header>
       <div id="bot-history" class="bot-history"><div class="empty">Loading…</div></div></section>
   </div>
   `}
   <div id="pane-more" hidden>
-    ${limited ? `    <section class="card"><header><h2>About</h2><span class="sub">what you can see of this bot</span></header>
+    ${limited ? `    <section class="card"><header><h2>About</h2></header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>Run by</dt><dd>${esc(botPersonName(e.operator))}</dd>
         <dt>Works for</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>`
           : String(e.reports_to || '').startsWith('human:') ? `<dt>Reports to</dt><dd>${esc(botPersonName(e.reports_to.slice(6)))}</dd>` : ''}
-        <dt>Your access</dt><dd>${e.my_access.write ? 'You can see this bot and send it requests. Its work is not open to you: only the requests and tasks you make show here.' : 'You can see this bot. Its work is not open to you, and you cannot send it requests.'}</dd>
+        <dt>Your access</dt><dd>${e.my_access.write ? 'See it and send requests' : 'See it only'}</dd>
       </dl></section>
-` : `    <section class="card"><header><h2>Setup</h2><span class="sub">who uses it, what runs it</span>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
+` : `    <section class="card"><header><h2>Setup</h2>${settingsCanManageBot(e) ? '<button class="ghost" type="button" id="bot-edit-settings">Bot settings</button>' : ''}</header>
       <dl class="bot-setup">
         ${role ? `<dt>Role</dt><dd style="white-space:pre-wrap">${esc(role)}</dd>` : ''}
         <dt>People</dt><dd>${userChips(e) || '<span class="muted">Nobody assigned</span>'}</dd>
         ${e.agent ? `<dt>Run by</dt><dd>${esc(agentKind(e.agent))}${e.agent.profile ? ` · profile <code>${esc(e.agent.profile)}</code>` : ''}${e.agent.version ? ` · ${esc(e.agent.version)}` : ''}${e.agent.platform ? ` · ${esc(e.agent.platform)}` : ''}<span class="muted"> · ${!e.agent.credential ? 'no credential yet' : e.online ? 'reporting in' : 'not reporting'}${e.agent.last_seen ? `, last seen ${esc(ago(e.agent.last_seen))}` : ''}</span>${settingsCanManageBot(e) ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${e.agent.credential ? 'Rotate credential' : 'Create credential'}</button>${e.agent.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</dd>
-        <dt>Model</dt><dd>${e.agent.model ? `${esc(e.agent.model)}${e.agent.provider ? `<span class="muted"> · ${esc(e.agent.provider)}</span>` : ''}` : "<span class=\"muted\">the profile's own; reported with its heartbeat</span>"}</dd>`
+        <dt>Model</dt><dd>${e.agent.model ? `${esc(e.agent.model)}${e.agent.provider ? `<span class="muted"> · ${esc(e.agent.provider)}</span>` : ''}` : "<span class=\"muted\">the profile's own</span>"}</dd>`
         : `<dt>Model</dt><dd>${esc(e.model ? settingsChoiceLabel(e.harness || e.runtime, e.model, e.reasoning_effort || e.effort) : settingsDefaultLabel(e))}${e.fallback ? `<span class="muted"> · fallback ${esc(settingsChoiceLabel(e.fallback.harness, e.fallback.model, e.fallback.reasoning_effort || e.fallback.effort))}</span>` : ''}</dd>`}
         ${boss ? `<dt>Reports to</dt><dd><a href="#/bot/${boss.name}">${esc(boss.display_name)}</a></dd>` : ''}
         ${botRepoHTML(e) ? `<dt>Repository</dt><dd>${botRepoHTML(e).replace(/^Repository /, '')}</dd>` : ''}
@@ -6713,26 +6797,26 @@ async function pageBot(slug, tab) {
       <p>${esc(v2StatusOf(slug)?.focus || 'Paused after refused actions.')}${/refused writes today$/.test(v2StatusOf(slug)?.focus || '') ? ' It resumes by itself within an hour.' : ''}</p>
       <p class="muted" id="bot-quarantine-result"></p>
     </section>` : ''}
-    <section class="card" id="bot-updates-card"><header><h2>Updates</h2><span class="sub">it reports in, one bot at a time each morning</span></header>
+    <section class="card" id="bot-updates-card"><header><h2>Updates</h2></header>
       <div id="bot-updates"><div class="empty">Loading…</div></div></section>
     <section class="card" id="bot-goals-card"><header><h2>Goals</h2>
         <button class="linkish" type="button" id="bot-goals-add">Add goal</button></header>
       <div id="bot-goals-list"><div class="empty">Loading…</div></div></section>
-    ${keeper ? `<section class="card"><header><h2>Status history</h2><span class="sub">every change in the last 7 days</span></header>
+    ${keeper ? `<section class="card"><header><h2>Status history</h2></header>
       <div id="v2-history"><div class="empty">Loading…</div></div></section>` : ''}
-    <section class="card"><header><h2>Access</h2><span class="sub">what this bot may touch · not listed means not allowed</span></header>
+    <section class="card"><header><h2>Access</h2></header>
       ${accessTable(e)}</section>
 
-    <section class="card" id="bot-routines"><header><h2>Routines</h2><span class="sub">${e.status === 'active' ? 'the server queues a task at each scheduled time' : 'armed only once this bot is active'}</span></header>
+    <section class="card" id="bot-routines"><header><h2>Routines</h2></header>
       <div id="bot-routines-list">${botRoutinesHTML(e, slug)}</div>
     </section>
 
-    <section class="card"><header><h2>Runs</h2><span class="sub"><a href="#/runs">all runs</a></span></header>
+    <section class="card"><header><h2>Runs</h2></header>
       ${(rs => rs.length ? `<div id="bot-recent-runs">${runsTable(rs, false)}</div>`
         : '<div id="bot-recent-runs" data-pending="1"><div class="muted">Loading…</div></div>'
       )((S.status?.recent_runs || []).filter(r => r.employee === slug).slice(0, 10))}</section>
 
-    <section class="card" id="sess-card"><header><h2>Session</h2><span class="sub">${S.me?.cloud ? 'provider thread pointer on the Hub; files stay on the Mac; recovery pack rebuilds if resume fails' : "the runtime's own file, not a replay"}</span></header>
+    <section class="card" id="sess-card"><header><h2>Session</h2></header>
       <div class="sess-head" id="sess-head">Loading…</div>
       <div id="sess-turns"></div></section>
 `}
@@ -6742,8 +6826,8 @@ async function pageBot(slug, tab) {
   </div>
 
   ${limited ? '<div id="pane-docs" hidden>' : `<div id="pane-docs" hidden>
-    <section class="card"><header><h2>Instructions</h2><span class="sub">${S.me?.cloud ? 'published role snapshot from the cloud registry' : "AGENT.md in the bot's repo, read-only here"}</span></header><div class="md" id="agent">Loading…</div></section>
-    <section class="card"><header><h2>Working notes</h2><span class="sub">${S.me?.cloud ? 'published cloud status; local private files stay on the runner' : 'what the bot keeps for itself between runs'}</span></header>
+    <section class="card"><header><h2>Instructions</h2></header><div class="md" id="agent">Loading…</div></section>
+    <section class="card"><header><h2>Working notes</h2></header>
       <div class="tabs" id="tabs"></div><div class="md" id="doc">Loading…</div></section>
   `}
   </div>`;
@@ -6761,7 +6845,7 @@ async function pageBot(slug, tab) {
   } else {
     if (BOT_PILL) chatDraftSave(BOT_PILL);
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
-    $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)}${limited ? '' : ' and read its work'}, but not send it requests. Ask the person who runs it for Write access.</p></section>`;
+    $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
   if (!limited) void botGoalLoad(slug);
   if (isKeeper(slug) && !limited) void botTickerLoad(slug);
@@ -7171,16 +7255,15 @@ function sessionHead(d, slug) {
       + (pointer.tokens_in != null ? ` · ${esc(String(pointer.tokens_in))} tokens in` : '')
       + (pointer.updated ? ` · saved ${esc(ago(pointer.updated))}` : '')
       + (pointer.runner_id ? ` · runner ${esc(pointer.runner_id)}` : '')
-    : 'Hub pointer: none yet — next turn starts fresh and may load a recovery pack';
+    : 'Hub pointer: none yet';
   return `${d.cloud ? 'Cloud session' : d.current ? 'Live session file' : 'Session file'}: <strong>${esc(d.runtime)}</strong>
     ${d.model ? `<span class="muted">${esc(d.model)}</span>` : ''}
     <span class="mono">${esc(d.session_id)}</span>
     ${pointerLine}
     ${resumeBox}
-    ${d.note ? `<div class="muted">${esc(d.note)}</div>` : ''}
     ${d.first_ts ? `started ${esc(fmt(d.first_ts))}` : ''} · ${esc(String(d.turn_count))} turns${
       d.shown < d.turn_count ? ` <span class="muted">(showing the last ${esc(String(d.shown))})</span>` : ''}
-    ${runs.length ? ` · covers runs ${esc(runs.join(', '))}` : ' · no run has used it yet'}
+    ${runs.length ? ` · covers runs ${esc(runs.join(', '))}` : ' · unused'}
     ${d.last_ts ? ` · last written ${esc(ago(d.last_ts))}` : ''}
     ${d.skipped ? ` · <span title="record types this reader does not know">${esc(String(d.skipped))} records skipped</span>` : ''}
     ${d.current ? '' : ' · <a href="#" data-sess-current="1">back to the current session</a>'}
@@ -7197,7 +7280,7 @@ async function sessionLoad(slug, pick) {
   } catch (err) {
     if (!BOT || BOT.slug !== slug || !$('#sess-head')) return;
     head.innerHTML = `<span class="muted">${esc(err.message)}</span>`;
-    body.innerHTML = `<div class="empty">Nothing to show here. The Chat tab has the replay, rebuilt from this bot's run logs.</div>`;
+    body.innerHTML = `<div class="empty">Nothing here. See the Chat tab.</div>`;
     return;
   }
   if (!BOT || BOT.slug !== slug || !$('#sess-head')) return;
@@ -7217,7 +7300,7 @@ async function sessionLoad(slug, pick) {
   const back = head.querySelector('[data-sess-current]');
   if (back) back.onclick = ev => { ev.preventDefault(); sessionLoad(slug, null); };
   body.innerHTML = (d.turns || []).map(t => sessionTurn(t, slug)).join('')
-    || '<div class="empty">The file is there but holds no turns yet.</div>';
+    || '<div class="empty">No turns yet.</div>';
   body.scrollTop = body.scrollHeight;                       // newest last, like the thread
 }
 
@@ -7794,7 +7877,7 @@ function hubModalHTML(t, it) {
         <div><div class="lbl">Links &amp; files</div><div class="tlinks">${links.map(l => `<span class="tlink ${esc(l.kind)} ${esc(l.state || '')}"><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title || l.url)}</a>${l.state && l.state !== 'open' ? ` · ${esc(l.state)}` : ''}${mover ? `<button type="button" class="x" data-drop-link="${esc(l.id)}" aria-label="Remove link">×</button>` : ''}</span>`).join('')}
           ${files.map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join('')}
           ${!links.length && !files.length ? '<span class="muted">none</span>' : ''}
-          <form class="inline" data-modal-link><input type="url" placeholder="paste a link (a PR, a doc)" aria-label="Add a link" size="22"></form></div></div>
+          <form class="inline" data-modal-link><input type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://…" aria-label="Add a link" size="22"></form></div></div>
       </div>
       <div class="task-file-preview" data-task-file-preview hidden></div>
       ${(t.children || []).length || t.parts?.total ? `<div class="tsection"><div class="lbl">Parts ${t.parts?.total ? `<span class="muted">${t.parts.done} of ${t.parts.total} done</span>` : ''}</div>
@@ -7834,7 +7917,7 @@ function pageTasks(forced, openId = '') {
       <div class="task-strip"></div>
       <div class="task-find">
         <span class="nav-icon" aria-hidden="true">search</span>
-        <input type="search" id="task-q" aria-label="Search tasks" placeholder="Search tasks…" autocomplete="off">
+        <input type="search" id="task-q" spellcheck="false" aria-label="Search tasks" placeholder="Search tasks…" autocomplete="off">
         <button type="button" id="task-filter" popovertarget="task-filter-pop" aria-label="Filter tasks" aria-expanded="false">Filter</button>
       </div>
       <button class="primary round-add" type="button" id="task-new" aria-label="New task" title="New task">+</button>
@@ -7969,18 +8052,18 @@ function openTaskCreate(owner = '', opts = {}) {
     <div class="tmodal-body">
       <form class="task" id="task-create-form">
         ${parent ? `<p class="muted">Part of <b>${esc(parent.title)}</b></p>` : ''}
-        <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="What should they do? Plain words, start with a verb for a person."></div>
+        <div class="r1" style="grid-template-columns:1fr"><input type="text" name="title" required aria-label="Title" placeholder="Email Dana the renewal brief"></div>
         <label>For <select name="owner" required aria-label="Who this task is for">${taskOwnerOptions(owner)}</select></label>
         <div class="r3">
           <label>Labels <input type="text" name="labels" list="task-label-list-new" placeholder="bug, pricing-page" aria-label="Labels, comma separated" size="18"><datalist id="task-label-list-new">${(TASKS_ST?.labels || []).map(l => `<option value="${esc(l)}">`).join('')}</datalist></label>
           <label><input type="checkbox" name="top"> Top of their queue</label>
         </div>
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
-        <textarea name="body" aria-label="Details" placeholder="Details, links, and what done looks like. For a person: put the ask in the first line."></textarea>
-        <input type="url" name="link" placeholder="A link to attach (a pull request, a document)" aria-label="Link">
+        <textarea name="body" aria-label="Details" placeholder="Details"></textarea>
+        <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Link (pull request, doc)" aria-label="Link">
         ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
-        <p class="muted hint">You are adding this, so you close it. A person needs a verb in the title (Email, Ask, Send…) and the ask in the first line of details.</p>
+        <p class="muted hint">You close it. For a person, start the title with a verb.</p>
       </form>
     </div>`;
   $('[data-modal-close]', d).onclick = () => d.close();
@@ -8305,15 +8388,15 @@ function routineEditorOpen(r = null, bot = '') {
   const mine = (S.emps || []).filter(e => e.status !== 'archived' && routineMayEdit({bot: e.name}));
   const kind = editing && r.on ? 'event' : 'cron';
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="routine-editor-title">${editing ? 'Edit routine' : 'New routine'}</h2><span class="spacer"></span><button class="ghost" type="button" data-routine-close aria-label="Close">✕</button></div>
-    <div class="bot-editor-body"><p class="muted">When it is due, the bot gets a task with this text. The text is what the bot is told, in plain words.</p>
+    <div class="bot-editor-body">
       <div class="bot-editor-grid">
         <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => `<option value="${esc(e.name)}" ${e.name === slug ? 'selected' : ''}>${esc(e.display_name || e.name)}</option>`).join('')}</select></label>
-        <label>Title<input name="title" value="${esc(r?.title || '')}" maxlength="300" required></label>
+        <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off"></label>
         <label>Runs<select name="kind"><option value="cron" ${kind === 'cron' ? 'selected' : ''}>On a schedule</option><option value="event" ${kind === 'event' ? 'selected' : ''}>When something happens</option></select></label>
-        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"><small>Five fields: minute hour day-of-month month day-of-week.</small></label>
+        <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"></label>
         <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${ROUTINE_EVENTS.map(([v, w]) => `<option value="${v}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
-        <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
-        <label class="bot-editor-wide">What the bot is told<textarea name="text" maxlength="100000" placeholder="Go through the inbox and…">${esc(r?.text || '')}</textarea></label>
+        <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
+        <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the inbox and…">${esc(r?.text || '')}</textarea></label>
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button><button class="ghost" type="button" data-routine-close>Cancel</button><span class="muted" data-routine-status></span></div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-routine-status]');
@@ -8622,7 +8705,7 @@ async function pageMail() {
             <button class="mail-tab" type="button" role="tab" data-mail-view="agent" aria-controls="mail-agent-view" hidden>Agent instructions</button>
           </div></div>
           <div id="mail-inbox-view" role="tabpanel">
-            <div class="mail-toolbar"><input id="mail-q" type="search" placeholder="Search subject, body, or sender…" aria-label="Search mail"></div>
+            <div class="mail-toolbar"><input id="mail-q" type="search" autocomplete="off" placeholder="Search subject, body, or sender…" aria-label="Search mail"></div>
             <div class="mail-chips" id="mail-chips"></div>
             <p class="mail-fresh" id="mail-fresh" role="status"></p>
             <div class="mail-split" id="mail-split">
@@ -8849,7 +8932,7 @@ function messagingDetail(data) {
       <section class="msg-section msg-scheduled"><h2>Scheduled work</h2>${messagingRuns(data)}</section>
     </div>
     <section class="msg-example-inbox" aria-labelledby="msg-examples-title">
-      <header class="msg-example-head"><h2 id="msg-examples-title">Example messages</h2><p>Review messages this bot encountered and the actions it took. Open one to see its thread, labels, and rule matches.</p></header>
+      <header class="msg-example-head"><h2 id="msg-examples-title">Example messages</h2></header>
       ${messagingEvidence(data)}
     </section>
   </div>`;
@@ -8960,7 +9043,7 @@ function pageSql() {
       <div class="row sql-bar"><button class="primary" type="button" id="sql-run">Run</button><span class="muted">⌘↩ / Ctrl+Enter</span><span class="mono muted" id="sql-meta" role="status"></span></div>
       <div class="err" id="sql-error" hidden></div>
       <div class="sql-results" id="sql-results"></div>
-      <details class="sql-examples"><summary>Examples</summary><p>Read-only, one statement at a time. Private data and secrets are protected by the database. <a href="${GH}/blob/main/docs/hub-sql.md" target="_blank" rel="noopener">Tables and examples</a>.</p><ul>${SQL_EXAMPLES.map(([title, sql], i) =>
+      <details class="sql-examples"><summary>Examples</summary><p>Read-only, one statement. <a href="${GH}/blob/main/docs/hub-sql.md" target="_blank" rel="noopener">Tables and examples</a></p><ul>${SQL_EXAMPLES.map(([title, sql], i) =>
         `<li><a href="#" data-sql-example="${i}">${esc(title)}</a><code>${esc(sql)}</code></li>`).join('')}</ul></details>
     </section>`;
   $('#sql-run').onclick = () => sqlRun();
@@ -9077,7 +9160,7 @@ async function pageIntegrations() {
   const service = S.route.startsWith(INTEGRATIONS + '/') ? decodeURIComponent(S.route.slice(INTEGRATIONS.length + 1)) : '';
   if (!service) {
     $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Integrations</h1></div></div>
-      <section class="card"><input id="int-filter" class="int-search" type="search" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter integrations">
+      <section class="card"><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter integrations">
       <div id="int-list"><div class="empty">Loading…</div></div></section>
       <dialog class="bot-editor" id="int-cred-dialog" aria-label="Integration credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
@@ -9139,9 +9222,9 @@ async function pageIntegrations() {
       <dt>Writes</dt><dd><span class="pill ${page.writes === 'never' ? 'ok' : page.writes === 'approval' ? 'waiting' : ''}">${esc(page.writes)}</span> · owner ${esc(page.owner)}${page.aliases?.length ? ' · also <span class="mono">' + page.aliases.map(esc).join(', ') + '</span>' : ''}</dd>
       <dt>Declared as</dt><dd><pre class="mono">${esc(page.declared_as.trim())}</pre></dd></dl></section>
     <section class="card"><div class="md docs-content" id="int-body">${safeMd(page.body)}</div></section>
-    ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2><span class="sub">${page.queries.length} in the catalog · <code>hub queries ${esc(page.service)} &lt;term&gt;</code></span></header>
-      <input id="int-query-filter" class="int-search" type="search" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
-    <section class="card" id="int-learnings"><header><h2>Learnings</h2><span class="sub">the log under the page · <code>hub learn ${esc(page.service)} "…"</code></span></header>
+    ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2></header>
+      <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
+    <section class="card" id="int-learnings"><header><h2>Learnings</h2></header>
       <div class="int-learn"><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
       <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a person folds them into the page over time.</span></div></div>
       <div id="int-learning-list">${page.learnings.map(learningHtml).join('') || '<div class="empty">Nothing learned yet.</div>'}</div></section>`;
@@ -9248,30 +9331,30 @@ function pageSettings() {
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
     </div>
     <div class="settings-pane" id="settings-devices" role="tabpanel">
-      <section class="card"><div class="settings-toolbar"><p>Add the computer that runs your bots: a Mac, or a Linux or cloud server. Add a new bot from here; change an existing bot on its page.</p>
+      <section class="card"><div class="settings-toolbar"><span></span>
         <div class="row">${settingsCanCreateBots() ? '<button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from catalog</button>' : ''}</div></div>
         <div id="set-machines"><div class="empty">Loading…</div></div></section>
-      ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2><span class="sub">call ${esc(appName())} from a script as yourself; a token is you for everything except making more tokens</span></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
+      ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
       <div id="settings-assistant"></div>
-      <section class="card"><header><h2>Bots</h2><span class="sub">people, model, and computer</span></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Bots</h2></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div></div>
     ${settingsIsAdmin() ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
     <div class="settings-pane" id="settings-providers" role="tabpanel" hidden>
-      <section class="card"><header><h2>AI providers</h2><span class="sub">which vendors bots may use, and the default model</span></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>AI providers</h2></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
-      <section class="card"><header><h2>Recurring</h2><span class="sub">every routine on every bot</span></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Recurring</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-cloud" role="tabpanel" hidden>
       <section class="card"><header><h2>Cloud services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section>
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2><span class="sub">a GitHub App in your organization gives each bot access to its own repository</span></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2><span class="sub">Fireflies, Zoom, Google Meet and Granola transcripts, filed into Meetings by a computer that holds their credentials</span></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2><span class="sub">DMs and @mentions in Slack reach your bots</span></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
     </div>
-    <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2><span class="sub">audited changes with safe undo when nothing newer conflicts</span></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
+    <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
     <dialog class="tmodal" id="people-dialog" aria-label="People"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
@@ -9337,7 +9420,7 @@ function renderSettingsRecurring() {
   const opt = (v, label, cur) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(label)}</option>`;
   const sel = (name, label, options) => `<label>${label}<select class="settings-inline-select" data-recurring-filter="${name}">${options}</select></label>`;
   el.innerHTML = `<div class="settings-bots-filters">
-      <label>Search<input type="search" data-recurring-filter="q" value="${esc(f.q)}" placeholder="Title, bot or schedule" aria-label="Search routines"></label>
+      <label>Search<input type="search" autocomplete="off" data-recurring-filter="q" value="${esc(f.q)}" placeholder="Title, bot or schedule" aria-label="Search routines"></label>
       ${sel('bot', 'Bot', opt('', 'All bots', f.bot) + bots.map(b => opt(b, empName(b), f.bot)).join(''))}
       ${sel('computer', 'Computer', opt('', 'All computers', f.computer) + opt('mine', 'My computer', f.computer) + [...computers].sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => opt(k, v, f.computer)).join(''))}
       ${sel('kind', 'Kind', [['all', 'Any kind'], ['cron', 'Scheduled'], ['event', 'On an event'], ['inbox', 'Inbox']].map(([k, v]) => opt(k, v, f.kind)).join(''))}
@@ -9372,7 +9455,7 @@ async function vaultLoad() {
     const data = await vaultFetch();
     if (INT_CRED_SERVICE && $('#int-cred-dialog')?.open) intCredPaint();
     if (!data || !host?.isConnected || SETTINGS_TAB !== 'credentials') return;
-    host.innerHTML = `<div class="settings-toolbar"><div><h2>Credentials</h2><p>Encrypted passwords and keys. Owners authorize access to each credential.</p></div>
+    host.innerHTML = `<div class="settings-toolbar"><div><h2>Credentials</h2></div>
       <div class="row">${data.can_manage ? '<button class="primary" id="vault-add" type="button">Add credential</button>' : ''}<button class="ghost" id="vault-refresh" type="button">Refresh</button></div></div>
       <input id="vault-search" type="search" aria-label="Find a credential" placeholder="Search by name, username or key name" autocomplete="off">
       <p class="muted" id="vault-count"></p><div id="vault-list"></div>`;
@@ -9431,12 +9514,12 @@ async function vaultReveal(id) {
 }
 function vaultEdit(row) {
   const dialog = vaultDialog(row ? 'Edit credential' : 'Add credential',`<form id="vault-form" class="bot-editor-grid">
-    <label>Name<input name="name" required maxlength="150" value="${esc(row?.name || '')}"></label>
-    <label>Username (optional)<input name="username" maxlength="250" value="${esc(row?.username || '')}" autocomplete="off"></label>
+    <label>Name<input name="name" type="text" required maxlength="150" autocomplete="off" value="${esc(row?.name || '')}"></label>
+    <label>Username (optional)<input name="username" type="text" maxlength="250" value="${esc(row?.username || '')}" autocomplete="off" spellcheck="false"></label>
     <label>Type<select name="kind">${['api_key','password','token','file','connection'].map(kind=>`<option value="${kind}" ${row?.kind===kind?'selected':''}>${esc(kind.replace('_',' '))}</option>`).join('')}</select></label>
-    <label>Bot key name (optional)<input name="env" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
+    <label>Bot key name (optional)<input name="env" type="text" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" autocomplete="off" spellcheck="false" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
     <label class="bot-editor-wide">${row?.stored ? 'New password or key (leave blank to keep current)' : 'Password or key'}<textarea name="secret" aria-label="New password or key" autocomplete="off" spellcheck="false"></textarea></label>
-    <p class="muted bot-editor-wide">Access is granted separately after saving.</p><p class="err bot-editor-wide" id="vault-error"></p>
+    <p class="err bot-editor-wide" id="vault-error"></p>
     <button class="primary" type="submit">Save credential</button></form>`);
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault(); const form=event.target,button=form.querySelector('[type=submit]');button.disabled=true;
@@ -9451,7 +9534,7 @@ function vaultShare(id) {
   const row=VAULT.credentials.find(row=>row.id===id);
   const choices=[...(VAULT.can_manage ? VAULT.people.map(person=>({subject:'human:'+person.id,label:person.name || person.email})) : []),
     ...VAULT.bots.map(bot=>({subject:'bot:'+bot.id,label:bot.name+' (bot)'}))];
-  const dialog=vaultDialog('Access to '+row.name,`<p>People granted access can reveal this credential and attach it to bots they manage. Revoking their access also revokes those delegated bot connections.</p>
+  const dialog=vaultDialog('Access to '+row.name,`<p class="muted">Revoking access also revokes the bot connections they made.</p>
     <div>${row.grants.map(grant=>`<div class="row"><span>${esc(vaultSubject(grant.subject))}${grant.parent_id?' · delegated':''}</span>${VAULT.can_manage?`<button class="ghost" type="button" data-revoke="${esc(grant.id)}">Revoke</button>`:''}</div>`).join('') || '<p>Owners only.</p>'}</div>
     <form id="vault-grant-form"><label>Grant access to<select name="subject" required>${choices.map(choice=>`<option value="${esc(choice.subject)}">${esc(choice.label)}</option>`).join('')}</select></label>
     <button class="primary" type="submit" ${choices.length?'':'disabled'}>Grant access</button><p class="err" id="vault-error"></p></form>`);
@@ -9516,7 +9599,7 @@ async function loadSettings() {
       get('/employees'),
       S.me?.cloud && S.me?.role === 'owner' ? get('/v2/settings/history') : Promise.resolve({changes: [], transitions: []})
     ]);
-    S.emps = employees;
+    S.emps = namedRoster(employees);
     setPeople(people);
     SETTINGS_DATA = {people: (people.people || []).filter(p => !p.hidden), machines: operations.machines || [],
       agents: operations.agents || [],
@@ -9525,6 +9608,7 @@ async function loadSettings() {
       enabledProviders: catalog.enabled_providers || [], defaultModel: catalog.default?.model || '',
       issues: operations.issues || [], history,
       schedulerEnabled: operations.scheduler_enabled};
+    document.dispatchEvent(new Event('tico:settings-loaded'));
     renderTree();
     if (S.route !== SETTINGS) return;
     renderSettingsIssues(); renderSettingsBots(); renderSettingsMachines(); renderSettingsServices(); renderSettingsHistory(); renderSettingsRecurring();
@@ -9565,9 +9649,8 @@ async function executionReview(bot) {
       <p><strong>Why Tico paused this request</strong><br>${esc(job.reason)}</p>
       <details><summary>Original request</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(job.request)}</div></details>
       <details${job.attempt?.final_text || job.output.some(event=>event.text) ? ' open' : ''}><summary>${job.attempt?.final_text || job.output.some(event=>event.text) ? 'What the run saved' : 'No answer was saved'}</summary><div style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto">${esc(job.attempt?.final_text || job.output.map(event=>event.text).filter(Boolean).join('\n') || 'The run ended without saving an answer.')}</div></details>
-      <p><strong>Did this run finish an outside action?</strong><br>If nothing happened, Tico can try the request again. If something happened or you are unsure, Tico will leave this delivery stopped.</p>
+      <p><strong>Did an outside action finish?</strong><br>If not, Tico can retry. If it did or you are unsure, it stays stopped.</p>
       <label>Anything Tico should know? <span class="muted">Optional</span><textarea name="note" aria-label="Details for Tico" maxlength="4000" placeholder="For example: the draft exists, but nothing was sent."></textarea></label>
-      <p class="muted">No immediate action is required. You can close this window and come back later.</p>
       <div class="row"><button type="submit" name="decision" value="resume">Nothing happened — try again</button><button type="submit" name="decision" value="dismiss" class="ghost">Done or unsure — don’t retry</button></div>
       <p data-result role="status"></p>
     </form>`).join('') : '<p>No stopped runs remain.</p>';
@@ -9594,11 +9677,6 @@ async function executionReview(bot) {
     });
   } catch(error) { host.textContent=error.message; }
 }
-function settingsOwnerList(e) {
-  return `<div class="settings-owner-list">${(e.users || []).map(person =>
-    `<span class="pchip" title="${esc(person.email || '')}">${personCircle(person.name || person.id, 16)}<span>${esc(firstName(person.name) || person.id)}</span></span>`).join('') || '<span class="muted">Nobody</span>'}
-    ${settingsCanManageBot(e) || e.can_manage ? `<button class="ghost" type="button" data-edit-owners="${esc(e.name)}" aria-label="Edit who ${esc(e.display_name)} works for">Edit</button>` : ''}</div>`;
-}
 // ----- Access: who may see, read and write to a bot (backend/bot_access.py, docs/permissions.md).
 // Each level is everyone, or people, teams and bots. Open is all three Everyone; the owner, the bot
 // itself and the people it reports up to always have all three.
@@ -9608,10 +9686,10 @@ const ACCESS_LEVELS = [
   ['write', 'Write', 'send it messages, tasks, notes and comments'],
 ];
 const ACCESS_PRESETS = [
-  ['open', 'Open', 'Everyone sees it, reads its work and can send it requests.'],
-  ['requests', 'Visible, requests only', 'Everyone sees it and can send it requests; only the people you choose read its work.'],
-  ['private', 'Private', 'Only the people, teams and bots you choose see it, read its work or send it requests.'],
-  ['custom', 'Custom', 'Choose who sees, reads and writes separately.'],
+  ['open', 'Open', 'Everyone'],
+  ['requests', 'Requests only', 'Everyone sends requests; chosen people read its work'],
+  ['private', 'Private', 'Chosen people only'],
+  ['custom', 'Custom', 'See, read and write separately'],
 ];
 const accessTeamName = id => (S.orgGroups || []).find(g => g.id === id)?.name || teamLabel(id);
 const accessEmpty = () => ({everyone: false, people: [], teams: [], bots: []});
@@ -9628,15 +9706,13 @@ function accessSummary(policy) {
   if (ACCESS_LEVELS.every(([key]) => policy[key]?.everyone)) return 'Open';
   return ACCESS_LEVELS.map(([key, label]) => `${label}: ${accessLevelText(policy[key])}`).join(' · ');
 }
+// One word for the table row; the editor shows the full sentence (accessSummary).
+const ACCESS_WORD = {open: 'Open', requests: 'Requests only', private: 'Private', custom: 'Custom'};
 function settingsAccessCell(e) {
   const mine = e.my_access || {see: true, read: true, write: true};
-  const yours = ACCESS_LEVELS.filter(([key]) => mine[key]).map(([, label]) => label).join(' · ');
-  const summary = e.access_policy ? accessSummary(e.access_policy) : `You: ${yours || 'See'}`;
-  return `<div class="settings-access"><div class="settings-access-line"><span data-access-summary>${esc(summary)}</span>${e.can_manage
-    ? `<button class="ghost" type="button" data-edit-access="${esc(e.name)}" aria-label="Edit access for ${esc(e.display_name)}">Edit</button>` : ''}</div>
-    <div class="settings-works-for"><span>Works for</span>${settingsOwnerList(e)}</div>
-    <div class="settings-works-for" data-bot-owners><span>Owned by</span>${(e.bot_owners || []).map(o => `<span class="pchip">${personCircle(o.name || o.id, 16)}<span>${esc(firstName(o.name) || o.id)}</span></span>`).join('') || '<span class="muted">Its operator</span>'}${
-      e.can_manage ? `<button class="ghost" type="button" data-edit-bot-owners="${esc(e.name)}" aria-label="Edit who owns ${esc(e.display_name)}">Edit</button>` : ''}</div></div>`;
+  const word = e.access_policy ? ACCESS_WORD[accessPresetOf(e.access_policy)] || 'Custom'
+    : `You: ${ACCESS_LEVELS.filter(([key]) => mine[key]).map(([, label]) => label).join(' · ') || 'See'}`;
+  return `<span class="sb-access" data-access-summary title="${esc(e.access_policy ? accessSummary(e.access_policy) : word)}">${esc(word)}</span>`;
 }
 // Who owns a bot: its creator and co-owners (and its operator). Whoever it reports up to and the admins own it too,
 // without being listed. Any owner adds or removes people here; the server checks it (docs/permissions.md).
@@ -9652,9 +9728,9 @@ async function settingsEditBotOwners(slug) {
   const listed = new Set((e.bot_owners || []).map(o => o.id));
   const people = SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.people || []).filter(p => !p.hidden);
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-owners-title">Who owns ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-owners-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body"><p class="muted">Owners may change this bot: its instructions, model, routines, who can see it, and who else owns it. Whoever it reports up to and the admins are owners too. ${e.operator ? `${esc(settingsPersonName(e.operator))} runs its computer and is always an owner.` : ''}</p>
+    <div class="owner-picker-body">${e.operator ? `<p class="muted">${esc(settingsPersonName(e.operator))} runs its computer and is always an owner.</p>` : ''}
       <div class="owner-options">${people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${listed.has(person.id) || person.id === e.operator ? 'checked' : ''} ${person.id === e.operator ? 'disabled' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
-      <div class="row"><button class="primary" type="submit">Save owners</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owners-close]').forEach(button => button.onclick = () => dialog.close());
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault();
@@ -9719,16 +9795,16 @@ async function settingsEditAccess(slug) {
   const paintPickers = () => {
     const host = dialog.querySelector('[data-access-pickers]');
     host.innerHTML = preset === 'open' ? ''
-      : preset === 'requests' ? picker(['read'], 'Who can read its work', 'Everyone still sees it and can send it requests.', false)
-      : preset === 'private' ? picker(['see', 'read', 'write'], 'Who can use it', 'They see it, read its work and send it requests. Nobody else sees it.', false)
+      : preset === 'requests' ? picker(['read'], 'Who can read its work', '', false)
+      : preset === 'private' ? picker(['see', 'read', 'write'], 'Who can use it', '', false)
       : ACCESS_LEVELS.map(([key, label, what]) => picker([key], label, what, true)).join('');
   };
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="access-editor-title">Access to ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-access-close aria-label="Close">✕</button></div>
-    <div class="access-body"><p class="muted">Who may see this bot, read its work and send it requests. The owner, the bot itself and the people it reports up to always have full access. Anyone who can read or write can also see it.</p>
-      <fieldset class="access-presets"><legend>Preset</legend>${ACCESS_PRESETS.map(([value, label, hint]) =>
+    <div class="access-body">
+      <fieldset class="access-presets"><legend>Access</legend>${ACCESS_PRESETS.map(([value, label, hint]) =>
         `<label><input type="radio" name="preset" value="${value}" ${value === preset ? 'checked' : ''}><span>${esc(label)}<small>${esc(hint)}</small></span></label>`).join('')}</fieldset>
       <div data-access-pickers></div>
-      <div class="row"><button class="primary" type="submit">Save access</button><button class="ghost" type="button" data-access-close>Cancel</button><span class="muted" data-access-status role="status"></span></div></div></form>`;
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-access-close>Cancel</button><span class="muted" data-access-status role="status"></span></div></div></form>`;
   paintPickers();
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-access-status]');
   dialog.querySelectorAll('[data-access-close]').forEach(button => button.onclick = () => dialog.close());
@@ -9773,15 +9849,14 @@ function settingsChoiceCombo(e, kind) {
   const effort = fallback ? (selected?.reasoning_effort || selected?.effort)
     : (e.reasoning_effort || e.effort);
   const current = (fallback && !model) ? '' : settingsChoiceValue(harness, model, effort);
-  const label = current ? settingsChoiceLabel(harness, model, effort) : (fallback ? 'None (fail)' : settingsDefaultLabel(e));
+  const label = current ? settingsChoiceLabel(harness, model, effort) : (fallback ? 'None' : settingsDefaultLabel(e));
   const aria = fallback ? `Fallback for ${e.display_name}` : `Model and effort for ${e.display_name}`;
   return `<div class="settings-combo" data-bot-choice="${esc(e.name)}" data-kind="${kind}" data-current="${esc(current)}"
     title="${esc(label)}">
     <input type="search" autocomplete="off" spellcheck="false" value="${esc(label)}"
-      aria-label="${esc(aria)}" placeholder="${fallback ? 'None (fail) · search harness or model' : 'Search harness or model'}"
+      aria-label="${esc(aria)}" placeholder="${fallback ? 'None' : 'Search harness or model'}"
       ${settingsCanManageBot(e) ? '' : 'disabled'}>
     <div class="settings-combo-list" role="listbox"></div>
-    <span class="settings-cell-note mono">${esc(label)}</span>
   </div>`;
 }
 function settingsWireCombos(root, onPick = settingsPickChoice) {
@@ -9792,7 +9867,7 @@ function settingsWireCombos(root, onPick = settingsPickChoice) {
     const none = box.dataset.kind === 'fallback';
     const render = query => {
       const choices = settingsFilterChoices(query);
-      const rows = (none ? [{value:'', label:'None (fail)'}] : []).concat(choices);
+      const rows = (none ? [{value:'', label:'None'}] : []).concat(choices);
       list.innerHTML = rows.length
         ? rows.map(choice => `<button type="button" role="option" data-value="${esc(choice.value)}" ${choice.value === box.dataset.current ? 'aria-selected="true"' : ''}>${esc(choice.label)}</button>`).join('')
         : '<div class="settings-combo-empty">No matching harness or model</div>';
@@ -9819,7 +9894,7 @@ async function settingsPickChoice(box, value) {
         expected_revision: e.revision});
       await loadSettings();
       toast(choice ? `${e.display_name} fallback is ${settingsChoiceLabel(choice.harness, choice.model, choice.effort)}`
-        : `${e.display_name} fallback is none (fail)`);
+        : `${e.display_name} fallback is none`);
     } catch (error) {
       if (input) input.value = input.defaultValue;
       toast(error.message, true);
@@ -9848,13 +9923,6 @@ function settingsAgentCell(e) {
     <span class="settings-cell-note">${esc(seen)}</span>
     ${manage ? `<span class="settings-agent-actions"><button class="ghost" type="button" data-agent-credential="${esc(e.name)}">${a.credential ? 'Rotate credential' : 'Create credential'}</button>${a.credential ? `<button class="ghost" type="button" data-agent-revoke="${esc(e.name)}">Revoke</button>` : ''}</span>` : ''}</div>`;
 }
-function settingsAgentStatus(e) {
-  const a = e.agent;
-  const pill = !a.credential ? '<span class="pill waiting">no credential</span>'
-    : e.online ? `<span class="pill ok">${a.synced ? 'synced' : 'reporting in'}</span>` : `<span class="pill fail">${a.synced ? 'not synced lately' : 'not reporting'}</span>`;
-  const note = a.model ? `${a.model}${a.provider ? ` · ${a.provider}` : ''}${a.version ? ` · ${a.version}` : ''}` : (e.status || 'unknown');
-  return `${pill}<span class="settings-cell-note">${esc(note)}</span>`;
-}
 async function settingsAgentCredential(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
   const rotating = !!e.agent?.credential;
@@ -9866,7 +9934,7 @@ async function settingsAgentCredential(slug) {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
   dialog.innerHTML = `<header><h2>${rotating ? 'New agent credential' : 'Agent credential'} for ${esc(e.display_name)}</h2><button class="ghost" type="button" data-close>Close</button></header>
     <div class="agent-credential-body">
-      <p>This token is shown once. It is the bot's own identity at ${esc(appName())}: the hub's rules apply to everything it does, and revoking it here stops it at once.</p>
+      <p>Shown once. It is this bot's identity; revoking it stops the bot at once.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>On the box that runs the Hermes profile, one command installs the hub as an MCP server in the profile and a heartbeat timer:
         <div class="row"><code data-command>curl -fsSL -H "Authorization: Bearer ${esc(issued.token)}" ${esc(setup.url)}/api/v2/agents/setup-script -o hermes_agent.py &amp;&amp; python3 hermes_agent.py install --profile ${esc(e.agent?.profile || slug)} --url ${esc(setup.url)} --bot ${esc(slug)} --token ${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
@@ -9897,8 +9965,8 @@ async function renderSettingsTokens() {
     : '<div class="empty">No tokens yet.</div>';
   el.innerHTML = `${table}
     <form class="row settings-token-form" id="settings-token-form">
-      <label>Label <input name="label" type="text" required maxlength="80" placeholder="what runs with it" aria-label="Token label"></label>
-      <label>Expires in <input name="days" type="number" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
+      <label>Label <input name="label" type="text" required maxlength="80" autocomplete="off" placeholder="CI script" aria-label="Token label"></label>
+      <label>Expires in <input name="days" type="number" inputmode="numeric" min="1" max="365" value="90" required aria-label="Days until the token expires"> days</label>
       <button class="primary" type="submit">New token</button>
     </form>`;
   el.querySelectorAll('[data-token-revoke]').forEach(button => { button.onclick = () => void settingsTokenRevoke(button.dataset.tokenRevoke, button.dataset.tokenLabel); });
@@ -9918,7 +9986,7 @@ function settingsTokenShow(issued) {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal agent-credential';
   dialog.innerHTML = `<header><h2>Token ${esc(issued.label)}</h2><button class="ghost" type="button" data-close>Close</button></header>
     <div class="agent-credential-body">
-      <p>This token is shown once and will not be shown again. Anything done with it is done by you; it cannot make or revoke tokens. It expires ${esc(new Date(issued.expires_at).toLocaleDateString())}.</p>
+      <p>Shown once. It acts as you, and expires ${esc(new Date(issued.expires_at).toLocaleDateString())}.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
       <label>In a shell, for the <code>hub</code> command line and scripts:<div class="row"><code data-command>export HUB_API_URL=${esc(location.origin)} HUB_TOKEN=${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
     </div>`;
@@ -9939,7 +10007,7 @@ function connectAgent() {
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal connect-agent';
   dialog.setAttribute('aria-labelledby', 'ca-title');
   dialog.innerHTML = `<header class="ca-head"><div><h2 id="ca-title">Connect an agent</h2>
-      <p class="ca-intro">Your agent works your bots through ${esc(appName())}'s MCP server as you, with a token of its own.</p></div>
+      </div>
       <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
     <form class="ca-body" data-connect-form>
       <fieldset class="ca-field"><legend class="ca-label">Agent</legend>
@@ -9983,7 +10051,7 @@ ${skill.text}`;
       <ol class="ca-steps"><li>Copy the block below.</li><li>Paste it into ${esc(name)}.</li><li>Ask it “who needs me”.</li></ol>
       <div class="ca-block"><div class="ca-block-head"><span>tico-hub · ${esc(label)}</span><button class="ghost ca-copy" type="button" data-copy-setup>Copy</button></div>
         <pre data-setup>${esc(setup)}</pre></div>
-      <p class="ca-note">Anything it does is signed as you via the agent. The token is shown once and will not be shown again; it expires ${esc(new Date(issued.expires_at).toLocaleDateString())}. Revoke it any time in Settings → Devices → API tokens.</p>
+      <p class="ca-note">Shown once; expires ${esc(new Date(issued.expires_at).toLocaleDateString())}. Revoke it in Devices › API tokens.</p>
     </div>`;
     const copy = dialog.querySelector('[data-copy-setup]');
     let reset = 0;
@@ -10017,22 +10085,18 @@ function settingsMachineSelect(e) {
     (S.me?.role === 'owner' || machine.operator === S.me?.id));
   const unassigned = `Not assigned · ${settingsPersonName(e.operator)}`;
   const currentLabel = e.machine ? `${e.machine.label} · ${settingsPersonName(e.machine.operator)}` : unassigned;
+  const seen = e.machine?.last_seen ? `last seen ${ago(e.machine.last_seen)}` : e.machine ? 'waiting for its first heartbeat' : 'register a computer first';
   return `<select class="settings-inline-select" data-bot-machine="${esc(e.name)}" data-current="${esc(current)}"
-    aria-label="Machine for ${esc(e.display_name)}" title="${esc(currentLabel)}" ${settingsCanManageBot(e) && machines.length ? '' : 'disabled'}>
+    aria-label="Machine for ${esc(e.display_name)}" title="${esc(`${currentLabel} · ${seen}`)}" ${settingsCanManageBot(e) && machines.length ? '' : 'disabled'}>
       ${current ? '' : `<option value="" selected disabled>${esc(unassigned)}</option>`}
       ${machines.map(machine => `<option value="${esc(machine.id)}" ${machine.id === current ? 'selected' : ''}>${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('')}
-    </select>${e.machine?.last_seen ? `<span class="settings-cell-note">last seen ${esc(ago(e.machine.last_seen))}</span>`
-      : e.machine ? '<span class="settings-cell-note">registered · waiting for heartbeat</span>'
-      : '<span class="settings-cell-note">register a machine first</span>'}`;
+    </select>`;
 }
-function settingsBotStatus(e) {
-  if (e.agent) return settingsAgentStatus(e);
-  const location = !e.machine ? '<span class="pill waiting">not assigned</span>'
-    : e.online && e.ready ? '<span class="pill ok">online</span>'
-    : e.online ? '<span class="pill waiting">setup needed</span>' : '<span class="pill fail">offline</span>';
-  const problem = e.online && !e.ready ? (e.readiness?.problems || [])[0] : '';
-  const warning = !problem && e.online ? (e.readiness?.warnings || [])[0] : '';
-  return `${location}<span class="settings-cell-note">${esc(problem || warning || e.status || 'unknown')}</span>`;
+// A problem worth a badge on the bot's row; a bot that is fine shows nothing.
+function settingsBotProblem(e) {
+  if (e.status !== 'active') return '';
+  if (e.agent) return !e.agent.credential ? 'no credential' : e.online ? '' : 'not reporting';
+  return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? 'setup needed' : 'offline';
 }
 // Settings → Bots filters and bulk model change ("filter by computer, filter
 // by model, select in bulk, and change model in bulk"). Filters are remembered per browser; the
@@ -10099,9 +10163,9 @@ function settingsBulkModelDialog() {
         <div class="settings-combo" data-bot-choice="" data-kind="model" data-current="${esc(choice ? settingsChoiceValue(choice.harness, choice.model, choice.effort) : '')}">
           <input type="search" autocomplete="off" spellcheck="false" value="${esc(label)}" aria-label="Model and effort for the selected bots" placeholder="Search harness or model">
           <div class="settings-combo-list" role="listbox"></div></div>
-        ${choice ? `<p>Destination: <strong>${esc(label)}</strong></p>` : '<p class="muted">Choose the model and effort every selected bot should use.</p>'}
-        <div class="transition-progress"><strong>Each change starts a fresh local provider session for that bot.</strong>
-          <p>${esc(appName())} keeps every bot's cloud conversation and task history. A bot in the middle of a turn is left alone and listed below; retry it once it finishes.</p></div>
+        ${choice ? `<p>Destination: <strong>${esc(label)}</strong></p>` : ''}
+        <div class="transition-progress"><strong>Each bot starts a fresh provider session.</strong>
+          <p>History is kept. A bot mid-turn is skipped; retry it after.</p></div>
         <ul class="settings-bulk-list" data-bulk-list>${bots.map(e => `<li data-bulk-bot="${esc(e.name)}" data-state="pending"><span>${esc(e.display_name || e.name)}</span><span class="settings-cell-note">${esc(settingsChoiceLabel(settingsBotHarness(e), e.model, settingsBotEffort(e)))}</span></li>`).join('')}</ul>
         <p role="status" data-bulk-summary></p>
         <div class="transition-actions"><button class="primary" type="button" data-bulk-apply ${choice ? '' : 'disabled'}>Change ${bots.length} bot${bots.length === 1 ? '' : 's'}</button><button class="ghost" type="button" data-bulk-close>Cancel</button></div></div>`;
@@ -10162,7 +10226,7 @@ async function settingsBulkApplyOne(slug, choice) {
       const code = error.body?.error?.code;
       if (code === 'unchanged') return {state: 'skipped', note: 'Already on this model'};
       if (code === 'version_conflict' && attempt === 0) {
-        try { S.emps = await get('/employees'); } catch {}
+        try { S.emps = namedRoster(await get('/employees')); } catch {}
         continue;
       }
       return {state: 'failed', note: error.message || 'The change failed'};
@@ -10185,23 +10249,32 @@ function renderSettingsBots() {
   const pick = e => settingsBotSelectable(e)
     ? `<input type="checkbox" data-bot-pick="${esc(e.name)}" aria-label="Select ${esc(e.display_name)}" ${SETTINGS_BOTS_VIEW.selected.has(e.name) ? 'checked' : ''}>`
     : `<input type="checkbox" disabled aria-label="${esc(e.display_name)} cannot be changed here" title="${e.agent ? 'An external agent uses its own model' : 'You do not operate this bot'}">`;
-  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Run by</th><th>Computer</th><th>Health</th></tr></thead><tbody>
-    ${rows.map(e => `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td><td><div class="settings-bot-name">${avatar(e.name, 27, stateOf(e.name))}<div><a href="#/bot/${esc(e.name)}">${shownName(e)}</a>${isBuiltInBot(e.name) ? ' <span class="pill" data-built-in>Built in</span>' : ''}<small>${esc(e.team ? teamLabel(e.team) : 'No team')} · ${esc(e.status || 'planned')}</small>${botRepoHTML(e) ? `<small>${botRepoHTML(e)}</small>` : ''}${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit bot ${esc(e.display_name)}">Edit bot</button>` : ''}</div></div></td>
-      <td>${settingsAccessCell(e)}</td><td>${e.agent ? `${esc(agentKind(e.agent))}<span class="settings-cell-note">${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}</span>` : settingsChoiceCombo(e, 'model')}</td><td>${e.agent ? '<span class="muted">—</span>' : settingsChoiceCombo(e, 'fallback')}</td><td>${esc(settingsPersonName(e.operator))}<span class="settings-cell-note">${e.agent ? 'agent operator' : 'computer operator'}</span></td><td>${settingsMachineSelect(e)}</td><td>${settingsBotStatus(e)}</td></tr>`).join('')}
+  const stack = e => {
+    const owners = (e.bot_owners || []).length ? e.bot_owners : (e.users || []);
+    const names = owners.map(o => o.name || o.id);
+    return `<span class="sb-stack" title="${esc(names.join(', ') || 'No owner')}">${owners.slice(0, 3).map(o => personCircle(o.name || o.id, 22)).join('')}${owners.length > 3 ? `<span class="more">+${owners.length - 3}</span>` : ''}${owners.length ? '' : '<span class="muted">None</span>'}</span>`;
+  };
+  const row = e => {
+    const problem = settingsBotProblem(e);
+    const badges = `${isBuiltInBot(e.name) ? '<span class="pill" data-built-in>Built in</span>' : ''}${e.status && e.status !== 'active' ? `<span class="pill ${e.status === 'paused' ? 'waiting' : ''}">${esc(e.status)}</span>` : ''}`;
+    const model = e.agent ? `<span class="muted" title="${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}">${esc(agentKind(e.agent))}</span>` : settingsChoiceCombo(e, 'model');
+    return `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td>
+      <td class="sb-cell-name"><div class="sb-bot">${avatar(e.name, 27, stateOf(e.name))}<div class="sb-text"><div class="sb-line"><a class="sb-name" href="#/bot/${esc(e.name)}">${shownName(e)}</a>${badges}</div>${e.team || problem ? `<small>${e.team ? esc(teamLabel(e.team)) : ''}${e.team && problem ? ' · ' : ''}${problem ? `<span class="sb-problem">${esc(problem)}</span>` : ''}</small>` : ''}</div></div></td>
+      <td class="sb-cell-access">${settingsAccessCell(e)}</td><td class="sb-cell-model">${model}</td>
+      <td class="sb-cell-fallback">${e.agent ? '<span class="muted">-</span>' : settingsChoiceCombo(e, 'fallback')}</td>
+      <td class="sb-cell-owners">${stack(e)}</td><td class="sb-cell-computer">${settingsMachineSelect(e)}</td>
+      <td class="settings-row-actions">${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-bot="${esc(e.name)}" aria-label="Edit ${esc(e.display_name)}">Edit</button>` : ''}</td></tr>`;
+  };
+  el.innerHTML = !all.length ? '<div class="empty">No bots are registered.</div>' : `${settingsBotsFilterHTML(options, rows.length, all.length)}${rows.length ? `<div class="scroll"><table class="settings-bots-table"><thead><tr><th class="settings-pick"><input type="checkbox" data-bots-select-all aria-label="Select all shown bots"></th><th>Bot</th><th>Access</th><th>Model</th><th>Fallback</th><th>Owners</th><th>Computer</th><th aria-label="Actions"></th></tr></thead><tbody>
+    ${rows.map(row).join('')}
     </tbody></table></div>` : '<div class="empty">No bots match these filters.</div>'}`;
   settingsBotsSyncSelection(el, rows);
   el.onclick = event => {
     if (event.target.closest('[data-bulk-model]')) { settingsBulkModelDialog(); return; }
     if (event.target.closest('[data-bulk-clear]')) { SETTINGS_BOTS_VIEW.selected.clear(); renderSettingsBots(); return; }
-    const owners = event.target.closest('[data-edit-owners]');
     const bot = event.target.closest('[data-edit-bot]');
     const credential = event.target.closest('[data-agent-credential]');
     const revoke = event.target.closest('[data-agent-revoke]');
-    const access = event.target.closest('[data-edit-access]');
-    const botOwners = event.target.closest('[data-edit-bot-owners]');
-    if (botOwners) void settingsEditBotOwners(botOwners.dataset.editBotOwners);
-    if (owners) settingsEditOwners(owners.dataset.editOwners);
-    if (access) void settingsEditAccess(access.dataset.editAccess);
     if (bot) settingsEditBot(bot.dataset.editBot);
     if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
     if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);
@@ -10248,7 +10321,7 @@ async function settingsCatalogPicker() {
   const have = new Set(S.emps.filter(row => row.status !== 'archived').map(row => row.name));
   const state = catalogState(cards.filter(card => !have.has(card.slug)), {lock: false});
   const body = $('#catalog-picker-body');
-  body.innerHTML = `<p class="muted">Each bot is created planned, with the instructions below as its AGENT.md. Edit the name or the instructions before you add it.</p>
+  body.innerHTML = `
     <div class="cat-grid" id="catalog-picker-grid">${catalogGridHTML(state)}</div>
     <div class="row" style="margin-top:16px"><button class="primary" type="submit">Add selected</button>
       <button class="ghost" type="button" data-catalog-close>Cancel</button><span class="muted" id="catalog-picker-status"></span></div>`;
@@ -10386,14 +10459,14 @@ function renderSettingsMachines() {
       <td>${esc(settingsPersonName(S.emps.find(row => row.name === agent.bot)?.operator))}</td>
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
-  el.innerHTML = `${cards ? `<div class="scroll"><table class="settings-table"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No machines registered yet.</div>'}
-    ${agents ? `<h3 class="settings-agents-title">External agents</h3><p class="muted">Bots run by a harness outside ${esc(appName())}, such as a Hermes profile. Each reports in with its own credential; nothing is dispatched to it.</p><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Operator</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
+  el.innerHTML = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No machines registered yet.</div>'}
+    ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Operator</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
     <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Machine operator">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
-      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server (Docker)</option></select>
-      <input id="machine-label" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
+      <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option></select>
+      <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
       <button class="primary" type="button" id="register-machine">Add computer</button>
-      <p class="machine-enroll-status" id="machine-enroll-status">Creates a private 15-minute setup, then gives you the command to run on that computer. Registration never assigns bots automatically.</p></div>`;
+      <p class="machine-enroll-status" id="machine-enroll-status"></p></div>`;
   const machineDefaultLabel = () => `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#machine-kind').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
@@ -10406,13 +10479,13 @@ function renderSettingsMachines() {
       if ($('#machine-kind').value === 'linux') {
         const {code} = await enrollmentCode(operator);
         const commands = dockerRunnerCommands(code, label, S.config?.default_runtime);
-        status.innerHTML = `One-time code for <strong>${esc(label)}</strong>, good for 15 minutes. On that server, run:${commands.map(([note, command], i) => `<br><span class="muted">${esc(note)}</span><br><code>${esc(command)}</code> <button class="ghost" type="button" data-machine-copy="${i}">Copy</button>`).join('')}`;
+        status.innerHTML = `Code for <strong>${esc(label)}</strong>, good 15 minutes. Run on that server:${commands.map(([note, command], i) => `<br><span class="muted">${esc(note)}</span><br><code>${esc(command)}</code> <button class="ghost" type="button" data-machine-copy="${i}">Copy</button>`).join('')}`;
         status.querySelectorAll('[data-machine-copy]').forEach(button => button.onclick = () =>
           void copyText(commands[Number(button.dataset.machineCopy)][1]).then(() => toast('Command copied')));
         return;
       }
       const filename = await enrollmentDownload(operator, label);
-      status.innerHTML = `Setup file downloaded for <strong>${esc(label)}</strong>. On that Mac, open Terminal in the Tico checkout and run:<br><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code> <button class="ghost" type="button" id="copy-enrollment-command">Copy command</button> <button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
+      status.innerHTML = `Setup file downloaded. Run on that Mac:<br><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code> <button class="ghost" type="button" id="copy-enrollment-command">Copy command</button> <button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
       $('#copy-enrollment-command').onclick = () => void copyText(`scripts/setup-runner.sh "$HOME/Downloads/${filename}"`).then(() => toast('Setup command copied'));
       $('#copy-enrollment-prompt').onclick = () => void copyText(settingsEnrollmentPrompt(operator, filename)).then(() => toast('Machine setup prompt copied'));
     } catch (error) { toast(error.message, true); }
@@ -10470,6 +10543,20 @@ function renderSettingsHistory() {
     } catch (error) {undo.disabled = false; toast(error.message, true);}
   };
 }
+// What the bot editor shows for an existing bot beyond its definition: who may use it, who it works for and who
+// owns it (each opens its own dialog), and its model, fallback and computer (each applies as soon as it is picked).
+function settingsBotEditorRows(e) {
+  const chips = list => (list || []).map(o => `<span class="pchip">${personCircle(o.name || o.id, 16)}<span>${esc(firstName(o.name) || o.id)}</span></span>`).join('');
+  const manage = settingsCanManageBot(e);
+  const change = (attr, what) => manage ? `<button class="ghost" type="button" ${attr}="${esc(e.name)}" aria-label="Change ${what} for ${esc(e.display_name)}">Change</button>` : '<span></span>';
+  return `<div class="sb-row"><span>Access</span><span data-access-summary>${esc(accessSummary(e.access_policy))}</span>${change('data-edit-access', 'access')}</div>
+    <div class="sb-row"><span>Works for</span><div class="settings-owner-list">${chips(e.users) || '<span class="muted">Nobody</span>'}</div>${change('data-edit-owners', 'who it works for')}</div>
+    <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its operator</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
+    ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>`
+      : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
+    <div class="sb-row"><span>Fallback</span>${settingsChoiceCombo(e, 'fallback')}<span></span></div>
+    <div class="sb-row"><span>Computer</span>${settingsMachineSelect(e)}<span></span></div>`}`;
+}
 function settingsEditBot(slug = '') {
   const editing = !!slug, e = editing ? S.emps.find(row => row.name === slug) : null;
   const dialog = $('#bot-editor');
@@ -10494,18 +10581,19 @@ function settingsEditBot(slug = '') {
     (settingsIsAdmin() || machine.accepts_member_bots)).map(machine =>
     `<option value="${esc(machine.id)}" data-operator="${esc(machine.operator)}">${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('');
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-editor-title">${editing ? `Edit ${esc(e.display_name)}` : 'Add bot'}</h2><span class="spacer"></span><button class="ghost" type="button" data-bot-close aria-label="Close">✕</button></div>
-    <div class="bot-editor-body"><p class="muted">This definition is saved directly in the ${esc(appName())} backend. No application deploy is required.</p>
+    <div class="bot-editor-body">
       <div class="bot-editor-grid">
-        <label>Bot slug<input name="slug" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : 'required'}></label>
-        <label>Display name<input name="display_name" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
+        <label>Bot slug<input name="slug" type="text" autocomplete="off" spellcheck="false" value="${esc(slug)}" placeholder="release-captain" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="80" ${editing ? 'readonly' : 'required'}></label>
+        <label>Display name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
-        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>"Replies only": no cold calls, but its manager and anyone holding its ticket get through. "Tasks only": work arrives as a task and nothing else — no bot may chat it at all. People are never affected.</small></label>
+        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. People are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
-        <label>Repository<input name="repo" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required><small>A bare name, owner/name, or a full https repository URL.</small></label>
+        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
-        <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot<small>Work expected to end; shows a flag, not the word in its name.</small></label>
+        <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per person</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
+        ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
           <div class="settings-combo" data-add-choice data-current="${esc(currentModel)}">
             <input type="search" name="model_search" autocomplete="off" spellcheck="false"
@@ -10516,11 +10604,36 @@ function settingsEditBot(slug = '') {
           </div></label>
         <label>Computer operator<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
-        <p class="bot-editor-wide muted">Everyone can see it, read its work and send it requests. Change who can, once it is added, under Access.</p>`}
+        <p class="bot-editor-wide muted">Everyone can use it. Change that under Access once it is added.</p>`}
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save bot' : 'Add bot'}</button><button class="ghost" type="button" data-bot-close>Cancel</button><span class="muted" data-bot-status></span>${editing && !isBuiltInBot(e.name) ? `<span class="spacer"></span><select name="successor" aria-label="Hand its work to"><option value="">Hand its work to ${esc(settingsPersonName(e.operator))}</option>${S.emps.filter(row => row.name !== slug).map(row => `<option value="${esc(row.name)}">Hand its work to ${esc(row.display_name || row.name)}</option>`).join('')}</select><button class="ghost danger" type="button" data-bot-remove>Remove bot</button>` : ''}</div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-bot-status]');
   dialog.querySelectorAll('[data-bot-close]').forEach(button => button.onclick = () => dialog.close());
+  // The rows for who owns it, its model and its computer: they save on their own, so keep them fresh, and
+  // once one has changed the bot use the newer revision for Save.
+  let rev = e?.revision, touched = false;
+  const rows = dialog.querySelector('[data-bot-people]');
+  if (rows) {
+    const paint = () => { rows.innerHTML = settingsBotEditorRows(S.emps.find(row => row.name === slug) || e); settingsWireCombos(rows); };
+    const refresh = () => { if (!dialog.open) return; if (touched) rev = (S.emps.find(row => row.name === slug) || e).revision; paint(); };
+    paint();
+    document.addEventListener('tico:settings-loaded', refresh);
+    dialog.addEventListener('close', () => document.removeEventListener('tico:settings-loaded', refresh), {once: true});
+    rows.addEventListener('click', event => {
+      touched = true;
+      const access = event.target.closest('[data-edit-access]'), owners = event.target.closest('[data-edit-owners]'), botOwners = event.target.closest('[data-edit-bot-owners]');
+      if (access) void settingsEditAccess(access.dataset.editAccess);
+      if (owners) settingsEditOwners(owners.dataset.editOwners);
+      if (botOwners) void settingsEditBotOwners(botOwners.dataset.editBotOwners);
+      const credential = event.target.closest('[data-agent-credential]'), revoke = event.target.closest('[data-agent-revoke]');
+      if (credential) void settingsAgentCredential(credential.dataset.agentCredential);
+      if (revoke) void settingsAgentRevoke(revoke.dataset.agentRevoke);
+    });
+    rows.addEventListener('change', event => {
+      const machine = event.target.closest('[data-bot-machine]');
+      if (machine) { touched = true; void settingsMoveBot(machine); }
+    });
+  }
   let extraLoaded = null;   // the saved list as text once the server has answered, else null
   const extraBox = dialog.querySelector('[data-extra-repos]');
   const extraLines = value => value.split(/[\s,]+/).map(x => x.trim()).filter(Boolean);
@@ -10605,7 +10718,7 @@ function settingsEditBot(slug = '') {
           reports_to: form.elements.reports_to.value || null, status: form.elements.status.value,
           bot_contact: form.elements.bot_contact.value,
           repo: form.elements.repo.value, thread_mode: form.elements.thread_mode.value,
-          temp: form.elements.temp.checked, expected_revision: e.revision});
+          temp: form.elements.temp.checked, expected_revision: rev});
         if (extraLoaded !== null && extraLines(form.elements.extra_repos.value).join('\n') !== extraLines(extraLoaded).join('\n'))
           await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {
@@ -10629,9 +10742,9 @@ function settingsEditOwners(slug) {
   if (!e || !dialog) return;
   const selected = new Set((e.users || []).map(person => person.id));
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="owner-picker-title">Who ${esc(e.display_name)} works for</h2><span class="spacer"></span><button class="ghost" type="button" data-owner-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body"><p class="muted">Selected people are who this bot works for: they share its room when it uses a shared conversation. Who may use it is its Access. This does not change the machine that runs it.</p>
+    <div class="owner-picker-body">
       <div class="owner-options">${SETTINGS_DATA.people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${selected.has(person.id) ? 'checked' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
-      <div class="row"><button class="primary" type="submit">Save people</button><button class="ghost" type="button" data-owner-close>Cancel</button><span id="owner-picker-status" class="muted"></span></div></div></form>`;
+      <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-owner-close>Cancel</button><span id="owner-picker-status" class="muted"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owner-close]').forEach(button => button.onclick = () => dialog.close());
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault();
@@ -10678,8 +10791,8 @@ function settingsConfirmTransition(e, kind, target) {
     };
     dialog.innerHTML = `<div class="tmodal-head"><h2 id="transition-title">${label} · ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-confirm-cancel aria-label="Close">✕</button></div>
       <div class="transition-body"><p>Destination: <strong>${esc(target)}</strong></p>
-        <div class="transition-progress"><strong>This starts a fresh local provider session.</strong>
-          <p>Knowledge held only inside the current local session will be reset. ${esc(appName())} keeps the complete cloud conversation and task history, and first asks the bot to save a structured checkpoint for the new session. That checkpoint is a handoff, not an exact copy of hidden provider state.</p></div>
+        <div class="transition-progress"><strong>This starts a fresh provider session.</strong>
+          <p>The bot saves a checkpoint first. History is kept; session-only context is lost.</p></div>
         <div class="transition-actions"><button class="primary" type="button" data-confirm-prepare>Prepare change</button><button class="ghost" type="button" data-confirm-cancel>Cancel</button></div></div>`;
     dialog.querySelector('[data-confirm-prepare]').onclick = () => finish(true);
     dialog.querySelectorAll('[data-confirm-cancel]').forEach(button => button.onclick = () => finish(false));
@@ -10717,9 +10830,8 @@ function settingsTransitionHTML(t) {
   const force = ['blocked','failed'].includes(t.state);
   return `<div class="tmodal-head"><h2 id="transition-title">${t.kind === 'model' ? 'Change model settings' : 'Move bot'} · ${esc(name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-transition-close aria-label="Close">✕</button></div>
     <div class="transition-body"><p>Destination: <strong>${esc(settingsTransitionTarget(t))}</strong></p>
-      <p class="muted">This change starts a fresh local provider session. Cloud history and the prepared handoff remain available, but knowledge held only inside the old local session is reset.</p>
-      <div class="transition-progress"><strong>${esc(status)}</strong>${t.state === 'preparing' ? '<p class="muted">The change applies automatically after every checkpoint is safely stored. You may close this window.</p>' : ''}</div>
-      ${force ? `<p class="muted">The destination has already been validated. The problem above is with reading the current session for its handoff.</p><p class="err">Changing without a checkpoint preserves raw ${esc(appName())} history, but the new session will not receive a prepared handoff.</p>` : ''}
+      <div class="transition-progress"><strong>${esc(status)}</strong>${t.state === 'preparing' ? '<p class="muted">It applies when checkpoints are saved. You can close this.</p>' : ''}</div>
+      ${force ? `<p class="err">Without a checkpoint the new session starts with no handoff. History is kept.</p>` : ''}
       <div class="transition-actions">${force ? '<button class="fail" type="button" data-transition-force>Change without checkpoint</button>' : ''}
         ${pending ? '<button class="ghost" type="button" data-transition-cancel>Cancel change</button>' : ''}
         ${t.state === 'applied' ? '<button class="primary" type="button" data-transition-done>Done</button>' : ''}</div></div>`;
@@ -10816,56 +10928,32 @@ function pageHelp() {
     <header class="help-hero">
       <div class="help-eyebrow">How Tico works</div>
       <h1>The coordination layer for your human and AI team.</h1>
-      <p class="help-lede">Tico gives everyone across the company one place to find agents, talk to them, hand off work, and understand what happened. It is designed for coordinating a large number of specialized bots alongside people.</p>
-      <div class="help-boundary"><strong>Tico coordinates the work.</strong> It does not replace the agentic tools, models, or workflows that do the work. Those remain free to reason, code, research, and operate in the environments that suit them.</div>
-      <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/getting-started">Getting started checklist</a><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a></div>
+      <p class="help-lede">One place to find agents, talk to them, hand off work and see what happened.</p>
+      <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/getting-started">Getting started</a><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a></div>
     </header>
 
     <section class="help-flow" aria-label="How people, Tico, and bots work together">
-      <div class="help-flow-node"><span>People</span><strong>Set direction and make decisions</strong><small>Goals, requests, feedback, and approvals</small></div>
+      <div class="help-flow-node"><span>People</span><strong>Set direction and decide</strong></div>
       <div class="help-flow-arrow" aria-hidden="true">→</div>
-      <div class="help-flow-node tico"><span>Tico</span><strong>Coordinates the company</strong><small>Registry, conversations, tasks, access, and shared context</small></div>
+      <div class="help-flow-node tico"><span>Tico</span><strong>Coordinates the company</strong></div>
       <div class="help-flow-arrow" aria-hidden="true">→</div>
-      <div class="help-flow-node"><span>Bots</span><strong>Do specialized work</strong><small>Using their own model, tools, repository, and machine</small></div>
+      <div class="help-flow-node"><span>Bots</span><strong>Do the work</strong></div>
     </section>
 
     <section class="help-steps" aria-label="Tico's four building blocks">
-      <div class="help-step">
-        <h2>Know the team</h2>
-        <p>The registry is the source of truth for your bots: what each bot does, who can use it, its current status, and which registered machine or external agent runs it.</p>
-      </div>
-      <div class="help-step">
-        <h2>Talk and delegate</h2>
-        <p>Open any bot and chat in one continuing session. When a request needs to become durable work, use a task to give it an owner, preserve the discussion, and track it through completion.</p>
-      </div>
-      <div class="help-step">
-        <h2>Version every bot</h2>
-        <p>Each bot has its own Git repository for its role, instructions, playbooks, knowledge, and working memory. GitHub makes those changes visible, reviewable, and recoverable over time.</p>
-      </div>
-      <div class="help-step">
-        <h2>Share company context</h2>
-        <p>Authorized agents reach the same coordination functions through MCP or the <abbr title="command-line interface">CLI</abbr>. They can work with goals, docs, meetings, tasks, conversation history, and connected Slack history without each bot inventing its own system.</p>
-      </div>
+      <div class="help-step"><h2>Know the team</h2><p>The registry lists each bot, who can use it and where it runs.</p></div>
+      <div class="help-step"><h2>Talk and delegate</h2><p>Chat with a bot; turn a request into a task with an owner.</p></div>
+      <div class="help-step"><h2>Version every bot</h2><p>Each bot's instructions and memory live in its own Git repository.</p></div>
+      <div class="help-step"><h2>Share context</h2><p>Agents reach goals, docs, meetings and tasks through MCP or the CLI.</p></div>
     </section>
-
-    <div class="help-split">
-      <section>
-        <h2>Tico is responsible for</h2>
-        <ul><li>Knowing the humans, bots, and machines</li><li>Routing work, messages, and handoffs</li><li>Keeping shared history and company context</li><li>Making status, changes, and approvals visible</li></ul>
-      </section>
-      <section>
-        <h2>Agentic tools stay responsible for</h2>
-        <ul><li>Reasoning through the work</li><li>Choosing and using specialized tools</li><li>Producing code, research, writing, or operations</li><li>Improving their own domain-specific workflows</li></ul>
-      </section>
-    </div>
     <details class="help-tools">
       <summary><strong>MCP + CLI function index</strong><small>${HELP_TOOL_GROUPS.reduce((n, [, shared]) => n + shared.length, 0)} shared functions · ${HELP_TOOL_GROUPS.reduce((n, [, , local = []]) => n + local.length, 0)} local CLI functions</small></summary>
       <div class="help-tools-body">
-        <p class="help-tools-intro"><strong>One contract, two ways in.</strong> Agents can call the hub through MCP at <code>/api/v2/mcp</code> or through the <code>hub</code> CLI. The names map directly—<code>hub task create</code> becomes <code>hub_task_create</code>—and both use the same identity, access controls, and company rules. The two bot setup commands change the local workspace, so they are CLI-only.</p>
+        <p class="help-tools-intro">MCP at <code>/api/v2/mcp</code> or the <code>hub</code> CLI: <code>hub task create</code> is <code>hub_task_create</code>. Bot setup commands are CLI-only.</p>
         <div class="help-tool-groups">${HELP_TOOL_GROUPS.map(helpToolGroupHTML).join('')}</div>
       </div>
     </details>
-    <p class="help-foot">Humans use the Tico app. Agents use the same shared system through MCP or the CLI.${S.config.version ? `<br><span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>` : ''}</p>
+    <p class="help-foot">${S.config.version ? `<span id="help-version">Version ${esc(nvVersion(S.config.version))}</span>` : ''}</p>
   </article>`;
 }
 
@@ -11034,16 +11122,20 @@ function providersModels(view, models, enabled) {
     .map(model => ({id: model.id, label: `${labels[model.provider] || model.provider} · ${model.label}`,
                     recommended: (view.providers || []).some(row => row.recommended === model.id)}));
 }
+// One line per provider: box, name, a few muted words. The vendors that run through OpenRouter share one line.
+const PROVIDER_LINE = {openai: 'Codex, ChatGPT or API key', anthropic: 'Claude Code, Claude or API key', google: 'Gemini CLI, API key',
+  xai: 'Grok Build, Grok or API key', cursor: 'Cursor agent, Cursor or API key'};
 function providersFormHTML(view, models, id, editable = true) {
   const enabled = view.enabled || [], dis = editable ? '' : ' disabled';
+  const box = row => `<input type="checkbox" data-provider value="${esc(row.id)}" ${enabled.includes(row.id) ? 'checked' : ''}${dis}>`;
+  const rows = view.providers || [];
+  const direct = rows.filter(row => PROVIDER_LINE[row.id]), routed = rows.filter(row => !PROVIDER_LINE[row.id]);
   return `<div id="${id}" data-providers-form>
-    <div class="onb-field"><span class="k">Which AI providers do you use?</span>
-      <div class="onb-choices" style="flex-direction:column">${(view.providers || []).map(row =>
-        `<label><input type="checkbox" data-provider value="${esc(row.id)}" ${enabled.includes(row.id) ? 'checked' : ''}${dis}>
-          <span><strong>${esc(row.label)}</strong> <small class="muted">${esc(row.detail)}</small></span></label>`).join('')}</div></div>
-    <label class="onb-field"><span class="k">Default model</span>
-      <select data-provider-model${dis}></select>
-      <small>Every bot that has no model of its own runs on this one.</small></label></div>`;
+    <div class="prov-list" role="group" aria-label="Providers">${direct.map(row =>
+      `<label class="prov">${box(row)}<strong>${esc(row.label)}</strong><span class="muted">${esc(PROVIDER_LINE[row.id])}</span></label>`).join('')}
+      ${routed.length ? `<div class="prov prov-routed"><span class="muted">Via OpenRouter</span>${routed.map(row =>
+        `<label class="prov-chip">${box(row)}${esc(row.label)}</label>`).join('')}</div>` : ''}</div>
+    <label class="onb-field"><span class="k">Default model</span><select data-provider-model${dis}></select></label></div>`;
 }
 function providersFillModels(root, view, models, keep) {
   const enabled = [...root.querySelectorAll('[data-provider]:checked')].map(input => input.value);
@@ -11106,7 +11198,7 @@ function peopleDialog(title, body) {
 }
 function peopleFormRows(p = {}) {
   const row = (name, label, value, type = 'text') =>
-    `<label class="onb-field"><span class="k">${label}</span><input name="${name}" type="${type}" value="${esc(value || '')}" ${name === 'name' || name === 'email' ? 'required' : ''}></label>`;
+    `<label class="onb-field"><span class="k">${label}</span><input name="${name}" type="${type}"${type === 'email' ? ' inputmode="email" spellcheck="false"' : ''} autocomplete="off" value="${esc(value || '')}" ${name === 'name' || name === 'email' ? 'required' : ''}></label>`;
   return row('name', 'Name', p.name) + row('email', 'Email', p.email, 'email') + row('title', 'Title', p.title) + row('team', 'Team', p.team);
 }
 // What a member may do: create bots (on unless switched off) and add people (by default coworkers in the
@@ -11116,15 +11208,15 @@ function peopleCapabilityRows(p) {
   const add = p.add_people_default ? 'default' : p.add_people ? 'yes' : 'no';
   return `<label class="onb-field"><span class="k"><input type="checkbox" name="create_bots" ${p.create_bots ? 'checked' : ''}> Can add bots</span></label>
     <label class="onb-field"><span class="k">Can add people</span><select name="add_people">
-      <option value="default" ${add === 'default' ? 'selected' : ''}>Default: coworkers in the company domain</option>
-      <option value="yes" ${add === 'yes' ? 'selected' : ''}>Yes: coworkers in the company domain</option>
+      <option value="default" ${add === 'default' ? 'selected' : ''}>Coworkers (default)</option>
+      <option value="yes" ${add === 'yes' ? 'selected' : ''}>Coworkers</option>
       <option value="no" ${add === 'no' ? 'selected' : ''}>No</option></select></label>
-    <p class="muted">Adding someone outside the company domain always needs an owner or an admin.</p>`;
+    <p class="muted">Anyone outside the company domain needs an admin.</p>`;
 }
 // What "who may join" understood, as chips: a domain lets anyone at it in, an address only that person.
 function allowChips(people, found) {
   const rows = [...(found || []).map(d => ['Domain', d]), ...(people || []).map(p => ['Person', p])];
-  if (!rows.length) return '<p class="muted" data-allow-empty>Nobody joins by signing in: people are added by hand.</p>';
+  if (!rows.length) return '';
   const chip = ([kind, value]) => `<li class="allow-chip" data-allow-kind="${kind.toLowerCase()}"><span class="k">${kind}</span>${esc(value)}</li>`;
   return `<ul class="allow-chips" aria-label="What was understood">${rows.slice(0, 14).map(chip).join('')}${rows.length > 14 ? `<li class="allow-chip more">+${rows.length - 14} more</li>` : ''}</ul>`;
 }
@@ -11153,26 +11245,19 @@ async function renderSettingsPeople() {
         ${p.owner || p.left || !p.email || S.me?.role !== 'owner' ? '' : '<button class="ghost" type="button" data-person-act="owner">Make owner</button>'}
       </td></tr>`).join('');
     el.innerHTML = `
-      ${proxy ? `<div class="card" id="people-proxy-note"><p class="muted" style="margin:0">Sign-in goes through ${esc(proxy)}. Adding someone here does not let them past it: also allow their email in that policy, or they will be stopped before they reach this app.</p></div>` : ''}
-      <section class="card"><header><h2>People</h2><span class="sub">who is on the roster and who can sign in</span>
+      ${proxy ? `<div class="card" id="people-proxy-note"><p class="muted" style="margin:0">Sign-in goes through ${esc(proxy)}. Also allow new people's emails there.</p></div>` : ''}
+      <section class="card"><header><h2>People</h2>
         <span class="spacer"></span><button class="primary" type="button" id="people-add">Add a person</button></header>
         <div class="table-scroll"><table class="settings-table settings-people"><thead><tr><th>Person</th><th>Title · team</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-        <p class="muted">Marking someone as left removes them from the chart, ends their API tokens and stops them signing in.</p>
+        <p class="muted">Marking someone as left ends their sign-in and API tokens.</p>
       </section>
-      <section class="card" id="people-domain"><header><h2>Company domain</h2><span class="sub">who counts as a coworker</span></header>
-        <p><strong data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'None'}</strong>
-          <span class="muted">${{allowed: ' · from the allowed domains below', owner: ' · taken from the owner\'s email; set allowed domains below to change it', none: ' · the owner uses a public mail address, so no one counts as a coworker until a domain is set below'}[view.company_domain_source]}</span></p>
-        <p class="muted">A member may add a coworker whose email is at this domain (unless switched off for them); adding anyone else needs an owner or an admin. A new person is put on the roster and the sign-in list, so they can sign in.</p>
-        <div class="onb-actions"><label class="onb-field" style="max-width:260px"><span class="k">Most active bots one member may have</span><input id="member-bot-limit" type="number" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
-          <button class="ghost" type="button" id="member-bot-limit-save">Save limit</button><span class="spacer"></span><span class="muted" id="member-bot-limit-status"></span></div>
-      </section>
-      <section class="card"><header><h2>Who may join</h2><span class="sub">people not on the roster who sign in for the first time${S.me?.role === 'owner' ? '' : ' · the owner sets this'}</span></header>
-        <div id="people-allow">
-          <label class="onb-field"><span class="k">Who may join</span><textarea id="allow-list" rows="3" placeholder="ana@company.com, company.com">${esc([...view.allowed_domains, ...view.allowed].join(', '))}</textarea>
-            <small>An address lets that person join; a domain (company.com or *@company.com) lets anyone at it join. Leave empty to add people by hand only.</small></label>
-          <div id="allow-understood">${allowChips(view.allowed, view.allowed_domains)}</div>
-          <div class="onb-actions"><button class="primary" type="button" id="allow-save"${S.me?.role === 'owner' ? '' : ' disabled'}>Save</button><span class="spacer"></span><span class="muted" id="allow-status"></span></div>
-        </div>
+      <section class="card" id="people-signin"><header><h2>Sign-in</h2></header>
+        <label class="onb-field"><span class="k">Who can join</span><textarea id="allow-who" rows="3" placeholder="acme.example&#10;ana@acme.example"${S.me?.role === 'owner' ? '' : ' disabled'}>${esc([...view.allowed_domains, ...view.allowed].join('\n'))}</textarea>
+          <small>Emails or domains. Empty: add people by hand.</small>
+          <small>Company domain: <span data-company-domain>${view.company_domains.length ? esc(view.company_domains.join(', ')) : 'none'}</span></small></label>
+        <div id="allow-understood">${allowChips(view.allowed, view.allowed_domains)}</div>
+        <label class="onb-field" style="max-width:220px"><span class="k">Bot limit per member</span><input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+        <div class="onb-actions"><button class="primary" type="button" id="signin-save">Save</button><span class="spacer"></span><span class="muted" id="signin-status"></span></div>
       </section>
       <section class="card" id="directory-sync"></section>`;
     window.mountDirectorySync?.($('#directory-sync'), renderSettingsPeople);   // ui/directory-sync.js
@@ -11193,18 +11278,15 @@ async function renderSettingsPeople() {
       const d = peopleDialog('Add a person', `<form>${peopleFormRows()}${actions('Add')}</form>`);
       submit(d, f => post('/v2/access/people', Object.fromEntries(f)), 'Person added');
     };
-    $('#member-bot-limit-save').onclick = async () => {
-      const status = $('#member-bot-limit-status'); status.textContent = 'Saving…';
-      try { await put('/v2/access/limits', {member_bot_limit: Number($('#member-bot-limit').value)}); status.textContent = 'Saved'; }
-      catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
-    };
-    $('#allow-save').onclick = async () => {
-      const status = $('#allow-status'); status.textContent = 'Saving…';
+    $('#signin-save').onclick = async () => {
+      const status = $('#signin-status'); status.textContent = 'Saving…';
       try {
-        // The server sorts each entry into an address or a domain; the page re-reads what it understood.
-        await put('/v2/access/allow', {allowed: peopleLines($('#allow-list').value),
+        // The server sorts each entry into an address or a domain and refuses one that could never match;
+        // the page then re-reads what it understood.
+        if (S.me?.role === 'owner') await put('/v2/access/allow', {allowed: peopleLines($('#allow-who').value),
           allowed_domains: [], expected_revision: view.revision});
-        toast('Who may join saved'); await renderSettingsPeople();
+        await put('/v2/access/limits', {member_bot_limit: Number($('#member-bot-limit').value)});
+        toast('Sign-in saved'); await renderSettingsPeople();
       } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; }
     };
     el.querySelectorAll('[data-person-act]').forEach(button => button.onclick = async () => {
@@ -11214,7 +11296,7 @@ async function renderSettingsPeople() {
         try { await post(path, act === 'admin' ? {role: p.role === 'admin' ? 'member' : 'admin'} : {left: false}); await renderSettingsPeople(); }
         catch (error) { toast(error.message, true); }
       } else if (act === 'edit') {
-        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${peopleCapabilityRows(p)}${p.owner ? '<p class="muted">To change the owner, make someone else the owner first.</p>' : ''}${actions('Save')}</form>`);
+        const d = peopleDialog('Edit ' + p.name, `<form>${peopleFormRows(p)}${peopleCapabilityRows(p)}${p.owner ? '<p class="muted">Make someone else owner to change this.</p>' : ''}${actions('Save')}</form>`);
         if (p.owner) d.querySelector('[name=email]').readOnly = true;
         submit(d, f => {
           const body = Object.fromEntries([...f].filter(([k]) => !['create_bots', 'add_people'].includes(k)));
@@ -11225,14 +11307,14 @@ async function renderSettingsPeople() {
           return post(path, body);
         }, 'Saved');
       } else if (act === 'left') {
-        const d = peopleDialog('Mark ' + p.name + ' as left?', `<form><p>${esc(p.name)} drops off the org chart, their API tokens stop working and they can no longer sign in. Their history stays.</p>${actions('Mark as left', true)}</form>`);
+        const d = peopleDialog('Mark ' + p.name + ' as left?', `<form><p>Ends their sign-in and API tokens. Their history stays.</p>${actions('Mark as left', true)}</form>`);
         submit(d, () => post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}), p.name + ' marked as left');
       } else if (act === 'owner') {
         const old = view.people.find(q => q.owner);
         const d = peopleDialog('Make ' + p.name + ' the owner?', `<form>
-          <p>${esc(p.name)} (${esc(p.email)}) becomes the owner right away. Only the owner can change people, who may join, providers and ownership, so you will lose those controls${old ? ` as ${esc(old.name)}` : ''}.</p>
+          <p>${esc(p.name)} becomes owner now. You lose the owner's controls.</p>
           <label class="onb-field"><span class="k"><input type="checkbox" name="admin"> Keep ${esc(old?.name || 'the current owner')} as a bot administrator</span></label>
-          <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" autocomplete="off"></label>
+          <label class="onb-field"><span class="k">Type ${esc(p.email)} to confirm</span><input name="typed" type="text" autocomplete="off" spellcheck="false"></label>
           ${actions('Transfer ownership', true)}</form>`);
         const go = d.querySelector('[type=submit]'); go.disabled = true;
         d.querySelector('[name=typed]').oninput = event => { go.disabled = event.target.value.trim().toLowerCase() !== p.email.toLowerCase(); };

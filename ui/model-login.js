@@ -81,7 +81,7 @@
           ${login.code ? `<li>Enter this one-time code:<div class="model-login-code"><code data-code>${text(login.code)}</code>
               <button class="ghost" type="button" data-copy>Copy</button></div></li>` : ''}
           ${login.accepts_code ? `<li>${login.code_sent ? 'Code sent. Waiting for the computer to finish…' : 'The page then shows a code. Paste it here:'}
-              ${login.code_sent ? '' : `<form class="model-login-paste" data-paste><input name="code" autocomplete="off" spellcheck="false" required maxlength="700" aria-label="Code from the sign-in page" placeholder="Paste the code">
+              ${login.code_sent ? '' : `<form class="model-login-paste" data-paste><input name="code" type="text" autocomplete="off" spellcheck="false" required maxlength="700" aria-label="Code from the sign-in page" placeholder="Paste the code">
               <button class="primary" type="submit">Send code</button></form>`}</li>` : ''}
         </ol>`;
       }

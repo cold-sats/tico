@@ -101,6 +101,17 @@ All notable changes to Tico are recorded here. The format follows
   has content (at most thirty, kept in the browser, polling every 30 seconds), then redraws. The Overview is the page the Librarian
   writes, or a one-line empty state, in place of the fixed placeholder text. The Librarian may now write the market graph
   alongside the Market Analyst and the owner, and `hub market apply` takes `--tier` and `--new-id`.
+- **Settings > Bots is one compact row per bot.** The bot (with a small Built in badge, and a badge only when it is paused, planned or
+  has a problem), Access as one word (Open, Requests only, Private, Custom), Model and Fallback as one field each, an owner avatar
+  stack, the computer, and one **Edit** button; nothing overflows, and on a phone each row is a card. Who it works for, who owns it,
+  access, model, fallback and computer moved into the bot editor.
+- **Less text.** The muted subtitle beside every card heading is gone, and explanatory paragraphs, labels, placeholders and help
+  text across Settings, dialogs, Docs, tasks, the connectors and the Help page are shorter. Settings > People has one **Sign-in**
+  card in place of Company domain and Who may join: a single **Who can join** field for emails and domains (an entry without an
+  `@`, or starting `*@` or `@`, is a domain), the company domain shown under it, the per-member bot limit, and one Save. AI providers
+  are one line each, with the OpenRouter-backed vendors on one line.
+- The built-in assistant shows as **Assistant** when its name is the company's, and an assistant still named after the company is
+  renamed to Assistant once at startup (a name anyone chose is left alone).
 
 ### Fixed
 - **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched
@@ -116,6 +127,11 @@ All notable changes to Tico are recorded here. The format follows
   were company goals before (a person's goal with no parent and goals under it) become company goals owned by `company` on upgrade.
 - **The bot page's update history icon matches the Updates icon** in the left rail, and the Recurring card no longer has an icon the
   other cards lack.
+- **Form inputs.** The Email field under Settings > People > Add a person, and every other email, url, number, date, search and
+  untyped input, rendered as a small grey native box because the base style only covered `text`, `password` and `select`. One rule
+  now styles every text-like control, with hover, focus, disabled, read-only, invalid and placeholder states, themed autofill, no
+  number spinners, a clear button on search, "Choose file" buttons drawn like the app's buttons, and accent-coloured checkboxes and
+  radios, in both themes. Inputs also carry the right `type`, `autocomplete`, `inputmode` and `spellcheck`.
 
 ### Security
 - A bot may invite only people on the company roster to a calendar event (`hub calendar schedule`); an invitation to any other address is

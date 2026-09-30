@@ -64,7 +64,7 @@
       host.hidden = false;
       host.innerHTML = `<header><h2>Files</h2></header>
         ${state.error ? `<div class="bf-err" role="alert">${esc(state.error)}</div>` : ''}
-        ${shown.length ? shown.map(row).join('') : state.error ? '' : '<div class="empty">Nothing yet. Reports and documents it makes will be listed here.</div>'}
+        ${shown.length ? shown.map(row).join('') : state.error ? '' : '<div class="empty">No files yet.</div>'}
         ${state.total > SHORT || hasMore ? `<div class="bf-foot">${state.expanded
           ? `${hasMore ? '<button class="ghost" type="button" data-bf-more>Show more</button>' : ''}<button class="ghost" type="button" data-bf-less>Show less</button>`
           : `<button class="ghost" type="button" data-bf-all>Show all ${state.total}</button>`}</div>` : ''}`;

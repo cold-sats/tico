@@ -12,10 +12,10 @@ const gsLaterAdd = section => { try { sessionStorage.setItem(GS_LATER_KEY, JSON.
 const gsCards = {
   docs: {owner: true, title: 'Where do your current docs live?'},
   market: {owner: true, title: 'Research your market'},
-  tasks: {title: 'Tasks', text: 'Work you hand to a bot or a person. Every task has an owner and a status, and bots pick theirs up on their own.',
+  tasks: {title: 'Tasks', text: 'Work for a bot or a person.',
           action: ['Create a task', '#task-new']},
-  updates: {title: 'Updates', text: 'Each bot posts a few bullets every day, and a fuller look on Fridays. They land here as they arrive.'},
-  goals: {title: 'Goals', text: 'A goal says, in plain English, what a bot or a person is going for, with a colour for how it is going.',
+  updates: {title: 'Updates', text: 'Each bot posts daily.'},
+  goals: {title: 'Goals', text: 'What a bot or person is going for.',
           action: ['Set a first goal', '[data-goal-new="new"]']},
 };
 
@@ -130,8 +130,8 @@ function gsCard() {
 
 // One row per link: the address, and what is in it. Kind is detected from the address (backend/docs.py).
 const gsLinkRow = () => `<div class="gs-link-row" data-gs-link-row>
-    <label class="gs-field"><span>Link</span><input name="url" maxlength="2000" autocomplete="off" inputmode="url" placeholder="https://drive.google.com/drive/folders/…"></label>
-    <label class="gs-field"><span>What is in it? (optional)</span><input name="description" maxlength="300" autocomplete="off" placeholder="Help centre articles"></label>
+    <label class="gs-field"><span>Link</span><input name="url" type="url" maxlength="2000" autocomplete="off" inputmode="url" spellcheck="false" placeholder="https://drive.google.com/drive/folders/…"></label>
+    <label class="gs-field"><span>Description (optional)</span><input name="description" type="text" maxlength="300" autocomplete="off" placeholder="Help centre articles"></label>
     <small class="gs-kind muted" data-gs-kind aria-live="polite"></small></div>`;
 
 function gsDocsForm() {
@@ -284,7 +284,7 @@ function gsBotForm() {
       <button class="ghost tmodal-x" type="button" data-close aria-label="Close">✕</button></header>
     <label class="gs-field"><span>What should it do?</span>
       <textarea name="what" rows="4" maxlength="2000" required placeholder="Answer the support inbox every morning and flag anything urgent."></textarea></label>
-    <label class="gs-field"><span>Name (optional)</span><input name="name" maxlength="80" autocomplete="off" placeholder="Help Desk"></label>
+    <label class="gs-field"><span>Name (optional)</span><input name="name" type="text" maxlength="80" autocomplete="off" placeholder="Help Desk"></label>
     <p role="status" data-gs-status></p>
     <div class="gs-card-actions"><button class="ghost" type="button" data-close data-gs-close>Cancel</button>
       <button class="ghost" type="button" data-gs-another hidden>Build another</button>

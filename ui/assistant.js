@@ -181,7 +181,7 @@
       const hints = d.messages.length ? '' : `<div class="asst-hints" aria-label="Things to ask">${
         ["What's waiting on me?", 'Find the launch plan', 'How do I add a bot?'].map(t => `<button class="ghost" type="button" data-hint="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
       root.innerHTML = `<div class="asst-log" role="log" aria-live="polite" aria-label="Assistant chat">${
-        d.messages.length ? d.messages.map(messageHtml).join('') : `<p class="asst-state">Ask for anything in ${esc(document.title || 'Tico')}: what is waiting on you, find a doc or a meeting, make a task, hand work to a bot, or ask how something works.</p>`}${
+        d.messages.length ? d.messages.map(messageHtml).join('') : `<p class="asst-state">Ask anything.</p>`}${
         state.thinking ? `<div class="asst-think" data-thinking role="status">Assistant is thinking<i></i><i></i><i></i></div>` : ''}</div>
         ${hints}
         <form class="asst-form" data-form><textarea rows="2" maxlength="8000" placeholder="Ask the Assistant…" aria-label="Message to the Assistant"></textarea>

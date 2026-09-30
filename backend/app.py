@@ -86,6 +86,12 @@ def create_app(settings=None):
                 onboarding.ensure_librarian(c)
         except Exception as exc:
             telemetry.capture("librarian", exc)
+        # An assistant still named after the company becomes "Assistant" (idempotent).
+        try:
+            with store.transaction() as c:
+                onboarding.name_default_assistant(c)
+        except Exception as exc:
+            telemetry.capture("assistant_name", exc)
         # This release may ship merged product tasks that waited for it (backend/github.py).
         try:
             from .github import ship_deployed

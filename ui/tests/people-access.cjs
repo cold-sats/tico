@@ -101,6 +101,9 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     // Add a person.
     await page.locator('#people-add').click();
     const dialog = page.locator('#people-dialog');
+    // Every text-like input looks the same: the Email field is styled like Name (it used to render as a bare native box).
+    const look = name => dialog.locator(`[name=${name}]`).evaluate(el => { const c = getComputedStyle(el); return [c.backgroundColor, c.borderTopWidth, c.borderTopLeftRadius, c.paddingLeft].join(' '); });
+    assert.equal(await look('email'), await look('name'), 'the Email input is styled like the Name input');
     await dialog.locator('[name=name]').fill('Cy Dunn');
     await dialog.locator('[name=email]').fill('cy@acme.example');
     await dialog.locator('[name=team]').fill('ops');
@@ -125,12 +128,8 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     await page.waitForFunction(() => /adds people/.test(document.querySelector('tr[data-person=cy]').textContent) === false);
     assert.deepEqual(calls.shift(), ['edit', 'cy', {name: 'Cy Dunn', email: 'cy@acme.example', title: '', team: 'ops',
       create_bots: false, add_people: false}]);
-    await page.locator('#member-bot-limit').fill('3');
-    await page.locator('#member-bot-limit-save').click();
-    for (let i = 0; i < 50 && !calls.length; i += 1) await page.waitForTimeout(50);
-    assert.deepEqual(calls.shift(), ['limits', {member_bot_limit: 3}]);
     await page.locator('tr[data-person=cy] [data-person-act=left]').click();
-    assert.match(await dialog.textContent(), /API tokens stop working/);
+    assert.match(await dialog.textContent(), /API tokens/);
     await dialog.locator('[type=submit]').click();
     await page.locator('tr[data-person=cy]', {hasText: 'Left'}).waitFor();
     assert.deepEqual(calls.shift(), ['left', 'cy', {left: true}]);
@@ -138,14 +137,16 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     await page.locator('tr[data-person=cy]', {hasText: 'Can sign in'}).waitFor();
     assert.deepEqual(calls.shift(), ['edit', 'cy', {left: false}]);
 
-    // The allow list saves with the revision it was read at.
-    // One box: an address, a domain, or *@domain, and the page shows what it understood.
-    assert.equal(await page.locator('#allow-domains, #allow-emails').count(), 0);
-    await page.locator('#allow-list').fill('ana@acme.example, *@acme.example, partner.example');
-    await page.locator('#allow-save').click();
+    // Sign-in: one box for addresses, domains and *@domain, saved with the revision it was read at (the server sorts them
+    // and the page shows what it understood), and the member bot limit.
+    assert.equal(await page.locator('#allow-domains, #allow-emails, #allow-list').count(), 0);
+    await page.locator('#allow-who').fill('ana@acme.example, *@acme.example, partner.example');
+    await page.locator('#member-bot-limit').fill('3');
+    await page.locator('#signin-save').click();
     await page.locator('[data-allow-kind=domain]', {hasText: 'partner.example'}).waitFor();
     assert.deepEqual(calls.shift(), ['allow', {allowed: ['ana@acme.example', '*@acme.example', 'partner.example'],
       allowed_domains: [], expected_revision: 3}]);
+    assert.deepEqual(calls.shift(), ['limits', {member_bot_limit: 3}]);
     assert.deepEqual(await page.locator('[data-allow-kind=domain]').allTextContents(), ['Domainacme.example', 'Domainpartner.example']);
     assert.deepEqual(await page.locator('[data-allow-kind=person]').allTextContents(), ['Personana@acme.example']);
 

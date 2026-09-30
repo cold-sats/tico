@@ -721,6 +721,25 @@ class Onboarding:
         """The Docs page's Turn on Librarian: the same for the built-in docs bot (docs/librarian.md)."""
         return self._turn_on(c, who, LIBRARIAN, LIBRARIAN, "Librarian", "librarian.turned_on")
 
+    def name_default_assistant(self, c):
+        """An assistant named after the company (the old default) becomes "Assistant", once. Idempotent:
+        a name anyone chose since, or the one already set, is left alone."""
+        slug = self.settings.assistant_bot
+        row = H.bot(c, slug)
+        company = display_names(self.settings, load(c))["company_name"].strip().lower()
+        if not row or not company or (row["display_name"] or "").strip().lower() != company:
+            return False
+        c.execute("UPDATE bots SET display_name='Assistant' WHERE slug=?", (slug,))
+        config = c.execute("SELECT config_json FROM bot_config WHERE bot=?", (slug,)).fetchone()
+        if config and config["config_json"]:
+            try:
+                declared = json.loads(config["config_json"])
+                declared["display_name"] = "Assistant"
+                c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(declared), slug))
+            except ValueError:
+                pass
+        return True
+
     def ensure_librarian(self, c):
         """A company set up before the Librarian was built in gets it without anyone clicking, once
         it can run: the owner is on the roster, a model is chosen and a computer is enrolled. Called
