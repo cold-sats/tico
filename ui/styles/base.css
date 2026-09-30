@@ -6,6 +6,9 @@
 #stale-banner[hidden]{display:none}
 #usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
 #usage-notice[hidden]{display:none}
+/* Fixed over the bottom-left of every page, which is where a bot's composer sits: a click on the box must reach the box, so only the bar's own link and button take clicks. */
+#usage-notice{pointer-events:none}
+#usage-notice a,#usage-notice button{pointer-events:auto}
 .privacy-row{display:flex;align-items:center;gap:8px;font-size:14px}.privacy-row input{width:auto;flex:none}
 html.demo{--demo-h:30px;padding-top:var(--demo-h)}
 html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:12.5px;line-height:1.2;white-space:nowrap;overflow:hidden}

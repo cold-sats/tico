@@ -178,8 +178,8 @@ function renderSettingsMachines() {
     const failures = Object.values(machine.readiness?.bots || {}).filter(value => !value.ready).length;
     return `<tr class="machine-card"><td><strong>${esc(machine.label)}</strong><span class="settings-cell-note">${esc(machine.version || 'version not reported')}${machine.platform ? ` · ${esc(machine.platform)}` : ''}</span>${window.runnerUpdateHtml?.(machine.update) || ''}</td>
       <td>${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
-        ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts humans' bots</label>`
-        : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts humans\' bots</span>' : ''}</td>
+        ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
+        : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
       <td>${machine.bots.length}${failures ? ` <span class="err">· ${failures} not ready</span>` : ''}</td>
       <td><div class="machine-runtime">${runtime || '<span class="muted">—</span>'}</div>${harnesses ? `<div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div>` : ''}</td>
       <td>${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}</td></tr>`;
@@ -190,7 +190,7 @@ function renderSettingsMachines() {
     box.disabled = true;
     try {
       await post(`/v2/computers/${encodeURIComponent(box.dataset.memberBots)}/member-bots`, {accepts: box.checked});
-      toast(box.checked ? 'Humans\' bots may now go on this computer' : 'Humans\' bots no longer go on this computer');
+      toast(box.checked ? 'Members\' bots may now go on this computer' : 'Members\' bots no longer go on this computer');
       await loadSettings();
     } catch (error) { toast(error.message, true); box.checked = !box.checked; box.disabled = false; }
   };
