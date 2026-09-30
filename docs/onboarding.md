@@ -358,6 +358,13 @@ check that BotOps is `active`, that its repository exists, and read its setup ta
 rows say `waiting` until the computer reports a repository, and a bot no computer has reported on at
 all is also `waiting`.
 
+A bot placed on, or moved to, a computer that has never held it gets its repository by cloning it from GitHub
+with its own token (the assignment names it). If that cannot happen the row says why instead of the generic
+line: *not on GitHub yet* (create it with `hub bot repo-create <slug> --empty`; the computer that holds the
+only copy publishes it while the bot is still assigned there), *GitHub refused the token*, or the clone's own
+error. `hub health check` and Health list these as bots that cannot run. A move is refused up front when the
+computer being left reports a repository GitHub does not have and the destination holds no copy.
+
 **`422` on a template name.** `PUT /api/v2/setup` and `POST /api/v2/bots` refuse a template
 Tico does not have, with the name in the detail. Check the folder exists under
 `templates/catalog/` on the server, that it has a readable `card.yaml` with a `template:` field,

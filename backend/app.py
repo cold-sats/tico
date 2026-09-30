@@ -28,7 +28,7 @@ from . import models as M
 from .auth import LOCAL_COOKIE, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
-from .execution import Execution
+from .execution import Execution, bot_repository
 from .onboarding import BOTOPS, Onboarding
 from .recruit import Recruiter, template_departments as recruit_departments
 from . import rooms
@@ -2421,6 +2421,7 @@ def create_app(settings=None):
             for row in rows:
                 value = dict(row)
                 value["config"] = Providers.fill(company, json.loads(value.pop("config_json")))
+                value["repository"] = bot_repository(c, settings, row["bot"])
                 result.append(value)
             return result
 

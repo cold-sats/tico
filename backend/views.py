@@ -849,6 +849,12 @@ def install_views(app, store, auth, mutate, task_view):
                 value = dict(row)
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
+                # A computer reports on the bots it could host as well as the ones it does. A bot placed on another
+                # computer is not ready here, whatever an old checkout says, so its row is not shown as this
+                # computer's (and does not count toward its failures).
+                hosted = {a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id<>?", (row["id"],))}
+                for elsewhere in [b for b in value["readiness"].get("bots", {}) if b in hosted]:
+                    del value["readiness"]["bots"][elsewhere]
                 for report in value["readiness"].get("bots", {}).values():
                     report.pop("tools", None)
                 from .harness_actions import recent
