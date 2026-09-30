@@ -1,4 +1,4 @@
-"""Runner versions: comparison, the range a server accepts, claim gating and what Health and Devices show."""
+"""Runner versions: comparison, the range a server accepts, claim gating and what Health and Computers show."""
 from types import SimpleNamespace
 
 import pytest

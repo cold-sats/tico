@@ -48,7 +48,7 @@ def test_ssh_run_orders_dns_before_starting_docker_and_never_leaks_the_secret(mo
     assert SECRET.encode() in env_input  # it reaches the server, via stdin only
     assert not any(SECRET in c for c in shell.cmds())
     assert "Done. Open https://tico.example.com and sign in as me@example.com" in out
-    assert "Settings > Devices > Add computer" in out and "setup runner" in out
+    assert "Settings > Computers > Add computer" in out and "setup runner" in out
     saved, env = state.load("tico.example.com")
     assert SECRET not in json.dumps(saved) and SECRET in env
 

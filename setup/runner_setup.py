@@ -155,7 +155,7 @@ def run_runner(args, io: IO, deps: Deps) -> int:
             code = mint_code(s.server_url, token)
             io.say("  minted a one-time join code (valid 15 minutes)")
         elif not code:
-            io.say(f"\nGet a one-time code: in Tico open Settings > Devices > Add computer (or set TICO_OWNER_TOKEN and I will mint one).")
+            io.say(f"\nGet a one-time code: in Tico open Settings > Computers > Add computer (or set TICO_OWNER_TOKEN and I will mint one).")
             code = io.ask("One-time code (hidden)", secret=True) if io.interactive else ""
             if not code:
                 raise MissingInput("Missing the join code: set TICO_ENROLL_CODE or TICO_OWNER_TOKEN")
@@ -222,7 +222,7 @@ def _verify(io: IO, shell: remote.Shell, url: str, token: str, label: str) -> in
     from .wizard import show
     show(io, checks)
     if all(c.ok for c in checks):
-        io.say(f"\nDone. {label} is joined to {url}. Sign the models in for its bots from Tico's Settings > Devices.")
+        io.say(f"\nDone. {label} is joined to {url}. Sign the models in for its bots from Tico's Settings > Computers.")
         return 0
     return 1
 

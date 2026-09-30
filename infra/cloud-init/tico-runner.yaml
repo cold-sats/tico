@@ -2,7 +2,7 @@
 # Tico runner on any Ubuntu 24.04 cloud VM: runs the release's install.sh --runner (Docker, the runner and its updater, pinned to that release), which joins your
 # Tico server with a one-time code. Nothing is open inbound (there is no web service on this box). Docs: docs/install.md
 #
-# Edit only the values between the two marker lines. Get the code from Settings > Devices > Add computer: it works
+# Edit only the values between the two marker lines. Get the code from Settings > Computers > Add computer: it works
 # once and expires after 15 minutes, so create the server right after copying it.
 write_files:
   - path: /etc/tico/runner.env

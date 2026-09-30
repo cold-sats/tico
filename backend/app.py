@@ -25,7 +25,7 @@ from .statuses import is_parked
 from . import turns as turn_work
 from . import goals as G
 from . import models as M
-from .auth import LOCAL_COOKIE, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity
+from .auth import LOCAL_COOKIE, LOCAL_COOKIE_DAYS, LOCAL_SIGNIN_PATH, LOGOUT_PATH, Auth, Identity
 from .config import Settings
 from .observability import Observability, browser_config, staff_display_name
 from .execution import Execution, bot_repository
@@ -1064,8 +1064,12 @@ def create_app(settings=None):
         # Only a same-origin path is returned to: never an absolute or protocol-relative URL.
         target = next if re.fullmatch(r"/[^/\\\s][^\s\\]*", next or "") else "/"
         response = RedirectResponse(target, status_code=302)
-        response.set_cookie(LOCAL_COOKIE, token, httponly=True, samesite="strict", path="/",
-                            secure=settings.public_url.startswith("https://"))
+        # Lax, not Strict: the printed link is followed from a terminal or another page, and Chrome then
+        # withholds a Strict cookie from the redirected request, which would land on the sign-in wall.
+        # Writes are guarded by the Origin check. No Domain, so it stays with the host it was set on.
+        response.set_cookie(auth.local_cookie(), token, httponly=True, samesite="lax", path="/",
+                            max_age=LOCAL_COOKIE_DAYS * 86400, secure=settings.public_url.startswith("https://"))
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     oidc.register(app, auth)
@@ -1079,6 +1083,7 @@ def create_app(settings=None):
             response.delete_cookie(name, path="/", secure=settings.public_url.startswith("https://") or not settings.loopback,
                                    httponly=True)
         if not auth.proxy:
+            response.delete_cookie(auth.local_cookie(), path="/")
             response.delete_cookie(LOCAL_COOKIE, path="/")
         return response
 

@@ -20,16 +20,30 @@ browser -> caddy (HTTPS) or cloudflared --> server :8765 (data volume)
 
 Nothing to set up first: no domain, no DNS, no sign-in provider. Tico runs on this computer only, at
 `http://127.0.0.1:8765`, and you sign in as the owner with a token kept on this computer. Add a domain and sign-in
-later, when other people need in.
+later, when other people need in. It takes about two minutes and needs Docker: on a Mac or a Windows PC, open Docker Desktop
+first; on Linux the installer installs Docker for you.
 
-On a Linux machine, run the installer with `--local`. It installs Docker if needed and asks for your email:
+Run the installer with `--local` (a Mac or Linux; it asks for your email when you leave `--owner-email` out):
 
 ```
-curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --local --owner-email you@example.com
+curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh | sh -s -- --local --owner-email you@example.com
 ```
 
-It prints a link that signs you in once. On any computer with Docker (a Mac or Windows PC too), the same thing by hand:
-download the release's compose bundle, copy `.env.example` to `.env`, keep only these lines, and run `docker compose up -d`:
+That installs the newest release; to pin one, use `releases/download/vX.Y.Z/install.sh` instead of `releases/latest/download/install.sh`.
+Files go to `/opt/tico` on Linux (it uses `sudo`) and to `~/tico` on a Mac (no `sudo`); `--dir` changes it. Port 8765 must be free.
+
+It prints a link that signs you in once. Open it in your browser: the app opens on **Finish setup**. Then:
+
+1. **Choose AI providers** (optional): leave them all unticked to do it later. Bots need one to run; until then each bot says
+   "Add an AI provider", and Settings > AI providers adds it.
+2. **Name the team**, say what it does, and pick its groups. A few bots are suggested for each group.
+3. **Add computer**: choose *A Linux or cloud server (Docker)*, press **Add computer**, and run the line it shows on this computer.
+   It joins the server's own Docker network, so it needs no domain, and the computer shows online in a few seconds.
+4. **Create my team.** The bots are placed on the computer and set up there.
+
+On a Windows PC, run the installer inside WSL 2 with Docker Desktop's WSL integration on, which is the Linux path.
+By hand, on any computer with Docker (the same thing the installer does): download the release's compose bundle, copy `.env.example`
+to `.env`, keep only these lines, and run `docker compose up -d`:
 
 ```
 TICO_COMPANY_NAME=Acme
@@ -39,7 +53,7 @@ COMPOSE_PROFILES=updater
 
 Then get the sign-in token with `docker compose exec server cat /data/local-owner.token` and open
 `http://127.0.0.1:8765/api/v2/local-signin?token=<token>`. The app opens on the first-run wizard; you can create the team
-before a computer or an AI provider exists. Join this computer under **Settings > Devices > Add computer**.
+before a computer or an AI provider exists. Join this computer under **Settings > Computers > Add computer**.
 
 The server answers on this computer only: compose publishes the port on `127.0.0.1`, and a server with a domain and no
 sign-in refuses to start. A public address always needs sign-in.
@@ -295,7 +309,7 @@ and signs in the way it would with a key you had typed there. Nobody copies a ke
 Only that model credential comes this way: a bot's own credentials stay with that bot, and a computer never receives them.
 
 A subscription login (a ChatGPT or Claude plan) cannot be copied. If that is how your team signs in, Settings > Health shows
-"*computer name*: sign in to Codex" (or Claude Code) for each new computer that needs it. Sign it in from Settings > Devices, or ask
+"*computer name*: sign in to Codex" (or Claude Code) for each new computer that needs it. Sign it in from Settings > Computers, or ask
 BotOps to start it, then finish the sign-in in your browser.
 
 ### Linux or cloud server (Docker)
@@ -328,6 +342,15 @@ is no `.env` yet. Run with none of them, the installer keeps the `.env` as it is
 
 ```
 curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --runner --code <new code>
+```
+
+**A computer on the same host as a local server (the quick start).** A server that answers on this computer only cannot be
+reached at `127.0.0.1` from inside the runner's container, so the runner joins the server's Docker network. The app shows
+this line when the server is local:
+
+```
+curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh | \
+  sh -s -- --runner --url http://server:8765 --server-network tico_default --code <code> --label "This computer"
 ```
 
 **Add a second computer on the same host (for a message bot).** A message bot must have a computer of its

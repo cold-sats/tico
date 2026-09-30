@@ -176,7 +176,7 @@ class Execution:
                 return {"runner_id": runner["id"], "token": token, "operator": row["operator"]}
             rid = H.new_id()
             # A new computer takes members' bots, so a team gets going without asking; an admin closes it per
-            # computer (Settings > Devices). Computers that existed before this default keep what they had.
+            # computer (Settings > Computers). Computers that existed before this default keep what they had.
             c.execute("INSERT INTO runners(id,label,operator,token_hash,created,platform,accepts_member_bots) "
                       "VALUES(?,?,?,?,?,?,1)",
                       (rid, body.label, row["operator"], digest(token), H.now(), body.platform))
@@ -314,7 +314,7 @@ class Execution:
             # A member's bot goes on its own operator's computer, or on one an admin has opened to members' bots:
             # never on another member's.
             raise Problem("computer_closed", "That computer does not take bots members create. Ask an admin to place "
-                          "this bot, or to let the computer accept members' bots (Settings > Devices)", 409)
+                          "this bot, or to let the computer accept members' bots (Settings > Computers)", 409)
         # A computer hosts its operator's bots and the owner's; a member's bot may also go on a computer an
         # admin has opened to members' bots, and an admin may put a member's bot on any computer.
         if (runner["operator"] not in (operator, self.auth.owner_id(c))

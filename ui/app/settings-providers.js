@@ -65,6 +65,7 @@ async function renderSettingsProviders() {
       save.disabled = true; status.textContent = 'Saving…';
       try {
         const saved = await providersSave(view, chosen);
+        applyConfig({...S.config, providers_configured: !!saved.enabled?.length, default_runtime: saved.default?.runtime || ''});
         SETTINGS_DATA.enabledProviders = saved.enabled; SETTINGS_DATA.defaultModel = saved.default?.model || '';
         toast('AI providers saved');
         await renderSettingsProviders();

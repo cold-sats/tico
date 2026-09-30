@@ -1,5 +1,6 @@
 """No ambient owner identity: all requests carry verified human or machine credentials."""
 
+import hashlib
 import hmac
 import json
 import sqlite3
@@ -17,7 +18,10 @@ from . import team_rules
 from .store import H, Problem, digest
 
 # Loopback sign-in for an environment with no identity proxy in front of it.
+# Cookies are shared across ports on one host, so each install names its own; the bare name is
+# the one earlier versions set, still read so a sign-in survives the upgrade.
 LOCAL_COOKIE = "tico_local_session"
+LOCAL_COOKIE_DAYS = 30
 LOCAL_SIGNIN_PATH = "/api/v2/local-signin"
 LOGOUT_PATH = "/api/v2/logout"
 
@@ -226,6 +230,20 @@ class Auth:
         expected = self.local_token()
         return bool(expected and token and hmac.compare_digest(expected, str(token)))
 
+    def local_cookie(self):
+        """This install's own session cookie name: the bare name plus a short hash of its environment id,
+        public URL and local secret, so two installs on one browser never share or clear each other's."""
+        try:
+            secret = self.local_token()
+        except Problem:
+            secret = ""
+        seed = "|".join((self.settings.environment_id, self.settings.public_url, secret))
+        return LOCAL_COOKIE + "_" + hashlib.sha256(seed.encode()).hexdigest()[:8]
+
+    def local_session(self, jar):
+        """The local owner secret a browser sent (a cookie mapping), under this install's name or the old one."""
+        return next((v for v in (jar.get(self.local_cookie(), ""), jar.get(LOCAL_COOKIE, "")) if self.local_owner(v)), "")
+
     def identity_from_local_owner_token(self, c, token):
         """Admit a configured local-only bearer when no identity proxy is in use.
 
@@ -337,7 +355,7 @@ class Auth:
                             who = self.assistant_principal(c, attempt) or who
                     elif not (who := self.identity_from_personal_token(c, token)):
                         raise Problem("identity", "Invalid credential", 401)
-            elif self.local_owner(cookies(headers).get(LOCAL_COOKIE, "")):
+            elif self.local_session(cookies(headers)):
                 who = self.owner_identity(c)
             else:
                 if self.proxy and getattr(self.proxy, "sessions", False):

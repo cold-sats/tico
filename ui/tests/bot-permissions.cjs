@@ -3,7 +3,7 @@
 //    the revision it read; the org panel's person icon hides the bots the caller may only see, keeps that
 //    with the account, and combines with the Recent sort; a bot page for someone who may only see or write
 //    to it shows no activity.
-//  - roles: Settings > Bots lists who owns each bot and saves co-owners as a diff; Settings > Devices has an
+//  - roles: Settings > Bots lists who owns each bot and saves co-owners as a diff; Settings > Computers has an
 //    admin-only "Accepts members' bots" toggle; a Confirm card BotOps left in a person's chat renders, and
 //    only their click confirms it.
 const {chromium} = require('playwright');
@@ -273,7 +273,7 @@ async function roles(browser) {
   assert.deepEqual(posts.shift(), ['co-owners', {add: ['ben'], remove: []}]);
   await page.locator('#bot-editor [data-bot-close]').first().click();
 
-  // ---- Settings > Devices: an admin says which computers take members' bots
+  // ---- Settings > Computers: an admin says which computers take members' bots
   await page.locator('[data-settings-tab="devices"]').click();
   const box = page.locator('[data-member-bots=r1]');
   await box.waitFor();

@@ -93,6 +93,18 @@ has local-says-local "this machine only" "$out"
 out=$(inst --dir /work/local2 --local 2>&1); code_is local-needs-email 2 $? "$out"
 out=$(inst --dir /work/local3 --local --tunnel --owner-email a@b.example 2>&1); code_is local-not-with-tunnel 2 $? "$out"
 
+# --- a Mac (Docker Desktop): --local and --runner only, no sudo, no Docker install --------------------------------
+out=$(STUB_OS=Darwin inst --dir /work/mac --yes 2>&1); code_is mac-team-install-refused 3 $? "$out"; has mac-team-install-says-local "--local" "$out"
+out=$(STUB_OS=Darwin STUB_UID=501 inst --dir /work/mac-local --local --owner-email ana@acme.example 2>&1); code_is mac-local-exit 0 $? "$out"
+has mac-local-says-macos "macOS" "$out"; has mac-local-says-local "this machine only" "$out"
+grep -q '^TICO_OWNER_EMAIL=ana@acme.example$' /work/mac-local/.env && ok mac-local-env-owner || bad mac-local-env-owner "no .env"
+out=$(STUB_OS=Darwin STUB_UID=501 inst --dir /work/mac-runner --runner --url http://server:8765 --code abc123 --label "This computer" 2>&1); code_is mac-runner-exit 0 $? "$out"
+grep -q '^TICO_URL=http://server:8765$' /work/mac-runner/.env && ok mac-runner-env || bad mac-runner-env "no .env"
+# Docker Desktop not running: say what to do, install nothing.
+printf '#!/bin/sh\nexit 1\n' > $S/docker_down; cp $S/docker $S/docker_up; cp $S/docker_down $S/docker
+out=$(STUB_OS=Darwin STUB_UID=501 inst --dir /work/mac-nodocker --local --owner-email ana@acme.example 2>&1); code_is mac-docker-not-running 5 $? "$out"; has mac-docker-desktop-msg "Docker Desktop" "$out"
+cp $S/docker_up $S/docker; chmod +x $S/docker
+
 # --- idempotent re-run: repair, keep .env ------------------------------------------------------------
 printf 'MY_CUSTOM_SETTING=keep-me\n' >> $D/.env
 before=$(sum $D/.env)

@@ -18,13 +18,16 @@ A small pilot is what has been measured ([sizing](docs/sizing.md)).
 
 ## Quick start
 
-On your own computer, with no domain and no sign-in setup, run the installer of the release you want with `--local`:
+On your own computer (a Mac with Docker Desktop, or Linux), with no domain and no sign-in setup, run the installer with `--local`:
 
 ```bash
-curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh | sh -s -- --local --owner-email you@example.com
+curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh | sh -s -- --local --owner-email you@example.com
 ```
 
-Tico runs at `http://127.0.0.1:8765` and the installer prints a link that signs you in. Add a domain and sign-in later
+Docker Desktop must be open and running on a Mac. It takes about two minutes. Tico runs at `http://127.0.0.1:8765` and the
+installer prints a link that signs you in: open it in your browser. The app opens on **Finish setup**: name the team, pick
+groups, and use **Add computer** to join this computer, which places the bots. You can do all of it before you choose an AI
+provider; the bots wait with "Add an AI provider" until you do (Settings > AI providers). Add a domain and sign-in later
 ([docs/install.md](docs/install.md#add-a-domain-and-sign-in-later)).
 
 For a team, on a Linux server (about 2 GB, with a domain pointed at it), run the installer with no flags:

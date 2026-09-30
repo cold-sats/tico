@@ -29,7 +29,7 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
-from .auth import LOCAL_COOKIE, LOCAL_SIGNIN_PATH
+from .auth import LOCAL_SIGNIN_PATH
 from .config import LOOPBACK, Settings
 from .store import H, Problem
 
@@ -191,7 +191,7 @@ def install(app, auth, settings):
             return avatar(photo.group(1))
         if request.method == "GET" and path in ("/", "/index.html"):
             # Nobody types a secret to try a demo: the first page visit is the sign-in.
-            if not auth.local_owner(request.cookies.get(LOCAL_COOKIE, "")):
+            if not auth.local_session(request.cookies):
                 token = auth.local_token()
                 return RedirectResponse(LOCAL_SIGNIN_PATH + "?token=" + token + "&next=/", status_code=302)
         if request.method not in ("GET", "HEAD", "OPTIONS"):

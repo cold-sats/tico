@@ -51,6 +51,8 @@ def rel(tmp_path_factory):
     src = tmp_path_factory.mktemp("src")
     (src / "scripts").mkdir()
     shutil.copy(SCRIPTS / "install.sh", src / "scripts" / "install.sh")
+    (src / "docker").mkdir()
+    (src / "docker" / "runner.compose.yaml").write_text("name: tico-runner\n")
     (src / "setup").mkdir()
     (src / "setup" / "__init__.py").write_text("")
     (src / "setup" / "__main__.py").write_text(FAKE_WIZARD)
@@ -86,7 +88,8 @@ def test_installer_scenarios(image, rel):
     passed = {l[3:] for l in lines if l.startswith("ok ")}
     for must in ("preflight-memory", "preflight-disk", "preflight-port-80", "fresh-secret-not-echoed", "rerun-env-untouched",
                  "rerun-skips-wizard", "upgrade-keeps-settings", "checksum-mismatch-refused", "checksum-installs-nothing",
-                 "unpinned-uses-latest-release", "version-flag-overrides-baked", "older-installer-holds"):
+                 "unpinned-uses-latest-release", "version-flag-overrides-baked", "older-installer-holds",
+                 "mac-team-install-refused", "mac-local-exit", "mac-runner-exit", "mac-docker-not-running"):
         assert must in passed, f"scenario {must} did not run"
 
 

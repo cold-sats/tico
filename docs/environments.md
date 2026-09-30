@@ -253,8 +253,10 @@ A loopback server has no identity proxy in front of it, so the owner signs in wi
 
 - The token is 32 url-safe random bytes in `local-owner.token`, mode 0600. The server reads the
   file on every request, and answers `500` with "chmod 600" if the mode ever loosens.
-- `GET /api/v2/local-signin?token=...&next=/` sets `tico_local_session`, HttpOnly, SameSite=Strict,
-  path `/`, and Secure only when the public URL is https. `next` must be a same-origin path.
+- `GET /api/v2/local-signin?token=...&next=/` sets `tico_local_session_<hash>` (the hash is this install's, so two installs on one
+  browser never share a cookie; the bare `tico_local_session` from earlier versions is still read), HttpOnly, SameSite=Lax
+  (a Strict cookie is dropped on the redirect when the link is opened from a terminal or another page), 30 days,
+  path `/`, no Domain, and Secure only when the public URL is https. `next` must be a same-origin path.
   The same token also works as a `Bearer` credential for scripts.
 - `scripts/tico -e <slug> open` builds that link; the Mac app reads the token file itself, on every
   launch, from the path in its `Info.plist`.

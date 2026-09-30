@@ -6,7 +6,7 @@ questions.yaml through POST /api/v2/docs/ask, wait for the answers, and score th
 
 Run it against a Tico of your own that has a running Librarian, never a company's real one: the Librarian
 logs what it is asked in its own docs. TICO_URL is the address (https://tico.example.com) and TICO_TOKEN a
-personal API token of a person on it (Settings > Devices > API tokens).
+personal API token of a person on it (Settings > Computers > API tokens).
 
 It reports two rates: how often an answerable question's answer cited every doc it should have (and said
 something rather than "Not in the docs"), and how often an unanswerable one said "Not in the docs." Both

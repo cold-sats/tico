@@ -97,7 +97,7 @@ def health_check(computers, server=None):
     bad = [x for x in online if x["update"]["state"] == "incompatible"]
     behind = [x for x in online if x["update"]["state"] in ("needs_update", "updating")]
     failed = [x for x in online if x["update"]["error"]]
-    fixes = [{"label": "Open Devices", "href": "#/settings", "tab": "devices", "click": ""}]
+    fixes = [{"label": "Open Computers", "href": "#/settings", "tab": "devices", "click": ""}]
     names = lambda rows: ", ".join(x["label"] for x in rows[:5])   # noqa: E731
     if bad:
         return {"id": "runners", "label": "Runner versions", "status": "bad", "fixes": fixes,

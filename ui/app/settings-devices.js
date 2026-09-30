@@ -124,13 +124,19 @@ function dockerRunnerCommands(code, label, runtime) {
   const tag = serverReleaseTag(), quoted = `"${shellSafe(label)}"`;
   const installer = tag ? `https://github.com/ticoteam/tico/releases/download/${tag}/install.sh`
                         : 'https://github.com/ticoteam/tico/releases/latest/download/install.sh';
+  // A server that answers on this computer only (the quick start) is not reachable at 127.0.0.1 from inside the
+  // runner's container, which has a loopback of its own. The runner joins the server's Docker network instead.
+  const local = !!S.config?.local;
+  const join = local ? '--url http://server:8765' : `--url ${runnerUrl()}`;
   return [
-    ['Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
-     `curl -fsSL ${installer} | sh -s -- --runner --url ${runnerUrl()} --code ${code} --label ${quoted}`],
-    ['Sign the bots in to a model, once (the runner installs the model CLI first; give it a minute)',
-     `docker exec -it tico-runner ${runtime === 'claude' ? 'claude setup-token' : 'codex login --device-auth'}`],
+    [local ? 'Set up the runner on this computer (installs Docker if it is missing; keeps itself on this server\'s release)'
+           : 'Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
+     `curl -fsSL ${installer} | sh -s -- --runner ${join}${local ? ' --server-network tico_default' : ''} --code ${code} --label ${quoted}`],
+    // Signing in to a model comes only once a provider is chosen; before that there is no model to name.
+    runtime ? ['Sign the bots in to a model, once (the runner installs the model CLI first; give it a minute)',
+     `docker exec -it tico-runner ${runtime === 'claude' ? 'claude setup-token' : 'codex login --device-auth'}`] : null,
     ['Or with plain Docker instead of the line above. It has no updater, so it will not follow the server\'s releases',
-     `docker run -d --name tico-runner --restart unless-stopped -v tico-runner:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join --url ${runnerUrl()} --code ${code} --label ${quoted}`],
+     `docker run -d --name tico-runner --restart unless-stopped${local ? ' --network tico_default' : ''} -v tico-runner:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code ${code} --label ${quoted}`],
   ];
 }
 async function enrollmentDownload(operator, label) {
@@ -220,7 +226,8 @@ function renderSettingsMachines() {
       <button class="primary" type="button" id="register-machine">Add computer</button>
       <p class="machine-enroll-status" id="machine-enroll-status"></p></div>`;
   el.querySelector('[data-machines-list]').innerHTML = list;
-  const machineDefaultLabel = () => `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
+  const machineDefaultLabel = () => $('#machine-kind').value === 'linux' && S.config?.local ? 'This computer'
+    : `${settingsPersonName($('#machine-operator').value)}'s ${$('#machine-kind').value === 'linux' ? 'server' : 'Mac'}`;
   $('#machine-operator').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#machine-kind').onchange = () => { $('#machine-label').value = machineDefaultLabel(); };
   $('#register-machine').onclick = async event => {
@@ -231,7 +238,7 @@ function renderSettingsMachines() {
       const status = $('#machine-enroll-status');
       if ($('#machine-kind').value === 'linux') {
         const {code} = await enrollmentCode(operator);
-        const commands = dockerRunnerCommands(code, label, S.config?.default_runtime);
+        const commands = dockerRunnerCommands(code, label, S.config?.default_runtime).filter(Boolean);
         status.innerHTML = `Code for <strong>${esc(label)}</strong>, good 15 minutes. Run on that server:${commands.map(([note, command], i) => `<br><span class="muted">${esc(note)}</span><br><code>${esc(command)}</code> <button class="ghost" type="button" data-machine-copy="${i}">Copy</button>`).join('')}`;
         status.querySelectorAll('[data-machine-copy]').forEach(button => button.onclick = () =>
           void copyText(commands[Number(button.dataset.machineCopy)][1]).then(() => toast('Command copied')));

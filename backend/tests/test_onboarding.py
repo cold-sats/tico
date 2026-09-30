@@ -205,6 +205,8 @@ def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(envir
     api = environment(seed={}, enabled_providers=())
     read = api.get("/api/v2/providers", headers=signed_in()).json()
     assert not read["configured"] and read["revision"] == 0
+    # No model to sign in to before a provider is chosen: the config carries no runtime until then.
+    assert api.get("/api/v2/config", headers=signed_in()).json()["default_runtime"] == ""
     saved = api.put("/api/v2/providers", headers=signed_in(), json={
         "enabled": ["anthropic", "google"], "expected_revision": 0})
     assert saved.status_code == 200, saved.text
@@ -212,7 +214,8 @@ def test_the_owner_saves_a_revisioned_choice_and_a_stale_editor_is_refused(envir
     assert saved.json()["revision"] == 1
     stale = api.put("/api/v2/providers", headers=signed_in(), json={"enabled": ["openai"], "expected_revision": 0})
     assert stale.status_code == 409
-    assert api.get("/api/v2/config", headers=signed_in()).json()["providers_configured"] is True
+    config = api.get("/api/v2/config", headers=signed_in()).json()
+    assert config["providers_configured"] is True and config["default_runtime"] == "claude"
     models = api.get("/api/v2/models", headers=signed_in()).json()
     assert models["enabled_providers"] == ["anthropic", "google"]
     assert models["default"]["model"] == "claude-opus-5"

@@ -392,7 +392,7 @@ function recruitFor({department, briefing, share}) {
     assert.deepEqual(await chartBots('sales'), ['sales-lead', 'sdr-research', 'partnerships']);
     assert.match(await page.locator('#ob-chart [data-oc-bot=partnerships]').getAttribute('class'), /ob-new/);
     assert.doesNotMatch(await page.locator('#ob-chart [data-oc-bot=sdr-research]').getAttribute('class'), /ob-new/);
-    assert.equal(await page.locator('#ob-chart-stats').textContent(), '6 departments · 3 bots');
+    assert.equal(await page.locator('#ob-chart-stats').textContent(), '6 groups · 3 bots');
     assert.equal(await page.locator('#ob-more').count(), 0);                       // nothing left in Sales to show under More
     // The page scrolls (the org builder lets the document scroll); the sidebar and its bottom bar stay put, full height.
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
@@ -478,7 +478,7 @@ function recruitFor({department, briefing, share}) {
 
     // The finished chart: every department with bots, its head under it and the team under the head.
     await page.locator('#ob-summary').waitFor();
-    assert.equal(await page.locator('#ob-summary').textContent(), '5 departments · 11 bots');
+    assert.equal(await page.locator('#ob-summary').textContent(), '5 groups · 11 bots');
     assert.deepEqual(await page.locator('#ob-chart-big [data-oc-dept]').evaluateAll(els => els.map(el => el.dataset.ocDept)),
       ['sales', 'marketing', 'support', 'operations', 'engineering']);
     assert.equal(await page.locator('#ob-side').isVisible(), false);
@@ -543,7 +543,16 @@ function recruitFor({department, briefing, share}) {
     assert.match(blurb, /A Mac/);
     assert.match(blurb, /A Linux or cloud server/);
     assert.doesNotMatch(blurb, /Mac you own/);
-    assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> profile add default/);
+    // No AI provider is chosen yet, so there is no model to sign in to: that step is left out and the rest renumber.
+    assert.doesNotMatch(await page.locator('#onb-step').textContent(), /profile add default|profile login|codex login/);
+    assert.match(await page.locator('#onb-step').textContent(), /3 · Start the bot service/);
+    // Once a provider is chosen the sign-in step is there, in order, on a Mac and on a Linux server.
+    assert.deepEqual(await page.evaluate(() => {
+      const state = {...ONB, providers: {default: {runtime: 'codex'}}};
+      return [onbCommands(state).map(([label]) => label.slice(0, 3)).join(''), onbCommands({...state, kind: 'linux'}).map(([label]) => label.slice(0, 3)).join('')];
+    }), ['2 ·3 ·4 ·', '2 ·3 ·4 ·']);
+    assert.match(await page.evaluate(() => onbCommands({...ONB, providers: {default: {runtime: 'codex'}}})[1][1]), /profile login default codex/);
+    assert.match(await page.evaluate(() => onbCommands({...ONB, kind: 'linux', providers: {default: {runtime: 'claude'}}})[1][1]), /docker exec -it tico-runner claude setup-token/);
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> install bot/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => !/<setup-file>/.test(document.querySelector('#onb-step').textContent));
@@ -553,12 +562,18 @@ function recruitFor({department, briefing, share}) {
     await page.locator('[data-onb-kind][value=linux]').check();
     const installLine = /curl -fsSL https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install\.sh \| sh -s -- --runner --url https:\/\/initech\.test --code <code> --label "Ana's server"/;
     assert.match(await page.locator('#onb-step').textContent(), installLine);
+    // A server that answers on this computer only is not 127.0.0.1 to a container: the runner joins its Docker network.
+    assert.equal(await page.evaluate(() => { const was = S.config; S.config = {...was, local: true, runner_url: 'http://127.0.0.1:8765'};
+      const [run, , plain] = dockerRunnerCommands('c0de', onbMachineLabel({kind: 'linux'}), 'codex'); S.config = was;
+      return [run[1], plain[1]].join('\n'); }),
+      'curl -fsSL https://github.com/ticoteam/tico/releases/download/v0.2.0/install.sh | sh -s -- --runner --url http://server:8765 --server-network tico_default --code c0de --label "This computer"\n'
+      + 'docker run -d --name tico-runner --restart unless-stopped --network tico_default -v tico-runner:/home/runner ghcr.io/ticoteam/tico-runner:v0.2.0 join --url http://server:8765 --code c0de --label "This computer"');
     // The bare docker run stays as an alternative, pinned to the server's release and said not to update itself.
     assert.match(await page.locator('#onb-step').textContent(), /no updater, so it will not follow the server's releases/);
     assert.match(await page.locator('#onb-step').textContent(), /docker run -d --name tico-runner --restart unless-stopped -v tico-runner:\/home\/runner ghcr\.io\/ticoteam\/tico-runner:v0\.2\.0 join --url https:\/\/initech\.test --code <code>/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => /--code enroll-code --label "Ana's server"/.test(document.querySelector('#onb-step').textContent));
-    assert.match(await page.locator('#onb-step').textContent(), /docker exec -it tico-runner codex login --device-auth/);
+    assert.doesNotMatch(await page.locator('#onb-step').textContent(), /docker exec -it tico-runner/);
     await page.locator('[data-onb-kind][value=mac]').check();
     // The Mac comes online; the next save carries the live machine through to the review.
     machine = {runners: [{id: 'runner-1', label: "Ana's Mac", online: true}, {id: 'runner-2', label: 'Cloud box', online: true}, {id: 'runner-3', label: 'Old laptop', online: false}], enrolled: true};
@@ -767,14 +782,14 @@ function recruitFor({department, briefing, share}) {
     await phone.locator('#onb-next').click();
     // The saved draft opens on its chart; the strip above is closed and says what is on it.
     await phone.locator('#ob-summary').waitFor();
-    assert.equal(await phone.locator('#ob-summary').textContent(), '5 departments · 11 bots');
+    assert.equal(await phone.locator('#ob-summary').textContent(), '5 groups · 11 bots');
     assert.equal(await fits(), true);
     await shot(phone, 'phone-7-chart');
     await phone.locator('#ob-departments').click();
     await phone.locator('[data-ob-tile]').first().waitFor();
     assert.equal(await phone.locator('#ob-strip').isVisible(), true);
     assert.equal(await phone.locator('#ob-chart').isVisible(), false);
-    assert.match(await phone.locator('#ob-strip').textContent(), /5 departments · 11 bots/);   // the skipped Finance is not counted
+    assert.match(await phone.locator('#ob-strip').textContent(), /5 groups · 11 bots/);   // the skipped Finance is not counted
     assert.equal(await fits(), true);
     await shot(phone, 'phone-3-departments');
     await phone.locator('#ob-strip').click();
@@ -848,6 +863,7 @@ function recruitFor({department, briefing, share}) {
     await waiting.reload();
     await waiting.locator('[data-onb-bot=coo]').waitFor();
     assert.match(await waiting.locator('[data-onb-bot=coo]').textContent(), /Add an AI provider\./);
+    assert.equal(await waiting.locator('[data-onb-bot=coo] a[data-fr-providers]').count(), 1);   // a link to Settings > AI providers
     delete CONFIG.providers_configured;
 
     // A viewer has no setup entry and lands on Tasks if they type the address.

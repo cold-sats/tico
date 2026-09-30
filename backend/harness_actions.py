@@ -63,7 +63,7 @@ def request(c, who, rid, harness, action):
 
 
 def recent(c, rid):
-    """Requests still in flight, and the last finished one per harness, for the Devices page. Reads
+    """Requests still in flight, and the last finished one per harness, for the Computers page. Reads
     only: the page loads on a read connection, and `sweep` runs on every write."""
     rows = c.execute("SELECT * FROM runner_harness_actions WHERE runner_id=? ORDER BY created DESC LIMIT 30",
                      (rid,)).fetchall()

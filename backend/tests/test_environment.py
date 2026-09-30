@@ -89,6 +89,70 @@ def test_local_signin_never_redirects_off_this_origin(environment, tmp_path):
         assert response.headers["location"] == "/"
 
 
+def test_a_local_install_takes_writes_from_127_0_0_1_and_localhost_on_its_own_port(tmp_path):
+    local = Settings(db_path=tmp_path / "hub.db", public_url="http://127.0.0.1:8765",
+                     local_owner_token_file=local_token_file(tmp_path))
+    for origin in ("http://127.0.0.1:8765", "http://localhost:8765"):
+        assert local.allows_origin(origin)
+    for origin in ("http://localhost:9000", "https://localhost:8765", "http://evil.example:8765",
+                   "http://127.0.0.1.evil.example:8765"):
+        assert not local.allows_origin(origin)
+    # Without a local owner session the origin must match the public address exactly.
+    plain = Settings(db_path=tmp_path / "hub.db", public_url="http://127.0.0.1:8765")
+    assert not plain.allows_origin("http://localhost:8765")
+
+
+def test_the_local_sign_in_link_sets_a_cookie_that_holds_over_plain_http_and_lands_signed_in(environment, tmp_path):
+    api = environment(local_owner_token_file=local_token_file(tmp_path))
+    response = api.get("/api/v2/local-signin", params={"token": TOKEN, "next": "/"}, follow_redirects=False)
+    assert response.status_code == 302 and response.headers["location"] == "/"
+    cookie = response.headers["set-cookie"].lower()
+    name = api.app.state.auth.local_cookie()
+    assert cookie.startswith(name + "=") and "httponly" in cookie and "samesite=lax" in cookie
+    # No Domain (it stays with the host it was set on), no Secure (the link is plain http), kept across a restart.
+    assert "domain" not in cookie and "secure" not in cookie and "max-age=" in cookie
+    assert "no-store" in response.headers["cache-control"]
+    # Followed as the browser does, from either loopback name, the page it lands on knows who this is.
+    for host in ("127.0.0.1:8765", "localhost:8765"):
+        api.cookies.clear()
+        api.get("/api/v2/local-signin", params={"token": TOKEN}, headers={"host": host})
+        me = api.get("/api/v2/me", headers={"host": host})
+        assert me.status_code == 200 and me.json()["role"] == "owner"
+
+
+def test_two_local_installs_on_one_browser_keep_their_own_session_cookie(environment, tmp_path):
+    (tmp_path / "b").mkdir()
+    (tmp_path / "c").mkdir()
+    first = environment(local_owner_token_file=local_token_file(tmp_path), public_url="http://127.0.0.1:8765")
+    second = environment(local_owner_token_file=local_token_file(tmp_path / "b", "another-owner-secret-0123456789abcdef"),
+                         public_url="http://127.0.0.1:8766")
+    same_url = environment(local_owner_token_file=local_token_file(tmp_path / "c", "yet-another-secret-0123456789abcdef"),
+                           public_url="http://127.0.0.1:8765")
+    names = {api.app.state.auth.local_cookie() for api in (first, second, same_url)}
+    assert len(names) == 3 and all(n.startswith(LOCAL_COOKIE + "_") for n in names)
+    # Each signs in under its own name; one browser holding both cookies keeps both signed in, and signing out
+    # of one clears only its own.
+    first.get("/api/v2/local-signin", params={"token": TOKEN})
+    second.get("/api/v2/local-signin", params={"token": "another-owner-secret-0123456789abcdef"})
+    both = "; ".join(f"{k}={v}" for k, v in [*first.cookies.items(), *second.cookies.items()])
+    assert len(both.split("; ")) == 2
+    for api in (first, second):
+        assert api.get("/api/v2/me", headers={"cookie": both}).json()["role"] == "owner"
+    only_second = "; ".join(f"{k}={v}" for k, v in second.cookies.items())
+    assert first.get("/api/v2/me", headers={"cookie": only_second}).status_code == 401
+    out = first.get("/api/v2/logout", follow_redirects=False)
+    assert first.app.state.auth.local_cookie() + '=""' in out.headers["set-cookie"]
+    assert second.get("/api/v2/me").status_code == 200
+
+
+def test_a_session_from_before_the_cookie_had_a_per_install_name_still_signs_in(environment, tmp_path):
+    api = environment(local_owner_token_file=local_token_file(tmp_path))
+    api.cookies.set(LOCAL_COOKIE, TOKEN)
+    assert api.get("/api/v2/me").json()["role"] == "owner"
+    api.cookies.set(LOCAL_COOKIE, "wrong-secret")
+    assert api.get("/api/v2/me").status_code == 401
+
+
 def test_local_signin_refuses_to_start_on_a_public_address(tmp_path):
     with pytest.raises(RuntimeError, match="loopback"):
         Settings(db_path=tmp_path / "hub.db", public_url="https://atlas.acme.example",
