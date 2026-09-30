@@ -10,7 +10,7 @@ window.mountGithubConnect = async function (host) {
   if (state.connected) {
     host.innerHTML = `<p>Connected to <strong>${text(state.org)}</strong> through the app <strong>${text(state.slug)}</strong>.
       <span data-gh-install>${state.installed ? 'Installed on the organization.' : 'Not installed yet.'}</span></p>
-      <p class="muted">${state.administration ? 'Tico may create bot repositories.' : 'Tico may not create repositories; create them yourself.'}</p>
+      <p class="muted">Can create repositories: ${state.administration ? 'yes' : 'no'}</p>
       ${state.installed ? '' : `<p class="muted">Choose <strong>All repositories</strong> when GitHub asks. Each bot's token still covers only its own repository.</p>`}
       <div class="row">${state.installed ? '' : `<a class="primary" role="button" href="${text(state.install_url)}" target="_blank" rel="noopener">Install on ${text(state.org)}</a>`}
       <button type="button" class="ghost" data-gh-disconnect>Disconnect</button>
