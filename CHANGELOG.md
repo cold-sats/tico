@@ -7,6 +7,32 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-09-30
+
+### Added
+- **Bots share credentials when BotOps grants them.** A bot uses only its own credentials and the ones granted to it. BotOps grants a
+  stored credential to another bot at once, as the human who asked, when that human is a credential admin (the owner and admins by
+  default): `hub credential grant <name> --to <bot>` and `revoke <name> --from <bot>`, and MCP `hub_credential_grant|revoke`. A
+  secret that lives only in a bot's own secrets file moves into Credentials with `hub credential import <VAR> --from-bot <bot>`: the
+  bot's computer uploads it on its own channel and the value is never shown or logged. BotOps has a share-a-credential playbook.
+- **`hub tool update`** (and `hub_tool_update`) changes a bot's tool in place (`--can`, `--note`, `--scope`), as the human who asked.
+
+### Changed
+- **Credentials work with no KMS key.** Without `TICO_CREDENTIAL_KMS_KEY` the vault uses a key kept in `/data/credential.key`
+  (made once, mode 0600). The backup copies it beside the database whenever it changes, `restore` puts it back, and Health warns while
+  it has not been copied. A KMS key, when set, is still used.
+- **Task IDs are forgiving.** A unique prefix of 8 or more characters works wherever a task ID does, a near-miss ID gets "Did you mean
+  … (title)?" instead of a bare not-found, and listings show `short_id`.
+- **BotOps** treats only a human's messages and tasks as instructions (a task a bot created is a record), and closes the Needs-you
+  tasks it filed once they are resolved; its daily sweep reviews them.
+
+### Fixed
+- Mail and calendar sync no longer block a domain after one passing `unauthorized_client`: it takes 3 errors in a row, then backs
+  off from 2 to 60 minutes and resets on the first success.
+- A support Confirm card shows the whole message behind a short preview.
+- The update status reports as "from" the release actually running.
+- Tico HQ: staff stats (`/v1/staff/stats`) give exact installs per release; the public stats keep hiding counts under 5.
+
 ## [0.2.24] - 2026-09-30
 
 ### Changed
