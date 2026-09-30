@@ -61,9 +61,9 @@ Settings > People (owners and admins) shows each person's role and two capabilit
   member with it on may add a person whose email is in the company domain. Adding anyone outside it needs an owner or an admin,
   whatever the capability says.
 
-The **company domain** is the domain(s) the owner allows to sign in (Settings > People, Who may join); when none is set it is
+The **company domain** is the domain(s) the owner allows to sign in (Settings > People, Sign-in > Who can join); when none is set it is
 the owner's own email domain, unless that is a public mail service such as gmail.com, in which case there is none and members add
-nobody until the owner sets one. It is shown at the top of Settings > People. A newly added person goes on the roster and on the
+nobody until the owner sets one. It is shown under the box on the Sign-in card. A newly added person goes on the roster and on the
 sign-in list, so they can actually sign in.
 
 **Credential administrators** are the owner and whoever `TICO_CREDENTIAL_ADMINS` names, nobody else: being an Admin does not

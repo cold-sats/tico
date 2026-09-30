@@ -126,7 +126,7 @@ All notable changes to Tico are recorded here. The format follows
   the team step is the card's own summary: the "It fits how you described the company." line is gone.
 
 ### Fixed
-- **Who may join** was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched
+- **Who can join** (on the Sign-in card) was two boxes, and a domain typed into the address box (`*@company.com`) was stored as written and never matched
   anyone. It is now one box: an address lets that person join, a domain (`company.com`, `@company.com` or `*@company.com`) lets anyone
   at it join, and after saving the page shows what it understood ("Domain: company.com", "Person: ana@company.com"). The server sorts
   each entry into `allowed` or `allowed_domains` (the stored shape is unchanged) and refuses, naming the entry, anything that could
