@@ -1,7 +1,7 @@
 ---
 name: decisions
 version: 3
-description: Read when a step in your work is a decision rather than a piece of writing - classify, route, dedupe, gate, rank, flag, pick a value from candidates, choose which tool or branch comes next - and you want a calibrated answer in one call instead of reasoning it out in your own context. The hub's `hub_decisions` tool or `hub decisions` command; the question format matches OpenRouter's Decisions API. Formerly the `judge` skill.
+description: Read when a step in your work is a decision rather than a piece of writing - classify, route, dedupe, gate, rank, flag, pick a value from candidates, choose which tool or branch comes next - and you want a calibrated answer in one call instead of reasoning it out in your own context. The hub's `hub_decision_ask` tool or `hub decision ask` command; the question format matches OpenRouter's Decisions API. Formerly the `judge` skill.
 ---
 
 # Decisions
@@ -47,13 +47,13 @@ for anything code can compute exactly (see "What the decision model is bad at").
 
 ## How to call it
 
-Inside any turn, the MCP tool `hub_decisions` or the command:
+Inside any turn, the MCP tool `hub_decision_ask` or the command:
 
 ```bash
-hub decisions --list                                                  # the shared question sets
-hub decisions --set mail-triage --state-file msg.json                 # one call, answers as JSON
-hub decisions --set covered --state-file cand.json --option covered=existing.json
-hub decisions --questions-file mine.json --state-file s.json --label seo.action-sort@1
+hub decision ask --list                                                  # the shared question sets
+hub decision ask --set mail-triage --state-file msg.json                 # one call, answers as JSON
+hub decision ask --set covered --state-file cand.json --option covered=existing.json
+hub decision ask --questions-file mine.json --state-file s.json --label seo.action-sort@1
 ```
 
 The three question types, and what comes back:
@@ -177,7 +177,7 @@ version for a bot:
 - The key is the hub's: do not ask for it, look for it, or call the API yourself. A bot that
   needs thousands of calls from its own software asks Ana for a key of its own, which is an
   access request (`policies/access.md`).
-- There is a budget per actor per day (`GET /api/v2/judge` reports it). A loop that spends it
+- There is a budget per actor per day (`GET /api/v2/decisions` reports it). A loop that spends it
   is a bug; stop and say so.
 - Test before you trust. Run a new question over ten rows you already know the answer to and
   read the misses: missing evidence in the state, a literal reading of your words, a model

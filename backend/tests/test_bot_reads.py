@@ -41,7 +41,7 @@ def test_a_bot_sees_the_other_bots_with_reports_to_and_department_except_those_i
                       (boss, template, slug))
         c.execute("UPDATE bot_config SET access_json=? WHERE bot='doc-updater'", (hidden,))
 
-    code, org = hub(live, attempt["token"], "org")
+    code, org = hub(live, attempt["token"], "team", "show")
     assert code == 0
     bots = {b["id"]: b for b in org["bots"]}
     assert set(bots) == {"coo", "ops", "cpo", "product-design", "finance"}, "everything but the bot it may not see"
@@ -62,14 +62,14 @@ def test_a_bot_reads_daily_and_weekly_updates_and_one_update_in_full(api, live):
         weekly = updates.post(c, "finance", "- Closed the books for September", kind="weekly", day="2026-09-25")
     token = attempt["token"]
 
-    code, listed = hub(live, token, "updates", "--kind", "weekly")
+    code, listed = hub(live, token, "update", "list", "--kind", "weekly")
     assert code == 0 and [u["id"] for u in listed["updates"]] == [weekly["id"]]
-    code, listed = hub(live, token, "updates", "--kind", "daily")
+    code, listed = hub(live, token, "update", "list", "--kind", "daily")
     assert code == 0 and [u["id"] for u in listed["updates"]] == [daily["id"]]
-    code, both = hub(live, token, "update", "list", "--bot", "finance", "--limit", "5")       # the same read, spelled like the group
+    code, both = hub(live, token, "update", "list", "--bot", "finance", "--limit", "5")       # the same read with more flags
     assert code == 0 and [u["id"] for u in both["updates"]] == [weekly["id"]]
     code, one = hub(live, token, "update", "show", daily["id"])
     assert code == 0 and one["update"]["headline"] == "Shipped the pricing page"
     # A bot may not mark updates read or reply: that is a person's, and the refusal says so (it is not "unsupported").
-    code, refused = hub(live, token, "update", "read", daily["id"])
+    code, refused = hub(live, token, "update", "mark-read", daily["id"])
     assert code == 2 and refused["error"] != "unsupported" and "person" in refused["detail"]

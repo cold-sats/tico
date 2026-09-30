@@ -41,18 +41,18 @@ def test_a_message_to_a_hermes_bot_waits_in_its_inbox_and_the_agent_answers_over
     snapshot = api.get("/api/v2/conversations/" + msg["conversation_id"] + "/snapshot", headers=headers()).json()
     assert snapshot["execution"] is None
     # The agent sees it in its inbox through the same tools every bot has.
-    failed, inbox = call(api, "hub_inbox", token=token)
+    failed, inbox = call(api, "hub_message_list", token=token)
     assert not failed and [m["body"] for m in inbox["messages"]] == ["What did you find today?"]
     assert beat(api, token)["waiting"]["messages"] == 1
     # It may read the conversation it is in, and answer in it.
     page = get(api, "conversations/" + msg["conversation_id"] + "/messages", token=token)
     assert [m["body"] for m in page] == ["What did you find today?"]
-    failed, sent = call(api, "hub_say", {"to": "ana", "text": "Three leads, all in Austin.",
+    failed, sent = call(api, "hub_message_send", {"to": "ana", "text": "Three leads, all in Austin.",
                                           "conversation_id": msg["conversation_id"]}, token=token)
     assert not failed and sent["from_actor"] == "bot:scout"
-    failed, acked = call(api, "hub_ack", {"message_id": msg["id"]}, token=token)
+    failed, acked = call(api, "hub_message_mark_read", {"message_id": msg["id"]}, token=token)
     assert not failed and acked == {"read": True}
-    assert call(api, "hub_inbox", token=token)[1]["messages"] == []
+    assert call(api, "hub_message_list", token=token)[1]["messages"] == []
     assert [m["body"] for m in get(api, "conversations/" + msg["conversation_id"] + "/messages")] == [
         "What did you find today?", "Three leads, all in Austin."]
     # One credential is the whole bot: every room it is in is readable, a room it is not in is not.
@@ -98,7 +98,7 @@ def test_the_mcp_door_lists_ack_and_the_agent_cannot_act_as_a_runner(api):
     hermes_bot(api)
     token = credential(api)["token"]
     tools = {t["name"] for t in rpc(api, "tools/list", token=token)["result"]["tools"]}
-    assert "hub_ack" in tools and "hub_inbox" in tools
+    assert "hub_message_mark_read" in tools and "hub_message_list" in tools
     # Runner-only doors stay shut to an agent credential.
     assert api.post("/api/v2/runners/heartbeat", json={"version": "x", "platform": "x", "readiness": {}},
                     headers=headers(token)).status_code == 403

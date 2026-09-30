@@ -13,8 +13,8 @@ Three ways to reach it, one signature (`engine(state, questions, label=None) -> 
 
     direct(api_key)        POST https://api.typesafe.ai/v1/systemone with the key; the hub server
                            and the Slack gateway use this.
-    through_hub(client)    POST /api/v2/judge on the hub with the turn's own credential; the
-                           `hub decisions` command, the `hub_decisions` MCP tool and the mail CLI use
+    through_hub(client)    POST /api/v2/decisions on the hub with the turn's own credential; the
+                           `hub decision ask` command, the `hub_decision_ask` MCP tool and the mail CLI use
                            this, so no bot ever holds the key and every call is audited.
     from_env()             whichever of the two the environment allows, or None.
 
@@ -319,14 +319,14 @@ def llm(provider, api_key, model, timeout=TIMEOUT, opener=None):
 
 
 def through_hub(client):
-    """The hub's `POST /api/v2/judge` with a turn's credential (`clients.tico.Client`)."""
+    """The hub's `POST /api/v2/decisions` with a turn's credential (`clients.tico.Client`)."""
     def engine(state, questions, label=None):
         validate(state, questions, label)
         body = {"state": state, "questions": questions}
         if label:
             body["label"] = label
         try:
-            result = client.post("judge", body)         # `Client.post` puts /api/v2/ in front
+            result = client.post("decisions", body)         # `Client.post` puts /api/v2/ in front
         except Exception as exc:                        # APIError, without importing clients.tico
             code = getattr(exc, "code", "unavailable")
             raise JudgeError(str(code), getattr(exc, "detail", str(exc)), getattr(exc, "status", 0),
