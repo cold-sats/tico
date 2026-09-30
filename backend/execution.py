@@ -547,7 +547,10 @@ class Execution:
         from .views import roster
         people = roster(c)
         inbox = P.inbox_person(row["bot"], people)
+        parked = c.execute("SELECT onboarding_state FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()
         return {"attempt": {"routine": routine, "id": aid,
+                            # A starter bot's chat while it is `needs_onboarding` is its setup (runner prompt).
+                            "onboarding": (parked["onboarding_state"] if parked else "") or "",
                             # The mailboxes an inbox bot's turn may ask its runner for mail access to.
                             "mailboxes": P.mailboxes_below(inbox["id"], people) if inbox else [], "next_run": carried, "notes": notes, "job_id": row["id"], "bot": row["bot"],
                             "credential_vault": bool(self.store.settings.credential_kms_key),

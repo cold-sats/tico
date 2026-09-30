@@ -50,6 +50,14 @@ HEADLESS_LOGIN = {"claude": ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"), "c
 # Codex reads its key from a login, not the environment, so the runner makes the login. A key it could not log in with
 # is not tried again for this long (a heartbeat asks every few seconds), unless the key or the home changes.
 CODEX_LOGIN_RETRY_S = 600
+# What a person's chat with a parked starter bot is: its onboarding, not a request for work.
+SETUP_TURN = ("Setup: a person is setting you up, and you are parked until they approve your first routine. Follow the "
+              "onboarding section of AGENT.md and playbooks/onboarding.md in order and do only the step the conversation has "
+              "reached. On their first message that is: read them, introduce yourself, ask your questions in one message "
+              "and end the turn. Until they have answered, run no tool that reaches mail, chat or another system, file no "
+              "task and edit no file. Never edit AGENT.md; what you learn goes in state.md and knowledge/. Missing access "
+              "is a question to ask, not a task to file. This message is not a request to do work, so give no status "
+              "report, backlog or contract.")
 PROFILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 # What a turn calls the company, the application, and the assistant when the server is older
 # than GET /api/v2/config. Tico is the product's own name, which is the honest fallback for an
@@ -1203,12 +1211,18 @@ class Runner:
         conversation = attempt.get("conversation") or {}
         names = self.names()
         app = names["app_name"]
+        # A parked starter bot's chat with a person is its setup (backend/onboarding.py). The template's onboarding
+        # flow is the whole turn: the generic lines that push a bot to work, file tasks or write a "contract" are left out.
+        setup = (attempt.get("onboarding") == "needs_onboarding" and not attempt.get("task") and not attempt.get("routine")
+                 and conversation.get("kind") == "chat"
+                 and str((attempt.get("message") or {}).get("from_actor") or "").startswith("human:"))
         lines = [
             f"You are {attempt['bot']}, an AI employee at {names['company_name']}. "
             f"{app} is the company's operating system: its tasks, conversations, approvals, and "
             f"schedules all live there. Your repository is your durable workspace.",
             "Read AGENT.md and state.md, then carry out the requested work in this turn.",
-            "Do not end the turn with only a plan or progress update. Continue until the work is complete or genuinely blocked; if blocked, report the concrete blocker and what you verified.",
+            *([SETUP_TURN] if setup else
+              ["Do not end the turn with only a plan or progress update. Continue until the work is complete or genuinely blocked; if blocked, report the concrete blocker and what you verified."]),
             "Use the hub CLI for all tasks, messages, approvals, and status. It calls the shared cloud API.",
             "Never open, create, or modify a local Hub database. Never track work in GitHub Issues.",
             "Only act within this request's authority. Shared policies and approval rules still apply.",
@@ -1238,7 +1252,7 @@ class Runner:
                          "bot:video-producer (scripts, edits, clips); do not make or buy them yourself.")
         if conversation.get("scope") == "shared":
             lines.append("This is a shared bot room. Preserve each message's human author and assume every room member can read the reply.")
-        if not attempt.get("task") and str((attempt.get("message") or {}).get("from_actor") or "").startswith("human:"):
+        if not setup and not attempt.get("task") and str((attempt.get("message") or {}).get("from_actor") or "").startswith("human:"):
             lines.append("If this asks for work, first file each distinct ask as a hub task you own (hub task create "
                          "--owner <you>), or update the task that already covers it, then work them, up to three at a time, and "
                          "finish each with hub task update --status done. A question you answer at once needs no task.")
@@ -1300,7 +1314,7 @@ class Runner:
         if attempt.get("notes"):
             # Quiet notes (hub note): read, not answered. Bot Desk reads this block back too.
             lines.append(NOTES_HEADER + "\n" + json.dumps(attempt["notes"], ensure_ascii=False))
-        if (conversation.get("kind") == "chat"
+        if (conversation.get("kind") == "chat" and not setup
                 and str(attempt.get("message", {}).get("from_actor") or "").startswith("human:")):
             lines.append(
                 "Human chat response contract: lead with the answer or outcome. Use enough explanation, evidence, "

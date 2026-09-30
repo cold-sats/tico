@@ -13,8 +13,9 @@ now, and a routine that is proposed but not armed.
     hub org
 
 Note what is already here: tickets as tasks, who the approver could be, who owns product. Do not ask
-what this already says. Check whether you can read mail at all (`$HUB_DIR/scripts/mail.sh whoami`); if
-you cannot, that is answer one and a task for the owner, not something to work around.
+what this already says. Do not test mail or any other connection yet: where support arrives is
+question one, and only what the person says it is gets checked, after they answer. Missing access is
+a question for the person, not a task.
 
 ## 2. Introduce yourself in three lines
 

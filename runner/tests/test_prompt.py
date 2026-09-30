@@ -43,6 +43,33 @@ class PromptLabels(unittest.TestCase):
         self.assertNotIn(NEXT_RUN_HEADER, prompt_of(self.runner, attempt(current, [])))
 
 
+class SetupTurn(unittest.TestCase):
+    """A person's chat with a parked starter bot is its onboarding: the template's flow, not the generic chat rules that
+    made a Support Agent file tasks, run tools and write a "contract" into its own AGENT.md."""
+
+    def turn(self, **more):
+        ask = {"id": "m1", "from_actor": "human:ana", "refs": {}, "body": "Let's set you up."}
+        payload = attempt(ask, [])
+        payload.update({"bot": "support", "conversation": {**payload["conversation"], "owner_actor": "human:ana"}, **more})
+        return Runner.__new__(Runner).prompt(payload)
+
+    def test_a_setup_turn_follows_the_onboarding_flow_and_leaves_out_the_rules_that_push_it_to_work(self):
+        from runner.service import SETUP_TURN
+        prompt = self.turn(onboarding="needs_onboarding")
+        self.assertIn(SETUP_TURN, prompt)
+        for generic in ("Human chat response contract", "file each distinct ask as a hub task", "Do not end the turn with only a plan"):
+            self.assertNotIn(generic, prompt)
+        self.assertIn("Current message from human:ana:\nLet's set you up.", prompt)
+
+    def test_any_other_turn_is_unchanged(self):
+        for more in ({}, {"onboarding": "onboarded"}, {"onboarding": "needs_onboarding", "task": {"id": "t1"}},
+                     {"onboarding": "needs_onboarding", "routine": {"id": "r1"}}):
+            prompt = self.turn(**more)
+            self.assertNotIn("Setup: a person is setting you up", prompt)
+            self.assertIn("Do not end the turn with only a plan", prompt)
+        self.assertIn("Human chat response contract", self.turn(onboarding="onboarded"))
+
+
 class FakeConfig:
     """The runner's client, answering only GET /api/v2/config."""
 

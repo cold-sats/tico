@@ -81,9 +81,17 @@ def test_a_starter_is_created_parked_and_leaves_that_state_only_when_it_says_a_p
     ready(api, computer, ["support"])
     api.post("/api/v2/tasks", json={"owner": "support", "title": "Look at the queue", "body": "x"}, headers=signed_in())
     assert claim(api, computer, "support") is None
-    post(api, "chat/support", {"text": "Let's set you up."}, token="local-owner-secret-token-0123456789")
+    started = post(api, "chat/support", {"text": "Let's set you up."}, token="local-owner-secret-token-0123456789")
     attempt = claim(api, computer, "support")
     assert attempt and attempt["bot"] == "support"
+    assert attempt["onboarding"] == "needs_onboarding"           # the runner's prompt follows the template's flow
+
+    # Start setup is a message in the person's own chat with the bot: the conversation the bot page's Chat tab lists.
+    chats = api.get("/api/v2/conversations", params={"chat_with": "support"}, headers=who).json()["conversations"]
+    assert [c["id"] for c in chats] == [started["conversation_id"]] == [attempt["conversation"]["id"]]
+    assert chats[0]["scope"] == "personal" and chats[0]["kind"] == "chat"
+    shown = api.get(f"/api/v2/conversations/{chats[0]['id']}/messages", headers=who).json()["messages"]
+    assert "Let's set you up." in [m["body"] for m in shown]           # beside the task notice the room already held
 
     # Only the bot itself (or its manager) says it is onboarded, and saying it twice changes nothing.
     def call(token):
