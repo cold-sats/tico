@@ -64,6 +64,8 @@ All notable changes to Tico are recorded here. The format follows
   and checks GitHub directly until it updates.
 - Bot pages no longer show the automatic KPI tiles; link a bot's KPIs to a goal from the Goals page.
 - The Done list on a bot page shows its focus ring only for the keyboard.
+- **Settings > Recurring and Settings > Bots filters fit on one line**: a search box and compact menus with no labels
+  beside them (each menu names itself, e.g. "All bots"); two menus a row on a phone.
 
 ### Removed
 - The starter team and the full org chart: `choose()`, `full_chart()` and `recommend()` in `backend/onboarding.py`, and
