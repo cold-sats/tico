@@ -142,7 +142,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   if (!selected) {
     reader.innerHTML = docs.length || linked.length
       ? '<div class="docs-welcome"><p class="muted">Pick a doc, or search.</p></div>'
-      : '<div class="docs-welcome"><h2>Your company\'s docs, in one place</h2><p class="muted">Write what your team and your bots should know, import files, and link the docs that live elsewhere. Search covers all of it.</p></div>';
+      : '<div class="docs-welcome"><h2>Your team\'s docs, in one place</h2><p class="muted">Write what your team and your bots should know, import files, and link the docs that live elsewhere. Search covers all of it.</p></div>';
     return;
   }
   if (creating) {

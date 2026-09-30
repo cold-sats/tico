@@ -21,11 +21,11 @@ const settingsChoiceLabel = (harness, model, effort) => {
   const left = [settingsHarnessName(harness) || harness, settingsModelName(model)].filter(Boolean).join('/');
   return effort ? `${left} · ${settingsEffortName(effort)}` : left;
 };
-// A bot with no model of its own follows the company default; say which one it resolves to.
+// A bot with no model of its own follows the team default; say which one it resolves to.
 function settingsDefaultLabel(e) {
   if (e.model || !e.resolved_model) return 'not set';
   const row = settingsModel(e.resolved_model);
-  return `company default (${settingsChoiceLabel(e.resolved_runtime, e.resolved_model, row?.default_effort || '')})`;
+  return `team default (${settingsChoiceLabel(e.resolved_runtime, e.resolved_model, row?.default_effort || '')})`;
 }
 function settingsAllChoices() {
   // Once the owner has chosen providers, only their models are offered (a bot already on another
@@ -124,7 +124,7 @@ function settingsMachineSelect(e) {
   const currentLabel = e.machine ? `${e.machine.label} · ${settingsPersonName(e.machine.operator)}` : unassigned;
   const seen = e.machine?.last_seen ? `last seen ${ago(e.machine.last_seen)}` : e.machine ? 'waiting for its first heartbeat' : 'register a computer first';
   return `<select class="settings-inline-select" data-bot-machine="${esc(e.name)}" data-current="${esc(current)}"
-    aria-label="Machine for ${esc(e.display_name)}" title="${esc(`${currentLabel} · ${seen}`)}" ${settingsCanManageBot(e) && machines.length ? '' : 'disabled'}>
+    aria-label="Computer for ${esc(e.display_name)}" title="${esc(`${currentLabel} · ${seen}`)}" ${settingsCanManageBot(e) && machines.length ? '' : 'disabled'}>
       ${current ? '' : `<option value="" selected disabled>${esc(unassigned)}</option>`}
       ${machines.map(machine => `<option value="${esc(machine.id)}" ${machine.id === current ? 'selected' : ''}>${esc(machine.label)} · ${esc(settingsPersonName(machine.operator))}</option>`).join('')}
     </select>`;
@@ -285,7 +285,7 @@ function renderSettingsBots() {
   [...SETTINGS_BOTS_VIEW.selected].forEach(slug => { if (!shownSelectable.has(slug)) SETTINGS_BOTS_VIEW.selected.delete(slug); });
   const pick = e => settingsBotSelectable(e)
     ? `<input type="checkbox" data-bot-pick="${esc(e.name)}" aria-label="Select ${esc(e.display_name)}" ${SETTINGS_BOTS_VIEW.selected.has(e.name) ? 'checked' : ''}>`
-    : `<input type="checkbox" disabled aria-label="${esc(e.display_name)} cannot be changed here" title="${e.agent ? 'An external agent uses its own model' : 'You do not operate this bot'}">`;
+    : `<input type="checkbox" disabled aria-label="${esc(e.display_name)} cannot be changed here" title="${e.agent ? 'An external agent uses its own model' : 'You do not own this bot'}">`;
   const stack = e => {
     const owners = (e.bot_owners || []).length ? e.bot_owners : (e.users || []);
     const names = owners.map(o => o.name || o.id);
@@ -348,13 +348,13 @@ function renderSettingsBots() {
   const fromCatalog = $('#settings-add-catalog');
   if (fromCatalog) { fromCatalog.onclick = () => void settingsCatalogPicker(); fromCatalog.disabled = false; }
 }
-// The same catalog cards the first run shows, for a company that is already set up. Nothing is
+// The same catalog cards the first run shows, for a team that is already set up. Nothing is
 // locked on here: the bots that were required at first run already exist and are filtered out.
 async function settingsCatalogPicker() {
   const dialog = $('#catalog-picker'); if (!dialog) return;
-  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="catalog-picker-title">Add from catalog</h2><span class="spacer"></span>
+  dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="catalog-picker-title">Add from template</h2><span class="spacer"></span>
       <button class="ghost" type="button" data-catalog-close aria-label="Close">✕</button></div>
-    <div class="bot-editor-body" id="catalog-picker-body"><div class="empty">Loading the catalog…</div></div></form>`;
+    <div class="bot-editor-body" id="catalog-picker-body"><div class="empty">Loading templates…</div></div></form>`;
   dialog.onclose = () => { dialog.innerHTML = ''; };
   dialog.querySelectorAll('[data-catalog-close]').forEach(button => button.onclick = () => dialog.close());
   dialog.showModal();
@@ -385,7 +385,7 @@ async function settingsCatalogPicker() {
     try {
       for (const card of chosen) {
         if (card.template === 'inbox' && !catalogPerson(state, card)) {
-          status.innerHTML = '<span class="err">Choose whose mailbox the inbox bot reads.</span>';
+          status.innerHTML = '<span class="err">Choose whose mailbox the message bot reads.</span>';
           submit.disabled = false; return;
         }
         const person = catalogPerson(state, card);
@@ -393,7 +393,7 @@ async function settingsCatalogPicker() {
           : card.template === 'assistant' ? assistantBot() : card.slug;
         const named = catalogName(state, card);
         const display = card.template === 'inbox' && person && named === (card.name || card.slug)
-          ? `${person.name || person.id} Inbox` : named;
+          ? `${person.name || person.id} message bot` : named;
         await post('/v2/bots', {
           slug, display_name: display, description: card.summary || '',
           template: card.template, instructions: catalogInstructions(state, card),

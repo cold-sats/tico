@@ -1,6 +1,6 @@
 /* How a computer stands against the server's release (backend/runner_versions.py): its version, whether it is
    up to date, updating, behind or too old to work with (its bots are paused), and the last update error.
-   Health and Settings > Devices both draw it. */
+   Health and Settings > Computers both draw it. */
 window.runnerUpdateHtml = function runnerUpdateHtml(update) {
   if (!update || !update.state) return '';
   const tone = {current: 'ok', updating: 'waiting', needs_update: 'waiting', incompatible: 'fail'}[update.state] || '';

@@ -1,4 +1,4 @@
-/* Settings > Cloud services: connect the company's GitHub organization through a GitHub App the
+/* Tools > GitHub: connect the team's GitHub organization through a GitHub App the
    owner creates there (docs/github-app.md). The private key never reaches the browser. */
 window.mountGithubConnect = async function (host) {
   if (!host) return;
@@ -18,7 +18,7 @@ window.mountGithubConnect = async function (host) {
       <p class="muted">Disconnect forgets the app here; delete it on GitHub to revoke access.</p>
       <p role="status" data-gh-status></p>`;
     host.querySelector('[data-gh-disconnect]').onclick = async event => {
-      if (!confirm('Forget this GitHub connection?')) return;
+      if (!confirm('Forget the GitHub app?')) return;
       event.target.disabled = true;
       try { await post('/v2/github/app/disconnect', {}); window.mountGithubConnect(host); }
       catch (error) { host.querySelector('[data-gh-status]').textContent = error.message; event.target.disabled = false; }

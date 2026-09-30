@@ -9,7 +9,7 @@
 const SQL_EXAMPLES = [
   ['Queued work', "SELECT bot, count(*) AS queued, min(created) AS oldest FROM jobs WHERE state='queued' GROUP BY bot ORDER BY queued DESC"],
   ['Open tasks by owner', "SELECT owner, status, count(*) AS n FROM tasks WHERE status IN ('open','doing','waiting') GROUP BY owner, status ORDER BY owner, status"],
-  ['Last turn per bot', "SELECT bot, max(started) AS last_turn, sum(exit='ok') AS ok, count(*) AS turns FROM turns WHERE started > strftime('%Y-%m-%dT%H:%M:%S','now','-7 days') GROUP BY bot ORDER BY last_turn DESC"],
+  ['Last run per bot', "SELECT bot, max(started) AS last_turn, sum(exit='ok') AS ok, count(*) AS turns FROM turns WHERE started > strftime('%Y-%m-%dT%H:%M:%S','now','-7 days') GROUP BY bot ORDER BY last_turn DESC"],
   ['Who asked what today', "SELECT created, from_actor, to_actor, substr(body,1,90) AS ask FROM messages WHERE kind='ask' AND created >= strftime('%Y-%m-%d','now') ORDER BY created DESC"],
   ['Routine outcomes', "SELECT s.bot, s.title, o.occurrence, o.outcome, t.status FROM schedule_occurrences o JOIN schedules s ON s.id=o.schedule_id LEFT JOIN tasks t ON t.id=o.task_id ORDER BY o.occurrence DESC LIMIT 50"],
   ['Tables', "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"],

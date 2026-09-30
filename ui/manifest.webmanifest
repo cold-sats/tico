@@ -1,7 +1,7 @@
 {
   "name": "Tico",
   "short_name": "Tico",
-  "description": "Your AI assistant and company hub.",
+  "description": "Your AI assistant and team.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

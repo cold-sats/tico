@@ -1,4 +1,4 @@
-/* ui/app/settings-people.js — Settings > People and access
+/* ui/app/settings-people.js — Settings > Humans and access
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -24,7 +24,7 @@ function peopleSwitch(attrs, checked, disabled, label) {
 function peopleMenu(p) {
   const owner = S.me?.role === 'owner', items = [];
   const check = (act, label, on) => `<button type="button" role="menuitemcheckbox" aria-checked="${on}" data-person-act="${act}"><span class="people-check" aria-hidden="true">${on ? '✓' : ''}</span>${label}</button>`;
-  if (p.role === 'member') items.push(check('create_bots', 'Can add bots', !!p.create_bots), check('add_people', 'Can add people', !!p.add_people));
+  if (p.role === 'member') items.push(check('create_bots', 'Can add bots', !!p.create_bots), check('add_people', 'Can add humans', !!p.add_people));
   if (owner && !p.owner && p.email && p.can_sign_in) items.push('<button type="button" role="menuitem" data-person-act="owner">Make owner</button>');
   if (owner && !p.owner && p.id !== S.me?.id) items.push('<button type="button" role="menuitem" class="danger-text" data-person-act="left">Mark as left</button>');
   return items.join('');
@@ -67,7 +67,7 @@ async function renderSettingsPeople() {
     const help = `${GH}/blob/main/docs/people.md#the-identity-proxy-must-agree`;
     el.innerHTML = `
       <section class="card people-join">
-        ${owner ? `<div class="people-mode" role="group" aria-label="How people join">
+        ${owner ? `<div class="people-mode" role="group" aria-label="How humans join">
           <button type="button" data-people-mode="manual" aria-pressed="${mode === 'manual'}">Add manually</button>
           <button type="button" data-people-mode="sync" aria-pressed="${mode === 'sync'}">Sync with directory</button></div>` : ''}
         ${mode === 'manual' ? `<form class="people-add" id="people-add" autocomplete="off" novalidate>
@@ -82,13 +82,13 @@ async function renderSettingsPeople() {
           `<li class="allow-chip" data-allow="${esc(x)}">${esc(x)}${owner ? `<button type="button" class="people-chip-x" data-allow-remove="${esc(x)}" aria-label="Remove ${esc(x)}">×</button>` : ''}</li>`).join('')}</ul></div>` : ''}
       </section>
       <section class="card people-list-card">
-        <header><h2>People</h2><span class="muted tnum">${active.length}</span></header>
-        <div class="people-head" aria-hidden="true"><span>Person</span><span>Role</span><span>Can sign in</span><span></span></div>
+        <header><h2>Humans</h2><span class="muted tnum">${active.length}</span></header>
+        <div class="people-head" aria-hidden="true"><span>Human</span><span>Role</span><span>Can sign in</span><span></span></div>
         <ul class="people-list">${active.map(peopleRow).join('')}</ul>
         ${left.length ? `<details class="people-left"><summary>Left <span class="tnum">${left.length}</span></summary><ul class="people-list">${left.map(p => `<li class="people-row is-left" data-person="${esc(p.id)}">
           <div class="people-who">${personAvatar(p, 32)}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div></div></div>
           <div class="people-cell-more"><button class="ghost" type="button" data-person-act="restore">Restore</button></div></li>`).join('')}</ul></details>` : ''}
-        <label class="people-line people-limit">Bot limit per member<input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
+        <label class="people-line people-limit">Bot limit per human<input id="member-bot-limit" type="number" inputmode="numeric" min="0" max="1000" value="${esc(String(view.member_bot_limit))}"></label>
       </section>`;
     if (mode === 'sync' && owner) window.mountDirectorySync?.($('#directory-sync'), renderSettingsPeople);   // ui/directory-sync.js
     const person = id => view.people.find(p => p.id === id);
@@ -113,7 +113,7 @@ async function renderSettingsPeople() {
       if (want === mode) return;
       if (want === 'sync' || !view.directory) { PEOPLE_MODE = want; void renderSettingsPeople(); return; }
       // Leaving a saved sync turns it off; the people it added stay.
-      confirmDialog(`Stop syncing from ${PEOPLE_SOURCE[view.directory] || view.directory}?`, 'Synced people stay.', 'Stop sync', async () => {
+      confirmDialog(`Stop syncing from ${PEOPLE_SOURCE[view.directory] || view.directory}?`, 'Synced humans stay.', 'Stop sync', async () => {
         const d = await get('/v2/directory');
         await put('/v2/directory', {source: '', filter: d.filter, interval_minutes: d.interval_minutes,
           mass_leave_limit: d.mass_leave_limit, expected_revision: d.revision});
@@ -147,7 +147,7 @@ async function renderSettingsPeople() {
       const on = domainSwitch.checked;
       await allow(view.allowed, on ? [...view.allowed_domains, home] : view.allowed_domains.filter(d => d !== home));
       PEOPLE_ADDED = on ? home : '';
-    }, domainSwitch.checked ? `Anyone at ${home} can sign in` : `Only people added here can sign in`);
+    }, domainSwitch.checked ? `Anyone at ${home} can sign in` : `Only humans added here can sign in`);
     el.querySelectorAll('[data-allow-remove]').forEach(button => button.onclick = () => {
       const x = button.dataset.allowRemove;
       void change(() => allow(view.allowed.filter(e => e !== x), view.allowed_domains.filter(d => d !== x)), `Removed ${x}`);
@@ -171,7 +171,7 @@ async function renderSettingsPeople() {
         peopleCloseMenus();
         if (act === 'restore') void change(() => post(path, {left: false}), `${p.name} restored`);
         else if (act === 'create_bots') void change(() => post(path, {create_bots: !p.create_bots}), `${p.name} ${p.create_bots ? 'can no longer' : 'can'} add bots`);
-        else if (act === 'add_people') void change(() => post(path, {add_people: !p.add_people}), `${p.name} ${p.add_people ? 'can no longer' : 'can'} add people`);
+        else if (act === 'add_people') void change(() => post(path, {add_people: !p.add_people}), `${p.name} ${p.add_people ? 'can no longer' : 'can'} add humans`);
         else if (act === 'left') confirmDialog(`Mark ${p.name} as left?`, 'Ends their sign-in and API tokens. Their history stays.', 'Mark as left',
           async () => { await post(`/v2/people/${encodeURIComponent(p.id)}`, {left: true}); await again(`${p.name} marked as left`); });
         else if (act === 'owner') peopleOwnerDialog(p, view);

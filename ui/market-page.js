@@ -3,7 +3,7 @@
 let MARKET_VIEW = null;
 
 const MARKET_TYPES = [
-  ['company', 'Companies'],
+  ['company', 'Organizations'],
   ['segment', 'Segments'],
   ['channel', 'Channels'],
   ['person', 'People'],
@@ -39,7 +39,7 @@ marketStyle.textContent = `.market-shell.market-shell-blank{display:flex;align-i
 @media (max-width:600px){.market-shell.market-shell-blank{align-items:flex-start;padding:28px 16px}.market-start-actions .primary{flex:1}}`;
 document.head.appendChild(marketStyle);
 
-// The node for your own company sits at the centre of the graph. The hub may name it in its
+// The node for your own team sits at the centre of the graph. Tico may name it in its
 // status (company_entity); otherwise the convention is company/self.
 const marketSelfId = () => (typeof S !== 'undefined' && S.status && S.status.company_entity) || 'company/self';
 
@@ -246,9 +246,9 @@ function marketBlankHtml(row) {
         <p>This usually takes 5–10 minutes.${row.task ? ` <a href="#/task/${esc(row.task)}">View task</a>` : ''}</p></div></div>`;
   if (!(S.me?.cloud && S.me.role === 'owner')) return '<p class="market-none">Nothing here yet.</p>';
   return `<form class="market-start" data-market-research>
-      <h1>Research your market</h1>
+      <h1>Market</h1>
       <label for="market-sources">Your website, a description, or links to anything about your market</label>
-      <textarea id="market-sources" name="text" rows="4" maxlength="8000" required autocomplete="off" placeholder="https://yourcompany.com"></textarea>
+      <textarea id="market-sources" name="text" rows="4" maxlength="8000" required autocomplete="off" placeholder="https://example.com"></textarea>
       <p class="err" data-market-error hidden></p>
       <div class="market-start-actions"><button class="primary" type="submit">Start research</button>
         <a href="#/docs?import=1">Attach files</a></div>
@@ -316,7 +316,7 @@ function renderEntity(shown, names) {
   return `<p class="market-kicker">${esc(bits || 'Entity')}</p><h1>${esc(entity.name)}</h1>
     ${entity.summary ? `<p class="market-summary">${esc(entity.summary)}</p>` : ''}
     ${aliases.length ? `<p class="market-aliases">Also called ${aliases.map(esc).join(', ')}</p>` : ''}
-    ${lines.length ? `<h2>Connections</h2><ul class="market-rels">${lines.join('')}</ul>` : '<p class="market-empty">No current connections.</p>'}
+    ${lines.length ? `<h2>Relations</h2><ul class="market-rels">${lines.join('')}</ul>` : '<p class="market-empty">No current relations.</p>'}
     ${evidence ? `<h2>Evidence</h2>${evidence}` : ''}`;
 }
 

@@ -1,4 +1,4 @@
-/* ui/app/tasks-page.js — pageTasks: loading, tools, company needs, Done, render
+/* ui/app/tasks-page.js — pageTasks: loading, tools, needs you, Done, render
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -136,7 +136,7 @@ function taskOwnerOptions(selected = '') {
     .slice().sort((a, b) => byBotOrder(a, b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
   const pick = value => value === selected ? ' selected' : '';
   return `<option value="">Who is this for?</option>
-    <optgroup label="People">${people.map(p =>
+    <optgroup label="Humans">${people.map(p =>
       `<option value="human:${esc(p.id)}"${pick('human:' + p.id) || pick(p.id)}>${esc(p.name || p.id)}</option>`).join('')}</optgroup>
     <optgroup label="Bots">${bots.map(e =>
       `<option value="${esc(e.name)}"${pick(e.name) || pick('bot:' + e.name)}>${esc(e.display_name || e.name)}</option>`).join('')}</optgroup>`;
@@ -170,7 +170,7 @@ function openTaskCreate(owner = '', opts = {}) {
         <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Link (pull request, doc)" aria-label="Link">
         ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
-        <p class="muted hint">You close it. For a person, start the title with a verb.</p>
+        <p class="muted hint">You close it. For a human, start the title with a verb.</p>
       </form>
     </div>`;
   $('[data-modal-close]', d).onclick = () => d.close();
@@ -359,7 +359,7 @@ function companyNeedGroups(items) {
 }
 function companyNeedsHTML(items) {
   const groups = companyNeedGroups(items);
-  if (!groups.length) return '<section class="card"><div class="empty">No bot needs you right now. Finished work is under Done.</div></section>';
+  if (!groups.length) return '<section class="card"><div class="empty">Nothing needs you. Finished work is under Done.</div></section>';
   const row = group => {
     group.items.sort((a, b) => byRank(a, b));
     const slug = actorSlug(group.actor), person = actorPerson(group.actor);
@@ -377,7 +377,7 @@ function companyNeedsHTML(items) {
 }
 // Done: everything finished, newest first, a page at a time.
 function tasksDoneHTML(items, state) {
-  const list = items.filter(it => it.col === 'done' && !isRecurringTask(it.task)).sort(byNewest);   // routine runs live under Recurring
+  const list = items.filter(it => it.col === 'done' && !isRecurringTask(it.task)).sort(byNewest);   // routine runs live under Routines
   if (state.doneLoading && !list.length) return '<section class="card"><div class="empty">Loading finished tasks…</div></section>';
   if (!list.length) return '<section class="card"><div class="empty">Nothing finished yet.</div></section>';
   return `<section class="card"><div class="v2-group"><h3>Done <span class="muted">${list.length}</span></h3>

@@ -3,7 +3,7 @@
 'use strict';
 
 // ----------------------------------------------------------------- the pill (talk to a bot)
-// The composer at the bottom of a bot's Chat tab: Send is a chat turn, the caret offers task or reply.
+// The composer at the bottom of a bot's Chat tab: Send is a chat message, the caret offers task or reply.
 // Each instance owns its own state.
 const ICON_CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.2-8.2a3.3 3.3 0 0 1 4.7 4.7l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></svg>';
 const ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg>';
@@ -178,9 +178,9 @@ function pillLabel(P) {
   const hint = pq(P, '.p-hint');
   const waiting = P.needsIssue && P.action === 'reply';
   hint.hidden = !waiting;
-  if (waiting) hint.innerHTML = `<strong>${empName(P.slug)}</strong> is waiting on you for  — your answer goes there and clears "needs you".`;
+  if (waiting) hint.innerHTML = `<strong>${empName(P.slug)}</strong> needs you — your answer goes there and clears "Needs you".`;
 }
-// the bot page tells the pill when the newest Issue is waiting on a person
+// the bot page tells the pill when the newest task needs the viewer
 function pillNeeds(P, issue) {
   if (!P) return;
   const was = P.needsIssue;
@@ -195,7 +195,7 @@ function pillMenu(P, open) {
   menu.hidden = !open;
   if (!open) return;
   const row = (val, label, art, on) => `<button type="button" role="menuitemradio" data-val="${esc(val)}" aria-checked="${on}">${art}<span>${label}</span>${on ? '<span class="tick" aria-hidden="true">✓</span>' : ''}</button>`;
-  menu.innerHTML = row('chat', 'Send <span class="muted">(chat turn)</span>', '<span class="auto" aria-hidden="true">✦</span>', P.action === 'chat')
+  menu.innerHTML = row('chat', 'Send <span class="muted">(chat)</span>', '<span class="auto" aria-hidden="true">✦</span>', P.action === 'chat')
       + row('task', 'Send as task', '<span class="auto" aria-hidden="true">＋</span>', P.action === 'task')
       + (P.needsIssue ? row('reply', `Reply on #${esc(P.needsIssue)}`, '<span class="auto" aria-hidden="true">↩</span>', P.action === 'reply') : '');
   menu.querySelectorAll('[data-val]').forEach(b => b.onclick = () => {
@@ -217,7 +217,7 @@ function pillClear(P, keepText) {
   P.files.length = 0; pillChips(P); chatDraftSave(P);
   if (keepText) pillButtons(P);
 }
-// a chat turn: the run starts at once and the thread tails it
+// a chat message: the run starts at once and the thread tails it
 async function pillChat(P, text) {
   const btn = pq(P, '.p-send'), label = btn.textContent;
   btn.disabled = true; pillBtnSay(btn, 'Sending…');
@@ -243,7 +243,7 @@ function pillBusy(P, j, text) {
     ? `<div class="cmd-out"><span>${name} is busy on  — send this as a task instead, or wait.</span>
        <div class="row" style="margin-top:7px"><button class="primary" type="button" data-busy="task">Send as task</button>
        <button class="ghost" type="button" data-busy="wait">Wait</button></div></div>`
-    : `<div class="cmd-out"><span>${name} cannot take a chat turn right now${j.error ? ` (${esc(j.error)})` : ''}. Send it as a task instead, or wait.</span>
+    : `<div class="cmd-out"><span>${name} cannot take a chat message right now${j.error ? ` (${esc(j.error)})` : ''}. Send it as a task instead, or wait.</span>
        <div class="row" style="margin-top:7px"><button class="primary" type="button" data-busy="task">Send as task</button>
        <button class="ghost" type="button" data-busy="wait">Wait</button></div></div>`;
   out.querySelector('[data-busy="wait"]').onclick = () => { out.hidden = true; out.innerHTML = ''; };

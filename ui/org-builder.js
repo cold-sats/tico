@@ -138,7 +138,7 @@ function obCols(state, count) {
   const most = Math.max(1, Math.min(count || 1, 4, Math.floor((width - 40) / 220)));
   return Math.ceil((count || 1) / Math.ceil((count || 1) / most));
 }
-// The person at the top and each department hanging off one line with its bots below; helpers are not on it.
+// The human at the top and each group hanging off one line with its bots below; helpers are not on it.
 // Beside the conversation it is one column; the finished chart spreads the departments into rows.
 function obChartHTML(state, big) {
   const org = state.org, me = S.me || {};
@@ -148,12 +148,12 @@ function obChartHTML(state, big) {
   return `<div class="oc${big ? ' oc-big' : ''}" style="--cols:${cols}">
       <div class="oc-top"><div class="oc-node oc-ceo" data-oc-ceo>${personAvatar(me, 28)}<span class="oc-text"><strong>${esc(me.name || 'You')}</strong><small>CEO</small></span></div></div>
       ${rows.length ? `<div class="oc-rows">${rows.map(row => `<div class="oc-row" style="--k:${row.length}">${row.map(id => obDeptNodeHTML(state, id, big)).join('')}</div>`).join('')}</div>`
-        : '<p class="oc-empty">Departments appear here.</p>'}
+        : '<p class="oc-empty">Groups appear here.</p>'}
     </div>`;
 }
 function obEditHTML(state, slug) {
   const cat = state.catalog, card = catalogCard(cat, slug), current = frReports(state, slug);
-  const groups = ['People', 'Bots on your team'].map(group => {
+  const groups = ['Humans', 'Bots on your team'].map(group => {
     const rows = frParentOptions(state, slug).filter(option => option.group === group);
     return rows.length ? `<optgroup label="${esc(group)}">${rows.map(option =>
       `<option value="${esc(option.value)}" ${option.value === current ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}</optgroup>` : '';
@@ -166,8 +166,8 @@ function obEditHTML(state, slug) {
 }
 function obMailboxHTML(state, slug) {
   const people = catalogPeople(), chosen = state.catalog.edits[slug]?.person || '';
-  return people.length ? `<label class="ob-mailbox">Whose mailbox<select data-cat-mailbox="${esc(slug)}" aria-label="Person whose inbox this bot reads">
-      <option value="">Choose a person…</option>${people.map(person => `<option value="${esc(person.id)}" ${person.id === chosen ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}
+  return people.length ? `<label class="ob-mailbox">Whose mailbox<select data-cat-mailbox="${esc(slug)}" aria-label="Human whose mailbox this bot reads">
+      <option value="">Choose a human…</option>${people.map(person => `<option value="${esc(person.id)}" ${person.id === chosen ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}
     </select></label>` : '';
 }
 function obStripHTML(state) {
@@ -182,12 +182,12 @@ function obStripHTML(state) {
 function obPickHTML(state) {
   const org = state.org, chosen = new Set(org.chosen), first = org.departments.find(d => chosen.has(d.id));
   return `<div class="ob-card ob-pick">
-      <h2 class="ob-title">What departments do you want?</h2>
-      <div class="ob-tiles" role="group" aria-label="Departments">${org.departments.map(d => `<button type="button" class="ob-tile${chosen.has(d.id) ? ' on' : ''}"
+      <h2 class="ob-title">What groups do you want?</h2>
+      <div class="ob-tiles" role="group" aria-label="Groups">${org.departments.map(d => `<button type="button" class="ob-tile${chosen.has(d.id) ? ' on' : ''}"
           data-ob-tile="${esc(d.id)}" aria-pressed="${chosen.has(d.id)}" style="--dc:${obColor(d.id)}">
           ${obIcon(d.icon, 'ob-tile-icon')}<span class="ob-tile-name">${esc(d.name)}</span><span class="ob-ms ob-tile-check" aria-hidden="true">check</span></button>`).join('')}</div>
       <div class="onb-actions"><button class="ghost" type="button" id="onb-back">Back</button><span class="spacer"></span>
-        <button class="primary ob-cta" type="button" id="ob-start" ${first ? '' : 'disabled'}>${first ? `Start with ${esc(first.name)}` : 'Pick a department'}${obIcon(OB_ICONS.go)}</button></div>
+        <button class="primary ob-cta" type="button" id="ob-start" ${first ? '' : 'disabled'}>${first ? `Start with ${esc(first.name)}` : 'Pick a group'}${obIcon(OB_ICONS.go)}</button></div>
     </div>`;
 }
 const obOffText = reason => ({demo: 'Off in the demo', DO_NOT_TRACK: 'Off: DO_NOT_TRACK is set', TICO_TELEMETRY: 'Off: TICO_TELEMETRY=off',
@@ -239,21 +239,21 @@ function obDeptHTML(state) {
         <button type="button" class="ob-more-row" id="ob-more-toggle" aria-expanded="${moreOpen}" aria-controls="ob-more-list">More in ${esc(dept.name)} <span class="muted">${more.length}</span></button>
         <div class="ob-bots" id="ob-more-list"${moreOpen ? '' : ' hidden'}>${more.map(card => obBotCardHTML(state, card, '', card.template === head)).join('')}</div></div>` : ''}`;
   }
-  const forward = step === 'suggest' ? `<button class="primary ob-cta" type="button" id="ob-next">${next ? `Next: ${esc(next.name)}` : 'See org chart'}${obIcon(OB_ICONS.go)}</button>` : '';
+  const forward = step === 'suggest' ? `<button class="primary ob-cta" type="button" id="ob-next">${next ? `Next: ${esc(next.name)}` : 'See team chart'}${obIcon(OB_ICONS.go)}</button>` : '';
   return `<article class="ob-card ob-dept" data-ob-dept="${esc(id)}" data-ob-step="${esc(step)}" style="--dc:${obColor(id)}">
       <header class="ob-dept-head">${obIcon(dept.icon, 'ob-dept-icon')}<div><div class="ob-kicker">${org.at + 1} of ${org.chosen.length}</div><h2>${esc(dept.name)}</h2></div></header>
       <p class="ob-desc">${esc(dept.description)}</p>
       <p class="ob-goal">${obIcon(OB_ICONS.goal)}<span>${esc(dept.goal)}</span></p>
       ${body}
       <div class="onb-actions ob-nav"><button class="ghost" type="button" id="ob-back">Back</button>
-        <button class="ghost" type="button" id="ob-skip">Skip department</button><span class="spacer"></span>${forward}</div>
+        <button class="ghost" type="button" id="ob-skip">Skip group</button><span class="spacer"></span>${forward}</div>
     </article>`;
 }
 // Helpers sit apart from the chart: one switch each, off by default, and the Inbox Manager asks whose mailbox here.
 function obHelpersHTML(state) {
   const cat = state.catalog, cards = obHelpers(state);
   if (!cards.length) return '';
-  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Helpers</h3>${cards.map(card => {
+  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Built-in</h3>${cards.map(card => {
     const on = cat.picked.has(card.slug);
     return `<div class="ob-helper${on ? ' on' : ''}" data-ob-helper-row="${esc(card.slug)}"><label class="ob-helper-toggle">${obAvatar(card.slug, card, 28)}
         <span class="ob-helper-name">${esc(catalogName(cat, card))}</span><input type="checkbox" role="switch" data-ob-helper="${esc(card.slug)}" ${on ? 'checked' : ''}></label>
@@ -267,7 +267,7 @@ function obFinishHTML(state) {
       ${obHelpersHTML(state)}
       <p class="err" id="team-problem" role="alert" hidden></p>
       <div class="onb-actions"><button class="ghost" type="button" id="ob-back">Back</button>
-        <button class="ghost" type="button" id="ob-departments">Departments</button><span class="spacer"></span>
+        <button class="ghost" type="button" id="ob-departments">Groups</button><span class="spacer"></span>
         <span class="muted" id="onb-status"></span><button class="primary" type="button" id="onb-next">Next</button></div>
     </div>`;
 }
@@ -282,9 +282,9 @@ function obStepHTML(state) {
   const org = state.org;
   obEnsure(state);
   return `<div class="ob ob-phase-${org.phase}" id="ob">
-      <aside class="ob-side${org.open ? ' open' : ''}" id="ob-side" aria-label="Org chart">
+      <aside class="ob-side${org.open ? ' open' : ''}" id="ob-side" aria-label="Team chart">
         <button type="button" class="ob-strip" id="ob-strip" aria-expanded="${org.open}">${obStripHTML(state)}</button>
-        <div class="ob-chart" id="ob-chart"><div class="ob-chart-head">${obIcon(OB_ICONS.chart)}<span>Org chart</span><b id="ob-chart-stats">${esc(obStats(state))}</b></div>
+        <div class="ob-chart" id="ob-chart"><div class="ob-chart-head">${obIcon(OB_ICONS.chart)}<span>Team chart</span><b id="ob-chart-stats">${esc(obStats(state))}</b></div>
           <div id="ob-chart-body">${org.loaded && org.phase !== 'finish' ? obChartHTML(state, false) : ''}</div></div>
       </aside>
       <div class="ob-main" id="ob-main">${obMainHTML(state)}</div>

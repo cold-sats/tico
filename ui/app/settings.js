@@ -1,15 +1,15 @@
-/* ui/app/settings.js — Settings shell: pageSettings, tabs, Privacy, loadSettings, Cloud services
+/* ui/app/settings.js — Settings shell: pageSettings, tabs, Privacy, loadSettings, Health services
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
 // ----------------------------------------------------------------- settings
 // People stay deliberately compact. Bot ownership, model, and physical placement are separate
 // controls because changing who can use a bot must never silently move its runtime (or vice versa).
-// Teams come from the company's data; a name reads as its words (`customer-success` is Customer Success).
+// Teams come from the team's data; a name reads as its words (`customer-success` is Customer Success).
 const teamLabel = t => String(t || '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 let SETTINGS_DATA = {people: [], machines: [], services: [], models: [], issues: [], history: {changes: [], transitions: []}};
 const SETTINGS_TAB_KEY = 'tico.settings.tab';
-// Remembered per browser tab so a reload lands where the owner was, not back on Devices.
+// Remembered per browser tab so a reload lands where the owner was, not back on Computers.
 let SETTINGS_TAB = (() => { try { return sessionStorage.getItem(SETTINGS_TAB_KEY) || 'devices'; } catch { return 'devices'; } })();
 let SETTINGS_TRANSITION_TIMER = null;
 // Owners and admins always; a member unless an admin switched create_bots off (the server decides, and counts the limit).
@@ -19,27 +19,26 @@ const settingsCanManageBot = e => S.me?.role === 'owner' || !!S.me?.bot_admin ||
 const settingsIsAdmin = () => S.me?.role === 'owner' || !!S.me?.bot_admin;
 function pageSettings() {
   clearInterval(SETTINGS_TRANSITION_TIMER);
-  if (SETTINGS_TAB === 'credentials') { location.hash = INTEGRATIONS; return; }
+  if (SETTINGS_TAB === 'credentials' || SETTINGS_TAB === 'cloud') { SETTINGS_TAB = 'devices'; location.hash = INTEGRATIONS; return; }
   // A repeat visit to the page already on screen (a refresh, a same-route redraw) keeps it: rebuilding
   // it would snap back to the default tab and drop whatever is half typed in a form.
   const built = $('#settings-tabs');
   if (built && built.dataset.role === (S.me?.role || '')) { settingsShow(SETTINGS_TAB); loadSettings(); return; }
-  $('#main').innerHTML = `<div class="meeting-head"><div><h1>Company</h1></div></div>
+  $('#main').innerHTML = `<div class="meeting-head"><div><h1>Settings</h1></div></div>
     <div id="settings-issues"></div>
-    <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Company settings">
+    <div class="tabs settings-tabs" id="settings-tabs" data-role="${esc(S.me?.role || '')}" role="tablist" aria-label="Settings">
       <button type="button" data-settings-tab="bots" role="tab">Bots</button>
-      <button type="button" data-settings-tab="devices" role="tab">Devices</button>
+      <button type="button" data-settings-tab="devices" role="tab">Computers</button>
       <button type="button" data-settings-tab="health" role="tab">Health<span class="hl-alert" data-hl-alert hidden></span></button>
-      ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">People</button>' : ''}
+      ${settingsIsAdmin() ? '<button type="button" data-settings-tab="people" role="tab">Humans</button>' : ''}
       <button type="button" data-settings-tab="providers" role="tab">AI providers</button>
-      <button type="button" data-settings-tab="recurring" role="tab">Recurring</button>
-      <button type="button" data-settings-tab="cloud" role="tab">Cloud services</button>
+      <button type="button" data-settings-tab="recurring" role="tab">Routines</button>
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
     </div>
     <div class="settings-pane" id="settings-devices" role="tabpanel">
       <section class="card"><div class="settings-toolbar"><span></span>
-        <div class="row">${settingsCanCreateBots() ? '<button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from catalog</button>' : ''}</div></div>
+        <div class="row">${settingsCanCreateBots() ? '<button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from template</button>' : ''}</div></div>
         <div id="set-machines"><div class="empty">Loading…</div></div></section>
       ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
@@ -47,23 +46,18 @@ function pageSettings() {
       <div id="settings-assistant"></div>
       <section class="card"><header><h2>Bots</h2></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
-    <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div></div>
+    <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div>
+      <section class="card"><header><h2>Services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section></div>
     ${settingsIsAdmin() ? '<div class="settings-pane" id="settings-people" role="tabpanel" hidden><div id="set-people"><div class="empty">Loading…</div></div></div>' : ''}
     <div class="settings-pane" id="settings-providers" role="tabpanel" hidden>
       <section class="card"><header><h2>AI providers</h2></header><div id="set-providers"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-recurring" role="tabpanel" hidden>
-      <section class="card"><header><h2>Recurring</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
-    </div>
-    <div class="settings-pane" id="settings-cloud" role="tabpanel" hidden>
-      <section class="card"><header><h2>Cloud services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section>
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
-      ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
+      <section class="card"><header><h2>Routines</h2></header><div id="set-recurring"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
     ${S.me?.role === 'owner' ? '<div class="settings-pane" id="settings-privacy" role="tabpanel" hidden><section class="card"><header><h2>Privacy</h2></header><div id="set-privacy"><div class="empty">Loading…</div></div></section></div>' : ''}
-    <dialog class="tmodal" id="people-dialog" aria-label="People"></dialog>
+    <dialog class="tmodal" id="people-dialog" aria-label="Humans"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
     <dialog class="bot-editor catalog-picker" id="catalog-picker" aria-labelledby="catalog-picker-title"></dialog>
@@ -74,24 +68,20 @@ function pageSettings() {
   };
   settingsShow(SETTINGS_TAB);
   loadSettings();
-  window.mountGithubConnect?.($('#set-github'));   // ui/github-connect.js
-  window.mountMeetingImporters?.($('#set-meeting-importers'));   // ui/meeting-importers.js
-  window.mountSlackConnect?.($('#set-slack'));     // ui/slack-connect.js
 }
 function settingsShow(tab) {
-  if (tab === 'credentials') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'cloud' ? 'cloud' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
+  if (tab === 'credentials' || tab === 'cloud') { location.hash = INTEGRATIONS; return; }
+  SETTINGS_TAB = tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   document.querySelectorAll('[data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
     button.classList.toggle('cur', selected); button.setAttribute('aria-selected', String(selected));
   });
-  const devices = $('#settings-devices'), history = $('#settings-history'), cloud = $('#settings-cloud'), bots = $('#settings-bots');
+  const devices = $('#settings-devices'), history = $('#settings-history'), bots = $('#settings-bots');
   if (bots) bots.hidden = SETTINGS_TAB !== 'bots';
-  // The owner's one click when the company has no Assistant (ui/assistant.js): restore it or add it.
+  // The owner's one click when the team has no Assistant (ui/assistant.js): restore it or add it.
   if (bots && SETTINGS_TAB === 'bots' && S.me?.role === 'owner') window.assistantChat?.settingsStrip($('#settings-assistant'), {get, post, esc, toast, after: async () => { await refresh(true); renderSettingsBots(); }});
   if (devices) devices.hidden = SETTINGS_TAB !== 'devices';
-  if (cloud) cloud.hidden = SETTINGS_TAB !== 'cloud';
   if (history) history.hidden = SETTINGS_TAB !== 'history';
   const peoplePane = $('#settings-people');
   if (peoplePane) { peoplePane.hidden = SETTINGS_TAB !== 'people'; if (SETTINGS_TAB === 'people') void renderSettingsPeople(); }
@@ -162,7 +152,7 @@ function renderSettingsIssues() {
   const el = $('#settings-issues'); if (!el) return;
   const issues = SETTINGS_DATA.issues || [];
   const urgent = issues.some(needsPerson);
-  el.innerHTML = issues.length ? `<details class="card settings-issues"><summary><span class="dot ${urgent ? 'failed' : ''}" aria-hidden="true"></span><strong>${urgent ? 'Needs attention' : 'System checks'}</strong><span class="sub">${issues.length} current item${issues.length === 1 ? '' : 's'} · click to review</span></summary>
+  el.innerHTML = issues.length ? `<details class="card settings-issues"><summary><span class="dot ${urgent ? 'failed' : ''}" aria-hidden="true"></span><strong>${urgent ? 'Needs attention' : 'System checks'}</strong><span class="sub">${issues.length} current issue${issues.length === 1 ? '' : 's'} · click to review</span></summary>
     <div>${issues.map(issue => `<div class="settings-issue"><div><strong>${esc(issue.title)}</strong>${needsPerson(issue) ? '' : ` <span class="tag">${issue.kind === 'uncertain_work' ? 'review later' : 'not urgent'}</span>`}<p>${esc(issue.detail)}</p>${issue.action && issue.action !== 'review' ? `<p>${esc(issue.action)}</p>` : ''}</div>${issue.kind === 'uncertain_work' ? `<button class="ghost" data-execution-review="${esc(issue.bot)}">Review stopped runs</button>` : ''}${runnerRestartButton(issue)}${issue.bot ? `<a class="ghost" href="#/bot/${esc(issue.bot)}/more">Open bot</a>` : ''}</div>`).join('')}</div></details>` : '';
   el.querySelectorAll('[data-execution-review]').forEach(button => {
     button.onclick = () => executionReview(button.dataset.executionReview);
@@ -197,8 +187,8 @@ async function executionReview(bot) {
       try {
         const detail = form.elements.note.value.trim();
         const note = decision === 'resume'
-          ? 'Person said no outside action completed. Retry this request and check existing work before repeating any step.'
-          : 'Person said an outside action may have completed. Do not retry this delivery; inspect the task separately.';
+          ? 'The human said no outside action completed. Retry this request and check existing work before repeating any step.'
+          : 'The human said an outside action may have completed. Do not retry this delivery; inspect the task separately.';
         await post(`/v2/jobs/${encodeURIComponent(job.id)}/reconcile`, {
           attempt_id:job.attempt_id, decision, note:detail ? `${note} Details: ${detail}` : note,
           acknowledge_uncertain_effects:true

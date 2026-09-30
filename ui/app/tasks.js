@@ -3,17 +3,17 @@
 'use strict';
 
 // ----------------------------------------------------------------- tasks (#/tasks)
-// One page for every piece of work the company owes: the hub's tasks, shown as a **List**, as a
-// **Board**, as **Done**, or as **Recurring** (the routines themselves, one row each).
+// One page for every piece of work the team owes: Tico's tasks, shown as a **List**, as a
+// **Board**, as **Done**, or as **Routines** (the routines themselves, one row each).
 // Board and Issues used to be two sidebar entries; they are one, and the view
 // is a toggle that is remembered. `#/board`, `#/issues` and `#/recurring` open the matching view.
 // No priority, every task has a rank
 // in its owner's queue. Labels stand in for projects. A task's thread is comments, not chat:
 // one flat list with the author on every line.
 // The Product lane (its board, columns and lane switch) is retired; the page
-// shows company tasks only.
+// shows team tasks only.
 const COMPANY_COLS = [
-  ['needs',   'Needs you', 'Waiting on a person, blocked, or declined back'],
+  ['needs',   'Needs a human', 'Waiting on a human, blocked, or declined back'],
   ['waiting', 'Waiting', 'Waiting on the dependency shown in the task'],
   ['doing',   'Doing',     'Starting or being worked on now'],
   ['scheduled', 'Scheduled', 'One-off tasks scheduled to start in the future'],
@@ -24,7 +24,7 @@ const BOARD_COLS = [...COMPANY_COLS, ['done', 'Done', 'Finished in the last 7 da
 // "I like my 'for you' view of tasks, but IMO it should be a person icon to the
 // left of the list view. and we still want list and kanban views in the tasks menu bar." For you
 // is who needs you, grouped by bot; List and Board are every open task by column.
-const TASK_VIEWS = [['foryou', 'For you'], ['list', 'List'], ['board', 'Board'], ['recurring', 'Recurring'], ['done', 'Done']];
+const TASK_VIEWS = [['foryou', 'Needs you'], ['list', 'List'], ['board', 'Board'], ['recurring', 'Routines'], ['done', 'Done']];
 const TASK_VIEW_ICONS = {foryou: 'person', list: 'view_list', board: 'view_kanban', recurring: 'replay', done: 'check_circle'};
 const TASK_FILTERS = [['all', 'Everything'], ['mine', 'Mine'], ['asked', 'Asked by me']];
 const DONE_CAP = 20;                // The Done list shows 20 at a time
@@ -57,7 +57,11 @@ function hubColumn(t) {
   return 'doing';
 }
 // the small word on a card when the column alone does not say it
-const hubTag = t => taskAskToPerson(t) ? 'needs you'
+const needsWho = t => {
+  const pid = actorPerson(t?.ask?.to_actor) || actorPerson(t?.owner);
+  return !pid || pid === S.me?.id ? 'Needs you' : `Needs ${firstName(personDisplay(pid))}`;
+};
+const hubTag = t => taskAskToPerson(t) ? needsWho(t)
   : t.blocked_by && !['done', 'closed'].includes(String(t.status)) ? 'blocked'
   : ['waiting', 'declined'].includes(String(t.status || '')) ? t.status
   : t.status === 'open' && !actorPerson(t.owner) ? 'starting' : '';

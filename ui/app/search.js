@@ -49,7 +49,7 @@ function searchRender() {
   SEARCH_SEL = Math.min(SEARCH_SEL, Math.max(0, rows.length - 1));
   list.innerHTML = rows.length ? rows.map((e, i) => `<li role="option" data-href="${esc(e.href)}"${e.kind === 'assistant' ? ` data-ask="${esc(e.ask)}"` : ''} aria-selected="${i === SEARCH_SEL}">${
       e.avatar || `<span class="nav-icon" aria-hidden="true">${esc(e.icon)}</span>`}<span>${esc(e.label)}</span><span class="search-kind">${
-      e.kind === 'page' ? 'page' : e.kind === 'bot' ? 'bot' : esc(e.alias || 'person')}</span></li>`).join('')
+      e.kind === 'page' ? 'page' : e.kind === 'bot' ? 'bot' : esc(e.alias || 'human')}</span></li>`).join('')
     : `<li class="search-empty">Nothing named “${esc(q.trim())}”.</li>`;
   list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
 }

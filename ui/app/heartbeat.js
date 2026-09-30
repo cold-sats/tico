@@ -1,4 +1,4 @@
-/* ui/app/heartbeat.js — Heartbeat, the company Needs-you strip, account menu label, download link
+/* ui/app/heartbeat.js — Heartbeat, the Needs-you strip, account menu label, download link
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -13,9 +13,9 @@ function renderHeartbeat() {
   const st = S.status, hb = $('#heartbeat');
   const issues = st?.health_issues || [];
   const urgent = issues.filter(needsPerson);
-  const problem = !st ? 'Hub server unreachable' : !st.keeper_alive ? (st.cloud ? 'Cloud scheduler needs attention' : 'Agent host stopped')
+  const problem = !st ? 'Tico unreachable' : !st.keeper_alive ? (st.cloud ? 'Cloud scheduler needs attention' : 'Computer stopped')
     : urgent.length ? `${urgent.length} ${urgent.length === 1 ? 'thing needs' : 'things need'} you · click to handle` : '';
-  const label = problem || (st.cloud ? 'Cloud backend connected' : 'Agent host running');
+  const label = problem || (st.cloud ? 'Cloud backend connected' : 'Computer running');
   hb.title = label;
   hb.setAttribute('aria-label', label);
   hb.innerHTML = `<span class="dot ${problem ? 'failed' : ''}" ${problem ? '' : 'style="background:var(--ok)"'} aria-hidden="true"></span>`;
@@ -57,7 +57,7 @@ function bindRunnerRestart(root) {
       try {
         const r = await post(`/v2/runners/${encodeURIComponent(button.dataset.runnerRestart)}/restart`, {});
         if (line) line.textContent = r.running
-          ? `Restarting after ${r.running} running turn${r.running === 1 ? ' finishes' : 's finish'}.`
+          ? `Restarting after ${r.running} run${r.running === 1 ? ' finishes' : 's finish'}.`
           : 'Restarting now. Nothing is running, so nothing will be interrupted.';
         button.textContent = 'Restarting';
       } catch (e) { button.disabled = false; button.textContent = 'Restart'; toast(e.message, true); }

@@ -1,12 +1,12 @@
-/* ui/app/integrations.js — Integrations page and its credential dialogs
+/* ui/app/integrations.js — Tools page and its credential dialogs
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
 // ----------------------------------------------------------------- integrations
 // One page per outside system (integrations/*.md, served by GET /api/v2/integrations): what it
-// is, how a bot uses it, the rules, the query catalog, and the learnings bots and people add.
+// is, how a bot uses it, the rules, the query list, and the learnings bots and humans add.
 // Everyone signed in reads; anyone adds a learning; the owner deletes one.
-const INTEGRATION_KIND = {api: 'API', sql: 'SQL', browser: 'Browser', mail: 'Mail', cli: 'CLI'};
+const INTEGRATION_KIND = {api: 'API', sql: 'SQL', browser: 'Browser', mail: 'Email', cli: 'CLI'};
 let INT_LOAD = 0, INT_ROWS = [], INT_CRED_SERVICE = '';
 const credEnvs = texts => {
   const out = [];
@@ -52,7 +52,7 @@ function intCredPaint() {
         <td><div class="row">${item.stored ? `<button class="ghost" data-vault-reveal="${esc(item.id)}" type="button">Reveal / copy</button>` : ''}
           ${VAULT.can_manage ? `<button class="ghost" data-vault-edit="${esc(item.id)}" type="button">Edit</button>` : ''}
           <button class="ghost" data-vault-share="${esc(item.id)}" type="button">${VAULT.can_manage ? 'Manage access' : 'Use with my bots'}</button></div></td></tr>`).join('')}</tbody></table></div>`
-    : `<p class="empty">Nothing stored in the hub vault for this integration.</p>`;
+    : `<p class="empty">Nothing stored in Tico for this tool.</p>`;
   dialog.innerHTML = `<header><h2>Credentials · ${esc(row.title)}</h2>
       <button type="button" class="ghost" data-int-cred-close aria-label="Close credentials">Close</button></header>
     <div class="int-cred-body">
@@ -89,36 +89,42 @@ async function pageIntegrations() {
   const load = ++INT_LOAD;
   const service = S.route.startsWith(INTEGRATIONS + '/') ? decodeURIComponent(S.route.slice(INTEGRATIONS.length + 1)) : '';
   if (!service) {
-    $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Integrations</h1></div>
+    $('#main').innerHTML = `<div class="int-page"><div class="meeting-head"><div><h1>Tools</h1></div>
       ${S.me?.credential_access ? '<a class="ghost" href="#int-vault" data-int-vault-link>Credentials</a>' : ''}</div>
-      <section class="card"><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter integrations">
+      <section class="card"><input id="int-filter" class="int-search" type="search" autocomplete="off" placeholder="Filter by name, kind, credentials or summary…" aria-label="Filter tools">
       <div id="int-list"><div class="empty">Loading…</div></div></section>
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-github"><header><h2>GitHub</h2></header><div id="set-github"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-meeting-importers"><header><h2>Meeting importers</h2></header><div id="set-meeting-importers"><div class="empty">Loading…</div></div></section>' : ''}
+      ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
       <section class="card" id="int-vault" hidden></section>
-      <dialog class="bot-editor" id="int-cred-dialog" aria-label="Integration credentials"></dialog>
+      <dialog class="bot-editor" id="int-cred-dialog" aria-label="Tool credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
+    window.mountGithubConnect?.($('#set-github'));   // ui/github-connect.js
+    window.mountMeetingImporters?.($('#set-meeting-importers'));   // ui/meeting-importers.js
+    window.mountSlackConnect?.($('#set-slack'));     // ui/slack-connect.js
     const draw = () => {
       const list = $('#int-list');
       if (!list) return;
       const q = ($('#int-filter')?.value || '').toLowerCase().trim();
       const shown = INT_ROWS.filter(r => !q || [r.service, r.title, r.kind, r.summary, r.access, ...(r.credentials || []), ...(r.aliases || [])].join(' ').toLowerCase().includes(q));
-      list.innerHTML = shown.length ? `<table class="int-list"><thead><tr><th>Integration</th><th>Description</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
+      list.innerHTML = shown.length ? `<table class="int-list"><thead><tr><th>Tool</th><th>Description</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
         `<tr><td><a href="${INTEGRATIONS}/${esc(r.service)}" title="hub integration ${esc(r.service)}">${esc(r.title)}</a>
           <div class="muted">${esc(INTEGRATION_KIND[r.kind] || r.kind)} · ${esc(r.writes)}</div></td>
           <td>${esc(r.summary)}</td>
           <td class="int-creds">${credSummary(r.credentials)}</td>
           <td><button class="int-key" type="button" data-int-cred="${esc(r.service)}" title="Credentials for ${esc(r.title)}" aria-label="Credentials for ${esc(r.title)}">key_vertical</button></td></tr>`).join('')}</tbody></table>`
-        : `<div class="empty">${INT_ROWS.length ? 'No integration matches.' : 'No integrations.'}</div>`;
+        : `<div class="empty">${INT_ROWS.length ? 'No tool matches.' : 'No tools.'}</div>`;
     };
     let rows;
     try { rows = (await get('/v2/integrations')).integrations; }
     catch (e) {
       const list = $('#int-list');
-      if (load === INT_LOAD && list) list.innerHTML = `<div class="empty">Could not load the integrations: ${esc(e.message)}</div>`;
+      if (load === INT_LOAD && list) list.innerHTML = `<div class="empty">Could not load the tools: ${esc(e.message)}</div>`;
       return;
     }
     if (load !== INT_LOAD || !$('#int-list')) return;
     INT_ROWS = rows || [];
-    // A short list reads at a glance; the filter earns its place once the company adds its own pages.
+    // A short list reads at a glance; the filter earns its place once the team adds its own pages.
     $('#int-filter').hidden = INT_ROWS.length <= 10;
     draw();
     $('#int-filter').oninput = draw;
@@ -132,8 +138,8 @@ async function pageIntegrations() {
     if (jump) jump.onclick = ev => { ev.preventDefault(); $('#int-vault')?.scrollIntoView({behavior: 'smooth', block: 'start'}); };
     return;
   }
-  $('#main').innerHTML = `<div class="int-page"><p class="muted"><a href="${INTEGRATIONS}">← Integrations</a></p><div id="int-detail"><div class="empty">Loading…</div></div>
-      <dialog class="bot-editor" id="int-cred-dialog" aria-label="Integration credentials"></dialog>
+  $('#main').innerHTML = `<div class="int-page"><p class="muted"><a href="${INTEGRATIONS}">← Tools</a></p><div id="int-detail"><div class="empty">Loading…</div></div>
+      <dialog class="bot-editor" id="int-cred-dialog" aria-label="Tool credentials"></dialog>
       <dialog class="bot-editor" id="credential-dialog" aria-label="Credential"></dialog></div>`;
   let page;
   try { page = await get('/v2/integrations/' + encodeURIComponent(service)); }
@@ -144,7 +150,7 @@ async function pageIntegrations() {
   }
   if (load !== INT_LOAD || !$('#int-detail')) return;
   if (page.service !== service) { location.hash = INTEGRATIONS + '/' + page.service; return; }
-  // A catalog entry carries `sql`, or `mongo` for a MongoDB database; bots run either with `hub db`.
+  // A query entry carries `sql`, or `mongo` for a MongoDB database; bots run either with `hub db`.
   const queryText = q => q.sql ? q.sql.trim() : JSON.stringify(q.mongo, null, 2);
   const queryHtml = q => `<details class="int-query" data-query="${esc(q.id)}"><summary><span class="id">${esc(q.id)}</span><strong>${esc(q.title)}</strong>${q.database ? `<span class="pill">${esc(q.database)}</span>` : ''}<span class="desc">${esc(q.description || '')}</span></summary>
       <pre>${esc(queryText(q))}</pre>
@@ -164,9 +170,9 @@ async function pageIntegrations() {
       <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
     <section class="card" id="int-learnings"><header><h2>Learnings</h2></header>
       <div class="int-learn"><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
-      <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a person folds them into the page over time.</span></div></div>
+      <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a human folds them into the page over time.</span></div></div>
       <div id="int-learning-list">${page.learnings.map(learningHtml).join('') || '<div class="empty">Nothing learned yet.</div>'}</div></section>`;
-  // Relative links in a page point at files in the hub repository; a sibling page opens here.
+  // Relative links in a page point at files in the Tico repository; a sibling page opens here.
   for (const a of document.querySelectorAll('#int-body a[href]')) {
     const href = a.getAttribute('href');
     if (/^(https?:|mailto:|#)/i.test(href)) continue;

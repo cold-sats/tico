@@ -1,4 +1,4 @@
-/* ui/app/settings-devices.js — Settings > Devices: computers, enrollment, API tokens, agent credentials, setup prompts
+/* ui/app/settings-devices.js — Settings > Computers: computers, enrollment, API tokens, agent credentials, setup prompts
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -18,7 +18,7 @@ function settingsAgentCell(e) {
 async function settingsAgentCredential(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
   const rotating = !!e.agent?.credential;
-  if (rotating && !confirm(`Rotate the agent credential for ${e.display_name}? The current token stops working at once; install the new one on its box.`)) return;
+  if (rotating && !confirm(`Rotate the agent credential for ${e.display_name}? The current token stops working at once; install the new one on its computer.`)) return;
   let issued;
   try { issued = await post(`/v2/bots/${encodeURIComponent(slug)}/agent-credential`, {}); }
   catch (error) { toast(error.message, true); return; }
@@ -28,7 +28,7 @@ async function settingsAgentCredential(slug) {
     <div class="agent-credential-body">
       <p>Shown once. It is this bot's identity; revoking it stops the bot at once.</p>
       <label>Token<div class="row"><code class="agent-token" data-token>${esc(issued.token)}</code><button class="ghost" type="button" data-copy-token>Copy</button></div></label>
-      <label>On the box that runs the Hermes profile, one command installs the hub as an MCP server in the profile and a heartbeat timer:
+      <label>On the computer that runs the Hermes profile, one command installs Tico as an MCP server in the profile and a heartbeat timer:
         <div class="row"><code data-command>curl -fsSL -H "Authorization: Bearer ${esc(issued.token)}" ${esc(setup.url)}/api/v2/agents/setup-script -o hermes_agent.py &amp;&amp; python3 hermes_agent.py install --profile ${esc(e.agent?.profile || slug)} --url ${esc(setup.url)} --bot ${esc(slug)} --token ${esc(issued.token)}</code><button class="ghost" type="button" data-copy-command>Copy</button></div></label>
       <details><summary>Or by hand: the profile's config.yaml and the heartbeat</summary>
         <pre data-yaml>${esc(yaml)}</pre>
@@ -101,7 +101,7 @@ function agentConfigYaml(setup) {
 }
 async function settingsAgentRevoke(slug) {
   const e = S.emps.find(row => row.name === slug); if (!e) return;
-  if (!confirm(`Revoke the agent credential for ${e.display_name}? Its box loses access at once; the bot record stays.`)) return;
+  if (!confirm(`Revoke the agent credential for ${e.display_name}? Its computer loses access at once; the bot record stays.`)) return;
   try { await post(`/v2/bots/${encodeURIComponent(slug)}/agent-credential/revoke`, {}); toast(`${e.display_name} credential revoked`); await loadSettings(); }
   catch (error) { toast(error.message, true); }
 }
@@ -143,7 +143,7 @@ function renderSettingsMachines() {
   const el = $('#set-machines'); if (!el) return;
   const cards = SETTINGS_DATA.machines.map(machine => {
     const online = !machine.revoked_at && machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
-    // Only what the company's providers or an assigned bot use, plus anything installed anyway: a
+    // Only what the team's providers or an assigned bot use, plus anything installed anyway: a
     // model nobody enabled being absent is not a problem. An older server sends no list; all show then.
     const needed = Array.isArray(machine.needed_runtimes) ? new Set(machine.needed_runtimes) : null;
     const isNeeded = name => !needed || needed.has(name);
@@ -152,7 +152,7 @@ function renderSettingsMachines() {
     const signIn = (name, value) => S.me?.role === 'owner' && online && value.installed && value.authenticated !== 'ready' && ['codex', 'claude'].includes(name)
       ? ` <button class="ghost machine-signin" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';
     const runtime = runtimes.map(([name, value]) => `<span class="machine-runtime-item"><span class="pill ${value.authenticated === 'ready' ? 'ok' : value.authenticated === 'rejected' ? 'fail' : value.authenticated === 'unknown' || !isNeeded(name) ? 'waiting' : 'fail'}" title="${esc(value.detail || '')}">${esc(name)} · ${esc(value.authenticated === 'rejected' ? 'sign-in rejected' : value.authenticated)}</span>${signIn(name, value)}${value.authenticated === 'rejected'
-      ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}Replace the key in the runner's secrets, or sign in again. It takes no work that needs ${esc(name)} until then.</span>` : ''}</span>`).join('');
+      ? `<span class="err machine-rejected" data-rejected="${esc(name)}">${value.rejected_at ? esc(ago(value.rejected_at)) + '. ' : ''}${value.rejected_reason ? esc(value.rejected_reason) + '. ' : ''}Replace the credential on the computer, or sign in again. It takes no work that needs ${esc(name)} until then.</span>` : ''}</span>`).join('');
     // The model CLIs the computer runs: version, pin, and the owner's Update / Pin actions. The
     // computer applies them between turns (backend/harness_actions.py, runner/harness_tools.py).
     const asked = new Set((machine.harness_actions || []).filter(row => ['requested', 'running'].includes(row.state)).map(row => `${row.harness}:${row.action}`));
@@ -175,8 +175,8 @@ function renderSettingsMachines() {
     const failures = Object.values(machine.readiness?.bots || {}).filter(value => !value.ready).length;
     return `<tr class="machine-card"><td><strong>${esc(machine.label)}</strong><span class="settings-cell-note">${esc(machine.version || 'version not reported')}${machine.platform ? ` · ${esc(machine.platform)}` : ''}</span>${window.runnerUpdateHtml?.(machine.update) || ''}</td>
       <td>${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
-        ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
-        : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
+        ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts humans' bots</label>`
+        : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts humans\' bots</span>' : ''}</td>
       <td>${machine.bots.length}${failures ? ` <span class="err">· ${failures} not ready</span>` : ''}</td>
       <td><div class="machine-runtime">${runtime || '<span class="muted">—</span>'}</div>${harnesses ? `<div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div>` : ''}</td>
       <td>${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}</td></tr>`;
@@ -187,7 +187,7 @@ function renderSettingsMachines() {
     box.disabled = true;
     try {
       await post(`/v2/runners/${encodeURIComponent(box.dataset.memberBots)}/member-bots`, {accepts: box.checked});
-      toast(box.checked ? 'Members\' bots may now go on this computer' : 'Members\' bots no longer go on this computer');
+      toast(box.checked ? 'Humans\' bots may now go on this computer' : 'Humans\' bots no longer go on this computer');
       await loadSettings();
     } catch (error) { toast(error.message, true); box.checked = !box.checked; box.disabled = false; }
   };
@@ -197,7 +197,7 @@ function renderSettingsMachines() {
     button.disabled = true;
     try {
       await post(`/v2/runners/${encodeURIComponent(button.dataset.runner)}/harness-actions`, {harness: button.dataset.harness, action: button.dataset.harnessAction});
-      toast(button.dataset.harnessAction === 'update' ? 'Update requested; the computer applies it when no turn is using it' : 'Saved');
+      toast(button.dataset.harnessAction === 'update' ? 'Update requested; the computer applies it when no run is using it' : 'Saved');
       await loadSettings();
     } catch (error) { toast(error.message, true); button.disabled = false; }
   };
@@ -206,9 +206,9 @@ function renderSettingsMachines() {
       <td>${esc(settingsPersonName(S.emps.find(row => row.name === agent.bot)?.operator))}</td>
       <td>${agent.model ? `${esc(agent.model)}${agent.provider ? `<span class="settings-cell-note">${esc(agent.provider)}</span>` : ''}` : '<span class="muted">—</span>'}</td>
       <td>${agent.revoked_at ? '<span class="pill fail">revoked</span>' : agent.online ? '<span class="pill ok">reporting in</span>' : '<span class="pill">not reporting</span>'}${agent.last_seen ? `<span class="settings-cell-note">${esc(ago(agent.last_seen))}</span>` : ''}</td></tr>`).join('');
-  el.innerHTML = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Operator</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No machines registered yet.</div>'}
-    ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Operator</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
-    <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Machine operator">
+  el.innerHTML = `${cards ? `<div class="scroll"><table class="settings-table settings-machines"><thead><tr><th>Computer</th><th>Owner</th><th>Bots</th><th>Runtimes</th><th>Status</th></tr></thead><tbody>${cards}</tbody></table></div>` : '<div class="empty">No computers yet.</div>'}
+    ${agents ? `<h3 class="settings-agents-title">External agents</h3><div class="scroll"><table class="settings-table"><thead><tr><th>Agent</th><th>Owner</th><th>Model</th><th>Status</th></tr></thead><tbody>${agents}</tbody></table></div>` : ''}
+    <div class="machine-enroll"><select class="settings-inline-select" id="machine-operator" aria-label="Computer owner">
       ${people.map(person => `<option value="${esc(person.id)}" ${person.id === S.me?.id ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select>
       <select class="settings-inline-select" id="machine-kind" aria-label="Kind of computer"><option value="mac">Mac</option><option value="linux">Linux or cloud server</option></select>
       <input id="machine-label" type="text" autocomplete="off" aria-label="Computer name" placeholder="Computer name" value="${esc(settingsPersonName(people.find(person => person.id === S.me?.id)?.id || people[0]?.id) + "'s Mac")}">
@@ -234,7 +234,7 @@ function renderSettingsMachines() {
       const filename = await enrollmentDownload(operator, label);
       status.innerHTML = `Setup file downloaded. Run on that Mac:<br><code>scripts/setup-runner.sh "$HOME/Downloads/${esc(filename)}"</code> <button class="ghost" type="button" id="copy-enrollment-command">Copy command</button> <button class="ghost" type="button" id="copy-enrollment-prompt">Copy AI setup prompt</button>`;
       $('#copy-enrollment-command').onclick = () => void copyText(`scripts/setup-runner.sh "$HOME/Downloads/${filename}"`).then(() => toast('Setup command copied'));
-      $('#copy-enrollment-prompt').onclick = () => void copyText(settingsEnrollmentPrompt(operator, filename)).then(() => toast('Machine setup prompt copied'));
+      $('#copy-enrollment-prompt').onclick = () => void copyText(settingsEnrollmentPrompt(operator, filename)).then(() => toast('Computer setup prompt copied'));
     } catch (error) { toast(error.message, true); }
     finally { event.target.disabled = false; }
   };
@@ -243,12 +243,12 @@ function settingsSetupPrompt(slug) {
   const rows = (slug ? S.emps.filter(e => e.name === slug) : S.emps).map(e => {
     const owners = (e.users || []).map(person => person.name || person.id).join(', ') || 'nobody';
     const machine = e.machine?.label || `not assigned (reserved for ${settingsPersonName(e.operator)})`;
-    return `- ${e.display_name} [${e.name}]: people=${owners}; model=${e.model || 'not set'}; effort=${e.reasoning_effort || e.effort || 'not set'}; machine=${machine}`;
+    return `- ${e.display_name} [${e.name}]: humans=${owners}; model=${e.model || 'not set'}; effort=${e.reasoning_effort || e.effort || 'not set'}; computer=${machine}`;
   });
-  return `Help me update the ${appName()} bot setup.\n\nCurrent cloud state:\n${rows.join('\n')}\n\nAsk me what I want to change, then use the formal owner-admin API. Do not edit the production SQLite database directly. Bot definitions in the ${appName()} backend are authoritative after the one-time bootstrap: create a bot with POST /api/v2/bots and update its name, description, hierarchy, status, repository, or room type with POST /api/v2/bots/{bot}/definition. No ${appName()} application deploy or registry publish is required. Provision the bot's repository on any computer that will run it, and verify runner readiness. Preserve tasks and conversation history. Change a bot's model, reasoning effort, or registered computer through POST /api/v2/bots/{bot}/transitions so ${appName()} checkpoints every current session before applying it. If the transition is blocked because the old runner is unavailable, explain what continuity will be lost and ask me before calling apply-without-checkpoint. Use revision and assignment-generation checks. People are still managed separately from bot definitions.`;
+  return `Help me update the ${appName()} bot setup.\n\nCurrent cloud state:\n${rows.join('\n')}\n\nAsk me what I want to change, then use the formal owner-admin API. Do not edit the production SQLite database directly. Bot definitions in the ${appName()} backend are authoritative after the one-time bootstrap: create a bot with POST /api/v2/bots and update its name, description, hierarchy, status, repository, or room type with POST /api/v2/bots/{bot}/definition. No ${appName()} application deploy or registry publish is required. Provision the bot's repository on any computer that will run it, and verify computer readiness. Preserve tasks and conversation history. Change a bot's model, reasoning effort, or registered computer through POST /api/v2/bots/{bot}/transitions so ${appName()} checkpoints every current session before applying it. If the transition is blocked because the old computer is unavailable, explain what continuity will be lost and ask me before calling apply-without-checkpoint. Use revision and assignment-generation checks. Humans are still managed separately from bot definitions.`;
 }
 function settingsEnrollmentPrompt(operator, filename) {
-  return `Set up a ${appName()} local runner for ${settingsPersonName(operator)} using the downloaded ${filename} enrollment file. Work from the Tico checkout on the target Mac. Locate the person's bot repositories, run scripts/setup-runner.sh "$HOME/Downloads/${filename}", then run runtime/runner-venv/bin/python -m runner doctor and resolve every repository, runtime login (Codex or Claude), model, or configuration-readiness problem. Never print or commit the enrollment code or runner token and never open an inbound port. Do not install the private processing or connector workers. Registration must not assign bots; when the machine is ready, tell me to return to ${appName()} Settings and choose it for each intended bot so existing sessions are checkpointed before the move.`;
+  return `Set up a ${appName()} local runner for ${settingsPersonName(operator)} using the downloaded ${filename} enrollment file. Work from the Tico checkout on the target Mac. Locate the human's bot repositories, run scripts/setup-runner.sh "$HOME/Downloads/${filename}", then run runtime/runner-venv/bin/python -m runner doctor and resolve every repository, runtime login (Codex or Claude), model, or configuration-readiness problem. Never print or commit the enrollment code or runner token and never open an inbound port. Do not install the private processing or connector workers. Registration must not assign bots; when the computer is ready, tell me to return to ${appName()} Settings and choose it for each intended bot so existing sessions are checkpointed before the move.`;
 }
 function settingsCopyPrompt(slug) {
   void copyText(settingsSetupPrompt(slug)).then(() => toast(`${slug ? settingsBotName(slug) + ' ' : ''}setup prompt copied`)).catch(() => toast('Could not copy the setup prompt', true));

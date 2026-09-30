@@ -187,7 +187,7 @@
     note.className = 'dask-off';
     note.dataset.off = '';
     note.innerHTML = `<p><strong>The Librarian is ${info.state === 'missing' ? 'not set up yet' : esc(info.state)}.</strong> ${info.can_turn_on
-      ? 'Turning it on adds it to a computer and it starts answering.' : 'Ask the owner of this company to turn it on.'}</p>
+      ? 'Turning it on adds it to a computer and it starts answering.' : 'Ask the owner of this team to turn it on.'}</p>
       ${info.can_turn_on ? '<button class="primary" type="button" data-turn-on>Turn on the Librarian</button><span class="dask-empty" data-turn-status role="status"></span>' : ''}`;
     panel.querySelector('.dask-body').append(note);
     const on = note.querySelector('[data-turn-on]');

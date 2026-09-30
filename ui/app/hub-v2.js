@@ -7,7 +7,7 @@
 // chat is `messages`, work is `tasks`, approvals are one tap, and every bot has one status row with
 // its history. The dispatcher's bots keep the Issue path; every surface below branches on `host`,
 // and every fetch is guarded, so a hub with no hub.db yet looks exactly as it does today.
-const V2_WORD = {idle: 'Idle', running: 'Running', waiting_human: 'Waiting on a person',
+const V2_WORD = {idle: 'Idle', running: 'Running', waiting_human: 'Waiting on a human',
                  waiting_bot: 'Waiting on a bot', blocked: 'Blocked', limited: 'Rate limited',
                  crashed: 'Crashed', paused: 'Paused', quarantined: 'Quarantined'};
 // A bot the server has registered but not switched on yet. People read "Setting up"; the API value stays `planned`.
@@ -15,7 +15,7 @@ const statusWord = status => status === 'planned' ? 'Setting up' : String(status
 const V2_PILL = {running: 'in-progress', waiting_human: 'needs', waiting_bot: 'waiting', blocked: 'blocked',
                  limited: 'waiting', crashed: 'fail', quarantined: 'fail', idle: ''};
 const V2_KIND = {decision: 'Decision', approval: 'Approval', review: 'Review', declined: 'Declined',
-                 question: 'Question', task: 'Task', notice: 'Notice'};
+                 question: 'Question', task: 'Task', notice: 'Message'};
 const hostOf = slug => String(S.emps.find(e => e.name === slug)?.host || 'dispatcher');
 const isKeeper = slug => hostOf(slug) === 'keeper';
 const v2StatusOf = slug => S.v2.status[slug] || null;
@@ -103,7 +103,7 @@ function pausedNotice(slug) {
   return `${empName(slug)} is paused${esc(when(since))} — ${esc(why)}; your messages are saved and will run when it's back`;
 }
 // A bot run by an external agent (a Hermes profile) is never dispatched to: the line says the
-// message waits in its inbox, and whether the agent has been reporting in.
+// message waits for it, and whether the agent has been reporting in.
 // The 30 s refresh reloads the health issues, not the roster, so the two warnings follow the
 // issue the server raises and only the quiet line reads the roster's last-seen time.
 function agentNotice(slug) {
@@ -111,14 +111,14 @@ function agentNotice(slug) {
   const a = e.agent, name = agentKind(a);
   // A Grok Bot is synced in by its person's own Grok routine (docs/grok-bot-sync.md): its
   // history is copied here, but nothing written here reaches it yet.
-  if (a.synced) return `${empName(slug)} is a Grok Bot synced from Grok${a.last_seen ? ` · last synced ${ago(a.last_seen)}` : ''} — its Grok history is copied here; messages sent here wait in its inbox`;
+  if (a.synced) return `${empName(slug)} is a Grok Bot synced from Grok${a.last_seen ? ` · last synced ${ago(a.last_seen)}` : ''} — its Grok history is copied here; messages sent here wait for it`;
   const issue = (S.status?.health_issues || []).find(i => i.kind === 'agent' && i.bot === slug);
   if (issue ? /no agent credential/.test(issue.title) : !a.credential)
-    return `${empName(slug)} is a ${name} with no credential yet — messages wait in its inbox until one is created in Settings and installed on its box`;
-  if (issue) return `${empName(slug)}'s ${name} has not reported in${issue.since ? ` since ${new Date(issue.since).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}` : ''} — messages wait in its inbox`;
+    return `${empName(slug)} is a ${name} with no credential yet — messages wait until one is created in Settings and installed on its computer`;
+  if (issue) return `${empName(slug)}'s ${name} has not reported in${issue.since ? ` since ${new Date(issue.since).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}` : ''} — messages wait`;
   // No elapsed time here: the roster behind it is loaded once, and a fresh heartbeat would
   // not move it. Settings and More show last seen on a page that has just loaded it.
-  return `${empName(slug)} is a ${name}; it reads its inbox on its own schedule · reporting in`;
+  return `${empName(slug)} is a ${name}; it reads its messages on its own schedule · reporting in`;
 }
 function agentQuiet(slug) {
   return !(S.status?.health_issues || []).some(i => i.kind === 'agent' && i.bot === slug) && !!S.emps.find(x => x.name === slug)?.agent?.credential;

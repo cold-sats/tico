@@ -77,7 +77,7 @@ const shot = (page, name) => shots ? page.screenshot({path: path.join(shots, `co
         else await page.evaluate(() => connectAgent());
         const dialog = page.locator('dialog.connect-agent[open]');
         await dialog.waitFor();
-        assert.match(await dialog.locator('.ca-intro').innerText(), /Connect Grok, Dots, Muse or any MCP agent to Tico\./);
+        assert.match(await dialog.locator('.ca-intro').innerText(), /Connect Grok, Dots, Muse or any external agent to Tico\./);
 
         // The tiles, each a logo (or letters) and a name; the existing connections with their agent's mark.
         const tiles = dialog.locator('[data-agent]');

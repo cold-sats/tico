@@ -157,7 +157,7 @@ const words = async (page, selector) => (await page.locator(selector).allInnerTe
       const tops = await page.locator('#meet-sources .meet-tile .mt-text').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)));
       assert.equal(new Set(tops).size, 1, scheme + ': the strip is one line on a desktop');
       assert.equal(await page.locator('#notes-filters').isVisible(), true);
-      assert.deepEqual(await page.locator('#notes-filters select').evaluateAll(els => els.map(el => el.getAttribute('aria-label'))), ['When', 'Person', 'Source', 'Status']);
+      assert.deepEqual(await page.locator('#notes-filters select').evaluateAll(els => els.map(el => el.getAttribute('aria-label'))), ['When', 'Participant', 'Source', 'Status']);
       const filterTops = await page.locator('#notes-filters select').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().top)));
       assert.equal(new Set(filterTops).size, 1, 'the filters are one line');
       assert.deepEqual(await page.locator('.meet-row .note-title').allInnerTexts(), ['Weekly ops sync', 'Renewal call with Dana', 'Notes from standup']);

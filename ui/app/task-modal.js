@@ -214,7 +214,7 @@ const commentAuthor = (a, via) => {
   return `${slug ? avatar(slug, 16, stateOf(slug)) : ''}<span class="who">${esc(actorLabel(a))}</span>`;
 };
 const TASK_EVENT_WORDS = {status: s => `moved it to ${STATUS_WORD[s] || s}`, owner: v => `handed it to ${actorLabel(v)}`,
-  lane: v => `moved it to the ${v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the labels: ${l.join(', ')}` : 'removed the labels'; } catch { return 'changed the labels'; } },
+  lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the labels: ${l.join(', ')}` : 'removed the labels'; } catch { return 'changed the labels'; } },
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
   lint: v => `noted: ${v}`, note: () => 'left a note'};
@@ -228,7 +228,7 @@ function commentLineHTML(x) {
   const m = x.message;
   const kind = m.kind === 'ask' ? '<span class="pill needs">question</span>' : m.kind === 'answer' ? '<span class="pill">answer</span>' : '';
   return `<div class="tcomment"><div class="tcomment-head"><span class="tcomment-who">${commentAuthor(m.from_actor, m.refs?.via)}</span>${kind}
-      ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next turn on this task">saved</span>' : ''}
+      ${m.refs?.quiet ? '<span class="muted" title="Saved for the bot\'s next run on this task">saved</span>' : ''}
       <span class="spacer"></span><time class="muted tnum" title="${esc(fmt(m.created))}">${esc(ago(m.created))}</time></div>
     <div class="md">${safeMd(m.body || '')}</div>
     ${S.me?.cloud ? (m.refs?.attachments || []).map(f => `<span class="tlink file"><button class="linkish" type="button" data-preview-file="${esc(f.id)}" data-preview-name="${esc(f.name)}" aria-label="View ${esc(f.name)}">${esc(f.name)}</button><a href="${API}/v2/files/${encodeURIComponent(f.id)}" download aria-label="Download ${esc(f.name)}">↓</a></span>`).join(' ') : ''}</div>`;
@@ -289,7 +289,7 @@ async function taskCommentSend(state) {
     if (!taskChatCurrent(state)) return;
     box.value = ''; state.sending = false;
     await taskChatRead(state);
-    status.textContent = data.woke ? '' : 'Saved. The bot reads it on its next turn on this task.';
+    status.textContent = data.woke ? '' : 'Saved. The bot reads it on its next run on this task.';
   } catch (e) {
     if (taskChatCurrent(state)) status.textContent = `Not saved: ${e.message}`;
   } finally {
@@ -325,10 +325,10 @@ function hubModalHTML(t, it) {
   const open = !['done', 'closed'].includes(String(t.status || ''));
   const askToYou = taskAskToPerson(t);
   const waitText = clipLine(taskWaitLine(t), 400);
-  const waitLabel = askToYou ? 'Needs you' : t.blocker ? 'Blocked by' : (t.status === 'waiting' ? 'Waiting on' : '');
+  const waitLabel = askToYou ? needsWho(t) : t.blocker ? 'Blocked by' : (t.status === 'waiting' ? 'Waiting on' : '');
   const original = taskBody(t);
   const note = String(t.note || '');
-  const statusWord = askToYou ? 'needs you' : (STATUS_WORD[t.status] || t.status || '');
+  const statusWord = askToYou ? needsWho(t) : (STATUS_WORD[t.status] || t.status || '');
   const mover = canMove();
   const statuses = ['open', 'doing', 'waiting', 'done', 'declined'];
   const links = (t.links || []);

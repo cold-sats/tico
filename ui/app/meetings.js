@@ -4,7 +4,7 @@
 
 // ----------------------------------------------------------------- meetings page (docs/meetings.md)
 // Meeting transcripts and notes imported from other tools: a searchable table, a detail dialog
-// with the transcript, the sections a person pushes to tasks, and an Import action.
+// with the transcript, the sections a human pushes to tasks, and an Import action.
 let MEET = null;
 function meetStop() {
   if (!MEET) return;
@@ -21,7 +21,7 @@ async function pageNotes() {
       <button class="primary" type="button" id="notes-manual">Add notes</button></div>
     <section class="meet-sources" id="meet-sources" aria-label="Sources"></section>
     <div class="notes" id="notes">
-      <section class="notes-list"><div class="notes-filters" id="notes-filters" hidden><select id="notes-when" aria-label="When"><option value="all">Any time</option><option value="today">Today</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="older">Older than 30 days</option></select><select id="notes-person" aria-label="Person"><option value="">All people</option></select><select id="notes-source" aria-label="Source"><option value="">All sources</option></select><select id="notes-status" aria-label="Status"><option value="all">All statuses</option><option value="unsent">Not sent</option><option value="sent">Sent</option><option value="sending">Sending</option><option value="failed">Failed</option></select><span class="notes-count muted" id="notes-count"></span></div><div class="notes-rows" id="notes-rows"><div class="notes-empty">Loading…</div></div></section>
+      <section class="notes-list"><div class="notes-filters" id="notes-filters" hidden><select id="notes-when" aria-label="When"><option value="all">Any time</option><option value="today">Today</option><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="older">Older than 30 days</option></select><select id="notes-person" aria-label="Participant"><option value="">All participants</option></select><select id="notes-source" aria-label="Source"><option value="">All sources</option></select><select id="notes-status" aria-label="Status"><option value="all">All statuses</option><option value="unsent">Not sent</option><option value="sent">Sent</option><option value="sending">Sending</option><option value="failed">Failed</option></select><span class="notes-count muted" id="notes-count"></span></div><div class="notes-rows" id="notes-rows"><div class="notes-empty">Loading…</div></div></section>
     </div>
     <dialog class="tmodal notes-modal" id="notes-modal" aria-label="Meeting details"><div class="notes-modal-close"><button class="ghost" type="button" id="notes-modal-close" aria-label="Close meeting">✕</button></div><section class="notes-detail" id="notes-detail"></section></dialog>
     <dialog class="tmodal import-modal" id="manual-modal" aria-label="Add notes"></dialog>`;
@@ -58,7 +58,7 @@ async function pageNotes() {
 }
 
 // The meeting sources Tico takes from, in the order they are offered. `logo` is a key in ui/tool-icons.js;
-// a source without one is drawn as its first two letters. Close is set up in its integration doc, the
+// a source without one is drawn as its first two letters. Close is set up in its tool doc, the
 // rest in a dialog (ui/meeting-importers.js).
 const MEET_SOURCES = [
   {id: 'granola', name: 'Granola'},
@@ -155,7 +155,7 @@ const meetVisible = state => state.list.filter(r =>
 function meetFilterOptions(state) {
   for (const r of state.list) for (const name of meetPersonNames(r)) state.people.set(meetPersonKey(name), name.trim());
   const el = $('#notes-person'); if (!el) return;
-  el.innerHTML = '<option value="">All people</option>' + [...state.people].sort((a, b) => a[1].localeCompare(b[1])).map(([key, name]) => `<option value="${esc(key)}">${esc(name)}</option>`).join('');
+  el.innerHTML = '<option value="">All participants</option>' + [...state.people].sort((a, b) => a[1].localeCompare(b[1])).map(([key, name]) => `<option value="${esc(key)}">${esc(name)}</option>`).join('');
   el.value = state.person;
   const src = $('#notes-source');
   if (src) {
@@ -239,7 +239,7 @@ function meetPersonFor(value) {
 function meetPeopleList(r) {
   const seen = new Set(), out = [];
   const add = p => { if (p && !seen.has(p.id)) { seen.add(p.id); out.push(p); } };
-  // A participant the roster knows is that person; anyone else is shown as they were named.
+  // A participant the roster knows is that human; anyone else is shown as they were named.
   for (const p of r.participants || []) {
     const known = p.person_id ? (S.people || []).find(x => x.id === p.person_id) : meetPersonFor(p.email || p.name);
     add(known || {id: p.email || p.name, name: p.name || p.email});
@@ -359,10 +359,10 @@ function meetPaint(state, rec) {
   const voiceText = rec.voice_text ? `<div class="note-body"><span class="lbl">Voice transcript</span>${esc(rec.voice_text)}</div>` : '';
   const noteText = voiceText + (rec.note ? `<div class="note-body${typed ? '' : ' aside'}">${typed ? '' : '<span class="lbl">Your log</span>'}${esc(rec.note)}</div>`
     : typed && !voiceText ? '<div class="muted">Nothing logged yet.</div>' : '');
-  // Private is the owner's switch: on, only its participants and the company owner can open it;
+  // Private is the owner's switch: on, only its participants and the owner can open it;
   // off, everyone signed in can.
   const privateLink = typed ? ''
-    : mayEdit ? `<button class="linkish" type="button" id="meet-private">${rec.private ? 'Private — make it visible to the company' : 'Make this meeting private'}</button>`
+    : mayEdit ? `<button class="linkish" type="button" id="meet-private">${rec.private ? 'Private — make it visible to the team' : 'Make this meeting private'}</button>`
     : rec.private ? '<span class="muted">Private — only its participants can see this</span>' : '';
   const content = state.editing
     ? `<div class="note-content note-edit"><textarea id="meet-note" aria-label="Meeting log" placeholder="${typed ? 'What happened in this meeting?' : 'A log to go with this meeting'}">${esc(rec.note || '')}</textarea>
@@ -487,7 +487,7 @@ function meetLocalIso(value) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${off >= 0 ? '+' : '-'}${p(off / 60)}:${p(off % 60)}`;
 }
 const meetSplitList = text => String(text || '').split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
-// A person's own meeting: notes typed by hand (source "manual") and/or a transcript from a file or a
+// A human's own meeting: notes typed by hand (source "manual") and/or a transcript from a file or a
 // paste (a source of their choosing, "upload" by default). The importer takes participants, a start time
 // and send_to, and files under one reference per meeting, which /api/notes (a bare note) does not.
 const TRANSCRIPT_TYPES = '.txt,.vtt,.srt,.json,.md,text/plain,text/vtt,application/json';
@@ -580,7 +580,7 @@ function meetNotesOpen(state) {
 }
 
 // ----------------------------------------------------------------- the three sections and Push
-// A meeting is an outbox a person empties: Doc updates, Tasks and Feature requests, each row with
+// A meeting is an outbox a human empties: Doc updates, Tasks and Feature requests, each row with
 // its quote and Edit / Delete / Push. Anyone who can read the meeting edits and deletes; Push is
 // the meeting's owner only, which is what `can_push` says, and it makes a hub task.
 const MEET_SECTIONS = [

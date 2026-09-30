@@ -1,4 +1,4 @@
-/* Settings > Cloud services > Meeting importers (owner). Turns Fireflies, Zoom, Google Meet and
+/* Tools > Meeting importers (owner). Turns Fireflies, Zoom, Google Meet and
    Granola on, picks the enrolled computer that runs each one, and shows how it is doing. Their
    credentials are never typed here: they are files on that computer (docs/meetings.md).
    `only` shows one importer (the setup dialog on the Meetings page) and `onChange` runs after a save. */
@@ -30,7 +30,7 @@ window.mountMeetingImporters = async function (host, options) {
         <pre>${i.setup.keys.map(k => esc(k) + '=').join('\n')}</pre>
         <p class="muted">Steps: ${esc(i.setup.doc)}. Check: <code>python -m runner importers-doctor</code></p></details>
       <p role="status" data-imp-message></p></form>`;
-  }).join('') + (machines.length ? '' : '<p class="empty">Add a computer under Devices first.</p>');
+  }).join('') + (machines.length ? '' : '<p class="empty">Add a computer under Computers first.</p>');
   host.querySelectorAll('form[data-importer]').forEach(form => {
     form.onsubmit = async event => {
       event.preventDefault();

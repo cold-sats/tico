@@ -1,4 +1,4 @@
-/* Settings > People > Sync with directory: pull people from Google Workspace or Microsoft Entra ID, or
+/* Settings > Humans > Sync with directory: pull humans from Google Workspace or Microsoft Entra ID, or
    accept them over SCIM (docs/people.md). Every sync is previewed first; the credentials never
    reach the browser after they are saved. */
 window.mountDirectorySync = async function (host, onChange) {
@@ -26,7 +26,7 @@ window.mountDirectorySync = async function (host, onChange) {
       <div class="ds-row" data-ds-saved hidden><span class="muted" data-ds-hint></span><button class="ghost" type="button" data-ds-replace>Replace key</button></div>
       <div data-ds-creds="google" class="ds-stack" hidden>
         <label>Service account key <textarea name="service_account_json" rows="3" autocomplete="off" spellcheck="false" placeholder="{ &quot;type&quot;: &quot;service_account&quot;, ... }"></textarea></label>
-        <label>Admin to act as <input name="admin_email" type="email" autocomplete="email" spellcheck="false" placeholder="admin@company.com"></label>
+        <label>Admin to act as <input name="admin_email" type="email" autocomplete="email" spellcheck="false" placeholder="admin@example.com"></label>
       </div>
       <div data-ds-creds="entra" class="ds-stack" hidden>
         <label>Tenant ID or domain <input name="tenant" type="text" autocomplete="off" spellcheck="false"></label>
@@ -45,7 +45,7 @@ window.mountDirectorySync = async function (host, onChange) {
         <div data-ds-filters class="ds-stack">
           <label><span data-ds-groups-label>Only these groups</span> <textarea name="groups" rows="2" spellcheck="false" placeholder="One per line. Empty: everyone">${text(view.filter.groups.join('\n'))}</textarea></label>
           <label data-ds-ou>Only these organizational units <textarea name="org_units" rows="2" spellcheck="false" placeholder="/Sales">${text(view.filter.org_units.join('\n'))}</textarea></label>
-          <label>Only these email domains <textarea name="domains" rows="2" spellcheck="false" placeholder="company.com">${text(view.filter.domains.join('\n'))}</textarea></label>
+          <label>Only these email domains <textarea name="domains" rows="2" spellcheck="false" placeholder="example.com">${text(view.filter.domains.join('\n'))}</textarea></label>
           <label>Sync every <select name="interval_minutes"><option value="0">Only when I press Sync now</option><option value="60">hour</option><option value="360">6 hours</option><option value="1440">day</option></select></label>
         </div>
         <label class="ds-inline">Ask me first if more than<input name="mass_leave_limit" type="number" inputmode="numeric" min="0" max="10000" value="${text(view.mass_leave_limit)}">would be marked as left</label>
@@ -123,7 +123,7 @@ window.mountDirectorySync = async function (host, onChange) {
         ${list('Protected', p.protected, r => `${text(r.email)} <span class="muted">${text(r.reason)}</span>`)}
         ${list('Skipped', p.skipped, r => `${text(r.email)} <span class="muted">${text(r.reason)}</span>`)}
         ${need.first ? '<p class="muted">The first sync needs your confirmation.</p>' : ''}
-        ${need.mass_leave ? `<p class="err">This would mark more than ${text(preview.mass_leave_limit)} people as left. Check the list before you confirm.</p>` : ''}
+        ${need.mass_leave ? `<p class="err">This would mark more than ${text(preview.mass_leave_limit)} humans as left. Check the list before you confirm.</p>` : ''}
         ${needs ? '<label><input type="checkbox" data-ds-confirm> I have reviewed this list and want to apply it</label>' : ''}
         <div class="row"><button class="primary" type="button" data-ds-apply ${any ? '' : 'disabled'}>${any ? 'Apply' : 'Nothing to apply'}</button></div></div>`;
       const apply = slot.querySelector('[data-ds-apply]'), box = slot.querySelector('[data-ds-confirm]');

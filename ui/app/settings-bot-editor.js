@@ -10,7 +10,7 @@ function settingsBotEditorRows(e) {
   const change = (attr, what) => manage ? `<button class="ghost" type="button" ${attr}="${esc(e.name)}" aria-label="Change ${what} for ${esc(e.display_name)}">Change</button>` : '<span></span>';
   return `<div class="sb-row"><span>Access</span><span data-access-summary>${esc(accessSummary(e.access_policy))}</span>${change('data-edit-access', 'access')}</div>
     <div class="sb-row"><span>Works for</span><div class="settings-owner-list">${chips(e.users) || '<span class="muted">Nobody</span>'}</div>${change('data-edit-owners', 'who it works for')}</div>
-    <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its operator</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
+    <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its owner</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
     ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>`
       : `<div class="sb-row"><span>Model</span>${settingsChoiceCombo(e, 'model')}<span></span></div>
     <div class="sb-row"><span>Fallback</span>${settingsChoiceCombo(e, 'fallback')}<span></span></div>
@@ -21,7 +21,7 @@ function settingsEditBot(slug = '') {
   const dialog = $('#bot-editor');
   if (!dialog || editing && !e) return;
   SETTINGS_KEEP_MODEL = e?.model || '';
-  // A new bot starts on the company default; nothing here names a vendor.
+  // A new bot starts on the team default; nothing here names a vendor.
   const enabledModels = SETTINGS_DATA.models.filter(model => !model.deprecated && model.provider &&
     (SETTINGS_DATA.enabledProviders || []).includes(model.provider));
   const fallbackModel = SETTINGS_DATA.models.find(model => model.id === SETTINGS_DATA.defaultModel)
@@ -46,12 +46,12 @@ function settingsEditBot(slug = '') {
         <label>Display name<input name="display_name" type="text" autocomplete="off" value="${esc(e?.display_name || '')}" placeholder="Release Captain" maxlength="100" required></label>
         <label class="bot-editor-wide">Description<textarea name="description" maxlength="2000" placeholder="What this bot owns and does">${esc(e?.description || '')}</textarea></label>
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
-        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. People are never affected.</small></label>
+        <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. Humans are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
         <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
-        <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per person</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
+        <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
         ${editing ? '' : `<label class="bot-editor-wide">Model and effort
           <div class="settings-combo" data-add-choice data-current="${esc(currentModel)}">
@@ -61,7 +61,7 @@ function settingsEditBot(slug = '') {
             <input type="hidden" name="model_effort" value="${esc(currentModel)}" required>
             <div class="settings-combo-list" role="listbox">${modelOptions}</div>
           </div></label>
-        <label>Computer operator<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
+        <label>Computer owner<select name="operator" ${S.me?.role === 'owner' ? '' : 'disabled'}>${SETTINGS_DATA.people.map(person => `<option value="${esc(person.id)}" ${person.id === operator ? 'selected' : ''}>${esc(person.name || person.id)}</option>`).join('')}</select></label>
         <label class="bot-editor-wide">Registered computer<select name="runner_id"><option value="">Assign later</option>${machineOptions}</select><small data-computer-note></small></label>
         <p class="bot-editor-wide muted">Everyone can use it. Change that under Access once it is added.</p>`}
       </div>
@@ -106,7 +106,7 @@ function settingsEditBot(slug = '') {
   if (remove) remove.onclick = async () => {
     // Remove = archive (#535): off the chart, no routines or new work; open tasks go to the picked heir.
     const successor = form.elements.successor.value;
-    if (!confirm(`Remove ${e.display_name}? It leaves the org chart and stops running; its open tasks go to ${form.elements.successor.selectedOptions[0].textContent.replace('Hand its work to ', '')}.`)) return;
+    if (!confirm(`Remove ${e.display_name}? It leaves the team chart and stops running; its open tasks go to ${form.elements.successor.selectedOptions[0].textContent.replace('Hand its work to ', '')}.`)) return;
     remove.disabled = true; status.textContent = 'Removing…';
     try {
       await post(`/v2/bots/${encodeURIComponent(slug)}/archive`, {successor: successor || null, expected_revision: e.revision});
@@ -209,7 +209,7 @@ function settingsEditOwners(slug) {
     event.preventDefault();
     const owners = [...dialog.querySelectorAll('input[name=owner]:checked')].map(input => input.value);
     const status = $('#owner-picker-status', dialog);
-    if (!owners.length) { status.innerHTML = '<span class="err">Choose at least one person.</span>'; return; }
+    if (!owners.length) { status.innerHTML = '<span class="err">Choose at least one human.</span>'; return; }
     dialog.querySelectorAll('button,input').forEach(control => control.disabled = true); status.textContent = 'Saving…';
     try {
       await post(`/v2/bots/${encodeURIComponent(slug)}/owners`, {owners, expected_revision: e.revision});

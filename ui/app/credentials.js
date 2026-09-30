@@ -3,7 +3,7 @@
 'use strict';
 
 // ----------------------------------------------------------------- credentials (owner only)
-// Every connection the company has, masked, with whether it works: GET /api/credentials is the
+// Every credential the team has, masked, with whether it works: GET /api/credentials is the
 // inventory with the last check; POST /api/credentials/check probes them (read-only calls).
 let CRED_ST = null;
 const CRED_LABEL = {ok: 'working', failed: 'failed', missing: 'missing', absent: 'not set', present: 'stored', unchecked: 'not checked', session: 'session'};
@@ -14,7 +14,7 @@ function pageCredentials() {
 async function credLoad() {
   let d;
   try { d = await get('/credentials'); }
-  catch (e) { const el = $('#cred-list'); if (el) el.innerHTML = `<div class="empty">Could not read the connections${e.message ? ` (${esc(e.message)})` : ''}.</div>`; return; }
+  catch (e) { const el = $('#cred-list'); if (el) el.innerHTML = `<div class="empty">Could not read the credentials${e.message ? ` (${esc(e.message)})` : ''}.</div>`; return; }
   if (S.route !== CREDENTIALS) return;
   CRED_ST.rows = d.credentials || [];
   credPaint(d.summary || {});
@@ -66,7 +66,7 @@ function credPaint(summary) {
       <td class="cred-act">${r.can_check ? `<button class="ghost" type="button" data-cred-check="${esc(r.id)}">Check</button>` : ''}</td></tr>`;
   };
   const el = $('#cred-list'); if (!el) return;
-  el.innerHTML = rows.length ? `<div class="scroll"><table class="cred-table"><tr><th>Connection</th><th>As</th><th>Used by</th><th>Where</th><th>Status</th><th>Last worked</th><th>Last run</th><th></th></tr>${sorted.map(line).join('')}</table></div>`
-    : '<div class="empty">No connections found on this Mac.</div>';
+  el.innerHTML = rows.length ? `<div class="scroll"><table class="cred-table"><tr><th>Credential</th><th>As</th><th>Used by</th><th>Where</th><th>Status</th><th>Last worked</th><th>Last run</th><th></th></tr>${sorted.map(line).join('')}</table></div>`
+    : '<div class="empty">No credentials found on this computer.</div>';
   el.onclick = ev => { const b = ev.target.closest('[data-cred-check]'); if (b) credCheck([b.dataset.credCheck]); };
 }

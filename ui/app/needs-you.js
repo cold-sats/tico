@@ -23,8 +23,8 @@ function needsV2Item(it, folded, showName = true) {
     ? `<div class="req-next"><span>Exactly this</span><div class="md"><pre>${esc(JSON.stringify(it.payload, null, 2))}</pre></div></div>` : '';
   return `<details class="req v2" data-v2-id="${esc(it.id)}" data-task-version="${esc(it.version || '')}"${folded ? ' hidden data-folded' : ''}>
     <summary>
-      ${slug && S.emps.some(e => e.name === slug) ? avatar(slug, 24) : personCircle(actorLabel(from) || 'Hub', 24)}
-      <span class="req-text">${showName ? `<span class="req-from">${esc(actorLabel(from) || 'The hub')}:</span> ` : ''}${esc(plainActors(title))}</span>
+      ${slug && S.emps.some(e => e.name === slug) ? avatar(slug, 24) : personCircle(actorLabel(from) || 'Tico', 24)}
+      <span class="req-text">${showName ? `<span class="req-from">${esc(actorLabel(from) || 'Tico')}:</span> ` : ''}${esc(plainActors(title))}</span>
       <span class="req-meta"><span class="pill ${kind === 'approval' || kind === 'question' ? 'needs' : kind === 'declined' ? 'blocked' : ''}">${esc(V2_KIND[kind] || kind)}</span>${esc(ago(it.created))}</span>
       <span class="req-arrow" aria-hidden="true">›</span>
     </summary>

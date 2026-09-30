@@ -1,12 +1,12 @@
-/* ui/app/catalog.js — Bot catalog cards (first run and Add from catalog)
+/* ui/app/catalog.js — Bot template cards (first run and Add from template)
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
-// ----------------------------------------------------------------- the bot catalog, as cards
+// ----------------------------------------------------------------- the bot templates, as cards
 // One card component, shared by the first-run wizard (#/welcome) and by Settings → Bots →
-// "Add from catalog". A card is a whole bot to read before choosing it: what it owns, what it
+// "Add from template". A card is a whole bot to read before choosing it: what it owns, what it
 // will never do, what it runs on, and the AGENT.md it would be created with - editable here,
-// because the words a bot is created with are the only thing that makes it this company's bot.
+// because the words a bot is created with are the only thing that makes it this team's bot.
 function catalogState(cards, options = {}) {
   return {cards: Array.isArray(cards) ? cards : [], picked: new Set(), edits: {}, touched: new Set(),
           decided: new Set(), lock: options.lock !== false};
@@ -53,8 +53,8 @@ function catalogCardHTML(state, card, note) {
   const people = card.template === 'inbox' ? catalogPeople() : [];
   const chosen = state.edits[slug]?.person || '';
   const mailbox = people.length ? `<label class="cat-mailbox">Whose mailbox
-      <select data-cat-mailbox="${esc(slug)}" aria-label="Person whose inbox this bot reads">
-        <option value="">Choose a person…</option>
+      <select data-cat-mailbox="${esc(slug)}" aria-label="Human whose inbox this bot reads">
+        <option value="">Choose a human…</option>
         ${people.map(person => `<option value="${esc(person.id)}" ${person.id === chosen ? 'selected' : ''}>${esc(person.name || person.id)}${person.email ? ` · ${esc(person.email)}` : ''}</option>`).join('')}
       </select></label>` : '';
   return `<article class="cat-card${picked ? ' on' : ''}" data-cat-card="${esc(slug)}">
@@ -80,7 +80,7 @@ function catalogGridHTML(state, note) {
   const rank = card => card.required ? 0 : card.default ? 1 : note && note(card) ? 2 : 3;
   const rows = state.cards.slice().sort((a, b) =>
     rank(a) - rank(b) || String(a.name || a.slug).localeCompare(String(b.name || b.slug)));
-  if (!rows.length) return '<div class="empty">No bots in the catalog yet.</div>';
+  if (!rows.length) return '<div class="empty">No templates yet.</div>';
   return rows.map(card => catalogCardHTML(state, card, note ? note(card) : '')).join('');
 }
 function catalogWire(host, state, changed) {
@@ -96,7 +96,7 @@ function catalogWire(host, state, changed) {
     if (!toggle) return;
     const slug = toggle.dataset.catToggle;
     if (toggle.checked) state.picked.add(slug); else state.picked.delete(slug);
-    state.decided.add(slug);                 // a person's own choice outranks any later advice
+    state.decided.add(slug);                 // a human's own choice outranks any later advice
     host.querySelector(`[data-cat-card="${cssSelectorValue(slug)}"]`)?.classList.toggle('on', toggle.checked);
     changed?.();
   };

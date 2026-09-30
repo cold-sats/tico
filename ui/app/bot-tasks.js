@@ -62,7 +62,7 @@ function v2TaskGroups(list, slug, statuses) {
   }).filter(Boolean).join('');
   return out;
 }
-// The Chat tab is where a person works through one bot's requests. Keep every active company task
+// The Chat tab is where a human works through one bot's requests. Keep every active team task
 // that needs the signed-in person directly above that conversation. Attention order leads, then
 // the bot's queue rank. Tasks that do not need this person stay out of the way; Done stays in Tasks.
 const BOT_CHAT_ACTIVE = new Set(['open', 'doing', 'waiting', 'declined']);

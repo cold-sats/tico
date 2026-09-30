@@ -1,4 +1,4 @@
-/* Settings > Cloud services > Slack: paste the two tokens of the Slack app created from the manifest
+/* Tools > Slack: paste the two tokens of the Slack app created from the manifest
    (docs/slack.md). They are sent once and stored encrypted; the browser is never sent them back. */
 window.mountSlackConnect = async function (host) {
   if (!host) return;

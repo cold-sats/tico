@@ -97,7 +97,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     const row = id => page.locator(`.people-row[data-person=${id}]`);
 
     await page.goto('https://tico-ui.test/#/settings');
-    await page.getByRole('tab', {name: 'People'}).click();
+    await page.getByRole('tab', {name: 'Humans'}).click();
     await row('ben').waitFor();
     // Add manually is the mode with no directory; no title/team column and no Edit button; the bot limit reads 25.
     assert.equal(await page.locator('[data-people-mode=manual]').getAttribute('aria-pressed'), 'true');
@@ -191,7 +191,7 @@ const CONFIG = {environment_id: 'initech', company_name: 'Initech', app_name: 'I
     const admin = await context.newPage();
     admin.on('pageerror', e => errors.push(e.message));
     await admin.goto('https://tico-ui.test/#/settings');
-    await admin.getByRole('tab', {name: 'People'}).click();
+    await admin.getByRole('tab', {name: 'Humans'}).click();
     await admin.locator('.people-row[data-person=cy]').waitFor();
     assert.equal(await admin.locator('[data-people-mode], [data-person-role]').count(), 0);
     assert.equal(await admin.locator('.people-row[data-person=cy] [data-person-signin]').isDisabled(), true);

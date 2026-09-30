@@ -1,4 +1,4 @@
-/* ui/app/recurring.js — Recurring routines on Tasks and bot pages: rows, editor, actions
+/* ui/app/recurring.js — Routines on Tasks and bot pages: rows, editor, actions
    Classic script: its globals are shared with the other files under ui/app/, loaded in the order index.html lists them. */
 'use strict';
 
@@ -26,7 +26,7 @@ function routineLastHTML(r) {
   const running = new Set((S.status?.active || []).map(a => a.issue));
   if (r.last) {
     const col = r.last.kind === 'issue' ? boardColumn(r.last.issue, running) : hubColumn(r.last.task);
-    const word = {scheduled: 'scheduled', doing: 'doing', waiting: 'waiting', needs: 'needs you', done: 'done'}[col] || col;
+    const word = {scheduled: 'scheduled', doing: 'doing', waiting: 'waiting', needs: (typeof needsWho === 'function' && r.last.task) ? needsWho(r.last.task) : 'needs you', done: 'done'}[col] || col;
     return `<span class="pill ${col === 'done' ? 'ok' : col === 'needs' ? 'fail' : col === 'doing' ? 'waiting' : ''}">${esc(word)}</span><span class="tnum">${esc(ago(r.last.closed || r.last.updated))}</span>`;
   }
   if (r.last_fired) return `<span class="tnum">${esc(ago(r.last_fired))}</span>`;
@@ -55,7 +55,7 @@ function botRoutinesHTML(e, slug) {
   }).join('')}</div>`;
 }
 function recurringFiltersHTML(state) {
-  const kinds = [['all', 'All'], ['cron', 'Cron'], ['event', 'Event'], ['inbox', 'Inbox']];
+  const kinds = [['all', 'All'], ['cron', 'Cron'], ['event', 'Event'], ['inbox', 'Message']];
   const armed = [['all', 'All'], ['armed', 'Armed'], ['idle', 'Not armed']];
   const chips = (key, items) => items.map(([k, label]) =>
     `<button type="button" class="rchip${state[key] === k ? ' on' : ''}" data-rfilter="${key}" data-val="${k}">${label}</button>`).join('');
@@ -121,7 +121,7 @@ function routineEditorOpen(r = null, bot = '') {
         <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"></label>
         <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${ROUTINE_EVENTS.map(([v, w]) => `<option value="${v}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
         <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
-        <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the inbox and…">${esc(r?.text || '')}</textarea></label>
+        <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…">${esc(r?.text || '')}</textarea></label>
       </div>
       <div class="row" style="margin-top:16px"><button class="primary" type="submit">${editing ? 'Save routine' : 'Add routine'}</button><button class="ghost" type="button" data-routine-close>Cancel</button><span class="muted" data-routine-status></span></div></div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-routine-status]');

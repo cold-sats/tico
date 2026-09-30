@@ -13,7 +13,7 @@ function vaultClose() {
   if (dialog.open) dialog.close();
   dialog.replaceChildren();
 }
-// The Credentials section at the bottom of the Integrations page (#int-vault); who sees it is the server's call
+// The Credentials section at the bottom of the Tools page (#int-vault); who sees it is the server's call
 // (`credential_access`), and only a credential admin gets Add.
 async function vaultLoad() {
   const host = $('#int-vault');
@@ -26,7 +26,7 @@ async function vaultLoad() {
     host.hidden = false;
     host.innerHTML = `<div class="settings-toolbar"><div><h2>Credentials</h2></div>
       <div class="row">${data.can_manage ? '<button class="primary" id="vault-add" type="button">Add credential</button>' : ''}<button class="ghost" id="vault-refresh" type="button">Refresh</button></div></div>
-      <input id="vault-search" type="search" aria-label="Find a credential" placeholder="Search by name, username or key name" autocomplete="off">
+      <input id="vault-search" type="search" aria-label="Find a credential" placeholder="Search by name, username or variable name" autocomplete="off">
       <p class="muted" id="vault-count"></p><div id="vault-list"></div>`;
     $('#vault-add')?.addEventListener('click', () => vaultEdit());
     $('#vault-refresh').onclick = vaultLoad;
@@ -44,8 +44,8 @@ function vaultPaint() {
   const query = ($('#vault-search')?.value || '').toLowerCase();
   const rows = VAULT.credentials.filter(row => [row.name,row.username,row.env,row.source].join(' ').toLowerCase().includes(query));
   $('#vault-count').textContent = `${rows.length} of ${VAULT.credentials.length} credentials`;
-  host.innerHTML = rows.length ? `<div class="scroll"><table class="vault-table"><thead><tr><th>Connection</th><th>Username / key</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows.map(row => `<tr>
-    <td><strong>${esc(row.name)}</strong><div class="muted">${esc(row.env || row.kind.replace('_',' '))}</div><div class="muted">${row.stored ? 'Stored encrypted' : 'Not connected'}${row.source ? ` · ${esc(row.source)}` : ''}</div></td>
+  host.innerHTML = rows.length ? `<div class="scroll"><table class="vault-table"><thead><tr><th>Name</th><th>Username / value</th><th>Access</th><th>Actions</th></tr></thead><tbody>${rows.map(row => `<tr>
+    <td><strong>${esc(row.name)}</strong><div class="muted">${esc(row.env || row.kind.replace('_',' '))}</div><div class="muted">${row.stored ? 'Stored encrypted' : 'Not stored'}${row.source ? ` · ${esc(row.source)}` : ''}</div></td>
     <td>${esc(row.username || '')}${row.preview ? `<div class="mono">${esc(row.preview)}</div>` : ''}</td>
     <td>${row.grants.length ? row.grants.map(grant => esc(vaultSubject(grant.subject))).join(', ') : '<span class="muted">Owners only</span>'}</td>
     <td><div class="row">${row.stored ? `<button class="ghost" data-vault-reveal="${esc(row.id)}" type="button">Reveal / copy</button>` : ''}
@@ -74,8 +74,8 @@ async function vaultReveal(id) {
     const result = await post(`/v2/credentials/${encodeURIComponent(id)}/reveal`);
     if (!dialog.open || !dialog.isConnected || generation !== VAULT_DIALOG_GENERATION) return;
     dialog.querySelector('p').remove();
-    const label = document.createElement('label'); label.textContent = 'Password or key';
-    const value = document.createElement('textarea'); value.readOnly = true; value.value = result.value; value.setAttribute('aria-label','Password or key'); label.appendChild(value);dialog.appendChild(label);
+    const label = document.createElement('label'); label.textContent = 'Value';
+    const value = document.createElement('textarea'); value.readOnly = true; value.value = result.value; value.setAttribute('aria-label','Value'); label.appendChild(value);dialog.appendChild(label);
     const copy = document.createElement('button');copy.type='button';copy.className='primary';copy.textContent='Copy';
     copy.onclick = async () => {try {await navigator.clipboard.writeText(value.value);toast('Copied');} catch {value.focus();value.select();toast('Select and copy the value shown.');}};
     dialog.appendChild(copy); VAULT_REVEAL_TIMER = setTimeout(vaultClose,60000);
@@ -86,8 +86,8 @@ function vaultEdit(row) {
     <label>Name<input name="name" type="text" required maxlength="150" autocomplete="off" value="${esc(row?.name || '')}"></label>
     <label>Username (optional)<input name="username" type="text" maxlength="250" value="${esc(row?.username || '')}" autocomplete="off" spellcheck="false"></label>
     <label>Type<select name="kind">${['api_key','password','token','file','connection'].map(kind=>`<option value="${kind}" ${row?.kind===kind?'selected':''}>${esc(kind.replace('_',' '))}</option>`).join('')}</select></label>
-    <label>Bot key name (optional)<input name="env" type="text" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" autocomplete="off" spellcheck="false" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
-    <label class="bot-editor-wide">${row?.stored ? 'New password or key (leave blank to keep current)' : 'Password or key'}<textarea name="secret" aria-label="New password or key" autocomplete="off" spellcheck="false"></textarea></label>
+    <label>Bot variable name (optional)<input name="env" type="text" pattern="[A-Z_][A-Z0-9_]*" maxlength="100" autocomplete="off" spellcheck="false" placeholder="POSTHOG_API_KEY" value="${esc(row?.env || '')}"></label>
+    <label class="bot-editor-wide">${row?.stored ? 'New value (leave blank to keep current)' : 'Value'}<textarea name="secret" aria-label="New value" autocomplete="off" spellcheck="false"></textarea></label>
     <p class="err bot-editor-wide" id="vault-error"></p>
     <button class="primary" type="submit">Save credential</button></form>`);
   dialog.querySelector('form').onsubmit = async event => {
@@ -103,7 +103,7 @@ function vaultShare(id) {
   const row=VAULT.credentials.find(row=>row.id===id);
   const choices=[...(VAULT.can_manage ? VAULT.people.map(person=>({subject:'human:'+person.id,label:person.name || person.email})) : []),
     ...VAULT.bots.map(bot=>({subject:'bot:'+bot.id,label:bot.name+' (bot)'}))];
-  const dialog=vaultDialog('Access to '+row.name,`<p class="muted">Revoking access also revokes the bot connections they made.</p>
+  const dialog=vaultDialog('Access to '+row.name,`<p class="muted">Revoking access also revokes the access they gave their bots.</p>
     <div>${row.grants.map(grant=>`<div class="row"><span>${esc(vaultSubject(grant.subject))}${grant.parent_id?' · delegated':''}</span>${VAULT.can_manage?`<button class="ghost" type="button" data-revoke="${esc(grant.id)}">Revoke</button>`:''}</div>`).join('') || '<p>Owners only.</p>'}</div>
     <form id="vault-grant-form"><label>Grant access to<select name="subject" required>${choices.map(choice=>`<option value="${esc(choice.subject)}">${esc(choice.label)}</option>`).join('')}</select></label>
     <button class="primary" type="submit" ${choices.length?'':'disabled'}>Grant access</button><p class="err" id="vault-error"></p></form>`);

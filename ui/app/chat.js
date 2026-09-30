@@ -212,7 +212,7 @@ function v2RunHTML(m) {
     } else if (d.kind === 'ask' || d.kind === 'say') {
       const slug = actorSlug(d.to);
       rows.push(v2RunRow(`${d.kind === 'ask' ? 'asked' : 'messaged'} ${esc(youAware(d.to))} ·`, esc(d.text), {href: slug ? `#/bot/${encodeURIComponent(slug)}` : ''}));
-    } else if (d.kind === 'refused') rows.push(v2RunRow('refused ·', esc(d.text || d.rule), {failed: true, title: `The hub refused this (${d.rule})`}));
+    } else if (d.kind === 'refused') rows.push(v2RunRow('refused ·', esc(d.text || d.rule), {failed: true, title: `Tico refused this (${d.rule})`}));
   }
   if (run.steps) {
     const label = [`${run.steps} step${run.steps === 1 ? '' : 's'}`, run.tool_calls ? `${run.tool_calls} tool call${run.tool_calls === 1 ? '' : 's'}` : '', tookWords(run.took_s)].filter(Boolean).join(' · ');
@@ -225,7 +225,7 @@ function v2RunHTML(m) {
 // A turn's steps are read when someone opens them, once, and kept open across redraws.
 function v2StepsHTML(d) {
   const steps = d.steps || [];
-  if (!steps.length) return '<div class="step muted">No steps were recorded for this turn.</div>';
+  if (!steps.length) return '<div class="step muted">No steps were recorded for this run.</div>';
   return steps.map(st => st.kind === 'thinking'
     ? `<details class="step think"><summary>Thinking</summary><div class="step-text">${esc(st.text)}</div></details>`
     : `<div class="step${st.kind === 'error' ? ' err' : ''}" title="${esc(fmt(st.at))}"><span class="step-tool">${esc(st.kind === 'tool' ? st.tool : st.kind)}</span><span class="step-sum">${esc(st.text)}</span></div>`).join('');
@@ -432,7 +432,7 @@ async function v2ChatSend(P, text, slug = P.slug, extraRefs = {}) {
 function chatRetryLater(P, text, slug, extraRefs) {
   clearTimeout(P.retryTimer);
   const tries = P.retryTries = (P.retryTries || 0) + 1;
-  if (tries > 8) { P.retryTries = 0; toast('Still no connection. Your message is still in the box, so send it again once you are back online.', true); return; }
+  if (tries > 8) { P.retryTries = 0; toast('Still no connection. Your message is still here, so send it again once you are back online.', true); return; }
   if (tries === 1) toast('No connection. Your message will send by itself when you are back online.');
   const again = () => {
     window.removeEventListener('online', again); clearTimeout(P.retryTimer);

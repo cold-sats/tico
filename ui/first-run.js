@@ -7,7 +7,7 @@ const frOwner = () => (S.me?.id ? 'human:' + S.me.id : '');
 const frHome = state => state.record.home || frOwner();
 const frPeople = () => (SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.me?.id ? [{id: S.me.id, name: S.me.name}] : []));
 const frPersonName = id => frPeople().find(p => p.id === id)?.name || id;
-// The bot a card is created as: the assistant's card is named `coo` but the company's own bot is `assistantBot()`.
+// The bot a card is created as: the assistant's card is named `coo` but the team's own bot is `assistantBot()`.
 const frBotSlug = card => (card.template === 'assistant' ? assistantBot() : card.slug);
 
 function frCollect(state, key) {
@@ -15,7 +15,7 @@ function frCollect(state, key) {
 }
 
 // ----------------------------------------------------------------- who reports to whom
-// What a bot reports to: what the person chose, else its department head, else the owner.
+// What a bot reports to: what the human chose, else its group head, else the owner.
 const frRawReports = (state, slug) => state.catalog.edits[slug]?.reports_to ?? obDefaultReports(state, slug);
 function frReports(state, slug) {
   const wanted = frRawReports(state, slug);
@@ -30,8 +30,8 @@ function frDescends(state, slug, of) {
 function frParentOptions(state, slug) {
   const cat = state.catalog, out = [];
   const owner = frOwner();
-  for (const person of frPeople()) out.push({value: 'human:' + person.id, label: (person.name || person.id) + (('human:' + person.id) === owner ? ' (you)' : ''), group: 'People'});
-  // Helpers (the built-ins, a helper card) are not on the chart, so nobody reports to one.
+  for (const person of frPeople()) out.push({value: 'human:' + person.id, label: (person.name || person.id) + (('human:' + person.id) === owner ? ' (you)' : ''), group: 'Humans'});
+  // Built-in bots (the built-ins, a helper card) are not on the chart, so nobody reports to one.
   for (const card of cat.cards) {
     if (!card.required && card.kind !== 'helper' && cat.picked.has(card.slug) && card.slug !== slug && !frDescends(state, card.slug, slug))
       out.push({value: card.slug, label: catalogName(cat, card), group: 'Bots on your team'});
@@ -65,7 +65,7 @@ function frProblem(state) {
     if (card.required || !cat.picked.has(card.slug)) continue;
     const seen = new Set([card.slug]);
     for (let at = frReports(state, card.slug); at && !at.startsWith('human:'); at = frReports(state, at)) {
-      if (seen.has(at)) return `${catalogName(cat, card)} and ${catalogName(cat, catalogCard(cat, at) || card)} report to each other. Point one of them at a person.`;
+      if (seen.has(at)) return `${catalogName(cat, card)} and ${catalogName(cat, catalogCard(cat, at) || card)} report to each other. Point one of them at a human.`;
       seen.add(at);
       if (!catalogCard(cat, at) || catalogCard(cat, at).required) break;
     }
@@ -79,14 +79,14 @@ function frSummaryTeamHTML(state) {
   const cat = state.catalog, org = state.org;
   // In the order they are set up: each department's head first, then its team.
   const rows = Object.keys(frSelection(state)).map(slug => catalogCard(cat, slug)).filter(card => card && !card.required && card.kind !== 'helper');
-  // Helpers are not on the chart: the built-ins, and a helper card when it is switched on.
+  // Built-in bots are not on the chart: the built-ins, and a helper card when it is switched on.
   const helpers = cat.cards.filter(card => card.required || (card.kind === 'helper' && cat.picked.has(card.slug)))
     .map(card => esc(catalogName(cat, card))).join(', ');
   const departments = org.chosen.filter(id => obPicked(state, id).length).map(id => esc(obDept(org, id)?.name || id)).join(', ');
-  return `<div><span class="k">Helpers</span><span data-review-helpers>${helpers || '—'}</span></div>
-    ${org.loaded ? `<div><span class="k">Departments</span><span data-review-departments>${departments || '—'}</span></div>` : ''}
+  return `<div><span class="k">Built-in</span><span data-review-helpers>${helpers || '—'}</span></div>
+    ${org.loaded ? `<div><span class="k">Groups</span><span data-review-departments>${departments || '—'}</span></div>` : ''}
     <div><span class="k">Your team</span><span data-review-team>${rows.length ? rows.map(card =>
-      `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(frParentName(state, frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the helpers'}</span></div>`;
+      `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(frParentName(state, frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the built-in bots'}</span></div>`;
 }
 
 // ----------------------------------------------------------------- after Create
@@ -99,11 +99,11 @@ function frBotRowHTML(state, bot, botOps) {
     : parked ? (ready ? 'Repository ready.' : 'Setting up its repository…')
     : `${esc(botOps)} is setting this up.`;
   return `<div class="onb-bot" data-onb-bot="${esc(bot.slug)}">${avatar(bot.slug, 27)}
-      <div class="onb-bot-main"><strong>${esc(bot.display_name || bot.slug)}</strong>${parked ? ' <span class="pill needs" data-needs-onboarding>Needs onboarding</span>' : ''}
+      <div class="onb-bot-main"><strong>${esc(bot.display_name || bot.slug)}</strong>${parked ? ' <span class="pill needs" data-needs-onboarding>Needs setup</span>' : ''}
         <p>${where}</p>
         ${!bootstrap && !parked && bot.setup_task_id ? `<p><a href="#/task/${esc(bot.setup_task_id)}" data-onb-task="${esc(bot.slug)}">Open the setup task</a></p>` : ''}</div>
       <div class="onb-bot-actions"><span class="pill ${active ? 'ok' : ready ? 'ready' : 'waiting'}">${esc(parked && !ready ? 'setting up' : active ? 'active' : ready ? 'repository ready' : 'waiting')}</span>
-        ${parked ? `<button class="primary" type="button" data-fr-start="${esc(bot.slug)}" ${ready ? '' : 'disabled title="Its repository is not ready yet"'}>Start setup</button>`
+        ${parked ? `<button class="primary" type="button" data-fr-start="${esc(bot.slug)}" ${ready ? '' : 'disabled title="Its repository is not ready yet"'}>Set up</button>`
           : ready && !active && !bootstrap ? `<button class="ghost" type="button" data-onb-activate="${esc(bot.slug)}">Activate</button>` : ''}</div></div>`;
 }
 function frNextHTML(state) {
@@ -114,16 +114,16 @@ function frNextHTML(state) {
       <span class="muted" data-fr-owned="${esc(bot.slug)}">${esc(frPersonName(S.me?.id))} owns it</span></div>`).join('');
   return `<section class="card fr-card" id="fr-admin"><header><h2>Invite an admin</h2></header>
       <form id="fr-admin-form" class="fr-form"><label class="onb-field"><span class="k">Name</span><input name="name" autocomplete="off" placeholder="Sam Ortiz"></label>
-        <label class="onb-field"><span class="k">Email</span><input name="email" type="email" autocomplete="off" required placeholder="sam@company.com"></label>
+        <label class="onb-field"><span class="k">Email</span><input name="email" type="email" autocomplete="off" required placeholder="sam@example.com"></label>
         <div class="onb-actions"><button class="primary" type="submit">Invite as admin</button><span class="muted" id="fr-admin-status" role="status"></span></div></form>
       <small class="muted">Tico sends no email: tell them.</small></section>
     <section class="card fr-card" id="fr-owners"><header><h2>Who owns each bot</h2></header>
       ${owners || '<p class="muted">No bots yet.</p>'}</section>
-    <section class="card fr-card" id="fr-tools"><header><h2>Connect your tools</h2></header>
+    <section class="card fr-card" id="fr-tools"><header><h2>Tools</h2></header>
       <ul class="fr-tools">
-        <li>Keys and tokens <a href="#/credentials" data-fr-link="credentials">Credentials</a></li>
-        <li>Everything else <a href="#/integrations" data-fr-link="integrations">Integrations</a></li></ul>
-      <p class="fr-secrets" data-fr-secrets><strong>Enter secrets in those fields, never in a chat with a bot.</strong> One pasted into a chat is leaked: rotate it.</p></section>`;
+        <li><a href="#/credentials" data-fr-link="credentials">Credentials</a></li>
+        <li><a href="#/integrations" data-fr-link="integrations">Tools</a></li></ul>
+      <p class="fr-secrets" data-fr-secrets><strong>Enter credentials in those fields, never in a chat with a bot.</strong> One pasted into a chat is leaked: rotate it.</p></section>`;
 }
 function frWireDone(state) {
   document.querySelectorAll('[data-fr-start]').forEach(button => button.onclick = () => void frStartSetup(button.dataset.frStart, button));
@@ -136,7 +136,7 @@ async function frStartSetup(slug, button) {
   } catch (error) { toast(error.message, true); if (button) button.disabled = false; }
 }
 // Start setup: activate the bot when it is only planned (a starter runs nothing on its own), then say the one line that
-// begins its onboarding conversation. Any first message from a person does the same.
+// begins its setup conversation. Any first message from a human does the same.
 async function frSendSetup(slug) {
   const bots = await v2Get('/v2/bots?include_archived=1');
   const bot = (bots || []).find(row => row.slug === slug);
@@ -177,15 +177,15 @@ function frWireNext(state) {
 // ----------------------------------------------------------------- the bot page and the org chart
 const frNeedsSetup = e => !!e && e.onboarding_state === 'needs_onboarding';
 // The org chart's mark: small, beside the name, and the same word as the bot page.
-const frTreeMark = e => (frNeedsSetup(e) ? '<span class="tree-setup" title="Needs onboarding: set it up together before it does anything on its own">Setup</span>' : '');
+const frTreeMark = e => (frNeedsSetup(e) ? '<span class="tree-setup" title="Needs setup: set it up together before it does anything on its own">Setup</span>' : '');
 function frBotBannerHTML(e) {
   if (!frNeedsSetup(e)) return '';
   const manager = typeof settingsCanManageBot === 'function' && settingsCanManageBot(e);
   const planned = e.status === 'planned';
   const can = e.can_chat && (!planned || manager);
-  return `<section class="bot-onboard" id="bot-onboard" role="status" aria-label="Needs onboarding">
-      <span class="pill needs">Needs onboarding</span>
-      ${can ? '<button class="primary" type="button" id="bot-start-setup">Start setup</button>'
+  return `<section class="bot-onboard" id="bot-onboard" role="status" aria-label="Needs setup">
+      <span class="pill needs">Needs setup</span>
+      ${can ? '<button class="primary" type="button" id="bot-start-setup">Set up</button>'
         : `<span class="muted">${planned ? 'Setting up.' : 'Ask someone who can write to it to start.'}</span>`}
     </section>`;
 }
@@ -194,7 +194,7 @@ function frBotWire(slug) {
   if (button) button.onclick = async () => {
     button.disabled = true; button.textContent = 'Starting…';
     try { await frSendSetup(slug); button.textContent = 'Setup started'; showBotTab('chat'); }
-    catch (error) { toast(error.message, true); button.disabled = false; button.textContent = 'Start setup'; }
+    catch (error) { toast(error.message, true); button.disabled = false; button.textContent = 'Set up'; }
   };
 }
 // The page follows the bot's state: the mark clears when it says a person approved its first routine.
