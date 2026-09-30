@@ -47,6 +47,9 @@ def _s(description, **extra):
     return {"type": "string", "description": description, **extra}
 
 
+TASK_ID = {"type": "string", "description": "Task id: the full id, or its first 8 or more characters (`short_id` in hub_task_list)"}
+
+
 def tool(name, description, properties, required=(), *, writes=False, local=False):
     """Register one tool; the decorated function is `fn(api, args) -> result`. A `local` tool runs on the
     computer that runs the bot and is served only by the local MCP server (`clients/hubmcp.py`), never by
@@ -237,7 +240,7 @@ def meetings_import_file(api, args):
        "title": _s("What you are asking for, in plain words: no reference numbers, no all-caps"),
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
-       "parent_id": _s("Parent task id, when this is one part of a bigger task"),
+       "parent_id": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
        "labels": {"type": "array", "items": {"type": "string"},
                   "description": "Labels: a project name, a kind (bug, front-end). Lower-case words."},
        "top": {"type": "boolean", "default": False,
@@ -261,18 +264,18 @@ def task_create(api, args):
     return api.post("tasks", body, key=_key(args))
 
 
-@tool("hub_task_show", "One task with its history and conversation.", {"id": _s("Task id")}, required=("id",))
+@tool("hub_task_show", "One task with its history and conversation.", {"id": TASK_ID}, required=("id",))
 def task_show(api, args):
     return api.get("tasks/" + args["id"])
 
 
 @tool("hub_task_run", "Start a bot's task now, as the task (its text in the prompt, not a chat). "
-      "For a person, the task's requester, or BotOps's sweep.", {"id": _s("Task id")}, required=("id",))
+      "For a person, the task's requester, or BotOps's sweep.", {"id": TASK_ID}, required=("id",))
 def task_run(api, args):
     return api.post(f"tasks/{args['id']}/run-now", {}, key=_key(args))
 
 
-@tool("hub_task_list", "Tasks you may see, filtered. Your own come back in queue order: the "
+@tool("hub_task_list", "Tasks you may see, filtered; each has its full `id` and an 8-character `short_id` that every task tool accepts. Your own come back in queue order: the "
       "first is what to do next. `all` also returns every bot you may see (the board: `{tasks, bots}`). `stuck` is "
       "BotOps's sweep: every bot's open work that has not moved in a day and waits on nobody (no human owes an "
       "answer, no open blocker, no run queued).",
@@ -299,7 +302,7 @@ def task_list(api, args):
 
 
 @tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One per task.",
-      {"id": _s("Task id"), "text": _s("The question, and only the question")},
+      {"id": TASK_ID, "text": _s("The question, and only the question")},
       required=("id", "text"), writes=True)
 def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
@@ -307,13 +310,13 @@ def task_ask(api, args):
 
 @tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes.",
-      {"id": _s("Task id"),
+      {"id": TASK_ID,
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
        "note": _s("What changed, or the result"),
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
-       "blocked_by": _s("The id of the task this one waits on; an empty string clears it"),
+       "blocked_by": _s("The id (or 8-character short id) of the task this one waits on; an empty string clears it"),
        "goal_id": _s("The goal this task serves; an empty string takes it off")},
       required=("id",), writes=True)
 def task_update(api, args):
@@ -329,13 +332,13 @@ def task_update(api, args):
 
 @tool("hub_task_comment", "Leave a comment on a task: progress, a question for the people on it, "
       "a link to what you found. It is on the record with your name; it is not a chat.",
-      {"id": _s("Task id"), "text": _s("The comment")}, required=("id", "text"), writes=True)
+      {"id": TASK_ID, "text": _s("The comment")}, required=("id", "text"), writes=True)
 def task_comment(api, args):
     return api.post(f"tasks/{args['id']}/comments", {"text": args["text"]}, key=_key(args))
 
 
 @tool("hub_task_label", "Add or remove labels on a task. A project is a label; so is a kind (bug, front-end).",
-      {"id": _s("Task id"),
+      {"id": TASK_ID,
        "add": {"type": "array", "items": {"type": "string"}, "description": "Labels to add"},
        "remove": {"type": "array", "items": {"type": "string"}, "description": "Labels to remove"}},
       required=("id",), writes=True)
@@ -353,7 +356,7 @@ def task_label(api, args):
 
 @tool("hub_task_link", "Attach a link to a task: the pull request you opened (this is what moves a "
       "product task to In review and on to Shipped), an issue, a document, a page.",
-      {"id": _s("Task id"), "url": _s("The URL"), "title": _s("A short name; a pull request needs none")},
+      {"id": TASK_ID, "url": _s("The URL"), "title": _s("A short name; a pull request needs none")},
       required=("id", "url"), writes=True)
 def task_link(api, args):
     return api.post(f"tasks/{args['id']}/links", {"url": args["url"], "title": args.get("title")}, key=_key(args))
@@ -1012,7 +1015,7 @@ def docs_links(api, args):
 
 
 @tool("hub_task_close", "Close a task you requested. Never close a task you did not request.",
-      {"id": _s("Task id"), "note": _s("Why it is closed")}, required=("id",), writes=True)
+      {"id": TASK_ID, "note": _s("Why it is closed")}, required=("id",), writes=True)
 def task_close(api, args):
     current = api.get("tasks/" + args["id"])["task"]
     return api.post("tasks/" + args["id"], {"version": current["version"], "note": args.get("note"),
