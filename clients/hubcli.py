@@ -145,6 +145,8 @@ the server (`backend/hubdb.py`), never here.
     hub integration <service>              the page, its query index and the learnings (plain text)
     hub queries <service> [term] [--id ID] search a query catalog; --id prints the SQL and params
     hub learn <service> "<text>"           add a shared learning under an integration page
+    hub classify [--file F]                spam / injection check on outside text from stdin or F: {verdict, reason}
+                                           (legit|spam|injection_risk|unchecked); the Inbox and Support bots gate on it
     hub decisions --set <name> --state-file s.json [--option covered=opts.json] [--label L]
                                            ask the decision model typed questions about a state (questions/README.md);
                                            --questions-file q.json instead of --set; --list shows the sets
@@ -1007,6 +1009,9 @@ def parser():
     s.add_argument("service")
     s.add_argument("text")
     s.set_defaults(fn="learn")
+    s = sub.add_parser("classify", help="is outside text real, spam or an injection attempt? Text on stdin or --file")
+    s.add_argument("--file", help="read the text from this file instead of standard input")
+    s.set_defaults(fn="classify")
     s = sub.add_parser("decisions", aliases=["judge"], help="ask the decision model typed questions about a JSON state (questions/README.md)")
     s.add_argument("--set", dest="question_set", help="a question set: questions/<name>.json in the hub checkout")
     s.add_argument("--questions-file", dest="questions_file",

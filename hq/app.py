@@ -16,6 +16,7 @@ from . import recruit
 from .db import Database
 from .limits import Limiter
 from .releases import Latest
+from .judge import from_env as judge_from_env
 from .support import Tickets, install as install_support
 
 INSTALL_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
@@ -42,7 +43,7 @@ def parse(params):
             BOOLEANS[values["active_bots"]])
 
 
-def create_app(db, latest, limiter=None, client_ip_header="", staff_key="", tickets=None):
+def create_app(db, latest, limiter=None, client_ip_header="", staff_key="", tickets=None, judge=None):
     limiter = limiter or Limiter()
     tickets = tickets or Tickets(db)
     header = client_ip_header.strip().lower()
@@ -102,5 +103,5 @@ def create_app(db, latest, limiter=None, client_ip_header="", staff_key="", tick
 
     # POST /v1/recruit, the org builder's suggestions (recruit.py): stores nothing, and the limit above applies too.
     recruit.install(app, address=address)
-    install_support(app, tickets, address, staff_key)
+    install_support(app, tickets, address, staff_key, judge if judge is not None else judge_from_env())
     return app

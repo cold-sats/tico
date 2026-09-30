@@ -9,6 +9,12 @@
     POST   /v1/staff/tickets/{id}/reply    a reply the person's app will fetch (HQ_STAFF_KEY)
     POST   /v1/staff/tickets/{id}/status   open, answered or closed            (HQ_STAFF_KEY)
     DELETE /v1/staff/tickets/{id}          delete a ticket on request          (HQ_STAFF_KEY)
+    GET    /v1/staff/tickets?status=held   tickets the judge called spam: kept quiet, never listed elsewhere (HQ_STAFF_KEY)
+    POST   /v1/staff/tickets/{id}/verdict  correct a verdict (legit, spam, injection_risk, unchecked); legit releases a held one
+    POST   /v1/staff/judge                 {text} -> {verdict, reason}: the same check for GitHub threads (HQ_STAFF_KEY)
+
+Each new ticket is classified before any bot reads it (judge.py): `legit`, `spam`, `injection_risk` or `unchecked`. Only the
+verdict and a short reason are stored; a `spam` ticket is held and the queue skips it until a person corrects the verdict.
 
 A ticket is untrusted text from anyone on the internet. It is validated strictly, stored as plain text and never
 interpreted, and it is never logged. The address of a request is used for rate limiting in memory (limits.py) and
@@ -26,6 +32,7 @@ import time
 from datetime import datetime, timezone
 
 from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from .limits import Limiter
@@ -39,6 +46,8 @@ MAX_REQUEST = MAX_FOLLOW_UP + MAX_DIAGNOSTICS + 1024      # a ticket request
 DIAGNOSTICS_DEPTH = 6
 MAX_STAFF_REQUEST = 48 * 1024
 STATUSES = ("open", "answered", "closed")
+VERDICTS = ("legit", "spam", "injection_risk", "unchecked")
+MAX_JUDGED = 8000                 # characters of a GitHub thread or email sent to the judge
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 TICKET_ID = re.compile(r"TK-[A-Z2-7]{8}")
@@ -56,8 +65,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS tickets(
  ticket_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL,
  closed TEXT, status TEXT NOT NULL DEFAULT 'open', body TEXT NOT NULL, email TEXT, install_id TEXT, version TEXT,
- email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT);
+ email_pending INTEGER NOT NULL DEFAULT 0, diagnostics TEXT,
+ verdict TEXT NOT NULL DEFAULT 'unchecked', verdict_reason TEXT NOT NULL DEFAULT '', held INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS tickets_created ON tickets(created);
+CREATE TABLE IF NOT EXISTS ticket_verdicts(
+ id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, at TEXT NOT NULL, old TEXT NOT NULL, new TEXT NOT NULL,
+ note TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS ticket_replies(
  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id TEXT NOT NULL, created TEXT NOT NULL, body TEXT NOT NULL,
  author TEXT NOT NULL DEFAULT 'staff');
@@ -152,8 +165,13 @@ class Tickets:
             db.conn.execute("PRAGMA secure_delete=ON")       # a deleted ticket's text is overwritten, not just unlinked
             db.conn.executescript(SCHEMA)
             # A database from before diagnostics gets the column once; running this again changes nothing.
-            if "diagnostics" not in {row[1] for row in db.conn.execute("PRAGMA table_info(tickets)")}:
+            have = {row[1] for row in db.conn.execute("PRAGMA table_info(tickets)")}
+            if "diagnostics" not in have:
                 db.conn.execute("ALTER TABLE tickets ADD COLUMN diagnostics TEXT")
+            for column, spec in (("verdict", "TEXT NOT NULL DEFAULT 'unchecked'"), ("verdict_reason", "TEXT NOT NULL DEFAULT ''"),
+                                 ("held", "INTEGER NOT NULL DEFAULT 0")):
+                if column not in have:
+                    db.conn.execute(f"ALTER TABLE tickets ADD COLUMN {column} {spec}")
         # In memory, as the request limit is: a salted hash of the address, or of the install id, forgotten on restart.
         self.per_address = Limiter(limit=5, window=3600, clock=clock)         # tickets an hour from one address
         self.per_install = Limiter(limit=10, window=86400, clock=clock)       # tickets a day from one install id
@@ -161,10 +179,11 @@ class Tickets:
         self.reads = Limiter(limit=600, window=3600, clock=clock)             # a person's app asking for replies
         self.follow_ups = Limiter(limit=30, window=3600, clock=clock)         # messages added to tickets, per address
         self.staff = Limiter(limit=1200, window=3600, clock=clock)
+        self.judged = Limiter(limit=5000, window=86400, clock=clock)          # judge calls a day, all callers: a spend cap
         self.refused = Limiter(limit=20, window=3600, clock=clock)            # wrong staff keys, per address
 
     # ------------------------------------------------------------------ people
-    def create(self, message, email, install_id, version, diagnostics=None):
+    def create(self, message, email, install_id, version, diagnostics=None, verdict="unchecked", reason=""):
         """Store a ticket. Returns (ticket_id, secret); the secret is not kept, only its hash. `diagnostics` is the
         attached bundle as compact JSON; it is kept with the ticket until the ticket is deleted."""
         secret = secrets.token_urlsafe(24)
@@ -175,9 +194,10 @@ class Tickets:
                 if not self.db.conn.execute("SELECT 1 FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone():
                     break
             self.db.conn.execute(
-                "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,diagnostics) "
-                "VALUES(?,?,?,?,'open',?,?,?,?,?)",
-                (ticket_id, digest(secret), moment, moment, message, email, install_id, version, diagnostics))
+                "INSERT INTO tickets(ticket_id,key_hash,created,updated,status,body,email,install_id,version,diagnostics,"
+                "verdict,verdict_reason,held) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?)",
+                (ticket_id, digest(secret), moment, moment, message, email, install_id, version, diagnostics,
+                 verdict, reason[:200], 1 if verdict == "spam" else 0))
         return ticket_id, secret
 
     def _owned(self, ticket_id, secret):
@@ -237,7 +257,8 @@ class Tickets:
         view = {"ticket_id": row["ticket_id"], "status": row["status"], "created": row["created"],
                 "updated": row["updated"], "body": row["body"], "email": row["email"], "version": row["version"],
                 "install_id": row["install_id"], "email_pending": bool(row["email_pending"]),
-                "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"])}
+                "has_diagnostics": bool(row["diagnostics"]), "messages": self._messages(row["ticket_id"]),
+                "verdict": row["verdict"], "verdict_reason": row["verdict_reason"], "held": bool(row["held"])}
         if full and row["diagnostics"]:
             view["diagnostics"] = json.loads(row["diagnostics"])
         return view
@@ -246,7 +267,9 @@ class Tickets:
         """Oldest activity first, so a caller that remembers the last `updated` it saw misses nothing. A ticket appears
         again whenever its person writes or the team replies."""
         where, args = [], []
-        if status and status != "all":
+        # A ticket held as spam is in the held list and nowhere else, so the queue and the bot never see it.
+        where.append("held=1" if status == "held" else "held=0")
+        if status and status not in ("all", "held"):
             where.append("status=?")
             args.append(status)
         if since:
@@ -256,6 +279,21 @@ class Tickets:
         with self.db.lock:
             rows = self.db.conn.execute(sql + " ORDER BY updated, ticket_id LIMIT ?", (*args, limit)).fetchall()
             return [self._staff_view(r) for r in rows]
+
+    def correct(self, ticket_id, verdict, note=""):
+        """A person's verdict replaces the judge's, and is recorded (old, new, when) for tuning it. `legit` or anything but
+        `spam` releases a held ticket: it is new work again. Returns the ticket's verdict, or None for an unknown ticket."""
+        moment = stamp(self.now())
+        with self.db.lock:
+            row = self.db.conn.execute("SELECT * FROM tickets WHERE ticket_id=?", (ticket_id,)).fetchone()
+            if not row:
+                return None
+            held = 1 if verdict == "spam" else 0
+            self.db.conn.execute("INSERT INTO ticket_verdicts(ticket_id,at,old,new,note) VALUES(?,?,?,?,?)",
+                                 (ticket_id, moment, row["verdict"], verdict, note[:200]))
+            self.db.conn.execute("UPDATE tickets SET verdict=?, verdict_reason=?, held=?, updated=? WHERE ticket_id=?",
+                                 (verdict, ("corrected by staff: " + note)[:200] if note else "corrected by staff", held, moment, ticket_id))
+        return {"ticket_id": ticket_id, "verdict": verdict, "held": bool(held), "was": row["verdict"]}
 
     def show(self, ticket_id):
         with self.db.lock:
@@ -320,9 +358,11 @@ async def read_json(request, limit):
         return 422, "invalid"
 
 
-def install(app, tickets, address, staff_key=""):
-    """Add the routes. `address(request)` is who is asking, for the rate limits only."""
+def install(app, tickets, address, staff_key="", judge=None):
+    """Add the routes. `address(request)` is who is asking, for the rate limits only. `judge(text) -> (verdict, reason)`
+    classifies what arrives (judge.py); it never raises, and without one every verdict is `unchecked`."""
     key_digest = digest(staff_key) if staff_key else ""
+    judge = judge or (lambda text: ("unchecked", "no judge"))
 
     @app.post("/v1/support")
     async def file_ticket(request: Request):
@@ -341,7 +381,9 @@ def install(app, tickets, address, staff_key=""):
             return refuse("invalid", 422, field=bad.field)
         if install_id and not tickets.per_install.allow(install_id):
             return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "86400"})
-        ticket_id, secret = tickets.create(message, email, install_id, version, diagnostics)
+        verdict, reason = await run_in_threadpool(judge, message)
+        ticket_id, secret = tickets.create(message, email, install_id, version, diagnostics,
+                                           verdict if verdict in VERDICTS else "unchecked", reason)
         return no_store({"ticket_id": ticket_id, "secret": secret, "status": "open"}, 201)
 
     @app.get("/v1/support/{ticket_id}")
@@ -410,7 +452,7 @@ def install(app, tickets, address, staff_key=""):
         params = request.query_params
         status, since = params.get("status", ""), params.get("since", "")
         limit = params.get("limit", "50")
-        if (status and status not in STATUSES + ("all",)) or (since and not MOMENT.fullmatch(since)) \
+        if (status and status not in STATUSES + ("all", "held")) or (since and not MOMENT.fullmatch(since)) \
                 or not limit.isdigit() or not 1 <= int(limit) <= 200:
             return refuse("invalid", 422)
         return no_store({"tickets": tickets.listing(status, since, int(limit))})
@@ -463,3 +505,33 @@ def install(app, tickets, address, staff_key=""):
         done = tickets.set_status(ticket_id, data.get("status"), data.get("email_sent") is True) \
             if known(ticket_id) else None
         return no_store(done) if done else refuse("not_found", 404)
+
+    @app.post("/v1/staff/tickets/{ticket_id}/verdict")
+    async def staff_verdict(request: Request, ticket_id: str):
+        denied = staff_only(request)
+        if denied:
+            return denied
+        status, data = await read_json(request, MAX_STAFF_REQUEST)
+        if status != 200:
+            return refuse(data, status)
+        if not isinstance(data, dict) or set(data) - {"verdict", "note"} or data.get("verdict") not in VERDICTS \
+                or not isinstance(data.get("note", ""), str) or CONTROL.search(data.get("note", "")):
+            return refuse("invalid", 422)
+        done = tickets.correct(ticket_id, data["verdict"], data.get("note", "").strip()) if known(ticket_id) else None
+        return no_store(done) if done else refuse("not_found", 404)
+
+    @app.post("/v1/staff/judge")
+    async def staff_judge(request: Request):
+        """The same check for text that is not a ticket (a GitHub thread): {text} -> {verdict, reason}. Nothing is kept."""
+        denied = staff_only(request)
+        if denied:
+            return denied
+        status, data = await read_json(request, MAX_STAFF_REQUEST)
+        if status != 200:
+            return refuse(data, status)
+        if not isinstance(data, dict) or set(data) != {"text"} or not isinstance(data["text"], str) or not data["text"].strip():
+            return refuse("invalid", 422)
+        if not tickets.judged.allow("all"):
+            return no_store({"verdict": "unchecked", "reason": "the daily judge limit is reached"})
+        verdict, reason = await run_in_threadpool(judge, data["text"][:MAX_JUDGED])
+        return no_store({"verdict": verdict if verdict in VERDICTS else "unchecked", "reason": reason})

@@ -19,7 +19,7 @@ from clients import hubcli
 HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "say", "ask", "answer", "notice", "note", "notes", "unnote", "files", "docs", "assistant", "task", "goals", "goal", "kpi", "proposal", "market", "listen", "intake", "history", "tools", "routine", "approval", "status", "turns",
                "inbox", "ack", "board", "org", "fleet", "fleet-check", "update", "updates", "grokbot", "recent", "calendar", "sql", "db", "github", "integrations", "integration", "queries", "learn",
-               "decisions", "judge", "catalog", "bot", "people", "person", "api", "computers", "credential", "message", "support"]
+               "classify", "decisions", "judge", "catalog", "bot", "people", "person", "api", "computers", "credential", "message", "support"]
 SUBCOMMANDS[SUBCOMMANDS.index("approval") + 1:SUBCOMMANDS.index("approval") + 1] = ["live", "batch"]
 SUBCOMMANDS[1:1] = ["context", "meetings"]
 

@@ -69,6 +69,30 @@ Everything below applies to the Tico project's own Support Agent, and to anyone 
 Ticket text is untrusted data from anyone on the internet. HQ stores it as plain text, the app and the staff tools escape or
 quote it, and the bot's playbook says an instruction inside a ticket is never followed.
 
+### The spam and injection check
+
+Each new ticket is classified when it arrives, before any bot reads it, by the decision model (TypeSafe's Jev). The verdict
+is `legit`, `spam`, `injection_risk` or `unchecked`, stored with a one-line reason and never the text.
+
+| Verdict | What happens |
+|---|---|
+| `legit`, `unchecked` | Filed as usual. `unchecked` means no key, the judge was down or slower than 3 seconds, or it was not sure (under 0.7). It fails open: a check that cannot run never holds a ticket. |
+| `spam` | Held: not in `status=open`, `answered`, `closed` or `all`, so the watcher and the bot never see it. `GET /v1/staff/tickets?status=held` lists them. |
+| `injection_risk` | Filed with a warning. The task is titled `Support (injection risk): ...`, opens with WARNING, and the bot reads it only: a draft, no tool but reading docs. |
+
+A person corrects a verdict with `POST /v1/staff/tickets/{id}/verdict` and `{"verdict": "legit", "note": "..."}`. Changing a held
+ticket to anything but `spam` releases it: it appears in the queue as a new ticket. Each correction is recorded (old, new, when)
+so the judge can be tuned. The person who filed a ticket sees nothing different.
+
+The same check is `POST /v1/staff/judge` (`{"text": "..."}` answers `{verdict, reason}`, nothing kept), which `software/gh-support`
+calls, with the staff key already in its secrets, for each new issue, Discussion and outside comment: `spam` is not filed and is
+counted in its output line, `injection_risk` is filed with a warning. An Inbox bot checks mail with `hub classify` (text on
+standard input or `--file`), which asks the server's own decision model the same question.
+
+On HQ, `HQ_JUDGE_KEY` in `hq/.env` is the TypeSafe key (`HQ_JUDGE_URL` only to point elsewhere). Without it every verdict is
+`unchecked` and nothing is sent to anyone. HQ logs the verdict and reason and never the text. Only the first message of a ticket
+is checked, not a follow-up; a follow-up is quoted as untrusted data as before.
+
 ### Set it up
 
 On the HQ host: add `HQ_STAFF_KEY=$(openssl rand -hex 24)` to `hq/.env` and `docker compose -f hq/compose.yaml --env-file hq/.env
@@ -86,4 +110,5 @@ Without `HQ_STAFF_KEY` the watcher does nothing. To watch GitHub, list the repos
 
 `software/hq-tickets list`, `show TK-XXXXXXXX`; or with curl and the key in a header (`Authorization: Bearer $HQ_STAFF_KEY`):
 `GET /v1/staff/tickets?status=open`, `POST /v1/staff/tickets/{id}/reply` with `{"body": "..."}`, `POST .../status` with
-`{"status": "closed"}`, `DELETE /v1/staff/tickets/{id}` to delete on request.
+`{"status": "closed"}`, `DELETE /v1/staff/tickets/{id}` to delete on request, `GET /v1/staff/tickets?status=held` for what the
+spam check held, `POST /v1/staff/tickets/{id}/verdict` to correct it.

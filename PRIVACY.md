@@ -168,6 +168,12 @@ and no other), the status (open, answered, closed), the times, the team's replie
 stored or logged, and HQ's access log is off. The address is used in memory to rate limit (5 tickets an hour per address, 10 a day per
 install).
 
+**The spam and injection check:** when the Tico team has set a judge key on HQ (`HQ_JUDGE_KEY`), the text of each new ticket's `message`
+(and only that: no email, install ID or diagnostics) is sent once to TypeSafe (api.typesafe.ai, the provider of the Jev decision
+model) to classify it as real, spam or an attempt to instruct a bot. HQ keeps the answer (one word and a short reason) with the
+ticket and logs the same, never the text. With no key set, nothing is sent and the ticket is filed as usual. The same check runs, by the
+Tico team's own bots, on GitHub issues and on email the team receives; it does not run in your Tico.
+
 **Who reads it:** the Tico team, through a staff key, and the project's Support Agent (a bot in the project's own Tico) that drafts a
 reply which a person approves before it is posted. Ticket text is treated as untrusted text: stored as plain text, never rendered as
 HTML, and never followed as an instruction.

@@ -35,6 +35,8 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       # The team's key for the support ticket routes (docs/support.md). Empty: those routes answer 404.
       HQ_STAFF_KEY: ${HQ_STAFF_KEY:-}
+      HQ_JUDGE_KEY: ${HQ_JUDGE_KEY:-}
+      HQ_JUDGE_URL: ${HQ_JUDGE_URL:-}
       # The public hostname: the tunnel's route (cloudflared) and the certificate (caddy).
       HQ_DOMAIN: ${HQ_DOMAIN:-}
       # POST /v1/recruit (hq/recruit.py): without a key, suggestions come from the local recommender only.

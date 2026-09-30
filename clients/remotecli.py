@@ -34,6 +34,10 @@ def run(args, who=None):
         return hubtools.BY_NAME["hub_people_" + args.sub]["fn"](client, fields)
     if args.cmd in ("api", "computers", "credential", "message", "support", "fleet-check"):
         return botops_tools(client, args)
+    if args.cmd == "classify":
+        from clients import hubtools
+        text = Path(args.file).read_text(errors="replace") if args.file else sys.stdin.read()
+        return hubtools.BY_NAME["hub_classify"]["fn"](client, {"text": text})
     if args.cmd in ("decisions", "judge"):     # `judge` is the old name
         return judge(client, args)
     if args.cmd in ("context", "meetings"):
