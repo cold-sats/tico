@@ -21,7 +21,7 @@ import json
 
 from fastapi import Request
 
-from clients import access_entry
+from clients import access_entry, mcp_servers
 from . import models as M
 from . import providers, routines
 from .harnesses import EXTERNAL_HARNESSES, resolve_harness
@@ -144,15 +144,43 @@ def _declared_tool(entry, used, label):
         detail = "Granted through the credential vault; it arrives when a run starts"
     else:
         detail = "No credential is declared, so there is nothing to check"
+    mcp = _mcp_view(entry.get("mcp"))
+    if mcp and mcp["status"] in ("auth_failed", "unreachable") and not problem:
+        problem = ("The MCP server at " + mcp["host"] + (" refused the credential" if mcp["status"] == "auth_failed"
+                                                         else " did not answer"))
+    elif mcp and not problem and status != "problem":
+        detail = (detail + "; " if detail else "") + f"MCP server {mcp['host']} ({mcp['transport']}): " + (
+            "reachable" if mcp["status"] == "reachable" else "not checked yet")
     if problem:
         status = "problem"
     tool = {"id": _unique(used, service.lower() or "tool"), "service": service, "name": service_name(service),
             "logo_key": LOGO_KEYS.get(service.strip().lower()), "identity": entry.get("identity") or "",
             "can": list(entry.get("can") or []), "scope": dict(entry.get("scope") or {}), "env": env,
             "note": entry.get("note") or "", "status": status, "detail": detail}
+    if mcp:
+        tool["kind"], tool["mcp"] = "mcp", mcp
     if problem:
         tool["problem"] = problem
     return tool
+
+
+def _mcp_view(mcp):
+    """What the tool's row shows of an MCP server: its host, transport and the runner's check. Never the headers."""
+    if not isinstance(mcp, dict) or not mcp.get("url"):
+        return None
+    return {"host": mcp_servers.host_of(str(mcp["url"])), "transport": mcp.get("transport") or "http",
+            "status": mcp.get("status") or "unchecked"}
+
+
+ENTRY_KEYS = ("service", "identity", "can", "scope", "env", "note")
+
+
+def _entry_of(raw):
+    """A reported tool as a `tools:` entry again: the fields a person sets, the MCP block without the runner's check."""
+    entry = {k: raw[k] for k in ENTRY_KEYS if raw.get(k)}
+    if isinstance(raw.get("mcp"), dict) and raw["mcp"].get("url"):
+        entry["mcp"] = {k: raw["mcp"][k] for k in ("url", "transport", "headers") if raw["mcp"].get(k)}
+    return entry
 
 
 def _same(a, b):
@@ -189,7 +217,8 @@ def _pending_tool(request):
             "logo_key": LOGO_KEYS.get(service), "identity": entry.get("identity") or "", "can": list(entry.get("can") or []),
             "scope": access_entry.scope_of(entry), "env": entry.get("env") or "", "note": entry.get("note") or "",
             "status": "pending", "pending": "add", "task_id": request["task_id"],
-            "detail": "Waiting for BotOps to add it to the bot's bot.yaml; it shows as ready once the computer reports it"}
+            "detail": "Waiting for BotOps to add it to the bot's bot.yaml; it shows as ready once the computer reports it",
+            **({"kind": "mcp", "mcp": _mcp_view(entry["mcp"])} if _mcp_view(entry.get("mcp")) else {})}
 
 
 def listing(c, settings, bot):
@@ -247,6 +276,10 @@ def _task_text(verb, bot, name, entry, computer, repo=None):
     return "\n".join([
         f"{VERBS[verb][0]} {name} access {VERBS[verb][1]} {bot}.", "",
         do, "", "```yaml", access_entry.to_yaml(entry), "```", "",
+        *(["The `mcp:` block is a remote MCP server: Tico's runner passes it to the bot's harness, and `${VAR}` in a header is "
+           "filled from the bot's granted credential at run time. Keep the placeholder as it is; never write the value in "
+           "the file. Once it is granted, check it with one read-only call (docs/connect-tools.md).", ""]
+          if entry.get("mcp") else []),
         "Then run preflight for the bot (`scripts/preflight.sh " + bot + "`) and say on this task what it reported. "
         "Tico shows the entry on the bot's page once the computer's readiness report "
         + {"add": "lists it.", "update": "lists it as changed.", "remove": "no longer lists it."}[verb], "",
@@ -310,14 +343,14 @@ def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
     index = next((i for i, tool in enumerate(state["declared"]) if tool["id"] == tool_id), None)
     if index is None:
         raise Problem("not_found", "This bot does not declare that tool", 404)
-    raw = state["raw"][index]
-    entry = {k: raw[k] for k in ("service", "identity", "can", "scope", "env", "note") if raw.get(k)}
+    entry = _entry_of(state["raw"][index])
     if any(r["kind"] == "remove" and _same(entry, r["entry"]) for r in requests):
         raise Problem("duplicate", "Its removal is already waiting for BotOps", 409)
     if any(r["kind"] == "update" and _same(entry, r["entry"]) for r in requests):
         raise Problem("duplicate", "A change to it is already waiting for BotOps; remove it once that is done", 409)
     flat = {"service": entry["service"], **({"identity": entry["identity"]} if entry.get("identity") else {}),
             "can": entry.get("can") or [], **(entry.get("scope") or {}),
+            **({"mcp": entry["mcp"]} if entry.get("mcp") else {}),
             **({"env": entry["env"]} if entry.get("env") else {}), **({"note": entry["note"]} if entry.get("note") else {})}
     taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='remove' AND state='pending'",
                       (bot, entry["service"])).fetchone()[0]
@@ -338,8 +371,7 @@ def _declared_entry(state, tool_id):
     index = next((i for i, tool in enumerate(state["declared"]) if tool["id"] == tool_id), None)
     if index is None:
         raise Problem("not_found", "This bot does not declare that tool", 404)
-    raw = state["raw"][index]
-    return {k: raw[k] for k in ("service", "identity", "can", "scope", "env", "note") if raw.get(k)}
+    return _entry_of(state["raw"][index])
 
 
 def _scope(entry):
@@ -351,11 +383,12 @@ def _scope(entry):
 def _changed(entry, reported):
     """Whether a reported entry already says what `entry` (a change's new entry) says."""
     return (list(reported.get("can") or []) == list(entry.get("can") or [])
-            and _scope(reported) == _scope(entry) and str(reported.get("note") or "") == str(entry.get("note") or ""))
+            and _scope(reported) == _scope(entry) and str(reported.get("note") or "") == str(entry.get("note") or "")
+            and _entry_of(reported).get("mcp") == entry.get("mcp"))
 
 
 def update(c, auth, settings_admin, settings, who, bot, tool_id, body):
-    """Change a declared tool in place: only `can`, `scope` and `note`. The server holds no bot repository, so this is
+    """Change a declared tool in place: only `can`, `scope`, `note` and an MCP server's `mcp` block. The server holds no bot repository, so this is
     the add path's way: a pending request and one task for BotOps with the whole changed entry. Nothing is removed."""
     auth.domain(who)
     settings_admin._manager(c, who, bot)      # Auth.bot_manager
@@ -363,8 +396,8 @@ def update(c, auth, settings_admin, settings, who, bot, tool_id, body):
         raise Problem("not_found", "Bot not found", 404)
     if tool_id.startswith("pending-"):
         raise Problem("tool", "That tool is not on the bot yet; withdraw the request and add it again with the change", 422)
-    if body.can is None and body.scope is None and body.note is None:
-        raise Problem("entry", "Say what changes: can, scope or note", 422)
+    if body.can is None and body.scope is None and body.note is None and not body.mcp:
+        raise Problem("entry", "Say what changes: can, scope, note or mcp", 422)
     state = _state(c, settings, bot)
     old = _declared_entry(state, tool_id)
     scope = dict(old.get("scope") or {})
@@ -378,6 +411,10 @@ def update(c, auth, settings_admin, settings, who, bot, tool_id, body):
         merged["can"] = body.can
     if body.note is not None:
         merged["note"] = body.note
+    if body.mcp:
+        if not (old.get("mcp") or body.mcp.get("url")):
+            raise Problem("entry", "That tool is not an MCP server yet; send its url as well", 422)
+        merged["mcp"] = {**(old.get("mcp") or {}), **body.mcp}
     try:
         entry = access_entry.clean(merged)
     except access_entry.EntryError as exc:

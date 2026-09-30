@@ -95,6 +95,7 @@
         if (tool.id === 'repo' && key === 'repo') continue;
         rows.push([label(key), esc(asList(value).join(', '))]);
       }
+      if (tool.mcp) rows.push(['mcp', `<code>${esc(tool.mcp.host)}</code> <span class="muted">${esc(tool.mcp.transport)}</span>`]);
       if (tool.env) rows.push(['Credential', `<code>${esc(tool.env)}</code>`]);
       if (tool.note) rows.push(['Note', esc(tool.note)]);
       const status = tool.status === 'problem' && tool.problem

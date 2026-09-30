@@ -17,6 +17,10 @@ What does work is overriding each configured server: a stdio server's `command` 
 and contributes no tools (`mcp_disable_config`). Codex's own built-ins (`cua_repl`,
 `codex_apps`) are not in `mcp_servers` and cannot be turned off through thread config in
 0.153.3.
+
+A bot's declared remote MCP servers (`mcp:` in its `tools:`, clients/mcp_servers.py) are added to `mcp_servers` beside
+`hub`. Codex takes streamable HTTP only, and reads `bearer_token_env_var` / `env_http_headers` from the app-server
+process's own environment, which is this bot's (`make_host` passes the run's env): the bot's credential is named, not copied.
 """
 
 import json
@@ -26,6 +30,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from clients import mcp_servers
 from .. import isolation
 from .base import Host, HostError, hub_mcp_server, is_limit
 
@@ -341,8 +346,16 @@ class CodexHost(Host):
         # The hub's own MCP server rides next to the neutered global ones (docstring above):
         # the bot sees the hub tools and nothing of the operator's.
         hub = hub_mcp_server(settings.get("env"))
-        if hub:
-            cfg["mcp_servers"] = {**(cfg.get("mcp_servers") or {}), "hub": hub}
+        remote = mcp_servers.codex_config(settings.get("mcp_servers") or [], settings.get("env") or {}, self.env)
+        if hub or remote:
+            servers = dict(cfg.get("mcp_servers") or {})
+            for name, table in remote.items():
+                # A name the operator's own config.toml also has is already a disabled stub; a second table
+                # under it would merge with that one (url next to command), so the bot's takes another name.
+                servers["tico_" + name if name in servers or name == "hub" else name] = table
+            if hub:
+                servers["hub"] = hub
+            cfg["mcp_servers"] = servers
         params = {"cwd": settings["cwd"], "approvalPolicy": "never",
                   "sandbox": "danger-full-access"}
         if settings.get("model"):

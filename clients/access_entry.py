@@ -6,11 +6,17 @@ before it asks BotOps to write it into the bot's repository, so a request can on
 runner would report back. An entry holds names and verbs, never a credential: `env` is the variable's
 name, and text that looks like a key, a token or a password is refused (`secret_in`).
 
+A tool may also be a remote MCP server (`mcp:`: url, transport, headers). Its headers may hold
+`${VAR}` placeholders for the entry's own `env` variable and nothing else, so the entry still holds
+no value (`clean_mcp`; `clients/mcp_servers.py` is the runtime side).
+
 Pure stdlib apart from PyYAML, like the rest of clients/.
 """
 
+import ipaddress
 import math
 import re
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -36,6 +42,12 @@ SECRET_SHAPES = re.compile(
     r"xox[abposr]-[\w-]+|xapp-[\w-]+|ph[xcs]_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|AIza[\w-]{20,}|"
     r"ya29\.[\w.-]+|eyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]*|-----BEGIN [A-Z ]*KEY|npm_[A-Za-z0-9]{20,}|SG\.[\w-]{16,}|"
     r"\bBearer\s+\S{12,}|\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@|\bop:/{2}\S+")
+MCP_TRANSPORTS = ("http", "sse")            # streamable HTTP, and the older server-sent-events transport
+MCP_KEYS = ("url", "transport", "headers")
+MAX_HEADERS = 10
+PLACEHOLDER = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+HEADER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
+NOT_SETTABLE = {"host", "content-length", "transfer-encoding", "connection"}
 TOKEN_PARTS = re.compile(r"[\s,;()\"'<>]+")
 TOKEN_CHARS = re.compile(r"^[A-Za-z0-9_+/=-]+$")
 
@@ -94,6 +106,80 @@ def scope_of(entry):
     return result
 
 
+def loopback(host):
+    """Whether a URL's host is this computer: where plain http is allowed (a local MCP server)."""
+    host = (host or "").lower().rstrip(".")
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def placeholders(text):
+    """The variable names `${NAME}` placeholders in `text` refer to, in order."""
+    return PLACEHOLDER.findall(str(text or ""))
+
+
+def clean_mcp(mcp, env=""):
+    """A `mcp:` block, validated and normalised: {url, transport, headers?}. Raises EntryError.
+
+    https only (plain http for a loopback host), a known transport, and headers whose values are text
+    with `${VAR}` placeholders for `env`, the entry's one credential variable. Anything else that looks
+    like a credential is refused, so a value never reaches bot.yaml through this field."""
+    if not isinstance(mcp, dict):
+        raise EntryError("mcp is an object such as {url: \"https://mcp.example.com/mcp\", transport: http}")
+    unknown = sorted(str(key) for key in mcp if key not in MCP_KEYS)
+    if unknown:
+        raise EntryError(f"mcp does not take {', '.join(unknown)}; it takes {', '.join(MCP_KEYS)}")
+    url = str(mcp.get("url") or "").strip()
+    if not url or len(url) > 500 or re.search(r"\s", url):
+        raise EntryError("mcp.url is the server's address, such as https://mcp.example.com/mcp")
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+    except ValueError:
+        raise EntryError("mcp.url is not a valid address") from None
+    if parts.scheme == "http":
+        if not loopback(host):
+            raise EntryError("mcp.url must be https; plain http is only for a server on this computer (localhost)")
+    elif parts.scheme != "https":
+        raise EntryError("mcp.url must be https")
+    if not host or parts.username is not None or parts.password is not None or parts.fragment:
+        raise EntryError("mcp.url is a plain address: a host, no password and no #fragment")
+    if "${" in url or secret_in(url):
+        raise EntryError("mcp.url holds no credential (put it in a header as ${VAR}, never in the address)", "secret")
+    transport = str(mcp.get("transport") or "http").strip().lower()
+    if transport not in MCP_TRANSPORTS:
+        raise EntryError(f"mcp.transport is one of {', '.join(MCP_TRANSPORTS)}")
+    headers = mcp.get("headers") or {}
+    if not isinstance(headers, dict) or len(headers) > MAX_HEADERS:
+        raise EntryError(f"mcp.headers is an object of at most {MAX_HEADERS} headers")
+    kept = {}
+    for name, value in headers.items():
+        name = str(name).strip()
+        if not HEADER_NAME.match(name) or name.lower() in NOT_SETTABLE:
+            raise EntryError(f"{name!r} is not a header name Tico will send")
+        if not isinstance(value, str) or not value.strip() or len(value) > 500 or "\n" in value or "\r" in value:
+            raise EntryError(f"mcp.headers.{name} is one line of text, such as \"Bearer ${{JIRA_API_TOKEN}}\"")
+        bare = PLACEHOLDER.sub("", value)
+        if "${" in bare or "$" in bare:
+            raise EntryError(f"mcp.headers.{name} may only use ${{VARIABLE}} placeholders (capitals, digits, underscores)")
+        if secret_in(bare):
+            raise EntryError(f"mcp.headers.{name} holds what looks like a credential. Keep the value out of the entry: "
+                             "store it as the env variable and write ${VARIABLE} here", "secret")
+        for used in placeholders(value):
+            if used != env:
+                raise EntryError(f"mcp.headers.{name} uses ${{{used}}}, but only the entry's own env variable "
+                                 + (f"(${{{env}}}) " if env else "(set `env`) ") + "may be a placeholder")
+        kept[name] = value.strip()
+    result = {"url": url, "transport": transport}
+    if kept:
+        result["headers"] = kept
+    return result
+
+
 def clean(entry):
     """A registered entry, validated and normalised, in bot.yaml's key order. Raises EntryError."""
     if not isinstance(entry, dict):
@@ -139,6 +225,8 @@ def clean(entry):
     result = {"service": service}
     if identity:
         result["identity"] = identity
+    if entry.get("mcp") not in (None, {}, ""):
+        result["mcp"] = clean_mcp(entry["mcp"], env)
     result["can"] = verbs
     result.update(kept)
     if env:

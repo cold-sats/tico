@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml
 
+from clients import mcp_servers
 from clients.manifest import manifest_path, repo_dir, tools_of
 from clients.tico import APIError, Client
 from . import credential_socket, declared_access, files_publish, git_credentials, harness_tools, isolation, mail_key, op, profiles, usage
@@ -461,6 +462,7 @@ class Runner:
         self.last_heartbeat = 0
         self.vault_files = {}
         self.vault_values = {}
+        self.vault_names = {}             # attempt id -> the variable names its vault grants put in the run
         # Bot code cannot read this state directory when isolation is on (runner/isolation.py), so what
         # a turn's host process needs lives in a directory the bot user owns instead.
         self.host_state = isolation.bot_state(self.state.directory)
@@ -849,6 +851,68 @@ class Runner:
                 env[key] = value
         return env
 
+    def granted_environment(self, attempt, env):
+        """`env` cut to the variables this bot was given: its own secrets file, `_shared.env`, a credential profile
+        it names and its vault grants. The runner's own process environment is not the bot's to use in an MCP header."""
+        names = self.granted_names(attempt["bot"], attempt.get("config"), self.vault_names.get(attempt["id"], set()))
+        return {k: v for k, v in env.items() if k in names}
+
+    def granted_names(self, bot, config, vault=()):
+        secrets_dir = Path(self.config["projects_dir"]) / "secrets"
+        names = set(self._read_env(secrets_dir / "_shared.env")) | set(self._read_env(secrets_dir / (bot + ".env"))) | set(vault)
+        for access in tools_of(config) or []:
+            if not isinstance(access, dict):
+                continue
+            profile, key = str(access.get("credential_profile") or ""), str(access.get("env") or "")
+            if profile and key and PROFILE_RE.fullmatch(profile) and key in self._read_env(secrets_dir / (profile + ".env")):
+                names.add(key)
+        return names
+
+    MCP_REACH_TTL_S = 300
+
+    def mcp_reach(self, bot, config, entry_row, entry):
+        """reachable | auth_failed | unreachable | unchecked for one declared MCP server, from a cheap request made
+        off the heartbeat's thread and remembered for a few minutes (clients/mcp_servers.reachability). The header
+        is sent only when its variable is one this bot was granted on this computer; a vault grant arrives with a run,
+        so that server is asked without it and a refusal counts as reachable, the credential being checked then."""
+        mcp, name = entry_row["mcp"], entry_row.get("env") or ""
+        headers = dict(mcp.get("headers") or {})
+        needs = {v for value in headers.values() for v in mcp_servers.placeholders(value)}
+        env = self.granted_environment({"bot": bot, "id": "", "config": config}, self.credential_environment(bot, config))
+        resolved = bool(needs) and all(str(env.get(v) or "").strip() for v in needs)
+        if needs and not resolved and entry.get("vault") != "hub":
+            return "unchecked"                          # the missing credential is already the tool's problem
+        sent = {k: mcp_servers.expand(v, env) for k, v in headers.items()} if resolved else {}
+        key = (bot, entry_row["service"], mcp["url"], mcp["transport"], hashlib.sha256(repr(sorted(sent.items())).encode()).hexdigest())
+        cache, probing = self.__dict__.setdefault("_mcp_reach", {}), self.__dict__.setdefault("_mcp_probing", set())
+        seen = cache.get(key)                           # (when, status)
+        if (not seen or time.monotonic() - seen[0] >= self.MCP_REACH_TTL_S) and key not in probing:
+            probing.add(key)
+
+            def probe():
+                try:
+                    status = mcp_servers.reachability(mcp["url"], mcp["transport"], sent)
+                    cache[key] = (time.monotonic(), "reachable" if status == "auth_failed" and needs and not resolved else status)
+                finally:
+                    probing.discard(key)
+            threading.Thread(target=probe, daemon=True).start()
+        return seen[1] if seen else "unchecked"
+
+    def mcp_for_run(self, attempt, path, env, runtime, harness, note=None):
+        """The bot's remote MCP servers that this harness can take, for one run (clients/mcp_servers.py). What is
+        left out, and why, goes to `note`, which puts it on the run's log."""
+        try:
+            manifest = yaml.safe_load(manifest_path(path).read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            return []
+        servers, problems = mcp_servers.servers_for_run(tools_of(manifest), self.granted_environment(attempt, env))
+        for server, why in mcp_servers.unsupported(servers, runtime, harness):
+            problems.append(f"{server['service']}: MCP server not passed. {why}")
+        for line in problems:
+            if note:
+                note(line)
+        return mcp_servers.supported(servers, runtime, harness)
+
     def environment(self, attempt):
         # Existing credential declarations resolve locally; the machine credential is never included.
         # --projects selects the operator's actual layout, which need not be the
@@ -859,6 +923,7 @@ class Runner:
         if attempt.get("credential_vault"):
             granted = Client(self.config["url"], attempt["token"], timeout=15, retries=1).get("credential-runtime")
             self.vault_values[attempt["id"]] = [item["value"] for item in granted["credentials"]]
+            self.vault_names[attempt["id"]] = {item.get("env", "") for item in granted["credentials"] if item.get("env")}
             reserved = {"HOME", "PATH", "SHELL", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "LD_PRELOAD",
                         "DYLD_INSERT_LIBRARIES", "CODEX_HOME", "HUB_DB", "HUB_HUMAN_OVERRIDE"}
             for item in granted["credentials"]:
@@ -1044,6 +1109,11 @@ class Runner:
                         tools = declared_access.declared_tools(
                             access, self.credential_environment(bot, {**entry["config"], "access": access, "tools": access}),
                             held=("GOOGLE_SA_KEY",) if mail_key.held_by_computer(self.config) else ())
+                    for row, declared_entry in zip(tools, [e for e in access if isinstance(e, dict) and str(e.get("service") or "").strip()]):
+                        if row.get("mcp"):
+                            row["mcp"]["status"] = self.mcp_reach(bot, entry["config"], row, declared_entry)
+                    if access:
+                        warnings.extend(mcp_servers.warnings_for(access, runtime, entry["config"].get("harness")))
                     expected = entry["config"]
                     cloud_model = expected.get("model_managed_by") == "cloud"
                     # A copy of a shared bot (`shared_from` on the server) runs from the original's
@@ -1663,6 +1733,8 @@ class Runner:
                     redactor.register(aid)
                 def redact(value):
                     return redactor.scrub_json(value) if redactor else value
+                def diagnose(text):
+                    self.state.append(aid, "diagnostic", {"text": text})
                 runtime = config.get("runtime") or ""
                 if persistent:
                     runtime += ":antigravity"
@@ -1737,7 +1809,9 @@ class Runner:
                     host = self.host_factory(attempt, env)
                 host.start()
                 settings = host_settings(execution_path, model=config.get("model"),
-                                         effort=config.get("reasoning_effort"), env=env, slug=bot)
+                                         effort=config.get("reasoning_effort"), env=env, slug=bot,
+                                         mcp_servers=self.mcp_for_run(attempt, execution_path, env, config.get("runtime"),
+                                                                      config.get("harness"), diagnose))
                 resumed = False
                 if previous:
                     try:
@@ -1800,7 +1874,9 @@ class Runner:
                     host = self.host_factory({**attempt, "config": hop_config, "fallback": fallback}, base_env)
                     host.start()
                     settings = host_settings(execution_path, model=hop["model"],
-                                             effort=hop["reasoning_effort"], env=base_env, slug=bot)
+                                             effort=hop["reasoning_effort"], env=base_env, slug=bot,
+                                             mcp_servers=self.mcp_for_run(attempt, execution_path, base_env, hop["runtime"],
+                                                                          hop["harness"], diagnose))
                     thread = host.start_thread(bot, settings)
                     turn = host.start_turn(thread, self.prompt(attempt, resumed=False),
                                            effort=hop["reasoning_effort"])
@@ -1896,6 +1972,7 @@ class Runner:
                     self.credentials.unregister(attempt["token"])
                 redact_mod.release(aid)
                 self.vault_values.pop(aid, None)
+                self.vault_names.pop(aid, None)
                 for filename in self.vault_files.pop(aid, []):
                     Path(filename).unlink(missing_ok=True)
                 done.set()
