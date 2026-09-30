@@ -573,7 +573,7 @@ def create_app(settings=None):
         return result
 
     def task_view(row, c=None, parts=None):
-        value = {**row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
+        value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
                  "labels": H.task_labels(row), "lane": row.get("lane") or "company",
                  "next_run": bool(row.get("next_run"))}
         if c is not None and row.get("next_run"):
@@ -1881,6 +1881,7 @@ def create_app(settings=None):
     @app.get("/api/v2/tasks/{tid}")
     def task(request: Request, tid: str):
         with store.read() as c:
+            tid = auth.resolve_task(c, request.state.identity, tid)
             row = auth.task(c, request.state.identity, tid)
             # A bot task now lives in the bot's chat room. Only this task's messages
             # come back here; the rest of that room stays on Chat.
@@ -1903,6 +1904,8 @@ def create_app(settings=None):
                     **task_message_page(c, row)}
 
     def task_create(c, who, body, lint=True):
+        if body.parent_id:
+            body.parent_id = auth.resolve_task(c, who, body.parent_id)
         owner = auth.target(c, who, body.owner, need="write")
         auth.require_bot_contact(c, who, owner, task_id=body.parent_id, kind="task")
         # A subtask is the shape that parks the filer as `waiting` and makes it care when the
@@ -1948,15 +1951,16 @@ def create_app(settings=None):
         def work(c):
             # A person's request to BotOps can purge tasks that are not really needed, as that person.
             who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
-            row = auth.task(c, who, tid)
+            task_id = auth.resolve_task(c, who, tid)
+            row = auth.task(c, who, task_id)
             if who is not caller:
-                H.event(c, caller.actor, "task.update_delegated", tid,
+                H.event(c, caller.actor, "task.update_delegated", task_id,
                         {"on_behalf_of": who.actor, "message_id": body.on_behalf_of,
                          "close": body.close, "status": body.status, "owner": body.owner})
             if row["version"] != body.version:
                 raise Problem("version_conflict", "Task changed; fetch it and retry your update", 409)
             if body.owner:
-                auth.require_bot_contact(c, who, auth.target(c, who, body.owner, need="write"), task_id=tid, kind="task")
+                auth.require_bot_contact(c, who, auth.target(c, who, body.owner, need="write"), task_id=task_id, kind="task")
             if body.due and (not H.parse_ts(body.due) or H.parse_ts(body.due).tzinfo is None):
                 raise Problem("date", "due must be an ISO-8601 date/time with a timezone", 422)
             if body.goal_id and not G.goal(c, body.goal_id):
@@ -1966,20 +1970,20 @@ def create_app(settings=None):
                                                body.labels, body.blocked_by, body.parent_id, body.rank,
                                                body.goal_id)):
                     raise Problem("close", "Close and edit are separate operations", 422)
-                H.task_close(c, who.actor, tid, note=body.note or "")
+                H.task_close(c, who.actor, task_id, note=body.note or "")
             else:
-                if body.blocked_by:
-                    auth.task(c, who, body.blocked_by)
-                if body.parent_id:
-                    auth.task(c, who, body.parent_id)
-                H.task_update(c, who.actor, tid, **body.model_dump(exclude={"version", "close", "on_behalf_of"}),
-                              mover=mover(c, who) or None)
+                fields = body.model_dump(exclude={"version", "close", "on_behalf_of"})
+                for name in ("blocked_by", "parent_id"):
+                    if fields[name]:
+                        fields[name] = auth.resolve_task(c, who, fields[name])
+                        auth.task(c, who, fields[name])
+                H.task_update(c, who.actor, task_id, **fields, mover=mover(c, who) or None)
                 # A bot's own tasks sat 'done' for days because the reviewer is the
                 # same bot. A task its owner asked for itself closes when that owner marks it done.
                 if body.status == "done" and row["owner"] == row["requester"] == who.actor:
-                    H.task_close(c, who.actor, tid, note=body.note or "")
-            c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (tid,))
-            return {"task": task_view(H.task(c, tid), c)}
+                    H.task_close(c, who.actor, task_id, note=body.note or "")
+            c.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_id,))
+            return {"task": task_view(H.task(c, task_id), c)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/run-now")
@@ -1988,8 +1992,10 @@ def create_app(settings=None):
         requester, or the fleet maintainer's stuck-task sweep (never on a private bot's task)."""
         def work(c):
             who = request.state.identity
-            if who.actor == H.bot_actor(H.FLEET_MAINTAINER):
-                row = H.task(c, tid)
+            maintainer = who.actor == H.bot_actor(H.FLEET_MAINTAINER)
+            task_id = auth.resolve_task(c, who, tid, visible=auth.fleet_task_sql(c, who) if maintainer else None)
+            if maintainer:
+                row = H.task(c, task_id)
                 if not row:
                     raise Problem("not_found", "Task not found", 404)
                 hidden = auth.unreadable_bots(c, who)
@@ -1997,21 +2003,22 @@ def create_app(settings=None):
                        for a in (row["owner"], row["requester"])):
                     raise Problem("forbidden", "This task involves a bot whose activity BotOps may not read", 403)
             else:
-                row = auth.task(c, who, tid)
+                row = auth.task(c, who, task_id)
                 if who.role not in ("human", "owner") and who.actor != row["requester"]:
                     raise Problem("forbidden", "Only a person, the task's requester or BotOps starts it early", 403)
                 # Running it wakes the bot: that is a request to it.
                 if str(row["owner"]).startswith("bot:") and who.actor != row["owner"]:
                     auth.require_write(c, who, H.actor_id(row["owner"]))
-            after, queued = H.task_run_now(c, who.actor, tid)
+            after, queued = H.task_run_now(c, who.actor, task_id)
             return {"task": task_view(after, c), "queued": queued}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/ask")
     def task_ask(request: Request, tid: str, body: M.Answer):
         def work(c):
-            auth.task(c, request.state.identity, tid)
-            return H.task_ask(c, request.state.identity.actor, tid, body.text)
+            task_id = auth.resolve_task(c, request.state.identity, tid)
+            auth.task(c, request.state.identity, task_id)
+            return H.task_ask(c, request.state.identity.actor, task_id, body.text)
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/comments")
@@ -2020,7 +2027,8 @@ def create_app(settings=None):
         requester left it; anyone else's is saved for the bot's next turn on the task."""
         who = request.state.identity
         def work(c):
-            row = auth.task(c, who, tid)
+            task_id = auth.resolve_task(c, who, tid)
+            row = auth.task(c, who, task_id)
             # The comment goes to the bot on the other side of the task (`H.task_comment`), so it is
             # a request to it: Write, and the same bot-to-bot limits a message has. The owner
             # answering whoever asked for the work is the reply path, which needs no Write.
@@ -2030,24 +2038,25 @@ def create_app(settings=None):
             if target and who.actor != row["owner"]:
                 auth.require_write(c, who, H.actor_id(target))
             if target:
-                auth.require_bot_contact(c, who, target, task_id=tid, kind="comment")
+                auth.require_bot_contact(c, who, target, task_id=task_id, kind="comment")
             wake = who.role == "bot" or who.actor in (row["owner"], row["requester"]) or mover(c, who)
-            msg = H.task_comment(c, who.actor, tid, body.text, wake=wake)
-            return {"comment": msg, "comments": H.task_comments(c, tid), "woke": bool(wake)}
+            msg = H.task_comment(c, who.actor, task_id, body.text, wake=wake)
+            return {"comment": msg, "comments": H.task_comments(c, task_id), "woke": bool(wake)}
         return mutate(request, body, work)
 
     @app.post("/api/v2/tasks/{tid}/links")
     def task_links(request: Request, tid: str, body: M.TaskLink):
         who = request.state.identity
         def work(c):
-            auth.task(c, who, tid)
+            task_id = auth.resolve_task(c, who, tid)
+            auth.task(c, who, task_id)
             if body.remove:
-                H.task_unlink(c, who.actor, tid, body.remove)
+                H.task_unlink(c, who.actor, task_id, body.remove)
             elif body.url:
-                H.task_link(c, who.actor, tid, body.url, body.title)
+                H.task_link(c, who.actor, task_id, body.url, body.title)
             else:
                 raise Problem("kind", "Send a url to add or remove with a link id", 422)
-            return {"links": H.task_links(c, tid)}
+            return {"links": H.task_links(c, task_id)}
         return mutate(request, body, work)
 
     @app.get("/api/v2/preferences/{key}")

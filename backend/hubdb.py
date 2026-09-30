@@ -2261,7 +2261,7 @@ def stuck_tasks(conn, hours=STUCK_HOURS, hidden=()):
         blocker = task(conn, row["blocked_by"]) if row.get("blocked_by") else None
         if blocker and blocker["status"] in ACTIVE_STATUSES:
             continue
-        out.append({"id": row["id"], "title": row["title"], "owner": row["owner"], "status": row["status"],
+        out.append({"id": row["id"], "short_id": row["id"][:8], "title": row["title"], "owner": row["owner"], "status": row["status"],
                     "requester": row["requester"], "updated": row["updated"], "note": row.get("note") or ""})
     return out
 

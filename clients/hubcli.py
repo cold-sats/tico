@@ -31,7 +31,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
     hub task list [--owner me|X] [--requester me] [--status open|doing|waiting|done]
                   [--all]                  the board: every task and every bot you may see, {tasks, bots}
                   [--stuck [--hours N]]    BotOps's sweep: open work untouched for a day that waits on nobody
-    hub task show <id>
+    hub task show <id>                     <id> is the full id or its first 8+ characters (short_id in the list)
     hub file publish <path> [--title T] [--task ID] [--scope task|bot]
                                            list a file from this checkout on your page (reports/x.md);
                                            publishing it again adds a version (docs/files.md)

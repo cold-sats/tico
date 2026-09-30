@@ -35,6 +35,24 @@ def cookies(headers):
     return {name: morsel.value for name, morsel in jar.items()}
 
 
+TASK_PREFIX_MIN = 8
+
+
+def _edit_distance(a, b, limit):
+    """Levenshtein distance when it is at most `limit`, else None (gives up as soon as it must exceed it)."""
+    if abs(len(a) - len(b)) > limit:
+        return None
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        row = [i]
+        for j, cb in enumerate(b, 1):
+            row.append(min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        if min(row) > limit:
+            return None
+        previous = row
+    return previous[-1] if previous[-1] <= limit else None
+
+
 @dataclass(frozen=True)
 class Identity:
     actor: str
@@ -799,6 +817,60 @@ class Auth:
 
     def task(self, c, who, task_id):
         return self.task_row(c, who, H.task(c, task_id))
+
+    def resolve_task(self, c, who, ident, visible=None):
+        """The full task id for what a caller typed: the id itself, a unique prefix of at least
+        TASK_PREFIX_MIN characters, or a refusal. Models copy a long UUID imperfectly, so an
+        ambiguous prefix lists its candidates and a near miss is only suggested, never used.
+        Only tasks `visible` (default: what this caller may read) are matched, so a refusal never
+        names a task the caller cannot see."""
+        if not isinstance(ident, str) or not ident.strip():
+            return ident
+        ident = ident.strip()
+        if H.task(c, ident):
+            return ident            # the caller's permission is auth.task's to decide, as before
+        self.domain(who)
+        visible = visible or self.task_sql(c, who)
+
+        def readable(rows):
+            found = []
+            for row in rows:
+                try:
+                    self.task_row(c, who, row)
+                except Problem:
+                    continue
+                found.append(row)
+            return found
+
+        if TASK_PREFIX_MIN <= len(ident) < 36:
+            rows = readable(H._rows(c.execute(
+                "SELECT id,title,owner,requester FROM tasks WHERE substr(id,1,?)=? AND (" + visible + ") "
+                "ORDER BY created LIMIT 50", (len(ident), ident.lower()))))
+            if len(rows) == 1:
+                return rows[0]["id"]
+            if rows:
+                raise Problem("ambiguous_id", "Task id %s matches %d tasks: %s. Use more characters of the id."
+                              % (ident, len(rows), "; ".join("%s (%s)" % (r["id"][:TASK_PREFIX_MIN], r["title"])
+                                                             for r in rows[:10])), 409)
+        if len(ident) >= 34:
+            near = []
+            for row in H._rows(c.execute("SELECT id,title,owner,requester FROM tasks WHERE length(id) BETWEEN ? AND ? "
+                                         "AND (" + visible + ")", (len(ident) - 2, len(ident) + 2))):
+                distance = _edit_distance(ident.lower(), row["id"], 2)
+                if distance is not None:
+                    near.append((distance, row))
+            if near:
+                closest = min(d for d, _ in near)
+                best = readable([row for d, row in near if d == closest])[:3]
+                if best:
+                    raise Problem("not_found", "No task %s. Did you mean %s?" % (
+                        ident, " or ".join("%s (%s)" % (r["id"], r["title"]) for r in best)), 404)
+        raise Problem("not_found", "Task not found", 404)
+
+    def fleet_task_sql(self, c, who):
+        """Every task except those that involve a bot this caller may not read."""
+        hidden = ["bot:" + slug for slug in sorted(self.unreadable_bots(c, who))]
+        return ("NOT (owner IN %s OR requester IN %s)" % ((A.qlist(hidden),) * 2)) if hidden else "1"
 
     def approval(self, c, who, approval_id, decide=False):
         self.domain(who)
