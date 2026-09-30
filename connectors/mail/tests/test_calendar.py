@@ -43,12 +43,21 @@ access:
     can: [read, draft, schedule]
 """
     }
-    def test_private_hold_refuses_external_attendee(self):
-        rc, out, err = self.run_json("hold", "--as", "ana", "--for", "ana@acme.example",
-                                     "--start", "2026-09-22T09:00:00-07:00",
-                                     "--minutes", "30", "--summary", "Murphy planning hold",
-                                     "--attendee", "outside@example.com",
-                                     "--json")
+    def hold_with_outside_guest(self):
+        return self.run_json("hold", "--as", "ana", "--for", "ana@acme.example",
+                             "--start", "2026-09-22T09:00:00-07:00",
+                             "--minutes", "30", "--summary", "Murphy planning hold",
+                             "--attendee", "outside@example.com",
+                             "--json")
+
+    def test_hold_may_invite_an_outside_guest_by_default(self):
+        rc, out, err = self.hold_with_outside_guest()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(self.calendar.created_events), 1)
+
+    def test_hold_refuses_an_outside_guest_when_external_invites_are_blocked(self):
+        with patch.dict("os.environ", {"TICO_BLOCK_EXTERNAL_INVITES": "1"}):
+            rc, out, err = self.hold_with_outside_guest()
         self.assertEqual(rc, 2)
         self.assertEqual(len(self.calendar.created_events), 0)
 

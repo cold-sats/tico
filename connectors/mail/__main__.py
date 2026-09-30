@@ -1835,7 +1835,7 @@ def cmd_calendar_get(args):
 
 
 def cmd_calendar_hold(args):
-    """Add an audited, idempotent private calendar hold without external invitations or email."""
+    """Add an audited, idempotent calendar hold; attendees are invited, and TICO_BLOCK_EXTERNAL_INVITES=1 limits them to the roster."""
     ctx = Ctx(args, "calendar_schedule", mailbox=args.for_mailbox)
     summary = str(args.summary or "").strip()
     if not summary or len(summary) > 240:
@@ -1857,14 +1857,15 @@ def cmd_calendar_hold(args):
         addr = str(raw or "").strip().lower()
         if addr and addr != ctx.mailbox and addr not in attendees:
             attendees.append(addr)
-    from . import access
-    company = set(access.roster_mailboxes())
-    outside = [addr for addr in attendees if addr not in company]
-    if outside:
-        raise Refused("calendar add only accepts company-roster attendees: " + ", ".join(outside),
-                      "Private holds send no external invitations. For partner/influencer scheduling, use the approved scheduling workflow.")
+    if os.environ.get("TICO_BLOCK_EXTERNAL_INVITES") == "1":
+        from . import access
+        company = set(access.roster_mailboxes())
+        outside = [addr for addr in attendees if addr not in company]
+        if outside:
+            raise Refused("calendar add only accepts company-roster attendees: " + ", ".join(outside),
+                          "External invitations are turned off (TICO_BLOCK_EXTERNAL_INVITES). For partner/influencer scheduling, use the approved scheduling workflow.")
     if len(attendees) > 50:
-        raise Refused("private calendar hold accepts at most 50 internal attendees.")
+        raise Refused("a calendar hold accepts at most 50 attendees.")
     attendees.sort()
 
     description = ""
@@ -2482,7 +2483,7 @@ def build_parser():
         cad.add_argument("--description", default="", help="optional event description")
         cad.add_argument("--description-file", default=None, help="path to description file")
         cad.add_argument("--attendee", action="append", default=None, metavar="ADDR",
-                         help="internal roster attendee; repeat for several")
+                         help="attendee to invite; repeat for several")
         cad.add_argument("--uid", default=None, help="optional UID from ICS file")
         cad.set_defaults(func=cmd_calendar_hold)
 
@@ -2509,7 +2510,7 @@ def build_parser():
     hd.add_argument("--description", default="", help="optional event description")
     hd.add_argument("--description-file", default=None, help="path to description file")
     hd.add_argument("--attendee", action="append", default=None, metavar="ADDR",
-                    help="internal roster attendee; repeat for several")
+                    help="attendee to invite; repeat for several")
     hd.add_argument("--uid", default=None, help="optional UID from ICS file")
     hd.set_defaults(func=cmd_calendar_hold)
 

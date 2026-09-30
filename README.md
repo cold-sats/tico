@@ -280,6 +280,7 @@ named company must also carry a permanent id, or the process refuses to start.
 | `TICO_CREDENTIAL_ADMINS` | Comma-separated emails allowed to write shared credentials. The owner when empty | `you@example.com` |
 | `TICO_UNSOLICITED_PER_DAY` | How many messages a bot may start to one person in a day before it must file a task instead. Default 10; lower it to tighten | `3` |
 | `TICO_ESCAPE_QUARANTINE_AT` | How many times in a day a bot may try to reach another bot's files or a `secrets/` path before it is quarantined until a person clears it. Default 3 | `1` |
+| `TICO_BLOCK_EXTERNAL_INVITES` | Set to `1` to limit bots to inviting people on the company roster to calendar events (default: any address). Set it on computers too for `mail calendar add` | `1` |
 | `TICO_PROCESSING_OPERATORS` | People whose machines may run the Close transcript importer and connector publishers | `dana` |
 | `TICO_SCHEDULER` | `1` runs the routine scheduler in this process | `1` |
 | `TICO_CREDENTIAL_KMS_KEY` | Credential store key | `alias/tico-acme` |

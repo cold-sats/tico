@@ -14,7 +14,7 @@ One Slack app serves the whole company. The token is `SLACK_BOT_TOKEN` in the ru
 
 Posting is gated in code, not in prompts:
   - the employee's emp-<slug>/employee.yaml must declare access: service slack with `post` in `can`
-  - the channel must be listed in registry/slack-channels.yaml with `post: true`
+  - the channel must be listed in registry/slack-channels.yaml and must not say `post: false`
   - externally shared (Slack Connect) channels are refused: posting there is an outbound send
   - text over 4000 characters is refused
   - every accepted post is appended to <projects>/runtime/slack-audit.jsonl
@@ -471,7 +471,7 @@ def find_registry_channel(channels, ref):
 
 
 def check_channel_postable(entry, ref):
-    if not entry.get("post"):
+    if entry.get("post") is False:
         raise Refused(f"registry/slack-channels.yaml has post: false for #{entry.get('name', ref)}.",
                       "Read-only for bots. Ask the owner to flip it if the work needs it.")
     if not str(entry.get("id") or "").strip():

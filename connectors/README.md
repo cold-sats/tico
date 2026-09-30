@@ -34,7 +34,7 @@ recipes, gotchas, and the learnings bots add): `hub integration slack`, `hub int
 `hub integration aside`, or the **Integrations** page. Other outside systems the company uses
 get pages in its own config (`integrations/README.md`).
 
-Which channels exist, and which of them a bot may post to, is `registry/slack-channels.yaml`.
+Which channels exist is `registry/slack-channels.yaml`; a bot may post to any of them unless the entry says `post: false`.
 What the mail rules do to new messages is `registry/mail-rules.yaml`. Which employee may post at
 all, and which mailbox it may act as, is the `access:` block in its own `employee.yaml`
 (`policies/access.md`). All of it is checked in code on every call.
@@ -97,7 +97,7 @@ all, and which mailbox it may act as, is the `access:` block in its own `employe
     # list what the bot can see
     $HUB/connectors/slack.py channels
 
-    # post (only if your employee.yaml allows it and the channel is post: true)
+    # post (only if your employee.yaml allows it and the channel does not say post: false)
     $HUB/connectors/slack.py post --as doc-updater --channel '#agents' --text 'Shipped 3 doc updates.'
     printf '%s\n' "$BODY" | $HUB/connectors/slack.py post --as mention-desk --channel '#marketing' --text -
 

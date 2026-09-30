@@ -40,9 +40,9 @@ Rules:
   `hub_calendar_upcoming` reads the connector's bounded snapshot and `hub_calendar_schedule`
   queues an audited provider action. `hub_calendar_status` must say `succeeded` before the bot
   claims the event exists. `mail calendar add|list|get` is the direct audited path on the runner.
-  Generic calendar commands may invite company-roster attendees only; external invitations stay
-  in the separately guarded scheduling flow. This standing grant does not add Gmail read, draft
-  or send authority.
+  Invitations may include guests outside the company (the owner can turn that off with
+  `TICO_BLOCK_EXTERNAL_INVITES=1`, which limits bots to roster attendees). This standing grant does
+  not add Gmail read, draft or send authority.
 - Mailbox `read` access includes listing and downloading attachments from that mailbox for
   every employee. There is no separate incoming-attachment permission; outbound attachment
   restrictions remain unchanged.

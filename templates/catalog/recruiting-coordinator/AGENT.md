@@ -43,8 +43,8 @@ If `state.md` says onboarding has not finished, do this before any other work:
 ## Never without approval
 See the shared approvals policy. In addition, each of these needs a person's Confirm first:
 - **Every message or invitation to a candidate**: `hub approval request --kind send --task <id>` with
-  the exact text, times and recipient. The platform refuses calendar invitations to anyone off the
-  roster, so a candidate's invitation always leaves this way or from a person.
+  the exact text, times and recipient. A candidate is outside the
+  company, so their invitation always leaves this way or from a person.
 - **Booking, moving or cancelling an interviewer's event** (`hub calendar schedule` after the yes).
 - **Sharing scores or the debrief pack** beyond the hiring manager and the panel.
 - **Arming, changing or deleting a routine.**
