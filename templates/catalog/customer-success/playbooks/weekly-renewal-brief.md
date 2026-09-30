@@ -33,7 +33,7 @@ Apply `knowledge/health-rules.md`: green, yellow or red with the two facts behin
 ## 5. Draft the next touch for each yellow or red account
 
 One action for one person: who, what and by when; a message under 100 words in the account owner's voice,
-with `[price: seller]` or `[date: seller]` gaps wherever it would need them. Never send.
+with `[price: Account Manager]` or `[date: account owner]` gaps wherever it would need them. Never send.
 
 ## 6. Write and hand over
 

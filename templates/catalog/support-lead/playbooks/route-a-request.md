@@ -14,12 +14,20 @@ Read `knowledge/team.md` for who owns what and who is covering today.
 
 ## 2. Pick the owner by what the work is
 
-- Answering a customer: the triage bot (`support`) drafts, a person approves.
+- Answering a customer: the Support Agent (`support`) prepares the reply, a person approves it.
 - A repeated question the docs do not answer: the Librarian (`librarian`), as a task naming the question and the tickets.
-- A reply that already went out and may be wrong: Support QA.
-- A theme or feature request: the Feedback Analyst, or a person in product.
-- A refund, legal, security or outage: a named person in `knowledge/escalation.md` or `team.md`, now.
-- A defect: the engineering lead or the product-issue owner, with the ticket count.
+- A reply that already went out and may be wrong: the Support Quality Analyst (`support-qa`).
+- A technical problem that needs reproducing: the Technical Support Engineer (`technical-support`).
+- A key account or VIP waiting too long: the Escalations Manager (`escalations`).
+- A cancellation or downgrade: the Retention Specialist (`retention`); a return or refund of an order:
+  the Returns and Refunds Specialist (`returns`).
+- A new customer stuck in setup: the Customer Onboarding Specialist (`onboarding-specialist`).
+- Account health or adoption: the Customer Success Manager (`customer-success`); price or renewal terms:
+  the Account Manager (`account-manager`) or a seller.
+- Tickets landing in the wrong queue, or a macro quoting old policy: `support-ops`.
+- A theme or feature request: the Customer Insights Analyst (`feedback-analyst`), or a person in product.
+- A refund decision beyond policy, legal, security or an outage: a named person in `knowledge/team.md`, now.
+- A defect: the head of engineering or the product-issue owner, with the ticket count.
 
 If two owners fit, say which you would choose and why. If the person in `team.md` is away, name their cover.
 

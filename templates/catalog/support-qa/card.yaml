@@ -1,10 +1,14 @@
 template: support-qa
 slug: support-qa
-name: Support QA
+name: "Support Quality Analyst"
 required: false
 bootstrap: false
+department: support
 pack: support
-summary: "Reviews a weekly sample of sent support replies against your scorecard and drafts coaching notes for a person. It reads replies; it never edits a ticket or contacts a customer."
+icon: grading
+suggest: common
+tags: [support, quality, qa, coaching, scorecard, b2c, b2b]
+summary: "Scores a weekly sample of sent support replies against your own scorecard, finds the patterns behind the misses and prepares coaching notes for a person to give. It reads replies; it never edits a ticket or contacts a customer."
 pains:
   - "we never review the replies we send"
   - "reply quality varies by who answers"

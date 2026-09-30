@@ -36,7 +36,14 @@ QA review 2026-09-25: 10 replies sampled, 8 met the scorecard; the two misses la
 2026-09-22: "double booking" is the largest theme (9 mentions).
 
 ## Routing proposals (nothing created)
-- T-2027 to the engineering lead: waiting on the sync fix, needs a date for the customer.
+- T-2027 to the head of engineering: waiting on the sync fix, needs a date for the customer.
+- T-2011 and T-2019 (sync errors with logs attached) to `technical-support` to reproduce.
+
+## Hiring proposal (nothing requested)
+- **Add a Technical Support Engineer (`technical-support`).** For three weeks, 6 to 9 tickets a week needed
+  someone to reproduce an integration problem, and 5 of the 7 oldest tickets are of that kind (queue digests
+  2026-09-07 to 2026-09-27). First routine: the weekly tier 2 queue report, Thursdays 09:00. Reports to
+  support-lead. Say yes and I will ask BotOps to set it up.
 
 ## Could not read
 The Slack support channel is not connected, so questions asked there are not counted.

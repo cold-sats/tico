@@ -18,7 +18,7 @@ and `knowledge/decisions-needed.md`. Set `hub status set` to one line naming the
     hub updates --kind weekly --bot <support bot> --limit 2
     hub files list
 
-Read each support bot's latest published report: queue digests, article drafts, QA review, feedback
+Read each support bot's latest published report: queue digests, QA review, escalations, onboarding board, retention and returns reports, feedback
 report. Where the support mailbox is connected, count arrivals and first replies with
 `$HUB_DIR/scripts/mail.sh`. Write down which source each number came from, and its date range.
 
@@ -38,6 +38,9 @@ report. Where the support mailbox is connected, count arrivals and first replies
 At most three decisions, each with the evidence and a proposed answer. Anything red two weeks running,
 an ownerless old ticket, or a coverage gap goes first. Add them to `knowledge/decisions-needed.md`.
 Routing proposals follow `playbooks/route-a-request.md` and are listed, not created.
+If the same work has arrived three weeks running with no owner (a repeat, a growing backlog bucket, return
+or cancellation requests handled by whoever is free), add one hiring proposal: the support template that
+covers it, the counts, and its first routine, as in `AGENT.md` under Hiring. It is listed, never requested.
 
 ## 5. Write and hand over
 
