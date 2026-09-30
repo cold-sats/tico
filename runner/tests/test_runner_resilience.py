@@ -148,17 +148,26 @@ class Execution(unittest.TestCase):
         client = FakeClient(renew_error=CLOUDFLARE)
         runner = self.runner(client)
         self.host.hold_next_turn()
+        # A fake clock stands still until the turn is running, so a slow, loaded machine cannot
+        # spend the 1 s lease before the turn starts; then it jumps far past the lease deadline.
+        start, skew = time.monotonic(), [0.0]
         worker = threading.Thread(target=runner.execute, args=(attempt(lease_seconds=16),))
-        with mock.patch("runner.outage.log"):
+
+        def wait_for(condition, what):
+            give_up = time.monotonic() + 60                      # real time, only a bound for a hang
+            while not condition() and time.monotonic() < give_up:
+                time.sleep(0.01)
+            self.assertTrue(condition(), what)
+
+        with mock.patch("runner.outage.log"), mock.patch("runner.service.time.monotonic", lambda: start + skew[0]):
             worker.start()
-            deadline = time.monotonic() + 5
-            while not self.host.turn_of and time.monotonic() < deadline:
-                time.sleep(0.02)
-            time.sleep(1.5)                                    # the 1 s lease deadline passes while renew keeps failing
-            self.assertTrue(client.renewals >= 5)
+            wait_for(lambda: self.host.turn_of, "the turn starts")
+            skew[0] = 30                                         # the lease deadline (1 s) is long gone, the 60 s run limit is not
+            seen = client.renewals
+            wait_for(lambda: client.renewals >= seen + 5, "renewals keep failing and being retried")
             self.assertTrue(worker.is_alive())
             self.host.complete(next(iter(self.host.turn_of)), "finished anyway")
-            worker.join(timeout=10)
+            worker.join(timeout=60)
         self.assertFalse(worker.is_alive())
         self.assertEqual(self.host.interrupts, [])
         self.assertEqual(client.completion()["outcome"], "completed")
