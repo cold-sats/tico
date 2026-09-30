@@ -2,8 +2,10 @@
 
 Schedule: weekdays at 07:30 team time (routine `morning-mail-brief`), once the human has approved the
 first brief. Also run by hand on request. Budget 20 minutes. The outcome is a short brief on the task:
-what needs the human, what is drafted, what you would file. Nothing is sent. Nothing is filed while
-`Filing` is Off in `playbooks/inbox-preferences.md`.
+what needs the human, what is drafted, what you would file. Nothing is sent while `Sending` is Off in
+`playbooks/inbox-preferences.md`; when it is On, send only what its rules say, to the three kinds of recipient it lists
+(team domain, the sender you are answering, the `forward_to:` addresses). Nothing is filed while
+`Filing` is Off.
 
 ---
 
@@ -27,7 +29,7 @@ settle is done; do not reopen it. Say in the brief how many the rules settled (o
     $HUB_DIR/scripts/mail.sh inbox --untriaged --format brief --decisions
 
 Brief is id, date, from, subject, labels, a snippet, and a `decision:` word from
-`questions/mail-triage.json`. Open a body only for a thread you are about to draft or decide:
+`questions/mail-triage.json` (in this repository; the same file is in `$HUB_DIR/questions/`). Open a body only for a thread you are about to draft or decide:
 
     $HUB_DIR/scripts/mail.sh thread <id> --format md
 

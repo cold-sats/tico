@@ -11,6 +11,10 @@ max_run_minutes: 60
 # the bot puts the draft on the task and asks for an approval.
 outbound_send: false
 
+# Where this bot may forward mail to without approving each one, once `outbound_send` is on: the human's own
+# other addresses. Empty until they name one (BotOps sets it when they ask, `playbooks/inbox-preferences.md`).
+forward_to: []
+
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
 # `hub routine update <id> --enable` after the human approves the first brief on the setup task.
 # `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
@@ -32,7 +36,7 @@ routines:
 tools:
   - service: gmail
     identity: "{{mailbox}}"
-    can: [read, draft]          # send only with outbound_send: true and an approval
+    can: [read, draft]          # `send` is added when the human turns sending on (and outbound_send: true)
     env: GOOGLE_SA_KEY
     note: "reads and drafts on its assigned mailbox; never sends. Filing (labels, archive) stays off until the human turns it on"
   - service: google-calendar

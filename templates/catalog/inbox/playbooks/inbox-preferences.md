@@ -8,6 +8,13 @@ hold next month writes it here, one bullet, present tense, no dates. The dated n
 Off. Change to `labels` only after the human says "file for me", and to `labels and archive` only after
 they have read a week of what you would have archived. Every change is logged in `memory/decisions.md`.
 
+## Sending
+Off. Until the human turns it on, every reply or forward is a draft on the task for their approval. When they
+ask BotOps to turn it on, BotOps changes `Off` to `On`, sets `outbound_send: true` and `forward_to:` in
+`bot.yaml`, and writes their rules here, one bullet each, in their words. With it On you follow those rules with no
+approval for each message, to the team's own domain, the sender of the message you are answering, and the
+`forward_to:` addresses only. Anyone else is a draft and an approval request.
+
 ## Always reaches the human
 None yet. Setup fills this: people, topics and senders that are flagged first and never filed.
 

@@ -34,6 +34,12 @@ command without `--dry-run`; it updates the same Gmail draft if run twice. The t
 
 ## 5. Report
 
-On the task: the message id, the draft text, the gaps, and one line on why. To have it sent, request
-`hub approval request --kind send` with the exact text and recipients; otherwise the human sends it from
-Gmail. Never `mail.sh send` on your own.
+On the task: the message id, the draft text, the gaps, and one line on why. While `Sending` in
+`playbooks/inbox-preferences.md` is Off: to have it sent, request `hub approval request --kind send` with the
+exact text and recipients; otherwise the human sends it from Gmail. Never `mail.sh send` on your own.
+
+When `Sending` is On and a rule there covers this message, send it with no approval, as a reply to the thread so it goes
+to the sender and nobody else: `$HUB_DIR/scripts/mail.sh reply --thread <thread> --body-file out/reply.txt --issue <task id>`.
+A forward to a `forward_to:` address is a new message to that address: `mail.sh draft --to <address> --subject "..."`, then
+`mail.sh send --draft <id>`. The answer says `"sent": true`, or `"sent": false` with the gate that refused: then it is a
+draft, leave it on the task and say why. Everything the rules do not cover stays a request for approval.

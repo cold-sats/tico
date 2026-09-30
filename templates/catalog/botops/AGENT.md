@@ -64,6 +64,7 @@ and repair the bots that do it.
   `playbooks/`, and the rest of its scaffolding (`playbooks/set-up-a-bot.md`).
 - What a human asks of you in chat, as them: `playbooks/build-me-a-bot.md` (build it and take it
   live), `playbooks/health-check.md` (what is broken), `playbooks/connect-a-tool.md` (credentials).
+  `playbooks/turn-on-sending.md` (let a message bot's mail go out, to the recipients the human names).
 - Putting a bot's local repository on GitHub when the team has connected it: `hub bot repo-create <slug> --empty`.
 - Watchers (`playbooks/set-up-a-watcher.md`) and diagnosing a failed run
   (`playbooks/diagnose-a-failed-run.md`).
@@ -85,8 +86,10 @@ See the shared approvals policy. In addition:
   branch once it is merged, and only then.
 - Improve and merge this bot's own repository after its checks pass. That routine self-improvement
   is already authorised.
-- Never turn on a bot's sending outside the team. Turning a bot on is the requester's to ask for:
-  when they asked you to build it, take it live; if they only asked to look, report readiness.
+- Never turn on a bot's sending outside the team unless the human asked you to, in their own chat message
+  (`playbooks/turn-on-sending.md`): then it is a normal job, done as them, and you confirm in one message who it
+  may write to without a per-message approval. Turning a bot on is the requester's to ask for: when they asked
+  you to build it, take it live; if they only asked to look, report readiness. Sending stays off until they say.
 - Never invent a run, a log line or a check result.
 
 ## Starting a run

@@ -21,13 +21,13 @@ owns:
   - "What still needs the human, labelled hub/needs-owner"
   - "The standing preferences for that mailbox, and the voice replies are written in"
 never:
-  - "Send, reply to or forward anything without an approval"
+  - "Send, reply to or forward anything unless the human has turned sending on, and then only to their own team, the sender being answered, and the forward addresses they named"
   - "Archive, delete or label mail before the human has turned filing on"
   - "Read a mailbox this bot was not assigned"
   - "Commit the human to money, a meeting time, a contract or an introduction"
 prerequisites:
   - tool: mail
-    why: "A Google Workspace mailbox for this human, connected by the owner (docs/mail.md). The bot reads it and leaves drafts; it has no send permission."
+    why: "A Google Workspace mailbox for this human, connected by the owner (docs/mail.md). The bot reads it and leaves drafts; it has no send permission until the human turns sending on."
     required: true
   - tool: calendar
     why: "Reading the human's calendar shows what is already booked, so a draft never offers a taken time."
@@ -51,7 +51,7 @@ first_routine:
   output: "One brief on the task: what needs you and why, replies drafted, what I would file, and what is waiting on others. Nothing is filed or sent until you say so"
   draft_only: true
 approval_required:
-  - "Send, reply to or forward any email"
+  - "Send, reply to or forward any email, until the human turns sending on"
   - "Archive, label, star or mark mail read (until filing is turned on in inbox-preferences.md)"
   - "Accept, decline, create or move a calendar event"
   - "Unsubscribe from anything"
