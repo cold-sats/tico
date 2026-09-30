@@ -193,5 +193,17 @@ class Declaration(unittest.TestCase):
         self.assertEqual(len(declared.events("".join('tico-event {"op":"done","key":"%d"}\n' % i for i in range(80)))[0]), 50)
 
 
+class SupportTemplate(unittest.TestCase):
+    def test_the_support_agent_declares_watchers_whose_programs_ship_with_it(self):
+        import yaml
+        folder = Path(__file__).resolve().parents[2] / "templates/catalog/support"
+        specs = declared.parse(yaml.safe_load((folder / "employee.yaml").read_text())["watchers"])
+        self.assertEqual({s["name"] for s in specs}, {"hq-tickets", "gh-support"})
+        for spec in specs:
+            self.assertEqual(spec["every"], 300)
+            self.assertIsNotNone(W.command(folder, spec["argv"]), spec["name"])       # a file inside the repository
+        self.assertIn(".state/", (folder / ".gitignore").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
