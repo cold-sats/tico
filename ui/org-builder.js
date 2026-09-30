@@ -18,7 +18,7 @@ const OB_MIN_RECRUIT_MS = 900;
 const obBlank = () => ({loaded: false, loading: null, error: '', departments: [], cards: [], version: '',
   hq: {available: false, off_by: ''}, phase: 'pick', chosen: [], at: 0, step: 'ask', briefings: {}, results: {},
   asked: {}, skipped: new Set(), decided: new Set(), share: null, editing: '', seen: new Set(), open: false,
-  touched: false});
+  more: new Set(), touched: false});
 const obColor = id => OB_COLORS[id] || `hsl(${avHue(id)} 45% 45%)`;
 const obIcon = (name, cls = '') => `<span class="ob-ms ${cls}" aria-hidden="true">${esc(name || OB_ICONS.bot)}</span>`;
 const obDept = (org, id) => org.departments.find(row => row.id === id);
@@ -229,13 +229,15 @@ function obDeptHTML(state) {
     const shown = result.bots.map(row => [org.cards.find(card => card.template === row.template_id && card.department === id), row.why]).filter(([card]) => card);
     const listed = new Set(shown.map(([card]) => card.template));
     const more = obDeptCards(org, id).filter(card => !listed.has(card.template)).sort((a, b) => a.name.localeCompare(b.name));
-    const moreOpen = more.some(card => state.catalog.picked.has(obCatalogCard(state, card.template)?.slug));
+    // The list under More stays as the person left it through a redraw; it starts open when a bot in it is already checked.
+    const moreOpen = org.more.has(id) || more.some(card => state.catalog.picked.has(obCatalogCard(state, card.template)?.slug));
     body = `${said}
       <h3 class="ob-found" data-ob-source="${esc(result.source || '')}">Who joins ${esc(dept.name)}?</h3>
       <div class="ob-bots" id="ob-suggested">${shown.map(([card, why]) => obBotCardHTML(state, card, why, card.template === head)).join('')
         || '<p class="muted">Nothing to suggest yet. Look under More.</p>'}</div>
-      ${more.length ? `<details class="ob-more" id="ob-more"${moreOpen ? ' open' : ''}><summary>More in ${esc(dept.name)} <span class="muted">${more.length}</span></summary>
-        <div class="ob-bots">${more.map(card => obBotCardHTML(state, card, '', card.template === head)).join('')}</div></details>` : ''}`;
+      ${more.length ? `<div class="ob-more${moreOpen ? ' open' : ''}" id="ob-more">
+        <button type="button" class="ob-more-row" id="ob-more-toggle" aria-expanded="${moreOpen}" aria-controls="ob-more-list">More in ${esc(dept.name)} <span class="muted">${more.length}</span></button>
+        <div class="ob-bots" id="ob-more-list"${moreOpen ? '' : ' hidden'}>${more.map(card => obBotCardHTML(state, card, '', card.template === head)).join('')}</div></div>` : ''}`;
   }
   const forward = step === 'suggest' ? `<button class="primary ob-cta" type="button" id="ob-next">${next ? `Next: ${esc(next.name)}` : 'See org chart'}${obIcon(OB_ICONS.go)}</button>` : '';
   return `<article class="ob-card ob-dept" data-ob-dept="${esc(id)}" data-ob-step="${esc(step)}" style="--dc:${obColor(id)}">
@@ -410,6 +412,14 @@ function obWire(state) {
     if (target.closest('#ob-next')) { obNext(state); return; }
     if (target.closest('#ob-edit-answer')) { org.step = 'ask'; obRender(state); return; }
     if (target.closest('#ob-departments')) { obGo(state, -1); return; }
+    if (target.closest('#ob-more-toggle')) {
+      const id = org.chosen[org.at], open = !$('#ob-more').classList.contains('open');
+      if (open) org.more.add(id); else org.more.delete(id);
+      $('#ob-more').classList.toggle('open', open);
+      $('#ob-more-toggle').setAttribute('aria-expanded', String(open));
+      $('#ob-more-list').hidden = !open;
+      return;
+    }
     if (target.closest('#ob-strip')) { org.open = !org.open; $('#ob-side')?.classList.toggle('open', org.open); $('#ob-strip')?.setAttribute('aria-expanded', String(org.open)); return; }
     const open = target.closest('[data-oc-open]');
     if (open) {

@@ -45,7 +45,7 @@ html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:v
 html.demo #demo-banner strong{color:var(--ink);font-weight:650}
 html.demo #demo-banner span{overflow:hidden;text-overflow:ellipsis}
 html.demo body{min-height:calc(100vh - var(--demo-h))}
-html.demo #side{top:var(--demo-h);height:calc(100vh - var(--demo-h))}
+html.demo #side{top:var(--demo-h)}
 html.demo #main.chat-layout{height:calc(100dvh - var(--demo-h))}
 @media (min-width:761px){html.demo #main.chat-layout{height:100%}}
 @media (max-width:760px){
@@ -68,7 +68,9 @@ h2{font-size:15px;color:var(--ink);letter-spacing:.01em}
 .tnum{font-variant-numeric:tabular-nums}
 
 /* sidebar */
-#side{grid-column:1;grid-row:1/-1;position:sticky;top:0;height:100vh;min-height:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;padding:0 8px;z-index:20}
+/* Fixed, not sticky: a page whose document scrolls (the org builder) would carry a sticky sidebar off with it, leaving empty space
+   below its bottom bar. The grid's first column keeps the room it takes. */
+#side{grid-column:1;grid-row:1/-1;position:fixed;top:0;left:0;bottom:0;width:328px;min-height:0;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;overflow:hidden;padding:0 8px;z-index:20}
 .side-head{display:none;align-items:center;padding:8px 10px;flex:none}
 .side-close{display:none;margin-left:auto;background:none;border:0;border-radius:6px;color:var(--muted);font-size:22px;line-height:1;padding:4px 6px;cursor:pointer}
 .side-close:hover{color:var(--ink);background:var(--surface2)}
@@ -233,7 +235,7 @@ img.av-photo{object-fit:cover;background:var(--surface2)}
 body.native #app-nudge{display:none}
 .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 @media (max-width:1100px){body{grid-template-columns:300px 1fr}}
-@media (max-width:900px){body{grid-template-columns:270px 1fr}}
+@media (max-width:900px){body{grid-template-columns:270px 1fr}#side{width:270px}}
 /* phone: the frequent destinations live under the thumb; the full sidebar stays a drawer */
 #mobile-nav{display:none}
 #side-backdrop{display:none}
@@ -2110,7 +2112,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 
 /* first run (#/welcome): one screen per step, then the bot catalog as cards */
 /* first run, after Create (ui/first-run.js) */
-.onb-more{margin-top:var(--s2);font-size:13px}.onb-more summary{cursor:pointer;color:var(--muted)}
+
 /* first run, the org chart (ui/org-builder.js): the conversation on the left, the chart growing on the right; on a
    phone the chart is a strip above the card. Each department brings its own hue (--dc); --dci is that hue made
    readable on the current theme's surface. */
@@ -2210,11 +2212,13 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 .ob-helper .ob-mailbox{padding:0 0 2px 38px}
 .ob-mailbox select{font-size:13px}
 .ob-more{margin-top:14px}
-.ob-more summary{display:inline-flex;gap:6px;align-items:center;padding:6px 2px;cursor:pointer;color:var(--muted);font-size:13.5px;font-weight:500;list-style:none}
-.ob-more summary::-webkit-details-marker{display:none}
-.ob-more summary::before{content:"+";display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);font-size:13px;line-height:1}
-.ob-more[open] summary::before{content:"−"}
+/* The whole row is the button, not just its icon or its words. */
+.ob-more-row{display:flex;gap:6px;align-items:center;width:100%;padding:6px 2px;border:0;border-radius:6px;background:none;text-align:left;cursor:pointer;color:var(--muted);font-size:13.5px;font-weight:500}
+.ob-more-row:hover{color:var(--ink);background:var(--surface2)}
+.ob-more-row::before{content:"+";display:inline-flex;align-items:center;justify-content:center;flex:none;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);font-size:13px;line-height:1}
+.ob-more.open .ob-more-row::before{content:"−"}
 .ob-more .ob-bots{margin-top:8px}
+.ob-more .ob-bots[hidden]{display:none}
 .ob-skeleton .ob-bot{cursor:default;border-style:solid}
 .ob-bot.sk{min-height:86px}
 .ob-bot.sk .sk-i{flex:none;width:38px;height:38px;border-radius:11px}
@@ -3228,7 +3232,7 @@ else if (!location.hash || location.hash === '#/') { BOOT_DEFAULT_ROUTE = true; 
 // Every company-facing name comes from the server (GET /api/me -> config, also GET /api/v2/config),
 // so a second environment shows its own application, company and assistant names. The defaults keep
 // an older server working, and strings built before /api/me answers read the names lazily.
-const CONFIG_DEFAULTS = {environment_id: '', company_name: '', app_name: 'Tico', assistant_name: 'Tico',
+const CONFIG_DEFAULTS = {environment_id: '', company_name: '', app_name: 'Tico', assistant_name: 'Assistant',
                          assistant_bot: 'coo', public_url: '', runner_url: location.origin,
                          github_owner: '', local: false, release: '', onboarding_needed: false, version: '', update: null};
 const S = { emps: [], people: [], orgGroups: [], status: null, issues: [], me: null, route: location.hash || UPDATES,
@@ -3622,10 +3626,10 @@ document.querySelectorAll('[data-section-toggle]').forEach(button => button.oncl
   renderNavSections();
 });
 renderNavSections();
-// The assistant (Tico) and the Librarian work in the background and nobody chats with them as a bot
-// (each person's private Assistant is a tab on their own page, ui/assistant.js), so no list a person reads shows them: the org panel, search, bot pickers and a
-// person's page. Settings → Bots still lists them for whoever manages bots, #/bot/<slug> still
-// opens, and the Librarian stays one click away from the Docs nav row (renderLibrarians).
+// The assistant and the Librarian work in the background and nobody chats with them as a bot
+// (each person's private Assistant is a tab on their own page, ui/assistant.js), so search, bot pickers and a
+// person's page do not list them. The org panel does, in its Helpers group, and so does Settings → Bots;
+// #/bot/<slug> opens, and the Librarian stays one click away from the Docs nav row (renderLibrarians).
 const isHiddenBot = slug => slug === assistantBot() || slug === 'librarian';
 const shownEmps = () => (S.emps || []).filter(e => !isHiddenBot(e.name));
 function orgTreeByParent() {
@@ -3639,14 +3643,13 @@ function orgTreeByParent() {
   }
   // "Only bots I can read or write": a bot the caller may merely see leaves the chart, and the
   // bots under it hang from the next thing that is left.
-  const kept = shownEmps().filter(orgMineKeep);
+  // The built-in helpers are listed here too (the Helpers group), the same bots the Goals page lists as helpers; a
+  // bot that reports to one hangs where the helper would have (orgTreeWithHelpers).
+  const kept = (S.emps || []).filter(orgMineKeep);
   const empIds = new Set(kept.filter(e => !inboxBots.has(e.name)).map(e => e.name));
   for (const e of kept) {
     if (inboxBots.has(e.name)) continue;
     let parent = e.org_parent || '';
-    // a hidden bot's reports take its place (BotOps sits where Tico sat)
-    for (let hops = 0; parent.startsWith('b:') && isHiddenBot(parent.slice(2)) && hops < 5; hops++)
-      parent = S.emps.find(x => x.name === parent.slice(2))?.org_parent || '';
     if (parent.startsWith('b:') && !empIds.has(parent.slice(2))) {
       const owner = e.operator || e.users?.[0]?.id;
       parent = owner ? 'p:' + owner : '';
@@ -3915,6 +3918,9 @@ $('#org-history').onclick = () => {
 // changes: `reports_to` is untouched, and a bot that reports to a helper hangs where the helper would have.
 const HELPERS_GROUP = '__helpers';
 const isHelperBot = e => isBuiltInBot(e.name) || !!e.helper;
+// The order helpers are listed in, here and on the Goals page: the Assistant, then the other built-ins, then the rest.
+const HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'inbox'];
+const helperRank = e => e.name === assistantBot() ? -1 : HELPER_ORDER.includes(e.name) ? HELPER_ORDER.indexOf(e.name) : 99;
 function orgTreeWithHelpers(byParent) {
   const out = {}, helpers = [], bot = {}, parentOf = {};
   for (const [parent, kids] of Object.entries(byParent)) for (const n of kids) if (n.kind === 'bot') { bot['b:' + n.name] = n; parentOf['b:' + n.name] = parent; }
@@ -3955,6 +3961,7 @@ function renderTree() {
       if (a.kind === 'group' && b.kind === 'group') return (a.order || 0) - (b.order || 0);
       if ((a.kind === 'person') !== (b.kind === 'person')) return a.kind === 'person' ? -1 : 1;
       if (isTemp(a) !== isTemp(b)) return isTemp(a) - isTemp(b);
+      if (a.kind === 'bot' && b.kind === 'bot' && isHelperBot(a) && isHelperBot(b) && helperRank(a) !== helperRank(b)) return helperRank(a) - helperRank(b);
       if (a.kind === 'bot' && b.kind === 'bot' && byBotOrder(a, b)) return byBotOrder(a, b);
       return nameOf(a).localeCompare(nameOf(b));
     })
@@ -11772,18 +11779,22 @@ const ONB_NEVER = [['send', 'Send anything'], ['spend', 'Spend money'], ['publis
 // Kept with a number in them: a person reads the answer, and an older record's chooser read the largest number.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
 const ONB_BLANK = {
-  names: {company_name: '', app_name: '', assistant_name: ''},
+  names: {company_name: '', app_name: '', assistant_name: '', owner_name: ''},
   answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
             never_without_person: ['send', 'spend', 'publish', 'hire'], software_product: '', departments: [], briefings: {}},
   selected: {}, completed: null, home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
 let ONB = null;
+// A server that is a container is the usual install, and the computer that runs bots is a Linux one beside it.
+const onbDefaultKind = () => (S.config?.in_docker ? 'linux' : 'mac');
+// Their own name: the roster's when it is not just an address, else the sign-in's display name when the proxy sends one.
+const onbOwnerGuess = () => (S.me?.name && !/@/.test(S.me.name) ? S.me.name : S.me?.sign_in_name || '');
 function onbStop() { if (ONB) clearInterval(ONB.poll); ONB = null; }
 function pageWelcome() {
   // Only the owner may set a company up; everyone else has no reason to see the address either.
   if (S.me && S.me.role !== 'owner') { location.hash = TASKS; return; }
   const state = ONB = {step: 0, steps: ONB_STEPS, providers: null, models: [], record: JSON.parse(JSON.stringify(ONB_BLANK)), catalog: catalogState([]),
                        revisions: {}, busy: false, completing: false, poll: null, org: obBlank(),
-                       enrollment: '', error: ''};
+                       enrollment: '', error: '', kind: onbDefaultKind()};
   $('#main').innerHTML = '<div class="onb" id="onb"><div class="empty">Loading…</div></div>';
   void onbLoad(state);
 }
@@ -11823,7 +11834,9 @@ function onbAdopt(state, record) {
   const names = state.record.names;
   if (!names.company_name) names.company_name = S.config.company_name || '';
   if (!names.app_name) names.app_name = appName();
-  if (!names.assistant_name) names.assistant_name = assistantName();
+  if (!names.owner_name) names.owner_name = onbOwnerGuess();
+  // Never the company's name: that was an earlier release's default, and it made the Review step list the assistant as the company.
+  if (!names.assistant_name || names.assistant_name.trim().toLowerCase() === (names.company_name || '').trim().toLowerCase()) names.assistant_name = assistantName();
   onbSeedPicks(state);
 }
 function onbSeedPicks(state) {
@@ -11879,6 +11892,8 @@ function onbStepHTML(state, key) {
       <input type="text" id="onb-company" maxlength="120" value="${esc(names.company_name)}" autocomplete="organization"></label>
     <label class="onb-field"><span class="k">App name</span>
       <input type="text" id="onb-app" maxlength="60" value="${esc(names.app_name)}"></label>
+    <label class="onb-field"><span class="k">Your name</span>
+      <input type="text" id="onb-owner" maxlength="100" value="${esc(names.owner_name)}" placeholder="Optional" autocomplete="name"></label>
     ${actions('Next')}`;
   if (key === 'about') return `
     <label class="onb-field"><span class="k">What you do</span>
@@ -11898,7 +11913,7 @@ function onbStepHTML(state, key) {
     ${actions('Next')}`;
   if (key === 'org') return obStepHTML(state);
   if (key === 'machine') {
-    // A runner that is already online (the server's own, installed with the hub) needs no setup.
+    // A runner that is already online (the server's own, installed with the hub) needs no setup: the step is one line.
     const online = (state.record.machine?.runners || []).find(runner => runner && runner.online);
     const linux = state.kind === 'linux';
     const setup = `
@@ -11911,9 +11926,7 @@ function onbStepHTML(state, key) {
     ${onbCommandsHTML(state)}`;
     const status = `<p class="onb-machine" id="onb-machine-status" role="status">${esc(onbMachineStatus(state.record))}</p>`;
     return online
-      ? `<p class="onb-field" id="onb-machine-ready">A computer is online and will run your bots.</p>
-    ${status}
-    <details class="onb-more" id="onb-more"><summary>Add another computer</summary>${setup}</details>
+      ? `${status}
     ${actions('Next')}`
       : `${setup}
     ${status}
@@ -12038,7 +12051,8 @@ function onbWire(state, key) {
 function onbCollect(state, key) {
   const r = state.record;
   if (key === 'names' && $('#onb-company')) r.names = {
-    ...r.names, company_name: $('#onb-company').value.trim(), app_name: $('#onb-app').value.trim()};
+    ...r.names, company_name: $('#onb-company').value.trim(), app_name: $('#onb-app').value.trim(),
+    owner_name: ($('#onb-owner')?.value || '').trim()};
   // The answers this page no longer asks (where work arrives, repetitive work) are kept as they were saved.
   if (key === 'about' && $('#onb-what')) r.answers = {...r.answers,
     what_we_do: $('#onb-what').value.trim(),
@@ -12071,6 +12085,16 @@ function onbApplyNames(state) {
   S.emps = namedRoster(S.emps);
   renderTree();
 }
+// The owner's name is on the roster from the save: the org chart, the sidebar and the computer's label use it.
+async function onbRefreshOwner(state) {
+  const name = state.record.names.owner_name;
+  if (!name) return;
+  S.me = {...S.me, name};
+  const roster = await get('/people').catch(() => null);
+  if (ONB !== state || !roster?.people) return;
+  setPeople(roster);
+  renderTree();
+}
 async function onbAdvance(state, key) {
   if (state.busy) return;
   onbCollect(state, key);
@@ -12096,7 +12120,7 @@ async function onbAdvance(state, key) {
   try {
     await onbSave(state);
     if (ONB !== state) return;
-    if (key === 'names') onbApplyNames(state);
+    if (key === 'names') { onbApplyNames(state); void onbRefreshOwner(state); }
     state.step = Math.min(state.steps.length - 1, state.step + 1);
     onbRender(state);
   } catch (error) {

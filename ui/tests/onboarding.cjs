@@ -63,6 +63,7 @@ const CATALOG = [
    runtime: 'codex', model: 'gpt-6-sol', reasoning_effort: 'high',
    recommend_when: ['has_support_inbox', 'uses_tickets', 'sells_to_consumers', 'uses_email'],
    instructions: '# Support Agent\n\nAnswer the queue in the company voice.\n'},
+  bot('returns', 'Returns Specialist', 'support', 'assignment_return', 'niche', 'Checks each return against the written policy.'),
   bot('finance-lead', 'Head of Finance', 'finance', 'account_balance_wallet', 'default', 'Keeps cash visible and the month closed.', {lead: true}),
   {template: 'bookkeeping', slug: 'bookkeeping', name: 'Bookkeeper', required: false, bootstrap: false, pack: 'basics',
    department: 'finance', icon: 'menu_book', suggest: 'default',
@@ -279,12 +280,20 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('#onb-company').inputValue(), 'Initech');
     assert.equal(await page.locator('#onb-app').inputValue(), 'Initech Hub');
     assert.equal(await page.locator('#onb-assistant').count(), 0);
+    // Their own name is optional: the roster's when it is a name, and the org chart and sidebar use what is saved.
+    assert.equal(await page.locator('#onb-owner').inputValue(), 'Ana Rivera');
+    assert.equal(await page.locator('#onb-owner').getAttribute('placeholder'), 'Optional');
     await shot(page, 'desktop-0-names');
     assert.equal(await page.locator('#onb-step small').count(), 0);
+    // With only an address on the roster, the sign-in's display name is offered, and an address never is.
+    assert.equal(await page.evaluate(() => { const was = S.me; S.me = {...was, name: 'ana@acme.example', sign_in_name: 'Ana R.'};
+      const proxied = onbOwnerGuess(); S.me = {...was, name: 'ana@acme.example'}; const bare = onbOwnerGuess(); S.me = was; return [proxied, bare].join('|'); }), 'Ana R.|');
+    await page.locator('#onb-owner').fill('Ana M. Rivera');
     await page.locator('#onb-next').click();
     await page.locator('#onb-what').waitFor();
     assert.equal(puts.length, 1);
-    assert.deepEqual(puts[0].names, {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace'});
+    assert.deepEqual(puts[0].names, {company_name: 'Initech', app_name: 'Initech Hub', assistant_name: 'Ace', owner_name: 'Ana M. Rivera'});
+    assert.equal(await page.evaluate(() => S.me.name), 'Ana M. Rivera');           // the page follows the save
     // Nobody has chosen a team yet, so the first draft carries none; BotOps and the assistant are built whatever is chosen.
     assert.deepEqual(puts[0].selected, {});
     assert.deepEqual(puts[0].answers.never_without_person, ['send', 'spend', 'publish', 'hire']);
@@ -318,7 +327,7 @@ function recruitFor({department, briefing, share}) {
     assert.deepEqual(await tilesOn(), ['sales', 'marketing', 'support', 'finance', 'operations', 'product', 'engineering']);
     assert.equal(await page.locator('[data-ob-tile]').count(), 9);
     // The chart is there from the start: the owner on top and each chosen department waiting. Helpers are not on it.
-    assert.match(await page.locator('#ob-chart [data-oc-ceo]').textContent(), /Ana Rivera\s*CEO/);
+    assert.match(await page.locator('#ob-chart [data-oc-ceo]').textContent(), /Ana M\. Rivera\s*CEO/);
     assert.doesNotMatch(await page.locator('#ob-chart').textContent(), /Ace|BotOps|Inbox Manager/);
     assert.equal(await page.locator('#ob-chart .oc-dept.oc-pending').count(), 7);
     await shot(page, 'desktop-3-departments');
@@ -380,6 +389,13 @@ function recruitFor({department, briefing, share}) {
     assert.doesNotMatch(await page.locator('#ob-chart [data-oc-bot=sdr-research]').getAttribute('class'), /ob-new/);
     assert.equal(await page.locator('#ob-chart-stats').textContent(), '6 departments · 3 bots');
     assert.equal(await page.locator('#ob-more').count(), 0);                       // nothing left in Sales to show under More
+    // The page scrolls (the org builder lets the document scroll); the sidebar and its bottom bar stay put, full height.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    assert.ok(await page.evaluate(() => window.scrollY) > 0, 'this page scrolls');
+    const side = await page.locator('#side').boundingBox(), footer = await page.locator('#side .side-footer').boundingBox();
+    assert.deepEqual([Math.round(side.y), Math.round(side.y + side.height)], [0, 800]);
+    assert.ok(footer.y + footer.height <= 800 && footer.y + footer.height > 780, 'the bottom bar sits at the bottom of the window');
+    await page.evaluate(() => window.scrollTo(0, 0));
     await shot(page, 'desktop-6-suggestions');
     assert.match(await page.locator('#ob-next').textContent(), /Next: Marketing/);
     await page.locator('#ob-next').click();
@@ -414,6 +430,22 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#ob-suggested').waitFor();
     assert.deepEqual(recruits.at(-1), {department: 'support', briefing: '', share: true});
     assert.deepEqual(await picked(), ['support-lead', 'support']);
+    // More in Customer Support: the whole row is the button, wherever it is pressed, and by keyboard; the list survives a redraw.
+    const more = page.locator('#ob-more-toggle');
+    assert.equal(await page.locator('#ob-more-list').isVisible(), false);
+    assert.equal(await more.getAttribute('aria-expanded'), 'false');
+    const box = await more.boundingBox();
+    await more.click({position: {x: box.width - 6, y: box.height / 2}});          // far from the icon and the words
+    assert.equal(await page.locator('#ob-more-list').isVisible(), true);
+    assert.equal(await more.getAttribute('aria-expanded'), 'true');
+    await page.locator('#ob-more-list [data-ob-bot]').first().waitFor();
+    await page.locator('#ob-more-list [data-ob-bot]').first().click();             // checking a bot redraws the card
+    assert.equal(await page.locator('#ob-more-list').isVisible(), true);
+    await page.locator('#ob-more-list [data-ob-bot]').first().click();
+    await more.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#ob-more-list').isVisible(), false);
+    assert.equal(await more.getAttribute('aria-expanded'), 'false');
     await page.locator('#ob-next').click();
 
     // Finance is skipped: no question asked, no bots, and the chart says so.
@@ -496,6 +528,11 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 4 of 6');
     assert.equal(await page.locator('#onb-machine-status').textContent(), 'No computer enrolled yet');
     await shot(page, 'desktop-5b-machine');
+    // Not in a container, the Mac is offered first; a server in Docker (the usual install) offers the Linux computer first.
+    assert.equal(await page.locator('[data-onb-kind][value=mac]').isChecked(), true);
+    assert.equal(await page.evaluate(() => { const was = S.config; S.config = {...was, in_docker: true};
+      const kind = onbDefaultKind(), html = onbStepHTML({...ONB, kind}, 'machine'); S.config = was;
+      return kind + '|' + /value="linux" checked/.test(html) + '|' + (onbDefaultKind() === 'mac'); }), 'linux|true|true');
     // Not a Mac-only story: computers can be Macs or Linux/cloud boxes, on a subscription or an API key.
     const blurb = await page.locator('#onb-step').evaluate(el => el.parentElement.textContent);
     assert.match(blurb, /A Mac/);
@@ -524,14 +561,11 @@ function recruitFor({department, briefing, share}) {
     await page.locator('#onb-connect').waitFor();
     assert.equal(puts.length, mark + 1);
 
-    // A runner that is already online is shown as ready; the Mac instructions fold away.
+    // A runner that is already online folds the step to one line: "<label> online", with no instructions.
     await page.locator('#onb-back').click();
-    await page.locator('#onb-machine-ready').waitFor();
-    assert.equal(await page.locator('#onb-machine-ready').textContent(), "A computer is online and will run your bots.");
-    assert.equal(await page.locator('#onb-more').evaluate(el => el.open), false);
-    assert.equal(await page.locator('#onb-enroll').isVisible(), false);
-    await page.locator('#onb-more summary').click();
-    assert.equal(await page.locator('#onb-enroll').isVisible(), true);
+    await page.locator('#onb-machine-status', {hasText: 'online'}).waitFor();
+    assert.equal(await page.locator('#onb-machine-status').textContent(), "Ana's Mac, Cloud box online");
+    assert.equal(await page.locator('#onb-enroll').count() + await page.locator('#onb-kind').count() + await page.locator('.onb-cmd').count(), 0);
     await page.locator('#onb-next').click();
     await page.locator('#onb-connect').waitFor();
     assert.equal(puts.length, mark + 2);

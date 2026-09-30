@@ -14,7 +14,7 @@ const bots = [
   bot('cmo', 'AI CMO', 'p:ana'), bot('seo', 'SEO', 'b:cmo'), bot('sales', 'Sales', 'p:ana'),
   bot('support', 'Support', 'p:ana', {status: 'paused', onboarding_state: 'needs_onboarding'}),
   bot('old', 'Old bot', 'p:ana', {status: 'archived'}),
-  bot('botops', 'BotOps', ''), bot('goal-manager', 'Goal Manager', ''), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox', helper: true}),
+  bot('coo', 'Assistant', ''), bot('librarian', 'Librarian', ''), bot('botops', 'BotOps', ''), bot('goal-manager', 'Goal Manager', ''), bot('inbox', 'Inbox Manager', 'b:botops', {template: 'inbox', helper: true}),
 ];
 const day = Date.now() - 2 * 86400000;
 const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence: 'weekly', owner: 'bot:cmo', definition: 'Signed-up accounts that finish setup',
@@ -96,7 +96,10 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; the helpers apart.
     const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-sep') ? '|' : el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
     assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:sales@1', 'bot:support@1',
-      '|', 'bot:botops@0', 'bot:goal-manager@0', 'bot:inbox@0']);
+      '|', 'bot:coo@0', 'bot:botops@0', 'bot:librarian@0', 'bot:goal-manager@0', 'bot:inbox@0']);
+    // The sidebar's Helpers group lists the same bots in the same order, the Assistant and the Librarian among them.
+    assert.deepEqual(await page.locator('#tree a.node[data-helper]').evaluateAll(els => els.map(el => el.dataset.org)),
+      ['b:coo', 'b:botops', 'b:librarian', 'b:goal-manager', 'b:inbox']);
     const row = owner => page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont)`);
     assert.equal(await row('bot:sales').locator('.gt-goal').count(), 0, 'no goal: nothing written');
     assert.match(await row('bot:goal-manager').innerText(), /Every KPI read on time/, 'a helper shows its goal');

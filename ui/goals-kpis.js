@@ -400,7 +400,6 @@ async function kpiAddBind(form, goal, done) {
 // whether or not they have a goal. One line each: the owner, their first goal (cut short, the whole of it in the
 // tooltip) and its KPIs as small chips; more goals follow on lines of their own. The built-in bots and the Inbox Manager
 // are helpers, not roles: they sit apart, below. Tapping any line opens that owner's panel.
-const GOAL_HELPER_ORDER = ['botops', 'librarian', 'goal-manager', 'inbox'];
 function goalTreeShape() {
   const people = (S.people || []).filter(p => !p.hidden);
   const inboxBots = new Set((S.people || []).map(p => p.inbox_bot).filter(Boolean));
@@ -408,8 +407,7 @@ function goalTreeShape() {
   // The sidebar's own rule (isHelperBot: a built-in, or a bot from a `kind: helper` card), plus a person's inbox bot.
   const helper = e => isHelperBot(e) || inboxBots.has(e.name);
   const placed = bots.filter(e => !helper(e));
-  const rank = e => e.name === assistantBot() ? -1 : GOAL_HELPER_ORDER.includes(e.name) ? GOAL_HELPER_ORDER.indexOf(e.name) : 99;
-  const helpers = bots.filter(helper).sort((a, b) => rank(a) - rank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
+  const helpers = bots.filter(helper).sort((a, b) => helperRank(a) - helperRank(b) || String(a.display_name || a.name).localeCompare(String(b.display_name || b.name)));
   const keys = new Set([...(S.orgGroups || []).map(g => 'g:' + g.id), ...people.map(p => 'p:' + p.id), ...placed.map(e => 'b:' + e.name)]);
   const byParent = {};
   const put = (parent, node) => (byParent[keys.has(parent) ? parent : ''] ||= []).push(node);

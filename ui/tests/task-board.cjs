@@ -161,7 +161,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.locator('#task-view [data-view="foryou"]').click();
     await page.locator('.company-need-actor').waitFor();
     assert.equal(await page.locator('.company-need-actor').count(), 1);
-    assert.match(await page.locator('.company-need-name').innerText(), /Tico\s+1 task/);
+    assert.match(await page.locator('.company-need-name').innerText(), /Assistant\s+1 task/);
     assert.match(await page.locator('.company-need-titles').innerText(), /Approve the budget/);
     assert.equal(await page.locator('.company-need-actor').getAttribute('href'), '#/bot/coo');
     // A bare chevron instead of "Open chat", and no count summary in the header.
