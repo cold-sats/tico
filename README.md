@@ -58,6 +58,7 @@ company on localhost with no setup ([docs/demo.md](docs/demo.md)).
 | [docs/assistant.md](docs/assistant.md) | The built-in Assistant: what it does at once and what it proposes |
 | [docs/librarian.md](docs/librarian.md) | The built-in Librarian: answers from the company's docs, with citations |
 | [docs/goals-and-kpis.md](docs/goals-and-kpis.md) | Goals, KPIs and the built-in Goal Manager: automatic colours, a person's override, readings with evidence |
+| [PRIVACY.md](PRIVACY.md), [docs/telemetry.md](docs/telemetry.md) | The anonymous usage count: exactly what is sent, and how to turn it off |
 
 ## Hosting modes
 
@@ -279,6 +280,7 @@ named company must also carry a permanent id, or the process refuses to start.
 | `TICO_CREDENTIAL_KMS_KEY` | Credential store key | `alias/tico-acme` |
 | `TICO_TYPESAFE_SECRET_ARN` or `TYPESAFE_API_KEY` | Optional key for the decisions provider (TypeSafe's Jev) behind `hub_decisions` / `POST /api/v2/judge` and the Slack gateway (`skills/decisions/SKILL.md`, `questions/README.md`); without it the route answers 503. Decisions were called "judge" before 0.2.4: the route, the `judge.call` audit events and `TYPESAFE_*` names are unchanged, and `hub_judge` / `hub judge` remain as aliases | |
 | `TICO_UPDATE_CHECK`, `TICO_RELEASES_URL`, `TICO_VERSION`, `TICO_UPDATER_URL`, `TICO_UPDATER_TOKEN` | The "New version" notice and owner-only "Update now"; `TICO_UPDATE_CHECK=off` disables it. See [docs/releasing.md](docs/releasing.md) | |
+| `TICO_TELEMETRY`, `DO_NOT_TRACK`, `TICO_TELEMETRY_DEBUG`, `TICO_HQ_URL` | The anonymous usage count: `TICO_TELEMETRY=off` or `DO_NOT_TRACK=1` (or Settings > Privacy) turns it off, `TICO_TELEMETRY_DEBUG=1` prints what would be sent and sends nothing. See [PRIVACY.md](PRIVACY.md) | |
 | `TICO_RELEASE`, `TICO_OBSERVABILITY_*`, `TICO_POSTHOG_*`, `TICO_SENTRY_*` | Optional release id and telemetry. Empty disables all of it | |
 
 Sign-in for a hosted server is either built in (`TICO_AUTH_PROXY=oidc`: Google, Microsoft Entra ID
@@ -376,6 +378,10 @@ run the tests above; open a pull request against `main`. Bot repositories are re
 checkouts on the Mac that runs them, so a push to one is not live until that checkout has it.
 Never put a credential in git, in a task, or in bot instructions, and keep company names, people
 and accounts out of the repository: examples use the fictional company Acme (`acme.example`).
+
+## Privacy
+
+Tico counts active installs anonymously: a random ID, the version and two yes/no activity flags, sent with the update check. Turn it off in Settings > Privacy, with `TICO_TELEMETRY=off` or with `DO_NOT_TRACK=1`. Exactly what is sent, and what is kept: [PRIVACY.md](PRIVACY.md).
 
 ## Your own deployment
 

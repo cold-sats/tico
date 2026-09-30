@@ -125,7 +125,7 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
         jobs = c.execute("SELECT count(*) FROM jobs").fetchone()[0]
     # Every queued job but the one Ben's private room raised.
     assert jobs == 5 and len(column(api, "SELECT id FROM jobs")) == 4
-    assert column(api, "SELECT key FROM registry_metadata") == ["access", "bot_access", "docs_migrated", "onboarding", "owner", "people"]
+    assert column(api, "SELECT key FROM registry_metadata") == ["access", "bot_access", "docs_migrated", "onboarding", "owner", "people", "usage-count"]
 
 
 def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, world):

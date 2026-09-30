@@ -34,6 +34,7 @@ from . import updates
 from . import providers as Providers
 from . import access as Access
 from . import releases, runner_versions
+from .census import Census
 from .harnesses import HARNESS_CATALOG, resolve_harness, runtime_of
 from .providers import MODEL_BY_ID, MODEL_CATALOG
 from .settings_admin import SettingsAdmin
@@ -64,6 +65,8 @@ def create_app(settings=None):
     settings = settings or Settings.from_env()
     telemetry = Observability(settings)
     store = Store(settings)
+    census = Census(store, settings)
+    releases.CHECKER.bind(census)
     auth = Auth(store)
     execution = Execution(store, auth)
     settings_admin = SettingsAdmin(store, auth, execution, MODEL_BY_ID, reset_bot_sessions)
@@ -112,6 +115,9 @@ def create_app(settings=None):
             while not stop.is_set():
                 try:
                     await asyncio.to_thread(scheduler.tick)
+                    # The release check (and the anonymous count that rides on it) runs even when nobody has the
+                    # page open; it is a no-op until its six hours are up.
+                    await asyncio.to_thread(releases.notice)
                 except Exception as exc:
                     telemetry.capture("scheduler", exc)
                     import logging
@@ -162,6 +168,7 @@ def create_app(settings=None):
         return await request_validation_exception_handler(request, exc)
 
     app.state.observability = telemetry
+    app.state.census = census
 
     @app.exception_handler(Problem)
     async def problem_handler(request, exc):
@@ -243,6 +250,8 @@ def create_app(settings=None):
                                                                        request.url.path, request.method)
                 request.state.auth_ms = (time.perf_counter() - began) * 1000
                 request.state.identity = who
+                if census.person_due(who):
+                    await asyncio.get_running_loop().run_in_executor(None, census.note_person, who)
                 if who.via:
                     # The Assistant acting for a person (backend/assistant.py): what it writes is
                     # recorded via assistant, and unless the person just confirmed a proposal it may
@@ -733,6 +742,28 @@ def create_app(settings=None):
         if result.get("state") in ("healthy", "rolled_back", "failed"):
             record_update_outcome(result)
         return result
+
+    @app.get("/api/v2/system/usage-count")
+    def usage_count_status(request: Request):
+        owner_only(request.state.identity, "sees the anonymous usage count settings")
+        with store.read() as c:
+            return census.view(c)
+
+    @app.put("/api/v2/system/usage-count")
+    def usage_count_set(request: Request, body: M.UsageCount):
+        owner_only(request.state.identity, "changes the anonymous usage count")
+        return census.set_enabled(body.enabled, request.state.identity.actor)
+
+    @app.post("/api/v2/system/usage-count/reset")
+    def usage_count_reset(request: Request):
+        owner_only(request.state.identity, "resets the install ID")
+        return census.reset_id(request.state.identity.actor)
+
+    @app.post("/api/v2/system/usage-count/notice")
+    def usage_count_notice(request: Request, body: M.UsageCountNotice):
+        owner_only(request.state.identity, "sees the anonymous usage count notice")
+        census.set_notice(body.state)
+        return {"ok": True}
 
     @app.post("/api/v2/system/update/check")
     def system_update_check(request: Request):

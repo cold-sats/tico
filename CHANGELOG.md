@@ -43,6 +43,20 @@ All notable changes to Tico are recorded here. The format follows
   needs-you), KPIs (list, get, create, update), readings, links and targets, bot KPIs and proposals, all in `docs/openapi/v2.json`.
   `hub goal auto|refresh|checkin|checkins|needs-you`, `hub kpi list|show|add|update|link|unlink|log|readings` and
   `hub proposal create|list|decide`, with MCP tools of the same meaning.
+- **An anonymous count of active installs**, so the project can tell whether Tico is used, in the way Homebrew and Next.js
+  do it: on by default, a first-run notice, four ways off, a debug mode, and public results. The update check asks Tico HQ
+  (`https://hq.tico.team/v1/latest`, `TICO_HQ_URL`) with exactly four fields: a random install ID, the version, and two
+  yes/no flags (a person used Tico in the last 7 days; a bot turn finished in the last 7 days). Nothing else is sent, no
+  IP address is stored, and with counting off, when HQ does not answer, or with `TICO_RELEASES_URL` set, the check goes
+  straight to GitHub as before. Turn it off with Settings > Privacy (which also has **Reset install ID**),
+  `TICO_TELEMETRY=off`, `DO_NOT_TRACK=1` or `python -m backend.manage usage-count DB off`; `TICO_TELEMETRY_DEBUG=1` prints
+  the payload without sending it. The owner sees a one-time notice in the app, the installer and the setup wizard, and
+  nothing is sent before the app has shown it. Demo mode never sends. See [PRIVACY.md](PRIVACY.md) and
+  [docs/telemetry.md](docs/telemetry.md).
+- **`hq/`, the collector**, a separate service (its own FastAPI app, SQLite database, image and `hq/compose.yaml`, never part of a
+  customer's Tico; it will not start without `TICO_HQ_KEY`). It stores an install ID, first and last seen, the last version
+  and the last day each flag was true, deletes rows after 13 months, uses the address only in memory for a rate limit, and
+  publishes aggregates at `/v1/stats`.
 
 ### Changed
 - **`hub kpi add` takes the KPI's name first.** `hub kpi add "<name>" [--goal ID]` makes a standalone KPI and links it when

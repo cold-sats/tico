@@ -16,7 +16,7 @@ from typing import Callable
 from . import aws as awsmod, backup as bk, cloud as cloudmod, cloudinit, contract, dns as dnsmod, envfile, remote, route53, settings as st, signin, state, verify
 from .cloudflare import DASHBOARD_STEPS, TOKEN_URL, Cloudflare, CloudflareError
 from .settings import Asker, Settings
-from .ui import IO, MissingInput
+from .ui import IO, USAGE_NOTICE, MissingInput
 
 
 @dataclass
@@ -350,6 +350,7 @@ def run(args, io: IO, deps: Deps) -> int:
     s.cf_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
     s.tunnel_token = os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "") or s.tunnel_token
     io.say("tico setup" + (" (dry run: nothing will be created or changed)" if dry else ""))
+    io.say(USAGE_NOTICE + " Details: PRIVACY.md in the Tico repository.")
     if saved:
         io.say(f"Resuming from the last run for {domain_hint} (secrets kept in {state.home() / domain_hint}).")
     gather(io, args, s, dry)

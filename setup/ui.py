@@ -5,6 +5,11 @@ import sys
 import webbrowser
 
 
+# Kept the same as backend/census.py NOTICE (a test compares them): the installer bundle carries no backend.
+USAGE_NOTICE = ("Tico counts active installs anonymously (a random ID, version, and two yes/no activity flags). "
+                "Turn off: Settings > Privacy or TICO_TELEMETRY=off.")
+
+
 class MissingInput(SystemExit):
     pass
 

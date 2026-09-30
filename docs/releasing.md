@@ -60,13 +60,17 @@ the images, and a Mac runner is a git checkout that moves to the release's tag.
 
 ## What installations do
 
-The server asks `https://api.github.com/repos/ticoteam/tico/releases/latest` at most every six
-hours, in the background, without credentials.
+The server asks Tico HQ (`https://hq.tico.team/v1/latest`, which serves the same release from GitHub and counts the install
+anonymously, see [PRIVACY.md](../PRIVACY.md)) at most every six hours, in the background, without credentials. With counting
+off, when HQ does not answer, or with `TICO_RELEASES_URL` set, it asks `https://api.github.com/repos/ticoteam/tico/releases/latest`
+directly and sends no ID.
 
 | Variable | Meaning |
 |---|---|
 | `TICO_UPDATE_CHECK` | `off` stops the check and hides the notice |
-| `TICO_RELEASES_URL` | Replaces the GitHub URL, for a mirror or a test |
+| `TICO_RELEASES_URL` | Replaces the check with a GitHub-shaped URL, for a mirror or a test; nothing is counted |
+| `TICO_HQ_URL` | Replaces `https://hq.tico.team` |
+| `TICO_TELEMETRY`, `DO_NOT_TRACK` | `off` / `1` stops the count; the check then goes to GitHub |
 | `TICO_VERSION` | The running version, set by the image |
 | `TICO_UPDATER_URL`, `TICO_UPDATER_TOKEN` | An updater service the owner's "Update now" calls |
 

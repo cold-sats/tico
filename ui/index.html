@@ -37,6 +37,9 @@
 #demo-banner{display:none}
 #stale-banner{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:3100;display:flex;align-items:center;gap:12px;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--ink);color:var(--bg);border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
 #stale-banner[hidden]{display:none}
+#usage-notice{position:fixed;left:16px;bottom:16px;z-index:3000;display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:10px 14px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.12)}
+#usage-notice[hidden]{display:none}
+.privacy-row{display:flex;align-items:center;gap:8px;font-size:14px}.privacy-row input{width:auto;flex:none}
 html.demo{--demo-h:30px;padding-top:var(--demo-h)}
 html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:12.5px;line-height:1.2;white-space:nowrap;overflow:hidden}
 html.demo #demo-banner strong{color:var(--ink);font-weight:650}
@@ -2284,6 +2287,7 @@ details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;b
 <body>
 <div id="side-backdrop" hidden></div>
 <div id="stale-banner" role="status" hidden><span></span><button class="primary" type="button" id="stale-reload">Reload</button></div>
+<div id="usage-notice" role="note" hidden><span>Tico counts active installs anonymously (a random ID, version, and two yes/no activity flags). Turn off: Settings &gt; Privacy or TICO_TELEMETRY=off. <a href="https://github.com/ticoteam/tico/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Details</a></span><button class="ghost" type="button" id="usage-notice-x">Dismiss</button></div>
 <div id="demo-banner" role="note" hidden><strong>Demo — sample data</strong><span>A fictional company. Bots do not run here and nothing leaves this machine.</span></div>
 <aside id="side" aria-label="Primary navigation">
   <header class="side-head">
@@ -3035,6 +3039,7 @@ function applyConfig(config) {
   renderOnboardingNav();
   renderNewVersion();
   noticeUpdatedServer();
+  renderUsageNotice();
   return S.config;
 }
 // A tab left open through an update keeps running the old UI. The config poll already runs, so the
@@ -3051,6 +3056,19 @@ function noticeUpdatedServer() {
   if (!bar.hidden) bar.firstElementChild.textContent = `${appName()} was updated to ${nvVersion(v)}. Reload to get the new version.`;
 }
 document.addEventListener('click', ev => { if (ev.target.closest('#stale-reload')) location.reload(); });
+// The anonymous usage count (PRIVACY.md): the owner sees this once, and nothing is counted before they have.
+let usageNoticeShown = false;
+function renderUsageNotice() {
+  const bar = $('#usage-notice');
+  if (!bar) return;
+  bar.hidden = !S.config.usage_count_notice;
+  if (!bar.hidden && !usageNoticeShown) { usageNoticeShown = true; post('/v2/system/usage-count/notice', {state: 'shown'}).catch(() => {}); }
+}
+document.addEventListener('click', ev => {
+  if (!ev.target.closest('#usage-notice-x')) return;
+  S.config.usage_count_notice = false; renderUsageNotice();
+  post('/v2/system/usage-count/notice', {state: 'dismissed'}).catch(() => {});
+});
 // "Finish setup" tops the nav while the owner has an unfinished first run, and disappears the
 // moment the server stops asking for one. Everyone else never sees it.
 function renderOnboardingNav() {
@@ -9392,6 +9410,7 @@ function pageSettings() {
       <button type="button" data-settings-tab="recurring" role="tab">Recurring</button>
       <button type="button" data-settings-tab="cloud" role="tab">Cloud services</button>
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="history" role="tab">History</button>' : ''}
+      ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
     </div>
     <div class="settings-pane" id="settings-devices" role="tabpanel">
       <section class="card"><div class="settings-toolbar"><span></span>
@@ -9418,6 +9437,7 @@ function pageSettings() {
       ${S.me?.role === 'owner' ? '<section class="card" id="settings-slack"><header><h2>Slack</h2></header><div id="set-slack"><div class="empty">Loading…</div></div></section>' : ''}
     </div>
     <div class="settings-pane" id="settings-history" role="tabpanel" hidden><section class="card"><header><h2>Settings history</h2></header><div id="set-history"><div class="empty">Loading…</div></div></section></div>
+    ${S.me?.role === 'owner' ? '<div class="settings-pane" id="settings-privacy" role="tabpanel" hidden><section class="card"><header><h2>Privacy</h2></header><div id="set-privacy"><div class="empty">Loading…</div></div></section></div>' : ''}
     <dialog class="tmodal" id="people-dialog" aria-label="People"></dialog>
     <dialog class="owner-picker" id="owner-picker" aria-labelledby="owner-picker-title"></dialog>
     <dialog class="bot-editor" id="bot-editor" aria-labelledby="bot-editor-title"></dialog>
@@ -9435,7 +9455,7 @@ function pageSettings() {
 }
 function settingsShow(tab) {
   if (tab === 'credentials') { location.hash = INTEGRATIONS; return; }
-  SETTINGS_TAB = tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'cloud' ? 'cloud' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
+  SETTINGS_TAB = tab === 'privacy' && S.me?.role === 'owner' ? 'privacy' : tab === 'people' && settingsIsAdmin() ? 'people' : tab === 'history' && S.me?.role === 'owner' ? 'history' : tab === 'health' ? 'health' : tab === 'providers' ? 'providers' : tab === 'cloud' ? 'cloud' : tab === 'bots' ? 'bots' : tab === 'recurring' ? 'recurring' : 'devices';
   try { sessionStorage.setItem(SETTINGS_TAB_KEY, SETTINGS_TAB); } catch { /* private window: the tab is just not remembered */ }
   document.querySelectorAll('[data-settings-tab]').forEach(button => {
     const selected = button.dataset.settingsTab === SETTINGS_TAB;
@@ -9450,12 +9470,34 @@ function settingsShow(tab) {
   if (history) history.hidden = SETTINGS_TAB !== 'history';
   const peoplePane = $('#settings-people');
   if (peoplePane) { peoplePane.hidden = SETTINGS_TAB !== 'people'; if (SETTINGS_TAB === 'people') void renderSettingsPeople(); }
+  const privacyPane = $('#settings-privacy');
+  if (privacyPane) { privacyPane.hidden = SETTINGS_TAB !== 'privacy'; if (SETTINGS_TAB === 'privacy') void renderSettingsPrivacy(); }
   const healthPane = $('#settings-health');
   if (healthPane) { healthPane.hidden = SETTINGS_TAB !== 'health'; if (SETTINGS_TAB === 'health') window.hlMount?.(); }
   const providersPane = $('#settings-providers');
   if (providersPane) { providersPane.hidden = SETTINGS_TAB !== 'providers'; if (SETTINGS_TAB === 'providers') void renderSettingsProviders(); }
   const recurring = $('#settings-recurring');
   if (recurring) { recurring.hidden = SETTINGS_TAB !== 'recurring'; if (SETTINGS_TAB === 'recurring') renderSettingsRecurring(); }
+}
+// Settings > Privacy: the one switch for the anonymous usage count, and a new random install ID (PRIVACY.md).
+async function renderSettingsPrivacy() {
+  const host = $('#set-privacy');
+  if (!host) return;
+  let v;
+  try { v = await get('/v2/system/usage-count'); } catch (e) { host.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const forced = v.off_by && v.off_by !== 'setting';
+  host.innerHTML = `<label class="privacy-row"><input type="checkbox" id="privacy-count"${v.enabled ? ' checked' : ''}${forced ? ' disabled' : ''}> Help count active installs</label>
+    <p class="settings-cell-note">${forced ? 'Off by ' + esc(v.off_by === 'demo' ? 'demo mode' : v.off_by) + '. ' : ''}A random ID, the version and two yes/no activity flags. <a href="${esc(v.doc)}" target="_blank" rel="noopener noreferrer">What is sent</a></p>
+    <p class="settings-cell-note">Install ID: <code>${esc(v.install_id || 'not made yet')}</code> <button class="ghost" type="button" id="privacy-reset">Reset install ID</button></p>`;
+  $('#privacy-count').onchange = async ev => {
+    try { await put('/v2/system/usage-count', {enabled: ev.target.checked}); toast(ev.target.checked ? 'Counting is on' : 'Counting is off'); }
+    catch (e) { toast(e.message, true); }
+    void renderSettingsPrivacy();
+  };
+  $('#privacy-reset').onclick = async () => {
+    try { await post('/v2/system/usage-count/reset'); toast('New install ID made'); } catch (e) { toast(e.message, true); }
+    void renderSettingsPrivacy();
+  };
 }
 // One place to see every routine on every bot, searchable and filtered by bot,
 // by computer (including "my computer"), kind and state. Rows are the same blocks as the Tasks

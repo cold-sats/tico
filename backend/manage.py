@@ -144,6 +144,9 @@ def main(argv=None):
     p.add_argument("database", type=Path)
     p.add_argument("bot")
     p.add_argument("repo")
+    p = sub.add_parser("usage-count", help="The anonymous usage count (PRIVACY.md): show it, turn it on or off, or make a new install ID")
+    p.add_argument("database", type=Path)
+    p.add_argument("action", choices=("show", "on", "off", "reset-id", "payload"))
     p = sub.add_parser("import-history")
     p.add_argument("database", type=Path)
     p.add_argument("--runtime", type=Path, required=True)
@@ -216,6 +219,22 @@ def main(argv=None):
             H.event(c, H.KEEPER, "bot.repo_set", args.bot, {"repo": repo})
         report = {"bot": args.bot, "repo": repo,
                   "repo_url": repo_url(repo, store.settings.github_owner)}
+    elif args.command == "usage-count":
+        from .census import Census
+        from .releases import version
+        settings = Settings(db_path=args.database, registry_dir=registry_dir())
+        store, census = Store(settings), Census(Store(settings), settings)
+        if args.action == "on" or args.action == "off":
+            report = census.set_enabled(args.action == "on", H.KEEPER)
+        elif args.action == "reset-id":
+            report = census.reset_id(H.KEEPER)
+        elif args.action == "payload":
+            # What would be sent right now; nothing is sent by this command.
+            with store.read() as c:
+                report = census.payload(c, version()) or {"sent": False, "reason": census.off_reason(c) or "notice not yet shown"}
+        else:
+            with store.read() as c:
+                report = census.view(c)
     elif args.command == "import-history":
         store = Store(Settings(db_path=args.database))
         store.initialize()
