@@ -1530,7 +1530,8 @@ def _close_open_asks(conn, actor, target, kind, msg):
 
 
 LIBRARIAN_LITERAL = re.compile(
-    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]{0,3}(?P=fence)[`~]*[ \t]*$|\Z)"  # fenced code
+    r"^[ \t]{0,3}(?P<bf>`{3,})[^\n]*\n[\s\S]*?(?:^[ \t]{0,3}(?P=bf)`*[ \t]*$|\Z)"   # fenced code: the closing line
+    r"|^[ \t]{0,3}(?P<tf>~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]{0,3}(?P=tf)~*[ \t]*$|\Z)"  # is the same character only
     r"|^(?:(?: {4}|\t)[^\n]*(?:\n|\Z))+"                      # indented code
     r"|(?<!`)(?P<ticks>`+)(?!`)[\s\S]*?(?<!`)(?P=ticks)(?!`)"   # code spans: equal-length backtick runs
     r"|\[[^\]\n]*\](?:\([^)]*\)|\[[^\]]*\])?"                # link labels, inline or reference

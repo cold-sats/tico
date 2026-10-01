@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- docs-eval ignores Markdown emphasis around a price, treats "about ($29)" as approximate, and accepts "no price
+  variation" for an exact price.
+- The Librarian closes a fenced code block only on a line of the same fence character, so code with a mixed line stays
+  literal.
+
 ## [0.3.0] - 2026-10-01
 
 ### Changed
