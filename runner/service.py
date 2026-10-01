@@ -1461,6 +1461,11 @@ class Runner:
                 bots[row["bot"]]["warnings"].append(PUBLISH_WARNING + note)
         document = {"schema_version": 1, "runtimes": runtimes, "bots": bots}
         try:
+            usage = shutil.disk_usage("/" if self.follower.kind == "docker" else self.state.directory)
+            document["disk"] = {"total_bytes": usage.total, "free_bytes": usage.free}
+        except (OSError, AttributeError):
+            pass
+        try:
             held = mail_key.status(self.config)      # Health warns while bots can read the company's mail key
         except (OSError, AttributeError, KeyError):
             held = None
@@ -2125,34 +2130,14 @@ class Runner:
             for row in runtime_rows:
                 row.pop("credential_source", None)
         try:
-            try:
-                beat = self.client.post("runners/heartbeat", body)
-            except APIError as exc:
-                # A rollback to an older server must keep the heartbeat working.
-                if exc.status != 422 or not any("credential_source" in row for row in runtime_rows):
-                    raise
-                for row in runtime_rows:
-                    row.pop("credential_source", None)
-                beat = self.client.post("runners/heartbeat", body)
+            beat = self.report_heartbeat(body)
         except APIError as exc:
-            # A server from before harness reports refuses the new field outright; the runner
-            # must not go offline over it, so it reports without and asks again later.
-            sends_tools = any(row.get("tools") for row in body["readiness"].get("bots", {}).values())
-            sends_harnesses = bool({"harnesses", "mail_key", "shared_env", "recent_errors"} & set(body["readiness"]))
-            if exc.status != 422 or not (sends_harnesses or sends_tools):
+            # A rollback to an older server must keep the heartbeat working.
+            if exc.status != 422 or not any("credential_source" in row for row in runtime_rows):
                 raise
-            if sends_harnesses:
-                self._harness_after = time.monotonic() + 600
-            if sends_tools:
-                self._tools_after = time.monotonic() + 600     # a server from before declared access refuses `tools`
-            body["readiness"].pop("harnesses", None)
-            body["readiness"].pop("mail_key", None)
-            body["readiness"].pop("shared_env", None)
-            body["readiness"].pop("recent_errors", None)
-            for row in body["readiness"].get("bots", {}).values():
-                row.pop("tools", None)
-            beat = self.client.post("runners/heartbeat", body)
-        self._reports_credential_source = (beat or {}).get("runtime_credential_source") is True
+            for row in runtime_rows:
+                row.pop("credential_source", None)
+            beat = self.report_heartbeat(body)
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.
@@ -2168,6 +2153,63 @@ class Runner:
         # What this process sees, not an interactive shell with its own exports: scripts/tico status shows it.
         (self.state.directory / "runtimes.json").write_text(json.dumps(runtimes))
         self.recover_output()
+
+    def report_heartbeat(self, body):
+        readiness = body["readiness"]
+        optional = ("disk", "harnesses", "mail_key", "shared_env", "recent_errors")
+        unsupported = self.__dict__.setdefault("_readiness_unsupported", {})
+        for field, until in list(unsupported.items()):
+            if time.monotonic() < until:
+                readiness.pop(field, None)
+        while True:
+            try:
+                return self.client.post("runners/heartbeat", body)
+            except APIError as exc:
+                if exc.status != 422:
+                    raise
+                detail = str(exc.detail or "Heartbeat validation failed")
+                log("Tico runner: heartbeat rejected: " + detail[:1000])
+                # A validation path names the affected bot; preserve every other bot's tools.
+                bad = re.findall(r"readiness\.(?:StructuredReadiness\.)?bots\.([^. :;]+)\.tools(?:\.(\d+))?", detail)
+                affected = {bot for bot, _ in bad if bot in readiness.get("bots", {})
+                            and readiness["bots"][bot].get("tools")
+                            and (not any(index for name, index in bad if name == bot)
+                                 or any(int(index) < len(readiness["bots"][bot]["tools"])
+                                        for name, index in bad if name == bot and index))}
+                if affected:
+                    for bot in affected:
+                        row = readiness["bots"][bot]
+                        indices = {int(index) for name, index in bad if name == bot and index}
+                        if indices:
+                            row["tools"] = [tool for index, tool in enumerate(row["tools"]) if index not in indices]
+                        else:
+                            row.pop("tools", None)
+                        warning = "Tool report rejected: " + detail[:250]
+                        row["warnings"] = (list(row.get("warnings") or []) + [warning])[-20:]
+                    continue
+                # Old servers reject optional fields. Drop only the named field and retry;
+                # old generic errors are handled one field at a time.
+                extra = "extra" in detail.lower()
+                field = next((name for name in optional if name in readiness and
+                              re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
+                generic = extra and "readiness." not in detail
+                if not field and generic:
+                    field = next((name for name in ("harnesses", "mail_key", "shared_env", "recent_errors", "disk")
+                                  if name in readiness), None)
+                if field:
+                    readiness.pop(field, None)
+                    unsupported[field] = time.monotonic() + 600
+                    continue
+                if generic and any(row.get("tools") for row in readiness.get("bots", {}).values()):
+                    # A pre-tools server cannot accept these reports. This is compatibility,
+                    # not a malformed report on a current server; announce it on each bot.
+                    self._tools_after = time.monotonic() + 600
+                    for row in readiness["bots"].values():
+                        if row.pop("tools", None):
+                            row["warnings"] = (list(row.get("warnings") or []) +
+                                               ["Tool report rejected: this server does not accept tool reports yet"])[-20:]
+                    continue
+                raise
 
     def adopt_revision(self, head):
         """Record `head` as what this process runs (scripts/tico status and the heartbeat read it)."""

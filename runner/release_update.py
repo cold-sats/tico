@@ -14,6 +14,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -82,6 +83,15 @@ def current_release(env=os.environ, root=ROOT, run=subprocess.run):
 
 # -- the outcome of the last checkout update, for the next heartbeat ------------------------------
 
+def disk_space_error(error):
+    return any(word in str(error).lower() for word in ("no space left", "not enough disk space", "disk full", "enospc"))
+
+
+def disk_error_message(error):
+    return ("Not enough disk space to update. Free space on this computer (Docker: `docker image prune -a`); "
+            "the update retries when space frees.") if disk_space_error(error) else error
+
+
 def read_status(directory):
     try:
         data = json.loads((Path(directory) / STATUS_FILE).read_text())
@@ -110,7 +120,11 @@ def pip_install(root, old, new, run=subprocess.run):
         return ""
     done = run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q", "-r",
                 str(Path(root) / "backend" / "requirements.txt")], capture_output=True, text=True, timeout=900)
-    return "" if not done.returncode else "pip install failed: " + (done.stderr.strip().splitlines() or ["no output"])[-1]
+    if not done.returncode:
+        return ""
+    if disk_space_error(done.stderr):
+        return disk_error_message(done.stderr)
+    return "pip install failed: " + (done.stderr.strip().splitlines() or ["no output"])[-1]
 
 
 def in_flight(directory):
@@ -255,7 +269,14 @@ def apply(root, version, directory, *, run=subprocess.run, install=pip_install, 
     version = tag[1:]
 
     def say(state, error=""):
-        write_status(directory, state=state, target=version, error=error[:300], at=clock())
+        error = disk_error_message(error)
+        disk = {}
+        if disk_space_error(error):
+            try:
+                disk["disk_free"] = shutil.disk_usage(directory).free
+            except OSError:
+                pass
+        write_status(directory, state=state, target=version, error=error[:300], at=clock(), **disk)
         return {"state": state, "target": version, "error": error}
 
     def g(*args, timeout=60):
@@ -271,8 +292,10 @@ def apply(root, version, directory, *, run=subprocess.run, install=pip_install, 
     if dirty:
         return say("blocked", f"the checkout has {len(dirty)} changed file{'s' if len(dirty) != 1 else ''}; "
                               "commit or stash them and the runner updates itself")
-    if g("fetch", "--quiet", "origin", f"refs/tags/{tag}:refs/tags/{tag}", timeout=120).returncode:
-        return say("failed", f"release {tag} was not found on the public repository, or a local tag of that name differs")
+    fetched = g("fetch", "--quiet", "origin", f"refs/tags/{tag}:refs/tags/{tag}", timeout=120)
+    if fetched.returncode:
+        return say("failed", fetched.stderr if disk_space_error(fetched.stderr) else
+                   f"release {tag} was not found on the public repository, or a local tag of that name differs")
     target = g("rev-parse", "--verify", "--quiet", tag + "^{commit}").stdout.strip()
     if not target:
         return say("failed", f"release {tag} does not name a commit")
@@ -294,8 +317,9 @@ def apply(root, version, directory, *, run=subprocess.run, install=pip_install, 
                    reason + (". Went back to the previous release." if ok else ". The previous release did not start either.")
                    + (" " + note if note else ""))
 
-    if g("checkout", "--quiet", "--detach", target).returncode:
-        return say("failed", f"could not switch to {tag}: local files are in the way")
+    switched = g("checkout", "--quiet", "--detach", target)
+    if switched.returncode:
+        return say("failed", switched.stderr if disk_space_error(switched.stderr) else f"could not switch to {tag}: local files are in the way")
     error = install(root, old, target)
     if error:
         return back_out(error)
@@ -398,13 +422,29 @@ class Follower:
         self.release = current_release(self.env, self.root, self.run)
         self.decide()
 
+    def space_freed(self, status, error):
+        if not disk_space_error(error):
+            return False
+        try:
+            free = shutil.disk_usage("/" if self.kind == "docker" else self.directory).free
+        except OSError:
+            return False
+        marker = (status.get("to") or status.get("target"), error, status.get("at"))
+        previous = getattr(self, "_disk_failure", None)
+        baseline = status.get("disk_free")
+        if not isinstance(baseline, int) or baseline < 0:
+            baseline = previous[1] if previous and previous[0] == marker else free
+        self._disk_failure = (marker, baseline)
+        return free > baseline
+
     def outcome(self, want):
         """(state, error) of the last update to `want` when it should not be tried again yet."""
         if self.kind == "docker":
             status = self.sidecar.status() or {}
             state = {"rolled_back": "rolled_back", "failed": "failed"}.get(status.get("state"))
             if state and str(status.get("to") or "").lstrip("v") == want:
-                return state, str(status.get("message") or "")
+                error = str(status.get("message") or "")
+                return None if self.space_freed(status, error) else (state, disk_error_message(error))
             if status.get("state") in ("pulling", "restarting") and str(status.get("to") or "").lstrip("v") == want:
                 return "updating", ""
             if status.get("state") == "healthy" and str(status.get("to") or "").lstrip("v") == want:
@@ -418,7 +458,8 @@ class Follower:
         if status.get("state") == "updating":
             return ("updating", "") if age < STALE_UPDATING_S else ("failed", "the update stopped without an outcome")
         if status.get("state") in ("failed", "rolled_back", "blocked") and age < RETRY_AFTER_S:
-            return status["state"], str(status.get("error") or "")
+            error = str(status.get("error") or "")
+            return None if self.space_freed(status, error) else (status["state"], disk_error_message(error))
         return None
 
     def no_updater_hint(self, want):

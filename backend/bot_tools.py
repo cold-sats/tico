@@ -321,7 +321,13 @@ def listing(c, settings, bot):
     if agent:
         online = bool(not agent["revoked_at"] and agent["last_seen"] and
                       agent["last_seen"] > H.shift(H.now(), seconds=-180))
-    return {"bot": bot, "tools": tools + declared + adding, "computer": label if runner else None, "online": online,
+    report_error = next((warning for warning in report.get("warnings") or []
+                         if warning.startswith("Tool report rejected: ")), "")
+    for tool in adding:
+        if report_error:
+            tool.update(status="problem", problem=report_error, detail=report_error)
+    return {"bot": bot, "tools": tools + declared + adding, **({"report_error": report_error} if report_error else {}),
+            "computer": label if runner else None, "online": online,
             "reported_at": runner["last_seen"] if runner else report.get("reported_at")}
 
 

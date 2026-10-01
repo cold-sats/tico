@@ -25,7 +25,9 @@ Every run is under your email → **Runs**, and on the bot's **More** tab with i
 **What does *waiting* mean, and the other states?**
 *Waiting*: the bot is parked on something — a bot, a child task, or an answer from you.
 *Doing*: being worked on (*Doing · starting* until a computer picks it up). *Needs you*, or *Needs <Name>* for someone else: a
-human must act — a question, an approval, a blocked or declined item. *Done*: finished, awaiting close.
+human must act — a question, an approval, a blocked or declined item. The all-owners list groups these as **Needs a human**.
+A comment on a task answers that task's question, so the bot can ask its next question; it does not answer a different
+task in the same room. *Done*: finished, awaiting close.
 
 **Marked a task Done by mistake?**
 Choose **Undo** in the toast, or open the finished task under **Done** and choose **Reopen**.

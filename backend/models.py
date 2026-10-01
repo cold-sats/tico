@@ -555,8 +555,14 @@ class BotReadiness(Contract):
     tools: list[ToolAccess] = Field(default_factory=list, max_length=30)
 
 
+class DiskReadiness(Contract):
+    total_bytes: int = Field(ge=1)
+    free_bytes: int = Field(ge=0)
+
+
 class StructuredReadiness(Contract):
     schema_version: Literal[1] = 1
+    disk: DiskReadiness | None = None
     runtimes: dict[str, RuntimeReadiness] = Field(default_factory=dict)
     bots: dict[str, BotReadiness] = Field(default_factory=dict)
     harnesses: dict[str, HarnessReadiness] = Field(default_factory=dict, max_length=50)
@@ -568,6 +574,8 @@ class StructuredReadiness(Contract):
     @model_serializer(mode="wrap")
     def _without_empty_errors(self, handler):
         data = handler(self)
+        if data.get("disk") is None:
+            data.pop("disk", None)
         if not data.get("recent_errors"):
             data.pop("recent_errors", None)       # a stored report keeps only what the runner sent
         return data

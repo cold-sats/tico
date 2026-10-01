@@ -373,3 +373,23 @@ def test_the_server_rewrites_the_old_unsupervised_line(tmp_path):
     assert "scripts/tico install" in runner_versions.view(old, "0.2.27")["error"]
     assert runner_versions.view({**old, "update_error": "the checkout has 2 changed files"}, "0.2.27")["error"] \
         == "the checkout has 2 changed files"
+
+
+@pytest.mark.parametrize("docker", [False, True])
+def test_a_disk_failure_retries_as_soon_as_space_frees(repos, monkeypatch, docker):
+    from types import SimpleNamespace
+    _, checkout, state = repos
+    free = [100]
+    monkeypatch.setattr(ru.shutil, "disk_usage", lambda path: SimpleNamespace(free=free[0]))
+    error = "no space left on device"
+    sidecar = Sidecar({"state": "failed", "to": "v0.2.0", "message": error, "disk_free": 100})
+    if not docker:
+        ru.write_status(state, state="failed", target="0.2.0", error=error, at=0, disk_free=100)
+    f, _ = follower(checkout, state, env=DOCKER if docker else None, sidecar=sidecar)
+    assert f.state == "failed" and f.pending is None
+    assert "Not enough disk space" in f.error
+    f.poll()
+    assert f.pending is None
+    free[0] = 200
+    f.poll()
+    assert f.pending == "0.2.0"

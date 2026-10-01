@@ -110,10 +110,6 @@ def detail_of(section, value):
             out[key] = str(raw).strip()[:4_000]
     if out.get("priority") and out["priority"] not in PRIORITIES:
         raise Problem("detail", "priority is one of " + ", ".join(PRIORITIES), 422)
-    if out.get("side") and out["side"] not in SIDES:
-        raise Problem("detail", "side is B, F or B/F", 422)
-    if out.get("app") and out["app"] not in ("CA", "PA"):
-        raise Problem("detail", "app is CA (client app) or PA (pro app)", 422)
     return {k: v for k, v in out.items() if v not in ("", [])}
 
 
@@ -223,11 +219,11 @@ def push_doc(c, settings, task_create, who, record, row, detail):
 
 def feature_fields(settings, record, row, detail, name):
     """The task this feature request becomes: a plain title, labels and a body, per the plan."""
-    side = detail.get("side") or "B/F"
+    side = detail.get("side") or ""
     area = (detail.get("area") or "").strip()
     sentence = " ".join(row["text"].split())
     title = f"{area + ' - ' if area else ''}{sentence}"[:300]
-    labels = list(SIDES[side])
+    labels = list(SIDES.get(side, (side,) if side else ()))
     if detail.get("app"):
         labels.append(str(detail["app"]).lower())
     if area:

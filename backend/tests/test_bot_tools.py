@@ -442,3 +442,29 @@ def test_tools_show_extra_repository_capabilities_and_custom_team_connections(ap
     assert get(api, "tools/example-tool")["service"] == "example-tool"
     post(api, "tools/example-tool/learnings", {"text": "Use the read query."})
     assert get(api, "tools/example-tool")["learnings"]
+
+
+def test_removed_custom_tool_keeps_learnings_readable_and_owner_can_delete(api):
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO learnings(id,integration,actor,text,created) VALUES('stored-note','retired-tool','human:ana','Use the read query',?)", (H.now(),))
+    page = get(api, "tools/retired-tool")
+    assert page["read_only"] and page["learnings"][0]["id"] == "stored-note"
+    assert any(row["service"] == "retired-tool" for row in get(api, "tools")["integrations"])
+    post(api, "tools/retired-tool/learnings/stored-note/delete", {}, "ben-test", expected=403)
+    post(api, "tools/retired-tool/learnings/stored-note/delete", {})
+    get(api, "tools/retired-tool", expected=404)
+
+
+def test_rejected_tool_report_is_visible_on_pending_tools(api):
+    botops(api)
+    configure(api)
+    r = runner(api)
+    assign(api, r, "ops")
+    post(api, "bots/ops/tools", {"service": "example-tool", "can": ["read"]})
+    doc = {"schema_version": 1, "bots": {"ops": {"ready": True, "repository_present": True,
+           "warnings": ["Tool report rejected: invalid MCP declaration"]}}}
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": doc}, r["token"])
+    result = get(api, "bots/ops/tools")
+    assert result["report_error"] == "Tool report rejected: invalid MCP declaration"
+    pending = next(t for t in result["tools"] if t["service"] == "example-tool")
+    assert pending["status"] == "problem" and "rejected" in pending["problem"]

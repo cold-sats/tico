@@ -99,6 +99,13 @@ def test_demo_runs_message_sources_and_deliverables_are_browsable(built):
         bots = api.get("/api/v2/messaging/bots").json()["bots"]
         assert any(source["kind"] == "email" for bot in bots for source in bot["sources"])
         assert any(source["kind"] == "slack" for bot in bots for source in bot["sources"])
+        inbox = api.get("/api/v2/messaging/bots/inbox").json()
+        assert inbox["bot"]["last_run"]
+        assert sum(len(routine["occurrences"]) for routine in inbox["routines"]) == sum(run["bot"] == "inbox" for run in runs)
+        assert all(routine["last_fired"] for routine in inbox["routines"])
+        for bot in ("librarian", "goal-manager"):
+            row = next(row for row in api.get("/api/employees").json() if row["name"] == bot)
+            assert row["ready"]
         mail = api.get("/api/v2/mail/messages").json()["messages"]
         assert len(mail) == 3 and any("DRAFT" in message["labels"] for message in mail)
         report = api.get("/api/v2/bots/content/files").json()["files"][0]

@@ -221,9 +221,13 @@ def assess(kpi, link, readings, at=None):
     at = at or now()
     name, unit = kpi["name"], kpi.get("unit") or ""
     newest = latest(readings)
-    state, age = freshness(kpi.get("cadence") or "weekly", newest and newest["period_end"], at)
+    used = latest(readings, usable=True)
+    state, age = freshness(kpi.get("cadence") or "weekly", used and used["period_end"], at)
     out = {"status": "gray", "reason": "", "freshness": state, "value": None, "expected": None, "basis": None,
-           "age_days": None if age is None else round(age, 1)}
+           "age_days": None if age is None else round(age, 1), "reading_id": used and used.get("id")}
+    if newest and not used:
+        out["reason"] = f"{name} has only partial data"
+        return out
     if state == "missing" and not newest:
         out["reason"] = f"{name} has no reading yet"
         return out
@@ -232,10 +236,6 @@ def assess(kpi, link, readings, at=None):
         return out
     if state == "stale":
         out["reason"] = f"{name} is stale: last read {age_words(age)} ago ({kpi.get('cadence')})"
-        return out
-    used = latest(readings, usable=True)
-    if not used:
-        out["reason"] = f"{name} has only partial data"
         return out
     value = used["value"]
     out.update(value=value, basis=used.get("quality"))

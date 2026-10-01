@@ -479,7 +479,8 @@ or a human above it on the team chart) can add or remove a tool without opening 
 bot repository, so it cannot write `bot.yaml` itself. It checks the entry against the same
 fields this section describes, keeps it as a pending request, and opens a task for BotOps titled
 "Add PostHog access to <bot>" with the exact YAML. BotOps adds it to `bot.yaml`, commits and
-pushes, runs preflight and says what it found. Until the bot's computer reports the entry the tool
+pushes, runs preflight and says what it found. If a tool report is rejected, the computer logs the validation
+error and Tools shows it for that bot; other bots' valid tool reports continue to arrive. Until the bot's computer reports the entry the tool
 shows as **pending** in the row; then it is **ready**, or names its problem. Removing works the same
 way, as a task "Remove PostHog access from <bot>"; the tool keeps its icon, marked as being
 removed, until the computer stops reporting it. To change a tool that is already there (more verbs, another
@@ -630,4 +631,6 @@ repository field specifies. Credentials are granted separately and do not belong
 Alternatively, push the bot's history to its configured GitHub repository so the destination can clone it.
 Once the repository is available, change the Computer in bot settings. Computers and Health show the
 destination's repository readiness; if it is missing, transfer the repository or ask BotOps to build it.
-Go-live reports a pending build instead of saying an unbuilt bot is working.
+Go live reports a pending build instead of saying an unbuilt bot is working. Resume, Restore and activation in
+bot settings check the repository too. A bot being built by its computer keeps its pending build; an External agent
+does not need a local repository.

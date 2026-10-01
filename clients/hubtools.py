@@ -361,7 +361,7 @@ def task_list(api, args):
                    lane=args.get("lane") or None, label=args.get("label") or None)["tasks"]
 
 
-@tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One open question at a time.",
+@tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One open question at a time; wait for its answer before asking another.",
       {"id": TASK_ID, "text": _s("The question, and only the question")},
       required=("id", "text"), writes=True)
 def task_ask(api, args):
@@ -1652,11 +1652,11 @@ def computers(api, args):
 
 
 @tool("hub_health_check", "What is wrong, most urgent first: bots with no computer, computers offline, failing runs, a "
-      "credential a bot needs, setup that never finished, paused or stopped bots. Each issue has a plain sentence and "
-      "the one command that fixes it. Fix what you may, then report. The Assistant gets the live snapshot of the team's "
-      "bots instead.", {})
+      "credential a bot needs, setup that never finished, paused or stopped bots, failing watchers or queued work, "
+      "and computers low on disk space. Includes the same checks as Health and their fixes. Fix what you may, then report. "
+      "The Assistant also gets the live snapshot of the team's bots.", {})
 def health_check(api, args):
-    return _as_person(api).get("health/issues")     # the Assistant: the live snapshot; anyone else: what is wrong
+    return _as_person(api).get("health/issues")
 
 
 @tool("hub_slack_channel_list", "The Slack channels bots may read and post in: each one's name and id, which bots read it, "

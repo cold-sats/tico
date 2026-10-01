@@ -89,4 +89,5 @@ form.task .hint{font-size:12px}
 details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
 details .q{white-space:pre-wrap;font-size:13px;margin-top:6px;padding:8px 10px;background:var(--surface2);border-radius:6px;max-height:300px;overflow:auto}
 .toast.docs-archive-undo{pointer-events:auto;z-index:1000}
+.toast button,.toast a{pointer-events:auto}
 .toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:420px;pointer-events:none}

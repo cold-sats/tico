@@ -111,13 +111,13 @@ async function pageIntegrations() {
       if (!list) return;
       const q = ($('#int-filter')?.value || '').toLowerCase().trim();
       const shown = INT_ROWS.filter(r => !q || [r.service, r.title, r.kind, r.summary, r.access, ...(r.credentials || []), ...(r.aliases || [])].join(' ').toLowerCase().includes(q));
-      list.innerHTML = shown.length ? `<table class="int-list"><thead><tr><th>Tool</th><th>Status</th><th>Bots</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
+      list.innerHTML = shown.length ? `<div class="scroll"><table class="int-list"><thead><tr><th>Tool</th><th>Status</th><th>Bots</th><th>Credentials</th><th></th></tr></thead><tbody>${shown.map(r =>
         `<tr><td><a href="${INTEGRATIONS}/${esc(r.service)}" title="hub tool show ${esc(r.service)}">${esc(r.title)}</a>
           <div class="muted">${esc(INTEGRATION_KIND[r.kind] || r.kind)} · ${esc(r.writes)}</div></td>
-          <td>${esc(({ready: 'Ready', problem: 'Needs attention', pending: 'Pending', unknown: 'Not checked', not_configured: 'Not configured'})[r.status] || 'Not checked')}</td>
+          <td>${esc(({ready: 'Ready', problem: 'Needs attention', pending: 'Pending', unknown: 'Not checked', not_configured: 'Not configured', removed: 'Removed'})[r.status] || 'Not checked')}</td>
           <td>${(r.bots || []).map(bot => `<a href="#/bot/${encodeURIComponent(bot)}">${esc(bot)}</a>`).join(', ') || '—'}</td>
           <td class="int-creds">${credSummary(r.credentials)}</td>
-          <td><button class="int-key" type="button" data-int-cred="${esc(r.service)}" title="Credentials for ${esc(r.title)}" aria-label="Credentials for ${esc(r.title)}">key_vertical</button></td></tr>`).join('')}</tbody></table>`
+          <td><button class="int-key" type="button" data-int-cred="${esc(r.service)}" title="Credentials for ${esc(r.title)}" aria-label="Credentials for ${esc(r.title)}">key_vertical</button></td></tr>`).join('')}</tbody></table></div>`
         : `<div class="empty">${INT_ROWS.length ? 'No tool matches.' : 'No tools.'}</div>`;
     };
     let rows;
@@ -174,7 +174,7 @@ async function pageIntegrations() {
     ${page.queries.length ? `<section class="card" id="int-queries"><header><h2>Queries</h2></header>
       <input id="int-query-filter" class="int-search" type="search" autocomplete="off" placeholder="Search title, description, tags, SQL…" aria-label="Search queries"><div id="int-query-list">${page.queries.map(queryHtml).join('')}</div></section>` : ''}
     <section class="card" id="int-learnings"><header><h2>Learnings</h2></header>
-      <div class="int-learn"><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
+      <div class="int-learn"${page.read_only ? ' hidden' : ''}><textarea id="int-learn-text" maxlength="2000" placeholder="Something reusable you learned about ${esc(page.title)} — a gotcha, a working command, a limit."></textarea>
       <div class="row" style="gap:8px"><button class="primary" type="button" id="int-learn-add">Add a learning</button><span class="muted" style="font-size:12px">Anyone signed in may add one; a human folds them into the page over time.</span></div></div>
       <div id="int-learning-list">${page.learnings.map(learningHtml).join('') || '<div class="empty">Nothing learned yet.</div>'}</div></section>`;
   // Relative links in a page point at files in the Tico repository; a sibling page opens here.

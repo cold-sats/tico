@@ -136,3 +136,17 @@ def test_from_is_the_release_the_server_reported_not_the_last_updates(monkeypatc
     assert updater.status["from"] == "latest"
     assert updater.release_name("0.2.20") == "v0.2.20" and updater.release_name("latest") == "" and updater.release_name(None) == ""
     assert updater.older_than_running("v0.2.19", "0.2.20") and not updater.older_than_running("v0.2.21", "0.2.20")
+
+
+def test_a_space_failure_reports_the_cause_and_available_space(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    updater = load(monkeypatch, "runner", tmp_path)
+    monkeypatch.setattr(updater.shutil, "disk_usage", lambda path: SimpleNamespace(free=42))
+    updater.set_status(state="failed", message="failed to register layer: no space left on device")
+    assert "Not enough disk space" in updater.status["message"]
+    assert "docker image prune -a" in updater.status["message"]
+    assert updater.status["disk_free"] == 42
+    updater.save_status()
+    updater.status.clear()
+    updater.load_status()
+    assert updater.status["disk_free"] == 42

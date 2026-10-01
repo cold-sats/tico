@@ -40,9 +40,11 @@ def _computers(c, runners_online, settings):
     default = providers.load(c, settings)["runtime"]
     for r in c.execute("SELECT id,label,last_seen,platform,readiness_json FROM runners WHERE revoked_at IS NULL "
                        "ORDER BY label"):
-        runtimes = (readiness_document(r["readiness_json"]).get("runtimes") or {})
+        document = readiness_document(r["readiness_json"])
+        runtimes = document.get("runtimes") or {}
         rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in since, "last_seen": r["last_seen"],
                      "platform": r["platform"] or "", "update": runner_versions.view(fleet.get(r["id"])),
+                     "disk": document.get("disk"),
                      # Only what the company or an assigned bot uses, or what is installed anyway: the
                      # other harnesses are not this computer's business, so they are not listed.
                      "runtimes": [{"name": n, "installed": bool(v.get("installed")),
@@ -72,7 +74,8 @@ def _mail_key_exposed(c):
 def _unpublished(c):
     """Bots whose local history the runner could not give a GitHub repository (runner/service.py `publish`)."""
     out = []
-    hosting = {(a["bot"], a["runner_id"]) for a in c.execute("SELECT bot,runner_id FROM assignments")}
+    hosting = {(a["bot"], a["runner_id"]) for a in c.execute(
+        "SELECT a.bot,a.runner_id FROM assignments a JOIN bots b ON b.slug=a.bot WHERE b.state<>'archived'")}
     for r in c.execute("SELECT id,readiness_json FROM runners WHERE revoked_at IS NULL"):
         for bot, row in ((readiness_document(r["readiness_json"]).get("bots")) or {}).items():
             if (bot, r["id"]) not in hosting:
@@ -361,6 +364,15 @@ def view(c, who, settings, auth, github, config):
         checks.append(_check("computers", "Computers", "ok", f"{_plural(len(online), 'computer')} online."))
 
     if full:
+        for computer in computers:
+            disk = computer.get("disk") or {}
+            total, free = disk.get("total_bytes"), disk.get("free_bytes")
+            if isinstance(total, int) and total > 0 and isinstance(free, int) and 1 - free / total > .85:
+                checks.append(_check("disk:" + computer["id"], "Disk space", "warn",
+                                     f"{computer['label']}: disk is {100 * (1 - free / total):.0f}% full "
+                                     f"({free / 1024**3:.1f} GB free). Free space on this computer; for Docker, run "
+                                     "`docker image prune -a` to remove unused images. The update retries when space frees.",
+                                     [_fix("Open Computers", "#/settings", "devices")]))
         wanted = _wanted_runtimes(providers.load(c, settings))
         signed = _signed_in_runtime(online, wanted)
         rejected = _rejected(computers)

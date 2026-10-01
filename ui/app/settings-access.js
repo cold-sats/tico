@@ -53,7 +53,7 @@ async function settingsEditBotOwners(slug) {
   const listed = new Set((e.bot_owners || []).map(o => o.id));
   const people = SETTINGS_DATA.people?.length ? SETTINGS_DATA.people : (S.people || []).filter(p => !p.hidden);
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="bot-owners-title">Who owns ${esc(e.display_name)}</h2><span class="spacer"></span><button class="ghost" type="button" data-owners-close aria-label="Close">✕</button></div>
-    <div class="owner-picker-body">${e.operator ? `<p class="muted">${esc(settingsPersonName(e.operator))} owns its computer and is always an owner.</p>` : ''}
+    <div class="owner-picker-body">${e.operator ? `<p class="muted">${esc(settingsPersonName(e.operator))} is responsible for this bot and always stays an owner.</p>` : ''}
       <div class="owner-options">${people.map(person => `<label class="owner-option"><input type="checkbox" name="owner" value="${esc(person.id)}" ${listed.has(person.id) || person.id === e.operator ? 'checked' : ''} ${person.id === e.operator ? 'disabled' : ''}>${personAvatar(person, 22)}<span>${esc(person.name || person.id)}</span></label>`).join('')}</div>
       <div class="row"><button class="primary" type="submit">Save</button><button class="ghost" type="button" data-owners-close>Cancel</button><span class="muted" data-owners-status role="status"></span></div></div></form>`;
   dialog.querySelectorAll('[data-owners-close]').forEach(button => button.onclick = () => dialog.close());

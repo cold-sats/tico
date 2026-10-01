@@ -67,3 +67,26 @@ def test_move_refuses_a_destination_that_is_not_ready_for_the_bot(api):
     assert failure["error"]["code"] == "runner_not_ready"
     assert "repository" in failure["error"]["detail"].lower()
 
+
+
+def test_resume_and_restore_check_the_repository_before_activating(api):
+    r = runner(api)
+    assign(api, r, "ops")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='paused' WHERE slug='ops'")
+    revision = get(api, "bots/ops")["revision"]
+    denied = post(api, "bots/ops/control", {"action": "resume", "expected_revision": revision}, expected=409)
+    assert denied["error"]["code"] == "repository_missing"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bots WHERE slug='ops'").fetchone()[0] == "paused"
+    ready(api, r, ["ops"])
+    post(api, "bots/ops/control", {"action": "resume", "expected_revision": revision})
+    revision = get(api, "bots/ops")["revision"]
+    post(api, "bots/ops/archive", {"expected_revision": revision})
+    ready(api, r, [])
+    denied = post(api, "bots/ops/restore", {}, expected=409)
+    assert denied["error"]["code"] == "repository_missing"
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT state FROM bots WHERE slug='ops'").fetchone()[0] == "archived"
+    ready(api, r, ["ops"])
+    assert post(api, "bots/ops/restore", {})["status"] == "active"

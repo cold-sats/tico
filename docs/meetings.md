@@ -125,8 +125,9 @@ format is a `422` that names the problem.
   requests**. A human adds items (with the quote and time they came from if they like) and the
   meeting's owner pushes them. Push creates ordinary Tico tasks, never a card in another tool: a
   task item becomes a task for its named owner; a doc update becomes a task for `doc-updater`; a
-  feature request becomes a task for whoever is primary for the product group, labelled by side, app and
-  area, refused with a link if a near-identical task is still open (**Push anyway** overrides).
+  feature request becomes a task for whoever is primary for the product group. Product area, app and label
+  are optional: use your team's names or leave them blank. Existing B/F and CA/PA codes still work.
+  A near-identical open task returns a link (**Push anyway** overrides).
   Every pushed task ends with a footer naming the meeting and quoting the line.
 - **Comments.** Anyone who can open the meeting can add to the thread beside it.
 - **Routines.** `meeting.ready` fires when a team meeting with a transcript is first imported,

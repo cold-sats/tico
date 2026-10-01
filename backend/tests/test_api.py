@@ -337,6 +337,7 @@ def test_botops_lifts_an_escape_quarantine_when_a_person_asks(api):
         c.execute("INSERT INTO bots(slug,display_name,state) VALUES('botops','BotOps','active')")
         c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('botops',?, 'ana')",
                   (encode({"name": "botops", "runtime": "fake", "status": "active"}),))
+    setup_attempt(api, "ops")
     _, _, botops = setup_attempt(api, "botops")
     with api.app.state.store.transaction() as c:
         H.quarantine(c, 'ops', 'escape: refused task write')

@@ -60,6 +60,10 @@ def test_the_colour_of_a_kpi_is_pace_or_range_and_no_fresh_data_is_gray():
     assert (never["status"], never["freshness"], never["value"]) == ("gray", "missing", None)
     # Only half a period of data is not a value to judge.
     assert K.assess(ACTIVATION, CLIMB, [reading(30, 1, "partial")], NOW)["status"] == "gray"
+    # A partial update does not refresh the complete value used to judge a target.
+    mixed = K.assess(ACTIVATION, CLIMB, [reading(56, 17), reading(20, 0, "partial")], NOW)
+    assert (mixed["status"], mixed["freshness"], mixed["value"]) == ("gray", "missing", None)
+    assert mixed["reading_id"] == "r17"
     # A reading that supersedes another is what counts: the corrected one is read, the first stays in history.
     assert K.assess(ACTIVATION, CLIMB, [reading(56, 1), {**reading(48, 1), "id": "fix", "collected_at": stamp(0)}], NOW)["value"] == 48
 

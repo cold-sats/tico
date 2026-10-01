@@ -82,3 +82,17 @@ def test_a_pushed_item_is_a_hub_task_with_the_meeting_it_came_from(api):
     bare = add(api, rid, {"section": "task", "text": "Someone should follow up"})["item"]["id"]
     push(api, rid, bare, expected=422)
 
+
+
+def test_feature_categories_accept_team_names_and_keep_legacy_codes():
+    from types import SimpleNamespace
+    named = MI.detail_of("feature", {"side": "Mobile", "app": "Customer portal"})
+    fields = MI.feature_fields(SimpleNamespace(public_url="https://tico.example.com"),
+                              {"id": "meeting", "title": "Planning", "metadata": {}, "created": "2026-10-01"},
+                              {"text": "Support offline search", "quote": "", "quote_ms": None}, named, "Ana")
+    assert fields["labels"] == ["Mobile", "customer portal"]
+    plain = MI.feature_fields(SimpleNamespace(public_url="https://tico.example.com"),
+                              {"id": "meeting", "title": "Planning", "metadata": {}, "created": "2026-10-01"},
+                              {"text": "Support offline search", "quote": "", "quote_ms": None}, {}, "Ana")
+    assert plain["labels"] == []
+    assert MI.detail_of("feature", {"side": "B/F", "app": "CA"}) == {"side": "B/F", "app": "CA"}
