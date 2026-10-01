@@ -7,6 +7,12 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.40] - 2026-10-01
+
+### Fixed
+- The Librarian leaves quoted text and blockquotes alone, keeps ALL-CAPS, and changes "the runner pulls" only when an
+  update, release, repository or the next run follows, so an athlete's hamstring stays theirs.
+- docs-eval treats "(approximately)", "approximately USD $29" and "with some variation" as approximate.
 ## [0.2.39] - 2026-10-01
 
 ### Added

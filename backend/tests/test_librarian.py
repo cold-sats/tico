@@ -160,9 +160,11 @@ def test_how_to_wording_preserves_installation_software_and_source_literals():
                  "We bought a new machine to wash clothes at our company.",
                  "The washing machine broke. That machine needs a new pump.",
                  "Companies hire coworkers to repair washing machines.", "Company docs describe the factory machines.",
-                 "The runner reads the race results after the competition."):
+                 "The runner reads the race results after the competition.", "The runner pulls a hamstring.",
+                 "He said 'Hub docs' and ‘standing instructions’ and “Hub docs”.", "> Hub docs contain standing instructions."):
         assert H.librarian_text(kept) == kept
     assert H.librarian_text("Hub docs: standing instructions.") == "Tico docs: Instructions."
+    assert H.librarian_text("HUB DOCS; don't skip standing instructions.") == "TICO DOCS; don't skip Instructions."
 
 
 def test_librarian_doc_writes_normalize_generated_instructions_and_computers(desk):

@@ -1531,8 +1531,8 @@ def _close_open_asks(conn, actor, target, kind, msg):
 
 def librarian_text(body):
     """Repair generated prose while preserving commands, links and quoted source text."""
-    parts = re.split(r'(```.*?```|`[^`]*`|\[[^\]]*\]\([^)]*\)|https?://\S+|[\w.-]+/[\w/.-]+|"[^"\n]*")',
-                     str(body or ""), flags=re.S)
+    parts = re.split(r'(```.*?```|`[^`]*`|\[[^\]]*\]\([^)]*\)|https?://\S+|[\w.-]+/[\w/.-]+|"[^"\n]*"|“[^”\n]*”'
+                     r"|‘[^’\n]*’|(?<!\w)'[^'\n]+'(?!\w)|^[ \t]*>[^\n]*)", str(body or ""), flags=re.S | re.M)
     for i in range(0, len(parts), 2):
         text = parts[i].replace(r"\n", "\n")
         # Only Tico's own jargon: the team's prose about its business (its company, coworkers, machines, a race
@@ -1540,8 +1540,9 @@ def librarian_text(body):
         for old, new in ((r"\bthrough the runner\b", "through Tico"),
                          (r"\bstanding instructions\b", "Instructions"),
                          (r"\bHub docs\b", "Tico docs")):
-            text = re.sub(old, lambda m, new=new: new[0].upper() + new[1:] if m[0][0].isupper() else new, text, flags=re.I)
-        text = re.sub(r"\b(the) runner (?=(?:pulls?|syncs?)\b)",
+            text = re.sub(old, lambda m, new=new: new.upper() if m[0].isupper() else
+                          new[0].upper() + new[1:] if m[0][0].isupper() else new, text, flags=re.I)
+        text = re.sub(r"\b(the) runner (?=(?:pulls?|syncs?)\b[^.!?\n]*?(?:\b(?:updates?|releases?|changes|instructions|repository|repo|next run|Tico)\b|AGENT\.md))",
                       lambda m: m[1] + " Computer ", text, flags=re.I)
         parts[i] = text
     return "".join(parts)

@@ -96,8 +96,9 @@ def fact_matches(text, fact):
                 unit = re.sub(r"^[\d.,]+\s*", "", expected)
                 pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
         number = re.match(r"^\$?(\d+(?:[.,]\d+)*)", expected)
-        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s+\$?\d"
-        approximate += (r"|\d[\d.,]*\s*,?\s*(?:or so|or thereabouts|give or take|more or less|approximately|roughly|"
+        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s+(?:USD\s*|US\s*)?\$?\d"
+        approximate += r"|\b(?:variation|varies|vary|variable|estimated?|ballpark)\b"
+        approximate += (r"|\d[\d.,]*\s*[,(]?\s*(?:or so|or thereabouts|give or take|more or less|approximately|roughly|"
                         r"about|or less|or more|tops|at most|at least|-?ish)\b")
         if number:
             value = r"(?<!\d)\$?" + re.escape(number.group(1)) + r"(?!\d)"
