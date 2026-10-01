@@ -328,7 +328,7 @@ function hubModalHTML(t, it) {
   const waitLabel = askToYou ? needsWho(t) : t.blocker ? 'Blocked by' : (t.status === 'waiting' ? 'Waiting on' : '');
   const original = taskBody(t);
   const note = String(t.note || '');
-  const statusWord = askToYou ? needsWho(t) : (STATUS_WORD[t.status] || t.status || '');
+  const statusWord = open && (askToYou || (t.status === 'open' && actorPerson(t.owner))) ? needsWho(t) : (STATUS_WORD[t.status] || t.status || '');
   const mover = canMove();
   const statuses = ['open', 'doing', 'waiting', 'done', 'declined'];
   const links = (t.links || []);

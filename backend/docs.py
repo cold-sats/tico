@@ -334,9 +334,9 @@ class Docs:
         return row
 
     # -------------------------------------------------------------- internal docs
-    def listing(self, who, prefix, limit, cursor):
+    def listing(self, who, prefix, limit, cursor, archived=False):
         self.reader(who)
-        marks, args = ["archived=0"], []
+        marks, args = ["archived=?"], [int(archived)]
         if prefix:
             marks.append("substr(path,1,?) = ? COLLATE NOCASE")
             args += [len(prefix), prefix]
@@ -647,8 +647,9 @@ def install_docs(app, store, auth, mutate):
 
     @app.get("/api/v2/docs")
     def list_docs(request: Request, path_prefix: str = Query(default="", max_length=300),
-                  limit: int = Query(default=200, ge=1, le=LIST_MAX), cursor: str = Query(default="", max_length=400)):
-        return docs.listing(request.state.identity, path_prefix.strip().lstrip("/"), limit, cursor)
+                  limit: int = Query(default=200, ge=1, le=LIST_MAX), cursor: str = Query(default="", max_length=400),
+                  archived: bool = False):
+        return docs.listing(request.state.identity, path_prefix.strip().lstrip("/"), limit, cursor, archived)
 
     @app.post("/api/v2/docs")
     def create_doc(request: Request, body: DocCreate):

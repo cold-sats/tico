@@ -363,7 +363,7 @@ function meetPaint(state, rec) {
   // off, everyone signed in can.
   const privateLink = typed ? ''
     : mayEdit ? `<button class="linkish" type="button" id="meet-private">${rec.private ? 'Private — make it visible to the team' : 'Make this meeting private'}</button>`
-    : rec.private ? '<span class="muted">Private — only its participants can see this</span>' : '';
+    : rec.private ? '<span class="muted">Private: participants, its owner and the team owner only</span>' : '';
   const content = state.editing
     ? `<div class="note-content note-edit"><textarea id="meet-note" aria-label="Meeting log" placeholder="${typed ? 'What happened in this meeting?' : 'A log to go with this meeting'}">${esc(rec.note || '')}</textarea>
        <div class="row" style="gap:8px;margin-top:8px"><button class="primary" type="button" id="meet-save">Save</button><button class="ghost" type="button" id="meet-cancel">Cancel</button><span class="muted" id="meet-editmsg"></span></div></div>`
@@ -434,7 +434,7 @@ function meetPaint(state, rec) {
     try {
       const d = await post(`/meetings/${encodeURIComponent(id)}/edit`,
         {private: wanted, ...(S.me?.cloud ? {version: rec.version} : {})});
-      toast(wanted ? 'Private — only its participants can see this' : 'Visible to everyone signed in');
+      toast(wanted ? 'Private: participants, its owner and the team owner only' : 'Visible to everyone signed in');
       await meetLoad(state, false);
       if (MEET === state && state.selected === id) meetPaint(state, {...rec, ...(d || {})});
     } catch (e) { toast(e.message, true); priv.disabled = false; }
@@ -519,7 +519,7 @@ function meetNotesOpen(state) {
         </div>
       </div>
       <label>Send to a bot (optional) <select id="manual-send"><option value="">Don't send</option><option value="auto">Auto — ${esc(assistantName())} routes it</option>${activeEmps().map(e => `<option value="${esc(e.name)}">${esc(e.display_name)}</option>`).join('')}</select></label>
-      <label class="import-private"><input type="checkbox" id="manual-private"> Private: only its participants can open it</label>
+      <label class="import-private"><input type="checkbox" id="manual-private"> Private: participants, its owner and the team owner only</label>
       <div class="row"><button class="primary" type="submit" id="manual-go">Add notes</button>
         <button class="ghost" type="button" id="manual-cancel">Cancel</button><span class="muted" id="manual-msg" role="status"></span></div>
     </form>`;

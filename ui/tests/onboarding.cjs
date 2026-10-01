@@ -301,24 +301,23 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.evaluate(() => S.me.name), 'Ana M. Rivera');           // the page follows the save
     // Nobody has chosen a team yet, so the first draft carries none; BotOps and the assistant are built whatever is chosen.
     assert.deepEqual(puts[0].selected, {});
-    assert.deepEqual(puts[0].answers.never_without_person, ['send', 'spend', 'publish', 'hire']);
+    assert.equal('never_without_person' in puts[0].answers, false);
 
-    // ---- b: about the company. The four "never" boxes start checked; one comes off here.
+    // ---- b: about the team. Legacy approval choices are absent from the form and saved draft.
     assert.equal(await page.locator('#onb-count').textContent(), 'Step 2 of 6');
-    assert.equal(await page.locator('[data-onb-never][value=hire]').isChecked(), true);
+    assert.equal(await page.locator('[data-onb-never]').count(), 0);
     await shot(page, 'desktop-1-about');
     await page.locator('#onb-what').fill('We sell a live audio app and the studio software behind it.');
     await page.locator('input[name=onb-customers][value=businesses]').check();
     await page.locator('input[name=onb-software][value=yes]').check();
     await page.locator('#onb-size').selectOption('2-10');
-    await page.locator('[data-onb-never][value=hire]').uncheck();
     await page.locator('#onb-next').click();
     await page.locator('[data-ob-tile]').first().waitFor();
     assert.equal(puts.length, 2);
     assert.deepEqual(puts[1].answers, {
       what_we_do: 'We sell a live audio app and the studio software behind it.',
       customers: 'businesses', software_product: 'yes', team_size: '2-10', work_arrives: [], repetitive_work: '',
-      never_without_person: ['send', 'spend', 'publish'], pains: [], pains_text: '', tools: [], departments: [], briefings: {}});
+      pains: [], pains_text: '', tools: [], departments: [], briefings: {}});
 
     // ---- c: the org chart, straight after About: there is no step asking what hurts or which tools are used.
     // First, which departments: Engineering and Product are suggested because software is the product; Legal and HR wait.
@@ -483,7 +482,7 @@ function recruitFor({department, briefing, share}) {
       ['sales', 'marketing', 'support', 'operations', 'engineering']);
     assert.equal(await page.locator('#ob-side').isVisible(), false);
     // Helpers sit apart from the chart: the Inbox Manager is one switch, off until someone turns it on.
-    assert.equal(await page.locator('#ob-helpers h3').textContent(), 'Built-in');
+    assert.equal(await page.locator('#ob-helpers h3').textContent(), 'Helpers');
     assert.equal(await page.locator('[data-ob-helper=inbox]').isChecked(), false);
     assert.doesNotMatch(await page.locator('#ob-chart-big').textContent(), /Inbox Manager/);
     await page.locator('[data-ob-helper=inbox]').check();
@@ -552,7 +551,7 @@ function recruitFor({department, briefing, share}) {
       return [onbCommands(state).map(([label]) => label.slice(0, 3)).join(''), onbCommands({...state, kind: 'linux'}).map(([label]) => label.slice(0, 3)).join('')];
     }), ['2 ·3 ·4 ·', '2 ·3 ·4 ·']);
     assert.match(await page.evaluate(() => onbCommands({...ONB, providers: {default: {runtime: 'codex'}}})[1][1]), /profile login default codex/);
-    assert.match(await page.evaluate(() => onbCommands({...ONB, kind: 'linux', providers: {default: {runtime: 'claude'}}})[1][1]), /docker exec -it tico-runner claude setup-token/);
+    assert.match(await page.evaluate(() => onbCommands({...ONB, kind: 'linux', providers: {default: {runtime: 'claude'}}})[1][1]), /docker exec -it tico-runner-tico-[a-z0-9]+ claude setup-token/);
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> install bot/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => !/<setup-file>/.test(document.querySelector('#onb-step').textContent));
@@ -560,17 +559,17 @@ function recruitFor({department, briefing, share}) {
     assert.match(await page.locator('#onb-step').textContent(), /scripts\/tico -e <slug> enroll --code-file "\$HOME\/Downloads\/tico-enrollment-ana-[a-z0-9]+\.json" --label "Ana's Mac"/);
     // A Linux or cloud server gets the installer line (compose, with the updater) with the real URL and code, and no setup file.
     await page.locator('[data-onb-kind][value=linux]').check();
-    const installLine = /curl -fsSL https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install\.sh \| sh -s -- --runner --url https:\/\/initech\.test --code <code> --label "Ana's server"/;
+    const installLine = /curl -fsSL https:\/\/github\.com\/ticoteam\/tico\/releases\/download\/v0\.2\.0\/install\.sh \| sh -s -- --runner --name tico-code --url https:\/\/initech\.test --code <code> --label "Ana's server"/;
     assert.match(await page.locator('#onb-step').textContent(), installLine);
     // A server that answers on this computer only is not 127.0.0.1 to a container: the runner joins its Docker network.
-    assert.equal(await page.evaluate(() => { const was = S.config; S.config = {...was, local: true, runner_url: 'http://127.0.0.1:8765'};
+    assert.equal(await page.evaluate(() => { const was = S.config; S.config = {...was, local: true, runner_url: 'http://127.0.0.1:8877', compose_project: 'acme', server_network: 'acme_default'};
       const [run, , plain] = dockerRunnerCommands('c0de', onbMachineLabel({kind: 'linux'}), 'codex'); S.config = was;
       return [run[1], plain[1]].join('\n'); }),
-      'curl -fsSL https://github.com/ticoteam/tico/releases/download/v0.2.0/install.sh | sh -s -- --runner --url http://server:8765 --server-network tico_default --code c0de --label "This computer"\n'
-      + 'docker run -d --name tico-runner --restart unless-stopped --network tico_default -v tico-runner:/home/runner ghcr.io/ticoteam/tico-runner:v0.2.0 join --url http://server:8765 --code c0de --label "This computer"');
+      'curl -fsSL https://github.com/ticoteam/tico/releases/download/v0.2.0/install.sh | sh -s -- --runner --name acme-c0de --url http://server:8765 --server-network acme_default --code c0de --label "This computer"\n'
+      + 'docker run -d --name tico-runner-acme-c0de --restart unless-stopped --network acme_default -v tico-runner-acme-c0de_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:v0.2.0 join --url http://server:8765 --code c0de --label "This computer"');
     // The bare docker run stays as an alternative, pinned to the server's release and said not to update itself.
     assert.match(await page.locator('#onb-step').textContent(), /no updater, so it will not follow the server's releases/);
-    assert.match(await page.locator('#onb-step').textContent(), /docker run -d --name tico-runner --restart unless-stopped -v tico-runner:\/home\/runner ghcr\.io\/ticoteam\/tico-runner:v0\.2\.0 join --url https:\/\/initech\.test --code <code>/);
+    assert.match(await page.locator('#onb-step').textContent(), /docker run -d --name tico-runner-tico-code --restart unless-stopped -v tico-runner-tico-code_runner-home:\/home\/runner ghcr\.io\/ticoteam\/tico-runner:v0\.2\.0 join --url https:\/\/initech\.test --code <code>/);
     await page.locator('#onb-enroll').click();
     await page.waitForFunction(() => /--code enroll-code --label "Ana's server"/.test(document.querySelector('#onb-step').textContent));
     assert.doesNotMatch(await page.locator('#onb-step').textContent(), /docker exec -it tico-runner/);
@@ -609,7 +608,7 @@ function recruitFor({department, briefing, share}) {
     assert.match(review, /Businesses/);
     assert.match(review, /Software is the product\s*Yes/);
     assert.doesNotMatch(review, /What hurts|Tools/);
-    assert.match(review, /Send anything, Spend money, Publish anything/);
+    assert.doesNotMatch(review, /Never without a human|Send anything|Spend money|Publish anything/);
     assert.match(review, /Computers\s*Ana's Mac, Cloud box online/);
     assert.equal(await page.locator('[data-review-departments]').textContent(), 'Sales, Marketing, Customer Support, Operations, Engineering');
     assert.equal(await page.locator('[data-review-helpers]').textContent(), 'Ace, BotOps, Inbox Manager');
@@ -724,6 +723,7 @@ function recruitFor({department, briefing, share}) {
     await page.waitForFunction(() => /--code enroll-code --label "Ana Rivera's server"/.test(document.querySelector('#machine-enroll-status').textContent));
     assert.match(await page.locator('#machine-enroll-status').textContent(), /join --url https:\/\/initech\.test/);
     await page.locator('#machine-kind').selectOption('mac');
+    await page.locator('[data-settings-tab=bots]').click();
     await page.locator('#settings-add-catalog:not([disabled])').click();
     await page.locator('#catalog-picker-grid').waitFor();
     // The bots that already exist are not offered again, and nothing is forced on here.
@@ -750,6 +750,7 @@ function recruitFor({department, briefing, share}) {
 
     // Inbox bots ask whose mailbox, then append Mailbox: so BotOps can fill {{mailbox}}.
     await page.locator('[data-settings-tab=devices]').click();
+    await page.locator('[data-settings-tab=bots]').click();
     await page.locator('#settings-add-catalog:not([disabled])').click();
     await page.locator('#catalog-picker-grid').waitFor();
     assert.equal(await page.locator('#catalog-picker-grid [data-cat-mailbox=inbox]').count(), 1);

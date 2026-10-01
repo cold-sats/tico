@@ -83,7 +83,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       const api = p.slice(8);
       const body = ['POST', 'PATCH'].includes(method) && (req.headers()['content-type'] || '').includes('json') ? req.postDataJSON() : null;
       if (['POST', 'PATCH'].includes(method)) requests.push({method, api, body, key: req.headers()['idempotency-key']});
-      if (api === 'docs' && method === 'GET') return json({docs: [...docs.values()].filter(d => !d.archived).sort((a, b) => a.path.localeCompare(b.path)).map(row), next_cursor: null});
+      if (api === 'docs' && method === 'GET') return json({docs: [...docs.values()].filter(d => d.archived === (url.searchParams.get('archived') === 'true')).sort((a, b) => a.path.localeCompare(b.path)).map(row), next_cursor: null});
       if (api === 'docs' && method === 'POST') {
         const id = 'doc-' + String(++seq).padStart(12, '0');
         const doc = add(id, body.path || body.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md', body.title, body.body);
@@ -116,7 +116,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
         if (one[2] === 'versions') return json({doc: doc.id, versions: versions.get(doc.id).map(v => ({...v, body: undefined, current: v.version === doc.version, actor_name: NAMES[v.actor]}))});
         if (one[2] === 'restore') {
           const old = versions.get(doc.id).find(v => v.version === body.version);
-          doc.version += 1; doc.body = old.body; doc.title = old.title; doc.updated_by = 'human:ana'; doc.updated = ago(0); stamp(doc, 'human:ana', `Restored version ${body.version}`, 0);
+          doc.archived = false; doc.version += 1; doc.body = old.body; doc.title = old.title; doc.updated_by = 'human:ana'; doc.updated = ago(0); stamp(doc, 'human:ana', `Restored version ${body.version}`, 0);
           return json({doc: view(doc)});
         }
         if (method === 'PATCH') {
@@ -268,6 +268,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.deepEqual(requests.findLast(r => r.api === 'linked-docs').body, {url: 'www.notion.so/Acme-Handbook', title: '', description: 'The company handbook'});
     assert.equal(await page.locator('.docs-link', {hasText: 'Acme-Handbook'}).locator('.docs-kind').getAttribute('data-kind'), 'notion');
     const [popup] = await Promise.all([page.waitForEvent('popup'), page.locator('.docs-link-main', {hasText: 'Help centre'}).click()]);
+    await popup.waitForURL('https://help.acme.example/refunds', {timeout: 5000, waitUntil: 'commit'});
     assert.equal(popup.url(), 'https://help.acme.example/refunds');
     await popup.close();
     await page.locator('.docs-link', {hasText: 'Help centre'}).hover();
@@ -325,6 +326,20 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await shot(page, 'phone-editor');
     await page.locator('.docs-back').first().click();
     await page.locator('#docs-browser .docs-section').first().waitFor();
+    add('doc-000000000002', 'pricing.md', 'Pricing and plans', '# Pricing and plans');
+    await page.setViewportSize({width: 1280, height: 860});
+    await page.goto('https://tico-ui.test/#/docs/doc-000000000002');
+    await page.locator('#doc-archive').click();
+    await page.locator('.toast button').filter({hasText: 'Undo'}).click();
+    await page.locator('#doc-archive').waitFor();
+    assert.equal(docs.get('doc-000000000002').archived, false);
+    await page.locator('#doc-archive').click();
+    await page.locator('.docs-actions a').filter({hasText: /^Archived$/}).click();
+    await page.locator('#docs-h-internal').filter({hasText: 'Archived docs'}).waitFor();
+    await page.locator('.docs-item').filter({hasText: 'Pricing and plans'}).click();
+    await page.locator('#doc-archive').filter({hasText: 'Restore'}).click();
+    await page.locator('#doc-archive').filter({hasText: 'Archive'}).waitFor();
+    assert.equal(docs.get('doc-000000000002').archived, false);
     await page.close();
 
     assert.deepEqual(errors, []);

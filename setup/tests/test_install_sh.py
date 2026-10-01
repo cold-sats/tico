@@ -101,6 +101,7 @@ def test_bundle_from_the_real_repo_has_what_a_server_needs_and_is_reproducible(t
     with tarfile.open(a / "tico-bundle-v1.2.3.tar.gz") as t:
         names = set(t.getnames())
         assert t.extractfile("VERSION").read() == b"1.2.3\n"
+        assert b"TICO_TAG=v1.2.3\n" in t.extractfile(".env.example").read()
     assert {"compose.yaml", ".env.example", "setup/__main__.py", "setup/cli.py", "scripts/tico-setup", "docker/runner.compose.yaml"} <= names
     assert not [n for n in names if "/tests/" in n or n.endswith((".pyc", ".env")) or n.startswith("/") or ".." in n]
     sums = dict(reversed(l.split("  ")) for l in (a / "SHA256SUMS").read_text().splitlines())

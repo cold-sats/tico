@@ -43,6 +43,10 @@ def test_no_sign_in_setup_runs_on_this_machine_and_a_domain_needs_one(tmp_path):
     result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off")
     assert result.returncode == 0, result.stderr
     assert seen["TICO_PUBLIC_URL"] == "http://127.0.0.1:8765" and seen["TICO_LOCAL_OWNER_TOKEN_FILE"]
+    result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off", TICO_PORT="8877")
+    assert result.returncode == 0 and seen["TICO_PUBLIC_URL"] == "http://127.0.0.1:8877"
+    result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off", TICO_PORT="8877", TICO_PUBLIC_URL="http://localhost:8877")
+    assert result.returncode == 0 and seen["TICO_PUBLIC_URL"] == "http://localhost:8877"
     result, _, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_DOMAIN="tico.acme.example", TICO_BACKUP="off")
     assert result.returncode != 0 and "needs sign-in" in result.stderr
 
@@ -91,13 +95,14 @@ def test_the_rehearsal_reaches_the_replication_helpers():
 def test_the_server_reads_the_rehearsal_from_its_environment(monkeypatch, tmp_path):
     for name, value in {"TICO_DB": str(tmp_path / "hub.db"), "TICO_REHEARSAL": "1", "TICO_SCHEDULER": "1",
                         "TICO_SLACK_GATEWAY_ENABLED": "1", "TICO_SENTRY_DSN": "https://x@o1.ingest.sentry.io/1",
-                        "TICO_POSTHOG_KEY": "phc_abc"}.items():
+                        "TICO_POSTHOG_KEY": "phc_abc", "TYPESAFE_API_KEY": "fake-key", "TICO_TYPESAFE_SECRET_ARN": "fake-arn"}.items():
         monkeypatch.setenv(name, value)
     settings = Settings.from_env()
-    assert settings.rehearsal and settings.environment()["rehearsal"] is True
+    assert settings.rehearsal and settings.environment()["rehearsal"] is True and not settings.typesafe_api_key
     assert not settings.scheduler_enabled and not settings.slack_gateway_enabled
     assert (settings.sentry_dsn, settings.posthog_key) == ("", "")
     monkeypatch.delenv("TICO_REHEARSAL")
+    monkeypatch.delenv("TICO_TYPESAFE_SECRET_ARN")
     settings = Settings.from_env()
     assert not settings.rehearsal and settings.scheduler_enabled and settings.environment()["rehearsal"] is False
 

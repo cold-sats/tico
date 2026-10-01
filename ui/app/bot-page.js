@@ -350,7 +350,7 @@ async function pageBot(slug, tab) {
   </div>
 
   ${limited ? '<div id="pane-docs" hidden>' : `<div id="pane-docs" hidden>
-    <section class="card"><header><h2>Instructions</h2></header><div class="md" id="agent">Loading…</div></section>
+    <section class="card"><header><h2>Instructions</h2>${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-instructions="${esc(slug)}">Edit Instructions</button>` : ''}</header><div class="md" id="agent">Loading…</div></section>
     <section class="card"><header><h2>Working notes</h2></header>
       <div class="tabs" id="tabs"></div><div class="md" id="doc">Loading…</div></section>
   `}

@@ -46,14 +46,14 @@ server_environment() {
     none|'')
       [ -z "${TICO_DOMAIN:-}" ] || die "TICO_DOMAIN is set, so people reach this server over a public address and it needs sign-in: set TICO_AUTH_PROXY (oidc or cloudflare), or unset TICO_DOMAIN to run on this machine only"
       # The server may only be reached on loopback: it trusts a local owner token.
-      export TICO_PUBLIC_URL=http://127.0.0.1:8765 TICO_LOCAL_OWNER_TOKEN_FILE=$DATA/local-owner.token
+      export TICO_PUBLIC_URL="${TICO_PUBLIC_URL:-http://127.0.0.1:${TICO_PORT:-8765}}" TICO_LOCAL_OWNER_TOKEN_FILE=$DATA/local-owner.token
       unset TICO_AUTH_PROXY
       if [ ! -s "$TICO_LOCAL_OWNER_TOKEN_FILE" ]; then
         (umask 077; head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n' > "$TICO_LOCAL_OWNER_TOKEN_FILE")
       fi ;;
     *)
       [ -n "${TICO_DOMAIN:-}" ] || die "set TICO_DOMAIN"
-      export TICO_PUBLIC_URL="https://$TICO_DOMAIN" ;;
+      export TICO_PUBLIC_URL="${TICO_PUBLIC_URL:-https://$TICO_DOMAIN}" ;;
   esac
 }
 
@@ -85,13 +85,13 @@ BACKUPS=${TICO_BACKUP_DIR:-/backups}
 
 backup_configuration() {  # writes $LITESTREAM_CONFIG; returns 1 when backups are off
   local url region
-  if [ "${TICO_BACKUP:-}" = off ] || { rehearsal && [ -z "${TICO_BACKUP_URL:-}" ]; }; then
-    TICO_BACKUP_MODE=off    # a rehearsal with no TICO_BACKUP_URL has nothing to restore from
+  if [ "${TICO_BACKUP:-}" = off ]; then
+    TICO_BACKUP_MODE=off
   elif [ -n "${TICO_BACKUP_URL:-}" ]; then
     case "$TICO_BACKUP_URL" in s3://*) ;; *) die "TICO_BACKUP_URL must be s3://bucket/prefix" ;; esac
     TICO_BACKUP_MODE=remote
   else
-    [ -w "$BACKUPS" ] || die "no writable $BACKUPS: mount the tico-backups volume there, set TICO_BACKUP_URL, or set TICO_BACKUP=off"
+    { [ -w "$BACKUPS" ] || { rehearsal && [ -r "$BACKUPS" ]; }; } || die "no readable backup location $BACKUPS: mount the tico-backups volume there, set TICO_BACKUP_URL, or set TICO_BACKUP=off"
     TICO_BACKUP_MODE=local-only
   fi
   export TICO_BACKUP_MODE TICO_BACKUP_DIR="$BACKUPS"

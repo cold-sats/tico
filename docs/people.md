@@ -221,3 +221,6 @@ Owner only: `GET` and `PUT /api/v2/directory` (`PUT` takes `expected_revision`),
 `POST /api/v2/directory/sync` (`confirm` and `plan_hash` from the preview). Settings, one
 encrypted credential per source (`directory_credentials`, sealed with the same key as the GitHub
 App private key) and the last sync result are stored with the other access records.
+
+On a local install, only the owner can sign in with the local token. Adding a human sends no email.
+Sign-in access switches record who will have access once [a domain and sign-in are configured](install.md#add-a-domain-and-sign-in-later).

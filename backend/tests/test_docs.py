@@ -48,6 +48,8 @@ def test_create_edit_conflict_history_and_restore(api):
     assert [d["id"] for d in listed["docs"]] == [doc["id"]] and listed["next_cursor"] is None
     assert edit(api, moved, archived=True)["doc"]["archived"] is True
     assert doc["id"] not in [d["id"] for d in call(api, "GET", "docs")["docs"]]
+    archived = call(api, "GET", "docs", params={"archived": True, "path_prefix": "policies/"})
+    assert [d["id"] for d in archived["docs"]] == [doc["id"]]
     assert call(api, "GET", "docs/search", params={"q": "refund"})["results"][0]["id"] != doc["id"]
     make(api, "Other", path="policies/refunds.md")                           # its path is taken while it is archived
     back = call(api, "POST", "docs/%s/restore" % doc["id"], {"version": 4})["doc"]

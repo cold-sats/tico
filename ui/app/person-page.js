@@ -164,7 +164,7 @@ async function personTasksLoad(p) {
     const rows = list.filter(t => String(t.status) === k);
     return rows.length ? `<div class="v2-group"><h3>${label} <span class="muted">${rows.length}</span></h3>${rows.map(t => v2TaskRow(t, '')).join('')}</div>` : '';
   }).join('');
-  $('#person-tasks').innerHTML = (active.length ? groups(active, [['open', 'To do'], ['doing', 'Doing'], ['waiting', 'Waiting']])
+  $('#person-tasks').innerHTML = (active.length ? groups(active, [['open', esc(needsWho({owner}))], ['doing', 'Doing'], ['waiting', 'Waiting']])
       : `<div class="empty">No active tasks. <a href="#" data-person-task-add>Give ${esc(first)} a task</a>.</div>`)
     + (finished.length ? `<details class="person-tasks-done"><summary class="muted">Finished <span class="cnt">${finished.length}</span></summary>${
         groups(finished, [['done', 'Done'], ['declined', 'Declined'], ['closed', 'Closed']])}</details>` : '');

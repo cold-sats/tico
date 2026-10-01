@@ -208,7 +208,7 @@ def _slack(c):
 
 def _backups(config, settings):
     backup = config.get("backup")
-    fix = _fix("Backup settings", "#/settings", "cloud")
+    fix = _fix("Backup settings", "https://github.com/ticoteam/tico/blob/main/docs/install.md#backups-and-restore")
     if not isinstance(backup, dict) or not backup.get("mode"):
         return _check("backups", "Backups", "unknown", "This server does not report its backup state.")
     mode = str(backup["mode"]).replace("_", "-")
@@ -226,10 +226,9 @@ def _backups(config, settings):
         if key_here and not key_copied:
             note += " It has not been copied to the backup volume yet."
         if settings.loopback:
-            # A quick start on this computer has no other place to copy to until it has a domain.
             return _check("backups", "Backups", "warn" if key_here and not key_copied else "info",
-                          "Copies stay on this computer. Add a domain to copy them elsewhere." + note,
-                          [fix] if key_here and not key_copied else [])
+                          "Copies stay on this computer. Set a backup bucket in .env to keep copies elsewhere." + note,
+                          [fix])
         return _check("backups", "Backups", "warn",
                       "Copies stay on this server only. A lost disk loses everything." + note, [fix])
     if last and last < H.shift(H.now(), hours=-BACKUP_STALE_HOURS):
@@ -251,7 +250,7 @@ def _signin(settings):
     if kind:
         return _check("signin", "Sign-in", "ok", "People sign in through " + PROXIES.get(kind, kind) + ".")
     if settings.loopback or settings.local_signin:
-        return _check("signin", "Sign-in", "ok", "Local sign-in on this machine.")
+        return _check("signin", "Sign-in", "ok", "Local sign-in on this computer.")
     return _check("signin", "Sign-in", "warn",
                   "No identity proxy is configured for this address, so people cannot sign in safely.",
                   [_fix("Sign-in settings", "#/settings", "access")])

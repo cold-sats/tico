@@ -37,14 +37,12 @@ function pageSettings() {
       ${S.me?.role === 'owner' ? '<button type="button" data-settings-tab="privacy" role="tab">Privacy</button>' : ''}
     </div>
     <div class="settings-pane" id="settings-devices" role="tabpanel">
-      <section class="card"><div class="settings-toolbar"><span></span>
-        <div class="row">${settingsCanCreateBots() ? '<button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from template</button>' : ''}</div></div>
-        <div id="set-machines"><div class="empty">Loading…</div></div></section>
+      <section class="card"><div id="set-machines"><div class="empty">Loading…</div></div></section>
       ${settingsIsAdmin() ? `<section class="card" id="settings-tokens"><header><h2>API tokens</h2></header><div id="set-tokens"><div class="empty">Loading…</div></div></section>` : ''}
     </div>
     <div class="settings-pane" id="settings-bots" role="tabpanel" hidden>
       <div id="settings-assistant"></div>
-      <section class="card"><header><h2>Bots</h2></header><div id="set-bots"><div class="empty">Loading…</div></div></section>
+      <section class="card"><header><h2>Bots</h2>${settingsCanCreateBots() ? '<div class="row"><button class="primary" type="button" id="settings-add-bot" disabled>Add bot</button><button class="ghost" type="button" id="settings-add-catalog" disabled>Add from template</button></div>' : ''}</header><div id="set-bots"><div class="empty">Loading…</div></div></section>
     </div>
     <div class="settings-pane" id="settings-health" role="tabpanel" hidden><div class="hl-page" id="hl-page"></div>
       <section class="card"><header><h2>Services</h2></header><div id="set-services"><div class="empty">Loading…</div></div></section></div>
@@ -153,7 +151,7 @@ function renderSettingsIssues() {
   const el = $('#settings-issues'); if (!el) return;
   const issues = SETTINGS_DATA.issues || [];
   const urgent = issues.some(needsPerson);
-  el.innerHTML = issues.length ? `<details class="card settings-issues"><summary><span class="dot ${urgent ? 'failed' : ''}" aria-hidden="true"></span><strong>${urgent ? 'Needs attention' : 'System checks'}</strong><span class="sub">${issues.length} current issue${issues.length === 1 ? '' : 's'} · click to review</span></summary>
+  el.innerHTML = issues.length ? `<details class="card settings-issues"><summary><span class="dot ${urgent ? 'failed' : ''}" aria-hidden="true"></span><strong>System checks <span class="tnum">${issues.length}</span></strong></summary>
     <div>${issues.map(issue => `<div class="settings-issue"><div><strong>${esc(issue.title)}</strong>${needsPerson(issue) ? '' : ` <span class="tag">${issue.kind === 'uncertain_work' ? 'review later' : 'not urgent'}</span>`}<p>${esc(issue.detail)}</p>${issue.action && issue.action !== 'review' ? `<p>${esc(issue.action)}</p>` : ''}</div>${issue.kind === 'uncertain_work' ? `<button class="ghost" data-execution-review="${esc(issue.bot)}">Review stopped runs</button>` : ''}${runnerRestartButton(issue)}${issue.bot ? `<a class="ghost" href="#/bot/${esc(issue.bot)}/more">Open bot</a>` : ''}</div>`).join('')}</div></details>` : '';
   el.querySelectorAll('[data-execution-review]').forEach(button => {
     button.onclick = () => executionReview(button.dataset.executionReview);

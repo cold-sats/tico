@@ -253,7 +253,7 @@ function obDeptHTML(state) {
 function obHelpersHTML(state) {
   const cat = state.catalog, cards = obHelpers(state);
   if (!cards.length) return '';
-  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Built-in</h3>${cards.map(card => {
+  return `<section class="ob-helpers" id="ob-helpers" aria-labelledby="ob-helpers-h"><h3 id="ob-helpers-h">Helpers</h3>${cards.map(card => {
     const on = cat.picked.has(card.slug);
     return `<div class="ob-helper${on ? ' on' : ''}" data-ob-helper-row="${esc(card.slug)}"><label class="ob-helper-toggle">${obAvatar(card.slug, card, 28)}
         <span class="ob-helper-name">${esc(catalogName(cat, card))}</span><input type="checkbox" role="switch" data-ob-helper="${esc(card.slug)}" ${on ? 'checked' : ''}></label>

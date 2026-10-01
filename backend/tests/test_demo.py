@@ -71,3 +71,19 @@ def test_nothing_leaves_the_machine(built):
     with pytest.raises(OSError):                                                   # and the block is gone outside
         socket.create_connection(("192.0.2.1", 9), timeout=0.2)
 
+
+
+def test_a_local_demo_uses_its_explicit_address_and_accepts_its_browser_origin(tmp_path, monkeypatch):
+    settings = demo.prepare(tmp_path, url="http://localhost:8877")
+    assert settings.public_url == settings.runner_url == "http://localhost:8877"
+    assert settings.allows_origin("http://127.0.0.1:8877")
+    assert not settings.allows_origin("http://localhost:8765")
+
+    import uvicorn
+    import backend.app as app_module
+    seen = {}
+    monkeypatch.setattr(demo, "build", lambda directory, url, public: demo.prepare(directory, url, public))
+    monkeypatch.setattr(app_module, "create_app", lambda settings: settings)
+    monkeypatch.setattr(uvicorn, "run", lambda settings, **kwargs: seen.update(public=settings.public_url, runner=settings.runner_url))
+    demo.main(["--port", "8877", "--data-dir", str(tmp_path / "port-only")])
+    assert seen["public"] == seen["runner"] == "http://127.0.0.1:8877"

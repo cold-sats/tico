@@ -163,7 +163,15 @@ def test_no_sign_in_is_fine_on_loopback_and_refused_on_a_public_address(monkeypa
     monkeypatch.setenv("TICO_DB", str(tmp_path / "hub.db"))
     monkeypatch.delenv("TICO_AUTH_PROXY", raising=False)
     monkeypatch.delenv("TICO_ACCESS_ISSUER", raising=False)
-    assert Settings.from_env().loopback                      # the quick start: nothing to configure
+    monkeypatch.delenv("TICO_PUBLIC_URL", raising=False)
+    monkeypatch.setenv("TICO_PORT", "8877")
+    monkeypatch.setenv("TICO_OWNER_NAME", "Ana")
+    settings = Settings.from_env()
+    assert settings.environment()["owner_name"] == "Ana"
+    assert settings.loopback and settings.public_url == settings.runner_url == "http://127.0.0.1:8877"
+    assert settings.allows_origin("http://127.0.0.1:8877")
+    monkeypatch.setenv("TICO_PUBLIC_URL", "http://localhost:8877")
+    assert Settings.from_env().public_url == "http://localhost:8877"
     monkeypatch.setenv("TICO_PUBLIC_URL", "https://tico.acme.example")
     with pytest.raises(RuntimeError, match="needs sign-in"):
         Settings.from_env()

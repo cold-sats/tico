@@ -215,7 +215,7 @@ def prepare(directory, url="", public=False):
     settings = Settings(
         db_path=directory / "hub.sqlite", registry_dir=directory / "registry", environment_id="demo",
         company_name="Acme", app_name="Tico", assistant_name="Tico", owner_email=OWNER_EMAIL,
-        github_owner="acme", local_owner_token_file=token_file, public_url=f"http://127.0.0.1:{DEFAULT_PORT}",
+        github_owner="acme", local_owner_token_file=token_file, public_url=(url.rstrip("/") if url and not public else f"http://127.0.0.1:{DEFAULT_PORT}"),
         scheduler_enabled=False, blob_dir=directory / "blobs", enabled_providers=("anthropic",),
         default_runtime="claude", default_model="claude-opus-5", release_id="demo", demo=True,
         demo_public=public)
@@ -241,7 +241,7 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--public-demo", action="store_true",
                         help="serve non-loopback addresses on purpose; the demo is then read-only")
-    parser.add_argument("--url", default="", help="the public address of a --public-demo, e.g. https://demo.example.com")
+    parser.add_argument("--url", default="", help="the browser address, e.g. http://localhost:8877 or https://demo.example.com")
     parser.add_argument("--in-container", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--data-dir", default="", help="keep the demo's files here (default: a temporary folder)")
     args = parser.parse_args(argv)
@@ -258,8 +258,8 @@ def main(argv=None):
     print("Building the Acme demo ...", flush=True)
     with network_blocked():
         settings = build(directory, url=args.url, public=args.public_demo)
-        if args.port != DEFAULT_PORT and not args.public_demo:
-            settings.public_url = f"http://127.0.0.1:{args.port}"
+        if args.port != DEFAULT_PORT and not args.public_demo and not args.url:
+            settings.public_url = settings.runner_url = f"http://127.0.0.1:{args.port}"
         print(f"\nTico demo is ready: open http://localhost:{args.port}\n"
               "It is fictional sample data (acme.example); bots do not run and nothing leaves this machine.\n"
               "Press Ctrl+C to stop; everything is discarded.\n", flush=True)

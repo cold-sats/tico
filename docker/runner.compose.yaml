@@ -11,7 +11,7 @@ name: tico-runner
 services:
   runner:
     image: ${TICO_RUNNER_IMAGE:-ghcr.io/ticoteam/tico-runner}:${TICO_TAG:-latest}
-    container_name: tico-runner      # the name a bare `docker run` used, so `docker exec tico-runner ...` still works
+    container_name: ${COMPOSE_PROJECT_NAME:-tico-runner}
     command: ["join", "--url", "${TICO_URL:-}", "--code", "${TICO_CODE:-}", "--label", "${TICO_RUNNER_LABEL:-runner}"]
     init: true
     restart: unless-stopped
@@ -58,5 +58,5 @@ services:
 volumes:
   # TICO_RUNNER_HOME_VOLUME=tico-runner reuses the volume of a runner started with a bare `docker run`.
   runner-home:
-    name: ${TICO_RUNNER_HOME_VOLUME:-tico-runner_runner-home}
+    name: ${TICO_RUNNER_HOME_VOLUME:-${COMPOSE_PROJECT_NAME:-tico-runner}_runner-home}
   runner-control:

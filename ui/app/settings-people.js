@@ -33,7 +33,7 @@ function peopleMenu(p) {
   return items.join('');
 }
 function peopleRow(p) {
-  const owner = S.me?.role === 'owner', menu = peopleMenu(p);
+  const owner = S.me?.role === 'owner', menu = peopleMenu(p), local = !!S.config?.local;
   const face = personAvatar({...(S.people || []).find(x => x.id === p.id), ...p}, 32);
   const role = owner && !p.owner
     ? `<select data-person-role aria-label="Role">${['member', 'admin'].map(r => `<option value="${r}"${p.role === r ? ' selected' : ''}>${PEOPLE_ROLE[r]}</option>`).join('')}</select>`
@@ -42,7 +42,7 @@ function peopleRow(p) {
   return `<li class="people-row" data-person="${esc(p.id)}">
     <div class="people-who">${face}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div></div></div>
     <div class="people-cell-role">${role}</div>
-    <label class="people-cell-signin">${peopleSwitch('data-person-signin', p.can_sign_in, locked, 'Can sign in')}<span class="people-switch-label">Can sign in</span></label>
+    <label class="people-cell-signin">${peopleSwitch('data-person-signin', p.can_sign_in, locked, local ? 'Sign-in access when configured' : 'Can sign in')}<span class="people-switch-label">${local ? 'When configured' : 'Can sign in'}</span></label>
     <div class="people-cell-more">${menu ? `<button class="people-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button><div class="people-menu" role="menu" hidden>${menu}</div>` : ''}</div>
   </li>`;
 }
@@ -79,14 +79,15 @@ async function renderSettingsPeople() {
             <button class="primary" type="submit">Add</button></form>`
           : owner ? '<div id="directory-sync"></div>'
           : `<p class="muted people-synced">Synced from ${esc(PEOPLE_SOURCE[view.directory] || view.directory)}</p>`}
+        <p class="people-note">No email is sent.${S.config?.local ? ` Only the owner can sign in locally. <a href="${GH}/blob/main/docs/install.md#add-a-domain-and-sign-in-later" target="_blank" rel="noopener noreferrer">Add a domain and sign-in</a> so humans can join.` : ''}</p>
         ${proxy && added ? `<p class="people-note" id="people-proxy-note">Also allow ${esc(added)} in <a href="${esc(help)}" target="_blank" rel="noopener noreferrer">${esc(proxy)}</a></p>` : ''}
-        ${home ? `<label class="people-line">${peopleSwitch('id="people-domain"', view.domain_sign_in, !owner, `Anyone at ${home} can sign in`)}<span>Anyone at <b>${esc(home)}</b> can sign in</span></label>` : ''}
+        ${home ? `<label class="people-line">${peopleSwitch('id="people-domain"', view.domain_sign_in, !owner, `Anyone at ${home} has sign-in access`)}<span>Anyone at <b>${esc(home)}</b> ${S.config?.local ? 'has access when sign-in is configured' : 'can sign in'}</span></label>` : ''}
         ${extras.length ? `<div class="people-line people-extras"><span class="muted">Also allowed</span><ul class="allow-chips">${extras.map(x =>
           `<li class="allow-chip" data-allow="${esc(x)}">${esc(x)}${owner ? `<button type="button" class="people-chip-x" data-allow-remove="${esc(x)}" aria-label="Remove ${esc(x)}">×</button>` : ''}</li>`).join('')}</ul></div>` : ''}
       </section>
       <section class="card people-list-card">
         <header><h2>Humans</h2><span class="muted tnum">${active.length}</span></header>
-        <div class="people-head" aria-hidden="true"><span>Human</span><span>Role</span><span>Can sign in</span><span></span></div>
+        <div class="people-head" aria-hidden="true"><span>Human</span><span>Role</span><span>${S.config?.local ? 'Sign-in access' : 'Can sign in'}</span><span></span></div>
         <ul class="people-list">${active.map(peopleRow).join('')}</ul>
         ${left.length ? `<details class="people-left"><summary>Left <span class="tnum">${left.length}</span></summary><ul class="people-list">${left.map(p => `<li class="people-row is-left" data-person="${esc(p.id)}">
           <div class="people-who">${personAvatar(p, 32)}<div class="people-id"><div class="people-name">${esc(p.name)}</div><div class="people-email">${esc(p.email || 'No email')}</div></div></div>
@@ -135,10 +136,10 @@ async function renderSettingsPeople() {
         if (!/^[^@\s]+@/.test(email)) {
           const domain = email.replace(/^\*?@/, '').toLowerCase();
           await allow(view.allowed, [...view.allowed_domains, domain]);
-          PEOPLE_ADDED = domain; await again(`Anyone at ${domain} can sign in`);
+          PEOPLE_ADDED = domain; await again(S.config?.local ? `Added ${domain}. Add a domain and sign-in so humans can join. No email sent.` : `Anyone at ${domain} can sign in`);
         } else {
           await post('/v2/access/humans', {email, name});
-          PEOPLE_ADDED = 'them'; await again(`Added ${name || email}`);
+          PEOPLE_ADDED = 'them'; await again(`Added ${name || email}${S.config?.local ? '. Add a domain and sign-in so they can join. No email sent.' : '. No email sent.'}`);
           $('#people-add [name=email]')?.focus();
         }
       } catch (error) {
@@ -151,7 +152,7 @@ async function renderSettingsPeople() {
       const on = domainSwitch.checked;
       await allow(view.allowed, on ? [...view.allowed_domains, home] : view.allowed_domains.filter(d => d !== home));
       PEOPLE_ADDED = on ? home : '';
-    }, domainSwitch.checked ? `Anyone at ${home} can sign in` : `Only humans added here can sign in`);
+    }, S.config?.local ? 'Sign-in access saved. Only the owner can sign in locally.' : domainSwitch.checked ? `Anyone at ${home} can sign in` : `Only humans added here can sign in`);
     el.querySelectorAll('[data-allow-remove]').forEach(button => button.onclick = () => {
       const x = button.dataset.allowRemove;
       void change(() => allow(view.allowed.filter(e => e !== x), view.allowed_domains.filter(d => d !== x)), `Removed ${x}`);
@@ -163,7 +164,7 @@ async function renderSettingsPeople() {
       const role = row.querySelector('[data-person-role]');
       if (role) role.onchange = () => change(() => post(path, {role: role.value}), `${p.name} is now ${role.value === 'admin' ? 'an admin' : 'a member'}`);
       const signIn = row.querySelector('[data-person-signin]');
-      if (signIn) signIn.onchange = () => change(() => post(path, {sign_in: signIn.checked}), `${p.name} ${signIn.checked ? 'can' : 'can no longer'} sign in`);
+      if (signIn) signIn.onchange = () => change(() => post(path, {sign_in: signIn.checked}), S.config?.local ? `Sign-in access saved for ${p.name}. Only the owner can sign in locally.` : `${p.name} ${signIn.checked ? 'can' : 'can no longer'} sign in`);
       const more = row.querySelector('.people-more');
       if (more) more.onclick = () => {
         const menu = more.nextElementSibling, open = menu.hidden;

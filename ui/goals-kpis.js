@@ -399,7 +399,7 @@ async function kpiAddBind(form, goal, done) {
 // The team, then every human and every bot that is not archived, nested the way the team chart nests them,
 // whether or not they have a goal. One line each: the owner, their first goal (cut short, the whole of it in the
 // tooltip) and its KPIs as small chips; more goals follow on lines of their own. The built-in bots and the Inbox Manager
-// are built-in, not roles: they sit apart, below. Tapping any line opens that owner's panel.
+// are helpers: they sit apart, below. Tapping any line opens that owner's panel.
 function goalTreeShape() {
   const people = (S.people || []).filter(p => !p.hidden);
   const inboxBots = new Set((S.people || []).map(p => p.inbox_bot).filter(Boolean));
@@ -485,7 +485,7 @@ function goalsRender(state) {
   // Anyone else with goals (someone gone from the roster) still shows, at the end.
   const rest = Object.keys(owned).filter(a => !seen.has(a)).map(a => rows(a, 0)).join('');
   body.innerHTML = goalNeedsHtml(state.needs) + `<ul class="gt" id="goal-tree" aria-label="Goals">${tree}${rest}`
-    + (help ? `<li class="gt-sep">Built-in</li>${help}` : '') + '</ul>';
+    + (help ? `<li class="gt-sep">Helpers</li>${help}` : '') + '</ul>';
   for (const li of body.querySelectorAll('.gt-row')) {
     const open = () => goalPanelOpen(state, li.dataset.owner, {tapped: li.dataset.goal || ''});
     li.onclick = open;

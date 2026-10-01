@@ -3,7 +3,12 @@
 'use strict';
 
 const bytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n/1024).toFixed(0)} KB` : `${(n/1048576).toFixed(1)} MB`;
-const apiError = (j, r) => j.error?.detail || (typeof j.error === 'string' ? j.error : '') || (Array.isArray(j.detail) ? j.detail.map(e => `${e.loc?.slice(1).join('.') || 'Request'}: ${e.msg}`).join('; ') : '') || r.statusText;
+const apiErrorRaw = (j, r) => j.error?.detail || (typeof j.error === 'string' ? j.error : '') || (Array.isArray(j.detail) ? j.detail.map(e => `${e.loc?.slice(1).join('.') || 'Request'}: ${e.msg}`).join('; ') : '') || r.statusText;
+const apiError = (j, r) => {
+  const raw = apiErrorRaw(j, r);
+  return String(raw).replace(/\. Rewrite the title\/body to fix these writing errors and retry\. Do not ask the human to waive formatting rules\./g, '. Please edit the title or details and try again.')
+    .replace(/start the title with a verb \(it starts "([^"]+)"\)/g, 'Start the title with an action, such as “Email” or “Review”');
+};
 // The message is what a person reads; `body` is the one extra fact a refusal carries, such as the
 // task a duplicate feature request already has (`backend/store.py`, Problem.extra).
 const apiFailure = (j, r) => Object.assign(new Error(apiError(j, r)), {body: j, status: r.status});

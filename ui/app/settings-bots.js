@@ -133,7 +133,7 @@ function settingsMachineSelect(e) {
 function settingsBotProblem(e) {
   if (e.status !== 'active') return '';
   if (e.agent) return !e.agent.credential ? 'no credential' : e.online ? '' : 'not reporting';
-  return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? 'setup needed' : 'offline';
+  return !e.machine ? 'no computer' : e.online && e.ready ? '' : e.online ? 'Needs setup' : 'offline';
 }
 // Settings → Bots filters and bulk model change ("filter by computer, filter
 // by model, select in bulk, and change model in bulk"). Filters are remembered per browser; the
@@ -317,7 +317,7 @@ function renderSettingsBots() {
   };
   const row = e => {
     const problem = settingsBotProblem(e);
-    const badges = `${isBuiltInBot(e.name) ? '<span class="pill" data-built-in>Built in</span>' : ''}${e.status && e.status !== 'active' ? `<span class="pill ${e.status === 'paused' ? 'waiting' : ''}">${esc(statusWord(e.status))}</span>` : ''}`;
+    const badges = `${isBuiltInBot(e.name) ? '<span class="pill" data-built-in>Built-in</span>' : ''}${e.status && e.status !== 'active' ? `<span class="pill ${e.status === 'paused' ? 'waiting' : ''}">${esc(statusWord(e.status))}</span>` : ''}`;
     const model = e.agent ? `<span class="muted" title="${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}">${esc(agentKind(e.agent))}</span>` : settingsChoiceCombo(e, 'model');
     return `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td>
       <td class="sb-cell-name"><div class="sb-bot">${avatar(e.name, 27, stateOf(e.name))}<div class="sb-text"><div class="sb-line"><a class="sb-name" href="#/bot/${esc(e.name)}">${shownName(e)}</a>${badges}</div>${e.team || problem ? `<small>${e.team ? esc(teamLabel(e.team)) : ''}${e.team && problem ? ' · ' : ''}${problem ? `<span class="sb-problem">${esc(problem)}</span>` : ''}</small>` : ''}</div></div></td>
@@ -426,7 +426,7 @@ async function settingsCatalogPicker() {
         await post('/v2/bots', {
           slug, display_name: display, description: card.summary || '',
           template: card.template, instructions: catalogInstructions(state, card),
-          reports_to: null, status: 'planned', repo: `emp-${slug}`, thread_mode: 'personal',
+          reports_to: null, status: 'planned', repo: `bot-${slug}`, thread_mode: 'personal',
           model: card.model, effort: card.reasoning_effort, operator: S.me.id, owners: [S.me.id], runner_id: null});
       }
       dialog.close(); await loadSettings(); settingsShow('bots');

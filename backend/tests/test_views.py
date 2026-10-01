@@ -102,3 +102,13 @@ def test_task_chat_never_falls_back_to_the_assistant(api):
     # The tasks page's assistant chat is gone with it.
     post(api, "page-chat", {"page": "tasks", "text": "What is late?"}, expected=422)
 
+
+
+def test_bot_instructions_show_the_published_file_and_do_not_substitute_description(api):
+    path = "/api/employees/ops/files"
+    before = api.get(path, headers=headers()).json()
+    assert before["AGENT.md"] == ""
+    text = "# Instructions\n\nUse the support policy.\n"
+    with api.app.state.store.transaction() as c:
+        c.execute("INSERT INTO bot_agent_instructions VALUES(?,?,?,?)", ("ops", text, "computer-1", H.now()))
+    assert api.get(path, headers=headers()).json()["AGENT.md"] == text

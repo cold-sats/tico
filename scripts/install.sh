@@ -53,6 +53,8 @@ TUNNEL=
 LOCAL=
 COMPANY=
 OWNER_EMAIL=
+OWNER_NAME=
+PORT=
 DOCKER_ONLY=
 RUNNER=
 RUNNER_URL=
@@ -76,11 +78,13 @@ Usage: install.sh [options] [-- tico-setup flags]
   --yes, -y          do not ask for confirmation
   --local            quick start on this machine only: no domain and no sign-in setup (add them later in .env)
   --owner-email E    with --local: the owner's email (asked when omitted)
-  --company NAME     with --local: the company name (default: My Company)
+  --owner-name NAME  with --local: prefill your name in Finish setup
+  --team-name NAME   with --local: prefill the team name (default: My Team); --company is an alias
+  --port PORT        server host port (default: 8765; kept on upgrades unless given)
   --tunnel           Cloudflare Tunnel: no public ports needed, so ports 80 and 443 are not checked
   --docker-only      only make sure Docker and Compose are installed (used for runner boxes)
   --runner           set up a computer that runs bots for a Tico server (Docker Compose, with the updater sidecar)
-  --url URL          with --runner: the Tico server, such as https://tico.example.com
+  --url URL          with --runner: the Tico server; with --local: its loopback browser address
   --code CODE        with --runner: the one-time code from Settings > Computers > Add computer (15 minutes, single use)
   --label NAME       with --runner: the computer's name in Tico (default: this host's name)
   --name NAME        with --runner: add another computer on this host (for a message bot). It gets its own directory
@@ -120,8 +124,12 @@ while [ $# -gt 0 ]; do
     --local) LOCAL=1; shift ;;
     --owner-email) [ $# -ge 2 ] || { usage >&2; die 2 "--owner-email needs a value"; }; OWNER_EMAIL=$2; shift 2 ;;
     --owner-email=*) OWNER_EMAIL=${1#--owner-email=}; shift ;;
-    --company) [ $# -ge 2 ] || { usage >&2; die 2 "--company needs a value"; }; COMPANY=$2; shift 2 ;;
-    --company=*) COMPANY=${1#--company=}; shift ;;
+    --team-name|--company) [ $# -ge 2 ] || { usage >&2; die 2 "--company needs a value"; }; COMPANY=$2; shift 2 ;;
+    --team-name=*|--company=*) COMPANY=${1#*=}; shift ;;
+    --owner-name) [ $# -ge 2 ] || { usage >&2; die 2 "--owner-name needs a value"; }; OWNER_NAME=$2; shift 2 ;;
+    --owner-name=*) OWNER_NAME=${1#--owner-name=}; shift ;;
+    --port) [ $# -ge 2 ] || { usage >&2; die 2 "--port needs a value"; }; PORT=$2; shift 2 ;;
+    --port=*) PORT=${1#--port=}; shift ;;
     --docker-only) DOCKER_ONLY=1; shift ;;
     --help|-h) usage; exit 0 ;;
     --) shift; break ;;
@@ -153,7 +161,20 @@ if [ -n "$RUNNER" ]; then
   [ -z "$RUNNER_LABEL" ] || printf '%s' "$RUNNER_LABEL" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--label is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
 fi
 [ -z "$LOCAL" ] || [ -z "$TUNNEL$RUNNER$DOCKER_ONLY" ] || die 2 "--local cannot be combined with --tunnel, --runner or --docker-only."
-[ -n "$LOCAL" ] || [ -z "$OWNER_EMAIL$COMPANY" ] || die 2 "--owner-email and --company go with --local."
+[ -n "$LOCAL" ] || [ -z "$OWNER_EMAIL$OWNER_NAME$COMPANY" ] || die 2 "--owner-email, --owner-name and --team-name go with --local."
+if [ -n "$PORT" ]; then
+  case "$PORT" in *[!0-9]*|'') die 2 "--port needs a number from 1 to 65535." ;; esac
+  [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die 2 "--port needs a number from 1 to 65535."
+  [ -z "$RUNNER$DOCKER_ONLY" ] || die 2 "--port goes with a server install."
+  export TICO_PORT=$PORT
+fi
+[ -n "$RUNNER$LOCAL" ] || [ -z "$RUNNER_URL" ] || die 2 "--url goes with --local or --runner."
+if [ -n "$OWNER_NAME" ]; then
+  printf '%s' "$OWNER_NAME" | grep -Eq '^[^"$`\\]{1,100}$' || die 2 "--owner-name is 1 to 100 characters without quotes, dollar signs, backticks or backslashes."
+fi
+if [ -n "$LOCAL" ] && [ -n "$RUNNER_URL" ]; then
+  printf '%s' "$RUNNER_URL" | grep -Eq '^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?$' || die 2 "--local --url needs a loopback address such as http://localhost:8765."
+fi
 printf '%s' "$DIR" | grep -Eq '^/[A-Za-z0-9._/-]+$' || die 2 "--dir must be an absolute path made of letters, digits and . _ - /"
 
 # ---------------------------------------------------------------------------------------------- preflight
@@ -367,6 +388,8 @@ pin_tag() {
 
 start_stack() {
   step "Starting Tico"
+  installed_port=$(as_root sed -n 's/^TICO_PORT=//p' "$DIR/.env" | head -n 1 | tr -d '\"\047')
+  HEALTH_URL=${TICO_INSTALL_HEALTH_URL:-http://127.0.0.1:${installed_port:-8765}/healthz}
   ( cd "$DIR" && as_root docker compose pull --quiet && as_root docker compose up -d ) || die 6 "docker compose failed in $DIR. Run 'docker compose logs' there."
   i=0
   while [ "$i" -lt "$HEALTH_TRIES" ]; do
@@ -422,12 +445,15 @@ run_local() {
     else die 2 "--local needs --owner-email (there is no terminal to ask on)."; fi
   fi
   printf '%s' "$OWNER_EMAIL" | grep -Eq '^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$' || die 2 "--owner-email must be a plain email address."
-  [ -n "$COMPANY" ] || COMPANY="My Company"
-  printf '%s' "$COMPANY" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--company is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
+  [ -n "$COMPANY" ] || COMPANY="My Team"
+  printf '%s' "$COMPANY" | grep -Eq '^[^"$`\\]{1,80}$' || die 2 "--team-name is 1 to 80 characters without quotes, dollar signs, backticks or backslashes."
   env_tmp=$(mktemp)
   ( umask 077
     { printf '# Tico on this machine only. To add a domain and sign-in later, see docs/install.md.\n'
       printf 'TICO_COMPANY_NAME="%s"\nTICO_OWNER_EMAIL=%s\n' "$COMPANY" "$OWNER_EMAIL"
+      [ -z "$OWNER_NAME" ] || printf 'TICO_OWNER_NAME="%s"\n' "$OWNER_NAME"
+      printf 'TICO_PORT=%s\n' "${PORT:-8765}"
+      [ -z "$RUNNER_URL" ] || printf 'TICO_PUBLIC_URL=%s\n' "$RUNNER_URL"
       printf 'COMPOSE_PROFILES=updater\nTICO_UPDATER_URL=http://updater:8080\nTICO_TAG=%s\n' "$VERSION"
     } > "$env_tmp" )
   as_root install -m 0600 "$env_tmp" "$DIR/.env"
@@ -436,7 +462,7 @@ run_local() {
   token=$(cd "$DIR" && as_root docker compose exec -T server cat /data/local-owner.token 2>/dev/null) || token=
   say ""
   say "Tico is running on this machine only."
-  if [ -n "$token" ]; then say "Open this once to sign in as $OWNER_EMAIL: http://127.0.0.1:8765/api/v2/local-signin?token=$token"
+  if [ -n "$token" ]; then say "Open this once to sign in as $OWNER_EMAIL: ${RUNNER_URL:-http://127.0.0.1:${PORT:-8765}}/api/v2/local-signin?token=$token"
   else say "Sign in as $OWNER_EMAIL with the token from: cd $DIR && docker compose exec server cat /data/local-owner.token"; fi
   say "In the app, follow Finish setup: name the team, pick its groups, and use Add computer to join this computer."
   say "Bots need an AI provider to run: Settings > AI providers, any time."
@@ -579,6 +605,13 @@ if [ -f "$DIR/.env" ]; then
     else
       say "Already at $VERSION: repairing and restarting; your .env is kept."
     fi
+  fi
+  if [ -n "$PORT" ]; then
+    env_tmp=$(mktemp)
+    ( umask 077
+      { as_root cat "$DIR/.env" | sed '/^TICO_PORT=/d'; printf 'TICO_PORT=%s\n' "$PORT"; } > "$env_tmp" )
+    as_root install -m 0600 "$env_tmp" "$DIR/.env"
+    rm -f "$env_tmp"
   fi
   start_stack
   say ""

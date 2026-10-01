@@ -251,19 +251,20 @@ def test_restore_into_an_empty_volume_and_force_over_a_full_one(tmp_path):
     assert list((tmp_path / "data").glob("hub.sqlite.before-restore.*"))
 
 
-def test_restore_brings_the_credential_key_back_and_force_keeps_a_different_one_aside(tmp_path):
+@pytest.mark.parametrize("rehearsal", ["0", "1"])
+def test_restore_brings_the_credential_key_back_and_force_keeps_a_different_one_aside(tmp_path, rehearsal):
     copy = tmp_path / "backups" / replication.CREDENTIAL_KEY_COPY
     copy.parent.mkdir(parents=True)
     copy.write_bytes(KEY)
-    result = entrypoint(tmp_path)
+    result = entrypoint(tmp_path, env={"TICO_REHEARSAL": rehearsal})
     assert result.returncode == 0, result.stderr
     key = tmp_path / "data" / "credential.key"
     assert key.read_bytes() == KEY and key.stat().st_mode & 0o777 == 0o600
     assert KEY.hex() not in result.stdout + result.stderr
     # Over an install that has another key: without --force the volume is refused; with it the old key is kept aside.
     key.write_bytes(b"\x02" * 32)
-    assert entrypoint(tmp_path).returncode != 0 and key.read_bytes() == b"\x02" * 32
-    assert entrypoint(tmp_path, "--force").returncode == 0
+    assert entrypoint(tmp_path, env={"TICO_REHEARSAL": rehearsal}).returncode != 0 and key.read_bytes() == b"\x02" * 32
+    assert entrypoint(tmp_path, "--force", env={"TICO_REHEARSAL": rehearsal}).returncode == 0
     assert key.read_bytes() == KEY
     assert [p.read_bytes() for p in (tmp_path / "data").glob("credential.key.before-restore.*")] == [b"\x02" * 32]
 

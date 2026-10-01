@@ -13,7 +13,7 @@
 // The Product lane (its board, columns and lane switch) is retired; the page
 // shows team tasks only.
 const COMPANY_COLS = [
-  ['needs',   'Needs a human', 'Waiting on a human, blocked, or declined back'],
+  ['needs',   'Needs you', 'Waiting on a human, blocked, or declined back'],
   ['waiting', 'Waiting', 'Waiting on the dependency shown in the task'],
   ['doing',   'Doing',     'Starting or being worked on now'],
   ['scheduled', 'Scheduled', 'One-off tasks scheduled to start in the future'],
@@ -61,7 +61,7 @@ const needsWho = t => {
   const pid = actorPerson(t?.ask?.to_actor) || actorPerson(t?.owner);
   return !pid || pid === S.me?.id ? 'Needs you' : `Needs ${firstName(personDisplay(pid))}`;
 };
-const hubTag = t => taskAskToPerson(t) ? needsWho(t)
+const hubTag = t => (taskAskToPerson(t) || (t.status === 'open' && actorPerson(t.owner))) && !['done', 'closed'].includes(String(t.status)) ? needsWho(t)
   : t.blocked_by && !['done', 'closed'].includes(String(t.status)) ? 'blocked'
   : ['waiting', 'declined'].includes(String(t.status || '')) ? t.status
   : t.status === 'open' && !actorPerson(t.owner) ? 'starting' : '';

@@ -79,11 +79,11 @@ function frSummaryTeamHTML(state) {
   const cat = state.catalog, org = state.org;
   // In the order they are set up: each department's head first, then its team.
   const rows = Object.keys(frSelection(state)).map(slug => catalogCard(cat, slug)).filter(card => card && !card.required && card.kind !== 'helper');
-  // Built-in bots are not on the chart: the built-ins, and a helper card when it is switched on.
+  // Helpers stay outside the chart: the built-ins and any helper switched on.
   const helpers = cat.cards.filter(card => card.required || (card.kind === 'helper' && cat.picked.has(card.slug)))
     .map(card => esc(catalogName(cat, card))).join(', ');
   const departments = org.chosen.filter(id => obPicked(state, id).length).map(id => esc(obDept(org, id)?.name || id)).join(', ');
-  return `<div><span class="k">Built-in</span><span data-review-helpers>${helpers || '—'}</span></div>
+  return `<div><span class="k">Helpers</span><span data-review-helpers>${helpers || '—'}</span></div>
     ${org.loaded ? `<div><span class="k">Groups</span><span data-review-departments>${departments || '—'}</span></div>` : ''}
     <div><span class="k">Your team</span><span data-review-team>${rows.length ? rows.map(card =>
       `${esc(catalogName(cat, card))} <span class="muted">→ ${esc(frParentName(state, frReports(state, card.slug)))}</span>`).join('<br>') : 'Just the built-in bots'}</span></div>`;

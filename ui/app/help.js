@@ -34,7 +34,7 @@ function pageHelp() {
   $('#main').innerHTML = `<article class="help-page" id="help-page">
     <header class="help-hero">
       <div class="help-eyebrow">How Tico works</div>
-      <h1>The coordination layer for your humans and bots.</h1>
+      <h1>How Tico works</h1>
       <p class="help-lede">One place to find bots, talk to them, hand off work and see what happened.</p>
       <div class="help-actions"><button class="primary" type="button" data-gs-tour>Take the tour</button><a class="gs-link" href="#/settings" data-gs-tab="health">Settings &gt; Health</a><a class="gs-link" href="${GH}/blob/main/docs/glossary.md" target="_blank" rel="noopener noreferrer">Glossary</a></div>
     </header>

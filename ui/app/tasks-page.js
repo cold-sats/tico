@@ -166,7 +166,7 @@ function openTaskCreate(owner = '', opts = {}) {
           <label><input type="checkbox" name="top"> Top of their queue</label>
         </div>
         <label>Serves <select name="goal" aria-label="The goal this task serves"><option value="">No goal</option></select></label>
-        <textarea name="body" aria-label="Details" placeholder="Details"></textarea>
+        <label>Details (required)<textarea name="body" required aria-label="Details" placeholder="Details"></textarea></label>
         <input type="url" name="link" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Link (pull request, doc)" aria-label="Link">
         ${S.me?.cloud ? '<label class="attach">Attach files <input type="file" name="files" multiple aria-label="Task attachments"></label>' : ''}
         <div class="r3"><button class="primary" type="submit">Create task</button><span class="muted" id="task-create-msg"></span></div>
@@ -184,6 +184,7 @@ function openTaskCreate(owner = '', opts = {}) {
     const form = ev.target, btn = form.querySelector('[type=submit]'), msg = $('#task-create-msg');
     const title = form.title.value.trim(), owner = form.owner.value, body = form.body.value.trim();
     if (!title || !owner) { msg.textContent = 'Choose who this is for.'; return; }
+    if (!body) { msg.textContent = 'Add details.'; form.body.focus(); return; }
     btn.disabled = true; msg.textContent = 'Creating…';
     const payload = {title, body, owner};
     const labels = form.labels.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);

@@ -394,7 +394,7 @@ GOALS = [
 # The curator's own pages, written over the seed's outlines: id, title, category, body.
 MARKET_PAGES = [
     ("market/overview", "Overview", "Market / Overview",
-     "# The market, and where Acme fits\n\n"
+     "# Market\n\n"
      "Acme sells project-tracking software to **small studios**: teams that run a handful of client projects "
      "themselves and want reports and time tracking without hiring an operations manager.\n\n"
      "## Who we compete with\n\n"
