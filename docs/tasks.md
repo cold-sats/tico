@@ -31,14 +31,16 @@ status moves its tasks to that status, using the normal completion and reopening
 A task on a custom type is a ticket on that type's board, not an ask. The rule that shapes a
 request to a person (a title that starts with a verb, the ask in the first line, under 120 words
 outside quoted drafts) applies to General tasks only, so a ticket keeps the title and the long
-description it was written with. It still needs a title. A decision for a person stays on General.
+description it was written with. The plain-English check on a title a bot writes (no reference
+numbers, no all-caps words) also applies to General tasks only, so a bot can file "#18945 (B/F)
+Fix the account page" as written. It still needs a title. A decision for a person stays on General.
 
 Whoever may change a task's other fields (its owner, its requester, a delegate or a mover) may also
 rename it. A new title gets the checks a new task's title would: never empty, at most 300
 characters, a verb first and no internal codes on a General task for a person, plain English when
-a bot writes it, and no other live task between the same requester and owner with that title. The
-old and new titles are in the task's history, and a task's own conversation keeps the new title as
-its subject.
+a bot writes it on General, and no other live task between the same requester and owner with that
+title. The old and new titles are in the task's history, and a task's own conversation keeps the
+new title as its subject.
 
 A task on a custom type with a linked pull request follows the existing GitHub flow: review when
 the PR opens, ready when it merges, and done when the configured release includes it. Each move

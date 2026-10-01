@@ -16,6 +16,8 @@ All notable changes to Tico are recorded here. The format follows
 - A task on a custom type is a ticket on that type's board, not an ask: the rule for a request to a person (a title
   that starts with a verb, the ask first, under 120 words) applies to General tasks only, in the API, MCP, `hub` and
   the dry run. A ticket still needs a title.
+- A bot's ticket on a custom type keeps its reference numbers and all-caps words: the plain-English title check
+  applies to General tasks only.
 
 ## [0.3.0] - 2026-10-01
 

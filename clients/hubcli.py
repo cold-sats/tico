@@ -325,7 +325,7 @@ def task_problems(actor, owner, title, body, type=None):
     The owner's kind comes from the registry files; the lint (`lint_human_item`) and the reach
     rule (`classify`) are hubdb's own functions run here. Reach against live state, the
     duplicate check and whether a named type exists are the hub's to decide at the real create.
-    A type other than General is a custom type, whose tasks rule 7 does not shape.
+    A type other than General is a custom type, whose tasks neither lint shapes.
     """
     from backend import hubdb as H
     problems = []
@@ -341,7 +341,7 @@ def task_problems(actor, owner, title, body, type=None):
         problems += H.lint_human_item(body, title=title)
     elif not title:
         problems.append("give it a title that says what you are asking for")
-    if H.is_bot(actor):
+    if H.is_bot(actor) and general:
         # plain-English titles: a warning this week, a refusal once TICO_TITLE_LINT=refuse
         problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
     return target, problems

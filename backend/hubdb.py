@@ -992,7 +992,7 @@ def lint_human_title(title):
 
 def lint_title(title):
     """Plain English in a title a bot wrote: no reference numbers, no shouting. The problems,
-    empty when it passes. Applied to every bot-written task title, whoever the owner is."""
+    empty when it passes. Applied to every bot-written General task title, whoever the owner is."""
     head = str(title or "")
     problems = []
     m = LINT_IDENT.search(head)
@@ -2159,7 +2159,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
             refuse(conn, actor, "lint", "; ".join(problems), severity)
     elif not title:
         refuse(conn, actor, "lint", "give it a title that says what you are asking for")
-    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" else []
+    # A ticket keeps the board's own references ("#18945", "(B/F)") in its title.
+    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" and general else []
     if plain and TITLE_LINT == "refuse":
         refuse(conn, actor, "lint", "; ".join(plain), severity)
     labels = _labels(labels)
@@ -2227,12 +2228,13 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
 def _retitle(conn, actor, row, title, owner, type_id):
     """A new title gets the checks a new task's title would, against the task as the update
     leaves it: never empty; on a General task for a person, rule 7's title half; no live task
-    between the same requester and owner already called that; for a bot, the plain-English
-    check, whose warnings are returned to be recorded once the title lands."""
+    between the same requester and owner already called that; for a bot on General, the
+    plain-English check, whose warnings are returned to be recorded once the title lands."""
     target = resolve_actor(conn, owner) if owner is not None else row["owner"]
+    general = type_id == GENERAL_TYPE
     if not title:
         refuse(conn, actor, "lint", "give it a title that says what you are asking for")
-    if is_human(target) and type_id == GENERAL_TYPE:
+    if is_human(target) and general:
         problems = lint_human_title(title)
         if problems:
             refuse(conn, actor, "lint", "; ".join(problems))
@@ -2241,7 +2243,7 @@ def _retitle(conn, actor, row, title, owner, type_id):
                (row["id"], row["requester"], target, title, *LIVE_STATUSES))
     if dup:
         refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
-    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" else []
+    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" and general else []
     if plain and TITLE_LINT == "refuse":
         refuse(conn, actor, "lint", "; ".join(plain))
     return plain

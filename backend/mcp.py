@@ -190,7 +190,7 @@ def task_dry_run(c, auth, who, body):
     problems = []
     title, text = str(body.title or "").strip(), str(body.body or "")
     typ = H.type_get(c, body.type or H.GENERAL_TYPE)
-    general = bool(typ) and typ["id"] == H.GENERAL_TYPE      # rule 7 shapes asks, not a custom type's tickets
+    general = bool(typ) and typ["id"] == H.GENERAL_TYPE      # the lints shape asks, not a custom type's tickets
     target = H.resolve_actor(c, body.owner)
     if target and H.is_bot(target) and not auth.bot_access(c, who, H.actor_id(target))["see"]:
         target = None       # a bot the caller cannot see is not one they can name
@@ -214,7 +214,7 @@ def task_dry_run(c, auth, who, body):
             problems += H.lint_human_item(text, title=title)
         elif not title:
             problems.append("give it a title that says what you are asking for")
-        if H.is_bot(who.actor) and H.TITLE_LINT != "off":
+        if H.is_bot(who.actor) and H.TITLE_LINT != "off" and general:
             # plain-English titles: recorded on the task this week, refused once TICO_TITLE_LINT=refuse
             problems += [f"{p} (title lint, {H.TITLE_LINT})" for p in H.lint_title(title)]
         dup = H._one(c, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
