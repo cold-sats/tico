@@ -7,6 +7,21 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.39] - 2026-10-01
+
+### Added
+- Branches: a bot's owner can turn on **Allow branches**, and each person then chooses **Make my branch** on its page
+  (or `hub bot branch`, or asks BotOps). A branch runs on that person's own computer and AI subscription, shares the
+  original's instructions and repository, and merges its lessons back. New tasks and chats to the original go to your
+  branch; a picker opens the original or anyone's branch. Branches follow the original's model settings, leave
+  routines with the original, and archive and restore with it. `hub bot copy` still makes an independent bot.
+- Tags: task labels become tags with a display label, metadata and a Markdown checklist. Templates hold a reusable
+  checklist (for example a release checklist); **Make a tag** copies one into a new tag such as `release-2026-10-02`.
+  Click a tag chip to see its checklist and tasks. Existing labels, `--label` and `hub task label` keep working.
+- Task types: add types with named steps in **Settings > Types** (for example Draft, Legal review, Published). Each
+  step maps to a status, so bots, GitHub pull request moves and older computers keep using statuses. Filter the board
+  by type to use its steps as columns. Tasks start as **General**, which works as before.
+
 ## [0.2.38] - 2026-10-01
 
 ### Fixed
@@ -1484,7 +1499,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.35...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.39...HEAD
+[0.2.39]: https://github.com/ticoteam/tico/compare/v0.2.38...v0.2.39
 [0.2.35]: https://github.com/ticoteam/tico/compare/v0.2.34...v0.2.35
 [0.2.34]: https://github.com/ticoteam/tico/compare/v0.2.33...v0.2.34
 [0.2.33]: https://github.com/ticoteam/tico/compare/v0.2.32...v0.2.33
