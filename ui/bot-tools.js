@@ -214,6 +214,14 @@
         } else error?.remove();
         if (!host.isConnected) return;
         state.tools = Array.isArray(page.tools) ? page.tools : [];
+        // The Slack channels a bot reads (Tools > Slack channels) belong with its Slack tool, not in the team list.
+        const inbox = await get('/v2/messaging/bots').catch(() => null);
+        const channels = (inbox?.bots || []).find(b => b.bot === slug)?.sources?.filter(s => s.kind === 'slack').map(s => s.name) || [];
+        if (channels.length && host.isConnected) {
+          const slackTool = state.tools.find(t => t.id === 'slack' || t.service === 'slack');
+          if (slackTool) slackTool.scope = {...(slackTool.scope || {}), channels};
+          else state.tools.push({id: 'slack', service: 'slack', logo_key: 'slack', name: 'Slack', can: ['read'], status: 'ready', scope: {channels}});
+        }
       } catch (e) { if (!host.isConnected) return; state.tools = state.tools || []; }
       render();
     }

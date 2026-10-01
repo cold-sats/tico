@@ -97,6 +97,9 @@ function inboxNavRows() {
   for (const bot of INBOX_NAV?.bots || []) {
     for (const source of bot.sources || []) {
       if (source.kind !== 'slack') continue;
+      // A chart bot's channels are one of its Tools (its page lists them); only a message bot's channels are its inboxes.
+      const shown = S.emps.find(e => e.name === bot.bot);
+      if (shown && !(isHelperBot(shown) && !isBuiltInBot(shown.name))) continue;
       slack.push({kind: 'slack', label: source.name, title: `${bot.name} · ${source.name}`,
                   bot: bot.bot, source: source.id});
     }
@@ -104,8 +107,8 @@ function inboxNavRows() {
   slack.sort((a, b) => a.label.localeCompare(b.label));
   return [...mail, ...slack];
 }
-// The mailboxes and Slack channels a bot works hang under that bot in the team list (renderTree): an Inbox Manager's
-// in the Message bots group, a chart bot's under it on the chart. The section below the team list holds only the ones
+// The mailboxes and Slack channels a message bot works hang under that bot in the team list (renderTree), in the
+// Message bots group; a chart bot's Slack channels are listed under Slack in its Tools instead. The section below the team list holds only the ones
 // whose bot is not shown there (the recently-viewed list, or "Only bots I can read or write").
 let INBOX_PLACED = new Set();
 function inboxNavLink(row) {
