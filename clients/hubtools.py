@@ -108,13 +108,15 @@ def whoami(api, args):
 
 
 @tool("hub_message_send", "Send a message to a bot or a human. Bot-to-human messages are linted "
-      "(first line is the ask, under 120 words) and capped at 10 unsolicited a day. `fyi` sends an fyi that "
-      "expects no reply.",
+      "(a nonempty first line, under 120 words) and capped at 10 unsolicited a day. `fyi` expects no reply. "
+      "Use in_reply_to or steer for a correction to an active run; it is queued until the Computer applies it.",
       {"to": _s("Recipient: a bot slug, `bot:<slug>`, or a human id"),
        "text": _s("The message"),
        "fyi": {"type": "boolean", "default": False,
                "description": "An fyi: it expects no reply, and takes no conversation or references"},
        "conversation_id": _s("Continue this conversation instead of opening a pair conversation"),
+       "in_reply_to": _s("The message this corrects or answers"),
+       "steer": {"type": "boolean", "description": "Apply a correction to your active request"},
        "refs": {"type": "array", "items": {"type": "string"},
                 "description": "References like `task:<id>` or `approval:<id>`"}},
       required=("to", "text"), writes=True)
@@ -124,8 +126,9 @@ def message_send(api, args):
     if args.get("fyi"):
         return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "notice",
                                      "conversation_id": None, "refs": {}}, key=_key(args))
-    return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "say",
+    return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "steer" if args.get("steer") else "say",
                                  "conversation_id": args.get("conversation_id"),
+                                 "in_reply_to": args.get("in_reply_to"),
                                  "refs": _refs(args.get("refs"))}, key=_key(args))
 
 
@@ -358,7 +361,7 @@ def task_list(api, args):
                    lane=args.get("lane") or None, label=args.get("label") or None)["tasks"]
 
 
-@tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One per task.",
+@tool("hub_task_ask", "Ask the task's requester one question that unblocks you. One open question at a time.",
       {"id": TASK_ID, "text": _s("The question, and only the question")},
       required=("id", "text"), writes=True)
 def task_ask(api, args):
@@ -1074,12 +1077,24 @@ def docs_links(api, args):
     return api.get("linked-docs")
 
 
-@tool("hub_task_close", "Close a task you requested. Never close a task you did not request.",
-      {"id": TASK_ID, "note": _s("Why it is closed")}, required=("id",), writes=True)
+@tool("hub_task_close", "A human may close a task they can edit. A bot closes work it requested or was delegated to close. "
+      "BotOps uses the requester's rights.",
+      {"id": TASK_ID, "note": _s("Why it is closed"),
+       "quiet": {"type": "boolean", "description": "Close without waking a bot"}}, required=("id",), writes=True)
 def task_close(api, args):
-    current = api.get("tasks/" + args["id"])["task"]
+    current = None
+    if kind_of(api.get("me")) == "botops":
+        requester = _as_person(api)
+        try:
+            current = requester.get("tasks/" + args["id"])["task"]
+            api = requester
+        except Exception as exc:
+            if getattr(exc, "code", None) != "on_behalf_of":
+                raise
+            # Fleet work has no human request; BotOps keeps its own task-closing rights.
+    current = current or api.get("tasks/" + args["id"])["task"]
     return api.post("tasks/" + args["id"], {"version": current["version"], "note": args.get("note"),
-                                            "close": True}, key=_key(args))
+                                            "close": True, "quiet": bool(args.get("quiet"))}, key=_key(args))
 
 
 @tool("hub_conversation_show", "What was said in a conversation: the newest 200 messages, oldest first. The "
@@ -1330,17 +1345,20 @@ def audience(value):
 @tool("hub_bot_create", "Register a new bot with the server, planned, as the person who asked you (BotOps): the "
       "record its repository is then built for. They become its owner. Needs their create_bots (on by default) and "
       "stays within their limit of active bots. Safe to repeat for a bot they already own. `hub bot create --template T` "
-      "also builds its repository on this computer. With a template, a human caller queues a BotOps build and gets "
-      "setup_task_id to watch with hub_task_show. Set build false for only the record; BotOps defaults to only the record.",
+      "also builds its repository on this computer. Starters build on their assigned Computer; custom templates get "
+      "a BotOps setup_task_id to watch with hub_task_show. Set build false for only the record; BotOps defaults to only the record.",
       {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
        "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
        "template": _s("A template from hub_template_list, if it is built from one"),
-       "build": {"type": "boolean", "description": "Queue the BotOps build (human default: true; BotOps: false)"},
+       "build": {"type": "boolean", "description": "Build from the template (human default: true; BotOps: false)"},
+       "instructions": _s("Reviewed Instructions overriding the template; requested description and limits still apply"),
+       "title_prefix": _s("Prefix for a generated setup task's title"),
        "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the Team default")},
       required=("slug",), writes=True)
 def bot_register(api, args):
     body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
             "reports_to": args.get("reports_to") or None, "template": args.get("template") or "",
+            **{k: args[k] for k in ("instructions", "title_prefix") if k in args},
             **({"model": args["model"]} if args.get("model") else {}), **_for_person(api)}
     body["build"] = args.get("build", bool(body["template"]) and "on_behalf_of" not in body)
     return api.post("bots/register", body, key=_key(args))
@@ -1388,9 +1406,8 @@ def bot_onboarded(api, args):
 
 
 @tool("hub_human_add", "Add a person to the team roster and the sign-in list, as the person who asked you. A "
-      "member may add a coworker in the team's email domain, an owner or admin anyone. A coworker in the domain is "
-      "added at once; anyone outside it needs the person's click on Confirm first: this answers with `needs_confirm: "
-      "true` and a card in their chat with you, and nothing changes until they do.",
+      "member with permission may add a teammate in the team's email domain; an owner or admin may add anyone. "
+      "Authorized requests run at once.",
       {"email": _s("Their email address"), "name": _s("Their name"), "title": _s("Their title"),
        "reports_to": _s("A person id they report to")},
       required=("email",), writes=True)
@@ -1587,25 +1604,30 @@ def agent_pair_decline(api, args):
 @tool("hub_bot_model", "Show the models a bot may run on, or change its model, as the person who asked you. A change waits for a "
       "run in progress to end.",
       {"bot": _s("The bot's slug"), "model": _s("A model id or name from the list; leave out to list them"),
-       "effort": _s("Reasoning effort that model supports")},
+       "effort": _s("Reasoning effort that model supports"), "harness": _s("A harness from that model's harnesses list")},
       required=("bot",), writes=True)
 def bot_model(api, args):
     who = _as_person(api)
     catalog = who.get("models")
-    if not args.get("model"):
+    current = who.get(f"bots/{args['bot']}")
+    if not any(args.get(k) for k in ("model", "harness", "effort")):
         enabled = set(catalog.get("enabled_providers") or [])
         return {"models": [{k: m.get(k) for k in ("id", "label", "provider", "efforts", "default_effort", "harnesses")}
                            for m in catalog.get("models", []) if not m.get("deprecated") and (not enabled or m.get("provider") in enabled)],
-                "current": who.get(f"bots/{args['bot']}").get("model")}
-    wanted = str(args["model"]).strip().lower()
+                **{k: v for k, v in current.items() if k in ("harness", "effort")},
+                "current": current.get("model")}
+    requested = args.get("model") or current.get("model") or (catalog.get("default") or {}).get("model") or ""
+    wanted = str(requested).strip().lower()
     choices = [m for m in catalog.get("models", []) if not m.get("deprecated")]
     hit = [m for m in choices if wanted in (str(m.get("id")).lower(), str(m.get("label")).lower())] or [
         m for m in choices if wanted in str(m.get("id")).lower() or wanted in str(m.get("label")).lower()]
     if len(hit) != 1:
-        raise ValueError(("No model matches " if not hit else "More than one model matches ") + args["model"]
+        raise ValueError(("No model matches " if not hit else "More than one model matches ") + str(requested)
                          + ". Models: " + ", ".join(str(m.get("id")) for m in choices))
     revision = who.get(f"bots/{args['bot']}/access")["revision"]
     body = {"model": hit[0]["id"], "expected_revision": revision, **({"effort": args["effort"]} if args.get("effort") else {})}
+    if args.get("harness"):
+        body["harness"] = args["harness"]
     return who.post(f"bots/{args['bot']}/model", body, key=_key(args))
 
 
@@ -2104,7 +2126,9 @@ def github_create_bot_repo(api, args):
       {"bot": _s("A bot's slug, or `me`: that bot's own tools instead of the team's")})
 def tool_list(api, args):
     if args.get("bot"):
-        return api.get(f"bots/{_bot_of(api, {'bot': None if args['bot'] == 'me' else args['bot']})}/tools")
+        bot = _bot_of(api, {"bot": None if args["bot"] == "me" else args["bot"]})
+        reader = _as_person(api) if kind_of(api.get("me")) == "botops" else api
+        return reader.get(f"bots/{bot}/tools")
     return api.get("tools")
 
 
@@ -2549,11 +2573,13 @@ class Protocol:
     def handle(self, message):
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
             return self._error(None, -32600, "Invalid Request")
-        rid, method, params = message.get("id"), message.get("method"), message.get("params") or {}
+        rid, method, params = message.get("id"), message.get("method"), message.get("params", {})
         if method is None:
             return None                                  # a response to us; we send no requests
         if rid is None:                                  # a notification
             return None
+        if not isinstance(params, dict):
+            return self._error(rid, -32602, "params must be an object")
         if method == "initialize":
             asked = params.get("protocolVersion")
             version = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
@@ -2570,6 +2596,8 @@ class Protocol:
 
     def _call(self, rid, params):
         name, args = params.get("name"), params.get("arguments", {})
+        if not isinstance(name, str):
+            return self._error(rid, -32602, "name must be a string")
         entry = BY_NAME.get(name)
         if not entry and (new := renamed_to(name)):
             return self._tool_error(rid, {"error": "renamed", "detail": f"`{name}` was renamed `{new}` in Tico 0.2.21.",

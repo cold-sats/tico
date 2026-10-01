@@ -606,8 +606,13 @@ Use `hub tool add <bot> <service> --can <verbs> --dry-run` to validate an entry 
 
 ### Templates over MCP
 
-`hub_bot_create` with `template` uses the Team default model and queues BotOps to build the repository.
-Watch its `setup_task_id` with `hub_task_show`. Use `build: false` to register only the record,
+`hub_bot_create` with `template` uses the Team default model. Starter templates build directly on
+their assigned Computer, like Add from template in the app; other templates queue BotOps and return
+`setup_task_id` to watch with `hub_task_show`. Generated tasks carry the human requester's rights.
+`description` preserves the requested scope and limits; `instructions` overrides the template Instructions,
+and `title_prefix` prefixes a generated setup task. New bots report to their requester unless `reports_to`
+is supplied. An archived slug is a collision: choose a fresh slug for a new bot; restore only when asked.
+Use `build: false` to register only the record,
 for example when building it yourself on a Computer. BotOps defaults to record-only registration.
 An empty model in Add from template also inherits the Team default; choose one in Settings > AI providers
 if none is saved. `hub_template_list` includes Setup questions, first-routine output and draft-only status,

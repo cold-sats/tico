@@ -1,0 +1,14 @@
+id: remove-bot
+title: Remove a bot and keep its history
+as: owner
+seed:
+  - bot: {slug: qa-remove, name: QA Remove, status: active}
+prompt: "Delete the QA Remove bot. Keep its repository."
+person: []
+done:
+  - bot_state: {bot: qa-remove, state: archived}
+reply: "QA Remove is removed. Its history and repository stay."
+limits: {person_steps: 0, jargon: 0, duplicates: 0, sent_elsewhere: 0}
+script:
+  - tool: hub_bot_archive
+    args: {bot: qa-remove}

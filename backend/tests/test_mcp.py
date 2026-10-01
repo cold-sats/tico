@@ -3,6 +3,8 @@
 import io
 import json
 
+import pytest
+
 from backend.tests.test_api import api, assign, claim, get, headers, post, ready, runner, setup_attempt  # noqa: F401
 from clients import hubcli, hubtools
 
@@ -193,3 +195,59 @@ def test_personal_token_friendly_cleanup_archives_docs_files_and_deletes_meeting
     meeting = import_meeting(api, title="QA cleanup meeting")
     err, deleted = call(api, "hub_meeting_delete", {"id": meeting["id"]}, token=token)
     assert not err and deleted["ok"] and deleted["recoverable"]
+
+
+@pytest.mark.parametrize("method,params", [("initialize", "bad"), ("initialize", []),
+    ("tools/call", "bad"), ("tools/call", {"name": []}), ("tools/call", {"name": None})])
+def test_malformed_mcp_params_are_json_rpc_errors(api, method, params):
+    response = api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "id": 7, "method": method, "params": params},
+                        headers=headers())
+    assert response.status_code == 200 and response.json()["error"]["code"] == -32602
+
+
+def test_bodyless_delete_and_file_content_survive_the_mcp_adapter(api, monkeypatch):
+    from backend.tests.test_files import publish
+    from backend import mcp
+    group = post(api, "groups", {"name": "QA cleanup"})
+    err, deleted = call(api, "hub_api", {"method": "DELETE", "path": "groups/" + group["id"]})
+    assert not err, deleted
+    _, _, attempt = setup_attempt(api)
+    file = publish(api, attempt, text="# QA content").json()["file"]
+    err, read = call(api, "hub_api", {"method": "GET", "path": "files/" + file["id"]})
+    assert not err and read["text"] == "# QA content" and not read["truncated"]
+    monkeypatch.setattr(mcp, "MAX_CONTENT_BYTES", 4)
+    err, read = call(api, "hub_api", {"method": "GET", "path": "files/" + file["id"]})
+    assert not err and read["text"] == "# QA" and read["truncated"] and read["bytes"] == 4
+    binary = api.post("/api/v2/files/uploads?name=sample.pdf", content=b"%PDF-1.7\n",
+                      headers={**headers(attempt["token"]), "Content-Type": "application/pdf"}).json()["file"]
+    err, read = call(api, "hub_api", {"method": "GET", "path": "files/" + binary["id"]})
+    assert not err and read["base64"] == "JVBERg==" and read["truncated"]
+    err, denied = call(api, "hub_api", {"method": "GET", "path": "files/" + file["id"]}, token="cara-test")
+    assert err and denied["error"] == "not_found"
+
+
+def test_starter_creation_uses_computer_build_and_preserves_requested_scope(api):
+    err, made = call(api, "hub_bot_create", {"slug": "qa-meetings", "template": "meeting-notes",
+                    "description": "Only test meetings; do not send outside the team.", "instructions": "# QA meetings"})
+    assert not err and made["setup_task_id"] is None and made["reports_to"] == "human:ana", made
+    with api.app.state.store.read() as c:
+        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot='qa-meetings'").fetchone()[0])
+        assert config["materialize"] is True and "# QA meetings" in config["instructions"]
+        assert "Only test meetings; do not send outside the team." in config["instructions"]
+    err, archived = call(api, "hub_bot_archive", {"bot": "qa-meetings"})
+    assert not err
+    err, refused = call(api, "hub_bot_create", {"slug": "qa-meetings"})
+    assert err and refused["error"] == "duplicate" and "fresh slug" in refused["detail"]
+    assert get(api, "bots/qa-meetings")["state"] == "archived"
+
+
+def test_model_tool_forwards_harness_and_lists_current_settings(api):
+    choices = get(api, "models")["models"]
+    model = next(m for m in choices if m.get("harnesses") and not m.get("deprecated"))
+    harness = model["harnesses"][0]
+    if isinstance(harness, dict):
+        harness = harness["id"]
+    err, changed = call(api, "hub_bot_model", {"bot": "ops", "model": model["id"], "harness": harness})
+    assert not err, changed
+    err, listed = call(api, "hub_bot_model", {"bot": "ops"})
+    assert not err and listed["harness"] == harness and "effort" in listed

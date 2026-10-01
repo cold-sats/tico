@@ -38,6 +38,17 @@ def incompatible(release):
     return bool(parsed and parsed < releases.parse(MIN_RUNNER_RELEASE))
 
 
+def at_least(c, runner_id, minimum):
+    """One-time runner steps require a reported version that supports the step.
+
+    Unknown versions keep the step pending, rather than consuming it without doing it.
+    """
+    row = c.execute("SELECT release FROM runner_versions WHERE runner_id=?", (runner_id,)).fetchone()
+    have = releases.parse(row["release"]) if row else None
+    want = releases.parse(minimum)
+    return bool(have and want and have >= want)
+
+
 def state(release, update_state="", server=None):
     """One of current, updating, needs_update, incompatible, unknown."""
     server = releases.version() if server is None else server

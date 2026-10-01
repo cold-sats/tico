@@ -660,7 +660,7 @@ class Execution:
         attempt, no review decided it, and no other attempt runs for the bot. The turn on the
         Mac never stopped, so its result is worth more than a review of a phantom interruption."""
         now = H.now()
-        job = c.execute("SELECT state FROM jobs WHERE id=? AND attempt_id=?", (row["job_id"], row["id"])).fetchone()
+        job = c.execute("SELECT state,message_id FROM jobs WHERE id=? AND attempt_id=?", (row["job_id"], row["id"])).fetchone()
         if (not row["finished"] or row["finished"] <= H.shift(now, seconds=-STALL_MAX)
                 or not job or job["state"] != "uncertain"
                 or c.execute("SELECT 1 FROM job_recovery WHERE job_id=? AND attempt_id=?", (row["job_id"], row["id"])).fetchone()
@@ -670,7 +670,9 @@ class Execution:
         c.execute("UPDATE attempts SET state='running',finished=NULL,lease_until=? WHERE id=?", (until, row["id"]))
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
         c.execute("UPDATE turns SET finished=NULL,exit=NULL,summary=NULL WHERE id=?", (row["id"],))
-        H.status_set(c, H.KEEPER, row["bot"], state="running", focus="Responding to queued work")
+        current = H.message(c, job["message_id"])
+        H.status_set(c, H.KEEPER, row["bot"], state="running", focus="Responding to queued work",
+                     task_id=H.message_task_id(current) or "")
         H.event(c, H.KEEPER, "attempt.lease-restored", row["id"],
                 {"bot": row["bot"], "job_id": row["job_id"], "lapsed": row["finished"], "lease_until": until})
         return c.execute("SELECT a.*,x.runner_id AS assigned_runner,x.generation AS assigned_generation "
@@ -749,7 +751,8 @@ class Execution:
                   (row["bot"], runtime, model, body.thread_id, who.runner_id, H.now()))
         msg = c.execute("SELECT message_id FROM jobs WHERE id=?", (row["job_id"],)).fetchone()[0]
         H.mark_delivered(c, H.KEEPER, msg)
-        H.status_set(c, H.KEEPER, row["bot"], state="running", focus="Responding to queued work")
+        H.status_set(c, H.KEEPER, row["bot"], state="running", focus="Responding to queued work",
+                     task_id=H.message_task_id(H.message(c, msg)) or "")
         return {"started": True}
 
     def inputs(self, c, who, aid):
@@ -775,10 +778,16 @@ class Execution:
                 refs = json.loads(row["refs_json"] or "{}")
                 origin = c.execute("SELECT j.message_id,m.from_actor FROM jobs j JOIN messages m ON m.id=j.message_id "
                                    "WHERE j.id=?", (attempt["job_id"],)).fetchone()
+                origin_message = H.message(c, origin["message_id"])
+                task_id = H.message_task_id(origin_message)
+                task = H.task(c, task_id) if task_id else None
+                requester = task["requester"] if task else origin["from_actor"]
+                cancelled = bool(task and task["status"] == "closed" and refs.get("task") == task_id)
                 related = (row["in_reply_to"] == origin["message_id"] or refs.get("turn_id") == aid
+                           or (task and task.get("request_id") and row["in_reply_to"] == task["request_id"])
                            or row["kind"] in ("answer", "steer") or refs.get("credential_saved"))
-                if (str(row["from_actor"]).startswith("human:") and (row["from_actor"] != origin["from_actor"] or not related)
-                        or row["kind"] == "notice"):
+                if (str(row["from_actor"]).startswith("human:") and (row["from_actor"] != requester or not related)
+                        or row["kind"] == "notice" and not cancelled):
                     continue
             c.execute("INSERT INTO attempt_inputs VALUES(?,?,NULL)", (aid, row["id"]))
             c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (aid, row["conversation_id"]))

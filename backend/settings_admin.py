@@ -288,7 +288,8 @@ class SettingsAdmin:
                 return {**self.definition(c, body.slug), "created": False,
                         "bot_owners": BA.owner_ids(self._config(c, body.slug)["bot_owners_json"])}
             raise Problem("duplicate", "That bot slug already exists" + (
-                " and is archived; restore it (`hub bot restore " + body.slug + "`)" if existing["state"] == "archived" else ""), 409)
+                " and is archived; choose a fresh slug for a new bot. Restore only when asked"
+                if existing["state"] == "archived" else ""), 409)
         company = providers.load(c, self.settings)
         # `hermes` is the model a bot run by a Hermes profile takes (the profile's own); the record then has a
         # credential instead of a computer (docs/hermes-agents.md).
@@ -301,7 +302,7 @@ class SettingsAdmin:
             raise Problem("model", "Choose the company's AI provider first (Settings > Providers)", 422)
         payload = M.BotDefinitionCreate(
             slug=body.slug, display_name=body.display_name or body.slug.replace("-", " ").title(),
-            description=body.description, reports_to=body.reports_to or None, status="planned", repo="",
+            description=body.description, reports_to=body.reports_to or who.actor, status="planned", repo="",
             model=choice["id"], effort=self._effort(choice, None), harness=None, owners=[])
         result = self.create_bot(c, who, payload)
         if body.template:
@@ -359,7 +360,7 @@ class SettingsAdmin:
             raise Problem("system_bot", (self.settings.assistant_name if bot == self.settings.assistant_bot
                                          else "BotOps" if bot == "botops" else "The Librarian" if bot == "librarian"
                                          else "The Goal Manager")
-                          + " is built in to every company and cannot be archived or deleted; you can pause or rename it", 409)
+                          + " is built in to every team and cannot be archived or deleted; you can pause or rename it", 409)
         self._manager(c, who, bot)
         if self._config(c, bot)["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)

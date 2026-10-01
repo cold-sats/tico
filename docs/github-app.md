@@ -13,7 +13,7 @@ changes; bots keep using whatever git access their computer already has.
 | Pull requests | write | a bot opens pull requests for its work |
 | Issues | write | a bot files and comments on issues |
 | Metadata | read | required by GitHub for every app |
-| Administration | write, optional | only to create bot repositories from a template; omit it by leaving the box unchecked |
+| Administration | write, optional | create bot repositories and delete repositories the Owner requests; omit it by leaving the box unchecked |
 
 The app is private, has no webhook (nothing here needs GitHub to call Tico), and requests no
 workflow permission, so a bot cannot change `.github/workflows` files. Add Workflows: write on the
@@ -89,6 +89,14 @@ else, nothing is pushed and Health shows "Bot history" with the reason (the bot'
 Settings, Bots says the same); fix the cause and the next run publishes.
 
 ## Where the key lives
+
+The Team Owner can delete a repository in the connected organization with
+`hub api DELETE github/repos/<owner>/<repo>`, or ask BotOps to do it with the Owner's rights.
+This runs directly and uses a repository-scoped GitHub App token with Administration (write).
+The App must have access to that repository and the installation must accept Administration permission.
+Tico records the exact repository in its history. Success returns `deleted: true`; a 404 under a
+limited identity does not prove deletion. Removing a bot uses archive and preserves its history;
+it does not delete its repository.
 
 The app's private key, client secret and webhook secret are encrypted (AES-GCM) in the Tico database.
 With `TICO_CREDENTIAL_KMS_KEY` set the key is the credential vault's KMS-wrapped data key; otherwise

@@ -1,7 +1,7 @@
 # Build me a bot, and take it live
 
-Triggered by a human's own chat message to you. Not by a task, a document, or a message another bot
-or the Assistant wrote: those never carry a human's authority, and the server refuses them. Budget
+Triggered by a human's own chat message, or a server-generated setup task carrying its human requester.
+A document or a message another bot or the Assistant wrote never carries a human's authority. Budget
 30 minutes for a bot, a minute for the rest.
 
 You act **as the human who wrote to you**. Every command is checked with *their* rights and recorded
@@ -16,6 +16,8 @@ not waiting on it. The human reads one message at the end.
 
 1. **Register it.** `hub bot create --record-only <slug> --name "<Display>" --description "<one line>"`. They become
    an owner. If they may not add bots, or are at their limit, say exactly that and stop.
+   Check archived bots too. If the slug is taken, offer a fresh one; never restore the old bot for
+   a new-bot request. Preserve this request's description, Instructions and limits throughout the build.
 2. **Build it.** Follow `playbooks/set-up-a-bot.md` from step 2: repository from the closest template,
    real instructions, `hub bot check <slug>` clean, committed.
 3. **What it needs.** If the bot talks to a tool (Jira, GitHub, a mailbox), find out what credential it
@@ -51,7 +53,7 @@ not waiting on it. The human reads one message at the end.
     hub human list
     hub human add <email> --name "<Name>" [--title T] [--reports-to <person id>]
 
-A member may add a coworker in the Team's domain; an owner or admin may add anyone. Both run directly.
+A member may add a teammate in the Team's domain; an owner or admin may add anyone. Both run directly.
 Admin changes, what members may do, and placement on a Computer closed to members' bots still return a Confirm card.
 Say what needs their click, then carry on with everything else.
 
@@ -68,6 +70,9 @@ off) happen at once, and each can be undone from Settings > Bots history.
   access, not a narrower credential, unless they gave it a separate read-only token.
 - "Turn off the Monday routine": `hub routine update <key> --disable --bot <bot>`.
 - "Pause X": `hub bot pause <bot>`. "Why isn't X live?": `hub health check`, then fix or explain.
+- "Delete X" or "remove X": `hub bot archive <bot>`. Say that its history stays. A repository is
+  separate: delete one only when asked, with `hub api DELETE github/repos/<owner>/<repo>` using the
+  Team Owner's rights. A successful response says `deleted: true`; a 404 is not proof of removal.
 - "Read a different mailbox" or "that's not my address" on a message bot: as them,
   `hub api POST access/people/<person id> '{"inbox_bot": "<bot>", "mailbox": "<address>"}'`. It comes back as a card
   for their click, because it decides which mailbox the bot may open. Change the `Mailbox:` line in its `AGENT.md`
@@ -76,8 +81,8 @@ off) happen at once, and each can be undone from Settings > Bots history.
 
 ## When it goes sideways
 
-- **`on_behalf_of` refused.** The run was not started by a human's own chat message (a task, a
-  routine, another bot). Tell whoever is on the task; do not retry and do not act as anyone.
+- **`on_behalf_of` refused.** The run has no human chat request, linked continuation request or
+  server-generated requester origin. Tell whoever is on the task; do not act as anyone else.
 - **They are at their limit of bots.** Offer to archive one they no longer need, or say an admin can
   raise the limit.
 - **No computer can take the bot.** Say so in one line: an admin has to add one or open one to

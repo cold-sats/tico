@@ -8,7 +8,7 @@ reasoning_effort: high
 max_run_minutes: 60
 
 # Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
-# the bot puts the draft on the task.
+# the bot puts the draft on the task. Once sending is on, no per-message approval is needed.
 outbound_send: false
 
 # Routines this bot owns. The server runs the clock and turns each occurrence into a task.
@@ -17,12 +17,12 @@ outbound_send: false
 routines: []
 
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
-# arrives in, never the value. Store a Credential in Tico and grant it to this bot;
-# the runner delivers it during a run. Declaring access here does not create a grant.
+# arrives in, never the value; the value lives in the workspace `secrets/` directory on the computer
+# that runs the bot. Declaring access here does not create it.
 # tools:
 #   - service: mail
 #     identity: "desk@example.com"
-#     can: [read, draft]          # send only with outbound_send: true
+#     can: [read, draft]          # send only with outbound_send: true and send access
 #     env: MAIL_CREDENTIALS
 #     note: "reads and drafts on its own mailbox; never files and never sends"
 tools: []
