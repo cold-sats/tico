@@ -12,6 +12,20 @@ from pathlib import Path
 BOT_THREAD = "bot"
 
 
+def session_key(config, attempt):
+    """The provider thread this turn continues. A bot set to `session: task` gets one
+    per task, so a review never carries every earlier review into each call; a wake about the
+    same task (a stalled nudge, a reconcile, a reply) resumes it. A wake with no task keys on
+    its conversation, so a person's follow-up still lands where the first answer was."""
+    if (config or {}).get("session") != "task":
+        return BOT_THREAD
+    task = (attempt.get("task") or {}).get("id")
+    if task:
+        return "task:" + task
+    conversation = (attempt.get("conversation") or {}).get("id")
+    return "conversation:" + conversation if conversation else BOT_THREAD
+
+
 class State:
     def __init__(self, directory):
         self.directory = Path(directory)

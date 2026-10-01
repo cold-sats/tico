@@ -132,6 +132,8 @@ def sync_shared_room(c, auth, bot, actor=None, create=False):
 
 
 def chat_room(c, auth, who, bot):
+    from .shared_bots import route
+    bot = H.actor_id(route(c, who.actor, "bot:" + bot))
     mode = thread_mode(c, bot)
     # Someone who is not a member of the shared room (a person who may write to the bot but is
     # not one of the people it works for) talks to it in a room of their own.

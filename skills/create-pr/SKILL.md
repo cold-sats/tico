@@ -105,3 +105,5 @@ Never mark the PR ready yourself; a human merges.
 
 In a thread there is no `hub`: file the same task, with the same owner, title and body, through Bot
 Desk's `create_task` tool, unless the human has said they will get it reviewed themselves.
+
+When running as a branch (`shared_from`), use your branch's bot slug for tasks and status. The original repository holds shared lessons; keep private chats and personal preferences out of it.

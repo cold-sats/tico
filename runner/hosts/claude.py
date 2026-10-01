@@ -23,6 +23,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from pathlib import Path
 
 from .. import isolation
 from clients import mcp_servers
@@ -161,6 +162,13 @@ class ClaudeHost(Host):
         hub = hub_mcp_server(t["settings"].get("env"))
         if hub:
             servers["hub"] = hub
+        if t["settings"].get("shared"):
+            argv += ["--setting-sources", "project,local", "--strict-mcp-config"]
+            try:
+                project = json.loads((Path(t["settings"]["cwd"]) / ".mcp.json").read_text()).get("mcpServers", {})
+            except (OSError, ValueError, AttributeError):
+                project = {}
+            servers = {**project, **servers}
         if servers:
             argv += ["--mcp-config", json.dumps({"mcpServers": servers})]
         model = model_for(t["settings"].get("model"))
@@ -180,9 +188,11 @@ class ClaudeHost(Host):
     @staticmethod
     def _env(settings):
         env = settings.get("env")
-        if not env:
+        if not env and not settings.get("shared"):
             return None
-        env = dict(env)
+        env = dict(env or os.environ)
+        if settings.get("shared"):
+            env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         # The login and the session files live under HOME; a trimmed environment must keep it.
         if not env.get("HOME") and os.environ.get("HOME"):
             env["HOME"] = os.environ["HOME"]

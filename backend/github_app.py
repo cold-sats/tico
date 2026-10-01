@@ -532,7 +532,9 @@ def install_github_app(app, settings, store):
                 allowed = False
             if not allowed:
                 raise Problem("forbidden", "This credential does not run that bot", 403)
-            config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (body.bot,)).fetchone()
+            from .shared_bots import declared, source_of
+            source = source_of(declared(c, body.bot)) or body.bot
+            config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (source,)).fetchone()
             # A bare emp-<slug> means the connected org, whatever the default owner is.
             repo = repo_of(config["repo"] if config else "", row["org"] or settings.github_owner)
             if not repo or repo.split("/")[0].lower() != row["org"].lower():

@@ -12,6 +12,7 @@ from . import models as M
 from . import placement
 from . import providers
 from . import rooms
+from . import shared_bots
 from .auth import Identity
 from .execution import _reported, stranded
 from .harnesses import EXTERNAL_HARNESSES, HARNESS_BY_ID, normalize_fallback, resolve_harness, runtime_of
@@ -155,7 +156,8 @@ class SettingsAdmin:
 
     def definition(self, c, bot):
         config, row = self._config(c, bot), H.bot(c, bot)
-        repo = config["repo"] or ("emp-" + bot)
+        effective = shared_bots.follow(c, bot, _json(config["config_json"], {}) or {})
+        repo = effective.get("repo") or config["repo"] or ("emp-" + bot)
         return {"slug": bot, "display_name": row["display_name"],
                 "template": (_json(config["config_json"], {}) or {}).get("template") or "",
                 "description": config["description"] or "", "reports_to": config["reports_to"],
@@ -163,11 +165,15 @@ class SettingsAdmin:
                 "status": row["state"], "repo": repo,
                 "repo_url": repo_url(repo, self.settings.github_owner),
                 "thread_mode": config["thread_mode"] or "personal",
+                "shared": bool((_json(config["config_json"], {}) or {}).get("shared")),
+                "shared_from": shared_bots.source_of(_json(config["config_json"], {})),
                 "temp": bool((_json(config["config_json"], {}) or {}).get("temp")),
                 "operator": config["operator"], "revision": config["revision"],
-                "model": row["model"], "runtime": row["runtime"], "effort": row["effort"],
-                "harness": resolve_harness(_json(config["config_json"], {}), row.get("runtime")),
-                "fallback": normalize_fallback((_json(config["config_json"], {}) or {}).get("fallback"))}
+                "model": effective.get("model") or row["model"], "runtime": effective.get("runtime") or row["runtime"],
+                "effort": effective.get("reasoning_effort") or row["effort"],
+                "session": effective.get("session"),
+                "harness": resolve_harness(effective, effective.get("runtime") or row.get("runtime")),
+                "fallback": normalize_fallback(effective.get("fallback"))}
 
     @staticmethod
     def refuse_retired(choice):
@@ -187,6 +193,10 @@ class SettingsAdmin:
 
     def create_bot(self, c, who, body):
         self.validate_template(body.template)
+        if body.template and "shared" not in body.model_fields_set:
+            from .onboarding import read_cards
+            card = next((card for card in read_cards(self.settings) if card["template"] == body.template), {})
+            body = body.model_copy(update={"shared": bool(card.get("shared"))})
         self._creator(c, who)
         privileged = who.role == "owner" or self.auth.bot_admin(who)
         pid = H.actor_id(who.actor)
@@ -252,7 +262,7 @@ class SettingsAdmin:
                   "description": body.description, "reports_to": body.reports_to,
                   "status": body.status, "repo": repo, "host": "keeper", "tasks": "hub",
                   "runtime": runtime_of(harness) or choice["runtime"], "model": choice["id"],
-                  "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode,
+                  "harness": harness, "reasoning_effort": effort, "thread_mode": body.thread_mode, "shared": body.shared,
                   "model_managed_by": "cloud"}
         team = self._team(c, body.slug, config)
         now = H.now()
@@ -319,9 +329,14 @@ class SettingsAdmin:
             row = self._config(c, body.slug)
             declared = _json(row["config_json"], {}) or {}
             declared["template"] = body.template
+            from .onboarding import read_cards
+            card = next((card for card in read_cards(self.settings) if card["template"] == body.template), {})
+            declared["shared"] = bool(card.get("shared"))
+            if card.get("session"):
+                declared["session"] = card["session"]
             c.execute("UPDATE bot_config SET config_json=? WHERE bot=?", (encode(declared), body.slug))
             MessageBots.link(c, who.actor, body.slug, who.actor)      # BotOps built it for them: it is their message bot
-        return {**result, "created": True}
+        return {**result, **self.definition(c, body.slug), "created": True}
 
     def co_owners(self, c, who, bot, add=(), remove=()):
         """Add or remove co-owners of a bot. Any of its owners may; whoever it reports up to and the Admins
@@ -392,6 +407,7 @@ class SettingsAdmin:
         status = (_json(previous["detail_json"], {}) or {}).get("previous") if previous else None
         status = status if status in ("active", "paused", "planned") else "planned"
         self.update_bot(c, who, bot, M.BotDefinitionUpdate(status=status, expected_revision=self._config(c, bot)["revision"]))
+        shared_bots.cascade_restore(c, who.actor, bot)
         H.event(c, who.actor, "bot.restored", bot, {"status": status})
         result = {"bot": bot, "status": status, "restored": True}
         from .agents import external_harness, row as agent_row
@@ -414,11 +430,18 @@ class SettingsAdmin:
             placement.auto_place(c, self.execution, bot, who.actor)
         finally:
             c.execute("UPDATE bots SET state=? WHERE slug=?", (previous, bot))
-        if not repository_present(c, bot) and not self.computer_builds_repository(c, bot):
+        # Branches clone an existing original repository; they never build a separate one.
+        branch = shared_bots.source_of(shared_bots.declared(c, bot))
+        if not branch and not repository_present(c, bot) and not self.computer_builds_repository(c, bot):
             raise Problem("repository_missing", "Its repository is not built yet. Ask BotOps to build it", 409)
 
     def update_bot(self, c, who, bot, body):
         self._manager(c, who, bot)
+        source = shared_bots.source_of(shared_bots.declared(c, bot))
+        if source and (H.bot(c, source) or {}).get("state") == "archived":
+            raise Problem("original_archived", "Restore the original before changing its branch's status", 409)
+        if body.model_fields_set - {"expected_revision", "on_behalf_of", "status"}:
+            shared_bots.refuse_copy(c, bot)
         if "template" in body.model_fields_set:
             self.validate_template(body.template)
         config = self._config(c, bot)
@@ -446,6 +469,10 @@ class SettingsAdmin:
         declared = _json(config["config_json"], {}) or {}
         if values["status"] == "active" and before.get("status") != "active":
             self.ensure_activation(c, who, bot)
+        if "session" in body.model_fields_set:
+            declared["session"] = body.session or "bot"
+        if "shared" in body.model_fields_set:
+            declared["shared"] = bool(body.shared)
         if "template" in body.model_fields_set:
             declared["template"] = body.template or ""
         declared.update({"name": bot, "display_name": values["display_name"],
@@ -576,6 +603,8 @@ class SettingsAdmin:
 
     def begin(self, c, who, bot, body, undo_change_id=None):
         self._manager(c, who, bot)
+        if body.kind == "model":
+            shared_bots.refuse_copy(c, bot)
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before preparing the change", 409)
@@ -836,6 +865,7 @@ class SettingsAdmin:
 
     def set_fallback(self, c, who, bot, body, undo_change_id=None):
         self._manager(c, who, bot)
+        shared_bots.refuse_copy(c, bot)
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
@@ -890,9 +920,11 @@ def archive_bot(c, actor, bot, successor="", revoke_agent=True):
     if successor and (successor == bot or not H.bot(c, successor)
                       or H.bot(c, successor).get("state") == "archived"):
         raise Problem("not_found", "Successor bot not found", 404)
+    shared_bots.cascade_archive(c, actor, bot)
     ts, parent = H.now(), config["reports_to"]
     previous = H.bot(c, bot)["state"]
     declared = _json(config["config_json"], {}) or {}
+    declared.pop("branch_previous_status", None)
     declared["status"] = "archived"
     c.execute("UPDATE bots SET state='archived' WHERE slug=?", (bot,))
     c.execute("UPDATE bot_config SET config_json=?,revision=revision+1,definition_updated=?,"

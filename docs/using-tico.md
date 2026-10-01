@@ -147,6 +147,11 @@ directory there; behind Cloudflare Access, also allow the address in its policy 
 bot: **Settings > Bots > Add from template**, or ask BotOps to build it. Open the bot and press **Set up** to finish its
 first conversation. See [Creating bots](creating-bots.md) for custom Instructions and manual setup.
 
+**How do I use my own branch of a bot?**
+Its owner enables **Allow branches**. Choose **Make my branch** on its page and your computer.
+The branch picker opens the original or a person's branch. New tasks and chats to the original go to your active branch.
+Branches share instructions and repository lessons; `hub bot copy` creates an independent bot. See [Branches](creating-bots.md#branches).
+
 ## Tags and release checklists
 
 Tags give related tasks a shared label, metadata and a Markdown checklist. A chip can show

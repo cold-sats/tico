@@ -3,6 +3,8 @@ slug: pr-reviewer
 name: "Senior Software Engineer"
 required: false
 bootstrap: false
+shared: true
+session: task
 group: engineering
 pack: engineering
 icon: code_blocks

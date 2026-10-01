@@ -55,6 +55,8 @@ def bot_repository(c, settings, bot):
     """`owner/name` of a bot's GitHub repository, resolved the way the token route resolves it, or "".
     The runner clones and publishes this one (runner/service.py `fetch_repository`)."""
     from .github_app import repo_of
+    from .shared_bots import declared, source_of
+    bot = source_of(declared(c, bot)) or bot
     config = c.execute("SELECT repo FROM bot_config WHERE bot=?", (bot,)).fetchone()
     try:
         app = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
@@ -289,16 +291,19 @@ class Execution:
         # The runner gets a concrete runtime and model; a bot that names none runs on the
         # company default, so changing the default moves it without editing the bot.
         company = providers.load(c, self.store.settings)
+        from .shared_bots import follow
         for row in rows:
             takes = runner['accepts_member_bots'] and self.auth.member_bot(c, row['bot'])
             if row['operator'] != runner['operator'] and runner['operator'] != owner and not takes:
                 continue
-            result.append({**dict(row), 'config': providers.fill(company, json.loads(row['config_json'])),
+            result.append({**dict(row), 'config': providers.fill(company, follow(c, row['bot'], json.loads(row['config_json']))),
                            'repository': bot_repository(c, self.store.settings, row['bot']),
                            'mail_agent': bool(P.inbox_person(row['bot'], people))})
         return result
 
     def assign(self, c, who, bot, body):
+        from .shared_bots import check_runner
+        check_runner(c, bot, body.runner_id)
         if not (self.auth.operator(c, who, bot) or self.auth.bot_manager(c, who, bot)):
             raise Problem("forbidden", "You do not manage this bot's machines", 403)
         from .agents import external_harness
@@ -569,8 +574,9 @@ class Execution:
         c.execute("INSERT INTO attempt_conversations VALUES(?,?)", (aid, conv["id"]))
         # A bot that names no runtime or model runs on the company default, resolved here the way
         # runners/assignments resolves it: the runner starts exactly what this says.
-        config = providers.fill(providers.load(c, self.store.settings), json.loads(
-            c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
+        from .shared_bots import follow
+        config = providers.fill(providers.load(c, self.store.settings), follow(c, row["bot"], json.loads(
+            c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0])))
         # The room's recent page. The runner forwards only what arrived since the bot last
         # answered; the bot reads further back itself with `hub conversation show` when it wants to. The
         # hub keeps no pointer to the bot's session and rebuilds nothing on its behalf.
@@ -746,7 +752,8 @@ class Execution:
                   (H.now(), body.thread_id, aid))
         c.execute("UPDATE turns SET thread_id=? WHERE id=?", (body.thread_id, aid))
         c.execute("UPDATE jobs SET state='running' WHERE id=?", (row["job_id"],))
-        config = json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0])
+        from .shared_bots import follow
+        config = follow(c, row["bot"], json.loads(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (row["bot"],)).fetchone()[0]))
         runtime, model = providers.bot_choice(c, self.store.settings, config)
         c.execute("INSERT INTO bot_sessions(bot,runtime,model,thread_id,runner_id,tokens_in,updated) "
                   "VALUES(?,?,?,?,?,0,?) ON CONFLICT(bot,runtime,model) DO UPDATE SET "

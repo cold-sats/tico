@@ -453,12 +453,26 @@ def bots(client, args):
             return client.get("templates")["cards"]
         except (APIError, KeyError, TypeError):
             return catalog.cards()
+    if args.fn == "bot branch":
+        from clients import hubtools
+        fields = {"bot": args.bot}
+        if args.computer:
+            listing = hubtools.computers(client, {})
+            rows = listing.get("computers", []) if isinstance(listing, dict) else listing
+            me = hubtools._as_person(client).get("me")
+            person = str(me.get("actor") or me.get("id") or "").removeprefix("human:")
+            matches = [row for row in rows if not row.get("revoked_at") and row.get("operator") == person
+                       and args.computer in (row.get("id"), row.get("label"))]
+            if len(matches) != 1:
+                raise APIError("computer", "Choose one of your computers by its id or unique label")
+            fields["runner_id"] = matches[0]["id"]
+        return hubtools.bot_branch(client, fields)
     if args.fn == "bot update":
         # The server checks the change as the person who sent the cited message (backend/app.py).
         from clients import hubtools
         fields = {k: v for k, v in (("slug", args.slug), ("reports_to", args.reports_to), ("display_name", args.display_name),
                                     ("description", args.description), ("status", args.status), ("repo", args.repo),
-                                    ("on_behalf_of", args.on_behalf_of)) if v is not None}
+                                    ("on_behalf_of", args.on_behalf_of), ("shared", args.shared), ("session", args.session)) if v is not None}
         try:
             return hubtools.BY_NAME["hub_bot_update"]["fn"](client, fields)
         except ValueError as exc:

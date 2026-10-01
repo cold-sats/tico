@@ -138,3 +138,5 @@ The requester closes the task. Unless a human asked you in chat to take it live,
 - **The check fails on something outside the repository**, such as a runtime that is not installed
   or a profile with no sign in. That is the owner's to fix. Record the exact failing line on the
   task and finish; do not work around it.
+
+Use `hub bot branch <bot>` for shared instructions and lessons on your own computer; `hub bot copy <bot>` starts an independent bot from the original repository's contents.

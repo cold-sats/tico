@@ -250,6 +250,7 @@ async function pageBot(slug, tab) {
     <button class="bot-back-arrow" id="bot-back-arrow" type="button" aria-label="Back" title="Back">‹</button>
     <div class="bot-ident"><span data-tip-bot="${esc(slug)}" tabindex="0" role="img" aria-label="${esc(e.display_name || slug)} status">${avatar(slug, 36, stateOf(slug))}</span>
       <div class="botid"><h1${role ? ` title="${esc(role)}"` : ''}>${shownName(e)}${runtimeTag(e)}</h1>
+        <div class="meta" id="bot-branches"></div>
         <div class="meta" id="bot-alert">${limited ? '' : botAlertHTML(slug)}</div>
         <div class="bot-ticker" id="bot-ticker" aria-live="polite" hidden></div></div></div>
     <div class="bot-switch" id="btabs" role="tablist" aria-label="${esc(e.display_name || slug)}">
@@ -350,7 +351,7 @@ async function pageBot(slug, tab) {
   </div>
 
   ${limited ? '<div id="pane-docs" hidden>' : `<div id="pane-docs" hidden>
-    <section class="card"><header><h2>Instructions</h2>${settingsCanManageBot(e) ? `<button class="ghost" type="button" data-edit-instructions="${esc(slug)}">Edit Instructions</button>` : ''}</header><div class="md" id="agent">Loading…</div></section>
+    <section class="card"><header><h2>Instructions</h2>${settingsCanManageBot(e) && !e.shared_from ? `<button class="ghost" type="button" data-edit-instructions="${esc(slug)}">Edit Instructions</button>` : ''}</header><div class="md" id="agent">Loading…</div></section>
     <section class="card"><header><h2>Working notes</h2></header>
       <div class="tabs" id="tabs"></div><div class="md" id="doc">Loading…</div></section>
   `}
@@ -371,6 +372,7 @@ async function pageBot(slug, tab) {
     if (BOT_PILL?.slug === slug) { PILLS.delete(BOT_PILL); BOT_PILL = null; }
     $('#chat-composer').innerHTML = `<section class="card"><h2>Chat is not open to you</h2><p class="muted">You can see ${esc(e.display_name || slug)} but not send it requests. Ask its owner for Write access.</p></section>`;
   }
+  if (!limited) void botBranchesLoad(slug);
   if (!limited) void botGoalLoad(slug);
   if (isKeeper(slug) && !limited) void botTickerLoad(slug);
   $('#btabs').onclick = ev => {

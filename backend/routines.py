@@ -175,6 +175,8 @@ def emit(c, kind, subject, payload=None, *, title=None, content="", at=None, aut
     fired = []
     rows = c.execute("SELECT s.* FROM schedules s JOIN bots b ON b.slug=s.bot LEFT JOIN schedule_config sc ON sc.schedule_id=s.id "
                      "WHERE s.event_name=? AND b.state='active' AND coalesce(sc.enabled,1)=1 AND s.deleted_at IS NULL "
+                     "AND NOT EXISTS(SELECT 1 FROM bot_config bc WHERE bc.bot=s.bot "
+                     "AND coalesce(json_extract(bc.config_json,'$.shared_from'),'')<>'') "
                      "ORDER BY s.id", (kind,)).fetchall()
     for schedule in rows:
         occurrence = f"{kind}:{subject}"

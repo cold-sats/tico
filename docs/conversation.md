@@ -26,3 +26,7 @@ and attachments must not be copied into Tico's shared repository files.
 Every bot page shows its persistent main conversation from Tico messages and runs. Chat is a
 conversation on hub.acme.example; the assigned computer executes the run and streams the reply back
 into the same room. How the pieces fit: [How Tico works](how-it-works.md).
+
+For a bot that allows [branches](creating-bots.md#branches), opening a chat with the original uses your active branch.
+Each branch has personal chats on its person's computer. The branch picker reaches other branches with the usual access checks.
+Turning branches off routes new chats to the original again; existing messages and task threads stay intact.

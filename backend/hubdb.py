@@ -1031,11 +1031,25 @@ def known_repos(conn):
     return names
 
 
+def own_repos(conn, actor):
+    """The repository a bot runs in, including its original when it is a branch."""
+    if not is_bot(actor) or not _has_table(conn, "bot_config"):
+        return ()
+    from .shared_bots import declared, follow
+    slug = actor_id(actor)
+    config = follow(conn, slug, declared(conn, slug))
+    row = _one(conn, "SELECT repo FROM bot_config WHERE bot=?", (slug,))
+    repo = config.get("repo") or (row["repo"] if row else "") or "emp-" + slug
+    return (str(repo).rstrip("/").rsplit("/", 1)[-1].removesuffix(".git").lower(),)
+
+
 def names_other_repo(text, actor, conn=None):
     """Whether `text` names another bot's repository folder. `emp-<anything>/` always counts (the older prefix). A
     `bot-<name>/` counts only when it is a real bot's folder (known bots and their recorded repositories), so ordinary
     words such as "bot-driven/" are not an escape; with no `conn` to look them up, only the `emp-` form is checked."""
     mine = (f"emp-{actor_id(actor)}/", f"bot-{actor_id(actor)}/") if actor else ()
+    if conn is not None:
+        mine += tuple(repo + "/" for repo in own_repos(conn, actor))
     known = None
     for match in OTHER_REPO.finditer(str(text or "")):
         name = match.group(0).lower()
@@ -2090,6 +2104,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     joins the bottom of the owner's queue unless `top`.
     """
     _writer(conn, actor)
+    from .shared_bots import route
+    owner = route(conn, actor, owner)
     target = _reach(conn, actor, owner, allow_planned=allow_planned)
     title = str(title or "").strip()
     body = str(body or "")

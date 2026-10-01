@@ -802,6 +802,7 @@ class BotDefinitionCreate(Contract):
     status: Literal["active", "paused", "planned"] = "planned"
     repo: Repo = ""
     thread_mode: Literal["personal", "shared"] = "personal"
+    shared: bool = False
     model: str = Field(default="", max_length=200)
     effort: str = Field(default="", max_length=200)
     harness: ID | None = None
@@ -814,6 +815,10 @@ class BotDefinitionCreate(Contract):
     # reviewed for it. Both are empty for a bot typed in by hand.
     template: str = Field(default="", max_length=80)
     instructions: str = Field(default="", max_length=20_000)
+
+
+class BotBranch(Contract):
+    runner_id: ID | None = None
 
 
 class BotArchive(Contract):
@@ -837,6 +842,8 @@ class BotDefinitionUpdate(Contract):
     thread_mode: Literal["personal", "shared"] | None = None
     # Temporary work expected to end: a flag, not "Project"/"Temp" in the name.
     temp: bool | None = None
+    shared: bool | None = None
+    session: Literal["bot", "task"] | None = None
     expected_revision: int = Field(ge=1)
     # BotOps applying a person's own request: the id of that person's message to BotOps. The
     # change is checked as that person, never as BotOps (backend/app.py update_bot).
