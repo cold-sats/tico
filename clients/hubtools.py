@@ -2461,8 +2461,9 @@ def docs_fetch(api, args):
 # `hub` commands with no tool: they write the Mac's own workspace (`clients/catalog.py`), which
 # the hub cannot reach, so BotOps runs them in a shell. Everything else is in both doors.
 # `hub_db` runs where the database credential is, on the runner; the server's MCP endpoint
-# has neither the credential nor any business connecting to a team database.
-SHELL_ONLY = {"hub_bot_check", "hub_db"}
+# has neither the credential nor any business connecting to a team database. A person makes and
+# revokes service keys in their own shell: a new key is shown to them, never to an agent's context.
+SHELL_ONLY = {"hub_bot_check", "hub_db", "hub_service_key_create", "hub_service_key_list", "hub_service_key_revoke"}
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 

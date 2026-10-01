@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS human_tokens(
  id TEXT PRIMARY KEY, human TEXT NOT NULL REFERENCES humans(id), label TEXT NOT NULL,
  token_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL, created_by TEXT NOT NULL,
  last_used TEXT, expires_at TEXT, revoked_at TEXT);
+-- Service keys (backend/service_keys.py): another system's credential for one route, as a hash, and
+-- the task each (key, that system's own key for the work) pair names.
+CREATE TABLE IF NOT EXISTS service_keys(
+ id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, created TEXT NOT NULL,
+ created_by TEXT NOT NULL, last_used TEXT, revoked_at TEXT, revoked_by TEXT);
+CREATE TABLE IF NOT EXISTS service_key_tasks(
+ key_id TEXT NOT NULL REFERENCES service_keys(id), external_key TEXT NOT NULL,
+ task_id TEXT NOT NULL REFERENCES tasks(id), created TEXT NOT NULL, PRIMARY KEY(key_id, external_key));
 CREATE TABLE IF NOT EXISTS oidc_sessions(
  id_hash TEXT PRIMARY KEY, human TEXT NOT NULL REFERENCES humans(id), email TEXT NOT NULL,
  created TEXT NOT NULL, last_seen TEXT NOT NULL, expires_at TEXT NOT NULL);
@@ -320,6 +328,18 @@ CREATE INDEX IF NOT EXISTS slack_task_completion_notices ON messages(
  WHERE json_extract(refs_json,'$.task_completion.notify')=1;
 """
 SCHEMA += SLACK_SCHEMA
+
+
+def refused(c, identity, exc):
+    """Undo a refused domain write, keep its audit (and rule 8's count), and say what answers it."""
+    c.execute("ROLLBACK TO domain_write")
+    c.execute("RELEASE domain_write")
+    # Preserve refusal auditing, but never a partial domain operation.
+    try:
+        H.refuse(c, identity.actor, exc.rule, exc.detail, exc.severity)
+    except H.Refused:
+        pass
+    return Problem(exc.rule, exc.detail, 403 if exc.rule in ("identity", "escape", "quarantined", "close") else 422)
 
 
 # A client retries a failed write with the same Idempotency-Key within seconds, so two
@@ -1086,20 +1106,29 @@ class Store:
                 result = fn(c)
                 c.execute("RELEASE domain_write")
             except H.Refused as exc:
-                c.execute("ROLLBACK TO domain_write")
-                c.execute("RELEASE domain_write")
-                # Preserve refusal auditing, but never a partial domain operation.
-                try:
-                    H.refuse(c, identity.actor, exc.rule, exc.detail, exc.severity)
-                except H.Refused:
-                    pass
-                refusal = Problem(exc.rule, exc.detail, 403 if exc.rule in
-                                  ("identity", "escape", "quarantined", "close") else 422)
+                refusal = refused(c, identity, exc)
                 result = {"_refusal": {"code": refusal.code, "detail": refusal.detail,
                                        "status": refusal.status}}
             if not is_poll(operation, result):
                 c.execute("INSERT INTO idempotency VALUES(?,?,?,?,?,?)",
                           (principal, operation, key, hashed, encode(result), H.now()))
+        if refusal:
+            raise refusal
+        return result
+
+    def write(self, identity, fn):
+        """`mutate` without an idempotency record, for a route whose request is its own: the same
+        identity check under the write lock, and the same all-or-nothing refusal."""
+        refusal = None
+        with self.transaction() as c:
+            from .auth import validate_identity
+            validate_identity(c, identity)
+            c.execute("SAVEPOINT domain_write")
+            try:
+                result = fn(c)
+                c.execute("RELEASE domain_write")
+            except H.Refused as exc:
+                refusal = refused(c, identity, exc)
         if refusal:
             raise refusal
         return result

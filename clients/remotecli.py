@@ -122,6 +122,13 @@ def run(args, who=None):
         # Runs here, beside the credential; the hub only checks who is asking and keeps the audit.
         from clients import dbquery
         return dbquery.run(client, args)
+    if args.cmd == "service-key":
+        # A person's own shell (hubtools.SHELL_ONLY): a new key is shown to them, never to an agent's context.
+        if fn == "service-key create":
+            return client.post("service-keys", {"label": args.label}, key=os.environ.get("HUB_OPERATION_ID"))
+        if fn == "service-key revoke":
+            return client.post("service-keys/" + args.id + "/revoke", {}, key=os.environ.get("HUB_OPERATION_ID"))
+        return client.get("service-keys")["keys"]
     identity = client.get("me")
     actor = identity["actor"]
     key = os.environ.get("HUB_OPERATION_ID")

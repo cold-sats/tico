@@ -20,7 +20,7 @@ HUB = Path(__file__).resolve().parents[2] / "scripts" / "hub"
 SUBCOMMANDS = ["whoami", "meeting", "message", "conversation", "question", "note", "file", "doc", "assistant", "tag", "task", "goal", "kpi",
                "proposal", "market", "listening", "tool", "routine", "approval", "brief", "mcp", "needs-you", "run", "team", "health",
                "update", "grokbot", "calendar", "sql", "db", "classify", "decision", "template", "bot", "skill", "agent", "human", "group", "api", "computer",
-               "credential", "slack", "support"]
+               "credential", "slack", "support", "service-key"]
 
 
 def run_hub(*args, env=None):

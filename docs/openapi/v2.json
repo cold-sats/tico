@@ -3,7 +3,7 @@
   "info": {
     "title": "Tico API (v2)",
     "version": "2.0.0",
-    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
+    "description": "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body returns the first answer), except POST /api/v2/inbound/tasks, whose own `key` is its idempotency. Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md."
   },
   "tags": [
     {
@@ -4782,6 +4782,73 @@
         ]
       }
     },
+    "/api/v2/inbound/tasks": {
+      "post": {
+        "summary": "Another system's work as it is now, by its own key: files, updates, closes or reopens one task (service key only; docs/service-keys.md)",
+        "operationId": "upsertInboundTask",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundTask"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundTaskResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "serviceKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Not needed: the pair (service key, `key`) makes a repeated call harmless, and the header is ignored."
+          }
+        ]
+      }
+    },
     "/api/v2/kpis": {
       "get": {
         "summary": "The KPIs the caller may see; goal_id, owner, unlinked=true narrow it; auto_for=<bot> is that bot's five automatic KPIs",
@@ -6687,6 +6754,172 @@
         },
         "tags": [
           "Goals"
+        ]
+      }
+    },
+    "/api/v2/service-keys": {
+      "get": {
+        "summary": "Service keys, never the secret (owner and admins)",
+        "operationId": "listServiceKeys",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Session"
+        ]
+      },
+      "post": {
+        "summary": "Make a key another system uses to file, update and close tasks, and nothing else; shown once (owner and admins)",
+        "operationId": "createServiceKey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServiceKeyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Session"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ]
+      }
+    },
+    "/api/v2/service-keys/{key_id}/revoke": {
+      "post": {
+        "summary": "Revoke a service key",
+        "operationId": "revokeServiceKey",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Session"
         ]
       }
     },
@@ -11879,6 +12112,165 @@
         ],
         "additionalProperties": true
       },
+      "InboundTask": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Labels"
+          },
+          "links": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Links"
+          },
+          "due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due"
+          },
+          "close": {
+            "type": "boolean",
+            "title": "Close",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "InboundTask",
+        "description": "What one piece of another system's work should look like now (POST /api/v2/inbound/tasks).\n`owner`, `title` and `body` are needed only when the call files the task; anything left out\nstays as it is."
+      },
+      "InboundTaskResult": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Task"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changed",
+          "created",
+          "task"
+        ],
+        "additionalProperties": true
+      },
       "InternalDoc": {
         "type": "object",
         "properties": {
@@ -14015,6 +14407,23 @@
         ],
         "additionalProperties": true
       },
+      "ServiceKeyCreate": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "ServiceKeyCreate",
+        "description": "A service key (backend/service_keys.py): the label names the system that holds it, on every\ntask it files."
+      },
       "Snapshot": {
         "type": "object",
         "properties": {
@@ -15682,6 +16091,11 @@
         "type": "http",
         "scheme": "bearer",
         "description": "A bearer session from POST /auth/token (browser apps) or a personal API token (servers)."
+      },
+      "serviceKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A service key, tico_sk_..., which reaches POST /api/v2/inbound/tasks and nothing else."
       },
       "cookie": {
         "type": "apiKey",

@@ -7,6 +7,13 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Service keys: a key another system, such as your product's backend, uses to file, update, close and reopen tasks,
+  and nothing else. `POST /api/v2/inbound/tasks` takes the system's own `key` for each piece of work and makes one task
+  match what it says now, so calls may come in any order and twice. The owner and the admins manage keys with
+  `hub service-key create|list|revoke` (or `/api/v2/service-keys`); there is no Settings page for them yet
+  (docs/service-keys.md).
+
 ## [0.3.0] - 2026-10-01
 
 ### Changed

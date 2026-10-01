@@ -3325,6 +3325,8 @@ def create_app(settings=None):
     from .views import install_views
     from .task_types import install_task_types
     install_task_types(app, store, auth, mutate, mover)
+    from .service_keys import install_service_keys
+    install_service_keys(app, store, auth, mutate, task_view)
     install_views(app, store, auth, mutate, task_view)
     turn_work.install(app, store, auth)
     from .documents import install_documents

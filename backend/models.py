@@ -1285,3 +1285,26 @@ class PersonalTokenCreate(Contract):
     and how long it lives; 90 days unless asked, never more than a year."""
     label: str = Field(min_length=1, max_length=80)
     expires_in_days: int = Field(default=90, ge=1, le=365)
+
+
+class ServiceKeyCreate(Contract):
+    """A service key (backend/service_keys.py): the label names the system that holds it, on every
+    task it files."""
+    label: str = Field(min_length=1, max_length=80)
+
+
+class InboundTask(Contract):
+    """What one piece of another system's work should look like now (POST /api/v2/inbound/tasks).
+    `owner`, `title` and `body` are needed only when the call files the task; anything left out
+    stays as it is."""
+    key: str = Field(min_length=1, max_length=200)      # the other system's own id for the work
+    owner: ID | None = None                             # human:<id>, bot:<slug> or a person's email
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    body: Text | None = None
+    type: ID | None = None
+    step: str | None = Field(default=None, max_length=200)
+    labels: list[str] | None = Field(default=None, max_length=20)
+    links: list[str] = Field(default_factory=list, max_length=20)
+    due: str | None = None
+    close: bool = False
+    note: str | None = Field(default=None, max_length=200_000)

@@ -50,6 +50,10 @@ STABLE = [
     ("/api/v2/me/tokens", "post", "Session", "createMyToken",
      "Mint a personal API token for server-to-server use (any person unless the owner limits it to admins; cookie sessions only)", None),
     ("/api/v2/me/tokens/{token_id}/revoke", "post", "Session", "revokeMyToken", "Revoke a personal API token", None),
+    ("/api/v2/service-keys", "get", "Session", "listServiceKeys", "Service keys, never the secret (owner and admins)", None),
+    ("/api/v2/service-keys", "post", "Session", "createServiceKey",
+     "Make a key another system uses to file, update and close tasks, and nothing else; shown once (owner and admins)", None),
+    ("/api/v2/service-keys/{key_id}/revoke", "post", "Session", "revokeServiceKey", "Revoke a service key", None),
     ("/api/v2/openapi.json", "get", "Session", "getOpenApi", "This document", None),
     ("/api/v2/config", "get", "Team", "getConfig", "Team and app names, version, setup state", "Config"),
     ("/api/v2/org", "get", "Team chart", "getOrg",
@@ -129,6 +133,9 @@ STABLE = [
     ("/api/v2/tasks/{tid}", "post", "Tasks", "updateTask",
      "Change a task; send the version you read (409 version_conflict otherwise)", "TaskResult"),
     ("/api/v2/tasks/{tid}/comments", "post", "Tasks", "commentOnTask", "Comment on a task", "CommentResult"),
+    ("/api/v2/inbound/tasks", "post", "Tasks", "upsertInboundTask",
+     "Another system's work as it is now, by its own key: files, updates, closes or reopens one task (service key only; "
+     "docs/service-keys.md)", "InboundTaskResult"),
     ("/api/v2/updates", "get", "Updates", "listUpdates", "Daily and weekly updates", "UpdateList"),
     ("/api/v2/updates/unread", "get", "Updates", "countUnreadUpdates", "How many updates are unread", "Unread"),
     ("/api/v2/updates/read", "post", "Updates", "markUpdatesRead", "Mark updates read or unread", None),
@@ -424,6 +431,7 @@ SCHEMAS = {
                        "messages": items(ref("Message")), "has_more": "b"},
                        required=["task", "events", "children", "comments", "messages", "has_more"], actors=ACTORS),
     "CommentResult": obj({"comment": ref("Message"), "comments": items(ref("Message")), "woke": "b"}),
+    "InboundTaskResult": obj({"task": {"oneOf": [ref("Task"), {"type": "null"}]}, "created": "b", "changed": "b"}),
     "UpdateList": obj({"updates": "a", "unread": "i", "next_before": "n"}, required=["updates", "unread"]),
     "Unread": obj({"unread": "i"}),
     "NeedsYou": {"oneOf": [obj({"actor": "s", "items": items({
@@ -660,7 +668,8 @@ DESCRIPTION = (
     "The stable API for building your own frontend on Tico. Everything here keeps its shape within v2: fields are added, "
     "never removed or renamed, and a breaking change is a new /api/v3. Routes not listed are internal. "
     "Every write needs an `Idempotency-Key` header (1-200 characters; a retry with the same key and body "
-    "returns the first answer). Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md.")
+    "returns the first answer), except POST /api/v2/inbound/tasks, whose own `key` is its idempotency. "
+    "Errors are `{\"error\": {code, detail, retryable}}`. See docs/custom-frontend.md.")
 
 
 def _refs(node, found):
@@ -709,10 +718,15 @@ def spec(app):
         if path in ("/healthz", "/auth/login"):
             op["security"] = []
         op["responses"] = dict(sorted(responses.items()))
+        inbound = path == "/api/v2/inbound/tasks"
+        if inbound:
+            op["security"] = [{"serviceKey": []}]
         if method in ("post", "patch", "delete") and path.startswith("/api/v2/"):
             op.setdefault("parameters", []).append({
-                "name": "Idempotency-Key", "in": "header", "required": True, "schema": {"type": "string"},
-                "description": "1-200 characters. Reusing a key with the same body replays the first answer."})
+                "name": "Idempotency-Key", "in": "header", "required": not inbound, "schema": {"type": "string"},
+                "description": "Not needed: the pair (service key, `key`) makes a repeated call harmless, and the header "
+                               "is ignored." if inbound else
+                               "1-200 characters. Reusing a key with the same body replays the first answer."})
         paths.setdefault(path, {})[method] = op
     used = set()
     _refs(paths, used)
@@ -740,6 +754,8 @@ def spec(app):
             "securitySchemes": {
                 "bearer": {"type": "http", "scheme": "bearer",
                            "description": "A bearer session from POST /auth/token (browser apps) or a personal API token (servers)."},
+                "serviceKey": {"type": "http", "scheme": "bearer",
+                               "description": "A service key, tico_sk_..., which reaches POST /api/v2/inbound/tasks and nothing else."},
                 "cookie": {"type": "apiKey", "in": "cookie", "name": "tico_session",
                            "description": "The browser session of Tico's own page (`__Host-tico_session` over https)."}}},
         "security": [{"bearer": []}, {"cookie": []}],

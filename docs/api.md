@@ -75,7 +75,10 @@ generates; after a change to the API, `python -m backend.openapi_v2` rewrites it
 | A browser app served from the same address as Tico | Tico's own session cookie | [custom-frontend.md](custom-frontend.md#same-origin-option-a) |
 | A server or script | A personal API token, `Authorization: Bearer tico_pt_...` | [custom-frontend.md](custom-frontend.md#servers-and-scripts-option-c) |
 
-Whatever the credential, the caller is a human on your roster and sees what that human sees.
+Whatever the credential, the caller is a human on your roster and sees what that human sees. Another system that
+only files, updates and closes tasks, such as your product's backend, uses a service key instead,
+`Authorization: Bearer tico_sk_...`: it is no one on your roster and reaches `POST /api/v2/inbound/tasks` and nothing
+else ([service-keys.md](service-keys.md)).
 
 ## Who can see, read and write to a bot
 
