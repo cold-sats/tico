@@ -33,13 +33,17 @@ async function botBranchesLoad(slug) {
     if (bot.shared_from && !branches.some(b => b.slug === slug)) branches.push({...bot, slug});
     const mine = branches.find(b => b.operator === S.me?.id);
     const make = data.shared && original?.operator !== S.me?.id && !mine;
-    host.innerHTML = `<select aria-label="Branch" aria-description="Press Enter to open" data-branch-picker>
+    // With no branches yet the picker has nothing to choose, so the button alone offers a branch.
+    const pick = branches.length > 0;
+    host.innerHTML = `${pick ? `<select aria-label="Branch" aria-description="Press Enter to open" data-branch-picker>
       <option value="${esc(data.original)}" ${slug === data.original ? 'selected' : ''}>Original</option>
       ${branches.map(b => `<option value="${esc(b.slug)}" ${slug === b.slug ? 'selected' : ''} ${b.status === 'archived' ? 'disabled' : ''}>${esc(branchPersonLabel(b))}${b.status === 'archived' ? ' · Archived' : ''}</option>`).join('')}
-      ${make ? '<option value="@make">Make my branch</option>' : ''}</select>
+      </select>` : ''}
       ${bot.shared_from ? `<a href="${branchBotLink(data.original)}" aria-label="Open original ${esc(botDisplayName(data.original))}">Original</a>${data.shared ? '' : '<span class="muted">branches off</span>'}` : ''}
       ${make ? '<button type="button" class="ghost" data-branch-make>Make my branch</button>' : ''}`;
+    host.querySelector('[data-branch-make]')?.addEventListener('click', () => void botBranchCreate(data.original));
     const picker = host.querySelector('[data-branch-picker]');
+    if (!picker) return;
     let keyboard = false;
     picker.onpointerdown = () => { keyboard = false; };
     picker.onkeydown = event => {
@@ -47,12 +51,10 @@ async function botBranchesLoad(slug) {
       if (event.key === 'Enter') { event.preventDefault(); keyboard = false; choose(); }
     };
     const choose = () => {
-      if (picker.value === '@make') { picker.value = slug; void botBranchCreate(data.original); }
-      else location.hash = branchBotLink(picker.value);
+      location.hash = branchBotLink(picker.value);
     };
     picker.onchange = () => { if (!keyboard) choose(); };
     picker.onblur = () => { picker.value = slug; keyboard = false; };
-    host.querySelector('[data-branch-make]')?.addEventListener('click', () => void botBranchCreate(data.original));
   } catch (error) {
     if (BOT?.slug === slug && host.isConnected) host.textContent = 'Branches unavailable';
   }

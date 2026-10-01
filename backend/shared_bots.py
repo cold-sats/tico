@@ -152,7 +152,7 @@ def check_runner(c, bot, runner_id, source=None):
     for row in c.execute("SELECT a.bot,bc.config_json FROM assignments a JOIN bot_config bc ON bc.bot=a.bot "
                          "WHERE a.runner_id=? AND a.bot<>?", (runner_id, bot)):
         if row["bot"] == source or source_of(_json(row["config_json"])) == source:
-            raise Problem("shared_runner", "That computer already runs the original or a branch of it. Choose another computer", 409)
+            raise Problem("shared_runner", "That computer already runs the original or a branch of it. Choose another computer.", 409)
 
     if original:
         runner = c.execute("SELECT operator FROM runners WHERE id=?", (runner_id,)).fetchone()

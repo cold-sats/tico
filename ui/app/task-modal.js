@@ -220,9 +220,11 @@ const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}`
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
   lint: v => `noted: ${v}`, note: () => 'left a note'};
-function commentLineHTML(x) {
+function commentLineHTML(x, i, all) {
   if (x.kind === 'event') {
     if (x.field === 'status' && x.old == null) return '';           // created: the header says so
+    // A step move already names where the task went; its status change would say it twice.
+    if (x.field === 'status' && all?.some(y => y.kind === 'event' && y.field === 'step' && y.new && y.ts === x.ts)) return '';
     const say = TASK_EVENT_WORDS[x.field] ? TASK_EVENT_WORDS[x.field](x.new) : `changed ${x.field}`;
     return `<div class="tcomment sys"><span class="tcomment-who">${commentAuthor(x.actor, x.via)}</span> <span class="muted">${esc(say)}${x.note && x.field !== 'note' ? ` — ${esc(clipLine(x.note, 200))}` : ''}</span>
       <time class="muted tnum" title="${esc(fmt(x.ts))}">${esc(ago(x.ts))}</time></div>`;

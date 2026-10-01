@@ -195,6 +195,7 @@ function settingsEditBot(slug = '') {
           runner_id: form.elements.runner_id.value || null});
       }
       dialog.close(); await loadSettings(); settingsShow('bots');
+      if (editing && BOT?.slug === slug) void botBranchesLoad(slug);   // Allow branches shows the picker without a reload
       toast(editing ? `Updated ${form.elements.display_name.value}` : added?.note || `Added ${form.elements.display_name.value}`);
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; submit.disabled = false; }
   };

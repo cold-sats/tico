@@ -41,7 +41,7 @@ const {html, uiFile} = require('./support/page.cjs');
         branches: bots.filter(b => b.shared_from).map(b => ({...b, slug: b.name}))});
       if (p.endsWith('/copies')) {
         writes.push([p, JSON.parse(request.postData())]);
-        if (collision) return route.fulfill({status: 409, contentType: 'application/json', body: JSON.stringify({error: {detail: 'That computer already runs the original or a branch of it. Choose another computer'}})});
+        if (collision) return route.fulfill({status: 409, contentType: 'application/json', body: JSON.stringify({error: {detail: 'That computer already runs the original or a branch of it. Choose another computer.'}})});
         const branch = {...base, name: 'architect-ana', slug: 'architect-ana', display_name: 'Architect', operator: 'ana', shared_from: 'architect'};
         bots.push(branch); return json(branch);
       }
@@ -59,13 +59,8 @@ const {html, uiFile} = require('./support/page.cjs');
       return json({});
     });
     await page.goto('https://tico-ui.test/#/bot/architect');
-    const picker = page.locator('[data-branch-picker]');
-    await picker.waitFor();
-    assert.deepEqual(await picker.locator('option').allTextContents(), ['Original', 'Make my branch']);
-    await picker.focus();
-    await picker.press('m');
-    assert.equal(await page.locator('#branch-editor').count(), 0);
-    await picker.press('Tab');
+    await page.locator('[data-branch-make]').waitFor();
+    assert.equal(await page.locator('[data-branch-picker]').count(), 0);
     await page.locator('[data-branch-make]').click();
     let dialog = page.locator('#branch-editor');
     await dialog.waitFor({state: 'visible'});
