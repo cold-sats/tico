@@ -164,9 +164,10 @@ A message cited by id (`on_behalf_of`) must be the requester's own, in their own
 spoke in, and under a day old, and it must be the same human whose message started the run. Someone who has left lends nothing.
 If a friendly tool refuses for permissions, BotOps retries the same action with `hub_api` before handing work back. Both use the same rights.
 
-The same goes for routines and quarantine: BotOps sets a bot's routines only as the human who asked, who must manage that bot (a
-run no human started, such as setup, may seed routines on a bot still being built from its template and nothing else), and clears
-a quarantine only citing that human's message and their management of the bot. Unattended BotOps work retains its own rights.
+The same goes for routines and quarantine: human-requested BotOps work uses that human’s management rights,
+including work requested through a task. Task comments do not lend human authority. The run must be able to read
+the request’s conversation, and stale requests lend nothing. Bot-requested work keeps that bot’s narrower rights.
+Unattended BotOps work retains its own rights.
 
 The commands (with MCP tools of the same names):
 

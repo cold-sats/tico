@@ -9,7 +9,7 @@ writing a bot's `AGENT.md`. Installation of the server, the runner and the model
 [Shared credentials](credential-vault.md).
 
 BotOps takes a bot all the way to working when a human asks in chat: it builds it, opens a card for any credential it needs, puts it on a computer,
-turns it on, starts its setup and runs one small test, then reports in one message ([permissions](permissions.md#botops-acts-as-the-human-who-asked)).
+turns it on, starts its setup and runs one small test, then reports in one message ([permissions](permissions.md#botops-uses-the-requesters-rights)).
 
 ## Start from a template, and let BotOps build it
 

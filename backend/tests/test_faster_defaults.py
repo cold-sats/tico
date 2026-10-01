@@ -1,5 +1,4 @@
-"""The faster defaults for permissions: what BotOps does without a Confirm card, and the rights the owner may tighten
-back (docs/permissions.md). Ana owns the company, Ben is an admin, Cara is a member (the base fixture)."""
+"""The faster defaults for permissions: what BotOps does with requester rights (docs/permissions.md). Ana owns the Team, Ben is an admin, Cara is a member (the base fixture)."""
 
 import pytest
 
@@ -44,41 +43,41 @@ def test_botops_restarts_a_computer_and_starts_a_model_sign_in_without_a_card(ap
     assert started.status_code == 200 and started.json()["state"] == "requested", started.text
     read = act(api, ana, "GET", f"runners/{botops['runner_id']}/logins/{started.json()['id']}")
     assert read.status_code == 200
-    # The code the person pastes stays theirs to give in the app.
-    assert act(api, ana, "POST", f"runners/{botops['runner_id']}/logins/{started.json()['id']}/code", {"code": "abcdef"}).status_code == 403
+    # Requester rights reach the code route; its sign-in state check still applies.
+    assert act(api, ana, "POST", f"runners/{botops['runner_id']}/logins/{started.json()['id']}/code", {"code": "abcdef"}).status_code == 409
     with api.app.state.store.read() as c:
         assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
         row = c.execute("SELECT actor,detail_json FROM events WHERE action='runner.restart'").fetchone()
         assert row["actor"] == "human:ana" and '"via": "botops"' in row["detail_json"]
 
 
-def test_a_spending_limit_and_the_providers_change_at_once_and_the_owner_can_ask_for_cards(api, botops):
+def test_spending_limits_and_providers_use_requester_rights_even_with_the_legacy_card_rule(api, botops):
     ana = turn(api, botops, person="ana-test", text="Cap ops at $5 a day, then $10, and use OpenAI")
     assert act(api, ana, "PUT", "usage/limits/ops", {"daily_usd": 5}).status_code == 200
     assert act(api, ana, "PUT", "usage/limits/ops", {"daily_usd": 10}).status_code == 200            # raised: no card either
     assert act(api, ana, "PUT", "providers", {"enabled": ["openai"], "runtime": "codex", "model": "gpt-6-luna"}).status_code == 200
-    assert act(api, ana, "PUT", "usage/limits", {"daily_usd": 50}).status_code == 200                 # the company default
+    assert act(api, ana, "PUT", "usage/limits", {"daily_usd": 50}).status_code == 200                 # the Team default
     assert put(api, "access/rules", {"botops_direct": False}, "ana-test")["botops_direct"] is False
     raised = act(api, ana, "PUT", "usage/limits/ops", {"daily_usd": 20})
-    assert raised.status_code == 200 and raised.json()["needs_confirm"] is True
-    assert act(api, ana, "PUT", "providers", {"enabled": ["openai"], "expected_revision": 1}).json()["needs_confirm"] is True
+    assert raised.status_code == 200 and "needs_confirm" not in raised.json()
+    assert act(api, ana, "PUT", "providers", {"enabled": ["openai"], "expected_revision": 1}).status_code == 200
     lowered = act(api, ana, "PUT", "usage/limits/ops", {"daily_usd": 3})                            # lowering is never a card
     assert lowered.status_code == 200 and "needs_confirm" not in lowered.json()
-    assert act(api, ana, "PUT", "usage/limits", {"daily_usd": 80}).json()["needs_confirm"] is True
+    assert act(api, ana, "PUT", "usage/limits", {"daily_usd": 80}).status_code == 200
     assert "needs_confirm" not in act(api, ana, "PUT", "usage/limits", {"daily_usd": 40}).json()
     with api.app.state.store.read() as c:
         assert c.execute("SELECT daily_usd FROM usage_limits WHERE bot='ops'").fetchone()[0] == 3
 
 
-def test_a_message_to_a_bot_goes_at_once_and_a_message_to_a_person_is_a_card(api, botops):
+def test_messages_to_bots_and_humans_use_the_requesters_rights(api, botops):
     ana = turn(api, botops, person="ana-test", text="Tell ops to start, and tell Ben hello")
     sent = act(api, ana, "POST", "messages", {"to": "bot:ops", "text": "Please start the launch plan."})
     assert sent.status_code == 200 and "needs_confirm" not in sent.json(), sent.text
     assert act(api, ana, "POST", "chat/ops", {"text": "And keep me posted."}).status_code == 200
     card = act(api, ana, "POST", "messages", {"to": "human:ben", "text": "Hello"})
-    assert card.status_code == 200 and card.json()["needs_confirm"] is True
+    assert card.status_code == 200 and "needs_confirm" not in card.json()
     with api.app.state.store.read() as c:
-        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='human:ben' AND from_actor='human:ana'").fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM messages WHERE to_actor='human:ben' AND from_actor='human:ana'").fetchone()[0] == 1
 
 
 def test_inbox_sharing_is_turned_on_by_botops_only_where_one_owner_runs_everything(api, botops):

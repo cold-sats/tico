@@ -125,9 +125,9 @@ def test_botops_grants_a_bot_at_once_for_an_admin_and_refuses_a_member_without_a
         assert event["actor"] == "human:ana" and '"via": "botops"' in event["detail_json"]       # hers, via BotOps
         assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
     assert act(api, ana, "POST", f"credentials/{row['id']}/grants", {"subject": "bot:ops"}).json()["id"] == done.json()["id"]
-    # Only a bot is direct: a person's access to a secret, or every computer's, is still the person's own click.
+    # Grants use the administrator requester’s full rights, including grants to humans.
     card = act(api, ana, "POST", f"credentials/{row['id']}/grants", {"subject": "human:cara"}).json()
-    assert card["needs_confirm"] is True
+    assert "needs_confirm" not in card and card["subject"] == "human:cara"
     finish(api, botops, ana)
     # A member is refused, in words that say who to ask, and no card is left behind.
     cara = turn(api, botops, person="cara-test", text="Grant ops the Jira credential")

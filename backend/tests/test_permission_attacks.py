@@ -106,13 +106,13 @@ def test_botops_changes_routines_and_quarantines_only_as_a_person_who_manages_th
     cited = {"on_behalf_of": attempt["message"]["id"]}
     assert call(api, "post", clear, attempt["token"], cited).status_code == 403       # Cara does not manage ops
     finish(api, botops, attempt)
-    # A turn no person's chat started (a task during setup) builds a planned bot from its template, and nothing else.
+    # A human-created task carries its requester’s full management rights.
     call(api, "post", "bots/register", "ana-test", {"slug": "built", "template": "issue-triage"})
     with api.app.state.store.transaction() as c:
         H.task_create(c, "human:ana", "Build the bot", "Please.", "bot:botops")
     setup = claim(api, botops, "botops")
     assert call(api, "post", "bots/built/routines", setup["token"], routine).status_code == 200
-    assert call(api, "post", "bots/ops/routines", setup["token"], routine).status_code == 403
+    assert call(api, "post", "bots/ops/routines", setup["token"], routine).status_code == 200
 
 
 # ------------------------------------------------------------------ members' bots and computers
@@ -199,17 +199,31 @@ def test_an_admin_is_a_credential_administrator_until_the_owner_says_otherwise(a
     assert is_admin("ben-test")
 
 
-# ------------------------------------------------------------------ Confirm cards say what runs
+# ------------------------------------------------------------------ Human changes use requester rights
 def test_a_confirm_card_lists_every_field_and_names_what_it_changes(api, botops):
-    attempt = turn(api, botops, person="ana-test", text="Change Cara's email and team")
+    attempt = turn(api, botops, person="ana-test", text="Change Cara's email and group")
     asked = call(api, "post", "access/people/cara", attempt["token"],
-                 {"email": "cara@evil.example", "team": "legal", "on_behalf_of": "turn"})
-    assert asked.status_code == 200 and asked.json()["needs_confirm"], asked.text       # an email or a team is a click
-    card = asked.json()["action"]
-    assert {d["field"] for d in card["diff"]} == {"email", "team"}
-    assert "email to cara@evil.example" in card["description"] and "team to legal" in card["description"]
+                 {"email": "cara@example.com", "team": "legal", "on_behalf_of": "turn"})
+    assert asked.status_code == 200 and "needs_confirm" not in asked.json(), asked.text
     with api.app.state.store.read() as c:
-        assert not H.human(c, "cara")["email"].startswith("cara@evil")                   # nothing yet
+        assert H.human(c, "cara")["email"] == "cara@example.com"
+        from backend import views
+        assert next(p for p in views.roster(c)["people"] if p["id"] == "cara")["team"] == "legal"
+        assert c.execute("SELECT count(*) FROM assistant_actions").fetchone()[0] == 0
+    finish(api, botops, attempt)
+    member = turn(api, botops, person="cara-test")
+    assert call(api, "post", "access/people/ben", member["token"],
+                {"email": "ben@example.com", "team": "legal"}).status_code == 403
+    # Explicit legacy proposals still show every field; normal requester calls need no card.
+    from backend.assistant import create_proposal
+    with api.app.state.store.transaction() as c:
+        who = Identity("human:ana", "owner", email="ana@acme.example")
+        room = H.conversation(c, attempt["message"]["conversation_id"])
+        card = create_proposal(c, api.app.state.store.settings, who, room, "botops", "Change access",
+                               "POST", "/api/v2/access/people/cara",
+                               {"email": "cara@example.com", "team": "legal"})["action"]
+        assert {d["field"] for d in card["diff"]} == {"email", "team"}
+        assert "email to cara@example.com" in card["description"] and "team to legal" in card["description"]
 
 
 def test_a_placement_card_says_whether_the_computer_takes_members_bots(api, botops):

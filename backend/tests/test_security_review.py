@@ -4,6 +4,7 @@ import uuid
 
 from backend.store import encode
 from backend.tests.test_api import api, post, setup_attempt  # noqa: F401
+from backend.tests.test_member_bots import botops  # noqa: F401 (fixture)
 
 
 def raw_get(app, path):
@@ -71,12 +72,34 @@ def test_botops_borrows_only_the_rights_of_the_request_it_is_working_on(api):
     from backend.store import H
     with api.app.state.store.transaction() as c:
         elsewhere = H.open_conversation(c, "human:ana", ["human:ana", "bot:botops"], kind="chat", subject="x")
-        other = H.say(c, "human:ana", "bot:botops", "Add to credentials", conversation_id=elsewhere["id"])
-    body = {"name": "Borrowed", "kind": "password", "secret": "synthetic-borrowed-1"}
-    post(api, "credentials", {**body, "on_behalf_of": other["id"]}, botops["token"], expected=403)
-    here = post(api, "chat/botops", {"text": "Add to credentials"})
-    # The request it is working on is its to cite: the owner's own rights allow it (the vault is ready with no setup).
-    post(api, "credentials", {**body, "on_behalf_of": here["id"]}, botops["token"])
+        other = H.say(c, "human:ana", "bot:botops", "Rename Ops", conversation_id=elsewhere["id"])
+    body = {"display_name": "Operations", "expected_revision": 1}
+    post(api, "bots/ops/definition", {**body, "on_behalf_of": other["id"]}, botops["token"], expected=403)
+    here = post(api, "chat/botops", {"text": "Rename Ops"})
+    # The request in the current conversation is its to cite with the Owner’s management rights.
+    post(api, "bots/ops/definition", {**body, "on_behalf_of": here["id"]}, botops["token"])
+
+
+def test_a_task_request_cannot_lend_rights_when_stale_or_outside_the_run(api, botops):
+    from backend.tests.test_api import claim, headers
+    from backend.store import H
+    machine = botops
+    post(api, "tasks", {"owner": "botops", "title": "Review access", "body": "Review access."})
+    attempt = claim(api, machine, "botops")
+    path = "/api/v2/bots/ops/definition"
+    body = {"display_name": "Borrowed", "expected_revision": 1}
+    with api.app.state.store.transaction() as c:
+        mid = attempt["message"]["id"]
+        original = H.message(c, mid)
+        c.execute("UPDATE messages SET created=? WHERE id=?", (H.shift(H.now(), days=-8), mid))
+    assert api.post(path, json=body, headers=headers(attempt["token"])).status_code == 403
+    with api.app.state.store.transaction() as c:
+        elsewhere = H.open_conversation(c, "human:ana", ["human:ana", "bot:botops"], kind="chat", subject="Elsewhere")
+        c.execute("UPDATE messages SET created=?,conversation_id=? WHERE id=?",
+                  (original["created"], elsewhere["id"], mid))
+    assert api.post(path, json=body, headers=headers(attempt["token"])).status_code == 403
+    with api.app.state.store.read() as c:
+        assert H.bot(c, "ops")["display_name"] != "Borrowed"
 
 
 def test_a_server_runner_credential_does_not_read_as_its_operator(api):

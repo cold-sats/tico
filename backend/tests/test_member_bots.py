@@ -1,8 +1,7 @@
 """Members, roles and BotOps acting for a person (docs/permissions.md).
 
-Ana owns the company and Ben is an admin (the base fixture). Cara is a member: she may register bots and
-add coworkers, through BotOps, which acts as her, checked with her rights. What must always be her own
-click comes back as a Confirm card.
+Ana owns the Team and Ben is an admin (the base fixture). Cara is a member: she may register bots and
+add teammates through BotOps, which acts as her, checked with her full rights.
 """
 
 import pytest
@@ -140,7 +139,7 @@ def test_a_member_may_not_add_someone_outside_the_company_domain(api, botops):
     assert call(api, "post", "access/people/cara", "ana-test", {"role": "admin"}).status_code == 200
 
 
-def test_botops_never_acts_for_a_bot_or_the_assistant_or_words_in_a_task(api, botops):
+def test_botops_keeps_bot_rights_and_refuses_assistant_messages_and_task_comments(api, botops):
     stranger = post(api, "bots", {"slug": "stranger", "display_name": "Stranger", "description": "x", "reports_to": None,
                                   "status": "active", "repo": "emp-stranger", "thread_mode": "personal",
                                   "model": "hermes-profile", "effort": "as-configured", "harness": "hermes",
@@ -150,7 +149,7 @@ def test_botops_never_acts_for_a_bot_or_the_assistant_or_words_in_a_task(api, bo
     post(api, "messages", {"to": "botops", "text": "Register a bot for cara please"}, token=token)
     bot_started = claim(api, botops, "botops")
     refused = register(api, bot_started, "sneaky")
-    assert refused.status_code == 403 and refused.json()["error"]["code"] == "on_behalf_of"
+    assert refused.status_code == 403 and refused.json()["error"]["code"] == "forbidden"
     finish(api, botops, bot_started)
     # A message the Assistant wrote for a person.
     with api.app.state.store.transaction() as c:
@@ -186,6 +185,7 @@ def test_a_members_bot_goes_only_on_a_computer_that_accepts_members_bots(api, bo
     refused = call(api, "post", "bots/jira-manager/assignment", "cara-test", body)
     assert refused.status_code == 409 and refused.json()["error"]["code"] == "computer_closed"
     assert "admin" in refused.json()["error"]["detail"]
+    assert call(api, "post", "bots/jira-manager/assignment", attempt["token"], body).status_code == 409
     # Adding the bot with that computer chosen registers it, planned, and says why it is not placed.
     created = call(api, "post", "bots", "cara-test", {
         "slug": "second", "display_name": "Second", "description": "x", "status": "active", "model": "hermes-profile",
@@ -202,13 +202,13 @@ def test_a_members_bot_goes_only_on_a_computer_that_accepts_members_bots(api, bo
     assert enroll.status_code == 200
     with api.app.state.store.read() as c:
         assert c.execute("SELECT accepts_member_bots FROM runners WHERE label='Cara Mac'").fetchone()[0] == 1
-    # An admin's placement of a member's bot on a closed computer, asked of BotOps, is a Confirm card.
+    # An admin may place the bot directly with their own rights through BotOps.
     other = close_computer(api, runner(api, label="Closed Mac"))
     finish(api, botops, attempt)
     ben_turn = turn(api, botops, person="ben-test", text="Move jira-manager to the closed Mac")
     proposed = call(api, "post", "bots/jira-manager/assignment", ben_turn["token"],
                     {"runner_id": other["runner_id"], "expected_generation": 1, "on_behalf_of": "turn"})
-    assert proposed.status_code == 200 and proposed.json()["needs_confirm"] is True
+    assert proposed.status_code == 200 and "needs_confirm" not in proposed.json()
 
 
 def test_a_member_has_at_most_the_companys_limit_of_active_bots(api, botops):

@@ -340,7 +340,9 @@ def create_app(settings=None):
                     and request.state.identity.actor == "bot:" + BOTOPS
                     and request.url.path.startswith("/api/v2/")
                     and request.url.path not in ("/api/v2/me", "/api/v2/mcp")):
-                on_behalf = "default"
+                body = botops_act.parse_body(getattr(request, "_body", b""))
+                on_behalf = ((body.get("on_behalf_of") if isinstance(body, dict) else None)
+                             or request.query_params.get("on_behalf_of") or "default")
             if on_behalf and getattr(request.state, "identity", None) is not None:
                 # BotOps doing what the person who asked it could do in the app (backend/botops_act.py).
                 early, acted = await asyncio.get_running_loop().run_in_executor(
@@ -2244,6 +2246,14 @@ def create_app(settings=None):
             task_id = H.message_task_id(initial) if initial else None
             task = H.task(c, task_id) if task_id else None
             requester = task["requester"] if task else (initial or {}).get("from_actor", "")
+            if task and initial:
+                refs = initial.get("refs") or {}
+                if any(refs.get(key) for key in ("comment", "via", "assistant", "slack", "routing")):
+                    raise Problem("on_behalf_of", "Task comments and routed messages cannot lend requester rights", 403)
+            if initial and (task or str(requester).startswith("bot:")) and requester != H.KEEPER:
+                auth.conversation(c, who, initial["conversation_id"])
+                if initial["created"] < H.shift(H.now(), days=-DELEGATION_DAYS):
+                    raise Problem("on_behalf_of", "That request is more than a week old; ask the requester again", 403)
             if str(requester).startswith("bot:") and requester != who.actor:
                 if (H.bot(c, H.actor_id(requester)) or {}).get("state") != "active":
                     raise Problem("forbidden", "The requesting bot is no longer active", 403)

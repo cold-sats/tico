@@ -28,7 +28,7 @@ class _Groups:
 
     def get(self, path, **query):
         self.calls.append(("GET", path, None))
-        return {"actor": self.actor} if path == "me" else [{"id": "seo"}]
+        return {"actor": self.actor, "role": "bot" if self.actor.startswith("bot:") else "human"} if path == "me" else [{"id": "seo"}]
 
     def post(self, path, body=None, key=None):
         self.calls.append(("POST", path, body))

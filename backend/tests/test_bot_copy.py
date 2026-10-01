@@ -222,11 +222,11 @@ def test_botops_copies_as_the_person_who_asked_and_never_as_itself(api, botops, 
         for action in ("bot.definition_created", "bot.copied"):
             event = c.execute("SELECT actor,detail_json FROM events WHERE action=? AND target='cara-scribe'", (action,)).fetchone()
             assert event["actor"] == "human:cara" and '"via": "botops"' in event["detail_json"]
-    # Her rights, not BotOps's: a bot she may not read, and BotOps's own token, with no person behind it.
+    # Both explicit and default requester rights enforce her source Read check.
     with api.app.state.store.transaction() as c:
         restrict(c, "scribe", people=["ana"])
     assert act(api, attempt, "POST", "bots/scribe/copy", {"slug": "again", "sha": SHA}).status_code == 404
-    assert call(api, "post", "bots/scribe/copy", attempt["token"], {"sha": SHA}).status_code == 403          # BotOps itself: only people copy
+    assert call(api, "post", "bots/scribe/copy", attempt["token"], {"sha": SHA}).status_code == 404          # Default requester rights also enforce the source Read check
 
 
 class Hub:
@@ -276,7 +276,7 @@ def test_the_tools_copy_update_and_share_a_skill_in_the_workspace_as_the_request
     made = tool("hub_bot_copy", bot="scribe", slug="cara-scribe", name="Cara's Scribe")
     assert made["slug"] == "cara-scribe" and made["copied_from"] == {"bot": "scribe", "sha": git(original, "rev-parse", "HEAD")}
     assert [n["needs"] for n in made["credentials"]["needs"]] == ["needs credential JIRA_BASIC_AUTH"]
-    assert made["published"] is False and "GitHub" in made["reason"]              # no GitHub here: it stays on this computer
+    assert made["published"] is False and "Only the owner" in made["reason"]              # no GitHub here: it stays on this computer
     copy_dir = workspace / "bot-cara-scribe"
     assert git(copy_dir, "log", "--format=%s") == f"Copied from scribe at {made['from_sha'][:12]}"
     assert not (copy_dir / ".env").exists() and "private" not in (copy_dir / "state.md").read_text()

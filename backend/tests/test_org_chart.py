@@ -69,15 +69,15 @@ def test_botops_applies_a_persons_bot_change_as_that_person(api):
     ask = post(api, "chat/botops", {"text": "Move ops under Ben"})
     mid = ask.get("message", ask)["id"]
     body = lambda bot, **kw: {"reports_to": "human:ben", "expected_revision": revision(api, bot), **kw}
-    # Without the person's message BotOps is refused, as before; another bot may not cite one.
-    post(api, "bots/ops/definition", body("ops"), token=botops["token"], expected=403)
+    # The default requester applies without opt-in; another bot may not cite a human request.
+    post(api, "bots/ops/definition", body("ops"), token=botops["token"])
     post(api, "bots/ops/definition", body("ops", on_behalf_of=mid), token=ops["token"], expected=403)
     post(api, "bots/ops/definition", body("ops", on_behalf_of=mid), token=botops["token"])
     _, bots = tree(api)
     assert bots["ops"] == "p:ben"
     with api.app.state.store.read() as c:
         event = c.execute("SELECT actor,detail_json FROM events WHERE action='bot.definition_delegated'").fetchone()
-        assert event["actor"] == "bot:botops" and json.loads(event["detail_json"])["on_behalf_of"] == "human:ana"
+        assert event["actor"] == "human:ana" and json.loads(event["detail_json"])["on_behalf_of"] == "human:ana"
     # The person's own limits hold: Cara may not move a bot he does not manage.
     theirs = post(api, "chat/botops", {"text": "Move ops under me"})     # rewritten as Cara's below
     theirs = theirs.get("message", theirs)["id"]

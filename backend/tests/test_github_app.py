@@ -157,7 +157,7 @@ def test_repository_delete_is_owner_only_scoped_audited_and_never_treats_404_as_
     with api.app.state.store.transaction() as c:
         c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('owner',?)", (encode({"email": "ana@acme.example"}),))
         conversation = rooms.personal_room(c, "human:ana", "botops")
-        c.execute("UPDATE messages SET conversation_id=?,kind='say',body='Delete the QA repository' WHERE id='m-botops'",
+        c.execute("UPDATE messages SET from_actor='human:ana',conversation_id=?,kind='say',body='Delete the QA repository' WHERE id='m-botops'",
                   (conversation["id"],))
         c.execute("INSERT INTO attempt_conversations VALUES('a2',?)", (conversation["id"],))
     delegated = api.delete("/api/v2/github/repos/Acme/bot-qa-delegated", headers={**auth("botops-test"),
@@ -314,10 +314,10 @@ def test_only_the_owner_manages_extra_repositories(api, gh):
 
 
 def botops_turn(api):
-    """A live turn for the botops bot: the runner, its assignment, and a leased attempt for `botops-test`."""
+    """An unattended BotOps turn: the runner, its assignment, and a leased attempt for `botops-test`."""
     runner_token(api, "botops")
     with api.app_state.store.transaction() as c:
-        c.execute("INSERT INTO messages(id,from_actor,to_actor,kind,body,created) VALUES('m-botops','human:ana','bot:botops','request','hi',?)",
+        c.execute("INSERT INTO messages(id,from_actor,to_actor,kind,body,created) VALUES('m-botops','keeper','bot:botops','request','hi',?)",
                   (H.now(),))
         job = c.execute("SELECT id FROM jobs WHERE bot='botops'").fetchone()["id"]
         c.execute("INSERT INTO attempts(id,job_id,bot,runner_id,generation,token_hash,state,lease_until,created) "
