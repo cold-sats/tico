@@ -75,8 +75,9 @@ class InProcessApi:
                     headers["X-Tico-On-Behalf-Of"] = delegate if isinstance(delegate, str) else "turn"
                 if method.upper() in ("POST", "PUT", "PATCH", "DELETE"):
                     headers["Idempotency-Key"] = key or hubtools_key()
-                return await client.request(method, "/api/v2/" + path, json=body, headers=headers,
-                                            params=query or None)
+                # A task number ("tasks/#18945") is in the path, not a fragment.
+                return await client.request(method, "/api/v2/" + path.replace("#", "%23"), json=body,
+                                            headers=headers, params=query or None)
         response = asyncio.run_coroutine_threadsafe(go(), self.loop).result(INTERNAL_TIMEOUT_S + 5)
         if response.headers.get("content-disposition"):
             payload = response_content(response)

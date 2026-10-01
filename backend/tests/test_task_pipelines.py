@@ -18,17 +18,22 @@ def test_general_backfill_is_idempotent_and_does_not_reassign_custom_tasks(tmp_p
     H._apply(c, "ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]';")
     c.execute('UPDATE tasks SET labels_json=?', ('["release","bug"]',))
     H.migrate(c)
-    assert c.execute('PRAGMA user_version').fetchone()[0] == 15
+    assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
     for row in c.execute('SELECT * FROM tasks'):
         assert row['type_id'] == H.GENERAL_TYPE
         assert row['step_id'] == 'general-' + row['status']
         assert row['body'] == 'Keep these details' and row['note'] == 'Keep this note'
         assert H.task_labels(H.task(c, row['id'])) == ['release', 'bug']
+    # Every task already in a step keeps the order it was filed in, once.
+    ranks = dict(c.execute('SELECT id, step_rank FROM tasks ORDER BY rowid').fetchall())
+    assert list(ranks.values()) == sorted(ranks.values()) and None not in ranks.values()
     custom = H.type_create(c, H.KEEPER, 'Marketing', [{'name': 'Draft', 'status': 'open'}])
     c.execute('UPDATE tasks SET type_id=?,step_id=? WHERE id=?', (custom['id'], custom['steps'][0]['id'], 'open'))
     H._set_task_tags(c, H.KEEPER, 'open', ['bug'])
     H._apply(c, H.PIPELINES_SCHEMA)
+    H._apply(c, H.NUMBERS_SCHEMA)
     H.migrate(c)
+    assert dict(c.execute('SELECT id, step_rank FROM tasks').fetchall()) == ranks
     assert H.task(c, 'open')['type_id'] == custom['id']
     assert H.task_labels(H.task(c, 'open')) == ['bug']
     assert H.task(c, 'open')['labels_json'] == '["release","bug"]'

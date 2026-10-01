@@ -60,7 +60,7 @@ function taskPipelineBoard(items, state) {
   }
   const anyWork = columns.some(column => column.items.length);
   return `<div class="board work">${columns.map(column => {
-    const list = column.items.sort(byRank);
+    const list = column.items.sort((a, b) => (a.task.step_rank ?? Infinity) - (b.task.step_rank ?? Infinity) || byRank(a, b));
     return `<section class="bcol${anyWork && !list.length ? ' is-empty' : ''}" data-col="${esc(column.id)}" aria-label="${esc(column.name)}">
       <header><h2>${esc(column.name)}</h2><span class="cnt">${list.length}</span></header>
       <div class="bcol-body">${list.map(taskCard).join('') || '<div class="empty">Nothing here</div>'}</div>

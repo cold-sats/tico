@@ -554,11 +554,23 @@ UPDATE tasks SET type_id='general', step_id=(SELECT id FROM task_steps
   WHERE type_id IS NULL;
 """
 
+# A numbered type gives each of its tasks the team's next number, kept for good; `step_rank` is a
+# task's place within its step, apart from `rank`, its place in the owner's queue. Every task
+# already in a step keeps the order it was filed in (rowid order), so a new one joins the end.
+NUMBERS_SCHEMA = """
+ALTER TABLE task_types ADD COLUMN numbered INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN number INTEGER;
+ALTER TABLE tasks ADD COLUMN step_rank REAL;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_number ON tasks(number);
+CREATE INDEX IF NOT EXISTS tasks_step_rank ON tasks(step_id, step_rank);
+UPDATE tasks SET step_rank=rowid WHERE step_id IS NOT NULL AND step_rank IS NULL;
+"""
+
 MIGRATIONS = [SCHEMA, MEETING_SCHEMA, MEETING_ITEMS_SCHEMA,   # index i takes user_version from i
               MEETING_BRAIN_SCHEMA, MEETING_COMMENTS_SCHEMA,  # to i+1; append, never edit
               GOALS_SCHEMA, RECORDING_SOURCES_SCHEMA, MARKET_SCHEMA,
               REPLY_ANSWERS_ASKS, LISTENING_SCHEMA, KPIS_SCHEMA, USAGE_SCHEMA,
-              USAGE_LIMITS_SCHEMA, TAGS_SCHEMA, PIPELINES_SCHEMA]
+              USAGE_LIMITS_SCHEMA, TAGS_SCHEMA, PIPELINES_SCHEMA, NUMBERS_SCHEMA]
 
 
 class Refused(Exception):
@@ -1692,6 +1704,7 @@ def type_get(conn, value):
     row = _one(conn, "SELECT * FROM task_types WHERE id=? OR name=? COLLATE NOCASE ORDER BY id=? DESC LIMIT 1",
                (value, value, value))
     if row:
+        row["numbered"] = bool(row.get("numbered"))
         row["steps"] = _rows(conn.execute("SELECT * FROM task_steps WHERE type_id=? ORDER BY position,id", (row["id"],)))
     return row
 
@@ -1700,6 +1713,7 @@ def type_list(conn):
     rows = _rows(conn.execute("SELECT * FROM task_types ORDER BY id<>?,name", (GENERAL_TYPE,)))
     steps = _rows(conn.execute("SELECT * FROM task_steps ORDER BY position,id"))
     for row in rows:
+        row["numbered"] = bool(row.get("numbered"))
         row["steps"] = [step for step in steps if step["type_id"] == row["id"]]
     return rows
 
@@ -1757,18 +1771,22 @@ def _type_steps(conn, actor, type_id, steps):
                 conn.execute("UPDATE tasks SET version=version+1 WHERE id=?", (task_row["id"],))
 
 
-def type_create(conn, actor, name, steps=(), mover=None):
+def type_create(conn, actor, name, steps=(), mover=None, numbered=False):
+    """`numbered`: each task created on or moved onto the type gets the team's next number."""
     _type_writer(conn, actor, mover)
     name = _type_name(conn, actor, name)
     ident, ts = new_id(), now()
-    conn.execute("INSERT INTO task_types(id,name,created,updated) VALUES(?,?,?,?)", (ident, name, ts, ts))
+    conn.execute("INSERT INTO task_types(id,name,numbered,created,updated) VALUES(?,?,?,?,?)",
+                 (ident, name, int(bool(numbered)), ts, ts))
     _type_steps(conn, actor, ident, steps)
     row = type_get(conn, ident)
     event(conn, actor, "task_type.create", ident, row)
     return row
 
 
-def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
+def type_update(conn, actor, type_id, name=None, steps=None, mover=None, numbered=None):
+    """Turning `numbered` on numbers what is created on or moved onto the type from then on; the
+    tasks already on it keep having none until a mover gives them theirs."""
     _type_writer(conn, actor, mover)
     row = type_get(conn, type_id)
     if not row:
@@ -1778,6 +1796,8 @@ def type_update(conn, actor, type_id, name=None, steps=None, mover=None):
     if name is not None:
         name = _type_name(conn, actor, name, row["id"])
         conn.execute("UPDATE task_types SET name=? WHERE id=?", (name, row["id"]))
+    if numbered is not None:
+        conn.execute("UPDATE task_types SET numbered=? WHERE id=?", (int(bool(numbered)), row["id"]))
     if steps is not None:
         _type_steps(conn, actor, row["id"], steps)
     conn.execute("UPDATE task_types SET updated=? WHERE id=?", (now(), row["id"]))
@@ -1825,18 +1845,50 @@ def _task_state(conn, actor, row, status=None, type=None, step=None):
 
 
 def _set_status(conn, actor, row, status=None, type=None, step=None, note=""):
-    """Every task status write keeps its type and step consistent, including old runners."""
+    """Every task status write keeps its type and step consistent, including old runners. A task
+    that enters a step joins its end; one that lands on a numbered type without a number gets one."""
     type_id, step_id, effective = _task_state(conn, actor, row, status, type, step)
     ts = now()
     conn.execute("UPDATE tasks SET status=?,type_id=?,step_id=?,updated=? WHERE id=?",
                  (effective, type_id, step_id, ts, row["id"]))
     if row.get("type_id") != type_id:
         _task_event(conn, row["id"], actor, "type", row.get("type_id"), type_id, note)
+        _next_number(conn, actor, row["id"], type_id, note)
     if row.get("step_id") != step_id:
+        conn.execute("UPDATE tasks SET step_rank=? WHERE id=?",
+                     (_step_end(conn, step_id, row["id"]) if step_id else None, row["id"]))
         _task_event(conn, row["id"], actor, "step", row.get("step_id"), step_id, note)
     if row.get("status") != effective:
         _task_event(conn, row["id"], actor, "status", row.get("status"), effective, note)
     return effective
+
+
+def _step_end(conn, step_id, task_id, top=False):
+    """The step_rank that puts a task at the end (or the top) of a step's other tasks."""
+    lo, hi = conn.execute("SELECT MIN(step_rank), MAX(step_rank) FROM tasks WHERE step_id=? AND id<>?",
+                          (step_id, task_id)).fetchone()
+    if top:
+        return (lo if lo is not None else 1.0) - 1.0
+    return (hi if hi is not None else 0.0) + 1.0
+
+
+def _number_free(conn, actor, number):
+    """A number a mover gives a task: a positive whole number no other task has (one sequence for the team)."""
+    if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+        refuse(conn, actor, "kind", "A task number is a whole number from 1")
+    taken = _one(conn, "SELECT id FROM tasks WHERE number=?", (number,))
+    if taken:
+        refuse(conn, actor, "duplicate", f"#{number} is already another task's number; a number belongs to one task")
+    return number
+
+
+def _next_number(conn, actor, task_id, type_id, note=""):
+    """The team's next number (the highest yet, plus one) for a task without one on a numbered type."""
+    numbered = _one(conn, "SELECT 1 FROM task_types WHERE id=? AND numbered=1", (type_id,))
+    if numbered and conn.execute("UPDATE tasks SET number=(SELECT COALESCE(MAX(number), 0) + 1 FROM tasks) "
+                                 "WHERE id=? AND number IS NULL", (task_id,)).rowcount:
+        number = _one(conn, "SELECT number FROM tasks WHERE id=?", (task_id,))["number"]
+        _task_event(conn, task_id, actor, "number", None, number, note)
 
 
 def _labels(labels):
@@ -2117,7 +2169,7 @@ def task_comments(conn, task_id):
 
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
-                goal_id=None, next_run=False, type=None, step=None):
+                goal_id=None, next_run=False, type=None, step=None, number=None, mover=None):
     """Rule 5. Anyone may open a task for any active owner; a human owner is linted (rule 7).
 
     `next_run` files it for the bot's next run instead of starting one: the notice is written
@@ -2127,7 +2179,8 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     `conversation_id` attaches the task to an existing chat room. A room is not claimed as
     this task's private thread: many tasks share one room, and messages carry `refs.task`.
     `lane` picks the pipeline (company or product; default by the owner's team); the task
-    joins the bottom of the owner's queue unless `top`.
+    joins the bottom of the owner's queue and of its step unless `top`.
+    `number` keeps an imported task's number: a mover's (`mover`, as in `task_update`), and free.
     """
     _writer(conn, actor)
     from .shared_bots import route
@@ -2159,6 +2212,11 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
                (actor, target, title, *LIVE_STATUSES))
     if dup and (deduplicate or actor != KEEPER):
         refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
+    if number is not None:
+        if not (actor == KEEPER or mover or mover is None and can_move(conn, actor)):
+            refuse(conn, actor, "identity", f"a task's number is given by a person on the "
+                                            f"{', '.join(MOVER_TEAMS)} teams, not by {actor_id(actor)}")
+        number = _number_free(conn, actor, number)
     ts = now()
     dedicated = False
     if conversation_id:
@@ -2173,19 +2231,26 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
            "status": "open", "due": due, "parent_id": parent_id, "conversation_id": conv["id"],
            "created": ts, "updated": ts, "done_at": None, "closed_at": None, "closed_by": None,
            "note": "", "lane": lane, "rank": _queue_end(conn, target, top),
-           "goal_id": goal_id or None, "next_run": 1 if next_run else 0}
+           "goal_id": goal_id or None, "next_run": 1 if next_run else 0, "number": number}
     conn.execute("INSERT INTO tasks (id, title, body, requester, owner, due, parent_id, "
                  "conversation_id, created, updated, done_at, closed_at, closed_by, note, lane, rank, "
-                 "goal_id, next_run) VALUES "
+                 "goal_id, next_run, number) VALUES "
                  "(:id, :title, :body, :requester, :owner, :due, :parent_id, "
                  ":conversation_id, :created, :updated, :done_at, :closed_at, :closed_by, :note, "
-                 ":lane, :rank, :goal_id, :next_run)", row)
+                 ":lane, :rank, :goal_id, :next_run, :number)", row)
     _set_task_tags(conn, actor, row["id"], labels)
     if dedicated:
         conn.execute("UPDATE conversations SET task_id=? WHERE id=?", (row["id"], conv["id"]))
+    if number is not None:
+        _task_event(conn, row["id"], actor, "number", None, number, "")
     _set_status(conn, actor, {**row, "status": None}, status="open", type=type)
     if step is not None:
         task_update(conn, actor, row["id"], step=step)
+    if top:
+        placed = task(conn, row["id"])
+        if placed["step_id"]:
+            conn.execute("UPDATE tasks SET step_rank=? WHERE id=?",
+                         (_step_end(conn, placed["step_id"], row["id"], top=True), row["id"]))
     if goal_id:
         _task_event(conn, row["id"], actor, "goal_id", None, goal_id, "")
     if plain:
@@ -2216,13 +2281,16 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
 
 
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
-                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None):
+                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
+                step_rank=None, number=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane`, `labels`, `blocked_by` and `parent_id` are a mover's to change (`mover` says whether
     this actor is one; the keeper always is). Pass `blocked_by=""` or `parent_id=""` to clear.
     `rank` is the position in the owner's queue: a participant may rank its own tasks.
+    `step_rank` is its place within its step, lower first, set the same way.
     `goal_id` names the goal the task serves; "" takes it off (backend/goals.py).
+    `number` gives a task that has none its number (a mover's, as on create); it never changes.
     """
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -2273,9 +2341,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     own_blocker = blocked_by is not None and actor == row["owner"]
     if own_blocker and blocked_by == task_id:
         refuse(conn, actor, "blocked_by", "a task cannot wait on itself")
+    if number is not None and number == row.get("number"):
+        number = None               # sent back unchanged
     wanted = {k: v for k, v in (("lane", lane), ("labels", labels),
                                 ("blocked_by", None if own_blocker else blocked_by),
-                                ("parent_id", parent_id)) if v is not None}
+                                ("parent_id", parent_id), ("number", number)) if v is not None}
     if wanted and not mover:
         refuse(conn, actor, "identity",
                f"{', '.join(wanted)} on a task {'is' if len(wanted) == 1 else 'are'} changed by a person on "
@@ -2284,6 +2354,16 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         lane = _lane_for(conn, lane, row["owner"], actor)    # a task moves only onto company
     ts = now()
     sets, args = [], {}
+    if number is not None:
+        if row.get("number") is not None:
+            refuse(conn, actor, "kind", f"this task is #{row['number']}; a task's number never changes")
+        # Written before any move below, so a move onto a numbered type finds it already there.
+        conn.execute("UPDATE tasks SET number=? WHERE id=?", (_number_free(conn, actor, number), task_id))
+        _task_event(conn, task_id, actor, "number", None, number, note or "")
+        sets.append("updated=:updated")
+    if step_rank is not None:
+        sets.append("step_rank=:step_rank")
+        args["step_rank"] = float(step_rank)
     for field, value in (("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
@@ -3404,10 +3484,14 @@ def labels_in_use(conn, visible="1"):
         "GROUP BY tags.key ORDER BY n DESC, tags.key", ACTIVE_STATUSES)]
 
 
+STEP_POSITION = "(SELECT position FROM task_steps WHERE task_steps.id=tasks.step_id)"
+
+
 def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, label=None,
-          offset=0, order="queue", visible=None):
+          offset=0, order="queue", visible=None, type_id=None, step_ids=None, number=None):
     """Tasks, newest work first. `visible` is a WHERE fragment over the task's own columns (from
-    `Auth.task_sql`), so a caller's page and its `offset` are cut in the query."""
+    `Auth.task_sql`), so a caller's page and its `offset` are cut in the query. `order="step"` is
+    a board's: by step, then each task's place in it."""
     sql, args, where = "SELECT * FROM tasks", [], []
     if visible and visible != "1":
         where.append("(" + visible + ")")
@@ -3420,6 +3504,15 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
     if lane:
         where.append("lane=?")
         args.append(lane)
+    if type_id:
+        where.append("type_id=?")
+        args.append(type_id)
+    if step_ids:
+        where.append(f"step_id IN ({','.join('?' * len(step_ids))})")
+        args += list(step_ids)
+    if number is not None:
+        where.append("number=?")
+        args.append(number)
     if label:
         where.append("EXISTS (SELECT 1 FROM task_tags JOIN tags ON tags.id=task_tags.tag_id "
                      "WHERE task_tags.task_id=tasks.id AND tags.key=?)")
@@ -3441,8 +3534,11 @@ def tasks(conn, owner=None, requester=None, status=None, limit=500, lane=None, l
         ordering = "(rank IS NULL), rank, created, id"
     elif order == "finished":
         ordering = "COALESCE(done_at,closed_at,updated,created) DESC, id DESC"   # most recently done first
+    elif order == "step":
+        ordering = (f"{STEP_POSITION} IS NULL, {STEP_POSITION}, step_id, (step_rank IS NULL), step_rank, "
+                    "created, id")
     else:
-        raise ValueError("task order is queue or finished")
+        raise ValueError("task order is queue, finished or step")
     rows = _rows(conn.execute(sql + f" ORDER BY {ordering} LIMIT ? OFFSET ?",
                               (*args, max(1, int(limit)), max(0, int(offset)))))
     hydrate_task_tags(conn, rows)

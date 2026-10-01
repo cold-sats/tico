@@ -11,6 +11,7 @@ from backend.app import create_app
 from backend.auth import Identity
 from backend.config import Settings
 from backend.store import encode
+from backend.tests.test_mcp import call
 
 
 @pytest.fixture
@@ -158,7 +159,7 @@ def test_tag_migration_backfills_once_and_preserves_legacy_column(api, cloud):
         c = H.connect(store.settings.db_path)
         c.close()
     with store.read() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert c.execute("PRAGMA user_version").fetchone()[0] == len(H.MIGRATIONS)
         assert H.task(c, task["id"])["type_id"] == typ["id"]
         assert H.task(c, task["id"])["step_id"] == task["step_id"]
         assert {tag["key"] for tag in H.tags(c)} == {"release", "bug"}
@@ -422,3 +423,43 @@ def test_stranded_auto_reopen_maps_to_the_types_open_step(api):
         assert (task['id'], 'open') in H.sweep_stranded(c, at=future)
         after = H.task(c, task['id'])
         assert after['status'] == 'open' and after['step_id'] == typ['steps'][0]['id']
+
+
+def test_a_numbered_type_numbers_its_tasks_once_and_keeps_an_imported_number(api):
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'numbered': True, 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': 'Shipped', 'status': 'done'}]})['type']
+    assert typ['numbered'] is True
+    first = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the account page', 'body': 'x', 'type': typ['id']})
+    imported = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the signup page', 'body': 'x', 'type': typ['id'],
+                                   'number': 18945})
+    assert (first['number'], imported['number']) == (1, 18945)
+    post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the login page', 'body': 'x', 'number': 18945}, expected=422)
+    post(api, 'tasks', {'owner': 'priya', 'title': 'Fix the help page', 'body': 'x', 'number': 7},
+         token='priya-test', expected=403)
+    plain = post(api, 'tasks', {'owner': 'cmo', 'title': 'Write the brief', 'body': 'x'})
+    assert plain['number'] is None
+    moved = edit_pipeline_task(api, plain, type=typ['id'])
+    assert moved['number'] == 18946
+    assert edit_pipeline_task(api, moved, type='General')['number'] == 18946
+    assert get(api, 'tasks/%2318945')['task']['id'] == imported['id']
+    get(api, 'tasks/18945', expected=404)           # bare digits may be a cut-short id
+    assert call(api, 'hub_task_show', {'id': '#18945'})[1]['task']['id'] == imported['id']
+    assert [t['id'] for t in get(api, 'tasks?number=18945')['tasks']] == [imported['id']]
+
+
+def test_a_task_has_a_place_in_its_step_and_a_board_lists_in_that_order(api):
+    typ = post(api, 'task-types', {'name': 'Dev ticket', 'steps': [
+        {'name': 'Backlog', 'status': 'open'}, {'name': 'On deck', 'status': 'open'}]})['type']
+    a, b = (post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the ' + page, 'body': 'x', 'type': typ['id']})
+            for page in ('account page', 'signup page'))
+    top = post(api, 'tasks', {'owner': 'cmo', 'title': 'Fix the help page', 'body': 'x', 'type': typ['id'], 'top': True})
+    assert top['step_rank'] < a['step_rank'] < b['step_rank']
+    b = edit_pipeline_task(api, b, step='On deck')
+    a = edit_pipeline_task(api, a, step='On deck')
+    assert a['step_rank'] > b['step_rank']                      # entering a step joins its end
+    a = post(api, 'tasks/' + a['id'], {'version': a['version'], 'step_rank': b['step_rank'] - 1}, token='ben-test')
+    board = get(api, 'tasks?type=Dev ticket&sort=step')['tasks']
+    assert [t['id'] for t in board] == [top['id'], a['id'], b['id']]
+    assert [t['id'] for t in get(api, 'tasks?type=' + typ['id'] + '&step=On deck&sort=step')['tasks']] == [a['id'], b['id']]
+    post(api, 'tasks/' + a['id'], {'version': a['version'], 'step_rank': 0}, token='priya-test', expected=403)
+

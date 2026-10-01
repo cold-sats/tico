@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Ticket numbers: a mover can make a custom type **numbered**, and each task created on it or moved onto it gets the
+  team's next number (one sequence for the whole team), kept for good. A mover can keep an imported ticket's number
+  (`number` on create, or once on a task that has none). `#18945` names the task wherever an id does, and
+  `GET /api/v2/tasks?number=18945` finds it.
+- A task has a place within its step, `step_rank`: a task that enters a step joins its end (its top with `top`), and
+  the people on it and movers can move it. `GET /api/v2/tasks` takes `type` and `step` filters and `sort=step`, the
+  board filtered to a type orders its columns that way, and `hub task list` and `hub_task_list` take the same.
+
 ## [0.3.0] - 2026-10-01
 
 ### Changed

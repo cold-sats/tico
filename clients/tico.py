@@ -77,6 +77,7 @@ class Client:
         if data is not None:
             headers.update({"Content-Type": "application/octet-stream" if raw is not None else "application/json",
                             "Idempotency-Key": key})
+        path = path.replace("#", "%23")     # a task number ("tasks/#18945") is in the path, not a fragment
         for attempt in range(self.retries + 1):
             req = urllib.request.Request(self.url + path, data=data, headers=headers, method=method)
             try:

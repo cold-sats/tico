@@ -131,6 +131,12 @@ unused types can be deleted, and steps with tasks cannot be removed. Task creati
 accept `type` and `step`. Answers add `type_id`, `step_id`, `type` and `step` while preserving the
 existing status contract. See [Task types and steps](tasks.md) for mapping and update examples.
 
+A `numbered` type gives each of its tasks the team's next `number`, which never changes; a mover may
+pass an imported ticket's own `number` (`422 duplicate` when it is taken), and `#18945` (`%2318945`
+in a URL) works wherever a task id does. `step_rank` is a task's place within its step.
+`GET /api/v2/tasks` takes `type`, `step` and `number` filters and `sort=step` for a board in column
+order.
+
 ## Branches
 
 `POST /api/v2/bots/{bot}/copies` (also `/branches`) makes the caller's branch and returns its definition,
