@@ -216,3 +216,18 @@ WHERE json_extract(m.refs_json, '$.task') = :task_id;
 
 No rows means no visible queued post for that task. `slack_events` and the other gateway
 internals remain unavailable through SQL; use the Slack history tools to read messages.
+
+## Tags on tasks
+
+`tags` is readable by signed-in teammates. `task_tags` contains only associations with tasks
+you may read, including when joining the tables:
+
+```sql
+SELECT tasks.id, tasks.title, tags.key, tags.label, tags.metadata_json
+FROM tasks
+JOIN task_tags ON task_tags.task_id = tasks.id
+JOIN tags ON tags.id = task_tags.tag_id
+WHERE tags.key = 'release-2026-10-02';
+```
+
+Use these tables instead of the retained `tasks.labels_json` column.

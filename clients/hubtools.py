@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+from urllib.parse import quote
 import time
 from datetime import datetime
 from pathlib import Path
@@ -291,6 +292,42 @@ def meetings_import_file(api, args):
         except ValueError:
             raise ValueError(f"--date {when!r} is not a date: use 2026-09-28 or 2026-09-28T16:00") from None
     return api.post("meetings/import", {**{k: v for k, v in args.items() if v is not None}, **fields})
+
+
+# ----------------------------------------------------------------------------- tags
+@tool("hub_tag_list", "Tags and checklist templates. Task label strings are tag keys.",
+      {"is_template": {"type": "boolean", "description": "Only templates (true) or task tags (false)"}})
+def tag_list(api, args):
+    value = args.get("is_template")
+    return api.get("tags", is_template=str(value).lower() if value is not None else None)
+
+
+@tool("hub_tag_show", "A tag's metadata, markdown, version and the tasks you may read.",
+      {"id": _s("Tag id or key"), "offset": {"type": "integer"}}, required=("id",))
+def tag_show(api, args):
+    return api.get("tags/" + quote(args["id"], safe=""), offset=args.get("offset"))
+
+
+@tool("hub_tag_create", "Create a tag or template. With template_id, copy its checklist and metadata defaults into an instance. "
+      "The owner (default: you) and task movers may edit it; templates cannot go on tasks.",
+      {"key": _s("Unique key used by hub_task_label and --label"), "label": _s("Display label"),
+       "metadata": {"type": "object", "description": "Metadata, or overrides of template defaults"},
+       "markdown": _s("Markdown checklist or notes"), "is_template": {"type": "boolean"},
+       "template_id": _s("Template id or key"), "owner": _s("Owner actor or teammate id")},
+      required=("key",), writes=True)
+def tag_create(api, args):
+    body = {k: args[k] for k in ("key", "label", "metadata", "markdown", "is_template", "owner") if args.get(k) is not None}
+    path = "tags/" + quote(args["template_id"], safe="") + "/instances" if args.get("template_id") else "tags"
+    return api.post(path, body, key=_key(args))
+
+
+@tool("hub_tag_update", "Edit a tag's metadata, checklist, label or owner. Send its current version; stale edits are refused.",
+      {"id": _s("Tag id or key"), "version": {"type": "integer"}, "label": _s("Display label"),
+       "metadata": {"type": "object", "description": "Replace metadata"}, "markdown": _s("Replace Markdown"),
+       "owner": _s("New owner; empty to clear")}, required=("id", "version"), writes=True)
+def tag_update(api, args):
+    body = {k: args[k] for k in ("version", "label", "metadata", "markdown", "owner") if args.get(k) is not None}
+    return api.post("tags/" + quote(args["id"], safe=""), body, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- tasks

@@ -593,6 +593,11 @@ def create_app(settings=None):
         return result
 
     def task_view(row, c=None, parts=None):
+        if c is not None:
+            H.hydrate_task_tags(c, [row])
+        elif "tags" not in row:
+            with store.read() as tag_conn:
+                H.hydrate_task_tags(tag_conn, [row])
         value = {"id": row["id"], "short_id": row["id"][:8], **row, "acceptance_criteria": json.loads(row.get("acceptance_json", "[]")),
                  "labels": H.task_labels(row), "lane": row.get("lane") or "company",
                  "next_run": bool(row.get("next_run"))}
@@ -622,6 +627,7 @@ def create_app(settings=None):
         """Hydrate one task-list page with a fixed number of relation queries."""
         if not rows:
             return []
+        H.hydrate_task_tags(c, rows)
         ids = [row["id"] for row in rows]
         marks = ",".join("?" * len(ids))
 
@@ -1902,7 +1908,8 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return {"labels": H.labels_in_use(c, auth.task_sql(c, who))}
+            keys = H.labels_in_use(c, auth.task_sql(c, who))
+            return {"labels": keys, "tags": [H.tag(c, key) for key in keys]}
 
     @app.get("/api/v2/tasks/stuck")
     def tasks_stuck(request: Request, hours: int = H.STUCK_HOURS):
@@ -3262,6 +3269,9 @@ def create_app(settings=None):
                 await asyncio.sleep(1)
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    from .tags import install as install_tags
+    install_tags(app, store, auth, mutate, task_views)
 
     from .views import install_views
     install_views(app, store, auth, mutate, task_view)

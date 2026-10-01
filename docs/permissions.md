@@ -293,3 +293,11 @@ access you meant there; saving any bot's access, or dismissing the note, clears 
 `POST /api/v2/sql` is the one place a bot the caller may only see or write to does not appear: the
 `bots`, `bot_status`, `schedules`, `bot_config`, `turns`, `jobs` and related tables hold the bots the caller can read,
 and tasks follow the rule above ([Tico SQL](hub-sql.md)).
+
+## Tags
+
+Task movers (the team owner and humans on the leadership, product or engineering teams) attach
+and remove tags. Creating and editing a tag is for those movers or that tag's owner, including
+a bot owner. A teammate may create a tag they own. Owner rights on a tag do not grant mover
+rights on its tasks. Tags and templates are readable by signed-in teammates; their task lists
+show only tasks each caller may read. Every edit requires the current tag version.
