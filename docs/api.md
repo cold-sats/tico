@@ -136,8 +136,8 @@ pass an imported ticket's own `number` (`422 duplicate` when it is taken), and `
 in a URL) works wherever a task id does. `step_rank` is a task's place within its step.
 `GET /api/v2/tasks` takes `type`, `step` and `number` filters and `sort=step` for a board in column
 order. A client that polls asks `updated_since=<ISO 8601 with a timezone>` for only the tasks
-changed after that instant (closing, reopening and commenting count), and `brief=true` to leave out
-bodies and acceptance criteria.
+changed after that instant (closing, reopening, comments, questions, links and attachments count),
+and `brief=true` to leave out bodies and acceptance criteria.
 
 ## Branches
 

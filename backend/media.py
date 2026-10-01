@@ -387,6 +387,7 @@ def install_media(app, store, auth, mutate, send_message, task_create):
             auth.task(c, who, tid)
             item = register(c, who, digest, len(data), body.name, content_type)
             c.execute("INSERT INTO task_assets VALUES(?,?)", (tid, item["id"]))
+            c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), tid))
             H.event(c, who.actor, "task.file", tid, {"file": item["id"], "name": item["name"], "size": item["size"]})
             # What a bot delivers is one of its files, listed on its page; a person's upload is not.
             files.publish_task_deliverable(c, who, tid, item, digest)

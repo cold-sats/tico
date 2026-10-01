@@ -85,6 +85,8 @@ def pull_request(c, payload):
                 after = _move(c, task, "doing", f"Pull request {link['title']} was closed without merging.")
                 H._wake(c, after, after["owner"], f"Pull request {link['title']} was closed without merging: {after['title']}")
                 moved.append((task["id"], "doing"))
+        # The link's state is part of the task: a client polling for changes sees it.
+        c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), link["task_id"]))
         H.event(c, H.KEEPER, "github.pull_request", link["task_id"], {"action": action, "url": url})
     return {"pr": url, "action": action, "tasks": len(links), "moved": moved}
 
@@ -130,6 +132,7 @@ def ship_deployed(c, settings):
             continue
         _move(c, task, "done", f"Shipped in release {commit[:12]} ({link['title']}).")
         c.execute("UPDATE task_links SET state='shipped' WHERE id=?", (link["id"],))
+        c.execute("UPDATE tasks SET updated=? WHERE id=?", (H.now(), task["id"]))
         H.event(c, H.KEEPER, "github.shipped", task["id"], {"release": commit, "url": link["url"]})
         shipped.append(task["id"])
     return shipped

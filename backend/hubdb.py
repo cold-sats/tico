@@ -1664,8 +1664,11 @@ def answer(conn, actor, message_id, body, unknown=False):
     if unknown:
         refs["unknown"] = True
     conv = conversation(conn, asked["conversation_id"])
-    return _write_message(conn, actor, asked["from_actor"], body, conv, "answer", refs,
-                          message_id, None)
+    msg = _write_message(conn, actor, asked["from_actor"], body, conv, "answer", refs, message_id, None)
+    about = message_task_id(asked, conv)
+    if about:                               # an answered question on a task changes the task
+        conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), about))
+    return msg
 
 
 def notice(conn, actor, to_actor, body, refs=None, expires_days=NOTICE_DAYS):
@@ -2111,6 +2114,7 @@ def task_unlink(conn, actor, task_id, link_id):
     if not have:
         refuse(conn, actor, "not-found", f"no link {link_id} on {task_id}")
     conn.execute("DELETE FROM task_links WHERE id=?", (link_id,))
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))
     _task_event(conn, task_id, actor, "link", have["url"], None, "removed")
     event(conn, actor, "task.unlink", task_id, {"url": have["url"]})
     return have
@@ -2600,6 +2604,7 @@ def task_ask(conn, actor, task_id, body):
                    "you already asked about this task; wait for the answer")
     msg = say(conn, actor, row["requester"], body, conversation_id=row["conversation_id"],
               kind="ask", refs={"task": task_id})
+    conn.execute("UPDATE tasks SET updated=? WHERE id=?", (now(), task_id))     # its question is part of it
     if row["status"] in ("open", "doing", "review"):
         task_update(conn, actor, task_id, status="waiting")
     return msg

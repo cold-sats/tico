@@ -471,7 +471,8 @@ def test_a_board_polls_only_what_changed_since_it_last_looked(api):
     post(api, 'tasks/' + changed['id'] + '/comments', {'text': 'Shorter, please.'})
     assert [t['id'] for t in get(api, 'tasks?updated_since=' + since.replace('Z', '%2B00:00'))['tasks']] == [changed['id']]
     get(api, 'tasks?updated_since=2026-01-01T00:00:00', expected=422)
-    assert old['id'] in {t['id'] for t in get(api, 'tasks?updated_since=2000-01-01T00:00:00Z')['tasks']}
+    post(api, 'tasks/' + old['id'] + '/files', {'name': 'notes.md', 'text': 'The notes.'})
+    assert {t['id'] for t in get(api, 'tasks?updated_since=' + since)['tasks']} == {old['id'], changed['id']}
 
 
 def test_a_brief_list_leaves_out_what_a_board_does_not_show(api):
