@@ -489,6 +489,10 @@ scope key, a new note) use `POST /api/v2/bots/{bot}/tools/{id}/update` or `hub t
 read,draft,send`: one task "Change Gmail access on <bot>" carries the whole changed entry, the tool is marked as
 being changed until the computer reports it, and nothing is removed.
 
+Two rows in Tools are not declared Tools and have no Change access: the **model** (chosen in the bot's settings) and
+the bot's **own repository**, which it always reads and writes, with issues and pull requests, so it can keep its
+Instructions and code. Narrowing GitHub access means a declared `github` Tool for other repositories, not this row.
+
 **Credentials are never part of it.** `env` is the variable's *name*. A value is refused, and so is
 anything that looks like a key, a token, a password or a URL with one in it; the check is a guard
 against pasting one by mistake, not a substitute for care. Store the value in **Tools → Credentials**

@@ -241,7 +241,7 @@ def test_upgrade_repairs_generated_docs_once_and_queues_next_run_refresh(api):
                path="_librarian/index.md")
     gap = make(api, "Missing and outdated company information", "Sources I could not read: None",
                path="_librarian/missing.md")
-    faq = make(api, "FAQ", "Internal company docs for coworkers. Read `knowledge/company.md`.", path="FAQ.md")
+    faq = make(api, "FAQ", "Internal Hub docs with standing instructions. Read `knowledge/company.md`.", path="FAQ.md")
     custom = make(api, "Our terms", "Company policy.", path="_librarian/glossary.md")
     with api.app.state.store.transaction() as c:
         c.execute("DELETE FROM registry_metadata WHERE key='librarian_fix33'")
@@ -255,7 +255,7 @@ def test_upgrade_repairs_generated_docs_once_and_queues_next_run_refresh(api):
     assert fresh["title"] == "Docs index" and "refunds.md`" not in fresh["body"]
     assert "sales/pricing.md" in fresh["body"]
     assert call(api, "GET", "docs/" + gap["id"])["doc"]["title"] == "Docs gaps"
-    assert call(api, "GET", "docs/" + faq["id"])["doc"]["body"] == "Internal team docs for teammates. Read `knowledge/company.md`."
+    assert call(api, "GET", "docs/" + faq["id"])["doc"]["body"] == "Internal Tico docs with Instructions. Read `knowledge/company.md`."
     assert call(api, "GET", "docs/" + custom["id"])["doc"]["body"] == custom["body"]
     assert call(api, "GET", "docs/%s/versions/1" % idx["id"])["version"]["body"] == idx["body"]
     api.app.state.store.initialize(seed_market=False)
