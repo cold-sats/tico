@@ -107,11 +107,13 @@ def test_the_pull_request_moves_the_task_through_review_ready_and_shipped(api):
 
 
 def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(api):
+    tag = post(api, 'tags', {'key': 'release-checklist', 'label': 'release',
+        'metadata': {'date': '2026-10-02'}, 'markdown': '- [ ] Smoke checks'})['tag']
     typ = post(api, 'task-types', {'name': 'Engineering', 'steps': [
         {'name': 'Draft', 'status': 'open'}, {'name': 'Code review', 'status': 'review'},
         {'name': 'Merged', 'status': 'ready'}]})['type']
     task = post(api, 'tasks', {'owner': 'cpo', 'title': 'Build the release screen', 'body': 'Please.',
-        'links': [PR], 'type': typ['id']})
+        'links': [PR], 'type': typ['id'], 'labels': [tag['key']]})
     general = post(api, 'tasks', {'owner': 'cpo', 'title': 'Review an ordinary request', 'body': 'Please.', 'links': [PR]})
     assert task['lane'] == general['lane'] == 'company'
     hook(api, 'pull_request', pr_event('opened'))
@@ -123,4 +125,6 @@ def test_webhook_and_deploy_map_custom_steps_and_preserve_status_without_a_step(
         assert G.ship_deployed(c, api.app.state.store.settings) == [task['id']]
     after = get(api, 'tasks/' + task['id'])['task']
     assert after['status'] == 'done' and after['step'] is None and after['type_id'] == typ['id']
+    assert after['labels'] == [tag['key']] and after['tags'][0]['metadata'] == tag['metadata']
+    assert get(api, 'tags/' + tag['id'])['tasks'][0]['status'] == 'done'
     assert get(api, 'tasks/' + general['id'])['task']['status'] == 'open'

@@ -142,7 +142,9 @@ def test_task_labels_and_links_with_an_attachment(api):
 # ----------------------------------------------------------------------------- tags
 @pytest.mark.parametrize("cloud", [False, True])
 def test_tag_migration_backfills_once_and_preserves_legacy_column(api, cloud):
-    task = post(api, "tasks", {"owner": "cmo", "title": "Review the migration", "body": "x"})
+    typ = pipeline(api)
+    task = post(api, "tasks", {"owner": "cmo", "title": "Review the migration", "body": "x",
+                              "type": typ["id"], "step": "Copy review"})
     store = api.app.state.store
     with store.transaction() as c:
         c.execute("UPDATE tasks SET labels_json=? WHERE id=?", ('["release","bug","bug"]', task["id"]))
@@ -156,7 +158,9 @@ def test_tag_migration_backfills_once_and_preserves_legacy_column(api, cloud):
         c = H.connect(store.settings.db_path)
         c.close()
     with store.read() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert H.task(c, task["id"])["type_id"] == typ["id"]
+        assert H.task(c, task["id"])["step_id"] == task["step_id"]
         assert {tag["key"] for tag in H.tags(c)} == {"release", "bug"}
         assert set(H.task_labels(H.task(c, task["id"]))) == {"release", "bug"}
         assert c.execute("SELECT COUNT(*) FROM task_tags").fetchone()[0] == 2
@@ -270,6 +274,39 @@ def pipeline(api, token='ana-test'):
 
 def edit_pipeline_task(api, task, **fields):
     return post(api, 'tasks/' + task['id'], {'version': task['version'], **fields})
+
+
+def test_template_tags_and_pipeline_moves_preserve_each_other(api):
+    typ = pipeline(api)
+    template = post(api, 'tags', {'key': 'release-checklist', 'label': 'release',
+        'is_template': True, 'markdown': '- [ ] Smoke checks'})['tag']
+    tag = post(api, 'tags/' + template['id'] + '/instances', {
+        'key': 'release-2026-10-02', 'metadata': {'date': '2026-10-02'}})['tag']
+    task = post(api, 'tasks', {'owner': 'cmo', 'title': 'Review the release checklist',
+        'body': 'Please.', 'type': typ['id'], 'step': 'Draft', 'labels': [tag['key']]})
+    task = edit_pipeline_task(api, task, step='Copy review', labels=[tag['key'], 'launch'])
+    assert task['status'] == 'review' and task['step']['name'] == 'Copy review'
+    assert task['labels'] == [tag['key'], 'launch']
+    assert task['tags'][0]['metadata'] == tag['metadata']
+    step_id = task['step_id']
+    task = edit_pipeline_task(api, task, labels=[tag['key']])
+    assert task['type_id'] == typ['id'] and task['step_id'] == step_id
+    task = edit_pipeline_task(api, task, status='doing')
+    assert task['step'] is None and task['labels'] == [tag['key']]
+    post(api, 'tags/' + tag['id'], {'version': tag['version'], 'markdown': '- [x] Smoke checks'})
+    listed = get(api, 'tasks?label=' + tag['key'])['tasks'][0]
+    related = get(api, 'tags/' + tag['id'])['tasks'][0]
+    for view in (listed, related):
+        assert view['type'] == {'id': typ['id'], 'name': 'Marketing'}
+        assert view['status'] == 'doing' and view['step'] is None
+        assert view['tags'][0]['markdown'] == '- [x] Smoke checks'
+    task = edit_pipeline_task(api, task, step='Complete')
+    task = edit_pipeline_task(api, task, close=True)
+    assert task['step']['name'] == 'Archive' and task['labels'] == [tag['key']]
+    detail = get(api, 'tasks/' + task['id'])
+    assert {'labels', 'step', 'status'} <= {event['field'] for event in detail['events']}
+    with api.app.state.store.read() as c:
+        assert c.execute('SELECT labels_json FROM tasks WHERE id=?', (task['id'],)).fetchone()[0] == '[]'
 
 
 def test_steps_keep_status_contract_stay_first_match_and_clear(api):

@@ -17,6 +17,8 @@ const {html, uiFile} = require('./support/page.cjs');
         {id: 'copy', name: 'Copy review', status: 'review'}, {id: 'complete', name: 'Complete', status: 'done'},
         {id: 'archive', name: 'Archive', status: 'closed'}].map((step, position) => ({...step, position, type_id: 'marketing'}))}];
     const me = {id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', mover: true, cloud: true};
+    const tag = {id: 'release-tag', key: 'release-2026-10-02', label: 'release',
+      metadata: {date: '2026-10-02'}, markdown: '- [ ] Smoke checks', is_template: false, version: 1};
     const bots = [{name: 'ops', display_name: 'Ops', host: 'keeper', status: 'active', can_chat: true}];
     const tasks = ['draft', 'copy', 'complete', null].map((stepId, index) => {
       const step = types[1].steps.find(step => step.id === stepId) || null;
@@ -28,6 +30,7 @@ const {html, uiFile} = require('./support/page.cjs');
     });
     tasks.push({...tasks[0], id: 'general-task', title: 'General task', type_id: 'general', step_id: 'general-open',
       type: {id: 'general', name: 'General'}, step: types[0].steps[0]});
+    Object.assign(tasks[1], {labels: [tag.key], tags: [tag]});
     await page.route('**/*', async route => {
       const req = route.request(), url = new URL(req.url()), p = url.pathname;
       const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
@@ -42,7 +45,8 @@ const {html, uiFile} = require('./support/page.cjs');
       if (p === '/api/status') return json({active: [], employees: []});
       if (p === '/api/v2/status') return json({bots: []});
       if (p === '/api/v2/routines') return json({routines: []});
-      if (p === '/api/v2/tasks/labels') return json({labels: []});
+      if (p === '/api/v2/tasks/labels') return json({labels: [tag.key], tags: [tag]});
+      if (p === '/api/v2/tags' && req.method() === 'GET') return json({tags: [tag]});
       if (p.startsWith('/api/v2/preferences/') && req.method() === 'GET') {
         await new Promise(resolve => setTimeout(resolve, 100));
         return json({value: {type: 'marketing', view: 'board', views: 2}});
@@ -86,14 +90,23 @@ const {html, uiFile} = require('./support/page.cjs');
       ['Draft', 'Legal review', 'Copy review', 'Complete', 'Archive', 'Doing']);
     assert.equal(await page.locator('#task-body .bcard').count(), 4, 'a saved type includes finished work');
     assert.equal(await page.locator('#task-body').getByText('General task', {exact: true}).count(), 0);
+    await page.locator('#task-filter').click();
+    await page.selectOption('#board-label', tag.key);
+    assert.equal(await page.locator('#task-body .bcard').count(), 1, 'tag and type filters combine');
+    assert.equal(await page.locator('#task-body .tlabel').innerText(), 'release · Oct 2');
+    await page.selectOption('#board-label', '');
+    await page.locator('#task-filter').click();
     await page.locator('#task-body [data-open-task="ttask-1"]').click();
     await page.locator('#task-modal [data-modal-step]').waitFor();
     assert.equal(await page.locator('#task-modal [data-modal-step]').inputValue(), 'copy');
     assert.equal(await page.locator('#task-modal [data-modal-status]').count(), 0);
     assert.equal(await page.locator('#task-modal .pill').first().textContent(), 'Copy review');
+    assert.equal(await page.locator('#task-modal [data-tag-key]').innerText(), 'release · Oct 2');
+    assert.equal(await page.locator('#task-modal [data-modal-labels]').count(), 1);
     await page.selectOption('#task-modal [data-modal-step]', 'legal');
     await page.waitForFunction(() => document.querySelector('#task-modal [data-modal-step]')?.value === 'legal' && TASKS_ST.tasks.find(task => task.id === 'task-1').version === 2);
     assert.deepEqual(posted.find(item => item.path.endsWith('/task-1')).body, {version: 1, step: 'legal'});
+    assert.equal(await page.locator('#task-modal [data-tag-key]').innerText(), 'release · Oct 2', 'step moves keep tags');
     await page.selectOption('#task-modal [data-modal-type]', 'general');
     await page.locator('#task-modal [data-modal-status]').waitFor();
     assert.equal(await page.locator('#task-modal [data-modal-status]').inputValue(), 'review');
@@ -125,7 +138,11 @@ const {html, uiFile} = require('./support/page.cjs');
     assert.equal(await page.locator('.task-outcome').count(), 0, 'closed-to-closed step move adds no result prompt');
     await page.locator('#task-modal [data-modal-close]').click();
     await page.evaluate(() => pageSettings());
+    await page.locator('[data-settings-tab=tags]').click();
+    await page.locator('#settings-tags [href="#/tag/release-2026-10-02"]').waitFor();
+    assert.equal(await page.locator('#settings-types').isVisible(), false);
     await page.locator('[data-settings-tab=types]').click();
+    assert.equal(await page.locator('#settings-tags').isVisible(), false);
     await page.locator('#set-types [data-edit-type=marketing]').click();
     await page.locator('.task-type-editor input[aria-label="Type name"]').fill('Campaigns');
     await page.locator('.task-type-editor [data-steps] .task-step-edit').nth(1).locator('[data-up]').click();
