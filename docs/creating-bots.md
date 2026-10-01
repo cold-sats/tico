@@ -635,3 +635,10 @@ destination's repository readiness; if it is missing, transfer the repository or
 Go live reports a pending build instead of saying an unbuilt bot is working. Resume, Restore and activation in
 bot settings check the repository too. Built-in bots and starters being built by their computer keep their
 pending build; an External agent does not need a local repository.
+
+## Task pipelines
+
+A bot can keep using task statuses with any task type. Tico maps each status change to the type's
+matching step, or shows the plain status when no step matches. `hub task types` lists definitions;
+`hub task update <id> --step "Legal review"` chooses a named step explicitly. Types are optional,
+managed by movers in Settings → Types. See [Task types and steps](tasks.md).

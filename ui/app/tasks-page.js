@@ -18,6 +18,7 @@ function pageTasks(forced, openId = '') {
     state.kind = localStorage.getItem('hub.recurring.kind') || 'all';
     state.armed = localStorage.getItem('hub.recurring.armed') || 'all';
   } catch { state.view = forced || 'foryou'; }
+  taskPipelineState(state);
   tasksNormalise(state, forced);
   $('#main').innerHTML = `<div class="board-tools tasks-head find">
       <h1>Tasks</h1>
@@ -88,7 +89,7 @@ function pageTasks(forced, openId = '') {
     if (open) positionFilter();
   });
   $('#task-filter-clear').onclick = () => {
-    state.filter = 'all'; state.bot = ''; state.label = '';
+    state.filter = 'all'; state.bot = ''; state.label = ''; state.type = '';
     tasksRemember(state); tasksTools(state); tasksRender(state);
   };
   tasksTools(state); tasksRender(state);
@@ -99,14 +100,14 @@ function pageTasks(forced, openId = '') {
     const pref = S.me?.cloud ? await v2Get('/v2/preferences/' + TASK_PREF) : null;
     if (TASKS_ST !== state) return;
     if (pref?.value && typeof pref.value === 'object') {
-      for (const k of ['bot', 'filter', 'label']) if (pref.value[k] != null) state[k] = String(pref.value[k]);
+      for (const k of ['bot', 'filter', 'label', 'type']) if (pref.value[k] != null) state[k] = String(pref.value[k]);
       // Before `views: 2`, List and Board both showed For you, so an old choice means For you.
       if (!forced && pref.value.view) state.view = pref.value.views === 2 ? String(pref.value.view) : 'foryou';
       tasksNormalise(state, forced);
     }
     tasksTools(state);
     tasksRender(state);
-    if (state.view === 'done' && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
+    if ((state.view === 'done' || state.type) && !state.doneLoaded && !state.doneLoading) void tasksLoadDone(state, true);
     await loading;
   })();
 }
@@ -118,6 +119,7 @@ function tasksNormalise(state, forced) {
   if (state.bot && !state.bot.startsWith('human:') && !S.emps.some(e => e.name === state.bot)) state.bot = '';
 }
 function tasksRemember(state) {
+  taskPipelineRemember(state);
   try {
     localStorage.setItem('hub.board.bot', state.bot);
     localStorage.setItem('hub.tasks.filter', state.filter); localStorage.setItem('hub.tasks.label', state.label);
@@ -126,7 +128,7 @@ function tasksRemember(state) {
   if (S.me?.cloud) {
     clearTimeout(state.saveTimer);
     state.saveTimer = setTimeout(() => { void post('/v2/preferences/' + TASK_PREF,
-      {value: {bot: state.bot, filter: state.filter, label: state.label, view: state.view, views: 2}}).catch(() => {}); }, 400);
+      {value: {bot: state.bot, filter: state.filter, label: state.label, type: state.type, view: state.view, views: 2}}).catch(() => {}); }, 400);
   }
 }
 function taskOwnerOptions(selected = '') {
@@ -179,6 +181,7 @@ function openTaskCreate(owner = '', opts = {}) {
     sel.innerHTML = '<option value="">No goal</option>' + goals.map(g =>
       `<option value="${esc(g.id)}">${esc(g.title)} · ${esc(goalOwnerInfo(g.owner).name)}</option>`).join('');
   });
+  void taskPipelineCreate($('#task-create-form'), TASKS_ST?.type);
   $('#task-create-form').onsubmit = async ev => {
     ev.preventDefault();
     const form = ev.target, btn = form.querySelector('[type=submit]'), msg = $('#task-create-msg');
@@ -187,6 +190,7 @@ function openTaskCreate(owner = '', opts = {}) {
     if (!body) { msg.textContent = 'Add details.'; form.body.focus(); return; }
     btn.disabled = true; msg.textContent = 'Creating…';
     const payload = {title, body, owner};
+    taskPipelineCreatePayload(form, payload);
     const labels = form.labels.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
     if (labels.length) payload.labels = labels;
     if (form.top.checked) payload.top = true;
@@ -212,12 +216,12 @@ const mergeTaskRows = (...groups) => [...new Map(groups.flat().map(task => [task
 const activeTasksPath = (offset = 0) => `/v2/tasks?lane=company&status=${ACTIVE_TASK_STATUSES}&limit=100&offset=${offset}`;
 async function tasksLoad(state) {
   const seq = ++state.loadSeq;
-  const reloadDone = state.doneLoaded || state.view === 'done';
+  const reloadDone = state.doneLoaded || state.view === 'done' || !!state.type;
   state.loading = !(state.tasks || []).some(t => !['done', 'closed'].includes(String(t.status)));
   tasksRender(state);
   const [active, rec, lab] = await Promise.all([
     v2Get(activeTasksPath()),
-    v2Get('/v2/routines'), v2Get('/v2/tasks/labels')]);
+    v2Get('/v2/routines'), v2Get('/v2/tasks/labels'), taskTypesLoad().catch(() => TASK_TYPES)]);
   if (TASKS_ST !== state || state.loadSeq !== seq) return;
   const finished = (state.tasks || []).filter(t => ['done', 'closed'].includes(String(t.status)));
   state.tasks = mergeTaskRows(active?.tasks || [], finished);
@@ -324,12 +328,13 @@ function tasksTools(state) {
     state.label = lab.value;
     tasksRemember(state); tasksFilterCount(state); tasksRender(state);
   };
+  taskPipelineFilter(state);
   tasksFilterCount(state);
 }
 function tasksFilterCount(state) {
   const button = $('#task-filter');
   if (!button) return;
-  const count = Number(state.filter !== 'all') + Number(!!state.bot) + Number(!!state.label);
+  const count = Number(state.filter !== 'all') + Number(!!state.bot) + Number(!!state.label) + Number(!!state.type);
   button.textContent = count ? `Filter · ${count}` : 'Filter';
   button.classList.toggle('active', !!count);
   button.setAttribute('aria-label', count ? `Filter tasks, ${count} active` : 'Filter tasks');
@@ -395,7 +400,7 @@ function tasksRender(state) {
       ? '<section class="card"><div class="empty">Loading tasks…</div></section>'
       : state.view === 'done' ? tasksDoneHTML(items, state)
       : state.view === 'list' ? tasksListHTML(items)
-      : state.view === 'board' ? tasksBoardHTML(items) : companyNeedsHTML(items);
+      : state.view === 'board' ? tasksBoardHTML(items, state) : companyNeedsHTML(items);
   }
   const more = $('#board-more');
   if (more) more.onclick = () => { void tasksLoadDone(state); };

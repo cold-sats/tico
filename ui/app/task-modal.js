@@ -126,7 +126,7 @@ async function taskModalShow(task) {
   if (!d.open) d.showModal();
   d.scrollTop = 0;
   // the list knows the task; the detail adds its parts, its parent and the comments
-  const detail = await v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`);
+  const [detail] = await Promise.all([v2Get(`/v2/tasks/${encodeURIComponent(task.id)}`), taskTypesLoad().catch(() => TASK_TYPES)]);
   if (!detail?.task || !d.open || d.dataset.task !== task.id) return;
   const full = {...detail.task, children: detail.children || [], parent: detail.parent || null};
   d.innerHTML = hubModalHTML(full, taskItem(full));
@@ -147,8 +147,9 @@ function taskModalBind(d, task) {
   });
   const change = async (body, then) => {
     try {
-      if (body.status === 'done') {
-        const note = await taskOutcomeNote(task, body);
+      const outcome = pipelineActionStatus(task, body);
+      if ((outcome === 'done' || outcome === 'closed') && outcome !== task.status) {
+        const note = await taskOutcomeNote(task, outcome === 'closed' ? {close: true} : body);
         if (note === null) return false;
         if (note) body = {...body, note};
       }
@@ -162,6 +163,7 @@ function taskModalBind(d, task) {
       return true;
     } catch (e) { toast(e.message, true); return false; }
   };
+  taskPipelineBind(d, task, change);
   d.querySelectorAll('[data-modal-status]').forEach(sel => sel.onchange = async () => {
     if (!await change({status: sel.value})) sel.value = task.status;
   });
@@ -213,7 +215,7 @@ const commentAuthor = (a, via) => {
   const slug = actorSlug(a);
   return `${slug ? avatar(slug, 16, stateOf(slug)) : ''}<span class="who">${esc(actorLabel(a))}</span>`;
 };
-const TASK_EVENT_WORDS = {status: s => `moved it to ${STATUS_WORD[s] || s}`, owner: v => `handed it to ${actorLabel(v)}`,
+const TASK_EVENT_WORDS = {step: id => id ? `moved it to ${pipelineStepName(id)}` : 'cleared the step', type: id => `set the type to ${TASK_TYPES.find(type => type.id === id)?.name || id}`, status: s => `moved it to ${STATUS_WORD[s] || s}`, owner: v => `handed it to ${actorLabel(v)}`,
   lane: v => `moved it to the ${v === 'company' ? 'team' : v} lane`, labels: v => { try { const l = JSON.parse(v || '[]'); return l.length ? `set the labels: ${l.join(', ')}` : 'removed the labels'; } catch { return 'changed the labels'; } },
   blocked_by: v => v ? 'marked it blocked' : 'cleared the block', parent_id: v => v ? 'filed it under a parent task' : 'took it out of its parent',
   link: v => v ? `linked ${v}` : 'removed a link', due: v => v ? `set the due date to ${fmt(v)}` : 'cleared the due date',
@@ -328,10 +330,10 @@ function hubModalHTML(t, it) {
   const waitLabel = askToYou ? needsWho(t) : t.blocker ? 'Blocked by' : (t.status === 'waiting' ? 'Waiting on' : '');
   const original = taskBody(t);
   const note = String(t.note || '');
-  const statusWord = open && (askToYou || (t.status === 'open' && actorPerson(t.owner))) ? needsWho(t) : (STATUS_WORD[t.status] || t.status || '');
+  const statusWord = (pipelineTypeId(t) !== 'general' && t.step?.name) || (open && (askToYou || (t.status === 'open' && actorPerson(t.owner))) ? needsWho(t) : (STATUS_WORD[t.status] || t.status || ''));
   const mover = canMove();
   const mayReopen = mover || t.owner === myActor() || t.requester === myActor();
-  const statuses = ['open', 'doing', 'waiting', 'done', 'declined'];
+  const statuses = ['open', 'doing', 'waiting', 'review', 'ready', 'done', 'declined'];
   const links = (t.links || []);
   const files = (t.attachments || []);
   return `<div class="tmodal-head">${it.slug ? avatar(it.slug, 22, stateOf(it.slug)) : personCircle(actorLabel(t.owner), 22)}
@@ -359,11 +361,12 @@ function hubModalHTML(t, it) {
       ${(t.children || []).length || t.parts?.total ? `<div class="tsection"><div class="lbl">Parts ${t.parts?.total ? `<span class="muted">${t.parts.done} of ${t.parts.total} done</span>` : ''}</div>
         <div class="tchildren">${(t.children || []).map(k => `<button class="trow-btn small" type="button" data-open-task="t${esc(k.id)}"><span class="trow-who">${actorSlug(k.owner) ? avatar(actorSlug(k.owner), 16, stateOf(actorSlug(k.owner))) : personCircle(actorLabel(k.owner), 16)}</span><span class="ttl">${esc(k.title)}</span><span class="pill ${V2_PILL[k.status] ?? ''}">${esc(STATUS_WORD[k.status] || k.status)}</span></button>`).join('')}</div></div>` : ''}
       ${mover && open ? `<div class="tsection tcontrols">
-        <label>Status <select data-modal-status aria-label="Status">${statuses.map(s => `<option value="${s}"${s === t.status ? ' selected' : ''}>${esc(STATUS_WORD[s] || s)}</option>`).join('')}</select></label>
+        ${taskPipelineControl(t, statuses)}
         <label>Blocked by <select data-modal-blocked aria-label="Blocked by">${taskPickOptions(t.id, t.blocked_by || '')}</select></label>
         <label>Part of <select data-modal-parent aria-label="Parent task">${taskPickOptions(t.id, t.parent_id || '')}</select></label>
         <button class="ghost" type="button" data-modal-child>Add a part</button>
       </div>` : ''}
+      ${taskPipelineExtraControl(t, mover, open)}
       <div class="issue-actions">
         ${open ? `<button class="linkish" type="button" data-modal-task="done">Done</button>
           <button class="linkish danger" type="button" data-modal-task="closed" data-modal-close-task="1">Close</button>`

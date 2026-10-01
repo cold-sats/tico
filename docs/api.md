@@ -101,3 +101,10 @@ included:
 Tico does not rate-limit ordinary calls. What it does enforce: writes are limited to 2 MB (uploads and meeting
 imports 20 MB, `413 too_large`), a few actions have a daily budget (`429`), and each open live stream costs the
 server a small read every second. [custom-frontend.md](custom-frontend.md#rate-limits) has the guidance.
+
+## Task pipelines
+
+`/api/v2/task-types` exposes task types and their ordered steps. Movers create and edit definitions;
+unused types can be deleted, and steps with tasks cannot be removed. Task creation and updates
+accept `type` and `step`. Answers add `type_id`, `step_id`, `type` and `step` while preserving the
+existing status contract. See [Task types and steps](tasks.md) for mapping and update examples.

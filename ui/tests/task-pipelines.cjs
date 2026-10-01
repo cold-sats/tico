@@ -1,0 +1,147 @@
+// Pipeline columns, step edits, and Types settings use the task's stable status contract.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {html, uiFile} = require('./support/page.cjs');
+(async () => {
+  const browser = await chromium.launch({channel: process.env.TICO_BROWSER_CHANNEL ?? 'chrome', headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1200, height: 900}, serviceWorkers: 'block'});
+    const errors = [], posted = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const statuses = ['open', 'doing', 'waiting', 'review', 'ready', 'done', 'closed', 'declined'];
+    let types = [
+      {id: 'general', name: 'General', steps: statuses.map((status, position) => ({id: 'general-' + status, type_id: 'general', name: status, status, position}))},
+      {id: 'marketing', name: 'Marketing', steps: [
+        {id: 'draft', name: 'Draft', status: 'open'}, {id: 'legal', name: 'Legal review', status: 'review'},
+        {id: 'copy', name: 'Copy review', status: 'review'}, {id: 'complete', name: 'Complete', status: 'done'},
+        {id: 'archive', name: 'Archive', status: 'closed'}].map((step, position) => ({...step, position, type_id: 'marketing'}))}];
+    const me = {id: 'ana', name: 'Ana', email: 'ana@acme.example', role: 'owner', mover: true, cloud: true};
+    const bots = [{name: 'ops', display_name: 'Ops', host: 'keeper', status: 'active', can_chat: true}];
+    const tasks = ['draft', 'copy', 'complete', null].map((stepId, index) => {
+      const step = types[1].steps.find(step => step.id === stepId) || null;
+      return {id: 'task-' + index, title: ['Write the campaign', 'Review the campaign', 'Finished campaign', 'Unmapped campaign'][index],
+        body: 'Please review the campaign.', owner: 'bot:ops', requester: 'human:ana',
+        type_id: 'marketing', step_id: stepId, type: {id: 'marketing', name: 'Marketing'}, step,
+        status: step?.status || 'doing', lane: 'company', version: 1, labels: [], links: [], parts: {total: 0, done: 0},
+        rank: index, created: '2026-10-01T12:00:00Z', updated: '2026-10-01T12:00:00Z'};
+    });
+    tasks.push({...tasks[0], id: 'general-task', title: 'General task', type_id: 'general', step_id: 'general-open',
+      type: {id: 'general', name: 'General'}, step: types[0].steps[0]});
+    await page.route('**/*', async route => {
+      const req = route.request(), url = new URL(req.url()), p = url.pathname;
+      const json = (body, status = 200) => route.fulfill({status, contentType: 'application/json', body: JSON.stringify(body)});
+      if (url.origin !== 'http://tico-ui.test') return route.abort();
+      if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+      const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
+      if (ui) { const file = uiFile(ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
+      if (p === '/api/me') return json(me);
+      if (p === '/api/employees') return json(bots);
+      if (p === '/api/humans') return json({people: [{id: 'ana', name: 'Ana', email: 'ana@acme.example'}]});
+      if (p === '/api/issues') return json([]);
+      if (p === '/api/status') return json({active: [], employees: []});
+      if (p === '/api/v2/status') return json({bots: []});
+      if (p === '/api/v2/routines') return json({routines: []});
+      if (p === '/api/v2/tasks/labels') return json({labels: []});
+      if (p.startsWith('/api/v2/preferences/') && req.method() === 'GET') {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return json({value: {type: 'marketing', view: 'board', views: 2}});
+      }
+      if (p === '/api/v2/task-types' && req.method() === 'GET') return json({types});
+      if (p.startsWith('/api/v2/task-types') && req.method() === 'POST') {
+        const body = req.postDataJSON(); posted.push({path: p, body});
+        const id = p.split('/')[4];
+        if (p.endsWith('/delete')) { types = types.filter(type => type.id !== id); return json({type: {id}}); }
+        const type = id ? types.find(type => type.id === id) : {id: 'new-type', name: body.name};
+        if (!id) types.push(type);
+        if (body.name) type.name = body.name;
+        if (body.steps) type.steps = body.steps.map((step, position) => ({...step, id: step.id || 'new-step-' + position, type_id: type.id}));
+        return json({type});
+      }
+      if (p === '/api/v2/tasks' && req.method() === 'GET') {
+        const wanted = url.searchParams.get('status')?.split(',');
+        return json({tasks: wanted ? tasks.filter(task => wanted.includes(task.status)) : tasks, next_offset: null});
+      }
+      const one = p.match(/^\/api\/v2\/tasks\/([^/]+)$/);
+      if (one) {
+        const task = tasks.find(task => task.id === one[1]);
+        if (req.method() === 'POST') {
+          const body = req.postDataJSON(); posted.push({path: p, body});
+          if (body.type) task.type_id = body.type;
+          const type = types.find(type => type.id === task.type_id);
+          const step = 'step' in body ? type.steps.find(step => step.id === body.step) : type.steps.find(step => step.status === (body.status || task.status));
+          Object.assign(task, {type: {id: type.id, name: type.name}, step: step || null, step_id: step?.id || null,
+            status: step?.status || body.status || task.status, version: task.version + 1});
+        }
+        return json({task, children: [], parent: null, comments: [], events: [], messages: [], mover: me.mover});
+      }
+      if (p === '/api/v2/conversations') return json({conversations: []});
+      if (p.endsWith('/messages')) return json({messages: []});
+      if (p === '/api/v2/models') return json({models: [], harnesses: []});
+      return json({});
+    });
+    await page.goto('http://tico-ui.test/#/tasks');
+    await page.waitForFunction(() => TASKS_ST?.doneLoaded && TASKS_ST.type === 'marketing');
+    assert.deepEqual(await page.locator('#task-body .bcol h2').allTextContents(),
+      ['Draft', 'Legal review', 'Copy review', 'Complete', 'Archive', 'Doing']);
+    assert.equal(await page.locator('#task-body .bcard').count(), 4, 'a saved type includes finished work');
+    assert.equal(await page.locator('#task-body').getByText('General task', {exact: true}).count(), 0);
+    await page.locator('#task-body [data-open-task="ttask-1"]').click();
+    await page.locator('#task-modal [data-modal-step]').waitFor();
+    assert.equal(await page.locator('#task-modal [data-modal-step]').inputValue(), 'copy');
+    assert.equal(await page.locator('#task-modal [data-modal-status]').count(), 0);
+    assert.equal(await page.locator('#task-modal .pill').first().textContent(), 'Copy review');
+    await page.selectOption('#task-modal [data-modal-step]', 'legal');
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-modal-step]')?.value === 'legal' && TASKS_ST.tasks.find(task => task.id === 'task-1').version === 2);
+    assert.deepEqual(posted.find(item => item.path.endsWith('/task-1')).body, {version: 1, step: 'legal'});
+    await page.selectOption('#task-modal [data-modal-type]', 'general');
+    await page.locator('#task-modal [data-modal-status]').waitFor();
+    assert.equal(await page.locator('#task-modal [data-modal-status]').inputValue(), 'review');
+    await page.locator('#task-modal [data-modal-close]').click();
+    await page.locator('#task-filter').click();
+    await page.selectOption('#board-type', '');
+    await page.locator('#task-filter').click();
+    assert.equal(await page.locator('#task-body .bcol').count(), 4, 'clearing the type restores existing columns');
+    await page.locator('#task-new').click();
+    await page.locator('#task-create select[name=type]').waitFor();
+    await page.locator('#task-create [data-modal-close]').click();
+    await page.locator('#task-new').click();
+    await page.locator('#task-create select[name=type]').waitFor();
+    assert.equal(await page.locator('#task-create select[name=type]').count(), 1);
+    await page.locator('#task-create [data-modal-close]').click();
+    types[1].steps.push({id: 'verified', name: 'Verified', status: 'done', position: 5, type_id: 'marketing'},
+      {id: 'filed', name: 'Filed', status: 'closed', position: 6, type_id: 'marketing'});
+    const decision = {...tasks[2], id: 'decision', owner: 'human:ana', requester: 'bot:ops'};
+    tasks.push(decision);
+    await page.evaluate(task => taskModalShow(task), decision);
+    await page.locator('#task-modal [data-modal-step] option[value=verified]').waitFor({state: 'attached'});
+    await page.selectOption('#task-modal [data-modal-step]', 'verified');
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-modal-step]')?.value === 'verified');
+    assert.equal(await page.locator('.task-outcome').count(), 0, 'same-status steps add no result prompt');
+    await page.selectOption('#task-modal [data-modal-step]', 'archive');
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-modal-step]')?.value === 'archive');
+    await page.selectOption('#task-modal [data-modal-step]', 'filed');
+    await page.waitForFunction(() => document.querySelector('#task-modal [data-modal-step]')?.value === 'filed');
+    assert.equal(await page.locator('.task-outcome').count(), 0, 'closed-to-closed step move adds no result prompt');
+    await page.locator('#task-modal [data-modal-close]').click();
+    await page.evaluate(() => pageSettings());
+    await page.locator('[data-settings-tab=types]').click();
+    await page.locator('#set-types [data-edit-type=marketing]').click();
+    await page.locator('.task-type-editor input[aria-label="Type name"]').fill('Campaigns');
+    await page.locator('.task-type-editor [data-steps] .task-step-edit').nth(1).locator('[data-up]').click();
+    await page.locator('.task-type-editor button[type=submit]').click();
+    await page.getByText('Campaigns', {exact: true}).waitFor();
+    const edit = posted.find(item => item.path === '/api/v2/task-types/marketing');
+    assert.equal(edit.body.steps[0].id, 'legal', 'editing keeps ids and order');
+    await page.locator('#set-types [data-new-type]').click();
+    await page.locator('.task-type-editor input[aria-label="Type name"]').fill('Design');
+    await page.locator('.task-type-editor button[type=submit]').click();
+    await page.getByText('Design', {exact: true}).waitFor();
+    await page.locator('#set-types [data-edit-type=new-type]').click();
+    await page.locator('.task-type-editor [data-delete-type]').click();
+    await page.waitForFunction(() => !document.querySelector('#set-types [data-edit-type=new-type]'));
+    assert(posted.some(item => item.path.endsWith('/new-type/delete')));
+    assert.deepEqual(errors, []);
+    console.log('PASS: pipeline columns, status fallback, saved type, modal step mapping, General control, Types CRUD.');
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

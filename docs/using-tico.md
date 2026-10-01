@@ -146,3 +146,11 @@ A human: **Settings → Humans → Add manually** (an owner or admin), or sync t
 directory there; behind Cloudflare Access, also allow the address in its policy ([Humans](people.md)). A
 bot: **Settings > Bots > Add from template**, or ask BotOps to build it. Open the bot and press **Set up** to finish its
 first conversation. See [Creating bots](creating-bots.md) for custom Instructions and manual setup.
+
+## Task types and steps
+
+Tasks use **General** until you choose another type. Movers add types and named steps in
+**Settings → Types**. A custom task's **Step** control sets its status; General keeps the usual
+**Status** control. Select **Filter → Type** on the board to use that type's steps as columns.
+Bots and older runners keep using statuses. See [Task types and steps](tasks.md) for mapping rules,
+CLI, MCP and API examples.

@@ -334,3 +334,9 @@ Tico counts active installs anonymously: a random ID, the version and two yes/no
 A team that runs Tico keeps its humans, bots, policies and connected accounts in its own
 registry directory (`TICO_REGISTRY_DIR`) and in bot repositories outside this one; this repository
 is the product. `templates/environment-registry/` shows the shape of the registry.
+
+## Task pipelines
+
+Tasks start on General. Movers can add types and named steps in Settings → Types, then select a
+type on the board to use its steps as columns. Bots and existing scripts keep using task statuses.
+See [Task types and steps](docs/tasks.md) for the UI, CLI, MCP and API.

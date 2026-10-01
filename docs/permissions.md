@@ -293,3 +293,10 @@ access you meant there; saving any bot's access, or dismissing the note, clears 
 `POST /api/v2/sql` is the one place a bot the caller may only see or write to does not appear: the
 `bots`, `bot_status`, `schedules`, `bot_config`, `turns`, `jobs` and related tables hold the bots the caller can read,
 and tasks follow the rule above ([Tico SQL](hub-sql.md)).
+
+## Task types and steps
+
+The owner and humans on the leadership, product or engineering teams manage types and steps.
+Task participants use them with their existing task permissions: choosing a step checks the
+status it maps to, including the normal rules for Ready, completion notes and closing. Definitions
+are team-wide; selecting a type never grants access to additional tasks. See [Tasks](tasks.md).

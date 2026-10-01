@@ -165,3 +165,10 @@ The token's **Last used** in the dialog moves on the first call.
 Most MCP tools use `hub_<thing>_<action>`. Four established helpers keep their short names for compatibility:
 `hub_whoami` (identity), `hub_sql` (read-only query), `hub_classify` (Decision questions) and `hub_brief` (build a brief).
 The `hub` prefix is a command identifier; the product is Tico.
+
+## Task pipelines
+
+Existing agents can keep setting `status` on tasks. `hub_task_types` lists optional task types and
+steps; `hub_task_create` and `hub_task_update` also accept `type` and `step`. A step sets its status
+under the same task permissions. The CLI mirrors them with `hub task types` and
+`hub task update <id> --step "Legal review"`. See [Tasks](tasks.md) for the mapping rules.
