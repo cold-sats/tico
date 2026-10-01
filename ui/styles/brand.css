@@ -1,25 +1,25 @@
 /* ui/styles/brand.css — Wordmark on light and dark.
    The cascade runs in the order index.html links these files; keep rules in order. */
-/* The wordmark: dark ink on light pages, the reversed one on dark, by the OS setting or the app's own theme switch. */
+/* The wordmark: the reversed one on the dark default, dark ink when the theme is light (ui/theme.js). */
 .brand-logo{display:block;height:30px;width:auto}
-.brand-logo.on-dark{display:none}
+.brand-logo.on-light{display:none}
 .brand-name{font-size:20px;font-weight:700;letter-spacing:-.01em}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .brand-logo.on-light{display:none}:root:not([data-theme="light"]) .brand-logo.on-dark{display:block}}
-:root[data-theme="dark"] .brand-logo.on-light{display:none}
-:root[data-theme="dark"] .brand-logo.on-dark{display:block}
-.onb-head h1{font-size:24px;line-height:1.2;margin:2px 0 4px}
+:root[data-theme="light"] .brand-logo.on-light{display:block}
+:root[data-theme="light"] .brand-logo.on-dark{display:none}
+@media (prefers-color-scheme:light){:root[data-theme="system"] .brand-logo.on-light{display:block}:root[data-theme="system"] .brand-logo.on-dark{display:none}}
+.onb-head h1{font-size:16px;line-height:1.2;margin:2px 0 4px}
 .onb-head p{margin:0;color:var(--muted);font-size:13.5px}
 .onb-progress{display:flex;align-items:center;gap:var(--s2) var(--s3);flex-wrap:wrap;margin:0 0 var(--s4);padding:0;list-style:none}
 .onb-progress li{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .onb-progress li::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--idle-bg);border:1px solid var(--line)}
 .onb-progress li.done::before{background:var(--ok);border-color:var(--ok)}
-.onb-progress li.cur{color:var(--ink);font-weight:500}
+.onb-progress li.cur{color:var(--ink);font-weight:600}
 .onb-progress li.cur::before{background:var(--accent);border-color:var(--accent)}
 .onb-count{font-size:12px;color:var(--muted);margin:calc(var(--s3) * -1) 0 var(--s4)}
 .catalog-picker{width:min(920px,94vw);padding:0;border:0;background:var(--surface);color:var(--ink)}
 .catalog-picker .bot-editor-body{max-height:min(74vh,720px);overflow:auto}
 .onb-field{display:block;margin-bottom:var(--s4)}
-.onb-field>.k{display:block;font-size:12px;font-weight:500;margin-bottom:3px}
+.onb-field>.k{display:block;font-size:12px;font-weight:600;margin-bottom:3px}
 .onb-field small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
 .onb-field textarea{min-height:92px;resize:vertical}
 .onb-choices{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:4px}
@@ -36,7 +36,7 @@
 .onb-summary>div:last-child{border-bottom:0}
 .onb-summary .k{flex:0 0 150px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.07em;padding-top:3px}
 .onb-cmd{margin:0 0 var(--s3)}
-.onb-cmd .k{display:block;font-size:12px;font-weight:500;margin-bottom:4px}
+.onb-cmd .k{display:block;font-size:12px;font-weight:600;margin-bottom:4px}
 .onb-cmd code{display:block;overflow-x:auto;white-space:pre;padding:8px 10px;border-radius:6px;background:var(--surface2);font:12.5px/1.5 var(--mono)}
 .onb-machine{font-size:13.5px;margin:0}
 .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:var(--s3);align-items:start}

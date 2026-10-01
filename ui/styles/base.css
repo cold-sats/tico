@@ -12,7 +12,7 @@
 .privacy-row{display:flex;align-items:center;gap:8px;font-size:14px}.privacy-row input{width:auto;flex:none}
 html.demo{--demo-h:30px;padding-top:var(--demo-h)}
 html.demo #demo-banner{position:fixed;top:0;left:0;right:0;z-index:3000;height:var(--demo-h);display:flex;align-items:center;justify-content:center;gap:10px;padding:0 12px;background:var(--wait-bg);color:var(--wait);border-bottom:1px solid var(--wait);font-size:12.5px;line-height:1.2;white-space:nowrap;overflow:hidden}
-html.demo #demo-banner strong{color:var(--ink);font-weight:650}
+html.demo #demo-banner strong{color:var(--ink);font-weight:600}
 html.demo #demo-banner span{overflow:hidden;text-overflow:ellipsis}
 html.demo body{min-height:calc(100vh - var(--demo-h))}
 html.demo #side{top:var(--demo-h)}
@@ -32,7 +32,12 @@ body{margin:0;font:14px/1.5 var(--sans);color:var(--ink);background:var(--bg);di
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 button,input,select,textarea{font:inherit;color:inherit}
 h1,h2,h3{margin:0;font-weight:600;text-wrap:balance}
-h2{font-size:15px;color:var(--ink);letter-spacing:.01em}
+/* The type scale: 13px text, page titles 16px at most, card headings 13.5px, labels 11-12px; 600 for names and
+   labels, 400 for text. Set apart from the body's grid rule so the layout and the type change independently. */
+body{font-size:13px}
+h1{font-size:16px;line-height:1.3}
+h2{font-size:14px;color:var(--ink);letter-spacing:.01em}
+h3{font-size:13px}
 .mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
 .muted{color:var(--muted)}
 .tnum{font-variant-numeric:tabular-nums}

@@ -13,7 +13,7 @@
 .mail-box-link .agent-mark{font-family:"Material Symbols Outlined";font-size:17px;color:var(--accent)}
 .mail-main{min-width:0}
 .mail-main-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-.mail-main-head h2{font-size:17px;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-main-head h2{font-size:14px;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mail-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
 .mail-tab{border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);padding:8px 10px;font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
 .mail-tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
@@ -33,17 +33,17 @@
 .mail-row:hover{background:var(--surface2)}
 .mail-row.on{background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .mail-row .when{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
-.mail-row .who{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-row .who{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mail-row .subj{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mail-row .snip{color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mail-row .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
 .mail-thread{min-width:0;overflow-y:auto;max-height:min(68vh,720px);padding:18px 20px 24px}
 .mail-thread .empty{padding:24px 8px}
-.mail-thread h2{font-size:18px;line-height:1.3;margin:0 0 14px}
+.mail-thread h2{font-size:16px;line-height:1.3;margin:0 0 14px}
 .mail-msg{padding:14px 0;border-top:1px solid var(--line)}
 .mail-msg:first-of-type{border-top:0;padding-top:0}
 .mail-msg .meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;margin:0 0 8px;font-size:13px}
-.mail-msg .who{font-weight:500}
+.mail-msg .who{font-weight:600}
 .mail-body{margin:0;padding:12px 14px;background:var(--bg);border-radius:8px;font:13px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
 .mail-more{display:flex;justify-content:center;padding:10px}
 @media (max-width:860px){

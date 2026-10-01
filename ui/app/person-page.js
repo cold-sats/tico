@@ -53,7 +53,7 @@ function pagePerson(id, tab) {
   const boss = (S.people || []).find(row => row.id === p.reports_to);
   const edit = personCanEdit(p);
   const about = goalParts(p.about || '');
-  $('#main').innerHTML = `<div class="bothead">${personAvatar(p, 52)}
+  $('#main').innerHTML = `<div class="bothead">${personAvatar(p, 36)}
     <div class="botid"><h1>${esc(p.name || p.id)}</h1>
       <ul class="goal-lines head-goals" id="head-goals" aria-label="Goals"></ul>
       ${String(p.goals || '').trim() ? `<div class="role" id="head-standing">${esc(String(p.goals).trim())}</div>` : ''}

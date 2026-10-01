@@ -43,7 +43,10 @@
 .tcontrols label{display:inline-flex;align-items:center;gap:6px}
 .tcontrols select{width:auto;max-width:220px;font-size:12.5px;padding:3px 6px}
 .task-comments{max-height:320px;overflow:auto;overflow-wrap:anywhere;display:flex;flex-direction:column;gap:8px;padding:4px 0}
-.tcomment{background:var(--surface2);border-radius:8px;padding:8px 10px;font-size:13px}
+/* comments read like the chat column: a person's in a bubble, a bot's on the page */
+.tcomment{background:var(--bubble);border-radius:12px;padding:8px 12px;font-size:var(--read-size);line-height:var(--read-leading)}
+.tcomment.bot{background:none;padding:4px 0}
+.tcomment .tcomment-head{line-height:1.5}
 .tcomment .md{margin-top:4px}
 .tcomment.sys{background:none;padding:2px 4px;font-size:12px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .tcomment-head{display:flex;align-items:center;gap:8px;font-size:12px}
@@ -60,7 +63,7 @@
 .bcard-open:hover{text-decoration:none}
 .bcard:hover{background:var(--surface2)}
 .bcard-top{display:flex;align-items:center;gap:5px;min-width:0;color:var(--muted);font-size:11.5px}
-.bcard-top .who{color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:11ch}
+.bcard-top .who{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:11ch}
 .bcard-top .spacer{flex:1}
 .bcard-top .gl{flex:none;font-size:11px;opacity:.7}
 .bcard-title{margin-top:4px;color:var(--ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}

@@ -15,7 +15,7 @@
 .req>summary:hover .req-arrow{color:var(--ink)}
 .req[open] .req-arrow{transform:rotate(90deg)}
 .req-body{padding:12px 8px 16px 42px}
-.req-title{font-size:16px;line-height:1.3;font-weight:600;margin-bottom:6px}
+.req-title{font-size:14px;line-height:1.3;font-weight:600;margin-bottom:6px}
 .req-context{color:var(--ink);max-width:78ch}
 .req-context .md{max-width:none}
 .req-context .md>:first-child,.req-next .md>:first-child{margin-top:0}

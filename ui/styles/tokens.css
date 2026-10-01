@@ -1,21 +1,38 @@
-/* ui/styles/tokens.css — Font face, light and dark colour tokens.
+/* ui/styles/tokens.css — Font face, the gray ramp and the colour tokens for dark and light.
    The cascade runs in the order index.html links these files; keep rules in order. */
-@font-face{font-family:"Material Symbols Outlined";font-style:normal;font-weight:300;font-display:block;src:url(/vendor/fonts/material-symbols-outlined.woff2) format("woff2")}
+@font-face{font-family:"Material Symbols Outlined";font-style:normal;font-weight:200;font-display:block;src:url(/vendor/fonts/material-symbols-outlined.woff2) format("woff2")}
+/* Dark is the default. ui/theme.js sets <html data-theme> before the page paints: "dark" (also when nothing is
+   saved), "light", or "system", which follows the OS. Light is the same nine steps in reverse order, so every rule
+   names a step's role (--bg, --surface, --line...) and never a theme. */
 :root{
-  --bg:#f4f6f5;--surface:#ffffff;--surface2:#eceff0;--ink:#1a222c;--muted:#66717f;--line:#dde2e0;
+  /* one neutral gray ramp, g0 the page and g8 the text */
+  --g0:#121417;--g1:#191c20;--g2:#20242a;--g3:#2a2f36;--g4:#363c45;--g5:#5b6470;--g6:#8a93a0;--g7:#b6bec9;--g8:#e6e9ee;
+  --bg:var(--g0);--surface:var(--g1);--surface2:var(--g2);--line:var(--g3);--muted:var(--g6);--ink:var(--g8);
+  --hover:var(--g3);
+  /* the chosen segment of a switch, a step above its track (--surface2) */
+  --raised:var(--g3);
+  /* your own message: one clear step above the pane it sits on */
+  --bubble:#2d333c;
+  /* The teal, lifted a little so it reads on the neutral ramp: 8.1:1 on --bg, 6.9:1 on --surface2. */
+  --accent:#45c09c;--accent-ink:#0b1a15;
+  --run:#7fb3f0;--wait:#e2b25a;--fail:#f08080;--idle:#6f7d8b;--ok:#6cc48f;
+  --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:var(--g2);
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* The conversation: one centred column this wide at most, in slightly larger type with roomier lines. */
+  --read-width:800px;--read-size:13.5px;--read-leading:1.7;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --g0:#ffffff;--g1:#f5f6f8;--g2:#eceef1;--g3:#e0e3e8;--g4:#cdd2d9;--g5:#9aa2ad;--g6:#5f6874;--g7:#3d444d;--g8:#16191d;
+  --bubble:#e5e8ec;--raised:var(--g0);
   --accent:#0f6e56;--accent-ink:#ffffff;
   --run:#2b6cb0;--wait:#b7791f;--fail:#c53030;--idle:#9aa5b1;--ok:#2f855a;
-  --run-bg:#e6f0fb;--wait-bg:#fbf1dc;--fail-bg:#fde8e8;--ok-bg:#e3f4ea;--idle-bg:#eef1f3;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  color-scheme:light;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#12161b;--surface:#1a2027;--surface2:#232b34;--ink:#e6eaf0;--muted:#94a0ad;--line:#2b343e;
-  --accent:#3fb593;--accent-ink:#0b1a15;
-  --run:#7fb3f0;--wait:#e2b25a;--fail:#f08080;--idle:#6f7d8b;--ok:#6cc48f;
-  --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:#232b34;color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#12161b;--surface:#1a2027;--surface2:#232b34;--ink:#e6eaf0;--muted:#94a0ad;--line:#2b343e;
-  --accent:#3fb593;--accent-ink:#0b1a15;
-  --run:#7fb3f0;--wait:#e2b25a;--fail:#f08080;--idle:#6f7d8b;--ok:#6cc48f;
-  --run-bg:#1b2a3d;--wait-bg:#3a2f18;--fail-bg:#3d1f1f;--ok-bg:#1d3327;--idle-bg:#232b34;color-scheme:dark}
+  --run-bg:#e6f0fb;--wait-bg:#fbf1dc;--fail-bg:#fde8e8;--ok-bg:#e3f4ea;
+  color-scheme:light}
+@media (prefers-color-scheme:light){:root[data-theme="system"]{
+  --g0:#ffffff;--g1:#f5f6f8;--g2:#eceef1;--g3:#e0e3e8;--g4:#cdd2d9;--g5:#9aa2ad;--g6:#5f6874;--g7:#3d444d;--g8:#16191d;
+  --bubble:#e5e8ec;--raised:var(--g0);
+  --accent:#0f6e56;--accent-ink:#ffffff;
+  --run:#2b6cb0;--wait:#b7791f;--fail:#c53030;--idle:#9aa5b1;--ok:#2f855a;
+  --run-bg:#e6f0fb;--wait-bg:#fbf1dc;--fail-bg:#fde8e8;--ok-bg:#e3f4ea;
+  color-scheme:light}}
