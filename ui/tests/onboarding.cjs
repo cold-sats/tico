@@ -875,6 +875,7 @@ function recruitFor({department, briefing, share}) {
     await waiting.locator('#fr-providers [data-fr-providers]').click();
     await waiting.waitForFunction(() => SETTINGS_TAB === 'providers');
     CONFIG.local = true;
+    await waiting.reload();
     await waiting.goto('https://tico-ui.test/#/welcome');
     await waiting.locator('#fr-admin-form').waitFor();
     assert.match(await waiting.locator('#fr-admin').textContent(), /Only you can sign in until you add a domain and sign-in/);

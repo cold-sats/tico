@@ -400,15 +400,21 @@ class SettingsAdmin:
             result["agent"] = {"harness": external_harness(c, bot), "credential": bool(record and not record["revoked_at"])}
         return result
 
-    def ensure_activation(self, c, who, bot):
+    def computer_builds_repository(self, c, bot):
+        from .onboarding import read_cards
         declared = _json(self._config(c, bot)["config_json"], {}) or {}
+        return bool(declared.get("materialize") or any(
+            card["template"] == declared.get("template") and card.get("bootstrap")
+            for card in read_cards(self.settings)))
+
+    def ensure_activation(self, c, who, bot):
         previous = H.bot(c, bot)["state"]
         c.execute("UPDATE bots SET state='active' WHERE slug=?", (bot,))
         try:
             placement.auto_place(c, self.execution, bot, who.actor)
         finally:
             c.execute("UPDATE bots SET state=? WHERE slug=?", (previous, bot))
-        if not repository_present(c, bot) and not declared.get("materialize"):
+        if not repository_present(c, bot) and not self.computer_builds_repository(c, bot):
             raise Problem("repository_missing", "Its repository is not built yet. Ask BotOps to build it", 409)
 
     def update_bot(self, c, who, bot, body):

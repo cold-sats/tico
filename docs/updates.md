@@ -47,6 +47,9 @@ health check and automatic rollback described below.
 Health names computers that did not report a version and shows a newer computer's actual release separately.
 Computers lists team service status once, alongside the computer reports. Archived bots are left out of readiness.
 The MCP `hub_health_check` includes the same checks and fixes as Settings > Health, including watchers and queued work.
+Computers report whether a rejected model key came from Credentials or the computer only after the server
+advertises support. After a server rollback, they omit that field and keep reporting readiness; a later server
+upgrade enables it again.
 
 ## Disk space
 

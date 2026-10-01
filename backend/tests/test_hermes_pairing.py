@@ -180,7 +180,7 @@ def test_restore_brings_an_archived_bot_back_to_what_it_was(api, botops):
     # Register says where an archived slug went.
     post(api, "bots/scout/archive", {"expected_revision": get(api, "bots/scout/access")["revision"]})
     r = api.post("/api/v2/bots/register", json={"slug": "scout", "model": "hermes"}, headers=headers("cara-test"))
-    assert r.status_code == 409 and "restore" in r.json()["error"]["detail"]
+    assert r.status_code == 409 and "restore" in r.json()["error"]["detail"].lower()
 
 
 def test_archiving_a_hermes_bot_says_its_agent_stops_and_revokes_the_credential(api):

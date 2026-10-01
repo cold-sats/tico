@@ -2767,7 +2767,7 @@ def create_app(settings=None):
             if not agents.external_harness(c, bot):
                 if not repository_present(c, bot):
                     declared = onboarding._declared(c, bot)
-                    if declared.get("materialize"):
+                    if settings_admin.computer_builds_repository(c, bot):
                         building = True
                     elif declared.get("template"):
                         if not H.bot(c, "botops"):

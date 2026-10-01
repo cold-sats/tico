@@ -139,6 +139,11 @@ class Execution(unittest.TestCase):
         assert runner._harness_after == 0 and not runner._reports_credential_source
         runner.maintain()
         assert "credential_source" not in sent[-1]["readiness"]["runtimes"]["codex"]
+        supported = True
+        runner.maintain()
+        assert "credential_source" not in sent[-1]["readiness"]["runtimes"]["codex"]
+        runner.maintain()
+        assert sent[-1]["readiness"]["runtimes"]["codex"]["credential_source"] == "credentials"
 
     def test_a_due_self_update_exits_when_idle_and_drains_after_a_while(self):
         # The runner updates itself instead of asking a person to pull and restart.

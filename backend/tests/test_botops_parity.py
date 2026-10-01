@@ -193,7 +193,7 @@ def test_activating_or_resuming_places_a_bot_and_the_scheduler_places_the_rest(a
                               "model": "gpt-6-astra", "effort": "high", "harness": None, "runner_id": None})
     assert made["status"] == "planned" and made["assignment"] is None
     machine = runner(api)
-    ready(api, machine, [])
+    ready(api, machine, ["scribe"])
     post(api, "bots/scribe/definition", {"status": "active", "expected_revision": made["revision"]})
     with api.app.state.store.read() as c:
         assert c.execute("SELECT runner_id FROM assignments WHERE bot='scribe'").fetchone()[0] == machine["runner_id"]

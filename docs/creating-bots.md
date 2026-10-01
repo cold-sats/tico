@@ -632,5 +632,5 @@ Alternatively, push the bot's history to its configured GitHub repository so the
 Once the repository is available, change the Computer in bot settings. Computers and Health show the
 destination's repository readiness; if it is missing, transfer the repository or ask BotOps to build it.
 Go live reports a pending build instead of saying an unbuilt bot is working. Resume, Restore and activation in
-bot settings check the repository too. A bot being built by its computer keeps its pending build; an External agent
-does not need a local repository.
+bot settings check the repository too. Built-in bots and starters being built by their computer keep their
+pending build; an External agent does not need a local repository.

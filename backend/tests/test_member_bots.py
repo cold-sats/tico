@@ -404,23 +404,28 @@ def test_template_create_uses_team_default_and_validates_metadata(api, botops):
     post(api, "bots/release-helper/definition", {"template": "no-such-template", "expected_revision": changed["revision"]}, expected=422)
 
 
-def test_owner_mcp_template_creation_queues_one_botops_build(api, botops):
+def test_owner_mcp_template_creation_queues_one_botops_build(api, botops, tmp_path):
     from backend.tests.test_mcp import call as mcp_call
-    bad, made = mcp_call(api, "hub_bot_create", {"slug": "release-helper", "template": "release-notes"})
+    template = tmp_path / "catalog" / "custom-release"
+    template.mkdir(parents=True)
+    (template / "card.yaml").write_text("template: custom-release\nslug: custom-release\nname: Custom Release\n")
+    (template / "AGENT.md").write_text("# Custom Release\n\nDraft release notes.\n")
+    api.app.state.store.settings.catalog_dir = template.parent
+    bad, made = mcp_call(api, "hub_bot_create", {"slug": "release-helper", "template": "custom-release"})
     assert not bad, made
     assert made["setup_task_id"]
     task = get(api, "tasks/" + made["setup_task_id"])["task"]
     assert task["owner"] == "bot:botops" and task["requester"] == "human:ana"
-    assert "release-notes" in task["body"]
-    bad, again = mcp_call(api, "hub_bot_create", {"slug": "release-helper", "template": "release-notes"})
+    assert "custom-release" in task["body"]
+    bad, again = mcp_call(api, "hub_bot_create", {"slug": "release-helper", "template": "custom-release"})
     assert not bad and again["setup_task_id"] == made["setup_task_id"]
-    only_record = post(api, "bots/register", {"slug": "record-helper", "template": "release-notes"})
+    only_record = post(api, "bots/register", {"slug": "record-helper", "template": "custom-release"})
     assert "setup_task_id" not in only_record
     pending = post(api, "bots/record-helper/go-live", {})
     assert pending["building"] and pending["state"] == "planned" and pending["setup_task_id"]
     ready(api, botops, ["botops", "record-helper"])
     working = post(api, "bots/record-helper/go-live", {})
-    assert working["state"] == "active" and working["setup_started"]
+    assert working["state"] == "active" and working["setup_started"] is False
 
 
 def test_template_preview_includes_setup_and_example(api):

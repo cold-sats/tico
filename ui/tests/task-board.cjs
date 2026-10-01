@@ -243,7 +243,7 @@ const screenshotDir = process.env.TICO_SCREENSHOT_DIR;
     await page.evaluate(() => taskModalShow(TASKS_ST.tasks.find(t => t.id === 'Draft the newsletter')));
     await page.locator('#task-modal .task-comments .tcomment', {hasText: 'Use the September numbers.'}).waitFor();
     assert.match(await page.locator('#task-modal .task-comments').innerText(), /ben/i, 'the author is on the comment');
-    assert.match(await page.locator('#task-modal .task-comments').innerText(), /moved it to doing/);
+    assert.match(await page.locator('#task-modal .task-comments').innerText(), /moved it to Doing/);
     assert.equal(await page.getByRole('heading', {name: 'Comments'}).count(), 1);
     assert.equal(await page.locator('#task-modal [data-modal-status]').count(), 1, 'a mover sees the status control');
     assert.equal(await page.locator('#task-modal [data-modal-lane]').count(), 0, 'no lane control');

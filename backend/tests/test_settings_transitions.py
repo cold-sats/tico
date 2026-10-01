@@ -90,3 +90,12 @@ def test_resume_and_restore_check_the_repository_before_activating(api):
         assert c.execute("SELECT state FROM bots WHERE slug='ops'").fetchone()[0] == "archived"
     ready(api, r, ["ops"])
     assert post(api, "bots/ops/restore", {})["status"] == "active"
+    # Built-in repositories are built by their assigned computer, even on older configs without materialize.
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=? WHERE bot='coo'", (encode({"template": "assistant"}),))
+        c.execute("UPDATE bots SET state='paused' WHERE slug='coo'")
+    ready(api, r, [])
+    pending = post(api, "bots/coo/go-live", {"setup": False})
+    assert pending["state"] == "active" and pending["building"] and pending["setup_started"] is False
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT runner_id FROM assignments WHERE bot='coo'").fetchone()[0] == r["runner_id"]
