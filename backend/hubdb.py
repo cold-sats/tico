@@ -2118,7 +2118,8 @@ def task_comments(conn, task_id):
 def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, deduplicate=True,
                 allow_planned=False, conversation_id=None, lane=None, labels=None, top=False, lint=True,
                 goal_id=None, next_run=False, type=None, step=None):
-    """Rule 5. Anyone may open a task for any active owner; a human owner is linted (rule 7).
+    """Rule 5. Anyone may open a task for any active owner; a human owner's General task is
+    linted (rule 7).
 
     `next_run` files it for the bot's next run instead of starting one: the notice is written
     quietly, and the next run the bot has for any reason carries the task in its prompt
@@ -2142,8 +2143,10 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     if next_run and not is_bot(target):
         refuse(conn, actor, "next-run", "only a bot has a next run; file an ordinary task for a person")
     lane = _lane_for(conn, lane, target, actor)
-    # Rule 7 shapes an ask to a person (a verb, the ask first).
-    if is_human(target) and lint:
+    general = _task_state(conn, actor, {}, type=type, step=step)[0] == GENERAL_TYPE
+    # Rule 7 shapes an ask to a person (a verb, the ask first). A task on a custom type is a
+    # ticket on that type's board, written the way the board writes them, not an ask.
+    if is_human(target) and lint and general:
         problems = lint_human_item(body, title=title)
         if problems:
             refuse(conn, actor, "lint", "; ".join(problems), severity)
@@ -2152,7 +2155,6 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" else []
     if plain and TITLE_LINT == "refuse":
         refuse(conn, actor, "lint", "; ".join(plain), severity)
-    _task_state(conn, actor, {}, type=type, step=step)
     labels = _labels(labels)
     dup = _one(conn, "SELECT id FROM tasks WHERE requester=? AND owner=? AND title=? "
                      f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",

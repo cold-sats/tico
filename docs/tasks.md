@@ -28,6 +28,11 @@ reorder and delete types and steps. Move every task off a step before deleting i
 finished tasks. Move tasks to another type before deleting the type. Changing an occupied step's
 status moves its tasks to that status, using the normal completion and reopening behavior.
 
+A task on a custom type is a ticket on that type's board, not an ask. The rule that shapes a
+request to a person (a title that starts with a verb, the ask in the first line, under 120 words
+outside quoted drafts) applies to General tasks only, so a ticket keeps the title and the long
+description it was written with. It still needs a title. A decision for a person stays on General.
+
 A task on a custom type with a linked pull request follows the existing GitHub flow: review when
 the PR opens, ready when it merges, and done when the configured release includes it. Each move
 uses the mapping above, including clearing the step when the type has no match. General tasks

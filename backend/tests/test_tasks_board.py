@@ -309,6 +309,18 @@ def test_template_tags_and_pipeline_moves_preserve_each_other(api):
         assert c.execute('SELECT labels_json FROM tasks WHERE id=?', (task['id'],)).fetchone()[0] == '[]'
 
 
+def test_a_custom_types_task_is_a_ticket_not_an_ask(api):
+    typ = pipeline(api)
+    ticket = {"owner": "priya", "title": "(B/F) Account page: the copy", "body": "Details. " * 150}
+    refused = api.post("/api/v2/tasks", json=ticket, headers=headers())
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "lint"
+    assert not post(api, "tasks/dry-run", ticket)["ok"]
+    ticket["type"] = typ["name"]
+    assert post(api, "tasks/dry-run", ticket)["ok"]
+    task = post(api, "tasks", ticket)
+    assert task["title"] == ticket["title"] and task["type"]["id"] == typ["id"]
+
+
 def test_steps_keep_status_contract_stay_first_match_and_clear(api):
     typ = pipeline(api)
     task = post(api, 'tasks', {'owner': 'cmo', 'title': 'Draft the campaign', 'body': 'Please.', 'type': typ['id']})

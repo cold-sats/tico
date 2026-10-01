@@ -189,6 +189,8 @@ def task_dry_run(c, auth, who, body):
     from . import hubdb as H
     problems = []
     title, text = str(body.title or "").strip(), str(body.body or "")
+    typ = H.type_get(c, body.type or H.GENERAL_TYPE)
+    general = bool(typ) and typ["id"] == H.GENERAL_TYPE      # rule 7 shapes asks, not a custom type's tickets
     target = H.resolve_actor(c, body.owner)
     if target and H.is_bot(target) and not auth.bot_access(c, who, H.actor_id(target))["see"]:
         target = None       # a bot the caller cannot see is not one they can name
@@ -208,7 +210,7 @@ def task_dry_run(c, auth, who, body):
         severity = H.classify(f"{title}\n{text}", to_actor=target, actor=who.actor, conn=c) if H.is_bot(who.actor) else "normal"
         if severity == "escape":
             problems.append("the task reaches outside the hub (rule 8): a real create is refused and repeating it quarantines you")
-        if H.is_human(target):
+        if H.is_human(target) and general:
             problems += H.lint_human_item(text, title=title)
         elif not title:
             problems.append("give it a title that says what you are asking for")
@@ -220,7 +222,6 @@ def task_dry_run(c, auth, who, body):
                      (who.actor, target, title, *H.LIVE_STATUSES))
         if dup:
             problems.append(f"{dup['id']} already asks {H.actor_id(target)} for this")
-    typ = H.type_get(c, body.type or H.GENERAL_TYPE)
     if not typ:
         problems.append("No such task type")
     elif body.step:

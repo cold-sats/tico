@@ -61,7 +61,8 @@ conversation per hour and 10 unsolicited messages per human per bot per day
 is optional, decided by a human and consumed once. Bot requests to a human are linted:
 a nonempty first line and under 120 words outside quoted drafts. Put the ask first; the first-line
 check does not judge whether it is an ask. Replies to the human's own message are exempt from this
-request-format lint; title and Credential checks apply separately. Repeated refusals
+request-format lint, and so is a task on a custom type, which is a ticket on that type's board
+rather than a request ([Tasks](tasks.md)); title and Credential checks apply separately. Repeated refusals
 open a review task and, at 10 a day, pause the bot for an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
 (`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a human clears it.
 

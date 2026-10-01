@@ -332,7 +332,8 @@ def tag_update(api, args):
 
 # ----------------------------------------------------------------------------- tasks
 @tool("hub_task_create", "File a task for a bot or a person. A task for a person is a decision "
-      "or a review: title says what you are asking, body under 120 words. `dry_run` reports the "
+      "or a review: title says what you are asking, body under 120 words (a ticket on a custom type's "
+      "board is exempt; asks stay on General). `dry_run` reports the "
       "checks a create would fail and writes nothing.",
       {"owner": _s("Who does it: a bot slug, a person id, or `me`"),
        "title": _s("What you are asking for, in plain words: no reference numbers, no all-caps"),
