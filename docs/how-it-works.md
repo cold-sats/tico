@@ -19,7 +19,8 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
 - **Message** — one line in a conversation. Kinds: `say`, `ask`, `answer`, `notice`, `steer`.
   A bot's `ask` to a human is what lands in **Needs you**.
 - **Approval** — a human's yes or no to one exact action. Kinds: `send`, `spend`, `publish`,
-  `merge`. Only a human decides; an approval is spent once. Rules: `policies/approvals.md`.
+  `merge`. A bot may request one when uncertain about a specific action; authorized work needs no separate
+  approval. Only a human decides; an approval is spent once and does not turn outbound sending on. Rules: `policies/approvals.md`.
 - **Routine** — a cron schedule owned by a bot: `id`, `title`, `cron`, `timezone`, `template`
   (a playbook file) or inline `instructions`, `labels`. Each occurrence becomes a task.
 - **Goal** — what a human or a bot is for: a title, an owner (`company`, a human or a bot), the goal it

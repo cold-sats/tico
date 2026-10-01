@@ -74,6 +74,7 @@ def test_health_names_unknown_and_newer_versions():
     computers = [{"label": "Laptop", "online": True, "update": runner_versions.view({}, server="0.3.0")},
                  {"label": "Desktop", "online": True, "update": runner_versions.view({"release": "0.4.0"}, server="0.3.0")}]
     result = runner_versions.health_check(computers, server="0.3.0")
+    assert result["label"] == "Computer versions"
     assert result["status"] == "unknown"
     assert "Version not reported: Laptop" in result["summary"]
     assert "Desktop (0.4.0)" in result["summary"] and "Every online computer" not in result["summary"]

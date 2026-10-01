@@ -304,11 +304,12 @@ function v2PendingHTML(state) {
   clearTimeout(state.waitTimer);
   const late = S.me?.cloud && sent && Date.now() - sent >= REPLY_WAIT_MS;
   if (S.me?.cloud && sent && !late) state.waitTimer = setTimeout(() => v2ChatRender(state), sent + REPLY_WAIT_MS - Date.now() + 50);
-  if (late) return `<div class="thinking late" data-pending="${esc(key)}"><span class="dot"></span>
+  const providerMissing = x?.state === 'queued' && x?.readiness_reason === 'missing_provider';
+  if (late && !providerMissing) return `<div class="thinking late" data-pending="${esc(key)}"><span class="dot"></span>
     <span>No reply after 20 minutes · <button type="button" class="dismiss" data-pending-dismiss>dismiss</button></span></div>`;
   const t = v2PendingText(state);
   return `<div class="thinking" data-pending="${esc(key)}" title="${esc(t.tip)}" role="status" aria-label="${esc(t.tip)}">
-    <span class="typing ${t.mode}" aria-hidden="true"><i></i><i></i><i></i></span>${t.word ? `<span class="thinking-word" aria-hidden="true">${esc(t.word)}</span>` : ''}</div>`;
+    <span class="typing ${t.mode}" aria-hidden="true"><i></i><i></i><i></i></span>${t.word ? `<span class="thinking-word" aria-hidden="true">${esc(t.word)}</span>` : ''}${providerMissing ? ' <a href="#/settings" data-gs-tab="providers">Add an AI provider</a>' : ''}</div>`;
 }
 // Scrolled up when something new lands: a small pill above the composer takes you to it.
 function v2Jump(state, fresh) {

@@ -22,6 +22,7 @@ To publish it on another port, pass the browser address with `demo --url`:
 docker run --rm -p 127.0.0.1:18765:8765 ghcr.io/ticoteam/tico:latest demo --url http://localhost:18765
 ```
 
+The startup message prints the supplied `--url`; without it, it prints the local listening port.
 Open <http://localhost:18765>. Private demos accept browser writes from loopback addresses on any
 published port. Ordinary local installs still check their configured port.
 

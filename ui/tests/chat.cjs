@@ -110,6 +110,23 @@ async function liveReply(browser) {
   assert.equal(await page.evaluate(()=>{const p=document.querySelector('#bot-top .av-shape path');
     return getComputedStyle(p).animationName==='none'&&!botAvatar('ops',36).includes('<animate');}),true,'reduced motion: no morph');
   assert.deepEqual(errors,[]);
+  const pending = await page.evaluate(() => {
+    const state = {slug:'ops', messages:[{id:'queued',created:new Date(Date.now()-30*60000).toISOString()}],
+      execution:{message_id:'queued',state:'queued',label:'Saved — no AI provider is chosen',readiness_reason:'missing_provider'}};
+    const el = document.createElement('div');
+    el.innerHTML = v2PendingHTML(state);
+    const link = el.querySelector('a');
+    const result = {text:el.textContent,href:link?.getAttribute('href'),tab:link?.dataset.gsTab};
+    delete state.execution.readiness_reason;
+    const legacy = v2PendingHTML(state);
+    clearTimeout(state.waitTimer);
+    return {...result,legacy};
+  });
+  assert.match(pending.text,/no AI provider is chosen/);
+  assert.match(pending.text,/Add an AI provider/);
+  assert.equal(pending.href,'#/settings');
+  assert.equal(pending.tab,'providers');
+  assert.match(pending.legacy,/No reply after 20 minutes/);
   console.log('chat live reply: ok');
 }
 

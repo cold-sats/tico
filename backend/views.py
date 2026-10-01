@@ -440,6 +440,7 @@ def conversation_snapshot(c, cid):
             label = "Working — follow-up added"
         if state == "uncertain" and job["attempt_state"] == "failed":
             label = "Reply failed — your message is saved"
+        readiness_reason = ""
         if state == "queued":
             draining = c.execute("SELECT 1 FROM bot_control WHERE bot=? AND draining=1", (job["bot"],)).fetchone()
             # A drain is either Tico updating itself (the deploy finishes each
@@ -451,12 +452,17 @@ def conversation_snapshot(c, cid):
             elif bot_state != "active":
                 label = "Saved — bot " + bot_state
             elif not location["online"]:
-                label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered machine")
+                label = "Saved — waiting for " + ((location["machine"] or {}).get("label") or "a registered computer")
             elif not location["awake"]:
                 label = "Saved — waiting for " + ((location["machine"] or {}).get("label")
-                                                  or "a registered machine") + " to stay awake"
+                                                  or "a registered computer") + " to stay awake"
             elif not location["ready"]:
-                label = "Saved — waiting for runner setup"
+                problems = (location.get("readiness") or {}).get("problems") or []
+                if any(str(p).startswith("No AI provider is chosen") for p in problems):
+                    readiness_reason = "missing_provider"
+                    label = "Saved — no AI provider is chosen"
+                else:
+                    label = "Saved — " + str(problems[0]) if problems else "Saved — waiting for computer setup"
         parts = []
         if state in ("leased", "running"):
             parts = turns.reply_parts([(e["kind"], json.loads(e["payload_json"]), e["created"]) for e in c.execute(
@@ -464,6 +470,8 @@ def conversation_snapshot(c, cid):
         execution = {"job_id": job["id"], "message_id": job["message_id"], "bot": job["bot"],
                      "attempt_id": job["attempt_id"], "state": state, "label": label,
                      "text": "\n\n".join(p["text"] for p in parts if p["kind"] != "tool"), "parts": parts, **location}
+        if readiness_reason:
+            execution["readiness_reason"] = readiness_reason
     return {**page, "execution": execution}
 
 

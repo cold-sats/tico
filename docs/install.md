@@ -73,7 +73,8 @@ Paste this into its Setup chat (or replace it with your own facts):
 
 ### First-result recovery
 
-- **Add an AI provider**: choose one in **Settings > AI providers**, then select the bot's model in **Settings > Bots**.
+- **Add an AI provider**: when chat says "Saved — no AI provider is chosen", use its **Add an AI provider** link
+  to open **Settings > AI providers**, then select the bot's model in **Settings > Bots**. Your message stays saved.
 - **Offline** or **Missing bot repository or AGENT.md**: check **Settings > Computers** and keep the joined computer running;
   [Setup troubleshooting](onboarding.md#troubleshooting) explains repository and placement failures.
 - **Sign-in rejected**: Health names the credential source when the computer reports it. Replace a shared model key in
@@ -457,11 +458,15 @@ The image holds no model CLI. Once your team has enabled a provider (Settings > 
 that provider's CLI into `/home/runner/tools` in the volume (a minute or two; Settings > Computers shows the progress),
 keeps it current between runs, and lets the owner pin a version. See [harnesses](harnesses.md).
 
-Sign the bots in to a model once, from Settings > Computers or inside the container (the login stays in the volume):
+Use **Settings > Computers > Sign in** on the Computer you registered. The login stays in its volume.
+For terminal recovery, replace `<container-name>` in every command below with the name from that Computer's
+Docker sign-in command in **Add computer**, or find it with `docker ps`. An installer command with
+`--name build` creates `tico-runner-build`; use the full container name, including `tico-runner-`.
+Only the optional unnamed manual install uses `tico-runner`. Sign in as `bot`:
 
 ```
-docker exec -it -u bot tico-runner codex login --device-auth      # ChatGPT subscription: open the URL, enter the code
-docker exec -it -u bot tico-runner claude setup-token             # Claude: prints a long-lived token
+docker exec -it -u bot '<container-name>' codex login --device-auth      # ChatGPT subscription: open the URL, enter the code
+docker exec -it -u bot '<container-name>' claude setup-token             # Claude: prints a long-lived token
 ```
 
 Store API keys and other Credentials in **Tools > Credentials**, set their environment-variable name,
@@ -477,7 +482,7 @@ The `.codex` folder in the volume belongs to `bot`, is group-writable and setgid
 readable by the runner's group, so a `codex login` you run yourself as `bot` works too.
 
 Check with **Settings > Bots**, or
-`docker exec tico-runner python -m runner --config /home/runner/runner.json doctor`.
+`docker exec '<container-name>' python -m runner --config /home/runner/runner.json doctor`.
 
 To write the compose setup by hand instead of using the installer, copy `docker/runner.compose.yaml` from the release
 to the computer, write a `.env` next to it with `TICO_URL=https://tico.example.com`, `TICO_CODE=<code>`,
@@ -491,30 +496,30 @@ and only while they are wanted:
 - *Meeting importers* (Fireflies, Zoom, Google Meet, Granola): in **Tools > Meeting importers**
   tick **Enabled** and choose this computer. The job starts within a minute and stops again when you switch it off
   or pick another computer. Put the tool's credential in the runner's secrets folder, for example
-  `docker exec tico-runner sh -c 'umask 077; printf "%s\n" "FIREFLIES_API_KEY=<key>" | tee /home/runner/workspace/secrets/fireflies.env >/dev/null'`
-  (the file names are in [meetings](meetings.md#meeting-importers)); `docker exec tico-runner python -m runner
+  `docker exec '<container-name>' sh -c 'umask 077; printf "%s\n" "FIREFLIES_API_KEY=<key>" | tee /home/runner/workspace/secrets/fireflies.env >/dev/null'`
+  (the file names are in [meetings](meetings.md#meeting-importers)); `docker exec '<container-name>' python -m runner
   --config /home/runner/runner.json importers-doctor` says which are present.
 - *Close calls*: put `CLOSE_API_KEY=<key>` in `/home/runner/workspace/secrets/close-calls.env` the same way. The job
   starts when that file appears; keep it on one computer only. See [meetings](meetings.md#close).
 
-`docker logs tico-runner` carries the jobs' lines (`Tico side jobs: started importers`), and each importer's health
+`docker logs '<container-name>'` carries the jobs' lines (`Tico side jobs: started importers`), and each importer's health
 shows on its Settings card and the Meetings Sources strip.
 
 *Mail and calendar (`connectors`)* run on a Linux runner the same way, from the team's Google service-account
 key ([Message bots](mail.md#works-on-linux-runners) has the Google Workspace setup). Put the key in the runner's state directory,
 where only the runner can read it, and keep it on one computer only:
-`docker exec -i -u ticorun tico-runner sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`
+`docker exec -i -u ticorun '<container-name>' sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`
 (the runner refuses a key that is not mode 0600). A key an older install kept in `workspace/secrets/google-sa.json` is moved
 there once, automatically. Bots cannot read it; a message bot asks the runner for a token for its own mailbox, and a message bot
 gets a computer to itself ([Message bots](mail.md#who-can-read-the-key)).
 The job starts within a minute of the file appearing, builds its Python environment into the volume the first time
 (about a minute; `docker logs` shows it), and stops when the file is removed. Instead of the key, an owner who
-sets `TICO_PROCESSING_OPERATORS` on the server assigns the job to that owner's runners. `docker exec tico-runner
+sets `TICO_PROCESSING_OPERATORS` on the server assigns the job to that owner's runners. `docker exec '<container-name>'
 python -m runner --config /home/runner/runner.json connectors-doctor` says whether the key is found.
 `TICO_SIDE_JOBS=0` in the container's environment turns the supervisor off.
 
 Update a runner with `docker pull ghcr.io/ticoteam/tico-runner:latest`, then remove and re-run the container
-(`docker rm -f tico-runner`, then the same `docker run` line; the volume keeps everything). With the compose file it
+(for the manual example above, `docker rm -f tico-runner`, then the same `docker run` line; the volume keeps everything). With the compose file it
 is `docker compose -f runner.compose.yaml pull && docker compose -f runner.compose.yaml up -d`. The runner
 finishes runs in progress (up to 15 minutes) before it stops.
 With the compose file the runner also updates itself to the release its server runs, through an `updater` sidecar
@@ -631,7 +636,9 @@ to exist, or the backup cannot be read at all, it refuses to start and says why,
 and replicating it over your backup. A genuinely new install (nothing anywhere) starts as usual. To begin a new
 team over an existing backup on purpose, set `TICO_INITIALIZE_EMPTY=1` (or run `server --initialize-empty`).
 
-**Restore** into an empty data volume, from the bucket or, with no `TICO_BACKUP_URL`, from `tico-backups`:
+<a id="restore"></a>
+
+**Restore into an empty data volume**, from the bucket or, with no `TICO_BACKUP_URL`, from `tico-backups`:
 
 ```
 docker compose stop server
@@ -647,8 +654,17 @@ the database was restored by itself on first start, or from a bucket that has no
 object `credential-key/credential.key` from the backup location to `/data/credential.key` by hand, then restart. With
 `TICO_CREDENTIAL_KMS_KEY` set there is no file to keep.
 
-`restore` refuses a volume that already holds data. To roll an existing install back to the backup, add `--force`;
-the current database is kept beside it as `hub.sqlite.before-restore.<time>`. The install's permanent id
+**Restore an existing install.** `restore` refuses a volume that already holds data. Stop the server and add `--force`
+to restore the database, attachments and Credential key together:
+
+```
+docker compose stop server
+docker compose run --rm --no-deps server restore --force
+docker compose up -d
+```
+
+Tico keeps the current database as `hub.sqlite.before-restore.<time>` and the current key as
+`credential.key.before-restore.<time>` beside the restored files. The install's permanent id
 (`TICO_ENVIRONMENT_ID`) is stored in the database, so it comes back with the restore and the Macs and runners
 already enrolled keep working.
 

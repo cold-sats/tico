@@ -1,3 +1,6 @@
+import json
+
+import pytest
 
 from backend.store import H
 from backend.tests.test_api import api, as_member, headers, get, post, restrict, setup_attempt, runner, ready, assign, claim
@@ -134,3 +137,28 @@ def test_computers_omit_archived_bots_and_show_team_services_once(api):
     assert "ops" not in computer["readiness"]["bots"]
     assert computer["services"] == []
     assert any(row["service"] == "sample-service" and row["scope"] == "team" for row in result["services"])
+
+
+@pytest.mark.parametrize("problems, expected, reason", [
+    (["No AI provider is chosen: the owner picks providers and a default model in Settings > AI providers"],
+     "Saved — no AI provider is chosen", "missing_provider"),
+    (["Missing bot repository or AGENT.md"], "Saved — Missing bot repository or AGENT.md", None),
+    ([], "Saved — waiting for computer setup", None),
+])
+def test_queued_chat_names_readiness_problem(api, problems, expected, reason):
+    r = runner(api)
+    assign(api, r, "ops")
+    ready(api, r, ["ops"])
+    msg = post(api, "chat/ops", {"text": "Set up this bot"})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE runners SET readiness_json=? WHERE id=?", (json.dumps({
+            "schema_version": 1, "bots": {"ops": {"ready": False, "problems": problems}}
+        }), r["runner_id"]))
+    snap = get(api, f"conversations/{msg['conversation_id']}/snapshot")["execution"]
+    assert snap["state"] == "queued" and snap["label"] == expected
+    assert snap.get("readiness_reason") == reason
+    # Older computers report just a boolean, without any readiness details.
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "readiness": {"ops": False}}, r["token"])
+    snap = get(api, f"conversations/{msg['conversation_id']}/snapshot")["execution"]
+    assert snap["label"] == "Saved — waiting for computer setup"
+    assert "readiness_reason" not in snap

@@ -31,7 +31,7 @@ questions in one message, and writes a real first draft from your own data so yo
 its first routine on; ask it to change or turn off the routine and it does, and it marks itself set up once its setup is done.
 
 - Answer briefly and concretely. "Fine, the default" is a valid answer; so is pasting two examples of something done well.
-- Name the human who approves its drafts, and who covers when they are away. A draft with no owner waits.
+- Name who reviews its first drafts and who covers when they are away. Ask for review of particular work when needed.
 - **Never type a password, API key or token into a chat with a bot.** Connect tools in Tico's own fields (Tools, or
   Credentials). A credential pasted into a chat is treated as leaked: rotate it.
 
@@ -48,17 +48,20 @@ Whether it is a first message, a task or a change to what a bot does:
 
 If a bot gets it wrong twice, change its instructions, not your message: ask BotOps to tailor it, or edit its `AGENT.md` and playbooks.
 
-## Approval gates
+## Sending and access
 
-A bot drafts outbound messages until its owner turns on sending to outsiders for that bot. Template instructions may ask a human
-to review particular drafts. A mail send becomes a draft until approved, a Slack post needs the channel to allow posting, and the
-QA Engineer cannot comment or label on GitHub unless you turn that on. Calendar events may invite any address by default;
-`TICO_BLOCK_EXTERNAL_INVITES=1` opts into roster-only invitations. The list per template
-is in [Starter bots](starter-bots.md#what-stops-a-starter-sending-things-outside-the-team).
+A bot drafts messages to outsiders while `outbound_send` is off. Once its owner turns sending on, it sends
+within the requested work, its Instructions and granted Tools, with no approval for each message.
+You may explicitly ask it to bring particular drafts to you for review.
 
-When a bot asks for approval it shows the exact action. Read it as if you were sending it yourself. An approval is spent once: it covers
-that action and nothing else. Loosen a gate only after a bot has been right for a few weeks, and do it in the bot's access, not in a
-message.
+A Slack post needs the channel to allow posting, and the QA Engineer needs the corresponding GitHub write access
+to comment or label. Calendar events may invite any address by default; `TICO_BLOCK_EXTERNAL_INVITES=1` opts into
+roster-only invitations. The list per template is in
+[Starter bots](starter-bots.md#what-stops-a-starter-sending-things-outside-the-team).
+
+Spending, publishing, changing records, deleting or archiving bots, adding outside humans and updating Tico
+need no separate Confirm step. A bot may ask about an uncertain action; an optional approval covers only that
+exact action and does not turn sending on. See [Permissions](permissions.md).
 
 ## What good looks like
 
@@ -71,7 +74,7 @@ Five checks you can apply to any bot's output in ten minutes (the full version, 
 4. **Honest about gaps.** What it could not read is named; a missing fact is a marked gap, never an invented one.
 5. **Within the request.** The bot uses its granted Tools for the requested work. Messages to outsiders stay drafts until its outbound send switch is on.
 
-Your first approved output is the milestone that matters: the checklist counts it, not how many bots exist.
+Your first useful output is the milestone that matters: the checklist counts it, not how many bots exist.
 
 ## Review a bot's first week
 

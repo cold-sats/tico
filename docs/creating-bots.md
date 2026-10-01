@@ -209,8 +209,8 @@ Every run is the same shape, and `AGENT.md` should say so plainly:
 6. **When blocked, ask through the task**, having read the record first, since most questions a bot
    wants to ask are already answered there. One open clarifying question per task, phrased so the
    question is the only thing the human has to read. Internal routing, reminders, task closure,
-   branches and draft pull requests are the bot's work, not questions for a human. Use an approval
-   request only when the exact action is gated by the current shared or role policy.
+   branches and draft pull requests are the bot's work, not questions for a human. An optional approval
+   request can clarify an uncertain action; granted Tools and the outbound send switch govern access.
 7. **Commit, then mark the task done with a result note.** The requester closes it; the bot never
    closes a task it did not request.
 
@@ -247,7 +247,7 @@ These are invented examples, in the shape that repeats in real repositories.
 | Bad | Good |
 |---|---|
 | "Be thorough and helpful when reviewing invoices." | "Match every invoice to the purchase order for the same supplier and total. A gap over 2 percent goes on the task; you never pay." |
-| "Use your judgement about what to send." | "You never send. Put the draft on the task and request a `send` approval with the exact text and recipients." |
+| "Use your judgement about what to send." | "Draft on the task while `outbound_send` is off. Once sending is on, send the requested reply with the granted mail Tool; ask if the recipient or terms are unclear." |
 | "On the 2nd we moved to the new sheet, then on the 11th the folder moved, so read the new one now." | "Counts come from `knowledge/counting.md`. The old spreadsheet is not a source." (The dates go in `memory/decisions.md`.) |
 | "Check the chat tool, the mailbox, the CRM, the dashboard and the forum each run." | "Each pass reads the two sources named in the playbook. Anything else is a separate task." |
 | "Escalate anything important." | "Escalate a deadline, a regulator, a termination, or money. Everything else you handle or archive." |
