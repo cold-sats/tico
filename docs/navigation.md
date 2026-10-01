@@ -21,7 +21,8 @@ Controls appear when your rights allow the action.
 | Read or write team knowledge | Docs → Internal docs; outside sources are Linked docs |
 | Review goals and KPIs | Goals |
 
-All four system bots appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries;
+All four system bots appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries
+(Assistant opens your private chat, `#/assistant`);
 the Goal Manager is on Goals, and Ask the Librarian is on Docs and Market. They stay out of the team chart.
 Inbox Manager and other repeating message work appear under **Message bots**.
 An older app may show Instructions under the bot's Docs tab; the action is still **Edit Instructions**.

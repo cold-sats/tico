@@ -115,7 +115,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     const row = owner => page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont)`);
     assert.equal(await row('bot:sales').locator('.gt-goal').count(), 0, 'no goal: nothing written');
     assert.equal(await row('bot:goal-manager').count(), 0, 'existing built-in goals are hidden');
-    assert.equal(await page.locator('#nav-assistant').getAttribute('href'), '#/person/ana/assistant');
+    assert.equal(await page.locator('#nav-assistant').getAttribute('href'), '#/assistant');
     assert.equal(await page.locator('#nav-botops').getAttribute('href'), '#/bot/botops');
     await page.locator('.gm-routines li b').first().waitFor();
     assert.match(await page.locator('#goal-manager-panel').innerText(), /Checks goals.*every day/s);

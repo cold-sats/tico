@@ -1,7 +1,7 @@
-// The Assistant (ui/assistant.js): its tab is first on your own person page and absent from anyone
-// else's, "Ask the Assistant…" in search (⌘K) opens the same chat with your words in the box, a lookup
-// answers at once with in-app links, a proposal is a Confirm / Cancel card that only your click runs,
-// and it all fits a phone. Fixtures only, no network.
+// The Assistant page (ui/app/assistant-page.js): its own chat at #/assistant with the bot chat's thread and composer,
+// reached from your own person page's Assistant tab (absent from anyone else's) and from "Ask the Assistant…" in
+// search (⌘K) with your words in the box. An empty chat offers suggestions, a lookup answers at once with in-app
+// links, a proposal is a Confirm / Cancel card that only your click runs, and it all fits a phone. Fixtures only.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -18,7 +18,7 @@ async function open(browser, viewport, state) {
   await page.route('**/*', route => {
     const url = new URL(route.request().url()), p = url.pathname, method = route.request().method();
     const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
-    if (/\/marked\.min\.js$/.test(p)) return route.fulfill({contentType: 'application/javascript', body: 'window.marked={parse:s=>String(s)}'});
+    if (/\/marked\.min\.js$/.test(p)) return route.fulfill({contentType: 'application/javascript', body: fs.readFileSync(uiFile('vendor/marked.min.js'), 'utf8')});
     if (url.origin !== 'https://tico-ui.test') return route.abort();
     const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
     if (ui && fs.existsSync(uiFile(ui[1]))) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
@@ -32,6 +32,7 @@ async function open(browser, viewport, state) {
     if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
     if (p === '/api/v2/tasks') return json({tasks: []});
     if (p === '/api/v2/conversations') return json({conversations: []});
+    if (p === '/api/v2/conversations/room1/snapshot') return json({messages: state.messages, execution: null, has_more: false, next_before: null});
     if (p === '/api/v2/assistant' && method === 'GET') { state.reads++; return json(state.view()); }
     if (p === '/api/v2/assistant/messages') {
       if (state.fail) return route.fulfill({status: 500, contentType: 'application/json', body: JSON.stringify({detail: 'The Assistant could not be reached'})});
@@ -40,6 +41,7 @@ async function open(browser, viewport, state) {
     }
     const act = p.match(/^\/api\/v2\/assistant\/actions\/([^/]+)\/(confirm|cancel)$/);
     if (p === '/api/v2/assistant/turn-on') { state.turnedOn = (state.turnedOn || 0) + 1; return json({bot: 'coo', state: 'active', restored: true, placed: true}); }
+    if (p === '/api/v2/assistant/actions/act1' && method === 'GET') return json({action: state.card});
     if (act) { state.decided.push([act[1], act[2]]); state.card.status = act[2] === 'confirm' ? 'done' : 'cancelled'; return json({action: state.card}); }
     if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
     return json({});
@@ -67,78 +69,89 @@ function fixture() {
   try {
     for (const [tag, viewport] of [['desktop', {width: 1280, height: 900}], ['phone', {width: 390, height: 800}]]) {
       const state = fixture();
-      state.messages.push(msg('m0', 'bot:coo', 'I can archive it.'), msg('m1', 'bot:coo', 'Needs your OK: Archive the Ops bot', {action: 'act1'}));
       const {page, errors} = await open(browser, viewport, state);
+      const box = page.locator('#chat-composer .p-text');
 
-      // Your own page: Assistant first, before Profile.
-      await page.goto('https://tico-ui.test/#/person/ana');
-      await page.locator('#ptabs button').first().waitFor();
-      assert.deepEqual(await page.locator('#ptabs button').allInnerTexts(), ['Assistant', 'Profile', 'Slack'], tag + ': Assistant is first on your own page');
-      // Someone else's page has no Assistant tab.
+      // Your own page: Assistant first, and it opens the Assistant page; someone else's page has no Assistant tab.
       await page.goto('https://tico-ui.test/#/person/ben');
       await page.locator('#ptabs button').first().waitFor();
       assert.deepEqual(await page.locator('#ptabs button').allInnerTexts(), ['Profile', 'Slack'], tag + ': no Assistant on another person\'s page');
-      assert.equal(await page.locator('#assistant-chat').count(), 0, tag + ': no Assistant pane there');
+      await page.goto('https://tico-ui.test/#/person/ana');
+      await page.locator('#ptabs button').first().waitFor();
+      assert.deepEqual(await page.locator('#ptabs button').allInnerTexts(), ['Assistant', 'Profile', 'Slack'], tag + ': Assistant is first on your own page');
+      await page.locator('#ptabs [data-pt="assistant"]').click();
+      await page.waitForURL(/#\/assistant$/);
 
-      // The global entry: search, type, Enter, and the same chat opens with the words in the box.
+      // A page of its own: one header line, no person header or tabs, the bot chat's composer, no attach.
+      await box.waitFor();
+      assert.equal(await page.locator('#main .asst-top h1').innerText(), 'Assistant', tag + ': the header is the name');
+      assert.equal(await page.locator('#ptabs, .bothead').count(), 0, tag + ': no person header or tabs');
+      assert.equal(await page.locator('#chat-composer .p-attach').count(), 0, tag + ': text only');
+      // Empty: suggestions as chips, and one tap asks it.
+      const hints = page.locator('#conv-thread .asst-hints button');
+      assert.equal(await hints.first().innerText(), "What's waiting on me?", tag + ': suggestions in the empty chat');
+      await hints.first().click();
+      const link = page.locator('#conv-thread a[href="#/task/t1"]');
+      await link.waitFor();
+      assert.deepEqual(state.sent, ["What's waiting on me?"], tag + ': the chip sent its words once');
+      assert.equal(await page.locator('#conv-thread .asst-hints').count(), 0, tag + ': no suggestions once it has messages');
+      assert.equal(await page.locator('#conv-thread .thinking').count(), 0, tag + ': a fast answer has no thinking state');
+
+      // The old link and search both land here; search puts your words in the box.
+      await page.goto('https://tico-ui.test/#/person/ana/assistant');
+      await page.waitForURL(/#\/assistant$/);
       await page.keyboard.press('Control+k');
-      await page.locator('#search-input').fill('what is waiting on me');
+      await page.locator('#search-input').fill('find the launch plan');
       const ask = page.locator('#search-results li[data-ask]');
       await ask.waitFor();
       assert.match(await ask.innerText(), /Ask the Assistant…/, tag + ': search offers the Assistant');
       await page.keyboard.press('Enter');
-      await page.locator('[data-assistant] textarea').waitFor();
-      assert.match(page.url(), /#\/person\/ana\/assistant$/, tag + ': it opens your Assistant');
-      assert.equal(await page.locator('[data-assistant] textarea').inputValue(), 'what is waiting on me', tag + ': prefilled');
+      await page.waitForFunction(() => document.querySelector('#chat-composer .p-text')?.value === 'find the launch plan');
+      await page.locator('#chat-composer .p-send').click();
+      await page.waitForFunction(() => document.querySelectorAll('#conv-thread .conv-run.chat').length === 4);
+      assert.deepEqual(state.sent.at(-1), 'find the launch plan', tag + ': sent');
+      assert.equal(await box.inputValue(), '', tag + ': the box is empty after a send');
 
-      // The card: only a click runs it.
+      // A failed send keeps the words.
+      state.fail = true;
+      await box.fill('second try');
+      await page.locator('#chat-composer .p-send').click();
+      await page.locator('.toast.err').first().waitFor();
+      assert.equal(await box.inputValue(), 'second try', tag + ': the words stay after a failure');
+      state.fail = false;
+      await box.fill('');
+
+      // A proposal is a card; only a click runs it.
+      state.messages.push(msg('m9', 'bot:coo', 'Needs your OK: Archive the Ops bot', {action: 'act1'}));
+      await page.goto('https://tico-ui.test/#/updates');
+      await page.goto('https://tico-ui.test/#/assistant');
       const card = page.locator('.asst-card[data-action="act1"]');
       await card.waitFor();
       assert.equal(await card.locator('[data-what]').innerText(), 'Archive bot Ops', tag + ': the server\'s description leads');
-      assert.match(await card.locator('.asst-body').innerText(), /expected_revision: 3/, tag + ': the body is shown');
-      assert.ok((await card.locator('.asst-long').innerHTML()).includes('THE-END') && await card.locator('.asst-long summary span').innerText() === 'Show more', tag + ': a long value is whole, behind Show more');
+      assert.ok((await card.locator('.asst-long').innerHTML()).includes('THE-END'), tag + ': a long value is whole, behind Show more');
       assert.equal(state.decided.length, 0, tag + ': nothing ran before the click');
       await card.locator('[data-confirm]').click();
       await page.locator('.asst-card[data-status="done"]').waitFor();
       assert.deepEqual(state.decided, [['act1', 'confirm']], tag + ': the click confirmed it');
 
-      // Send: a lookup answers at once, with a link that opens in the app.
-      await page.locator('[data-assistant] textarea').press('Enter');
-      const link = page.locator('.asst-msg.bot a[href="#/task/t1"]');
-      await link.waitFor();
-      assert.deepEqual(state.sent, ['what is waiting on me'], tag + ': sent once');
-      assert.equal(await page.locator('[data-assistant] textarea').inputValue(), '', tag + ': the box is empty after a send');
-      assert.ok(await page.evaluate(() => document.activeElement === document.querySelector('[data-assistant] textarea')), tag + ': and keeps focus');
-      assert.equal(await page.locator('[data-assistant] textarea').getAttribute('placeholder'), 'Ask the Assistant…', tag + ': the copy says Assistant, not the bot\'s name');
-      // A failed send keeps the words and shows the error.
-      state.fail = true;
-      await page.locator('[data-assistant] textarea').fill('second try');
-      await page.locator('[data-assistant] textarea').press('Enter');
-      await page.locator('.toast, #toast, [role=alert]').first().waitFor({state: 'attached'}).catch(() => {});
-      await page.waitForFunction(() => document.querySelector('[data-assistant] textarea')?.value === 'second try');
-      state.fail = false;
-      await page.locator('[data-assistant] textarea').fill('');
-      assert.equal(await page.locator('[data-thinking]').count(), 0, tag + ': a fast answer has no thinking state');
-
       // It fits: no sideways scroll, the box and Send are on screen.
-      const box = await page.locator('[data-assistant] textarea').boundingBox();
-      assert.ok(box && box.x >= 0 && box.x + box.width <= viewport.width + 1, tag + ': the box fits the width');
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), tag + ': no horizontal scroll');
-      const send = await page.locator('[data-assistant] button[type=submit]').boundingBox();
+      const at = await box.boundingBox(), send = await page.locator('#chat-composer .p-send').boundingBox();
+      assert.ok(at && at.x >= 0 && at.x + at.width <= viewport.width + 1 && at.y + at.height <= viewport.height, tag + ': the box is on screen');
       assert.ok(send && send.x + send.width <= viewport.width + 1, tag + ': Send fits');
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), tag + ': no horizontal scroll');
       assert.deepEqual(errors, [], tag + ': no page errors');
       await page.close();
     }
 
-    // Off: the tab says so, and only the owner is offered the switch.
+    // Off: the page says so, and only the owner is offered the switch.
     const state = fixture();
     state.view = () => ({available: false, state: 'archived', bot: 'coo', name: 'Tico', can_turn_on: true, room_id: null,
       messages: [], has_more: false, next_before: null, execution: null, actions: {}, pending: []});
     const {page} = await open(browser, {width: 1280, height: 900}, state);
-    await page.goto('https://tico-ui.test/#/person/ana/assistant');
+    await page.goto('https://tico-ui.test/#/assistant');
     await page.locator('[data-turn-on]').waitFor();
     assert.match(await page.locator('.asst-off').innerText(), /is off/);
-    assert.equal(await page.locator('[data-assistant] textarea').count(), 0, 'no chat while it is off');
+    assert.equal(await page.locator('#chat-composer .p-text').count(), 0, 'no chat while it is off');
     // The owner is offered the same switch in Settings > Bots, and one click turns it on.
     await page.goto('https://tico-ui.test/#/settings');
     await page.locator('[data-settings-tab="bots"]').click();

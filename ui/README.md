@@ -61,7 +61,7 @@ Every file in `app/` starts with `'use strict'`, as the old inline script did. U
 | core, markdown, viewer, format, api, state, notices | routes, `$`/`esc`/`md`, `safeMd`, the file viewer, formatting, `get`/`post`, the state `S` and team names, the new-version and usage notices |
 | avatars, sidebar, heartbeat, tooltip | bot avatars and blobs, the team tree, heartbeat and account menu, hover status |
 | issues, hub-v2, needs-you, bot-tasks | shared request rows and tables, hub v2 helpers, Needs you, a bot's tasks |
-| chat, pill, bot-page, bot-conversation, person-page | bot chat and its live reply, the composer, the bot and human pages |
+| chat, pill, bot-page, bot-conversation, person-page, assistant-page | bot chat and its live reply, the composer, the bot and human pages, your Assistant |
 | tasks, task-modal, tasks-page, recurring | Tasks: rows and cards, the modal and its comments, the page, routines |
 | meetings, mail, messaging, credentials, sql, integrations, help | one page each |
 | settings, settings-*, vault, catalog | Settings: shell, one file per tab, the bot editor, access editor, credential vault, template cards |

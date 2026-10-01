@@ -26,8 +26,11 @@ function chatDraftSave(P) {
 function botPill(slug) {
   if (BOT_PILL?.slug === slug) return BOT_PILL;
   if (BOT_PILL) { chatDraftSave(BOT_PILL); PILLS.delete(BOT_PILL); }
-  const P = BOT_PILL = makePill({mode: 'chat', slug});
-  const draft = chatDrafts()[slug], files = CHAT_FILES.get(slug);
+  return BOT_PILL = pillRestore(makePill({mode: 'chat', slug}));
+}
+// The draft (and files) last left in this bot's box come back.
+function pillRestore(P) {
+  const draft = chatDrafts()[P.slug], files = CHAT_FILES.get(P.slug);
   if (draft) pq(P, '.p-text').value = draft;
   if (files?.length) { P.files.push(...files); pillChips(P); }
   if (draft || files?.length) pillButtons(P);
@@ -43,20 +46,23 @@ function toastSent(r) {
 
 // A phone or tablet typing on its screen keyboard: a coarse pointer, or touch on a narrow screen.
 const touchKeyboard = () => matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && innerWidth <= 760);
+// cfg.send replaces where Send goes (the Assistant page posts to /v2/assistant/messages); cfg.files === false
+// leaves out attaching, for a chat whose server route takes text only.
 function makePill(cfg) {
   const P = {
     mode: cfg.mode, slug: cfg.slug || null, dest: cfg.slug,
     action: 'chat', needsIssue: null,
-    el: null, files: [],
+    el: null, files: [], send: cfg.send || null,
   };
+  const attach = cfg.files !== false;
   const el = P.el = document.createElement('div');
   el.className = 'ask pill-' + P.mode;
   el.innerHTML = `<div class="p-hint muted" hidden></div>
     <div class="p-pill">
       ${P.mode === 'chat' && P.slug ? `<button class="p-bot" type="button" aria-label="Switch bot" aria-haspopup="menu" aria-expanded="false" aria-controls="org-fan" title="Switch bot">${avatar(P.slug, 30)}</button>` : ''}
-      <textarea class="p-text" rows="1" autocorrect="on" autocapitalize="sentences" spellcheck="true" aria-label="Message this bot" placeholder="Type a message…"></textarea>
-      <button class="p-attach p-icon" type="button" title="Attach files" aria-label="Attach files">${ICON_CLIP}</button>
-      <input type="file" multiple hidden class="p-file">
+      <textarea class="p-text" rows="1" autocorrect="on" autocapitalize="sentences" spellcheck="true" aria-label="${esc(cfg.label || 'Message this bot')}" placeholder="${esc(cfg.placeholder || 'Type a message…')}"></textarea>
+      ${attach ? `<button class="p-attach p-icon" type="button" title="Attach files" aria-label="Attach files">${ICON_CLIP}</button>
+      <input type="file" multiple hidden class="p-file">` : ''}
       <button class="p-send p-send-icon" type="button" aria-label="Send" title="Send">${ICON_SEND}</button>
     </div>
     <div class="p-chips"></div>
@@ -99,12 +105,12 @@ function makePill(cfg) {
     pillSend(P);
   });
   box.addEventListener('pointerdown', () => { breaks = 0; });
-  q('.p-attach').onclick = () => q('.p-file').click();
+  if (attach) q('.p-attach').onclick = () => q('.p-file').click();
   if (q('.p-bot')) q('.p-bot').onclick = ev => { ev.preventDefault(); $('#org-fan').hidden ? orgFanOpen({chat: P.slug, anchor: q('.p-bot')}) : orgFanClose(); };
-  q('.p-file').onchange = ev => { P.files.push(...ev.target.files); pillChips(P); chatDraftSave(P); ev.target.value = ''; };
+  if (attach) q('.p-file').onchange = ev => { P.files.push(...ev.target.files); pillChips(P); chatDraftSave(P); ev.target.value = ''; };
   box.addEventListener('paste', ev => {
     const clipboard = ev.clipboardData;
-    if (!clipboard) return;
+    if (!clipboard || !attach) return;
     const images = Array.from(clipboard.items || [])
       .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
       .map(item => item.getAsFile()).filter(Boolean);
@@ -285,6 +291,7 @@ async function pillSend(P) {
   if (!P.el) return;
   const box = pq(P, '.p-text'), text = box.value.trim();
   if (!text && !(P.action === 'chat' && P.files.length)) { box.focus(); return; }
+  if (P.send) return P.send(P, text);
   if (runCommand(text, pq(P, '.p-cmd'), P.slug)) { pillClear(P, true); return; }
   if (isKeeper(P.slug)) {                                     // hub.db, not an Issue comment
     return P.action === 'task' ? v2PillTask(P, text) : v2ChatSend(P, text);

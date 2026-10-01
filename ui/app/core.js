@@ -15,6 +15,7 @@ const MEETINGS = '#/meetings';        // imported meeting transcripts: the list,
 const UPDATES = '#/updates';          // the bots' daily and weekly updates, a feed (backend/updates.py)
 const TASKS = '#/tasks';              // hub tasks and Issues in one page (List | Board)
 const GOALS = '#/goals';              // the team chart with everyone's goals and a colour
+const ASSISTANT = '#/assistant';      // your private chat with the assistant (ui/app/assistant-page.js)
 const BOARD = '#/board';              // the old links still work, each opening its view
 const ISSUES = '#/issues';
 const RECURRING = '#/recurring';      // the Tasks page, opened on the Routines view

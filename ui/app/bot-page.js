@@ -18,7 +18,7 @@ async function recentRuns() {
 // The session view is a card inside More; #/bot/<slug>/session still opens it
 // there and scrolls to it, so every link a run row wrote keeps working.
 const BOT_TABS = ['chat', 'tasks', 'history', 'docs', 'more'];   // history: its updates
-// The assistant is chatted with only in each person's own Assistant tab, so its bot page has no Chat.
+// The assistant is chatted with only on each person's own Assistant page (#/assistant), so its bot page has no Chat.
 const botTabs = slug => {
   const tabs = slug === assistantBot() ? BOT_TABS.filter(t => t !== 'chat') : BOT_TABS;
   const mine = S.emps.find(e => e.name === slug)?.my_access;

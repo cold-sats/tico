@@ -1,10 +1,11 @@
 # The Assistant
 
 Every human has one private chat with the team's assistant (the `coo` bot; you may have renamed it): a personal
-bot that knows how Tico is laid out and does things in it on your behalf. It is the **Assistant** tab, first on
-your own page (`#/person/<you>`), and **Ask the Assistant…** at the bottom of search (⌘K), which opens the same chat with
-your words in the box. **Assistant** in the main left rail opens this same private chat. **BotOps** beside it opens
-BotOps' bot page. These built-ins stay out of the team chart and Goals tree; Settings > Bots still manages all four.
+bot that knows how Tico is laid out and does things in it on your behalf. **Assistant** in the main left rail opens it
+as a page of its own (`#/assistant`): the assistant's name, then the same thread and composer as a bot's chat, with a
+few things to ask while it is empty. The **Assistant** tab, first on your own page (`#/person/<you>`), opens the same
+page, and so does **Ask the Assistant…** at the bottom of search (⌘K), with your words in the box. The room takes text
+only, so the composer has no attach button. **BotOps** beside it in the rail opens BotOps' bot page. These built-ins stay out of the team chart and Goals tree; Settings > Bots still manages all four.
 It works on a phone too.
 
 Ask it to find a meeting, a doc, a file or a task; to tell you what needs you; to make a task; to hand work to the
@@ -18,10 +19,10 @@ The team owner and administrators cannot read anyone else's, and no other route 
 chat routes still refuse it (`403`). Every new team gets the assistant, BotOps, the [Librarian](librarian.md) and the [Goal Manager](goals-and-kpis.md#the-goal-manager) built in (all required in setup, active once a computer is enrolled),
 and none can be archived or deleted by anyone: the owner included, through Settings, the API, `hub` or BotOps
 (`409 system_bot`); pausing and renaming stay allowed, and Settings > Bots shows them as **Built-in**. A team
-that set the assistant aside before it was built in keeps it archived on update, and its Assistant tab says the Assistant is off
+that set the assistant aside before it was built in keeps it archived on update, and the Assistant page says the Assistant is off
 instead of failing. The owner gets **Turn on Assistant** there and at the top of **Settings > Bots**: one click restores the
 archived assistant (same bot, same history, renamed to the team's assistant name) or, if there is none, adds it from
-the template, puts it on the computer BotOps runs on and activates it, and every human's Assistant tab starts working
+the template, puts it on the computer BotOps runs on and activates it, and every human's Assistant page starts working
 (`POST /api/v2/assistant/turn-on`). With no computer enrolled yet it is left planned and the button says so; enroll one
 and press it again. Once on, it cannot be archived again. Anyone else is told to ask the owner.
 
