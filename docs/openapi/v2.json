@@ -5236,6 +5236,140 @@
         ]
       }
     },
+    "/api/v2/librarian/conversations": {
+      "get": {
+        "summary": "The caller's private Docs conversations, including archived ones; limit and offset page back",
+        "operationId": "listDocsConversations",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocsConversations"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Docs"
+        ]
+      }
+    },
+    "/api/v2/librarian/conversations/{cid}/reopen": {
+      "post": {
+        "summary": "Make the caller's own Docs conversation current, archiving their current one; 409 busy while it is answering",
+        "operationId": "reopenDocsConversation",
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "1-200 characters. Reusing a key with the same body replays the first answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Empty"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocsReopened"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Docs"
+        ]
+      }
+    },
     "/api/v2/librarian/turn-on": {
       "post": {
         "summary": "Owner only: add the Librarian from the catalog (or wake a planned one) and activate it",
@@ -9948,6 +10082,71 @@
           "conversation_id",
           "message_id",
           "results"
+        ],
+        "additionalProperties": true
+      },
+      "DocsConversations": {
+        "type": "object",
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "created": {
+                  "type": "string"
+                },
+                "last_message_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closed_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "closed_at",
+                "created",
+                "id",
+                "last_message_at",
+                "title"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "conversations",
+          "next_offset"
+        ],
+        "additionalProperties": true
+      },
+      "DocsReopened": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
         ],
         "additionalProperties": true
       },

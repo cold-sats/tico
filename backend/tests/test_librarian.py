@@ -83,6 +83,72 @@ def test_nobody_else_reads_or_posts_in_a_persons_docs_conversation_the_owner_inc
     ask(desk, "Wrong room", expected=422, conversation_id=other)
 
 
+def test_docs_history_reopens_without_losing_messages_or_changing_the_ask_contract(desk):
+    from backend.tests.test_openapi_v2 import conforms
+    first = ask(desk, "Where is the release checklist?")
+    second = ask(desk, "Who owns smoke checks?", new_conversation=True)
+    assert second["conversation_id"] != first["conversation_id"]
+    history = get(desk, "librarian/conversations")
+    assert {row["id"] for row in history["conversations"]} == {first["conversation_id"], second["conversation_id"]}
+    archived = next(row for row in history["conversations"] if row["id"] == first["conversation_id"])
+    assert archived["closed_at"] and archived["title"] == "Where is the release checklist?"
+    page = get(desk, "librarian/conversations?limit=1")
+    tail = get(desk, "librarian/conversations?limit=1&offset=" + str(page["next_offset"]))
+    assert page["next_offset"] == 1 and tail["next_offset"] is None
+    assert page["conversations"][0]["id"] != tail["conversations"][0]["id"]
+    reopened = post(desk, f"librarian/conversations/{first['conversation_id']}/reopen", {})
+    assert reopened == {"conversation_id": first["conversation_id"]}
+    document = get(desk, "openapi.json")
+    for value, name in [(history, "DocsConversations"), (reopened, "DocsReopened")]:
+        assert conforms(value, document["components"]["schemas"][name], document) is None
+    with desk.app.state.store.read() as c:
+        assert librarian.find_room(c, "human:ana")["id"] == first["conversation_id"]
+        assert H.conversation(c, second["conversation_id"])["closed_at"]
+    assert get(desk, f"conversations/{first['conversation_id']}/snapshot")["messages"][0]["body"] == archived["title"]
+    assert ask(desk, "And deployment?")["conversation_id"] == first["conversation_id"]
+    assert ask(desk, "And rollback?", conversation_id=first["conversation_id"])["conversation_id"] == first["conversation_id"]
+    # Reopening the current room is a no-op, even if it is now busy.
+    claim(desk, desk.runner)
+    assert post(desk, f"librarian/conversations/{first['conversation_id']}/reopen", {}) == reopened
+
+
+def test_docs_history_is_private_and_only_docs_rooms_can_be_reopened(desk):
+    mine = ask(desk, "My private docs question")
+    theirs = ask(desk, "Another private docs question", token="ben-test")
+    ask(desk, "Another docs chat", token="ben-test", new_conversation=True)
+    assert [row["id"] for row in get(desk, "librarian/conversations")["conversations"]] == [mine["conversation_id"]]
+    other_history = get(desk, "librarian/conversations", token="ben-test")["conversations"]
+    assert mine["conversation_id"] not in {row["id"] for row in other_history}
+    post(desk, f"librarian/conversations/{theirs['conversation_id']}/reopen", {}, expected=403)
+    post(desk, f"librarian/conversations/{mine['conversation_id']}/reopen", {}, token="ben-test", expected=403)
+    post(desk, "librarian/conversations/missing/reopen", {}, expected=404)
+    with desk.app.state.store.transaction() as c:
+        other = H.open_conversation(c, "human:ana", ["human:ana", "bot:coo"], kind="chat",
+                                    scope="personal", owner_actor="human:ana", room_key="coo")
+        direct = H.open_conversation(c, "human:ana", ["human:ana", "bot:librarian"], kind="chat",
+                                     room_key="docs", owner_actor="human:ana")
+    for cid in (other["id"], direct["id"]):
+        post(desk, f"librarian/conversations/{cid}/reopen", {}, expected=422)
+    assert len(get(desk, "librarian/conversations")["conversations"]) == 1
+    attempt = claim(desk, desk.runner)
+    get(desk, "librarian/conversations", token=attempt["token"], expected=403)
+    post(desk, f"librarian/conversations/{mine['conversation_id']}/reopen", {}, token=attempt["token"], expected=403)
+
+
+def test_reopening_docs_keeps_the_current_room_when_its_turn_is_busy(desk):
+    first = ask(desk, "An earlier question")
+    current = ask(desk, "The current question", new_conversation=True)
+    with desk.app.state.store.transaction() as c:
+        c.execute("UPDATE jobs SET state='cancelled' WHERE message_id=?", (first["message_id"],))
+    attempt = claim(desk, desk.runner)
+    assert attempt["message"]["id"] == current["message_id"]
+    response = post(desk, f"librarian/conversations/{first['conversation_id']}/reopen", {}, expected=409)
+    assert response["error"]["code"] == "busy"
+    with desk.app.state.store.read() as c:
+        assert librarian.find_room(c, "human:ana")["id"] == current["conversation_id"]
+        assert H.conversation(c, first["conversation_id"])["closed_at"]
+
+
 def test_a_bot_asks_the_librarian_with_an_ask_message_and_the_final_text_is_the_answer(desk):
     ops = runner(desk, label="Ops Mac")
     assign(desk, ops, "ops")
