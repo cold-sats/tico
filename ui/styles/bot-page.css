@@ -61,6 +61,8 @@ a.bot-goal-main:hover{text-decoration:none}a.bot-goal-main:hover .bot-goal-title
 .bot-goal-set{flex:none}
 .bot-goal-row{padding:8px 0;border-top:1px solid var(--line)}.bot-goal-row:first-child{border-top:0;padding-top:0}
 .person-edit-btn{font-size:13px;font-weight:400;margin-left:8px;vertical-align:middle}
+.person-notify{display:inline-flex;align-items:center;gap:10px;cursor:pointer}
+#person-notify-status:empty{display:none}#person-notify-status{margin-top:8px;font-size:13px}
 .person-head-form{display:grid;gap:8px;margin-top:6px;max-width:640px}.person-head-form input,.person-head-form textarea{width:100%}
 .bot-more-btn{order:3;flex:none;align-self:center;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:6px;color:var(--muted);text-decoration:none}
 .bot-more-btn:hover,.bot-more-btn.cur{color:var(--ink)}

@@ -46,7 +46,7 @@ function pagePerson(id, tab) {
   const tabs = personTabs(p);
   tab = tabs.includes(tab) ? tab : 'profile';
   const reports = (S.people || []).filter(row => row.reports_to === p.id && !row.hidden);
-  const bots = (p.bots || []).map(slug => S.emps.find(e => e.name === slug)).filter(Boolean);
+  const bots = (p.bots || []).map(slug => S.emps.find(e => e.name === slug)).filter(e => e && !isHiddenBot(e.name));    // not the Assistant or the Librarian (ui/app/sidebar.js)
   const under = shownEmps().filter(e => e.org_parent === 'p:' + p.id);
   const boss = (S.people || []).find(row => row.id === p.reports_to);
   const edit = personCanEdit(p);
@@ -79,15 +79,17 @@ function pagePerson(id, tab) {
     <section class="card tasks" id="person-tasks-card"><header><h2>Tasks</h2>
         <button class="ghost" type="button" id="person-task-add" aria-haspopup="dialog">+ Add task</button></header>
       <div id="person-tasks">Loading…</div></section>
-    ${edit ? `<section class="card"><header><h2>Notifications</h2></header>
-      <label><input type="checkbox" id="person-notify-slack" ${p.notify_slack_task_done !== false ? 'checked' : ''}> Task results in Slack</label>
-      <span role="status" id="person-notify-status"></span></section>` : ''}
     ${fieldEditor('Goals', p.goals, {placeholder: 'What they are trying to get done.', save: edit})}
     ${fieldEditor('Notes', p.notes, {placeholder: 'Working notes about this human. Visible to humans who can open this profile.', rows: 8, save: edit})}
     ${reports.length ? `<section class="card"><header><h2>Reports</h2></header>
       <div>${reports.map(row => `<a class="chip" href="#/person/${encodeURIComponent(row.id)}">${personAvatar(row, 20)}<span>${esc(firstName(row.name) || row.id)}</span></a>`).join('')}</div></section>` : ''}
     ${(bots.length || under.length) ? `<section class="card"><header><h2>Bots</h2></header>
       <div>${[...new Map([...bots, ...under].map(e => [e.name, e])).values()].map(e => `<a class="chip" href="#/bot/${esc(e.name)}">${avatar(e.name, 20, stateOf(e.name))}<span>${shownName(e)}</span>${runtimeTag(e)}</a>`).join('')}</div></section>` : ''}
+    ${edit ? `<section class="card" id="person-notify"><header><h2>Notifications</h2></header>
+      <label class="person-notify" title="A Slack DM when a task they asked for is finished or declined">
+        <input type="checkbox" role="switch" class="people-switch" id="person-notify-slack" ${p.notify_slack_task_done !== false ? 'checked' : ''}>
+        <span>Task results in Slack</span></label>
+      <div class="err" role="status" id="person-notify-status"></div></section>` : ''}
   </div>
   <div id="pane-pslack" ${tab === 'slack' ? '' : 'hidden'}>
     <section class="card conv"><header><h2>Tico in Slack</h2></header>
@@ -105,15 +107,15 @@ function pagePerson(id, tab) {
   };
   const notifySlack = $('#person-notify-slack');
   if (notifySlack) notifySlack.onchange = async () => {
-    const value = notifySlack.checked;
-    notifySlack.disabled = true;
+    const value = notifySlack.checked, status = $('#person-notify-status');
+    notifySlack.disabled = true; status.textContent = '';
     try {
       const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {notify_slack_task_done: value});
       p.notify_slack_task_done = row.notify_slack_task_done;
-      $('#person-notify-status').textContent = '';
+      notifySlack.checked = row.notify_slack_task_done !== false;
     } catch (e) {
       notifySlack.checked = !value;
-      $('#person-notify-status').textContent = e.message;
+      status.textContent = e.message || 'Could not save.';
     } finally { notifySlack.disabled = false; }
   };
   const cards = $('#pane-profile').querySelectorAll('section.card');

@@ -102,8 +102,8 @@ const HELP_WHO = [
   ['Assistant', true, 'Your own helper: finds things, makes tasks, drafts the rest for your click', 'Sidebar, or ⌘K', 'What needs me today?'],
   ['BotOps', true, 'Sets up and fixes bots, computers, Tools and Credentials', 'Sidebar', 'Add a bot that answers #support'],
   ['Librarian', true, 'Answers from your docs and the Tico manual, with sources', 'Ask the Librarian on Docs and Market', 'What is our refund limit?'],
-  ['Goal Manager', true, 'Keeps KPIs and goal colours current', 'Goals', 'Why is this goal yellow?'],
-  ['Your bots', false, 'Do the team\'s work from their Instructions', 'Team chart: chat or a task', 'Draft replies to the open tickets'],
+  ['Goal Manager', true, 'Keeps KPIs and goal colours current', 'Top of Goals', 'Why is this goal yellow?'],
+  ['Your bots', false, 'Do the team\'s work from their Instructions', 'Team in the sidebar: chat or a task', 'Draft replies to the open tickets'],
   ['Message bots', false, 'Work a human\'s email or a Slack channel', 'Message bots in the sidebar', 'Sort today\'s email'],
 ];
 const HELP_PIECES = [
