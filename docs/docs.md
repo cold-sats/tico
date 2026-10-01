@@ -59,17 +59,19 @@ Every install carries the manual for its own release: the `docs/*.md` its image 
 apart from the team's docs. It is built in memory when the server starts and rebuilt when the release changes; it is never
 stored in the team's docs, so it cannot be edited (`405 read_only`), listed with `hub doc list`, synced or backed up as
 team content. `GET /api/v2/docs/search?collection=company|manual|all` (default `company`, which is what the Docs page uses)
-and `hub doc search` (all: the team's results first, then the manual's) label each manual result `Tico manual` with its
+and `hub doc search` (all: matching team and manual sections ranked together) label each manual result `Tico manual` with its
 file (`docs/backups.md`), a link to that page (the GitHub file at the release tag, `main` on a build with no version) and the
 section's excerpt. `hub doc read manual:<name>` (`GET /api/v2/docs/manual/{name}`) reads one page; `GET /api/v2/docs/manual`
 lists them.
 
 ## Search
 
-The search box (and `GET /api/v2/docs/search`) looks through both kinds at once. Internal docs are ranked with
-SQLite FTS5 (bm25; a title counts most, then the path, then the body) and show an excerpt; a question written as a
-sentence still finds what answers it. Linked docs are matched on title, description and address. Each result says
-which it is: **Internal** or **Linked**. Where SQLite has no FTS5, search falls back to a plain match.
+The search box (and `GET /api/v2/docs/search`) looks through both kinds at once. Internal docs are ranked by matching
+sections, with title and heading matches weighted most. Each result includes the section, its anchor and an excerpt of
+its text. SQLite FTS5 narrows the candidates where available; otherwise the same section ranking scans the docs.
+A question written as a sentence keeps all meaningful words and maps old Tico words using the glossary's "Instead of"
+column. Librarian maps and logs under `_librarian/` rank below source docs. Linked docs match title, description and address.
+Each result says which it is: **Internal**, **Linked**, or **Tico manual** when `collection=all|manual` is requested.
 
 ## Ask AI
 

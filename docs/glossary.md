@@ -50,3 +50,23 @@ The words Tico uses, and what each replaces.
 ## Knowledge
 
 Docs (internal and linked), Files, Meetings, Market, Listening, Goals, KPIs, Check-ins, Usage.
+
+## Instead of
+
+| Instead of | Use |
+|---|---|
+| company | team |
+| employee | bot |
+| employees | bots |
+| coworker | teammate |
+| coworkers | teammates |
+| people page | Humans |
+| onboarding | setup |
+| standing instructions | Instructions |
+| machine | Computer |
+| machines | Computers |
+| integration | Tools |
+| integrations | Tools |
+| API keys | Credentials |
+| judge | Decision |
+| hub | Tico |

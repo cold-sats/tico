@@ -24,20 +24,36 @@ function settingsAgentPair(slug) {
     <div class="agent-credential-body">
       <label>Code<input name="code" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="K7QM-4F2P"></label>
       <p class="muted">Printed by <code>hermes_agent.py pair</code> on the profile's computer (Hermes or OpenClaw).</p>
+      <p class="muted" data-pair-preview></p>
       <div class="row"><button class="primary" type="submit">Pair</button><span class="muted" data-pair-status></span></div>
     </div></form>`;
   const form = dialog.querySelector('form'), status = dialog.querySelector('[data-pair-status]');
   dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  const preview = dialog.querySelector('[data-pair-preview]');
+  let previewCode = '', pendingPreview;
+  const loadPreview = async () => {
+    const code = form.code.value.trim();
+    if (code.replace(/[^a-z0-9]/gi, '').length !== 8) { preview.textContent = ''; previewCode = ''; return; }
+    const shown = await get(`/v2/agents/pairing-preview?code=${encodeURIComponent(code)}`);
+    if (form.code.value.trim() !== code) return;
+    previewCode = code;
+    preview.textContent = `${shown.profile || 'Profile'} · ${shown.host || 'Computer'} · ${settingsHarnessName(shown.harness) || shown.harness}${e.agent?.credential ? ' · replaces current credential' : ''}`;
+  };
+  form.code.oninput = () => {
+    clearTimeout(pendingPreview); previewCode = '';
+    pendingPreview = setTimeout(() => void loadPreview().catch(error => { preview.textContent = error.message; }), 250);
+  };
   form.onsubmit = async event => {
     event.preventDefault();
     const button = form.querySelector('button[type=submit]'); button.disabled = true; status.textContent = 'Pairing…';
     try {
+      if (previewCode !== form.code.value.trim()) await loadPreview();
       const done = await post('/v2/agents/pairings/approve', {code: form.code.value.trim(), bot: slug});
-      toast(`Connected ${done.profile || 'the profile'}${done.host ? ` on ${done.host}` : ''}`);
+      toast(`Paired ${done.profile || 'the profile'}${done.host ? ` on ${done.host}` : ''}`);
       dialog.close();
     } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; button.disabled = false; }
   };
-  dialog.onclose = () => { dialog.remove(); void loadSettings(); };
+  dialog.onclose = () => { clearTimeout(pendingPreview); dialog.remove(); void loadSettings(); };
   document.body.appendChild(dialog); dialog.showModal(); form.code.focus();
 }
 async function settingsAgentCredential(slug) {

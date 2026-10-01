@@ -26,6 +26,8 @@ def test_initialize_lists_every_tool_and_ignores_notifications(api):
                                    "clientInfo": {"name": "test", "version": "0"}})
     assert init["result"]["protocolVersion"] == "2025-06-18"
     assert init["result"]["capabilities"] == {"tools": {}}
+    info = init["result"]["serverInfo"]
+    assert info["name"] == "tico" and info["title"] == "Tico" and info["version"] == hubtools.release_version()
     r = api.post("/api/v2/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=headers())
     assert r.status_code == 202 and r.content == b""
     tools = rpc(api, "tools/list")["result"]["tools"]
@@ -122,3 +124,18 @@ def test_tools_refuse_a_runner_credential_like_http_does(api):
     err, out = call(api, "hub_message_list", token=r["token"])
     assert err and out["error"] == "identity"
 
+
+
+def test_validation_identifies_fields_and_never_echoes_invalid_values(api):
+    response = api.post("/api/v2/tasks", json={"owner": "me", "title": 123}, headers=headers())
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "validation" and "body.title" in error["detail"] and error["retryable"] is False
+    for name, arguments, field in [
+        ("hub_task_create", {"owner": "me", "title": 123, "body": "Details"}, "title"),
+        ("hub_task_list", {"typo": "private-example-value"}, "typo"),
+        ("hub_grokbot_sync", {"bots": [{"grok_id": "test", "name": "Example", "messages": [{"role": "bot", "text": 123}]}]}, "text"),
+    ]:
+        failed, payload = call(api, name, arguments)
+        assert failed and payload["error"] == "validation" and field in payload["detail"]
+        assert "private-example-value" not in payload["detail"]

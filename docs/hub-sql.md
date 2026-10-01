@@ -1,6 +1,6 @@
 # Querying Tico with SQL
 
-Read-only SQL over the production database (`/var/lib/tico/hub.sqlite`), for humans, bots and
+Read-only SQL over the Tico database (`/data/hub.sqlite` in the Docker install; other installs use their configured database path), for humans, bots and
 scripts alike. One `SELECT` per call; what it may see is decided in the database layer, not by
 the caller and not by prompt text. 
 

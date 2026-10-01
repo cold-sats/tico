@@ -1,9 +1,9 @@
-"""Decisions as a hub tool: `POST /api/v2/decisions`, the door behind `hub_decision_ask` and `hub decision ask`
+"""Decisions as a Tico tool: `POST /api/v2/decisions`, the door behind `hub_decision_ask` and `hub decision ask`
 (the route, the `judge.call` audit events and this module keep their old name, `judge`).
 
-The hub holds the one TypeSafe key (`TYPESAFE_API_KEY` or `TICO_TYPESAFE_SECRET_ARN`, the
+Tico holds the one TypeSafe key (`TYPESAFE_API_KEY` or `TICO_TYPESAFE_SECRET_ARN`, the
 same key the Slack gateway routes with). TypeSafe is optional: without it the decision model asks the
-company's own AI provider, when the server has that provider's API key (`ANTHROPIC_API_KEY`,
+team's own AI provider, when the server has that provider's API key (`ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`); with neither it is
 unconfigured. A bot or a person sends a JSON state and typed
 questions with their own credential and gets calibrated answers back; no bot ever carries the
@@ -85,7 +85,7 @@ def install_judge(app, store, auth):
             engine = app.state.judge or fallback_engine(providers.load(c, settings))
         if engine is None:
             raise Problem("judge_unconfigured", "No decision model is configured on this server: set a TypeSafe key, "
-                          "or the API key of one of the company's AI providers", 503)
+                          "or the API key of one of the team's AI providers", 503)
         try:
             J.validate(body.state, body.questions, body.label)
         except J.JudgeError as exc:

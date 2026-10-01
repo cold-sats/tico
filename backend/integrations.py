@@ -212,6 +212,35 @@ class Catalog:
                 for page in pages.values()]
 
 
+def inventory(c, settings, auth, who):
+    from . import bot_tools
+    found = {}
+    for bot in H.bots(c):
+        slug = bot["slug"]
+        if bot["state"] == "archived" or not auth.bot_access(c, who, slug)["read"]:
+            continue
+        for tool in bot_tools.listing(c, settings, slug)["tools"]:
+            service = tool["service"]
+            item = found.setdefault(service, {"service": service, "title": tool["name"], "bots": [], "connections": []})
+            if slug not in item["bots"]:
+                item["bots"].append(slug)
+            item["connections"].append({"bot": slug, "status": tool["status"], "identity": tool["identity"], "can": tool["can"],
+                                        **({"mcp": tool["mcp"]} if tool.get("mcp") else {})})
+    for item in found.values():
+        statuses = {connection["status"] for connection in item["connections"]}
+        item["status"] = "problem" if "problem" in statuses else "ready" if "ready" in statuses else "pending" if "pending" in statuses else "unknown"
+    return found
+
+
+def custom_page(item):
+    return {"service": item["service"], "title": item["title"], "kind": "mcp" if any(connection.get("mcp") for connection in item["connections"]) else "api",
+            "summary": "Configured by a bot",
+            "access": "See the bot's Tools for scope and connection status", "credentials": [], "declared_as": "",
+            "writes": "allowed" if any(verb not in ("read", "list", "search", "query")
+                                       for connection in item["connections"] for verb in connection["can"]) else "never", "owner": "owner", "aliases": [], "queries": [], "query_count": 0,
+            "body": "## Bots\n\n" + "\n".join("- " + bot for bot in item["bots"]), **item}
+
+
 def learnings(c, service):
     return [dict(row) for row in c.execute(
         "SELECT id, integration, actor, text, created FROM learnings "
@@ -263,6 +292,18 @@ def install_integrations(app, store, auth, mutate):
         row = c.execute("SELECT name FROM humans WHERE id=?", (auth.owner_id(c),)).fetchone() if auth.owner_id(c) else None
         return page | {"owner": (row and row["name"]) or store.settings.owner_email or "owner"}
 
+    def resolve(service, who):
+        try:
+            return catalog.resolve(service)
+        except Problem as exc:
+            if exc.code != "not_found":
+                raise
+            with store.read() as c:
+                item = inventory(c, store.settings, auth, who).get(service)
+            if item:
+                return custom_page(item)
+            raise
+
     @app.post("/api/v2/databases/audit")
     def database_audit(request: Request, body: DatabaseQuery):
         """The runner records each company-database query here before it shows the rows."""
@@ -279,12 +320,16 @@ def install_integrations(app, store, auth, mutate):
     def integrations(request: Request):
         with store.read() as c:
             counts = learning_counts(c)
-            items = [named(c, item) for item in catalog.listing()]
-        return {"integrations": [item | {"learning_count": counts.get(item["service"], 0)} for item in items]}
+            connected = inventory(c, store.settings, auth, request.state.identity)
+            items = [named(c, item) | connected.get(item["service"], {"status": "not_configured", "bots": [], "connections": []})
+                     for item in catalog.listing()]
+            known = {item["service"] for item in items}
+            items += [named(c, custom_page(item)) for service, item in connected.items() if service not in known]
+        return {"label": "Available tools", "integrations": [item | {"learning_count": counts.get(item["service"], 0)} for item in items]}
 
     @app.get("/api/v2/integrations/{service}")
     def integration(request: Request, service: str):
-        page = catalog.resolve(service)
+        page = resolve(service, request.state.identity)
         with store.read() as c:
             notes = learnings(c, page["service"])
             page = named(c, page)
@@ -294,7 +339,7 @@ def install_integrations(app, store, auth, mutate):
     def queries(request: Request, service: str, term: str = "", id: str | None = None):
         """The catalog search `hub tool query-search` does, served so every client reads alike."""
         from clients.hubtools import query_search
-        page = catalog.resolve(service)
+        page = resolve(service, request.state.identity)
         if id:
             for query in page["queries"]:
                 if query["id"] == id:
@@ -306,7 +351,7 @@ def install_integrations(app, store, auth, mutate):
     def learn(request: Request, service: str, body: Learning):
         who = request.state.identity
         auth.domain(who)
-        page = catalog.resolve(service)
+        page = resolve(service, request.state.identity)
 
         def work(c):
             return add_learning(c, who, page["service"], body.text)
@@ -317,7 +362,7 @@ def install_integrations(app, store, auth, mutate):
         who = request.state.identity
         if who.role != "owner":
             raise Problem("forbidden", "Only the owner deletes a learning", 403)
-        page = catalog.resolve(service)
+        page = resolve(service, request.state.identity)
         with store.transaction() as c:
             row = c.execute("SELECT id FROM learnings WHERE id=? AND integration=? AND deleted_at IS NULL",
                             (lid, page["service"])).fetchone()

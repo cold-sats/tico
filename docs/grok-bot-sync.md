@@ -15,10 +15,10 @@ only receives (`backend/grokbot.py`).
   anywhere on the team chart afterwards; a later sync never moves it back.
 - Name and description follow Grok. The full instructions are kept in the bot's
   `config_json.grok.instructions` (with when they last changed), so the bot can be rebuilt on
-  another runtime.
+  another runtime. Sending an explicit empty description or instructions clears it; leaving either field out preserves it.
 - The transcript is copied into the human's own chat with the bot, already read, with no job
-  queued. A message's id comes from the Grok Bot's id and the message, so a resent message adds
-  nothing. Each bot in the reply carries `synced_through`: send only newer messages next time.
+  queued. A message's id includes the syncing human, Grok Bot and message ID, or the full text and attachments when no message
+  ID is supplied. Resending it adds nothing; similar long messages and another human's import stay distinct. Each bot in the reply carries `synced_through`: send only newer messages next time.
 - Images in a message are fetched once (public https only, up to 10 MB each), stored like a
   chat attachment and shown inline. One Tico cannot fetch stays in the message as a link.
 - Grok Bots named "Tico …" in Grok read "Grok …" here: in Grok the word

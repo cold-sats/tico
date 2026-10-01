@@ -72,9 +72,9 @@ STABLE = [
     ("/api/v2/bots/{bot}/routines", "get", "Bots", "listBotRoutines",
      "A bot's routines, its recurring work (Read on the bot; add include_deleted=true for removed ones)", "RoutineList"),
     ("/api/v2/bots/{bot}/access", "get", "Bots", "getBotAccess",
-     "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccess"),
+     "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccessView"),
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
-     "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccess"),
+     "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccessView"),
     ("/api/v2/bots/{bot}/onboarded", "post", "Bots", "markBotOnboarded",
      "A starter bot's own call, or its manager's, once its setup is done: `onboarding_state` goes "
      "from `needs_setup` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
@@ -152,7 +152,7 @@ STABLE = [
     ("/api/v2/docs", "post", "Docs", "createInternalDoc",
      "Write a new internal doc (Markdown). The path defaults to a slug of the title; a chosen path that is taken is a 409", "InternalDocResult"),
     ("/api/v2/docs/search", "get", "Docs", "searchInternalAndLinkedDocs",
-     "Search internal docs (ranked with bm25, with an excerpt) and linked docs (title, note, address) together; each result has a type",
+     "Search team and manual sections by relevance, with excerpts, and linked docs by title, note and address; each result has a type",
      "DocsSearchResults"),
     ("/api/v2/docs/import", "post", "Docs", "importInternalDoc",
      "A file (.md .markdown .txt .html .htm .docx .pdf, up to 20 MB) converted to Markdown and saved as a new internal doc",
@@ -204,7 +204,7 @@ STABLE = [
      "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read "
      "(?status=red,gray filters); ?owner= names someone else", "GoalList"),
     ("/api/v2/goals", "post", "Goals", "createGoal",
-     "Set a goal for yourself, under a goal you own, or for someone below you; the Team owner sets team goals", "GoalResult"),
+     "Set a goal for yourself, under a goal you own, or for someone below you; the team owner sets team goals", "GoalResult"),
     ("/api/v2/goals/tree", "get", "Goals", "getGoalTree",
      "Every goal with its owner, its KPIs (each with its target and colour), the KPIs no goal uses and the pending proposals: "
      "what the Goals page draws", "GoalTree"),
@@ -212,7 +212,7 @@ STABLE = [
      "Red KPIs on goals the caller owns, stale KPIs they own, and definitions or targets they are asked to confirm", "GoalsNeedsYou"),
     ("/api/v2/goals/refresh", "post", "Goals", "refreshGoalStatuses",
      "The Goal Manager's status pass (or the owner's): work automatic colours out again. A colour a person set only gets a suggestion",
-     "GoalRefresh"),
+     "GoalRefreshView"),
     ("/api/v2/goals/{gid}", "get", "Goals", "getGoal",
      "One goal with its KPIs, the goals under and above it, tasks, history, recent check-ins and pending proposals", "GoalResult"),
     ("/api/v2/goals/{gid}", "post", "Goals", "updateGoal",
@@ -260,7 +260,7 @@ STABLE = [
      "see usage for", "UsageLimits"),
     ("/api/v2/usage/limits", "put", "Usage", "setUsageDefault",
      "The default limit for bots with none of their own, in estimated USD (empty is no limit), and whether subscription runs "
-     "count toward it (owner and bot administrators)", "UsageDefault"),
+     "count toward it (owner and bot administrators)", "UsageDefaultView"),
     ("/api/v2/usage/limits/{bot}", "put", "Usage", "setBotUsageLimit",
      "A bot's own daily and monthly limit in estimated USD; empty follows the team default. Owner and administrators, or "
      "the person who runs the bot within the team default. A bot over a limit takes no new job until the period turns "
@@ -347,7 +347,7 @@ SCHEMAS = {
     "RoutineList": obj({"routines": items(ref("Routine"))}, required=["routines"]),
     "Audience": obj({"everyone": "b", "people": items({"type": "string"}), "teams": items({"type": "string"}),
                      "bots": items({"type": "string"})}, required=["everyone", "people", "teams", "bots"]),
-    "BotAccess": obj({"bot": "s", "see": ref("Audience"), "read": ref("Audience"), "write": ref("Audience"),
+    "BotAccessView": obj({"bot": "s", "see": ref("Audience"), "read": ref("Audience"), "write": ref("Audience"),
                       "revision": "i", "you": ref("Access"), "teams": items({"type": "object"})},
                      required=["bot", "see", "read", "write", "revision"]),
     "Me": obj({"actor": "s", "role": "s", "email": "s"}),
@@ -425,8 +425,11 @@ SCHEMAS = {
     "LinkedDocList": obj({"linked": items(ref("LinkedDoc"))}),
     "LinkedDocResult": obj({"linked": ref("LinkedDoc")}),
     "DocsSearchResults": obj({"results": items({"oneOf": [
-        obj({"type": {"enum": ["internal"]}, "id": "s", "path": "s", "title": "s", "excerpt": "s", "score": "f"}),
-        obj({"type": {"enum": ["linked"]}, "id": "s", "title": "s", "url": "s", "kind": "s", "description": "s", "score": "f"})]})}),
+        obj({"type": {"enum": ["internal"]}, "id": "s", "path": "s", "title": "s", "excerpt": "s", "score": "f"}, required=["type", "id", "path", "title", "excerpt", "score"],
+            section={"type": "string"}, anchor={"type": "string"}, collection={"type": "string"}),
+        obj({"type": {"enum": ["linked"]}, "id": "s", "title": "s", "url": "s", "kind": "s", "description": "s", "score": "f"}),
+        obj({"type": {"enum": ["manual"]}, "id": "s", "title": "s", "path": "s", "url": "s", "excerpt": "s", "score": "f"}, required=["type", "id", "title", "path", "url", "excerpt", "score"],
+            section={"type": "string"}, anchor={"type": "string"}, collection={"type": "string"})]})}),
     "DocSearch": obj({"query": "s", "results": "a", "has_more": "b", "mode": "s"}),
     "Health": obj({"audience": "s", "checks": "a", "attention": "i", "checked": "s"}),
     "BotFile": obj({"id": "s", "bot": "s", "title": "s", "kind": "s", "mime": "s", "locator": "s", "scope": "s",
@@ -477,7 +480,7 @@ SCHEMAS = {
     "KpiLink": obj({"id": "s", "goal_id": "s", "kind": {"enum": ["none", "improve", "maintain"]}, "baseline": NUM_N, "baseline_at": "n",
                     "target": NUM_N, "deadline": {"type": ["string", "null"], "description": "YYYY-MM-DD"}, "min": NUM_N, "max": NUM_N},
                    required=["goal_id", "kind"]),
-    "KpiReading": obj({"id": "s", "value": "f", "period_start": "s", "period_end": "s", "collected_at": "s",
+    "KpiReadingView": obj({"id": "s", "value": "f", "period_start": "s", "period_end": "s", "collected_at": "s",
                        "quality": {"enum": ["measured", "estimate", "partial"]}, "evidence": "s", "note": "s", "source": "s",
                        "actor": "s", "definition_version": "i", "supersedes": "n"},
                       required=["id", "value", "period_end", "quality", "definition_version"],
@@ -488,7 +491,7 @@ SCHEMAS = {
                 "name": "s", "definition": "s", "unit": "s", "direction": {"enum": ["up", "down", "range"]},
                 "cadence": {"enum": ["daily", "weekly", "monthly"]}, "owner": "s", "source_note": "s", "definition_version": "i",
                 "created": "n", "created_by": "n", "updated": "n", "auto": "b",
-                "latest": {"oneOf": [ref("KpiReading"), {"type": "null"}]}, "readings": "i",
+                "latest": {"oneOf": [ref("KpiReadingView"), {"type": "null"}]}, "readings": "i",
                 "freshness": {"enum": ["fresh", "stale", "missing"], "description": "stale: one period missed; missing: never read or two missed. Never zero"},
                 "spark": {"type": "array", "items": {"type": "number"}, "description": "The last values, oldest first"},
                 "status": {"enum": ["green", "yellow", "red", "gray", "none"], "description": "Against the target on the link (or a range); gray is stale or missing data; none is fresh with no target"},
@@ -498,11 +501,11 @@ SCHEMAS = {
                link=ref("KpiLink"), target_label={"type": "string", "description": "'→ 65% by Dec 31' or 'range 40–60'"},
                expected={"type": ["number", "null"], "description": "Where the straight line from baseline to target is now"},
                owner_name={"type": "string"}),
-    "GoalCheckin": obj({"id": "s", "goal_id": "s", "kpi_id": "n", "ts": "s", "author": "s", "source_actor": "s", "body": "s",
+    "GoalCheckinView": obj({"id": "s", "goal_id": "s", "kpi_id": "n", "ts": "s", "author": "s", "source_actor": "s", "body": "s",
                         "signal": {"type": ["string", "null"], "enum": ["on_track", "at_risk", "off_track", None]}},
                        required=["id", "goal_id", "ts", "author", "source_actor", "body", "signal"],
                        author_name={"type": "string"}, source_actor_name={"type": "string"}),
-    "GoalProposal": obj({"id": "s", "kind": {"enum": ["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"]},
+    "GoalProposalView": obj({"id": "s", "kind": {"enum": ["goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "flag"]},
                          "goal_id": "n", "kpi_id": "n", "payload": "o", "reason": "s", "proposed_by": "s", "proposed_at": "s",
                          "status": {"enum": ["pending", "confirmed", "rejected"]}, "decided_by": "n", "decided_at": "n",
                          "decision_note": "s", "result": {"type": ["object", "null"]}},
@@ -511,16 +514,16 @@ SCHEMAS = {
                         may_decide={"type": "boolean", "description": "Whether the caller may confirm or reject it"}),
     "GoalView": obj({}, required=["kpis", "children", "chain", "tasks", "events", "checkins", "proposals"],
                     kpis=items(ref("Kpi")), children=items(ref("Goal")), chain=items(ref("Goal")), tasks=items({"type": "object"}),
-                    events=items({"type": "object"}), checkins=items(ref("GoalCheckin")), proposals=items(ref("GoalProposal"))),
+                    events=items({"type": "object"}), checkins=items(ref("GoalCheckinView")), proposals=items(ref("GoalProposalView"))),
     "GoalResult": obj({"goal": {}}),
     "GoalList": obj({"goals": items(ref("Goal"))}, required=["goals"], owner={"type": "string"},
                     chain=items(ref("Goal")), reports=items(ref("Goal")), company=items(ref("Goal"))),
     "GoalTreeRow": obj({}, required=["kpis", "open_tasks"], kpis=items(ref("Kpi")), open_tasks={"type": "integer"},
-                       checkin={"oneOf": [ref("GoalCheckin"), {"type": "null"}], "description": "The latest check-in"}),
+                       checkin={"oneOf": [ref("GoalCheckinView"), {"type": "null"}], "description": "The latest check-in"}),
     "GoalTree": obj({"goals": {},
                      "owners": {"type": "object", "description": "{actor: {kind: company|person|bot, id, name}} for every owner"},
                      "unaligned": {"type": "object", "description": "{actor: open tasks that serve no goal}"},
-                     "other_kpis": items(ref("Kpi")), "proposals": items(ref("GoalProposal"))},
+                     "other_kpis": items(ref("Kpi")), "proposals": items(ref("GoalProposalView"))},
                     required=["goals", "owners", "unaligned", "other_kpis", "proposals"]),
     "GoalsNeedsYou": obj({"actor": "s", "items": items({
         "type": "object", "required": ["kind"], "additionalProperties": True,
@@ -528,20 +531,20 @@ SCHEMAS = {
                        "goal_title": {"type": ["string", "null"]}, "kpi_id": {"type": "string"}, "kpi_name": {"type": ["string", "null"]},
                        "reason": {"type": "string"}, "freshness": {"type": "string"}, "proposal": {"type": "object"}}})},
                         required=["actor", "items"]),
-    "GoalRefresh": obj({"changed": "a", "suggested": "a", "checked": "i"}),
-    "GoalCheckins": obj({"goal_id": "s", "checkins": items(ref("GoalCheckin"))}),
-    "GoalCheckinResult": obj({"checkin": ref("GoalCheckin")}),
+    "GoalRefreshView": obj({"changed": "a", "suggested": "a", "checked": "i"}),
+    "GoalCheckins": obj({"goal_id": "s", "checkins": items(ref("GoalCheckinView"))}),
+    "GoalCheckinResult": obj({"checkin": ref("GoalCheckinView")}),
     "GoalKpiResult": obj({"kpi": ref("Kpi")}),
-    "GoalProposalList": obj({"proposals": items(ref("GoalProposal"))}),
-    "GoalProposalResult": obj({"proposal": ref("GoalProposal")}),
+    "GoalProposalList": obj({"proposals": items(ref("GoalProposalView"))}),
+    "GoalProposalResult": obj({"proposal": ref("GoalProposalView")}),
     "KpiList": obj({"kpis": items(ref("Kpi"))}, required=["kpis"]),
     "KpiDetail": obj({"kpi": ref("Kpi"), "links": {},
-        "readings": items(ref("KpiReading")),
+        "readings": items(ref("KpiReadingView")),
         "definitions": items({"type": "object", "description": "version, ts, actor, name, definition, unit, direction, cadence, source_note; newest first"}),
-        "checkins": items(ref("GoalCheckin")), "proposals": items(ref("GoalProposal")), "may_edit": "b", "may_log": "b"},
+        "checkins": items(ref("GoalCheckinView")), "proposals": items(ref("GoalProposalView")), "may_edit": "b", "may_log": "b"},
                     required=["kpi", "links", "readings", "definitions", "checkins", "proposals", "may_edit", "may_log"]),
-    "KpiReadings": obj({"kpi": {"type": "object", "description": "The KPI record"}, "readings": items(ref("KpiReading"))}),
-    "KpiReadingResult": obj({"reading": ref("KpiReading")}),
+    "KpiReadings": obj({"kpi": {"type": "object", "description": "The KPI record"}, "readings": items(ref("KpiReadingView"))}),
+    "KpiReadingResult": obj({"reading": ref("KpiReadingView")}),
     "BotKpis": obj({"bot": "s", "kpis": items(ref("Kpi"))}),
     "UsageFigures": obj({"runs": "i", "input_tokens": {"type": "integer", "description": "Uncached input tokens"},
                          "cached_tokens": {"type": "integer", "description": "Input tokens read from the provider's cache"},
@@ -560,15 +563,15 @@ SCHEMAS = {
                   "departments": items({"type": "string"}), "bot": "s", "name": "s", "daily": items({"type": "object", "additionalProperties": True}),
                   "routines": items({"type": "object", "additionalProperties": True})},
                  required=["from", "to", "prices_as_of", "totals"]),
-    "UsageLimit": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "source": {"type": "object", "description": "Where each cap comes "
+    "UsageLimitView": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "source": {"type": "object", "description": "Where each cap comes "
                        "from: bot, company or null"}, "day_spent": NUM_N, "month_spent": NUM_N,
                        "percent": {"type": "integer", "description": "The highest share of a limit reached"},
                        "blocked": {"enum": ["daily", "monthly", None], "description": "Set while a limit is met: the bot takes no new job"},
                        "own_daily_usd": NUM_N, "own_monthly_usd": NUM_N, "may_edit": "b"}),
-    "UsageDefault": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"})}),
+    "UsageDefaultView": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"})}),
     "UsageLimits": obj({"default": obj({"daily_usd": NUM_N, "monthly_usd": NUM_N, "count_subscription": "b"}),
-                        "may_edit_default": "b", "bots": {"type": "object", "additionalProperties": ref("UsageLimit")}}),
-    "BotUsageLimit": obj({"bot": "s", "limit": ref("UsageLimit")}),
+                        "may_edit_default": "b", "bots": {"type": "object", "additionalProperties": ref("UsageLimitView")}}),
+    "BotUsageLimit": obj({"bot": "s", "limit": ref("UsageLimitView")}),
     "Token": obj({"access_token": "s", "token_type": "s", "expires_in": "i", "idle_timeout": "i", "person": "s"}),
     "Revoked": obj({"revoked": "b"}),
 }
@@ -651,8 +654,7 @@ def spec(app):
                          "400": {"description": "next is not an allowed origin, or code_challenge is missing"}}
         if path not in ("/healthz", "/auth/login", "/auth/token"):
             responses["401"] = {"description": "Not signed in", **ERROR}
-            responses["422"] = {"description": "The request did not validate: {\"detail\": [{\"loc\", \"msg\", \"type\"}]}, "
-                                "or a Problem for a rule the server enforces"}
+            responses["422"] = {"description": "Invalid request or rule: error.code and field-specific error.detail", **ERROR}
         if path == "/auth/token":
             op["requestBody"] = TOKEN_REQUEST
             op["security"] = []
@@ -667,7 +669,11 @@ def spec(app):
         paths.setdefault(path, {})[method] = op
     used = set()
     _refs(paths, used)
-    components = {"Problem": PROBLEM, **SCHEMAS, **full.get("components", {}).get("schemas", {})}
+    request_schemas = full.get("components", {}).get("schemas", {})
+    collisions = SCHEMAS.keys() & request_schemas.keys()
+    if collisions:
+        raise RuntimeError("Request and response schema names collide: " + ", ".join(sorted(collisions)))
+    components = {"Problem": PROBLEM, **SCHEMAS, **request_schemas}
     keep, queue = {}, sorted(used | {"Problem"})
     while queue:
         name = queue.pop()

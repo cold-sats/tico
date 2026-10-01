@@ -2,7 +2,7 @@
 
 Such a bot is a full bot record (org tree, chat, tasks, routines) with no computer. Nothing
 dispatches to it: a message addressed to it lands in its inbox and stays there until the agent
-reads it through the hub's MCP endpoint or the `hub` CLI, with the one bot credential minted
+reads it through Tico's MCP endpoint or the `hub` CLI, with the one bot credential minted
 here. Presence is a plain heartbeat the agent's box posts on a timer; that is all Tico knows
 about whether the agent is alive, and the pages say exactly that (docs/hermes-agents.md).
 
@@ -22,7 +22,7 @@ PRESENCE_GAP = 180
 
 # Pairing: a profile with no credential asks to be connected, and a person (or BotOps for them) approves
 # the code it prints. Only hashes of the code and the secret are kept; the minted credential waits in the
-# row from approval until the profile collects it, once.
+# row from approval until the first authenticated heartbeat.
 PAIRING_TTL = 600
 PAIRING_POLL_EVERY = 3
 PAIRINGS_PER_CLIENT_HOUR = 10
@@ -84,7 +84,7 @@ def issue_credential(c, who, bot):
     now = H.now()
     c.execute("INSERT INTO agents(bot,harness,token_hash,created,created_by) VALUES(?,?,?,?,?) "
               "ON CONFLICT(bot) DO UPDATE SET harness=excluded.harness,token_hash=excluded.token_hash,"
-              "created=excluded.created,created_by=excluded.created_by,revoked_at=NULL,revoked_by=NULL",
+              "created=excluded.created,created_by=excluded.created_by,revoked_at=NULL,revoked_by=NULL,last_seen=NULL",
               (bot, harness, digest(token), now, who.actor))
     H.event(c, who.actor, "agent.credential_issued", bot, {"harness": harness})
     return {"bot": bot, "harness": harness, "token": token, "created": now}
@@ -105,9 +105,15 @@ def heartbeat(c, who, body):
         raise Problem("identity", "An agent credential is required", 403)
     bot = H.actor_id(who.actor)
     now = H.now()
-    c.execute("UPDATE agents SET last_seen=?,version=?,platform=?,model=?,provider=?,profile=?,detail=? "
-              "WHERE bot=?", (now, body.version, body.platform, body.model, body.provider,
-                              body.profile, body.detail, bot))
+    fields = {key: getattr(body, key) for key in ("version", "platform", "model", "provider", "profile", "detail")
+              if key in body.model_fields_set}
+    fields["last_seen"] = now
+    c.execute("UPDATE agents SET " + ",".join(key + "=?" for key in fields) + " WHERE bot=?",
+              (*fields.values(), bot))
+    if body.tools is not None:
+        from . import bot_tools
+        bot_tools.agent_report(c, bot, body.tools)
+    c.execute("UPDATE agent_pairings SET state='claimed',token=NULL WHERE bot=? AND state='approved'", (bot,))
     inbox = H.inbox(c, who.actor, at=now)
     return {"server_time": now, "bot": bot, "presence_gap_s": PRESENCE_GAP,
             "waiting": {"messages": len(inbox["messages"]), "tasks": len(inbox["tasks"])}}
@@ -156,9 +162,7 @@ def poll_pairing(c, pairing_id, secret):
         c.execute("UPDATE agent_pairings SET state='expired',token=NULL WHERE id=?", (pairing_id,))
         return {"state": "expired"}
     if state == "approved":
-        token = record["token"]
-        c.execute("UPDATE agent_pairings SET state='claimed',token=NULL WHERE id=?", (pairing_id,))
-        return {"state": "approved", "bot": record["bot"], "token": token}
+        return {"state": "approved", "bot": record["bot"], "token": record["token"]}
     return {"state": state}
 
 
@@ -168,6 +172,13 @@ def _pending(c, code):
     if not record:
         raise Problem("not_found", "That code is not valid or has expired. Run the pair command again for a new one", 404)
     return record
+
+
+def show_pairing(c, who, code):
+    if who.role not in ("owner", "human"):
+        raise Problem("forbidden", "Only a human previews a pairing", 403)
+    record = _pending(c, code)
+    return {key: record[key] for key in ("profile", "host", "harness", "version", "expires_at")}
 
 
 def approve_pairing(c, who, manager, code, bot):
@@ -187,6 +198,10 @@ def approve_pairing(c, who, manager, code, bot):
                       f"the bot with the model {record['harness']} first", 422)
     if state not in ("planned", "active"):
         raise Problem("bot_state", "This bot is " + state + "; make it planned or active first", 409)
+    if state == "planned":
+        c.execute("UPDATE bots SET state='active' WHERE slug=?", (bot,))
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.status','active'),revision=revision+1 WHERE bot=?", (bot,))
+        H.event(c, who.actor, "bot.activated", bot)
     issued = issue_credential(c, who, bot)
     c.execute("UPDATE agent_pairings SET state='approved',bot=?,token=?,decided_by=?,decided_at=? WHERE id=?",
               (bot, issued["token"], who.actor, H.now(), record["id"]))

@@ -4,19 +4,18 @@ questions.yaml through POST /api/v2/docs/ask, wait for the answers, and score th
 
     scripts/docs-eval.sh [--only ID] [--keep] [--wait SECONDS] [--json FILE] [--fail-under 0.8]
 
-Run it against a Tico of your own that has a running Librarian, never a company's real one: the Librarian
+Run it against a Tico of your own that has a running Librarian, never a team's real one: the Librarian
 logs what it is asked in its own docs. TICO_URL is the address (https://tico.example.com) and TICO_TOKEN a
 personal API token of a person on it (Settings > Computers > API tokens).
 
-It reports two rates: how often an answerable question's answer cited every doc it should have (and said
-something rather than "Not in the docs"), and how often an unanswerable one said "Not in the docs." Both
-should be near 100%; a fact spot-check (`contains`) is reported beside them. Nothing here runs in CI.
+It reports three rates: how often an answerable question's answer cited every doc it should have (and said
+something rather than "Not in the docs"), and how often an unanswerable one said "Not in the docs." Both and the fact rate should be near 100%; `--fail-under` checks all three. Nothing here runs in CI.
 """
 import argparse
 import json
 import os
+import re
 import statistics
-import subprocess
 import sys
 import time
 import urllib.error
@@ -37,13 +36,40 @@ PREFIX = "eval-fixture/"
 def load_questions(path=HERE / "questions.yaml"):
     questions = (yaml.safe_load(Path(path).read_text()) or {}).get("questions") or []
     for q in questions:
-        if not q.get("id") or not q.get("question") or not (q.get("unknown") or q.get("cite")):
-            raise ValueError(f"question {q.get('id')!r} needs an id, a question and either cite or unknown")
+        if not q.get("id") or not q.get("question") or not (q.get("unknown") or q.get("cite") or q.get("manual")):
+            raise ValueError(f"question {q.get('id')!r} needs an id, a question and cite, manual or unknown")
     return questions
 
 
 def fixture_files(root=HERE / "fixture"):
     return sorted(p for p in Path(root).rglob("*.md"))
+
+
+def exact_fact(text, expected):
+    pattern = re.escape(str(expected)).replace(r"\ ", r"\s+")
+    # A whole value: $29 cannot pass for $299 or $29.99, nor 14 days for 114 days.
+    suffix = r"(?!\w|[.,]\d)" if str(expected)[-1:].isdigit() else r"(?!\w)"
+    return bool(re.search(r"(?<!\w)" + pattern + suffix, text, re.I))
+
+
+def fact_matches(text, fact):
+    if "value" in fact:
+        return exact_fact(text, fact["value"])
+    subject, predicate = fact["subject"], fact["predicate"]
+    claims = [sentence for sentence in re.split(r"[.;!?\n]|,\s*(?:but|while|whereas)\b", text, flags=re.I)
+              if re.search(subject, sentence, re.I) and re.search(predicate, sentence, re.I)]
+    if not claims:
+        return False
+    negative = re.compile(r"\b(?:not|never|cannot|can't|aren't|no|non)\b", re.I)
+    def negated(claim):
+        match = re.search(predicate, claim, re.I)
+        before = re.split(r"\b(?:and|but|while|whereas)\b", claim[:match.start()], flags=re.I)[-1]
+        after = claim[match.end():].split(",", 1)[0]
+        # Negation belongs to this predicate, not a separate claim about another plan.
+        return (bool(negative.search(" ".join(before.split()[-6:])))
+                or bool(re.match(r"\W+(?:(?:is|are|was|were|will|can|may|be)\W+){0,2}(?:not|never|no)\b", after, re.I)))
+    return all(negated(claim) == (fact["polarity"] == "negative") for claim in claims)
+
 
 
 def score(question, answer, id_by_path):
@@ -55,8 +81,13 @@ def score(question, answer, id_by_path):
         return {"answered": True, "cited": None, "unknown_ok": said_unknown, "facts": None}
     cited = {c["url_or_id"] for c in docs_ask.parse_citations(answer) if c["type"] == "internal"}
     wanted = {id_by_path.get(PREFIX + path) for path in question.get("cite") or []}
-    facts = all(text.lower() in answer.lower() for text in question.get("contains") or [])
-    return {"answered": True, "cited": (not said_unknown) and None not in wanted and wanted <= cited,
+    manual = {Path(c["url_or_id"].split("#", 1)[0]).stem
+              for c in docs_ask.parse_citations(answer) if c["type"] == "manual"}
+    manual_ok = set(question.get("manual") or []) <= manual
+    text = re.sub(r"\[[^\]]*\]\([^)]*\)", "", answer)
+    facts = (all(exact_fact(text, expected) for expected in question.get("contains") or [])
+             and all(fact_matches(text, fact) for fact in question.get("facts") or []))
+    return {"answered": True, "cited": (not said_unknown) and None not in wanted and wanted <= cited and manual_ok,
             "unknown_ok": None, "facts": facts and not said_unknown}
 
 
@@ -88,28 +119,31 @@ class Tico:
             raise SystemExit(f"{method} {path} answered {exc.code}: {detail}") from None
 
 
-def load_fixture(tico):
-    """Write every fixture doc with `hub docs write`, the command the Librarian's own tooling uses."""
-    env = {**os.environ, "HUB_API_URL": tico.url, "HUB_TOKEN": tico.token}
-    env.pop("HUB_BOT", None)
-    env.pop("HUB_EMPLOYEE", None)
+def load_fixture(tico, ids=None):
+    """Track every successfully imported doc, so a later failure still cleans up this run."""
+    ids = ids if ids is not None else {}
     for file in fixture_files():
         rel = file.relative_to(HERE / "fixture").as_posix()
-        title = next((line[2:].strip() for line in file.read_text().splitlines() if line.startswith("# ")), rel)
-        done = subprocess.run([sys.executable, str(ROOT / "clients/hubcli.py"), "docs", "write", PREFIX + rel,
-                               "--title", title, "--body-file", str(file), "--note", "docs-eval fixture"],
-                              env=env, capture_output=True, text=True)
-        if done.returncode:
-            raise SystemExit(f"hub docs write {PREFIX + rel} failed: {(done.stdout + done.stderr)[:300]}")
-    listing = tico.call("GET", "/api/v2/docs?path_prefix=" + PREFIX + "&limit=200")
-    return {doc["path"]: doc["id"] for doc in listing.get("docs", [])}
+        text = file.read_text()
+        title = next((line[2:].strip() for line in text.splitlines() if line.startswith("# ")), rel)
+        doc = tico.call("POST", "/api/v2/docs", {"path": PREFIX + rel, "title": title, "body": text})["doc"]
+        ids[doc["path"]] = doc["id"]
+    return ids
 
 
 def remove_fixture(tico, ids):
+    retained = []
     for doc_id in ids:
-        doc = tico.call("GET", "/api/v2/docs/" + doc_id)["doc"]
-        tico.call("PATCH", "/api/v2/docs/" + doc_id, {"version": doc["version"], "archived": True,
+        try:
+            doc = tico.call("GET", "/api/v2/docs/" + doc_id)["doc"]
+            tico.call("PATCH", "/api/v2/docs/" + doc_id, {"version": doc["version"], "archived": True,
                                                        "note": "docs-eval finished"})
+        except (Exception, SystemExit) as exc:
+            retained.append(doc_id)
+            print(f"Cleanup failed for {doc_id}: {exc}", file=sys.stderr)
+    if retained:
+        print("Retained fixture IDs: " + ", ".join(retained), file=sys.stderr)
+    return retained
 
 
 def ask(tico, question, wait):
@@ -117,31 +151,40 @@ def ask(tico, question, wait):
     sent = tico.call("POST", "/api/v2/docs/ask", {"question": question, "new_conversation": True})
     while time.monotonic() - started < wait:
         snapshot = tico.call("GET", f"/api/v2/conversations/{sent['conversation_id']}/snapshot")
-        for message in snapshot.get("messages") or []:
-            if message.get("in_reply_to") == sent["message_id"] and message.get("from_actor") == "bot:librarian":
-                return message["body"], time.monotonic() - started
+        if message := docs_ask.final_reply(snapshot, sent["message_id"]):
+            return message["body"], time.monotonic() - started
         time.sleep(3)
     return None, None
 
 
 def main(argv=None):
+    global PREFIX
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--only", action="append", help="run only this question id (repeatable)")
     parser.add_argument("--keep", action="store_true", help="leave the fixture docs in place afterwards")
     parser.add_argument("--wait", type=int, default=240, help="seconds to wait for each answer")
     parser.add_argument("--json", help="write every answer and score to this file")
-    parser.add_argument("--fail-under", type=float, default=0.0, help="exit 1 if either rate is below this (0 to 1)")
+    parser.add_argument("--fail-under", type=float, default=0.0, help="exit 1 if citation, unknown or fact rate is below this (0 to 1)")
     args = parser.parse_args(argv)
+    if not 0 <= args.fail_under <= 1:
+        parser.error("--fail-under must be between 0 and 1")
+    available = load_questions()
+    unknown_ids = set(args.only or []) - {q["id"] for q in available}
+    if unknown_ids:
+        parser.error("Unknown question IDs: " + ", ".join(sorted(unknown_ids)))
+    questions = [q for q in available if not args.only or q["id"] in args.only]
+    if not questions:
+        parser.error("No questions selected")
     if not os.environ.get("TICO_URL") or not os.environ.get("TICO_TOKEN"):
         raise SystemExit("Set TICO_URL (https://your-tico) and TICO_TOKEN (a personal API token)")
+    PREFIX = "eval-fixture/" + uuid.uuid4().hex[:12] + "/"
     tico = Tico(os.environ["TICO_URL"], os.environ["TICO_TOKEN"])
     if not tico.call("GET", "/api/v2/librarian").get("available"):
         raise SystemExit("The Librarian is not running on that Tico: turn it on (Docs > Ask AI) and enroll a computer")
-    questions = [q for q in load_questions() if not args.only or q["id"] in args.only]
     print(f"Loading {len(fixture_files())} fixture docs under {PREFIX} ...")
-    id_by_path = load_fixture(tico)
-    results = []
+    id_by_path, results, retained = {}, [], []
     try:
+        load_fixture(tico, id_by_path)
         for q in questions:
             answer, seconds = ask(tico, q["question"], args.wait)
             outcome = score(q, answer, id_by_path)
@@ -153,7 +196,9 @@ def main(argv=None):
             print(f"  {q['id']:<18} {verdict:<28} {'' if seconds is None else f'{seconds:.0f}s'}")
     finally:
         if not args.keep:
-            remove_fixture(tico, id_by_path.values())
+            retained = remove_fixture(tico, id_by_path.values())
+        elif id_by_path:
+            print("Retained fixture IDs: " + ", ".join(id_by_path.values()), file=sys.stderr)
     totals = summary(results)
     pct = lambda x: "n/a" if x is None else f"{x:.0%}"                                         # noqa: E731
     print(f"\nCitation hit rate  {totals['citation_hits'][0]}/{totals['citation_hits'][1]}  {pct(totals['citation_hit_rate'])}"
@@ -162,8 +207,8 @@ def main(argv=None):
           f"\nMedian time        {'n/a' if totals['median_seconds'] is None else format(totals['median_seconds'], '.0f') + 's'}")
     if args.json:
         Path(args.json).write_text(json.dumps({"summary": totals, "results": results}, indent=2) + "\n")
-    rates = [r for r in (totals["citation_hit_rate"], totals["unknown_rate"]) if r is not None]
-    return 1 if rates and min(rates) < args.fail_under else 0
+    rates = [r for r in (totals["citation_hit_rate"], totals["unknown_rate"], totals["fact_rate"]) if r is not None]
+    return 1 if retained or (rates and min(rates) < args.fail_under) else 0
 
 
 if __name__ == "__main__":

@@ -946,3 +946,19 @@ class Interval(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+def test_openclaw_error_keeps_gateway_cause_and_target_without_credentials():
+    stderr = ('Error: gateway closed (1006): token="test-secret"\n'
+              'Gateway target: ws://sam:private@127.0.0.1:18789/?token=test-secret\n'
+              'Source: local loopback\nConfig: /tmp/profile.json\nBind: loopback\n')
+    with mock.patch.object(H.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", stderr)):
+        try:
+            H.run_tool(["openclaw", "cron", "add"], "schedule")
+        except H.Failure as exc:
+            detail = str(exc)
+        else:
+            raise AssertionError("failed command must report an error")
+    assert "gateway closed (1006)" in detail and "127.0.0.1:18789" in detail and "Source: local loopback" in detail
+    assert "start this profile's Gateway" in detail and "reinstall" in detail
+    assert "test-secret" not in detail and "private" not in detail

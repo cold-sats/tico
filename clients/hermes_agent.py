@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
-"""Register a Hermes or OpenClaw profile with the hub as an external agent, and keep its heartbeat going.
+"""Register a Hermes or OpenClaw profile with Tico as an external agent, and keep its heartbeat going.
 
-One file, standard library only, for the box that runs the profile; the hub serves it at
+One file, standard library only, for the box that runs the profile; Tico serves it at
 `GET /api/v2/agents/setup-script` so the box needs no checkout. Add `--harness openclaw` to any
 command for an OpenClaw profile (`--profile` is then optional: the default profile is ~/.openclaw).
 What it does:
 
-    python3 hermes_agent.py install --profile scout --url https://hub.example --bot scout --token tico-agent-...
+    python3 hermes_agent.py install --profile scout --url https://tico.example.com --bot scout --token tico-agent-...
         1. checks the token is that bot's agent credential (`GET /api/v2/me`);
-        2. puts the hub in the profile's config.yaml as an MCP server (`mcp_servers.tico`),
+        2. puts Tico in the profile's config.yaml as an MCP server (`mcp_servers.tico`),
            with the token in the profile's `.env` as TICO_AGENT_TOKEN, so the profile's
-           agent has every `hub_*` tool (inbox, say, tasks, approvals, status, sql, ...);
+           agent has the Tico tools allowed by its bot credential;
         3. saves the credential in ~/.config/tico/agents/<profile>.json (mode 600);
         4. posts one heartbeat and installs a timer (launchd on macOS, a systemd user timer on
            Linux) that posts one every minute. The bot shows offline after three misses.
         5. installs the `tico-sync` skill in the profile and one scheduled job, named `tico-sync`,
            that makes the agent look at what is waiting (`--sync 15m|1h|daily|'<cron>'|off`, default 1h).
            OpenClaw has no MCP client, so there the skill calls Tico through this file (`call`).
-    python3 hermes_agent.py pair --profile scout --url https://hub.example
+    python3 hermes_agent.py pair --profile scout --url https://tico.example.com
         the same steps with no token to copy: it prints a code and what to tell BotOps,
         waits for a person (or BotOps) to approve it for a bot, and receives the credential itself.
-    python3 hermes_agent.py update --profile scout       # newest connector from the hub, then install again
+    python3 hermes_agent.py update --profile scout       # newest connector from Tico, then install again
     python3 hermes_agent.py doctor --profile scout       # what works, what does not, old tool names
     python3 hermes_agent.py heartbeat --profile scout    # what the timer runs
     python3 hermes_agent.py status --profile scout       # the last reply, and what is waiting
     python3 hermes_agent.py check --profile scout        # what the sync job asks first: what is waiting
-    python3 hermes_agent.py call --profile scout hub_whoami '{}'   # one hub tool, for agents with no MCP client
+    python3 hermes_agent.py call --profile scout hub_whoami '{}'   # one Tico tool, for agents with no MCP client
     python3 hermes_agent.py reinstall --profile scout --sync 30m   # change how often the agent looks
     python3 hermes_agent.py uninstall --profile scout    # timer, sync job, skill, config entry and env line
 
 The heartbeat is a plain HTTP call, never an agent turn: it proves the box and the profile are
-there, not that the model works. What the agent does with the hub is visible on its bot page
+there, not that the model works. What the agent does with Tico is visible on its bot page
 like any bot's. The sync job is the agent's own schedule (Hermes cron, OpenClaw cron); Tico never
 starts a run. See docs/hermes-agents.md and docs/openclaw-agents.md.
 """
@@ -73,17 +73,17 @@ ENV_FILE = "tico.env"               # OpenClaw: the credential, next to its conf
 
 
 class Failure(Exception):
-    """Something to tell the person in one line. A failed call also carries what the hub answered."""
+    """Something to tell the person in one line. A failed call also carries what Tico answered."""
 
     def __init__(self, message, status=None, code="", detail=""):
         super().__init__(message)
         self.status, self.code, self.detail = status, code, detail
 
 
-# ----------------------------------------------------------------------------- the hub
+# ----------------------------------------------------------------------------- Tico
 def _open(url, token, method, path, body=None, timeout=15, headers=None):
-    """One call to the hub, returning the response bytes. Always sends this connector's own
-    User-Agent: Cloudflare in front of a hub blocks Python's default one (error 1010)."""
+    """One call to Tico, returning the response bytes. Always sends this connector's own
+    User-Agent: Cloudflare in front of Tico blocks Python's default one (error 1010)."""
     data = json.dumps(body).encode() if body is not None else None
     head = {"Accept": "application/json", "User-Agent": "tico-hermes-agent/" + VERSION}
     if token:
@@ -265,7 +265,7 @@ def remove_env(directory, keys, name=".env"):
 
 
 def upsert_mcp(directory, url):
-    """Put the hub in `mcp_servers.<tico>` of the profile's config.yaml, keeping the rest.
+    """Put Tico in `mcp_servers.<tico>` of the profile's config.yaml, keeping the rest.
     With PyYAML the document is rewritten; without it a block is appended when no
     `mcp_servers:` exists yet, and otherwise the person is told what to paste."""
     path = directory / "config.yaml"
@@ -517,7 +517,7 @@ def sync_words(parsed):
 
 
 def fetch_skill(url):
-    """The tico-sync skill: from the hub (so `update` brings the newest), else from a checkout this file sits in."""
+    """The tico-sync skill: from Tico (so `update` brings the newest), else from a checkout this file sits in."""
     problem = ""
     try:
         text = _open(url, None, "GET", "/api/v2/agents/sync-skill", timeout=30, headers={"Accept": "text/plain"}).decode()
@@ -528,7 +528,7 @@ def fetch_skill(url):
         try:
             text = local.read_text()
         except OSError:
-            raise Failure("The hub has no tico-sync skill to install" + (f" ({problem})" if problem else "")
+            raise Failure("Tico has no tico-sync skill to install" + (f" ({problem})" if problem else "")
                           + "; update Tico, then run reinstall")
     return text
 
@@ -559,7 +559,19 @@ def run_tool(command, what):
     except (OSError, subprocess.SubprocessError) as exc:
         raise Failure(f"{what}: {exc}")
     if done.returncode != 0:
-        raise Failure(f"{what}: " + ((done.stderr or done.stdout).strip().splitlines() or ["failed"])[-1][:300])
+        lines = (done.stderr or done.stdout).strip().splitlines() or ["failed"]
+        selected = []
+        for pattern in (r"error|gateway closed", r"gateway target", r"source:"):
+            line = next((line for line in lines if re.search(pattern, line, re.I)), None)
+            if line and line not in selected:
+                selected.append(line)
+        selected = selected or lines[-1:]
+        detail = " · ".join(selected)
+        detail = re.sub(r'(?i)(bearer\s+|(?:token|api[_-]?key|password)["\']?\s*[=:]\s*["\']?)[^\s&"\']+', r"\1[redacted]", detail)
+        detail = re.sub(r"((?:https?|wss?)://)[^/\s:@]+:[^/\s@]+@", r"\1[redacted]@", detail)
+        detail = re.sub(r"([?&](?:token|key|secret|password)=)[^&\s]+", r"\1[redacted]", detail, flags=re.I)
+        hint = "; start this profile's Gateway, then run reinstall" if "gateway" in detail.lower() else ""
+        raise Failure(f"{what}: " + detail[:700] + hint)
     return done.stdout or ""
 
 
@@ -731,7 +743,7 @@ def perform_install(harness, profile, directory, url, bot, token, no_timer=False
     previous = previous or {}
     me = request(url, token, "GET", "/api/v2/me")
     if me.get("role") != "bot" or me.get("actor") != "bot:" + bot or not me.get("agent"):
-        raise Failure(f"This token is not the agent credential for bot {bot!r}: the hub says "
+        raise Failure(f"This token is not the agent credential for bot {bot!r}: Tico says "
                       f"{me.get('actor')!r} ({me.get('role')!r})")
     if harness == "hermes":
         upsert_env(directory, {ENV_TOKEN: token, ENV_URL: url})
@@ -772,7 +784,7 @@ def perform_install(harness, profile, directory, url, bot, token, no_timer=False
     for line in synced:
         print("  " + line)
     waiting = reply.get("waiting", {})
-    print(f"  the hub sees it: {waiting.get('messages', 0)} message(s) and {waiting.get('tasks', 0)} task(s) waiting")
+    print(f"  Tico sees it: {waiting.get('messages', 0)} message(s) and {waiting.get('tasks', 0)} task(s) waiting")
     if mcp == "written":
         print("  restart the profile's gateway or chat so it loads the new MCP server (`/reload-mcp` in a chat)")
     if harness == "openclaw" and synced and not any(line.startswith("WARNING") for line in synced):
@@ -805,8 +817,8 @@ def heartbeat_body(harness, profile, directory):
 
 
 def blocked_message(failure, bot):
-    """The one line for a heartbeat the hub refuses for good reasons, or ''. The timer keeps
-    trying, but once an hour, so a forgotten profile does not hammer the hub every minute."""
+    """The one line for a heartbeat Tico refuses for good reasons, or ''. The timer keeps
+    trying, but once an hour, so a forgotten profile does not hammer Tico every minute."""
     if failure.status == 409 and (failure.code == "bot_archived" or "archived" in failure.detail.lower()):
         return f"Bot {bot} is archived in Tico: restore it (ask BotOps) or run uninstall"
     if failure.status == 401:
@@ -890,7 +902,7 @@ def cmd_check(args):
 
 
 def cmd_call(args):
-    """One hub tool over Tico's MCP endpoint, for an agent with no MCP client. Prints the tool's JSON."""
+    """One Tico tool over Tico's MCP endpoint, for an agent with no MCP client. Prints the tool's JSON."""
     config = load_config(args.key)
     url, token = config["url"], config["token"]
     if args.harness == "openclaw":
@@ -935,7 +947,7 @@ def cmd_pair(args):
                        "host": socket.gethostname().split(".")[0], "version": VERSION})
     pairing, code, secret = created.get("pairing_id"), created.get("code"), created.get("secret")
     if not (pairing and code and secret):
-        raise Failure("The hub did not start a pairing; is this the hub's runner address?")
+        raise Failure("Tico did not start a pairing; is this Tico's runner address?")
     wait = max(1, int(created.get("expires_in") or 600))
     every = min(30, max(1, int(created.get("poll_every") or 3)))
     print(f"Tell BotOps (or press Pair on the bot in Settings → Bots): {pair_code_sentence(args.harness, args.profile, code)}")
@@ -950,7 +962,7 @@ def cmd_pair(args):
                 trouble = 0
             except Failure as exc:
                 if exc.status is not None and exc.status < 500 and exc.status != 429:
-                    raise Failure("The hub no longer knows this pairing; run pair again") from exc
+                    raise Failure("Tico no longer knows this pairing; run pair again") from exc
                 trouble += 1
                 if trouble >= 10:
                     raise
@@ -972,7 +984,7 @@ def cmd_pair(args):
         return 130
     bot, token = answer.get("bot"), answer.get("token")
     if not bot or not token:
-        raise Failure("The hub approved the pairing without a bot or credential; run pair again")
+        raise Failure("Tico approved the pairing without a bot or credential; run pair again")
     print(f"Approved for bot {bot!r}.")
     return perform_install(args.harness, args.profile, directory, answer.get("url") or url, bot, token, args.no_timer, args.sync)
 
@@ -982,7 +994,7 @@ def fetch_script(url, token):
     try:
         ast.parse(text)
     except SyntaxError:
-        raise Failure("The hub did not send a Python file (a sign-in page, perhaps); nothing was replaced")
+        raise Failure("Tico did not send a Python file (a sign-in page, perhaps); nothing was replaced")
     if "def cmd_heartbeat" not in text or "tico-hermes-agent" not in text:
         raise Failure("The download is not the Hermes connector; nothing was replaced")
     return text
@@ -1297,7 +1309,7 @@ def cmd_uninstall(args):
     config_path(args.key).unlink(missing_ok=True)
     for problem in problems:
         print("warning: " + problem, file=sys.stderr)
-    print(f"Removed the hub from {harness_name(args.harness)} profile {args.profile!r}"
+    print(f"Removed Tico from {harness_name(args.harness)} profile {args.profile!r}"
           + (": the timer, the sync job and skill, the credential." if directory.is_dir() else ".")
           + " Revoke its credential in Settings → Bots too.")
     return 0
@@ -1317,12 +1329,12 @@ def sync_option(s, default):
 
 
 def parser():
-    p = argparse.ArgumentParser(description="Register a Hermes or OpenClaw profile with the hub, keep its heartbeat "
+    p = argparse.ArgumentParser(description="Register a Hermes or OpenClaw profile with Tico, keep its heartbeat "
                                             "and its scheduled tico-sync job.")
     sub = p.add_subparsers(dest="command", required=True)
-    s = sub.add_parser("install", help="wire the profile to the hub, start the heartbeat timer and the sync job")
+    s = sub.add_parser("install", help="wire the profile to Tico, start the heartbeat timer and the sync job")
     common(s)
-    s.add_argument("--url", required=True, help="the hub's origin, for example https://tico.example.com")
+    s.add_argument("--url", required=True, help="Tico's origin, for example https://tico.example.com")
     s.add_argument("--bot", required=True, help="the bot slug this profile is")
     s.add_argument("--token", required=True, help="the agent credential from Settings → Bots")
     s.add_argument("--profile-dir", help="the profile directory when it is not under ~/.hermes (or ~/.openclaw)")
@@ -1331,7 +1343,7 @@ def parser():
     s.set_defaults(fn=cmd_install)
     s = sub.add_parser("pair", help="connect the profile to a bot with a code, no token to copy")
     common(s)
-    s.add_argument("--url", required=True, help="the hub's runner address, for example https://runner.example.com")
+    s.add_argument("--url", required=True, help="Tico's runner address, for example https://runner.example.com")
     s.add_argument("--profile-dir", help="the profile directory when it is not under ~/.hermes (or ~/.openclaw)")
     s.add_argument("--no-timer", action="store_true", help="do not install a launchd/systemd timer")
     sync_option(s, SYNC_DEFAULT)
@@ -1344,14 +1356,14 @@ def parser():
     common(s)
     s.add_argument("--gate", action="store_true", help="end with {\"wakeAgent\": false} when nothing is waiting (Hermes cron)")
     s.set_defaults(fn=cmd_check)
-    s = sub.add_parser("call", help="call one hub tool over Tico's MCP endpoint (for an agent with no MCP client)")
+    s = sub.add_parser("call", help="call one Tico tool over Tico's MCP endpoint (for an agent with no MCP client)")
     common(s)
     s.add_argument("tool", help="the tool's name, for example hub_message_list")
     s.add_argument("arguments", nargs="?", default="{}", help="the tool's arguments as one JSON object")
     s.set_defaults(fn=cmd_call)
     for name, fn, help_text in (("heartbeat", cmd_heartbeat, "post one heartbeat (what the timer runs)"),
                                 ("status", cmd_status, "the saved configuration and the last reply"),
-                                ("update", cmd_update, "download the newest connector from the hub and install again"),
+                                ("update", cmd_update, "download the newest connector from Tico and install again"),
                                 ("doctor", cmd_doctor, "check the wiring, the sync job and old tool names (changes nothing)"),
                                 ("uninstall", cmd_uninstall, "remove the timer, the sync job and skill, the env line and the MCP entry")):
         s = sub.add_parser(name, help=help_text)

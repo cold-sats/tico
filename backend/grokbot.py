@@ -23,6 +23,7 @@ import base64
 import binascii
 import hashlib
 import ipaddress
+import json
 import mimetypes
 import re
 import socket
@@ -166,14 +167,14 @@ def allowed(auth, who):
         raise Problem("forbidden", "Only the owner or a bot administrator may add bots", 403)
 
 
-def prefetch_images(store, blobs, body, transport=None):
+def prefetch_images(store, blobs, body, transport=None, person=""):
     """Fetch and store the images of messages Tico does not have yet, outside any transaction.
     {message id: [(digest, size, name, content type) or (None, url)]}."""
     wanted = {}
     for item in body.bots:
         for msg in item.messages:
             if msg.images:
-                wanted[message_id(item.grok_id, msg)] = msg.images
+                wanted[message_id(item.grok_id, msg, person)] = msg.images
     if not wanted:
         return {}
     with store.read() as c:
@@ -195,9 +196,11 @@ def prefetch_images(store, blobs, body, transport=None):
     return out
 
 
-def message_id(grok_id, msg):
-    key = msg.id or f"{msg.role}|{msg.at}|{msg.text[:500]}"
-    return "grok-" + str(uuid.uuid5(NAMESPACE, grok_id + "|" + key))
+def message_id(grok_id, msg, person=""):
+    key = msg.id or hashlib.sha256(json.dumps(
+        [msg.role, msg.at, msg.text, [image.model_dump() for image in msg.images]],
+        sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return "grok-" + str(uuid.uuid5(NAMESPACE, json.dumps([person, grok_id, key])))
 
 
 def moment(value, fallback):
@@ -214,7 +217,20 @@ def import_messages(c, person, slug, grok_id, messages, images=None, who=None):
     now = H.now()
     added = 0
     for msg in messages:
-        mid = message_id(grok_id, msg)
+        mid = message_id(grok_id, msg, person)
+        legacy_key = msg.id or f"{msg.role}|{msg.at}|{msg.text[:500]}"
+        legacy_id = "grok-" + str(uuid.uuid5(NAMESPACE, grok_id + "|" + legacy_key))
+        legacy = c.execute("SELECT id,body,refs_json FROM messages WHERE id=? AND conversation_id=?", (legacy_id, room["id"])).fetchone()
+        if legacy:
+            fetched = (images or {}).get(mid) or []
+            text = msg.text + "".join(f"\n\n[Image in Grok]({row[1]})" for row in fetched if row[0] is None)
+            refs = H._json(legacy["refs_json"], {})
+            previous = [c.execute("SELECT digest,name FROM blobs WHERE id=?", (item["id"],)).fetchone()
+                        for item in refs.get("attachments") or []]
+            have = [(row["digest"], row["name"]) for row in previous if row]
+            wanted = [(row[0], row[2]) for row in fetched if row[0] is not None]
+            if len(fetched) == len(msg.images) and legacy["body"] == text and have == wanted:
+                continue
         sender, target = (me, bot) if msg.role == "user" else (bot, me)
         created = moment(msg.at, now)
         refs = {"quiet": True, "grok": {"bot": grok_id, "id": msg.id or None}}
@@ -268,7 +284,7 @@ def sync(c, auth, settings_admin, who, body, images=None):
         before = dict(config.get("grok") or {})
         grok = {**before, "id": item.grok_id, "name": item.name, "last_sync": now,
                 "source": body.source or before.get("source") or ""}
-        if item.instructions:
+        if "instructions" in item.model_fields_set:
             grok["instructions"] = item.instructions
             grok["instructions_hash"] = hashlib.sha256(item.instructions.encode()).hexdigest()[:16]
             if grok["instructions_hash"] != before.get("instructions_hash"):
@@ -276,7 +292,7 @@ def sync(c, auth, settings_admin, who, body, images=None):
         config["grok"] = grok
         config["display_name"] = name
         c.execute("UPDATE bot_config SET config_json=?,description=? WHERE bot=?",
-                  (encode(config), item.description or row["description"], slug))
+                  (encode(config), item.description if "description" in item.model_fields_set else row["description"], slug))
         c.execute("UPDATE bots SET display_name=? WHERE slug=?", (name, slug))
         added, known = import_messages(c, person, slug, item.grok_id, item.messages, images, who)
         H.event(c, who.actor, "grokbot.synced", slug, {"grok": item.grok_id, "created": created,

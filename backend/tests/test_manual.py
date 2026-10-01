@@ -34,8 +34,9 @@ def test_the_manual_is_read_only_and_never_mixed_with_company_docs(api):
     assert not any(d["path"].startswith(("manual", "docs/")) for d in call(api, "GET", "docs")["docs"])
     # Together, the company's own doc comes first and each result says which collection it is from.
     both = call(api, "GET", "docs/search?q=watchers&collection=all")["results"]
-    assert both[0]["collection"] == "company" and both[0]["id"] == mine["id"]
-    assert any(r["collection"] == "manual" for r in both[1:]) and not any(r["collection"] == "manual" for r in both[:1])
+    assert any(r["collection"] == "company" and r["id"] == mine["id"] for r in both)
+    assert any(r["collection"] == "manual" for r in both)
+    assert [r["score"] for r in both] == sorted((r["score"] for r in both), reverse=True)
     # Nothing writes to it.
     call(api, "PATCH", "docs/manual:watchers", {"version": 1, "body": "x"}, expected=405)
     call(api, "POST", "docs/manual:watchers/restore", {"version": 1}, expected=405)
@@ -58,3 +59,18 @@ def test_the_image_ships_the_docs():
     assert not any(line.strip().rstrip("/") in ("docs", "docs/*.md") for line in (ROOT / ".dockerignore").read_text().splitlines())
     assert "COPY . /opt/tico" in (ROOT / "Dockerfile").read_text()
     assert len(manual.pages()) > 20 and "how-it-works" in manual.pages()
+
+
+def test_search_normalizes_old_words_keeps_the_question_tail_and_ranks_sections(api):
+    make(api, "Search log", "Needs setup. Trello. Linear tools. Add a computer. Join code.", path="_librarian/faq-log.md")
+    for question, expected, section in [
+        ("Why does my new bot say Needs setup, and what should I do next?", "onboarding", "Needs setup"),
+        ("How do I connect Trello for a scheduled bot?", "connect-tools", "Trello"),
+        ("Linear integration", "connect-tools", "Linear"),
+        ("How do I add a new machine to run bots and how long does its join code last", "install", "Add computers"),
+    ]:
+        hits = call(api, "GET", "docs/search", params={"q": question, "collection": "all", "limit": 3})["results"]
+        assert hits[0]["path"] == "docs/" + expected + ".md"
+        assert section in hits[0]["section"] and hits[0]["excerpt"]
+    assert "join" in manual.query_words("How do I add a new machine to run bots and how long does its join code last")
+    assert manual.query_words("people page and onboarding") == ["humans", "setup"]

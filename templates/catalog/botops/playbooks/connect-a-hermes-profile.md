@@ -31,17 +31,21 @@ to (the human by default), then:
 
     hub bot create <slug> --record-only --model hermes --name "<Name>" --description "<what it does>" --reports-to <bot or human:id>
 
-`--model hermes` (`--model openclaw` for an OpenClaw profile) is what makes it an external bot: it gets a credential, not a computer. Turn it on with `hub bot go-live <slug> --no-setup` (no computer, no setup chat);
-a bot that is only planned cannot report in.
+`--model hermes` (`--model openclaw` for an OpenClaw profile) is what makes it an external bot: it gets a credential, not a computer. Approving its pairing activates a planned bot automatically.
 
-## 3. Approve the code
+## 3. Pair the profile
+
+    hub agent pair show <code>
+
+Read the profile, host and harness before replacing the bot's credential. Match them to the human's request;
+if they do not match, decline the code with `hub agent pair decline <code>` and explain why. When they match:
 
     hub agent pair approve <code> --bot <slug>
 
-The answer names the profile and the computer it came from. Say them back in one line ("connected profile scout on Mac-mini").
-If they do not match what the human told you, stop and run `hub agent pair decline <code>` instead. The code is single use and lasts ten
-minutes: "not valid or expired" means they run `pair` again and read you the new one. The server refuses for their rights
-(only the bot's owner or an admin may approve); say who can.
+Say "Paired profile <name> on <host>; waiting for its heartbeat." Approving replaces the credential and activates a
+planned bot. The connector can retrieve the credential again if its download is interrupted, until its first heartbeat.
+The code lasts ten minutes: "not valid or expired" means they run `pair` again and read you the new one.
+Only the bot's owner or an admin may approve; say who can if their rights refuse it.
 
 ## 4. Confirm it reports in
 
@@ -77,8 +81,8 @@ Start with `hub health check` and `hub api GET bots/<slug>`. Then the first row 
 | Active, credential exists, no recent heartbeat | The timer on their computer is not running, or the computer is off | Ask them to run `python3 ~/.config/tico/agents/hermes_agent.py status --profile <name>` and paste the output; it shows the last reply. `doctor --profile <name>` (same file) says what is wrong. If it shows no timer or an old version, `update --profile <name>` (it fetches the current connector and reinstalls the timer). If the computer is asleep or off, say so: nothing here can wake it |
 | Nothing works and the credential is lost | The token cannot be shown again | `hub api POST bots/<slug>/agent-credential` replaces it; the new token is not shown to you, so pair again (steps 1 and 3) |
 
-Rotating or revoking is yours to do as them, with no card. Archiving a Hermes bot is a card; when you propose it say
-the profile will stop, and keep the default that revokes its credential.
+Rotating, revoking and archiving are yours to do as them when asked. Explain that archiving stops the profile and
+keep the default that revokes its credential.
 
 ## Close
 

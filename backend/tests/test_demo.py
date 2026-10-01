@@ -87,3 +87,22 @@ def test_a_local_demo_uses_its_explicit_address_and_accepts_its_browser_origin(t
     monkeypatch.setattr(uvicorn, "run", lambda settings, **kwargs: seen.update(public=settings.public_url, runner=settings.runner_url))
     demo.main(["--port", "8877", "--data-dir", str(tmp_path / "port-only")])
     assert seen["public"] == seen["runner"] == "http://127.0.0.1:8877"
+
+
+def test_demo_runs_message_sources_and_deliverables_are_browsable(built):
+    from backend import demo_content
+    with signed_in(built[1]) as api:
+        runs = api.get("/api/runs").json()
+        assert len(runs) == len(demo_content.TURNS)
+        assert all(run["exit"] == 0 for run in runs)
+        bots = api.get("/api/v2/messaging/bots").json()["bots"]
+        assert any(source["kind"] == "email" for bot in bots for source in bot["sources"])
+        assert any(source["kind"] == "slack" for bot in bots for source in bot["sources"])
+        mail = api.get("/api/v2/mail/messages").json()["messages"]
+        assert len(mail) == 3 and any("DRAFT" in message["labels"] for message in mail)
+        report = api.get("/api/v2/bots/content/files").json()["files"][0]
+        assert report["version"] == 2
+        csv = api.get("/api/v2/bots/support/files").json()["files"][0]
+        assert csv["mime"] == "text/csv"
+        link = api.get("/api/v2/bots/sales/files").json()["files"][0]
+        assert link["locator"] == "remote_link"
