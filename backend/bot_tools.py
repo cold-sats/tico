@@ -133,8 +133,10 @@ def _declared_tool(entry, used, label):
     status, problem, detail = "unknown", entry.get("problem") or "", ""
     if credential == "present" and entry.get("granted"):
         status, detail = "ready", f"{env} is granted through the credential vault; it arrives when a run starts"
-    elif credential == "present" and entry.get("held"):
+    elif credential == "present" and entry.get("held") and env == "GOOGLE_SA_KEY":
         status, detail = "ready", f"{env} is present (held by the computer); a run gets a short-lived token, never the key"
+    elif credential == "present" and entry.get("held"):
+        status, detail = "ready", f"{env} is held by the computer and given to each run"
     elif credential == "present":
         status, detail = "ready", f"{env} is set on {label}"
     elif credential == "missing" and env == "GOOGLE_SA_KEY":
@@ -286,8 +288,7 @@ def listing(c, settings, bot):
     # The computer holds the Google key and gives a token, but only to a message bot the server has named
     # (routines.token_mailboxes): for any other bot "present" would be a promise its runs cannot keep.
     # Only the Google key: a computer also holds other credentials for its bots (a vault grant), and
-    # those reach the run whoever its message bot is. Response to Demo's Close key was shown as a mail
-    # problem on 2026-10-01.
+    # those reach the run whoever its message bot is.
     google = lambda entry: entry.get("held") and entry.get("env") == "GOOGLE_SA_KEY"
     if any(google(entry) for entry in state["raw"]) and not routines.token_mailboxes(c, bot):
         for tool, entry in zip(declared, state["raw"]):
