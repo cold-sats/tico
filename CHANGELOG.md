@@ -8,8 +8,6 @@ All notable changes to Tico are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
-- Bot conversations support native Claude Code and Codex goals, live goal status, and headless slash commands,
-  with matching chat goal controls in the API, MCP and CLI.
 
 ### Changed
 - The bot page's right rail runs full height in a denser style: Active first, then Updates (just "Updates · 10h
@@ -23,7 +21,8 @@ All notable changes to Tico are recorded here. The format follows
   shows Working, Paused, Met or Stopped, and a met or stopped goal becomes one line in the chat. The bot's row in the
   sidebar shows a target while it has one.
 - Type `/` in a bot's chat for its commands: `/goal`, `/new`, `/task`, `/branch`, `/help` and the ones its harness
-  takes, such as `/compact`. A `/word` that isn't a command now goes to the bot as ordinary text.
+  takes, such as `/compact`. A `/word` that isn't a command now goes to the bot as ordinary text. Goals and commands
+  are also in the API, MCP (`hub_chat_goal`) and CLI (`hub chat goal`).
 
 ### Fixed
 - docs-eval ignores Markdown emphasis around a price, treats "about ($29)" as approximate, and accepts "no price
