@@ -108,7 +108,7 @@ const HELP_WHO = [
 ];
 const HELP_PIECES = [
   ['Tico server', 'Holds the team\'s shared work: tasks, goals and KPIs, docs, updates, messages and Credentials. It runs no bots.'],
-  ['Computers', 'Your Macs or Linux and Docker machines run the bots, with the runner, on your own model subscriptions.'],
+  ['Computers', 'Your Macs or Linux and Docker computers run the bots on your own model subscriptions.'],
   ['Bots', 'Each bot is a Git repository with its Instructions and memory, on one computer.'],
   ['Team', 'Humans and bots are teammates on one team chart, in groups.'],
   ['Tools and Credentials', 'A bot gets only the Credentials granted to it, and drafts to outsiders until its send switch is on.'],

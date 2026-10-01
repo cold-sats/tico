@@ -34,6 +34,7 @@ html.demo .dask{top:var(--demo-h)}
 .dask-close:hover{background:var(--surface2);color:var(--ink)}
 .dask-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
 .dask-empty{color:var(--muted);font-size:13.5px}
+.dask-empty a{white-space:nowrap}
 .dask-hints{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .dask-hints button{font-size:12.5px}
 .dask-body>section{display:flex;flex-direction:column;gap:8px}
@@ -169,7 +170,9 @@ html.demo .dask{top:var(--demo-h)}
         ${state}</section>`;
     }
     const state = t.error ? `<p class="dask-err" role="alert">${esc(t.error)}</p>`
-      : t.answer != null ? '' : `<p class="dask-think" data-thinking role="status">The Librarian is reading the docs<i></i><i></i><i></i></p>`;
+      : t.answer != null ? ''
+      : t.noProvider ? '<p class="dask-empty" data-no-provider role="status">The Librarian needs an AI provider. <a href="#/settings" data-gs-tab="providers">Settings &gt; AI providers</a></p>'
+      : `<p class="dask-think" data-thinking role="status">The Librarian is reading the docs<i></i><i></i><i></i></p>`;
     return `<section data-turn="${i}"><div class="dask-q">${esc(t.question)}</div>
       ${t.results ? `<label class="dask-label">Matching docs <select data-collection="${i}" aria-label="Search collection">${[["all", "All docs"], ["team", "Team docs"], ["manual", "Tico manual"]].map(([value, label]) => `<option value="${value}"${(t.collection || "all") === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>${resultsHtml(t.results)}` : ''}
       ${(t.answer ?? t.live) ? `<h3 class="dask-label">Librarian</h3><div class="dask-a md" data-answer aria-live="polite">${answerHtml(t.answer ?? t.live)}</div>` : ''}
@@ -210,11 +213,18 @@ html.demo .dask{top:var(--demo-h)}
 
   // The answer is the Librarian's message in reply to this question; while it works, what it has written
   // so far is the run's text. Anything else in the conversation (an earlier turn) is not this answer.
+  // With no AI provider the question stays saved and queued: the rail says so, keeps watching, and takes
+  // another question.
   function follow(turn) {
     const apply = snapshot => {
       const reply = (snapshot.messages || []).find(m => m.in_reply_to === turn.messageId && m.from_actor === 'bot:librarian');
-      if (reply) { turn.answer = reply.body || ''; busy = false; stop(); }
-      else if (snapshot.execution && snapshot.execution.state !== 'completed' && snapshot.execution.text) turn.live = snapshot.execution.text;
+      const x = snapshot.execution;
+      if (reply) { turn.answer = reply.body || ''; turn.noProvider = false; busy = false; stop(); }
+      else {
+        turn.noProvider = x?.state === 'queued' && x.readiness_reason === 'missing_provider';
+        busy = !turn.noProvider;
+        if (x && x.state !== 'completed' && x.text) turn.live = x.text;
+      }
       draw();
     };
     const url = `${API}/v2/conversations/${encodeURIComponent(turn.conversationId)}/`;
@@ -264,6 +274,7 @@ html.demo .dask{top:var(--demo-h)}
       turn.messageId = sent.message_id;
       turn.results = sent.results || [];
       draw();
+      stop();
       if (panel && ctx === 'docs') follow(turn);
     } catch (e) {
       busy = false;

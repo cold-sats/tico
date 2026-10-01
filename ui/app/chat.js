@@ -16,14 +16,27 @@ function v2ChatStop() {
   V2C.resize?.disconnect();
   V2C = null;
 }
-async function v2ChatLoad(slug) {
-  v2ChatStop();
-  const bot = S.emps.find(e => e.name === slug);
+// Which of the viewer's rooms with a bot is its chat: the shared room, or one of their own. The bot page and the
+// Goal Manager on Goals both show this one room.
+function v2ChatMode(slug) {
+  const bot = (S.emps || []).find(e => e.name === slug);
   const configured = bot?.thread_mode;
   // A shared room belongs to the people the bot works for who may read it; anyone else talks to it in a room of their own.
   const member = S.me?.role === 'owner' || (bot?.users || []).some(u => u.id === S.me?.id);
-  const mode = slug === assistantBot() || !member || (bot?.my_access && !bot.my_access.read) ? 'personal'
+  return slug === assistantBot() || !member || (bot?.my_access && !bot.my_access.read) ? 'personal'
     : (configured || (slug === 'cpo' ? 'shared' : 'personal'));
+}
+function v2ChatRoom(conversations, slug, mode = v2ChatMode(slug)) {
+  const me = myActor();
+  return (conversations || []).find(c => String(c.kind) === 'chat' && !c.task_id
+    && !c.closed_at
+    && (c.participants || []).includes(`bot:${slug}`)
+    && String(c.scope || 'direct') === mode
+    && (!me || (c.participants || []).includes(me))) || null;
+}
+async function v2ChatLoad(slug) {
+  v2ChatStop();
+  const mode = v2ChatMode(slug);
   const state = V2C = {slug, mode, conv: null, messages: [], mine: [], live: null, es: null, poll: 0, rendered: false, followLatest: true,
                        loaded: false, failed: false};
   const seen = CHAT_CACHE.get(slug);
@@ -64,7 +77,6 @@ async function v2ChatLoad(slug) {
 // deploy restarting the hub, a phone on a weak signal). A failed load showed
 // "Nothing yet. Say something below." for a bot with a long history.
 async function v2ChatFind(state) {
-  const me = myActor();
   for (const wait of [0, 800, 2500]) {
     if (wait) await new Promise(done => setTimeout(done, wait));
     if (V2C !== state) return;
@@ -73,11 +85,7 @@ async function v2ChatFind(state) {
       if (!list) continue;
       if (!state.listed) {                        // a message sent while this loaded already put its chat in place
         state.listed = true;
-        state.conv = (list.conversations || []).find(c => String(c.kind) === 'chat' && !c.task_id
-          && !c.closed_at
-          && (c.participants || []).includes(`bot:${state.slug}`)
-          && String(c.scope || 'direct') === state.mode
-          && (!me || (c.participants || []).includes(me))) || null;
+        state.conv = v2ChatRoom(list.conversations, state.slug, state.mode);
       }
     }
     if (!state.conv || await v2ChatMessages(state)) { state.loaded = true; state.failed = false; return; }

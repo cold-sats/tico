@@ -54,6 +54,7 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     const kindOf = raw => { const host = new URL(/^https?:\/\//.test(raw) ? raw : 'https://' + raw).hostname; return /notion\.so$/.test(host) ? 'notion' : /github\.com$/.test(host) ? 'github' : 'website'; };
     const titleOf = raw => { const u = new URL(/^https?:\/\//.test(raw) ? raw : 'https://' + raw); return u.hostname.replace(/^www\./, '') + u.pathname.replace(/\/$/, ''); };
     let started = {empty: {docs: false}, cards: []};
+    let librarianQueued = false;   // the Librarian's run waits on a missing AI provider
     const outside = (id, body, actor = 'human:ben') => {       // someone else saves while this person is editing
       const doc = docs.get(id); doc.version += 1; doc.body = body; doc.updated_by = actor; doc.updated = ago(0); stamp(doc, actor, 'Their edit', 0);
     };
@@ -79,6 +80,8 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
         const body = req.postDataJSON(); requests.push({api: 'docs/ask', body});
         return json({conversation_id: 'librarian-chat', message_id: 'ask-docs', results: [{id: 'doc-000000000001', title: 'Refund policy', type: 'internal'}]});
       }
+      if (p === '/api/v2/conversations/librarian-chat/watch' && librarianQueued) return route.fulfill({contentType: 'text/event-stream', body: 'event: snapshot\ndata: ' + JSON.stringify({messages: [],
+        execution: {message_id: 'ask-docs', state: 'queued', readiness_reason: 'missing_provider', label: 'Saved — no AI provider is chosen'}}) + '\n\n'});
       if (p === '/api/v2/conversations/librarian-chat/watch') return route.fulfill({contentType: 'text/event-stream', body: 'event: snapshot\ndata: ' + JSON.stringify({messages: [{id: 'answer-docs', in_reply_to: 'ask-docs', from_actor: 'bot:librarian', body: 'See [Internal doc · Refund policy](doc:doc-000000000001).'}]}) + '\n\n'});
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
       // A one-row market, so the Market page draws and Ask the Librarian answers from its graph.
@@ -383,6 +386,16 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await page.locator('#docs-ask').click();
     assert.equal(await page.locator('[data-docs-ask]').getAttribute('aria-modal'), 'true');
     await shot(page, 'rail-phone');
+    // No AI provider: the question is saved and waits; the sheet says so, not that the Librarian is reading.
+    librarianQueued = true;
+    await page.locator('.dask-form textarea').fill('How do I add an AI provider?');
+    await page.locator('.dask-form button').click();
+    await page.locator('[data-no-provider]').waitFor();
+    assert.equal(await page.locator('[data-docs-ask] [data-thinking]').count(), 0);
+    assert.equal(await page.locator('[data-no-provider] a').getAttribute('data-gs-tab'), 'providers');
+    assert.equal(await page.locator('.dask-form button').isDisabled(), false);
+    await shot(page, 'rail-phone-no-provider');
+    librarianQueued = false;
     await page.locator('.dask-close').click();
 
     await page.locator('.docs-item').first().click();
