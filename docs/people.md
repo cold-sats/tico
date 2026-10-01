@@ -5,7 +5,7 @@ files on the server. The owner manages them in **Settings > Humans**; nothing ne
 
 ## Roles
 
-Every human on the team is an **Owner**, an **Admin** or a **Member**. Members can add coworkers at the team's email domain and
+Every human on the team is an **Owner**, an **Admin** or a **Member**. Members can add teammates at the team's email domain and
 create and manage their own bots; Admins manage humans, computers and every bot but the built-in ones; the Owner does
 everything. The full rules, including per-bot See, Read and Write, are in [permissions](permissions.md).
 
@@ -60,7 +60,12 @@ editing `api.env` or the file changes nothing. `private_owners` and `routing_per
 `hub-access.yaml` are no longer read: who may see, read and write to each bot is set per bot in Settings > Bots
 ([permissions.md](permissions.md)).
 
-## The identity proxy must agree
+## Add a human behind Cloudflare Access
+
+To add a human teammate and let them sign in, open **Settings > Humans > Add manually**, enter their
+email and save. Also allow that email in your Cloudflare Access policy.
+
+### The identity proxy must agree
 
 With `TICO_AUTH_PROXY=cloudflare` (Cloudflare Access) or `aws-alb` (Cognito) the proxy authenticates
 humans before Tico sees them. Adding a human or an allowed domain here does not change that

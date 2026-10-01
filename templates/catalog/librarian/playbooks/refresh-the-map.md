@@ -13,6 +13,11 @@ rewritten, and a task note that says what changed.
 
     hub doc list
 
+Follow every list cursor to get the full live inventory; a first page is not the full list.
+Reconcile `_librarian/index.md`, `_librarian/where-things-live.md`, the glossary and FAQ against that
+inventory on every run, even when versions are unchanged. Remove archived and missing sources from
+all cached recommendations; preserve still-live sources beyond the first page.
+
 Compare it with `_librarian/index.md` (`hub doc read _librarian/index.md`): each line there carries the
 version it was written from. The docs to (re)read are the ones that are new, have a newer version, or are
 missing from the map; the lines to remove are for docs that no longer exist. If the map does not exist yet,
@@ -20,6 +25,7 @@ this is a first build: every doc counts as new, oldest folder first.
 
     hub doc link-list
 
+Follow every link-list cursor too. Drop removed links and their cached failure entries.
 Compare with the `## Linked docs` section: new links, changed descriptions, removed links.
 
 Reconcile every recorded linked-source failure into **Sources I could not read** in `missing.md`

@@ -137,3 +137,11 @@ its entry from `_librarian/index.md` immediately, preserving version history. Th
 time; every failed linked fetch is recorded in **Sources I could not read** in the same pass and
 reconciled at daily refresh. Older generated titles are renamed during refresh, keeping their paths.
 `hub doc ask` waits for the completed run and returns its latest reply, including corrections.
+
+On upgrade, Tico updates recognized generated doc titles while preserving their paths and version
+history, removes archived sources from older indexes, and queues a map refresh for the Librarian’s
+next run. Refresh reconciles the full live inventory and recorded unreadable links, even when source
+versions have not changed. Answers check cached sources before recommending them.
+
+The eval rejects contradictory follow-up claims, ranges and comparisons for an exact-value fact,
+including follow-ups that refer to the same subject as "it" or "its price".

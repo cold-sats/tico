@@ -237,6 +237,49 @@ def migrate(c, settings=None):
     return added
 
 
+def refresh_generated_docs(c):
+    """Repair older Librarian caches once, then queue source reconciliation on its next run."""
+    marker = "librarian_fix33"
+    if c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (marker,)).fetchone():
+        return
+    titles = {
+        "_librarian/missing.md": {"Missing and outdated company information": "Docs gaps"},
+        "_librarian/faq-log.md": {"Questions and answers": "Question log"},
+        "_librarian/glossary.md": {"Company glossary": "Team glossary", "Glossary": "Team glossary"},
+        "_librarian/index.md": {"Document index": "Docs index"},
+    }
+    docs = Docs(None, None, None, None)
+    for row in c.execute("SELECT rowid AS rid,* FROM docs WHERE archived=0 AND "
+                         "(path GLOB '_librarian/*' OR path='FAQ.md')").fetchall():
+        title = titles.get(row["path"], {}).get(row["title"], row["title"])
+        text = H.librarian_text(row["body"]) if row["updated_by"] == "bot:librarian" else row["body"]
+        if (title, text) == (row["title"], row["body"]):
+            continue
+        c.execute("UPDATE docs SET title=?,body=?,version=version+1,updated_by='keeper',updated=? WHERE id=?",
+                  (title, text, H.now(), row["id"]))
+        fresh = docs.get_row(c, row["id"])
+        docs.snapshot(c, fresh, H.KEEPER, "Updated generated Tico wording")
+        index(c, row["rid"], title, row["path"], text)
+        H.event(c, H.KEEPER, "docs.updated", row["id"], {"path": row["path"], "version": fresh["version"]})
+    for source in c.execute("SELECT * FROM docs WHERE archived=1").fetchall():
+        docs.remove_index_source(c, source, H.KEEPER)
+    bot = H.bot(c, "librarian")
+    if bot and bot["state"] in ("active", "planned"):
+        pending = c.execute("SELECT 1 FROM tasks WHERE requester=? AND owner='bot:librarian' "
+                            "AND title='Refresh the map' AND status IN ('open','doing','ready','waiting','review')",
+                            (H.KEEPER,)).fetchone()
+        if not pending:
+            H.task_create(c, H.KEEPER, "Refresh the map",
+                          "Follow playbooks/refresh-the-map.md. Reconcile every cached source against the full live "
+                          "doc and link lists, including archived sources and recorded unreadable links. Update "
+                          "Sources I could not read from existing map failures even when no fetch is due. "
+                          "Use docs/glossary.md for generated wording and preserve source facts.",
+                          "bot:librarian", allow_planned=True, next_run=True, lint=False, deduplicate=False)
+    else:
+        return  # Keep an inactive Librarian off; queue the refresh after it is enabled.
+    c.execute("INSERT INTO registry_metadata VALUES(?,?)", (marker, encode({"at": H.now()})))
+
+
 # ------------------------------------------------------------------ request bodies
 class DocCreate(M.Contract):
     path: str | None = Field(default=None, max_length=300)
@@ -451,7 +494,12 @@ class Docs:
         row = c.execute("SELECT rowid AS rid,* FROM docs WHERE path='_librarian/index.md' AND archived=0").fetchone()
         if not row or row["id"] == source["id"]:
             return
-        refs = re.compile(r"(?<![\w/.-])" + re.escape(source["path"]) + r"(?![\w/.-])|\]\(doc:" + re.escape(source["id"]) + r"\)")
+        reused = c.execute("SELECT 1 FROM docs WHERE path=? COLLATE NOCASE AND archived=0 AND id!=?",
+                           (source["path"], source["id"])).fetchone()
+        patterns = [r"\]\(doc:" + re.escape(source["id"]) + r"\)"]
+        if not reused:
+            patterns.append(r"(?<![\w/.-])" + re.escape(source["path"]) + r"(?![\w/.-])")
+        refs = re.compile("|".join(patterns))
         text = "".join(line for line in row["body"].splitlines(keepends=True) if not refs.search(line))
         if text == row["body"]:
             return

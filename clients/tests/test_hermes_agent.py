@@ -366,6 +366,25 @@ class Update(Base):
 
 
 class Doctor(Base):
+    def test_manual_heartbeat_survives_reinstall_and_old_config_and_can_enable_timer(self):
+        self.install("--no-timer", "--sync", "off")
+        self.fake.loaded = False
+        code, out, err = self.run_cli("doctor", "--profile", "scout")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("manual heartbeat mode", out)
+        self.assertIn("heartbeat --profile scout", out)
+        self.assertIn("reinstall --profile scout --timer", out)
+        self.assertFalse(self.fake.ran("launchctl", "print"))
+        self.assertEqual(self.run_cli("reinstall", "--profile", "scout")[0], 0)
+        self.assertEqual(self.credential()["heartbeat_mode"], "manual")
+        saved = self.credential()
+        saved.pop("heartbeat_mode")
+        H.save_config("scout", saved)
+        self.assertEqual(self.run_cli("doctor", "--profile", "scout")[0], 0)
+        self.assertEqual(self.run_cli("reinstall", "--profile", "scout", "--timer")[0], 0)
+        self.assertEqual(self.credential()["heartbeat_mode"], "timer")
+        self.assertEqual(self.run_cli("doctor", "--profile", "scout")[0], 1)
+
     def seed_old_names(self):
         (self.profile / "SOUL.md").write_text("You are Scout.\nAlways use\nhub_say to reply.\n")
         (self.profile / "skills" / "triage").mkdir(parents=True)
@@ -765,6 +784,16 @@ class OpenClaw(Base):
 
     def jobs(self, profile="claw"):
         return self.fake.oc_jobs.get(profile, [])
+
+    def test_manual_heartbeat_is_healthy_without_timer_and_reinstall_keeps_mode(self):
+        self.assertEqual(self.pair("--no-timer", "--sync", "off")[0], 0)
+        self.fake.loaded = False
+        code, out, err = self.run_cli("doctor", "--harness", "openclaw", "--profile", "claw")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("manual heartbeat mode", out)
+        self.assertIn("--harness openclaw --profile claw", out)
+        self.assertEqual(self.run_cli("reinstall", "--harness", "openclaw", "--profile", "claw")[0], 0)
+        self.assertEqual(H.load_config("openclaw-claw")["heartbeat_mode"], "manual")
 
     def test_pair_wires_openclaw_without_mcp_and_makes_the_hourly_job(self):
         code, out, err = self.pair()

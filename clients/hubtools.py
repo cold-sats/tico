@@ -627,7 +627,7 @@ def kpi_unlink(api, args):
        "evidence": _s("A link or a note that shows where the value came from"),
        "quality": {"type": "string", "enum": ["measured", "estimate", "partial"],
                    "description": "measured (default); estimate is a guess; partial is half a period, not judged"},
-       "source": _s("A connector or system name (posthog, close)"),
+       "source": _s("Tool or system name (posthog, close)"),
        "definition_version": {"type": "integer", "description": "The definition version the value was computed under; default current"},
        "supersedes": _s("The id of the reading this one corrects (say why in the note)")},
       required=("kpi_id", "value"), writes=True)

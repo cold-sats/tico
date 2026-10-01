@@ -56,8 +56,9 @@ def fact_matches(text, fact):
     subject, predicate = fact["subject"], fact["predicate"]
     claims, related = [], False
     for sentence in re.split(r"(?<!\d)\.|\.(?!\d)|[;!?\n]|\b(?:and|but|while|whereas)\b", text, flags=re.I):
+        sentence = re.sub(r"^\s*(?:actually|however|instead|in fact)\b[, :]*", "", sentence, flags=re.I)
         named = bool(re.search(subject, sentence, re.I))
-        continuation = related and bool(re.match(r"\s*(?:it|they|this(?: plan)?|the plan|is|are|was|were)\b", sentence, re.I)
+        continuation = related and bool(re.match(r"\s*(?:it|its|they|their|this(?: plan)?|the plan|is|are|was|were)\b", sentence, re.I)
                                        or re.match(r"\s*(?:" + predicate + r")", sentence, re.I))
         related = named or continuation
         if related and re.search(predicate, sentence, re.I):
@@ -85,7 +86,15 @@ def fact_matches(text, fact):
             else:
                 unit = re.sub(r"^[\d.,]+\s*", "", expected)
                 pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
-        return all(negations(claim) == 0 and exact_fact(claim, expected)
+        number = re.match(r"^\$?(\d+(?:[.,]\d+)*)", expected)
+        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately)\s+\$?\d"
+        if number:
+            value = r"(?<!\d)\$?" + re.escape(number.group(1)) + r"(?!\d)"
+            separator = r"\s*(?:[-–—]|to|through)\s*"
+            approximate += "|" + value + separator + r"\$?\d|\d[\d.,]*" + separator + value
+        return all(negations(claim) == 0
+                   and not re.search(approximate, claim, re.I)
+                   and exact_fact(claim, expected)
                    and all(exact_fact(value, expected) for value in re.findall(pattern, claim, re.I))
                    for claim in claims)
     return all(negations(claim) == (1 if fact["polarity"] == "negative" else 0) for claim in claims)

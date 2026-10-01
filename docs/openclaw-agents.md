@@ -83,3 +83,7 @@ otherwise `OPENCLAW_HOME` supplies the home used for `.openclaw` or `.openclaw-<
 `--profile-dir` wins over those defaults. Tico saves the resolved path and passes it to every OpenClaw
 cron command, including listing, replacing and removing the sync job, so files and jobs use the same
 profile after an update or reinstall.
+
+With `--no-timer`, heartbeat mode is manual: run `heartbeat` with the same profile flags every minute.
+Doctor warns about that requirement without reporting a missing timer as broken. Reinstall and update
+keep your selected mode. To enable the timer later, run `reinstall` with the same profile flags and `--timer`.

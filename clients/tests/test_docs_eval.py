@@ -80,8 +80,14 @@ def test_value_claims_reject_negation_contradiction_wrong_subject_and_double_neg
     assert E.fact_matches("Studio costs $29. Team costs $79.", fact)
     assert E.fact_matches("Studio costs $29 and Team costs $79.", fact)
     for wrong in ["Studio does not cost $29. It costs $99.", "Studio costs $29. Studio costs $99.",
-                  "Team costs $29. Studio costs $99.", "Studio costs $299.", "Studio costs $29.99."]:
+                  "Team costs $29. Studio costs $99.", "Studio costs $299.", "Studio costs $29.99.",
+                  "Studio costs $29. Its price is $99.", "Studio costs $29. Actually, it costs $99.",
+                  "Studio costs $29–$99.", "Studio costs $29 to $99.", "Studio costs at least $29.",
+                  "Studio costs $29. Their price is $99."]:
         assert not E.fact_matches(wrong, fact), wrong
+    assert E.fact_matches("Studio costs $29. Its price is $29.", fact)
+    assert E.fact_matches("Studio costs $29 from the pricing docs, updated 2026-09-12.", fact)
+    assert E.fact_matches("Studio costs $29. Team costs $99. Its price is $99.", fact)
     monthly = {"subject": "monthly", "predicate": "refund(?:able|s)?", "polarity": "negative"}
     assert not E.fact_matches("Monthly plans are not non-refundable.", monthly)
     assert not E.fact_matches("Monthly plans aren't not refundable.", monthly)
