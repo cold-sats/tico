@@ -968,6 +968,8 @@ class Store:
                 # so no migration number to collide with another branch's.
                 from . import groups as Groups
                 Groups.migrate(c, self.settings)
+                from . import releases as Releases
+                Releases.record_start(c, H.now())
                 from .credentials import FILE_MIGRATION, HUB_MIGRATION
                 if not c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (FILE_MIGRATION,)).fetchone():
                     pending = [r[0] for r in c.execute("SELECT slug FROM bots")]

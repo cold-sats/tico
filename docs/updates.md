@@ -117,6 +117,9 @@ The previous files are kept in `.bundle-previous/`. A download or checksum failu
 changes; a release that does not turn healthy is rolled back, image and bundle together. Slack and the front door are
 recreated from the new file when it changes them.
 
+`GET /api/v2/system/update` also says which release the server is `running`, the one it ran `previous`ly and a short
+`history`. The server writes these itself at startup, so they stay right after an update done outside the updater.
+
 Before it switches the server image, the updater takes a consistent SQLite snapshot (`sqlite3` backup API, run in the
 server container) into `/data/snapshots/pre-update-<version>-<time>.sqlite` and keeps the last three. A new version can
 migrate the database and then fail its health check, and the old image cannot read a newer schema, so a rollback also

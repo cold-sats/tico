@@ -843,6 +843,12 @@ def create_app(settings=None):
         result = releases.status()
         if result.get("state") in ("healthy", "rolled_back", "failed"):
             record_update_outcome(result)
+        # What this server really ran: the updater's `from` only knows in-app updates.
+        with store.read() as c:
+            ran = releases.history(c)
+        result["running"] = releases.version()
+        result["previous"] = ran[-2]["version"] if len(ran) > 1 else ""
+        result["history"] = ran[-5:]
         return result
 
     @app.get("/api/v2/system/usage-count")

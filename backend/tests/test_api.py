@@ -398,3 +398,20 @@ def test_messages_since_a_whole_second_include_later_messages_in_that_second(api
         assert get(api, path + since)["messages"], since
     assert not get(api, path + "2026-10-01T19:36:15Z")["messages"]
     get(api, path + "yesterday", expected=422)
+
+
+def test_update_status_reports_the_release_this_server_really_ran_before(api, monkeypatch):
+    """A rollout outside the in-app updater leaves its `from` stale; the server's own history does not."""
+    from backend import releases
+    store = api.app.state.store
+    for v in ("0.2.41", "0.3.0"):
+        monkeypatch.setenv("TICO_VERSION", "v" + v)
+        with store.transaction() as c:
+            releases.record_start(c, H.now())
+    with store.transaction() as c:
+        releases.record_start(c, H.now())                 # a restart on the same release adds nothing
+    r = api.get("/api/v2/system/update", headers=headers())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["running"] == "0.3.0" and body["previous"] == "0.2.41"
+    assert [h["version"] for h in body["history"]][-2:] == ["0.2.41", "0.3.0"]
