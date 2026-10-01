@@ -105,7 +105,7 @@ def view(row, server=None):
 
 
 def health_check(computers, server=None):
-    """The Health line about runner versions, or None on a development build that has no release to
+    """The Health line about computer versions, or None on a development build that has no release to
     compare with. `computers` carry `online`, `label` and `update`."""
     server = releases.version() if server is None else server
     online = [x for x in computers if x["online"]]
@@ -127,12 +127,12 @@ def health_check(computers, server=None):
             f"{x['label']} ({x['update']['release']})" for x in newer[:5]) + ".")
     extra = " " + " ".join(notes) if notes else ""
     if bad:
-        return {"id": "runners", "label": "Runner versions", "status": "bad", "fixes": fixes,
+        return {"id": "runners", "label": "Computer versions", "status": "bad", "fixes": fixes,
                 "summary": f"{names(bad)} cannot work with {server} and its bots are paused until it updates." + extra}
     if behind or failed:
         note = f" Last update error: {failed[0]['update']['error']}" if failed else ""
-        return {"id": "runners", "label": "Runner versions", "status": "warn", "fixes": fixes,
+        return {"id": "runners", "label": "Computer versions", "status": "warn", "fixes": fixes,
                 "summary": f"{names(behind or failed)} {'is' if len(behind or failed) == 1 else 'are'} not on {server} yet." + note + extra}
-    return {"id": "runners", "label": "Runner versions", "status": "unknown" if unknown else "info" if newer else "ok",
+    return {"id": "runners", "label": "Computer versions", "status": "unknown" if unknown else "info" if newer else "ok",
             "fixes": fixes if unknown else [], "summary": " ".join(notes) if notes else
             f"Every online computer is on {server}." if online else "No computer is online to compare."}

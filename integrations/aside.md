@@ -13,7 +13,7 @@ declared_as: |
     account: u0                       # optional Aside account
     sites: [app.example.com]               # hosts it may open; a subdomain of a listed host counts
     can: [read]                       # [read] looks; [read, act] clicks, types, submits, runs `task`
-writes: approval
+writes: allowed
 owner: owner
 aliases: [browser]
 ---
@@ -22,7 +22,7 @@ aliases: [browser]
 
 Aside (aside.com) is a Chromium browser with its own agent, password manager and CLI.
 `aside repl` runs Playwright-style JavaScript in the signed-in browser; `aside exec` hands a
-job to Aside's agent. Tico's connector, `connectors/browser.py`, is the only way a bot reaches
+job to Aside's agent. Tico's Tool, `connectors/browser.py`, is the only way a bot reaches
 either: it checks the bot's `tools:` entry, refuses hosts outside `sites:`, refuses actions
 for a read-only bot, and appends every call to `<projects>/runtime/browser-audit.jsonl`. The
 skill that teaches a model the REPL is `skills/aside-browser/SKILL.md`; run `aside guide repl`
@@ -36,8 +36,8 @@ support-style bots); social sites and news (a listening bot, read); ad dashboard
 `ads.google.com` (read); a design tool (act). Each is a `sites:` entry in the bot's own
 `bot.yaml`.
 
-**The owner's social sessions are the listening bot's alone**. The connector refuses
-any other employee that names a social site (X, Reddit, LinkedIn, Facebook, Instagram, TikTok,
+**The owner's social sessions are the listening bot's alone**. The Tool refuses
+any other bot that names a social site (X, Reddit, LinkedIn, Facebook, Instagram, TikTok,
 YouTube and the rest of `SOCIAL_HOSTS` in `connectors/browser.py`) in its `sites:` or its code;
 ad-account dashboards on those domains are not social reading. The listening bot saves what it reads in Tico (`hub listening save`), the decision model routes
 each post to the inboxes that want it (the team's `registry/listening.yaml`), and every other bot works its
@@ -61,16 +61,16 @@ refused it. The REPL stops after 120 s; a `task` after 900 s (`ASIDE_TASK_TIMEOU
 - The bot's `bot.yaml` must declare `service: aside` with `sites:`. Every URL literal in
   the code, and the text of a `task`, must stay on those hosts; anything else is refused before
   the browser is touched.
-- `can: [read]` allows REPL reads only. The connector refuses `.click`, `.dblclick`, `.fill`,
+- `can: [read]` allows REPL reads only. The Tool refuses `.click`, `.dblclick`, `.fill`,
   `.type`, `.press`, `.check`, `.uncheck`, `.selectOption`, `.setInputFiles`, `.dragTo`,
   `.hover`, `.tap`, `.evaluate`, `.evaluateHandle`, `.route`, `.goto`, `page.keyboard`,
   `page.mouse` and the `task` command. `can: [read, act]` allows them.
-- `act` is not a licence to send or post: outbound sends, public posts and spend still follow
-  `outbound_send`, `policies/approvals.md` and the read-only period in
-  `policies/shared-rules.md`. That is the playbook's job to honour.
+- Messages to outsiders stay drafts until `outbound_send` is on. With sending on, a bot acts
+  within the requested work, its Instructions and granted Tools; no per-action approval is required.
+  See `policies/approvals.md` and `policies/shared-rules.md`.
 - Logins are never a bot's job. The owner signs in once in Aside; a login page, a captcha or a
   challenge means stop and say so.
-- Never drive Chrome, the Orca browser or the `aside` CLI directly; the connector is the only
+- Never drive Chrome, the Orca browser or the `aside` CLI directly; the Tool is the only
   audited path.
 
 ## Recipes
@@ -92,5 +92,5 @@ refused it. The REPL stops after 120 s; a `task` after 900 s (`ASIDE_TASK_TIMEOU
 
 ## Learnings
 
-What bots and people learn about this integration is added with `hub tool learn aside "…"` and
+What bots and people learn about this Tool is added with `hub tool learn aside "…"` and
 shown under this page; a person folds it into the page over time. The page is the rule.

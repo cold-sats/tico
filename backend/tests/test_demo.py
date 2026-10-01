@@ -73,7 +73,7 @@ def test_nothing_leaves_the_machine(built):
 
 
 
-def test_a_local_demo_uses_its_explicit_address_and_accepts_its_browser_origin(tmp_path, monkeypatch):
+def test_a_local_demo_uses_its_explicit_address_and_accepts_its_browser_origin(tmp_path, monkeypatch, capsys):
     settings = demo.prepare(tmp_path, url="http://localhost:8877")
     assert settings.public_url == settings.runner_url == "http://localhost:8877"
     assert settings.allows_origin("http://127.0.0.1:8877")
@@ -88,6 +88,12 @@ def test_a_local_demo_uses_its_explicit_address_and_accepts_its_browser_origin(t
     monkeypatch.setattr(uvicorn, "run", lambda settings, **kwargs: seen.update(public=settings.public_url, runner=settings.runner_url))
     demo.main(["--port", "8877", "--data-dir", str(tmp_path / "port-only")])
     assert seen["public"] == seen["runner"] == "http://127.0.0.1:8877"
+    assert "open http://localhost:8877" in capsys.readouterr().out
+    for url, extra in (("http://localhost:18765/", ["--in-container"]),
+                       ("https://demo.example.com/", ["--public-demo"])):
+        demo.main(["--url", url, "--data-dir", str(tmp_path / "explicit-url"), *extra])
+        assert "open " + url.rstrip("/") in capsys.readouterr().out
+        assert seen["public"] == url.rstrip("/")
 
 
 def test_demo_runs_message_sources_and_deliverables_are_browsable(built):

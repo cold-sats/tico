@@ -260,7 +260,8 @@ def main(argv=None):
         settings = build(directory, url=args.url, public=args.public_demo)
         if args.port != DEFAULT_PORT and not args.public_demo and not args.url:
             settings.public_url = settings.runner_url = f"http://127.0.0.1:{args.port}"
-        print(f"\nTico demo is ready: open http://localhost:{args.port}\n"
+        browser_url = args.url.rstrip("/") if args.url else f"http://localhost:{args.port}"
+        print(f"\nTico demo is ready: open {browser_url}\n"
               "It is fictional sample data (acme.example); bots do not run and nothing leaves this computer.\n"
               "Press Ctrl+C to stop; everything is discarded.\n", flush=True)
         uvicorn.run(create_app(settings), host=host, port=args.port, log_level="warning",

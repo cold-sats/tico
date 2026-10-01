@@ -62,7 +62,8 @@ $HUB_DIR/scripts/mail.sh rules explain 18f2...        # why this message got wha
 Rules run before any model. Marketing (unsubscribe links), notification senders, and
 `registry/mail-rules.yaml` `skip:` addresses/domains are filed and never opened by the bot.
 Each mailbox can add its own rules under that address after `common`. A message bot for a
-human reads only its assigned mailbox by default (`org_read: false`). The owner can deliberately
+human reads only its assigned mailbox by default (`org_read: false`). This boundary applies to
+Gmail and mailbox tokens; [calendar Tools](#calendar) have separate access rules. The owner can deliberately
 turn on `org_read: true` to include reports' mail; only then does `--all-mailboxes` include them.
 The Inbox Manager starts with one disabled weekday 07:30 Routine in America/Los_Angeles; Setup
 switches it on. Change its timezone in **Settings → Routines** for your team.
@@ -361,13 +362,18 @@ The mail and calendar sync (the `connectors` job) runs on a Docker runner, so a 
 on cloud Linux can sync mail and calendar with no Mac. It is the same code and behavior as on a Mac; only the places it
 looks are named instead of guessed.
 
+Replace `<container-name>` below with this Computer's full Docker container name. The installer's
+`--name mail` creates `tico-runner-mail`; copy the name from the Docker sign-in command in **Add computer**
+or find it with `docker ps`. Only the optional unnamed manual install uses `tico-runner`.
+See [Computer sign-in and diagnostics](install.md#linux-or-cloud-server-docker).
+
 1. Create the Google service account with domain-wide delegation once (`connectors/mail/README.md`, Setup), and download its JSON key.
 2. Put the key on **one** runner, in the runner's own state directory, where only the runner can read it (owner `ticorun`, mode 0600):
-   `docker exec -i -u ticorun tico-runner sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`.
+   `docker exec -i -u ticorun '<container-name>' sh -c 'umask 077; cat > "$(ls -d /home/runner/state-* | head -1)/google-sa.json"' < google-sa.json`.
    A key left in `workspace/secrets/google-sa.json` (an older install, or an older version of this page) is moved there within
    a minute. Bots cannot read that place: a message bot's run asks the runner for a short-lived token for one mailbox instead
    (below).
-3. Wait a minute. `docker logs tico-runner` says `Tico side jobs: started connectors (mail, calendar)`. The first start builds
+3. Wait a minute. `docker logs '<container-name>'` says `Tico side jobs: started connectors (mail, calendar)`. The first start builds
    the Python environment into the runner's volume (`/home/runner/tools/mail-venv`, or `/var/lib/tico-runner/tools/mail-venv`),
    about a minute, needing outbound access to PyPI once. It is not in the image, so the image stays slim for runners that never sync mail;
    it is rebuilt when `connectors/mail/requirements.txt` changes.

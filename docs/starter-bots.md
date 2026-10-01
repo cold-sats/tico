@@ -2,10 +2,11 @@
 
 There are 94 templates: 91 in nine groups (Sales, Marketing, Customer Support, Finance, Operations, Legal, HR,
 Product and Engineering), a small Leadership extra and one message bot, enough to staff a team of ten to two hundred humans. **Every
-template is a real role that does the work; approvals gate what leaves the team.** Each is a job title a team would
+template is a real role that does the work within its granted Tools.** Each is a job title a team would
 hire and put on its team chart (Sales Development Representative, Bookkeeper, Recruiter, Site Reliability Engineer), never a
 feature or a document: it does the research, keeps its records, prepares the finished work and carries it to the point of
-action, and a human's approval is what sends, posts, pays, signs or changes an outside record. Every bot is created parked in
+action. Messages to outsiders stay drafts until the owner turns on sending for that bot; after that,
+requested work needs no separate approval for each action. Every bot is created parked in
 "Needs setup" and costs nothing until someone sets it up; it then gets a first useful, reviewable result in its first
 session. The template format is in [Finish setup](onboarding.md); how to write and tune a bot is in [Creating bots](creating-bots.md).
 
