@@ -7,6 +7,10 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Bot avatars are clearly blob-shaped: each bot gets one of ten soft shape families and a little more distortion,
+  with a slow wiggle only while it works.
+
 ## [0.2.42] - 2026-10-01
 
 ### Fixed

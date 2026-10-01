@@ -60,12 +60,30 @@ const BOT_AVATARS = {
 const avInitials = slug => (String(slug || '').split(/[-_ ]+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('') || '?').toUpperCase();
 const avHue = slug => { let h = 7; for (let i = 0; i < String(slug).length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360; return h; };
 // Bots are soft blobs and people are circles, so the shape says which is which before the name does.
-// A bot's outline comes from its slug through a seeded PRNG, the same on every page and every load:
-// six to eight points a few percent in or out from a circle, joined by one smooth closed curve. While
-// the bot works, the outline eases to a second outline from the same seed and back.
-const BLOB_WOBBLE = 0.08;           // how far a point may sit from the circle, as a share of the radius
+// A bot's outline comes from its slug through a seeded PRNG, the same on every page and every load.
+// The seed picks one of ten shape families (a few low cosine harmonics around the circle, so every
+// family stays soft), then turns it, varies its proportions and adds a little noise: two bots rarely
+// look alike. While the bot works, the outline eases to a second outline from the same seed and back.
+const BLOB_WOBBLE = 0.14;           // how far the outline may sit from the circle, as a share of the radius
+const BLOB_RADIUS = 46;             // the circle the outline wobbles around, in a 100-unit box
+const BLOB_POINTS = 8;              // eight points carry up to four lobes
 const BLOB_MORPH_S = 3.6;           // one full breath while working, in seconds
 const BLOB_CSS_MORPH = !!window.CSS?.supports?.('d', 'path("M0 0")');   // WebKit has no CSS `d`: it gets SMIL
+// Each family is a list of [harmonic, weight, phase]: harmonic 2 stretches, 3 makes a rounded triangle,
+// 4 four lobes; mixing them gives beans, eggs and peanuts. `upright` keeps flat shapes flat; `gain`
+// lifts families led by harmonic 1, which otherwise reads as a circle pushed off centre.
+const BLOB_FAMILIES = [
+  {name: 'pebble', h: [[2, 1, 0], [3, 0.22, 0.6]]},
+  {name: 'triangle', h: [[3, 1, 0], [2, 0.15, 0]]},
+  {name: 'clover', h: [[4, 1, 0], [2, 0.12, 0.4]]},
+  {name: 'bean', h: [[2, 1, 0], [3, 0.55, Math.PI / 2], [1, 0.3, Math.PI / 2]]},
+  {name: 'squat', h: [[2, 1, 0], [4, -0.45, 0]], upright: true},
+  {name: 'egg', h: [[1, 0.6, 0], [2, 1, 0]], gain: 1.2},
+  {name: 'peanut', h: [[2, 0.85, 0], [4, -0.7, 0]]},
+  {name: 'shell', h: [[2, 0.7, 0], [3, 0.8, 0.5]]},
+  {name: 'drop', h: [[1, 1, 0], [2, 0.5, 0], [3, 0.25, 0]], gain: 1.35},
+  {name: 'cushion', h: [[4, 0.7, 0], [3, 0.45, 0.3], [2, 0.3, 1.1]]},
+];
 const TEMPLATE_ICON = /^[a-z0-9_]{1,48}$/;
 const blobCache = new Map();
 const blobSeed = text => { let h = 2166136261; for (const ch of String(text)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -78,13 +96,14 @@ function blobRandom(seed) {                  // mulberry32: small, fast and the 
   };
 }
 // A closed curve through the points as cubic Béziers, each handle along the polar tangent with the
-// length that draws an exact circle when every radius is equal: a wobble of 0 is a circle. Every
-// outline is M, n Cs and Z, so any two outlines of one bot interpolate point for point.
-function blobPath(radii, angles) {
+// length that draws an exact circle when every radius is equal: a wobble of 0 is a circle. `slopes`
+// (dr/dθ at each point) default to finite differences. Every outline is M, n Cs and Z, so any two
+// outlines of one bot interpolate point for point.
+function blobPath(radii, angles, slopes) {
   const n = radii.length, f = v => v.toFixed(1), wrap = i => (i + n) % n;
   const theta = i => angles[wrap(i)] + 2 * Math.PI * Math.floor(i / n);   // unwrapped, so gaps stay positive
   const pt = i => [50 + radii[wrap(i)] * Math.cos(theta(i)), 50 + radii[wrap(i)] * Math.sin(theta(i))];
-  const slope = i => (radii[wrap(i + 1)] - radii[wrap(i - 1)]) / (theta(i + 1) - theta(i - 1));   // dr/dθ
+  const slope = i => slopes ? slopes[wrap(i)] : (radii[wrap(i + 1)] - radii[wrap(i - 1)]) / (theta(i + 1) - theta(i - 1));
   const tangent = i => { const a = theta(i), r = radii[wrap(i)], dr = slope(i);
     return [dr * Math.cos(a) - r * Math.sin(a), dr * Math.sin(a) + r * Math.cos(a)]; };
   let d = `M${f(pt(0)[0])} ${f(pt(0)[1])}`;
@@ -94,16 +113,33 @@ function blobPath(radii, angles) {
   }
   return d + 'Z';
 }
+// Small avatars wobble less, so the outline never pulls in under the symbol (the org tree is 16 px).
+const blobWobble = size => BLOB_WOBBLE * (size < 16 ? 0.65 : size < 22 ? 0.8 : 1);
 function blobShape(slug, size) {
-  const wobble = BLOB_WOBBLE * (size < 16 ? 0.75 : 1), key = `${slug}|${wobble}`;   // below the org tree's 16 px, less wobble
+  const wobble = blobWobble(size), key = `${slug}|${wobble}`;
   if (blobCache.has(key)) return blobCache.get(key);
-  const rnd = blobRandom(blobSeed(slug)), n = 6 + Math.floor(rnd() * 3), turn = rnd() * 2 * Math.PI;
-  const angles = Array.from({length: n}, (_, i) => turn + (i + (rnd() - 0.5) * 0.2) * 2 * Math.PI / n);
-  const bumps = Array.from({length: n}, () => rnd() * 2 - 1), drift = Array.from({length: n}, () => rnd() * 2 - 1);
-  const radii = xs => { const m = xs.reduce((a, b) => a + b, 0) / n; return xs.map(x => 48 * (1 + wobble * Math.max(-1, Math.min(1, x - m)))); };
-  const shape = {d: blobPath(radii(bumps), angles),
-    // the working outline keeps most of the bot's own bumps, so it breathes rather than turns into another bot
-    morph: blobPath(radii(bumps.map((b, i) => b * 0.55 + drift[i] * 0.45)), angles),
+  const rnd = blobRandom(blobSeed(slug)), n = BLOB_POINTS;
+  const fam = BLOB_FAMILIES[Math.floor(rnd() * BLOB_FAMILIES.length)];
+  const turn = fam.upright ? (rnd() - 0.5) * 0.3 : rnd() * 2 * Math.PI;
+  const harmonics = fam.h.map(([k, w, p]) => [k, w * (0.8 + rnd() * 0.4), p + (rnd() - 0.5) * 0.5]);
+  const noise = Array.from({length: n}, () => rnd() * 2 - 1);
+  const angles = Array.from({length: n}, (_, i) => turn + i * 2 * Math.PI / n);
+  // The family's profile, scaled so its furthest point sits exactly `wobble` from the circle.
+  const outline = (hs, jitter) => {
+    const at = a => hs.reduce((s, [k, w, p]) => s + w * Math.cos(k * (a - turn) + p), 0);
+    const dat = a => hs.reduce((s, [k, w, p]) => s - w * k * Math.sin(k * (a - turn) + p), 0);
+    let peak = 0;
+    for (let i = 0; i < 72; i++) peak = Math.max(peak, Math.abs(at(i * Math.PI / 36)));
+    const g = BLOB_RADIUS * wobble * (fam.gain || 1) / (peak || 1);
+    return {radii: angles.map((a, i) => BLOB_RADIUS + g * (at(a) + jitter[i] * 0.18)), slopes: angles.map(a => g * dat(a))};
+  };
+  const still = outline(harmonics, noise);
+  // The working outline shifts each lobe a little and redistributes the noise: it breathes, slowly
+  // and shallowly, rather than turning into another bot.
+  const moving = outline(harmonics.map(([k, w, p]) => [k, w * (0.85 + rnd() * 0.3), p + (rnd() < 0.5 ? -1 : 1) * (0.35 + rnd() * 0.25)]),
+    noise.map(v => v * 0.4 + (rnd() * 2 - 1) * 0.6));
+  const shape = {family: fam.name, d: blobPath(still.radii, angles, still.slopes),
+    morph: blobPath(moving.radii, angles, moving.slopes),
     delay: -Math.round(rnd() * BLOB_MORPH_S * 100) / 100};   // bots working at once do not breathe in step
   blobCache.set(key, shape);
   return shape;
