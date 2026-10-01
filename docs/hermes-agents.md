@@ -235,3 +235,8 @@ profile's heartbeat separately; a declaration alone does not prove that the serv
 
 `hub agent pair show <code>` previews a pending pairing without replacing any credential. The Pair dialog shows the
 same profile and host as you enter the code. It says paired until the first heartbeat establishes a connection.
+
+If pairing says **Paired, finish connecting tools**, the credential and heartbeat are saved but the
+Python interpreter lacks PyYAML and the profile already has other MCP servers. Run the one command
+printed by the connector to install PyYAML in that interpreter and reinstall using the saved credential;
+then run `/reload-mcp` in Hermes. Existing MCP servers stay in place. No new pairing code is needed.

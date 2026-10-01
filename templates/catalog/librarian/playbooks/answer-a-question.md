@@ -50,7 +50,8 @@ If the search found nothing or only part of the answer, or the question is about
 
 `where-things-live.md` says which doc or which linked source holds which topic, and how each linked
 source is laid out. `index.md` has a line summarising every doc. Pick the docs the map points to and read
-them. If the map is missing (a new team), skip it and work from `hub doc list` and `hub doc link-list`.
+them. Verify a mapped internal doc is still in `hub doc list` before using it; an archived or
+unavailable source is removed from the index now, not cited from a cached summary. If the map is missing (a new team), skip it and work from `hub doc list` and `hub doc link-list`.
 If the map turns out to be wrong or stale, note it for step 7.
 
 ## 4. Follow the linked docs
@@ -96,11 +97,22 @@ Shape, always:
 4. **Age and conflict, when they matter**: "as of the pricing doc, updated 2025-11-02".
 5. If you inferred something the docs do not state outright, say so in one clause and cite what it rests on.
 
-For a procedure, keep every prerequisite and propagation step the manual gives:
-- Changing Instructions: read `manual:using-tico` beside the authoring guide. Include commit and push,
-  and ensure the bot's Computer has the updated checkout before its next run.
-- Adding a human: include **Humans > Add human** and, when Tico sits behind Cloudflare Access,
-  Cognito or another sign-in proxy, also allow their address there. Cite the Using Tico and Humans steps.
+For a procedure, re-read the cited manual page this run and check the answer against each prerequisite,
+action and propagation step before sending. The word budget expands to fit all documented steps.
+- Changing Instructions: read `manual:using-tico`. Lead with **Bot > More > Instructions > Edit >
+  Ask BotOps**, which updates the bot's Computer. For repository edits, say **edit AGENT.md, commit,
+  push, then update the existing checkout on the bot's Computer before its next run**. A clone alone
+  does not update an existing checkout. Give both paths when the question asks how to change a bot.
+- Adding a human: read `manual:people` and give both steps together: **Humans > Add human**, then,
+  when using **Cloudflare Access or Cognito**, **allow their email address in that sign-in proxy too**.
+  Adding the roster row alone does not let that human through the proxy. Local sign-in has no email
+  sign-in for additional humans. Do not omit the proxy step from a question about signing in.
+- Copying a bot: read `manual:creating-bots`. State that a **Credential administrator automatically
+  gets the copy granted the Credentials its Tools need**; missing grants are requested through a card.
+  Secret files and Routines are not copied. Keep the refusal to copy the Librarian.
+- Reopening a task: read `manual:using-tico`. Give **Undo** in the Done toast, or **Tasks > Done >
+  open task > Reopen**. Its earlier completion stays in history; Goals and KPIs count it as active again.
+  Never call this undocumented when the manual supplies these steps.
 - Pairing Hermes: preserve the exact connector command, the Pair action, and `/reload-mcp` after
   installation when the manual calls for it. Keep command text literal; never pass backticks through
   an interpolated shell command.
@@ -123,13 +135,14 @@ Say it in the first words, then help:
 > The finance lead owns billing, so that is the human to ask.
 
 Rules:
-- Begin exactly with `Not in the docs.` This is how a bot that asked knows the question is not covered.
+- Begin exactly with `Not in the docs.` Use the period, never a colon. Coverage is parsed independently
+  and older colon answers remain readable.
 - Then the closest thing that *is* there, cited, so the human sees what you did find. Skip this if
   nothing is close.
 - Name who might know only if a doc says who owns the topic.
 - Do not guess, do not answer "generally", do not offer what other organizations do.
 - If part of the question is covered and part is not, answer the covered part with citations, then say
-  "Not in the docs:" for the rest.
+  "Not in the docs." for the rest.
 - If a linked doc could not be read (not public, an error), say which one and why: it may hold the answer.
 
 ## 7. Then keep the map and the record honest (after the answer, never before)
@@ -139,8 +152,10 @@ Follow `faq-and-gaps.md`:
 - if the docs could not answer, add the gap to `_librarian/missing.md`;
 - if a question has now been asked three times, promote it to `FAQ.md`;
 - if the map was missing something or was wrong (a doc it does not list, a linked source whose layout
-  changed), correct that entry now, as in `the-map.md`. Two edits at most in a question's run; anything
-  bigger waits for the daily refresh.
+  changed), correct that entry now, as in `the-map.md`.
+- For every failed linked fetch, update **Sources I could not read** in `_librarian/missing.md` in the
+  same bookkeeping pass as the map: title, URL, error and date. Replace "None" with the failure.
+  Record it even if other docs answered the question; remove the entry when a later fetch succeeds.
 
 If a write fails, it is still a good answer: finish, and note it in `state.md`.
 

@@ -1,11 +1,14 @@
 # Questions for the Librarian eval (docs/librarian.md). `cite` lists the fixture docs (paths under fixture/) a good
-# answer must cite, all of them. `contains` lists strings the answer should contain (a spot check on the fact, not
-# a full grade). `unknown: true` marks a question the docs do not answer: the right answer starts "Not in the docs."
+# answer must cite, all of them. `contains` checks literal labels and commands; `facts` binds a value or polarity to a
+# subject and predicate (a limited fact spot check, not a full semantic grade). `unknown: true` marks a question the docs do not answer: the right answer starts "Not in the docs."
 questions:
   - id: refund-window
     question: How long do customers have to ask for a refund?
     cite: [finance/refunds.md]
-    contains: ["14 days"]
+    facts:
+      - subject: "refund|customer"
+        predicate: "within|days|window"
+        value: "14 days"
   - id: monthly-refund
     question: Can a customer on a monthly plan get a refund?
     cite: [finance/refunds.md]
@@ -20,11 +23,17 @@ questions:
   - id: studio-price
     question: How much does the Studio plan cost per month?
     cite: [sales/pricing.md]
-    contains: ["$29"]
+    facts:
+      - subject: "studio"
+        predicate: "cost|price|month|\\$"
+        value: "$29"
   - id: discount-limit
     question: How big a discount can a salesperson give without asking anyone?
     cite: [sales/pricing.md]
-    contains: ["10%"]
+    facts:
+      - subject: "discount|sales"
+        predicate: "discount|give|offer"
+        value: "10%"
   - id: support-hours
     question: When is support open?
     cite: [support/hours-and-sla.md]
@@ -59,3 +68,34 @@ questions:
     question: How do I pair my Hermes profile with Tico, and what command do I run in Hermes afterwards?
     manual: [hermes-agents]
     contains: ["hermes_agent.py pair", "/reload-mcp"]
+  - id: change-instructions
+    question: How do I change a bot's Instructions in Tico, or edit its repository, and get the changes onto its Computer?
+    manual: [using-tico]
+    contains: ["Instructions", "BotOps", "commit", "push"]
+    facts:
+      - subject: "computer|checkout"
+        predicate: "updat|pull|sync"
+        polarity: positive
+  - id: add-human-signin
+    question: How do I add a human teammate and let them sign in when Tico uses Cloudflare Access or Cognito?
+    manual: [people]
+    contains: ["Humans", "Add human", "Cloudflare Access", "Cognito"]
+    facts:
+      - subject: "email|address"
+        predicate: "allow|add"
+        polarity: positive
+  - id: copy-credential-grants
+    question: How do I copy a bot, what is included, and what happens to its Credential grants when I am a Credential administrator?
+    manual: [creating-bots]
+    contains: ["automatically", "Credential", "Routine"]
+    facts:
+      - subject: "credential|grant"
+        predicate: "automatic"
+        polarity: positive
+      - subject: "secret|env"
+        predicate: "cop(?:y|ied)"
+        polarity: negative
+  - id: reopen-task
+    question: How do I undo marking a task Done and reopen it, and what happens to its history?
+    manual: [using-tico]
+    contains: ["Undo", "Reopen", "history"]

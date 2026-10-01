@@ -255,12 +255,14 @@ class Settings:
         loopback name and published port the person used, which the server cannot know."""
         if origin == self.public_url or origin in self.cors_origins:
             return True
+        if self.demo and not self.demo_public and (urlparse(origin).hostname or "") in LOOPBACK:
+            return True
         if self.loopback and self.local_signin:
             # A local install answers to 127.0.0.1 and to localhost on its own port; people type either.
             seen, own = urlparse(origin), urlparse(self.public_url)
             return (seen.scheme == own.scheme and (seen.hostname or "") in LOOPBACK
                     and seen.port == own.port)
-        return self.demo and not self.demo_public and (urlparse(origin).hostname or "") in LOOPBACK
+        return False
 
     @classmethod
     def from_env(cls):

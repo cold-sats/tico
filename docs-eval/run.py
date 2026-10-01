@@ -53,22 +53,42 @@ def exact_fact(text, expected):
 
 
 def fact_matches(text, fact):
-    if "value" in fact:
-        return exact_fact(text, fact["value"])
     subject, predicate = fact["subject"], fact["predicate"]
-    claims = [sentence for sentence in re.split(r"[.;!?\n]|,\s*(?:but|while|whereas)\b", text, flags=re.I)
-              if re.search(subject, sentence, re.I) and re.search(predicate, sentence, re.I)]
+    claims, related = [], False
+    for sentence in re.split(r"(?<!\d)\.|\.(?!\d)|[;!?\n]|\b(?:and|but|while|whereas)\b", text, flags=re.I):
+        named = bool(re.search(subject, sentence, re.I))
+        continuation = related and bool(re.match(r"\s*(?:it|they|this(?: plan)?|the plan|is|are|was|were)\b", sentence, re.I)
+                                       or re.match(r"\s*(?:" + predicate + r")", sentence, re.I))
+        related = named or continuation
+        if related and re.search(predicate, sentence, re.I):
+            claims.append(sentence)
     if not claims:
         return False
-    negative = re.compile(r"\b(?:not|never|cannot|can't|aren't|no|non)\b", re.I)
-    def negated(claim):
+    negative = re.compile(r"\b(?:not|never|cannot|can't|aren't|isn't|doesn't|don't|no|non)\b", re.I)
+    def negations(claim):
         match = re.search(predicate, claim, re.I)
         before = re.split(r"\b(?:and|but|while|whereas)\b", claim[:match.start()], flags=re.I)[-1]
         after = claim[match.end():].split(",", 1)[0]
-        # Negation belongs to this predicate, not a separate claim about another plan.
-        return (bool(negative.search(" ".join(before.split()[-6:])))
-                or bool(re.match(r"\W+(?:(?:is|are|was|were|will|can|may|be)\W+){0,2}(?:not|never|no)\b", after, re.I)))
-    return all(negated(claim) == (fact["polarity"] == "negative") for claim in claims)
+        # Negation after the predicate must be adjacent; a later clause can describe another plan.
+        adjacent = re.match(r"^\W+(?:(?:is|are|was|were|will|can|may|be)\W+)*"
+                            r"(?:(?:not|never|no)\W+)+", after, re.I)
+        return (len(negative.findall(" ".join(before.split()[-6:])))
+                + (len(negative.findall(adjacent.group(0))) if adjacent else 0))
+    if "value" in fact:
+        expected = str(fact["value"])
+        pattern = fact.get("value_pattern")
+        if not pattern:
+            if expected.startswith("$"):
+                pattern = r"\$\d+(?:[.,]\d+)*"
+            elif expected.endswith("%"):
+                pattern = r"\d+(?:\.\d+)?%"
+            else:
+                unit = re.sub(r"^[\d.,]+\s*", "", expected)
+                pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
+        return all(negations(claim) == 0 and exact_fact(claim, expected)
+                   and all(exact_fact(value, expected) for value in re.findall(pattern, claim, re.I))
+                   for claim in claims)
+    return all(negations(claim) == (1 if fact["polarity"] == "negative" else 0) for claim in claims)
 
 
 
@@ -78,7 +98,7 @@ def score(question, answer, id_by_path):
         return {"answered": False, "cited": False, "unknown_ok": False, "facts": False}
     said_unknown = not docs_ask.covered(answer)
     if question.get("unknown"):
-        return {"answered": True, "cited": None, "unknown_ok": said_unknown, "facts": None}
+        return {"answered": True, "cited": None, "unknown_ok": said_unknown and answer.lstrip().startswith("Not in the docs."), "facts": None}
     cited = {c["url_or_id"] for c in docs_ask.parse_citations(answer) if c["type"] == "internal"}
     wanted = {id_by_path.get(PREFIX + path) for path in question.get("cite") or []}
     manual = {Path(c["url_or_id"].split("#", 1)[0]).stem

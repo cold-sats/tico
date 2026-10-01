@@ -54,3 +54,24 @@ def test_a_person_waits_for_the_completed_run_and_gets_the_latest_correction():
     api = Api("human", [{"messages": [partial], "execution": {"state": "running"}},
                         {"messages": [partial, final], "execution": {"state": "completed"}}])
     assert D.ask(api, "Connect Hermes", 30, sleep=lambda s: None)["answer"] == final["body"]
+
+
+def test_timeout_ids_resume_without_sending_a_second_question_and_mcp_waits_are_short():
+    api = Api("human", [{"messages": [], "execution": {"state": "queued"}}])
+    pending = D.ask(api, "Refunds?", 0)
+    assert pending == {"timeout": True, "conversation_id": "c1", "message_id": "m1"}
+    api.replies.append({"messages": [{"id": "a1", "in_reply_to": "m1", "from_actor": "bot:librarian", "body": ANSWER}],
+                        "execution": {"state": "completed"}})
+    done = D.status(api, pending["conversation_id"], pending["message_id"])
+    assert done["answer"] == ANSWER and done["message_id"] == "m1"
+    assert len([c for c in api.calls if c[0] == "POST"]) == 1
+    api = Api("bot", [{"messages": [], "execution": {"state": "running"}}] * 11)
+    api.docs_wait_max = 20
+    now = [0]
+    def sleep(seconds):
+        now[0] += seconds
+    assert D.ask(api, "Refunds?", 180, clock=lambda: now[0], sleep=sleep)["timeout"]
+    assert now[0] == 20
+    assert next(c for c in api.calls if c[:2] == ("POST", "messages"))[2]["wait_s"] == 20
+    assert hubcli.parser().parse_args(["doc", "ask-status", "c1", "m1"]).fn == "doc ask-status"
+    assert "hub_doc_ask_status" in {t["name"] for t in hubtools.listing()}

@@ -460,7 +460,7 @@ SCHEMAS = {
                      required=["available", "state", "bot", "name", "can_turn_on"]),
     "DocsAsked": obj({"conversation_id": "s", "message_id": "s",
                       "results": {"type": "array", "items": {"type": "object"},
-                                  "description": "Matching internal and linked docs, as GET /api/v2/docs/search"}},
+                                  "description": "Matching internal, linked and manual docs, as GET /api/v2/docs/search?collection=all"}},
                      required=["conversation_id", "message_id", "results"]),
     "AssistantSent": obj({"message": ref("Message"), "reply": {"type": ["object", "null"]}, "fast": "b", "intent": "n"},
                          required=["message", "fast"]),

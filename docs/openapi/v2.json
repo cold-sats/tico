@@ -2572,7 +2572,7 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 500,
+              "maxLength": 4000,
               "title": "Q"
             }
           },
@@ -2594,7 +2594,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^(company|manual|all)$",
+              "pattern": "^(team|company|manual|all)$",
               "default": "company",
               "title": "Collection"
             }
@@ -9101,7 +9101,7 @@
             "items": {
               "type": "object"
             },
-            "description": "Matching internal and linked docs, as GET /api/v2/docs/search"
+            "description": "Matching internal, linked and manual docs, as GET /api/v2/docs/search?collection=all"
           }
         },
         "required": [

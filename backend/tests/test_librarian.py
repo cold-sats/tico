@@ -86,3 +86,47 @@ def test_a_bot_asks_the_librarian_with_an_ask_message_and_the_final_text_is_the_
         assert H.answers_to(c, [question["id"]])[question["id"]]["body"] == "Not in the docs."
     ask(desk, "A bot uses hub docs ask, not this route", token=turn["token"], expected=403)
 
+
+
+def test_instant_search_keeps_long_question_tail_and_includes_manual(api, monkeypatch):
+    import asyncio
+    from starlette.requests import Request
+    request = Request({"type": "http", "app": api.app, "method": "POST", "path": "/api/v2/docs/ask",
+                       "headers": [(b"authorization", b"Bearer ana-test")], "scheme": "http",
+                       "server": ("testserver", 80), "query_string": b""})
+    question = ("Please explain the existing setup for this computer and its relationship to the team "
+                "while keeping the previous configuration intact. " * 12 + "How long does the join code last?")
+    hits = asyncio.run(librarian._search(request, question))
+    assert any(r["id"] == "manual:install" for r in hits)
+    seen = {}
+    class Search:
+        def __init__(self, request):
+            pass
+        async def get(self, path, **params):
+            seen.update(params)
+            return {"results": hits}
+    monkeypatch.setattr(librarian, "Internal", Search)
+    assert asyncio.run(librarian._search(request, question)) == hits
+    assert seen["q"] == question and seen["collection"] == "all"
+
+
+def test_mcp_docs_ask_status_collects_the_same_private_answer(desk):
+    from backend.mcp import InProcessApi
+    from backend.tests.test_mcp import call
+    assert InProcessApi.docs_wait_max == 20
+    err, pending = call(desk, "hub_doc_ask", {"question": "Refund window?", "wait_s": 0})
+    assert not err and pending["timeout"] and pending["message_id"] and pending["conversation_id"]
+    ids = {k: pending[k] for k in ("message_id", "conversation_id")}
+    err, waiting = call(desk, "hub_doc_ask_status", ids)
+    assert not err and waiting == pending
+    err, refused = call(desk, "hub_doc_ask_status", ids, token="ben-test")
+    assert err and refused["error"] == "forbidden"
+    attempt = claim(desk, desk.runner)
+    post(desk, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, token=desk.runner["token"])
+    post(desk, f"attempts/{attempt['id']}/complete",
+         {"outcome": "completed", "text": "14 days. [Internal doc · Refund policy](doc:d1)", "last_seq": 0},
+         token=desk.runner["token"])
+    err, final = call(desk, "hub_doc_ask_status", ids)
+    assert not err and final["covered"] and final["answer"].startswith("14 days")
+    snapshot = get(desk, f"conversations/{pending['conversation_id']}/snapshot")
+    assert len([m for m in snapshot["messages"] if m["from_actor"] == "human:ana"]) == 1

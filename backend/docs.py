@@ -441,8 +441,26 @@ class Docs:
                 unindex(c, rowid) if archived else index(c, rowid, title, path, text)
                 H.event(c, who.actor, "docs.archived" if archived and not row["archived"] else "docs.updated", row["id"],
                         {"path": path, "version": fresh["version"]})
+                if archived and not row["archived"]:
+                    self.remove_index_source(c, row, who.actor)
             return {"doc": self.doc_view(c, self.get_row(c, row["id"]))}
         return work
+
+    def remove_index_source(self, c, source, actor):
+        """An archived source leaves the cached index in the same transaction."""
+        row = c.execute("SELECT rowid AS rid,* FROM docs WHERE path='_librarian/index.md' AND archived=0").fetchone()
+        if not row or row["id"] == source["id"]:
+            return
+        refs = re.compile(r"(?<![\w/.-])" + re.escape(source["path"]) + r"(?![\w/.-])|\]\(doc:" + re.escape(source["id"]) + r"\)")
+        text = "".join(line for line in row["body"].splitlines(keepends=True) if not refs.search(line))
+        if text == row["body"]:
+            return
+        c.execute("UPDATE docs SET body=?,version=version+1,updated_by=?,updated=? WHERE id=?",
+                  (text, actor, H.now(), row["id"]))
+        fresh = self.get_row(c, row["id"])
+        self.snapshot(c, fresh, actor, "Removed archived source " + source["path"])
+        index(c, row["rid"], fresh["title"], fresh["path"], text)
+        H.event(c, actor, "docs.updated", row["id"], {"path": row["path"], "version": fresh["version"]})
 
     def versions(self, who, doc_id):
         self.reader(who)
@@ -560,7 +578,12 @@ class Docs:
             if not best:
                 continue
             score, section = best
-            if row["path"].startswith("_librarian/"):
+            title_tokens = [t for t in manual.query_words(row["title"]) if t not in ("team", "docs", "doc")]
+            named = bool(title_tokens) and all(t in tokens for t in title_tokens)
+            named = named or all(t in tokens for t in manual._words(row["path"]))
+            if named:
+                score += 100 * sum(weights[t] for t in tokens if manual._hits(page["title_words"], t))
+            elif row["path"].startswith("_librarian/"):
                 score *= 0.2
             out.append({"type": "internal", "id": row["id"], "path": row["path"], "title": row["title"],
                         "section": section["heading"], "anchor": section["anchor"],
@@ -579,12 +602,13 @@ class Docs:
 
     def find_linked(self, c, tokens):
         out = []
+        weights = manual.query_weights(tokens)
         for r in c.execute("SELECT * FROM linked_docs WHERE archived=0"):
-            title, desc, url = r["title"].casefold(), r["description"].casefold(), r["url"].casefold()
-            hits = [(t in title, t in desc, t in url) for t in tokens]
-            if not all(any(h) for h in hits):
+            fields = [set(manual._words(r[key])) for key in ("title", "description", "url")]
+            hits = [(t, [manual._hits(field, t) for field in fields]) for t in tokens]
+            score = sum(weights[t] * (2.0 * h[0] + h[1] + 0.5 * h[2]) for t, h in hits)
+            if not score:
                 continue
-            score = sum(2.0 * h[0] + 1.0 * h[1] + 0.5 * h[2] for h in hits)
             out.append({"type": "linked", "id": r["id"], "title": r["title"], "url": r["url"], "kind": r["kind"],
                         "description": r["description"], "score": score})
         return out
@@ -651,10 +675,10 @@ def install_docs(app, store, auth, mutate):
         return mutate(request, body, docs.create(request, body))
 
     @app.get("/api/v2/docs/search")
-    def search_docs(request: Request, q: str = Query(min_length=1, max_length=500),
+    def search_docs(request: Request, q: str = Query(min_length=1, max_length=4000),
                     limit: int = Query(default=20, ge=1, le=50),
-                    collection: str = Query(default="company", pattern="^(company|manual|all)$")):
-        """`company` (the default) is the team's docs; `manual` is the read-only Tico manual (backend/manual.py);
+                    collection: str = Query(default="company", pattern="^(team|company|manual|all)$")):
+        """`team` (`company` is the legacy default alias) is the team's docs; `manual` is the read-only Tico manual (backend/manual.py);
         `all` ranks team and manual sections together, each labelled with its collection."""
         who = request.state.identity
         docs.reader(who)
