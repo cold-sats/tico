@@ -434,7 +434,8 @@ def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
         return {"cancelled": True, "task_id": found["task_id"],
                 "detail": "The request is withdrawn. If BotOps already added the entry it stays until you remove it."}
     if tool_id in ("model", "repo"):
-        raise Problem("tool", "The model and the repository are set in the bot's settings, not removed here", 422)
+        raise Problem("tool", "A bot always has read, write, issues and pull requests on its own repository, and its model is chosen in "
+                      "its settings; neither is a Tool you change or remove here", 422)
     state = _state(c, settings, bot)
     index = next((i for i, tool in enumerate(state["declared"]) if tool["id"] == tool_id), None)
     if index is None:
@@ -463,7 +464,8 @@ def unregister(c, auth, settings_admin, settings, who, bot, tool_id):
 def _declared_entry(state, tool_id):
     """The raw entry of the bot's declared tool with this id, or a Problem."""
     if tool_id in ("model", "repo"):
-        raise Problem("tool", "The model and the repository are set in the bot's settings, not here", 422)
+        raise Problem("tool", "A bot always has read, write, issues and pull requests on its own repository, and its model is chosen in "
+                      "its settings; neither is a Tool you change or remove here", 422)
     index = next((i for i, tool in enumerate(state["declared"]) if tool["id"] == tool_id), None)
     if index is None:
         raise Problem("not_found", "This bot does not declare that tool", 404)

@@ -7,6 +7,15 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.38] - 2026-10-01
+
+### Fixed
+- The Librarian rewrites only Tico's own jargon (standing instructions, Hub docs, "the runner pulls"); a team's prose
+  about its company, coworkers or machines stays as written.
+- docs-eval counts a sentence's first word as another plan only before "plan" or "costs" ("Pricing is $99" now
+  contradicts), and approximations after the amount ("give or take", "approximately") fail.
+- Tools explains that the model and the bot's own repository are not changed there, in the docs and in the refusal.
+
 ## [0.2.37] - 2026-10-01
 
 ### Fixed

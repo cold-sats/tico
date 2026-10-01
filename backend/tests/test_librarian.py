@@ -58,14 +58,14 @@ def test_a_question_goes_to_the_persons_private_docs_conversation_and_is_answere
     assert get(desk, "me", attempt["token"])["actor"] == "bot:librarian"
     post(desk, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, token=desk.runner["token"])
     post(desk, f"attempts/{attempt['id']}/complete",
-         {"outcome": "completed", "text": r"14 days.\n\nRead company docs with your coworker. "
+         {"outcome": "completed", "text": r"14 days.\n\nRead Hub docs with your coworker. "
           "[Internal doc · Refund policy](doc:d1) `printf '\\n'`", "last_seq": 0},
          token=desk.runner["token"])
     snapshot = get(desk, f"conversations/{sent['conversation_id']}/snapshot")
     reply = next(m for m in snapshot["messages"] if m["from_actor"] == "bot:librarian")
     assert reply["in_reply_to"] in (sent["message_id"], again["message_id"])
     assert "Refund policy" in reply["body"]
-    assert "14 days.\n\nRead team docs with your teammate." in reply["body"]
+    assert "14 days.\n\nRead Tico docs with your coworker." in reply["body"]
     assert "`printf '\\n'`" in reply["body"]
 
 
@@ -158,9 +158,11 @@ def test_how_to_wording_preserves_installation_software_and_source_literals():
         assert literal in result
     for kept in ("Our company fixes the washing machine; two machines a day.",
                  "We bought a new machine to wash clothes at our company.",
-                 "The washing machine broke. That machine needs a new pump."):
+                 "The washing machine broke. That machine needs a new pump.",
+                 "Companies hire coworkers to repair washing machines.", "Company docs describe the factory machines.",
+                 "The runner reads the race results after the competition."):
         assert H.librarian_text(kept) == kept
-    assert H.librarian_text("Company docs, for coworkers.") == "Team docs, for teammates."
+    assert H.librarian_text("Hub docs: standing instructions.") == "Tico docs: Instructions."
 
 
 def test_librarian_doc_writes_normalize_generated_instructions_and_computers(desk):
@@ -171,7 +173,7 @@ def test_librarian_doc_writes_normalize_generated_instructions_and_computers(des
                    token=attempt["token"])["doc"]
     assert created["body"] == "Change Instructions. The Computer pulls the update."
     edited = desk.patch("/api/v2/docs/" + created["id"],
-                        json={"version": created["version"], "body": "Standing instructions: the runner reads AGENT.md."},
+                        json={"version": created["version"], "body": "Standing instructions: the runner pulls AGENT.md."},
                         headers=headers(attempt["token"]))
     assert edited.status_code == 200, edited.text
-    assert edited.json()["doc"]["body"] == "Instructions: the Computer reads AGENT.md."
+    assert edited.json()["doc"]["body"] == "Instructions: the Computer pulls AGENT.md."

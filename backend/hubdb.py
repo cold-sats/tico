@@ -1535,14 +1535,13 @@ def librarian_text(body):
                      str(body or ""), flags=re.S)
     for i in range(0, len(parts), 2):
         text = parts[i].replace(r"\n", "\n")
-        for old, new in ((r"\bcompany docs\b", "team docs"),
-                         (r"\bcompany information\b", "team information"),
-                         (r"\bcoworkers\b", "teammates"), (r"\bcoworker\b", "teammate"),
-                         (r"\bthrough the runner\b", "through Tico"),
+        # Only Tico's own jargon: the team's prose about its business (its company, coworkers, machines, a race
+        # runner) is a source fact and stays as written. Instructions keep the rest of the wording.
+        for old, new in ((r"\bthrough the runner\b", "through Tico"),
                          (r"\bstanding instructions\b", "Instructions"),
                          (r"\bHub docs\b", "Tico docs")):
             text = re.sub(old, lambda m, new=new: new[0].upper() + new[1:] if m[0][0].isupper() else new, text, flags=re.I)
-        text = re.sub(r"\b(the) runner (?=(?:pulls?|updates?|syncs?|reads?)\b)",
+        text = re.sub(r"\b(the) runner (?=(?:pulls?|syncs?)\b)",
                       lambda m: m[1] + " Computer ", text, flags=re.I)
         parts[i] = text
     return "".join(parts)
