@@ -1,6 +1,6 @@
 # Prepare a signature packet
 
-Triggered when a human approves an NDA or standard agreement for signature on its task. Budget 10 minutes.
+Triggered by a request to prepare an NDA or standard agreement for signature on its task. Budget 10 minutes.
 The outcome is a packet a human can send in one step, and, once signed, a filed copy and an index row. You
 never send it and never sign it.
 
@@ -10,8 +10,7 @@ never send it and never sign it.
 
     hub task show <id>
 
-The packet uses the exact version the human approved on the task: name the file and its date. If anyone
-changed it after the approval, stop and ask.
+The packet uses the exact version requested on the task: name the file and its date. Recheck any changed version against the requested terms; ask only if the intended version is unclear.
 
 ## 2. Build the packet
 
@@ -19,13 +18,11 @@ changed it after the approval, stop and ask.
 - the document to sign (the approved file), and anything it references that must travel with it;
 - the signers from `state.md` setup answers, their titles and the order (the other side first or us first);
 - the legal names of both parties exactly as written in the document;
-- a short cover note for the human to send, three sentences, no legal commentary.
+- a short cover note to send with Tools when outbound_send is on, three sentences, no legal commentary.
 
 ## 3. Ask for the send
 
-Put the packet on the task. If the human wants it sent from the platform, request
-`hub approval request --kind send` with the file, the recipient and the cover note; otherwise the human sends
-it from their own mail or e-signature tool. Either way, say "sent by a human" in the task.
+Put the packet on the task. Send requested packets with the file, recipient and cover note using your Tools when `outbound_send` is on; otherwise keep the draft. Record who actually sent it.
 
 ## 4. File the signed copy
 

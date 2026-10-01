@@ -1,8 +1,7 @@
 # Daily interview logistics
 
-Schedule: weekdays at 08:00 team time (routine `daily-interview-logistics`), once a human has approved
-the first sheet. Budget 20 minutes. The outcome is one sheet: today and tomorrow ready, waiting candidates
-offered times, scorecards chased, debriefs ready to book. Nothing leaves without an approval.
+Schedule: weekdays at 08:00 team time (routine `daily-interview-logistics`), after setup. Budget 20 minutes. The outcome is one sheet: today and tomorrow ready, waiting candidates
+offered times, scorecards chased, debriefs ready to book. Messages to outsiders stay drafts until `outbound_send` is on.
 
 ---
 
@@ -22,7 +21,7 @@ interviewer (sent, not sent). Check each interviewer's calendar still shows the 
 ## 3. Candidates waiting for times
 
 Anyone moved to interview with no time yet: follow `playbooks/schedule-an-interview-loop.md` and put the
-message up for approval. A candidate waiting more than one working day for times is flagged.
+message up for review. A candidate waiting more than one working day for times is flagged.
 
 ## 4. Scorecards
 
@@ -34,7 +33,7 @@ to the hiring manager.
 
 A candidate whose loop is complete and whose scorecards are all in is ready for a debrief: propose a
 30 minute slot for the panel and build the pack (each interviewer's scores and notes side by side, in the
-order they were submitted). Book only on a yes.
+order they were submitted). Book requested debriefs within the scheduling rules and your Tools.
 
 ## 6. Write and hand over
 

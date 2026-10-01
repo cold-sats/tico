@@ -104,7 +104,12 @@ Timestamps are ISO-8601 UTC text (`2026-09-15T21:40:12.931675Z`); compare them w
 | `meeting_items` | `id, meeting_id, section, text, detail_json, quote, at_ms, status, created_by, updated_by, pushed_at, result_ref, created, updated` | a meeting's action items; `section`: doc, task, feature (older rows may say decision or question); `status`: proposed, pushed, dismissed; `result_ref` is the Tico task a push made. Visible exactly where its meeting is ([Meetings](meetings.md), What a meeting turns into) |
 | `meeting_comments` | `id, meeting_id, author, text, at_ms, created` | the thread beside a meeting: anyone who can open it can add to it ([Meetings](meetings.md)). Visible exactly where its meeting is |
 | `import_refs` | `source, external_id, meeting_id, runner_id, created` | which outside record a meeting was imported from — one row per Close call imported before the transcript-only worker ([Meetings](meetings.md), Close). Visible exactly where its meeting is |
-| `documents` | `id, visibility, collection, payload_json, updated` | the team docs mirror |
+| `docs` | `id, path, title, body, locked, version, created_by, created, updated_by, updated` | internal Docs, readable by teammates |
+| `doc_versions` | `doc_id, version, title, path, body, actor, created, note` | versions of visible internal Docs |
+| `linked_docs` | `id, title, url, kind, description, added_by, created, updated` | linked Docs |
+| `bot_files` | `id, bot, scope, identity, title, kind, locator, current_version, task_id, conversation_id` | Files, with the same task, conversation or bot visibility as their APIs |
+| `bot_file_versions`, `bot_file_activity` | `file_id, version` or `file_id, action, actor, created` | versions and activity of visible Files |
+| `documents`, `document_versions` | legacy mirror fields | compatibility tables for the older docs mirror |
 | `learnings` | `id, integration, actor, text, created, deleted_at` | what bots and humans learned about a tool (`integrations/`, `hub tool learn`) |
 
 `sqlite_master` lists the rest (`SELECT name, sql FROM sqlite_master WHERE type='table'`).
@@ -137,10 +142,15 @@ The last run of every bot, with the week's count and failures:
 
 ```sql
 SELECT bot, max(started) AS last_turn, count(*) AS turns,
-       sum(exit IS NOT NULL AND exit!='ok') AS failed
+       sum(exit IN ('failed', 'expired')) AS failed
 FROM turns WHERE started > strftime('%Y-%m-%dT%H:%M:%S', 'now', '-7 days')
 GROUP BY bot ORDER BY last_turn DESC
 ```
+
+Successful runs finish with `completed`. `failed` and `expired` are terminal errors;
+a bot reporting blocked work can still complete its run successfully. Health counts failed and
+expired attempts in the last 24 hours. Runs includes those attempts even when no turn was recorded,
+with the attempt ID and reason. Query `attempts` when counting all execution attempts.
 
 Who asked what today:
 

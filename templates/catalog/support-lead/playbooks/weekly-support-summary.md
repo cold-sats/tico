@@ -1,7 +1,6 @@
 # Weekly support summary
 
-Schedule: Mondays at 09:00 team time (routine `weekly-support-summary`), once a human has approved
-the first summary. Also run by hand on request. Budget 35 minutes. The outcome is one page for the
+Schedule: Mondays at 09:00 team time (routine `weekly-support-summary`), after setup. Also run by hand on request. Budget 35 minutes. The outcome is one page for the
 support owner, drafted, sent to nobody else.
 
 ---

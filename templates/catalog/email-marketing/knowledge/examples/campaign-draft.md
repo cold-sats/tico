@@ -30,7 +30,7 @@ The Acme team
 - [date the feature reaches all plans]: not in the brief.
 - [studio plan note]: I did not state whether the free plan includes it.
 
-## Send checklist (all yours to confirm)
+## Send checklist
 - [ ] Audience is "customers", who agreed to product news on signup (`knowledge/segments.md`)
 - [ ] Unsubscribe link and Acme's postal address in the footer
 - [ ] Plain-text version (attached below) reads well; links work

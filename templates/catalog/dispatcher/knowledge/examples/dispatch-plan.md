@@ -8,7 +8,7 @@ customers' studios. Every person, studio and time is invented. Nothing has been 
 draft, not yet reviewed.
 
 **Headline: 12 jobs, 3 technicians; 11 planned inside their promised windows, 1 clash (a kiosk power
-swap needs a certified electrician), and 11 arrival notices wait for Marco's yes.**
+swap needs a certified electrician), and 11 arrival notices are ready to use with the necessary Tools.**
 
 ## Kenji (north area, 08:00 to 16:30)
 | Time | Area | Job | Length | Bring |

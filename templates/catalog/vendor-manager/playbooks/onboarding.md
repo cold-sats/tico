@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a vendor register with a tier and
-an owner proposed for every vendor, a first weekly page from it, and the first routine confirmed.
+an owner proposed for every vendor, a first weekly page from it, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ Note which contracts you can already read and who the likely owners are. Do not 
 
 ## 2. Introduce yourself in three lines
 
-What you do (the vendor register, renewals opened 90 days before notice, reviews by tier), that you
-never renew, cancel or sign, and that nothing reaches a vendor without a human's approval.
+What you do (the vendor register, renewals opened 90 days before notice, reviews by tier), that requested renewals, cancellations and notices use your Tools and contract terms; vendor messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -40,7 +39,7 @@ vendor, every field with its source. A field you could not read says "not on fil
 Follow `playbooks/weekly-vendor-page.md` on the register you just built. Attach the page to the task
 labelled "First draft, not yet reviewed". Write a renewal brief only for the soonest notice deadline.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send this page every Tuesday at 09:00 and open each renewal 90 days before its notice deadline." They

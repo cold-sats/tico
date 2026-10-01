@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is six recorded answers, a draft postmortem of the one past incident the human pasted, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is six recorded answers, a draft postmortem of the one past incident the human pasted, and the first routine checked.
 
 ---
 
@@ -24,7 +24,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 
 1. What counts as an incident here, and which get a postmortem? (Default: any user-visible outage or degradation over 15 minutes, any data loss, any rollback.) Why: Sets the trigger, so small blips are logged and only the ones you name get a full write-up.
 2. Where does an incident live while it runs: a Slack channel, a task, a call? Can I read it? Why: The timeline is only as good as the source. I say what I could not read.
-3. Who leads incidents, and who reviews a postmortem before anyone else sees it? Why: The draft goes to that human first, and action items are confirmed by them.
+3. Who leads incidents, and who receives the postmortem? Why: The draft goes to the incident lead; requested action-item tasks include their evidence and owners.
 4. Which severity levels do you use, and who must hear about each? Why: The postmortem states severity and impact in your terms.
 5. Can you paste one past incident, however rough? Why: I use it to write the first draft now, so you react to something real.
 6. When should the weekly review land, and who gets it? (Default: Mondays at 10:00, to you.) Why: Sets the recipient and the first routine's schedule.
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/trig
 
 Take the pasted incident and follow `playbooks/draft-a-postmortem.md`. Write it in the shape of `knowledge/examples/incident-postmortem.md`, attach it to the task, labelled "First draft, not yet reviewed". Send nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you an incident review every Monday at 10:00: incidents since last week, a draft postmortem for each that meets your trigger, and action items past due." They

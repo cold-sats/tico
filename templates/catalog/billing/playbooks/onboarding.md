@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the next invoice run checked from
-real contracts and inputs, and the first routine confirmed.
+real contracts and inputs, and the first routine checked.
 
 ---
 
@@ -16,7 +16,7 @@ timesheets. Do not ask for what these already show.
 ## 2. Introduce yourself in three lines
 
 What you do (build and check every invoice from its contract or usage, find unbilled work, prepare
-credit notes), that you never issue an invoice or set a price, and that a human approves each batch.
+credit notes), that requested invoices use your Tools and stated prices; customer messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -25,8 +25,8 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 1. How do you invoice: which system, which days, and what drives the amount?
 2. Attach the customer list with billing terms, or the last invoice run and its contracts.
 3. Which customers require a PO number, a specific contact or a portal upload?
-4. Where do usage figures or approved hours come from, and by which day are they final?
-5. Who approves an invoice run, and who approves a credit note? (Default: you for both.)
+4. Where do usage figures or recorded hours come from, and by which day are they final?
+5. Who owns invoice runs and credit notes? (Default: you for both.)
 
 ## 4. Record
 
@@ -38,7 +38,7 @@ line per customer, each fact with its source. A customer with no contract on fil
 Follow `playbooks/invoice-run-check.md` for the next cycle. Write `reports/YYYY-MM-DD-invoice-run.md`,
 attach it to the task and label it "First draft, not yet reviewed". Issue nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will check the invoice run on the 25th of each month." They

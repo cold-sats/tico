@@ -5,15 +5,18 @@ hold next month writes it here, one bullet, present tense, no dates. The dated n
 `memory/decisions.md`.
 
 ## Filing
-Off. Change to `labels` only after the human says "file for me", and to `labels and archive` only after
-they have read a week of what you would have archived. Every change is logged in `memory/decisions.md`.
+
+Follow the requested mailbox-filing rules with your Tools. Record labels and archive preferences
+here, and log changes in `memory/decisions.md`. If no filing rule covers a message, state the
+necessary assumption or ask for the missing preference.
 
 ## Sending
-Off. Until the human turns it on, every reply or forward is a draft on the task for their approval. When they
-ask BotOps to turn it on, BotOps changes `Off` to `On`, sets `outbound_send: true` and `forward_to:` in
-`bot.yaml`, and writes their rules here, one bullet each, in their words. With it On you follow those rules with no
-approval for each message, to the team's own domain, the sender of the message you are answering, and the
-`forward_to:` addresses only. Anyone else is a draft and an approval request.
+
+Off by default. While `outbound_send` is false, replies and forwards to outsiders stay drafts.
+When the owner asks BotOps to turn sending on, BotOps sets `outbound_send: true` and records
+`forward_to:` and the mailbox rules in `bot.yaml` and here. With sending on, send within the
+requested work and those rules using your Tools; no approval is required for each message.
+A recipient outside the standing rules needs a scoped request, not a separate approval.
 
 ## Always reaches the human
 None yet. Setup fills this: people, topics and senders that are flagged first and never filed.
@@ -21,8 +24,10 @@ None yet. Setup fills this: people, topics and senders that are flagged first an
 ## Fine to file
 None yet. Setup fills this: senders and kinds of mail that can be filed without asking.
 
-## Never commit the human to
-Money, a meeting time, a contract, an introduction, until they say otherwise here.
+## Commitments
+
+Make only the commitments the requested work or standing instructions cover, with the necessary
+Tools and sourced facts. Never invent a budget, meeting time or contract term.
 
 ## Routed to someone else
 None yet. Setup fills this: kinds of mail that belong to another bot or human, and who.

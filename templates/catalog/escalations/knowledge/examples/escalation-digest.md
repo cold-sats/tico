@@ -26,8 +26,8 @@ invented. No update has been sent. First draft, not yet reviewed.
 - E-8, Birch Hill Barre: customer confirmed the import fix 2026-09-28. Lesson: imports over 5,000
   rows time out silently; a size check would have caught it before the customer did.
 
-## Updates ready for approval (nothing sent)
-E-14, to the Harbour Pilates owner, approver Marco:
+## Updates ready to use (nothing sent)
+E-14, to the Harbour Pilates owner, named owner:
 "Hi Sofia, an update on the double charges. Our engineers fixed the cause last night, so no new
 double charges will happen. We are now confirming each affected member's refund and will write again
 by 14:00 today with the list and timing. Marco owns this for you until it is fully resolved."

@@ -1,8 +1,7 @@
 # Daily escalation digest
 
-Schedule: weekdays at 08:30 team time (routine `daily-escalation-digest`), once a human has
-approved the first digest. Budget 25 minutes. The outcome is one page for the people who own
-escalations, plus every customer update due today ready for approval.
+Schedule: weekdays at 08:30 team time (routine `daily-escalation-digest`), after setup. Budget 25 minutes. The outcome is one page for the people who own
+escalations, plus every customer update due today ready to use.
 
 ---
 
@@ -28,11 +27,11 @@ with time and source.
 
 For each update due, write the exact text: what happened since the last update, what is happening next,
 when they will hear again. No fix date unless engineering gave one in writing, and then with the source.
-Name the recipient and the case owner who approves it.
+Name the recipient and the case owner.
 
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-escalations.md` in the shape of `knowledge/examples/escalation-digest.md` and
-`hub file publish` it. Put each update on the task as its own item for approval. Tell an owner whose
+`hub file publish` it. Put each update on the task as its own item for review. Tell an owner whose
 update is overdue with `hub message send`. For closed cases, add the lesson to `knowledge/lessons.md`. Commit,
 and finish the task with the counts and the path.

@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a revenue close pack for the last
-closed month, and the first routine confirmed.
+closed month, and the first routine checked.
 
 ---
 
@@ -40,7 +40,7 @@ rebuilt from invoices and contract dates, marked "rebuilt, to confirm").
 Follow `playbooks/monthly-revenue-close.md` for the last closed month. Write
 `reports/YYYY-MM-revenue-close.md`, attach it to the task and label it "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will prepare the revenue close pack on the 2nd of each month." They

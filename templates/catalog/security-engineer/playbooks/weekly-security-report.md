@@ -1,7 +1,6 @@
 # Weekly dependency and advisory report
 
-Schedule: Mondays at 08:00 team time (routine `weekly-security-report`), once a human has approved the
-first report. Also run by hand. Budget 45 minutes. The outcome is one page: what to patch first and why, in
+Schedule: Mondays at 08:00 team time (routine `weekly-security-report`), after setup. Also run by hand. Budget 45 minutes. The outcome is one page: what to patch first and why, in
 the order to merge it. Nothing is dismissed, merged or changed.
 
 ---
@@ -41,5 +40,4 @@ deadline from the policy.
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-DD-security-report.md` in the shape of `knowledge/examples/security-report.md`,
-`hub file publish` it with `--scope task`, and create a task for the owner of each tier 1 item after the
-requester's yes. Update `knowledge/ledger.md`, commit, then `hub task update <id> --status done --note`.
+`hub file publish` it with `--scope task`, and create a task for the owner of each tier 1 item within the requested work. Update `knowledge/ledger.md`, commit, then `hub task update <id> --status done --note`.

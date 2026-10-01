@@ -1,7 +1,6 @@
 # Weekly tier 2 queue report
 
-Schedule: Thursdays at 09:00 team time (routine `weekly-tier2-report`), once a human has approved
-the first report. Budget 30 minutes. The outcome is one page on the technical queue: what is open,
+Schedule: Thursdays at 09:00 team time (routine `weekly-tier2-report`), after setup. Budget 30 minutes. The outcome is one page on the technical queue: what is open,
 what engineering is holding, what was solved, and what keeps coming back.
 
 ---
@@ -25,7 +24,7 @@ every week until fixed.
 ## 4. Prepare replies
 
 For tickets where the investigation finished, the customer reply is ready on the Support Agent's task
-for approval. List them.
+for review. List them.
 
 ## 5. Write and hand over
 

@@ -193,3 +193,6 @@ bot had before is kept in the repository's history. The bot's own notes, knowled
 Bump `MIN_RUNNER_RELEASE` in the release that changes the runner/server contract, and say so in the changelog.
 Ship the server and runner image for that release together, and expect computers to move within a few minutes of
 the server's restart.
+
+Computers and `hub_computer_list` show installed and wanted releases, update state and last error.
+`hub_health_check` includes that Computer detail and service errors with the next step.

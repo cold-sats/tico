@@ -47,7 +47,7 @@ marked new. No credential or customer detail. Under the length a reader can fini
 ## 6. Finish
 
 Save the draft, attach it to the task, commit, then `hub task update <id> --status done --note`: the path,
-the type, the items marked to verify, and who should review. A human commits it; you never do.
+the type, the items marked to verify, and who should review. Commit requested changes with the repository Tools; run the docs build and checks when available, and name any missing Tool.
 
 ## When you cannot verify
 

@@ -158,6 +158,14 @@ def guarded(c, auth, who, inner):
         "import_refs": by_meeting,
         "documents": "1" if owner else "visibility='external'",
         "document_versions": "id IN (SELECT id FROM documents)",
+        "docs": "id IS NOT NULL", "doc_versions": "doc_id IN (SELECT id FROM docs)",
+        "linked_docs": "id IS NOT NULL",
+        "bot_files": ((f"bot={q(H.actor_id(who.actor))} AND " if bot else "")
+                      + f"(CASE WHEN scope LIKE 'task:%' THEN substr(scope,6) IN (SELECT id FROM tasks) "
+                        "WHEN scope LIKE 'conversation:%' THEN substr(scope,14) IN (SELECT id FROM conversations) "
+                        f"ELSE {bots_visible('bot')} END)"),
+        "bot_file_versions": "file_id IN (SELECT id FROM bot_files)",
+        "bot_file_activity": "file_id IN (SELECT id FROM bot_files)",
         # The company owner is not thereby the owner of everyone's private attachments (media.py).
         "blobs": ("" if bot else f"owner={me} OR ") + "id IN (SELECT blob_id FROM message_assets) "
                  "OR id IN (SELECT blob_id FROM task_assets) OR id IN (SELECT blob_id FROM media_assets)",

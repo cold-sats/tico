@@ -7,7 +7,7 @@ Sample output for Acme, a fictional studio-software team. Every partner and deal
 has been decided, sent or paid. First draft, not yet reviewed.
 
 **Headline: 3 registrations waiting (oldest 3 days), 1 conflict; partner pipeline $58k in 7 deals;
-fees due this month $1,840 for approval.**
+fees due this month $1,840 for review.**
 
 ## Registrations: proposed decisions
 - **Studio Growth Co (agency) for Lantern Pilates, received 2026-09-28 14:10.** Approve: complete, new
@@ -27,7 +27,7 @@ fees due this month $1,840 for approval.**
 - **Northside Web** (referral, signed 2026-03): 0 registrations. Proposed: a joint list of 10 accounts, or
   let the agreement lapse at its 2027-03 term. Your call.
 
-## Fees due (approval requested, kind spend)
+## Fees due (draft prepared, kind spend)
 - Studio Growth Co: Harbour Pilates, $18,400 collected 2026-09-03, clause 6.1 at 10% = $1,840.
 
 ## Sources

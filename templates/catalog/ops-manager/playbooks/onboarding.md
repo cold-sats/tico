@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a duties register with an owner and a date on every row, a real first weekly page on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a duties register with an owner and a date on every row, a real first weekly page on the task, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ that is a named gap in the first page and a task for the owner if they want it c
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly page of what is due, overdue and blocked, and vendor follow-up drafts), that you
-never send, sign, renew, cancel, order or pay, and that a human approves every message and every task.
+What you do (a weekly page of what is due, overdue and blocked, and vendor follow-up drafts), that requested messages and tasks use your Tools, and messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -28,7 +27,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 1. Which recurring duties does the team have: renewals, filings, insurance, licences, access reviews, backups, payroll dates, offsites? Paste the list or point me at where it lives. Becomes knowledge/duties.md. A duty I do not know about cannot be chased.
 2. For each duty, who owns it and what is its cadence and next due date? (I will propose owners; you correct them.) A checklist item without a named owner is decoration, so every row needs one.
 3. Which vendors matter most, and how long is too long to wait for an answer? (Default: three working days for a vendor, one for a blocker.) Sets when a quiet thread becomes a drafted follow-up.
-4. Who receives the weekly summary, and which day and hour should it land? (Default: you, Mondays at 08:30.) Sets the recipient and the routine's schedule. Nobody else receives it until you say so.
+4. Who receives the weekly summary, and which day and hour should it land? (Default: you, Mondays at 08:30.) Sets the recipient and the routine's schedule. Share only with the named recipients.
 5. Which topics must stay out of the summary: people matters, pay, legal disputes? Builds the exclusion list before the first draft, not after.
 
 ## 4. Record
@@ -43,7 +42,7 @@ Build the first weekly page from the register and the open tasks, following
 `playbooks/weekly-ops-checklist.md` and the shape of `knowledge/examples/ops-weekly.md`. Attach it to the
 task labelled "First draft, not yet reviewed". Draft one vendor follow-up if a thread has gone quiet. Send nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this page every Monday at 08:30, and a human sends anything to a vendor." They

@@ -4,14 +4,14 @@ A sample of excellent output for a fictional team. Every name in it is a stand-i
 # Acme interview logistics, Wed 2026-09-30
 
 Sample output for Acme, a fictional studio-software team. Candidates are references. Nothing has
-been sent or booked without an approval. First draft, not yet reviewed.
+been sent or booked while outbound_send is off. First draft, not yet reviewed.
 
 **Headline: 3 interviews today, all ready; 1 conflict tomorrow; 2 scorecards late; 1 debrief ready to book.**
 
 ## Fix first
 - **Tomorrow 10:00, BE-07 system design round:** Kenji now has a customer call at 10:00 (calendar
   2026-09-30 07:55). Proposed: move Kenji's round to 14:00, which the candidate listed as free. Asking
-  the candidate is on the task for approval.
+  the candidate is on the task for review.
 
 ## Today
 | Time (PT / candidate) | Candidate | Round | Panel | Kit |
@@ -22,7 +22,7 @@ been sent or booked without an approval. First draft, not yet reviewed.
 
 ## Waiting for times
 - AE-03 (Account Executive), moved to interview 2026-09-29 by Omar. Three options for 2026-10-02 and
-  2026-10-05 offered; message on the task for approval.
+  2026-10-05 offered; message on the task for review.
 
 ## Scorecards
 - BE-02, interviewed 2026-09-28: Marco submitted; Kenji not yet (1 day late, nudged today).

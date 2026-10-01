@@ -2,7 +2,7 @@
 
 Triggered by a task asking for a new campaign, a budget shift, new ads for a launch, or "why did
 cost per lead jump?". Budget 30 minutes. The outcome is one change, prepared completely, waiting for
-a human's approval. Nothing is applied here.
+the necessary Tools. Apply requested changes when those Tools are available.
 
 ---
 
@@ -29,14 +29,13 @@ happened. If the request breaks a never-change rule, say so on the task and stop
 - **Diagnosis:** the numbers before and after, what changed in the account or the market, and the
   one most likely cause. Say what you could not see.
 
-## 4. Put it up for approval
+## 4. Put it up for review
 
 On the task, in under 150 words: the change, the money, the evidence, how it will be judged and when.
-Money goes as `hub approval request --kind spend --payload-file <f> --task <id>`; copy as
-`--kind publish`. Record the proposal in `knowledge/changes.md` as "proposed".
+Apply requested spending changes within the budget and your Tools; public copy stays a draft until `outbound_send` is on. Record the proposal in `knowledge/changes.md` as "proposed".
 
-## 5. After the yes
+## 5. Apply the requested work
 
-A human applies it (or the connected account does, if the owner turned that on). Record who applied
+Apply the requested change with your connected account Tool. Record who applied
 it and when in `knowledge/changes.md`, and add the two-week check to next review's list.
 `hub task update <id> --status done --note`.

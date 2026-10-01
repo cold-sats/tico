@@ -20,7 +20,7 @@ invented. Nothing has been changed in the help desk. First draft, not yet review
 4. **Tags.** 3 near-duplicates (`refund`, `refunds`, `refund_request`: 212 tickets in total), 17 tags
    unused in 90 days. The September refunds report counts only `refund`. Change request CR-4.
 
-## Change requests (each for approval on its own)
+## Change requests (each for review on its own)
 - **CR-1.** Admin, Triggers, "Keyword: invoice": deactivate. Check: send a test email with "invoice"
   in the subject; it should land in Billing. Undo: reactivate.
 - **CR-2.** Admin, SLA policies, "Premium": first reply target 4h to 2h, business hours unchanged.

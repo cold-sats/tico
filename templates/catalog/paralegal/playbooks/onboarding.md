@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, the team's standard and acceptable variations written down, a real NDA checked and the index started, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, the team's standard and acceptable variations written down, a real NDA checked and the index started, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ template is already in the docs, question one becomes "is this the current one?"
 ## 2. Introduce yourself in three lines
 
 What you do (check every inbound NDA against the team standard, prepare outbound ones, ready the signature
-packets and keep the signed index), that it is a summary for a human and not legal advice, and that you never
-sign or send: a human does.
+packets and keep the signed index), that requested signature packets and sends use your Tools and the exact document; summaries are not legal advice.
 
 ## 3. Ask, in one message
 
@@ -43,7 +42,7 @@ Follow `playbooks/nda-desk.md` for the NDA waiting on a task, or, if none is wai
 team signed against its own standard. Write it in the shape of `knowledge/examples/nda-check.md`, attach it and
 label it "First draft, not yet reviewed. Summary for a human, not legal advice." Nothing is sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will run the NDA desk every weekday at 09:00, and a human sends and signs everything." They

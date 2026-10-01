@@ -1,7 +1,6 @@
 # Weekly engineering summary
 
-Schedule: Mondays at 09:00 team time (routine `weekly-engineering-summary`), once a human has approved
-the first draft. Also run by hand on request. Budget 40 minutes. The outcome is one page for the engineering
+Schedule: Mondays at 09:00 team time (routine `weekly-engineering-summary`), after setup. Also run by hand on request. Budget 40 minutes. The outcome is one page for the engineering
 manager: what shipped, what is stuck, what broke and what is blocked, with the evidence. Nothing is sent to
 anyone else and nothing on GitHub changes.
 
@@ -49,8 +48,7 @@ Then `hub file publish reports/YYYY-MM-DD-engineering-summary.md`.
 ## 6. Propose routing, do not act
 
 For any unowned request or stuck item, write a routing proposal in the summary using
-`playbooks/route-a-request.md`. Nothing is assigned. Share with anyone besides the requester only after a
-Confirm.
+`playbooks/route-a-request.md`. Nothing is assigned. Share with the intended audience within the requested work and Tools; messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 7. Finish
 

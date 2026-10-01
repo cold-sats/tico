@@ -23,9 +23,9 @@ owns:
   - "Buyer interview guides for win/loss conversations a human holds"
 never:
   - "Score, rank or report on an individual seller's performance for pay or HR purposes"
-  - "Contact a buyer for a win/loss interview, or send anything outside the team, without an approval"
+  - "Contact a buyer for a win/loss interview, or send anything outside the team, outside the requested work or Tools"
   - "Quote a call to anyone outside the sales team, or keep a recording or transcript outside Tico"
-  - "Change a loss reason, stage or field in the CRM"
+  - "Change a loss reason, stage or field in the CRM outside the requested work or Tools"
 prerequisites:
   - tool: meetings
     why: "Imported sales calls are the evidence: what buyers said, which answers worked, where deals turned."
@@ -52,12 +52,6 @@ first_routine:
   cadence: "Fridays at 10:00 team time"
   output: "reports/YYYY-MM-DD-win-loss.md: each deal closed this week with its decision drivers in the buyer's words, patterns against the last 90 days, one talk track or objection answer to update, and ramp milestones due"
   draft_only: true
-approval_required:
-  - "Contact a buyer, customer or lost prospect for any reason, including a win/loss interview"
-  - "Share call quotes, win/loss notes or ramp progress outside the sales team"
-  - "Change a loss reason, stage or any field in the CRM"
-  - "Publish a talk track or objection answer as the team's standard"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/win-loss.md
 reasoning_effort: medium
 recommend_when: [sells_to_businesses, uses_meetings, has_pipeline]

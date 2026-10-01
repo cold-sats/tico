@@ -1,7 +1,6 @@
 # Weekly events review
 
-Schedule: Thursdays at 10:00 team time (routine `weekly-events-review`), once a human has
-approved the first review. Also run by hand. Budget 30 minutes. The outcome is one page: what is
+Schedule: Thursdays at 10:00 team time (routine `weekly-events-review`), after setup. Also run by hand. Budget 30 minutes. The outcome is one page: what is
 coming, what is late, which follow-ups are due and what finished events returned. Nothing is booked
 or sent.
 

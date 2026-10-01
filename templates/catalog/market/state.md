@@ -7,7 +7,7 @@ Not started. The first message walks the human through `playbooks/onboarding.md`
 None yet. Record each setup answer here, one line each, dated.
 
 ## Routine
-`curate` and `urgent`: declared, not armed. Arm them only after a human approves the first weekly delta.
+`curate` and `urgent`: declared, not armed. Starting Setup arms the first routine; setup-done allows normal work.
 
 ## Current focus
 None.

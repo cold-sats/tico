@@ -101,7 +101,8 @@ function routineById(id) {
 }
 // The routine editor: one dialog for a new routine on a bot and for editing one. What it saves
 // is the hub's row; the bot reads the task the row opens when it is due (backend/routines.py).
-const ROUTINE_EVENTS = [['meeting.ready', 'when a meeting is imported']];
+const ROUTINE_EVENTS = [['meeting.ready', 'When a meeting is imported'],
+  ['recording.ready', 'When a meeting is imported (legacy)'], ['market.insight.urgent', 'When a market insight is urgent']];
 function routineEditorOpen(r = null, bot = '') {
   let dialog = $('#routine-editor');
   if (!dialog) {
@@ -112,14 +113,16 @@ function routineEditorOpen(r = null, bot = '') {
   const editing = !!r, slug = editing ? (r.employee || r.bot) : bot;
   const mine = (S.emps || []).filter(e => e.status !== 'archived' && routineMayEdit({bot: e.name}));
   const kind = editing && r.on ? 'event' : 'cron';
+  const events = r?.on && !ROUTINE_EVENTS.some(([value]) => value === r.on)
+    ? [...ROUTINE_EVENTS, [r.on, r.on]] : ROUTINE_EVENTS;
   dialog.innerHTML = `<form><div class="tmodal-head"><h2 id="routine-editor-title">${editing ? 'Edit routine' : 'New routine'}</h2><span class="spacer"></span><button class="ghost" type="button" data-routine-close aria-label="Close">✕</button></div>
     <div class="bot-editor-body">
       <div class="bot-editor-grid">
-        <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => `<option value="${esc(e.name)}" ${e.name === slug ? 'selected' : ''}>${esc(e.display_name || e.name)}</option>`).join('')}</select></label>
+        <label>Bot<select name="bot" ${editing ? 'disabled' : ''} required>${(editing ? [S.emps.find(e => e.name === slug) || {name: slug}] : mine).map(e => `<option value="${esc(e.name)}" ${e.name === slug ? 'selected' : ''}>${esc(botDisplayName(e.name))}</option>`).join('')}</select></label>
         <label>Title<input name="title" type="text" value="${esc(r?.title || '')}" maxlength="300" required autocomplete="off"></label>
         <label>Runs<select name="kind"><option value="cron" ${kind === 'cron' ? 'selected' : ''}>On a schedule</option><option value="event" ${kind === 'event' ? 'selected' : ''}>When something happens</option></select></label>
         <label data-routine-cron ${kind === 'cron' ? '' : 'hidden'}>Cron<input name="cron" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.cron || '0 7 * * 1-5')}" placeholder="0 7 * * 1-5" maxlength="100"></label>
-        <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${ROUTINE_EVENTS.map(([v, w]) => `<option value="${v}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
+        <label data-routine-event ${kind === 'event' ? '' : 'hidden'}>Event<select name="on">${events.map(([v, w]) => `<option value="${esc(v)}" ${r?.on === v ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></label>
         <label data-routine-tz ${kind === 'cron' ? '' : 'hidden'}>Timezone<input name="timezone" type="text" autocomplete="off" spellcheck="false" value="${esc(r?.timezone || 'America/Los_Angeles')}" maxlength="100"></label>
         <label class="bot-editor-wide">Instruction<textarea name="text" maxlength="100000" placeholder="Go through the messages and…">${esc(r?.text || '')}</textarea></label>
       </div>

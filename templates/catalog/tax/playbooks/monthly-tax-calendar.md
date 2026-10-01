@@ -1,7 +1,6 @@
 # Monthly tax calendar
 
-Schedule: the 1st of each month at 09:00 team time (routine `monthly-tax-calendar`), once a human
-has approved the first calendar. Budget 40 minutes. The outcome is one page: what is due in the next
+Schedule: the 1st of each month at 09:00 team time (routine `monthly-tax-calendar`), after setup. Budget 40 minutes. The outcome is one page: what is due in the next
 90 days, who files it, whether its inputs are ready, and what is changing. Nothing is filed or sent.
 
 ---
@@ -33,4 +32,4 @@ form collected during setup.
 
 `reports/YYYY-MM-tax-calendar.md` in the shape of `knowledge/examples/tax-calendar.md`, `hub file
 publish` it, commit, and `hub task update <id> --status done --note` with the next deadline and
-anything late. Questions for the accountant are prepared on the task for a human to send.
+anything late. Questions for the accountant are prepared on the task to send with Tools when outbound_send is on.

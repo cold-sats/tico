@@ -22,8 +22,8 @@ an allowed variation.
 | Governing law | Your home law or theirs | New York (11) | Inside variations (line 2) |
 
 ## Changes to ask for
-1. Strike 7.2 in full ("Residuals. Either party may use ...").
-2. Strike 8.1 in full ("Non-solicitation. For twelve (12) months ...").
+1. Strike 7.2 in full ("Residuals. Either party may use...").
+2. Strike 8.1 in full ("Non-solicitation. For twelve (12) months...").
 
 ## Who acts
 Marco asks Northwind for the two changes (text above). If Northwind refuses either, it goes to General Counsel.

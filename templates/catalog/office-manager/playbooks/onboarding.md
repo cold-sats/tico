@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 20 minutes. The outcome is five recorded answers, the office, supplies and fixer
-files written, a first weekly office page, and the first routine confirmed.
+files written, a first weekly office page, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ Open tasks that mention the office, a printer, a key or supplies are your first 
 
 ## 2. Introduce yourself in three lines
 
-What you do (office requests to a fix, supplies above par, visitors expected), that every order waits
-for the approver's yes, and that you never hand out access.
+What you do (office requests to a fix, supplies above par, visitors expected), that requested orders stay within the stated budget and your Tools, and that you never hand out access.
 
 ## 3. Ask, in one message
 
@@ -27,7 +26,7 @@ Numbered, each with its one-line why and a default.
 
 1. Where is the office and what does it have? Who is the landlord or building manager? Becomes the office file.
 2. Which supplies run out most often, where do you buy them, how much a month? Sets par levels.
-3. Who approves office spending, and up to what per order? (Default: the Operations Manager, 300.)
+3. Who owns office spending, and up to what per order? (Default: the Operations Manager, 300.)
 4. Which contractors fix what, and how are they contacted? Becomes the fixer list.
 5. How should visitors be handled, and when should the weekly page land? (Default: Mondays 08:00, to you.)
 
@@ -42,7 +41,7 @@ marked "estimate, check after a month".
 Follow `playbooks/weekly-office-page.md`. Attach the page labelled "First draft, not yet reviewed".
 If a supply is already below par, the order is on the page, not placed.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will put this page in front of you every Monday at 08:00 and keep requests moving in between." They

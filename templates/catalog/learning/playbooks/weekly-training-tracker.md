@@ -1,7 +1,6 @@
 # Weekly training tracker
 
-Schedule: Thursdays at 09:00 team time (routine `weekly-training-tracker`), once a human has approved
-the first tracker. Budget 25 minutes. The outcome is one page for the HR owner: what is overdue, what is
+Schedule: Thursdays at 09:00 team time (routine `weekly-training-tracker`), after setup. Budget 25 minutes. The outcome is one page for the HR owner: what is overdue, what is
 due, what new starters need, what expires, and what is waiting for budget. Nothing is enrolled or sent.
 
 ---
@@ -38,7 +37,7 @@ Requests on tasks waiting for a decision, with cost and the skill they serve.
 
 Write `reports/YYYY-MM-DD-training-tracker.md` in the shape of `knowledge/examples/training-tracker.md`
 (counts by team), then `hub file publish reports/YYYY-MM-DD-training-tracker.md --scope task --task <id>`.
-Put the per-manager lists on the task for approval. Delete the export, commit, and
+Put the per-manager lists on the task for review. Delete the export, commit, and
 `hub task update <id> --status done --note`.
 
 ## When a source fails

@@ -167,3 +167,26 @@ def test_a_bot_sees_only_its_turn_its_tasks_and_no_private_data(api, world):
     # Another person's private room stays out of reach even when named directly.
     assert query(api, "SELECT body FROM messages WHERE conversation_id=:room", token,
                  params={"room": world["steven_room"]})["rows"] == []
+
+
+def test_current_docs_and_files_follow_api_visibility(api, world):
+    doc = post(api, "docs", {"title": "Release guide", "body": "Read the release notes.", "path": "release-guide.md"})["doc"]
+    linked = post(api, "linked-docs", {"title": "Release reference", "url": "https://example.com/release"})["linked"]
+    with api.app.state.store.transaction() as c:
+        for fid, scope in (("public-file", "bot"), ("ana-file", "conversation:" + world["ana_room"]),
+                           ("ben-file", "conversation:" + world["steven_room"]),
+                           ("task-file", "task:" + world["coo_task"]["id"])):
+            c.execute("INSERT INTO bot_files(id,bot,scope,identity,title,kind,locator,first_activity_at,last_activity_at) "
+                      "VALUES(?,'ops',?,?,'Release notes','document','remote_link',?,?)", (fid, scope, fid, H.now(), H.now()))
+    assert column(api, "SELECT id FROM docs") == [doc["id"]]
+    assert column(api, "SELECT doc_id FROM doc_versions") == [doc["id"]]
+    assert column(api, "SELECT id FROM linked_docs") == [linked["id"]]
+    assert column(api, "SELECT id FROM bot_files") == ["ana-file", "public-file", "task-file"]
+    assert column(api, "SELECT id FROM bot_files", "ben-test") == ["ben-file", "public-file", "task-file"]
+    assert column(api, "SELECT id FROM bot_files", world["attempt"]["token"]) == ["ana-file", "public-file", "task-file"]
+    assert query(api, "SELECT count(*) FROM docs")["rows"] == [[1]]
+    assert query(api, "SELECT count(*) FROM bot_files")["rows"] == [[3]]
+    assert "prohibited" in error(api, "SELECT * FROM main.docs")
+    assert "prohibited" in error(api, "SELECT * FROM main.bot_files")
+    for table in ("bot_file_versions", "bot_file_activity"):
+        assert query(api, "SELECT count(*) FROM " + table)["rows"] == [[0]]

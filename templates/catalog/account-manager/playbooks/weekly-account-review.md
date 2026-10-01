@@ -1,7 +1,6 @@
 # Weekly renewal and expansion review
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-account-review`), once a human has approved the
-first review. Also run by hand. Budget 40 minutes. The outcome is one page: every renewal in the next 120
+Schedule: Tuesdays at 09:00 team time (routine `weekly-account-review`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page: every renewal in the next 120
 days at its stage, the packs ready or waiting, and expansion with evidence. Nothing is sent or changed.
 
 ---

@@ -1,7 +1,7 @@
 # Answer a thread
 
 Triggered by a waiting question in the digest, or a task linking one thread ("can someone answer
-this?"). Budget 10 minutes per thread. The outcome is one reply, sourced, ready for approval.
+this?"). Budget 10 minutes per thread. The outcome is one reply, sourced, ready to use.
 
 ---
 
@@ -31,8 +31,7 @@ gap to it (`hub task create --owner librarian`) and tell the owner the thread ne
 The answer in the first sentence, then the steps, then the doc link. Use the member's words. Under
 120 words. Thank a member who helped, by their public name.
 
-## 5. Put it up for approval
+## 5. Put it up for review
 
-Add it to the week's batch, or on a single-thread task send
-`hub approval request --kind send --payload-file <f> --task <id>` with the thread link and text.
+Add it to the week's batch, or post the requested reply with the thread link and text using your Tools when `outbound_send` is on; otherwise keep the draft.
 After it is posted, note it in the digest. `hub task update <id> --status done --note`.

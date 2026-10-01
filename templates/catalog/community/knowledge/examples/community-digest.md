@@ -7,7 +7,7 @@ Sample output for Acme, a fictional studio-software team whose studio owners sha
 Nothing has been posted, thanked or moderated. First draft, not yet reviewed.
 
 **Headline: 31 of 38 questions answered within one business day (82%, target 90%); 4 are still
-waiting, oldest 3 days. 4 replies are ready for approval.**
+waiting, oldest 3 days. 4 replies are ready to use.**
 
 ## Waiting past target (replies prepared, source cited)
 1. "Can clients join a waitlist from the app?" (2026-09-22, 3 days). Yes; steps and link to

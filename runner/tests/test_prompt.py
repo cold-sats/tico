@@ -29,6 +29,13 @@ class PromptLabels(unittest.TestCase):
     def setUp(self):
         self.runner = Runner.__new__(Runner)
 
+    def test_update_acknowledgement_uses_the_final_answer_without_a_task(self):
+        current = {"id": "m1", "from_actor": "human:ana", "body": "Thanks!", "refs": {"update": "u1"}}
+        prompt = prompt_of(self.runner, attempt(current, []))
+        self.assertIn("final answer is automatically attached to that update", prompt)
+        self.assertIn("hub_update_reply is for humans", prompt)
+        self.assertIn("short reply and no task", prompt)
+
     def test_next_run_tasks_ride_in_the_same_prompt_under_one_header(self):
         # Bot Desk finds this block in the transcript by its header and shows each task apart.
         from runner.service import NEXT_RUN_HEADER

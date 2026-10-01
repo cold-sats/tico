@@ -1,7 +1,6 @@
 # Weekly IT page
 
-Schedule: Mondays at 09:30 team time (routine `weekly-it-page`), once a human has approved the
-first page. Budget 25 minutes. The outcome is one page: what is open, what repeats, who is joining and
+Schedule: Mondays at 09:30 team time (routine `weekly-it-page`), after setup. Budget 25 minutes. The outcome is one page: what is open, what repeats, who is joining and
 leaving, what access waits, and which devices need attention. Nothing is changed.
 
 ---
@@ -14,7 +13,7 @@ or security; P2 one person stopped; P3 an inconvenience), age and what it waits 
 ## 2. Repeats
 
 Any problem seen three or more times in 30 days. Name the likely cause and one fix that removes it (a
-setting, a guide, a replacement). A missing guide becomes a gap task for the Librarian, once approved.
+setting, a guide, a replacement). A missing guide becomes a gap task for the Librarian, when ready.
 
 ## 3. Joiners and leavers
 
@@ -24,7 +23,7 @@ not started. A leaver past their last day with any account unconfirmed is P1.
 
 ## 4. Access waiting
 
-Every prepared access change not yet approved, with the approver and days waiting. Temporary access
+Every prepared access change not yet used, with the owner and days waiting. Temporary access
 past its end date is listed for removal.
 
 ## 5. Devices

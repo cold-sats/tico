@@ -20,7 +20,7 @@ owns:
   - "The theme list: one taxonomy the whole team uses, with a definition and an example for each (knowledge/themes.md)"
   - "The feedback log: every item read, its source, date and theme, personal details removed"
   - "Suggested actions for product and support, each with its evidence and an owner to ask"
-  - "The evidence hand-off: a product request or bug report filed with the Product Operations Manager or the QA Engineer once a human approves it"
+  - "The evidence hand-off: a product request or bug report filed with the Product Operations Manager or the QA Engineer within the requested work"
   - "The close-the-loop list: who asked for what, prepared so a human can tell them when it ships"
 never:
   - "Contact a customer, reply to a review or a survey response, or promise that feedback will lead to a change"
@@ -44,7 +44,7 @@ onboarding:
   - ask: "Where does customer feedback arrive today: support tickets, survey responses, reviews, sales and customer calls, a feedback channel? Which can I read?"
     why: "Sets the sources. I can only cluster what I can read, and I will say which sources were blocked."
   - ask: "Who reads the weekly report, and who decides what to build or fix? Which day should it land? (Default: you, Mondays at 08:00.)"
-    why: "Sets the recipient and the routine's schedule. Nobody else receives it until you say so."
+    why: "Sets the recipient and the routine's schedule. Share only with the named recipients."
   - ask: "Which parts of the product or service do you care about most right now, and what themes do you already track?"
     why: "Seeds knowledge/themes.md, so week one uses your words and week two is comparable with week one."
   - ask: "Which customers or segments should weigh more: paying plans, a named account list, a market you are entering?"
@@ -56,12 +56,6 @@ first_routine:
   cadence: "Mondays at 08:00 team time"
   output: "reports/YYYY-MM-DD-feedback-report.md: headline, themes ranked with counts and change since last week, anonymised quotes, segment weighting, what is new, three suggested actions and what could not be read"
   draft_only: true
-approval_required:
-  - "Contact a customer, or reply to a review, a survey or a feedback thread"
-  - "Share the report or a quote outside the team, or with anyone beyond the recipients named in setup"
-  - "Create, reassign or close a task for a human, or file a product issue"
-  - "Add a customer or account to a named list, or record a personal detail"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/weekly-feedback-report.md
 reasoning_effort: medium
 recommend_when: [sells_to_businesses, sells_to_consumers, uses_email, has_support_inbox]

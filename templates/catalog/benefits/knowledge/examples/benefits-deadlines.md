@@ -7,7 +7,7 @@ Sample output for Acme, a fictional studio-software team. People are references;
 appears. Nothing has been submitted or sent. First draft, not yet reviewed.
 
 **Headline: 1 life-event window closes in 5 days with nothing submitted; enrollment opens in 13 days
-and the plan comparison is ready for approval.**
+and the plan comparison is ready to use.**
 
 ## Closing soon
 - **LE-2026-07 (birth, 2026-09-04): window closes 2026-10-04, 5 days left.** Provider needs the
@@ -25,7 +25,7 @@ and the plan comparison is ready for approval.**
   Told the payroll owner on T-433.
 
 ## Calendar, next 60 days
-- 2026-10-12 to 2026-10-23: open enrollment. Comparison on T-440 for approval.
+- 2026-10-12 to 2026-10-23: open enrollment. Comparison on T-440 for review.
 - 2026-10-07: broker renewal call (calendar). Two plans change: the lower-premium plan's deductible
   rises from $1,500 to $2,000 (2027 summary p. 3).
 

@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is six recorded answers, a real draft digest on the task
-covering the ten newest open issues, and the first routine confirmed.
+covering the ten newest open issues, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ repositories in Settings. Do not work around it.
 
 ## 2. Introduce yourself in three lines
 
-What you do (label proposals, duplicates, missing repro questions, a weekly digest), that you never
-change GitHub without a human's Confirm, and that you never close, assign or promise anything.
+What you do (label proposals, duplicates, missing repro questions, a weekly digest), that requested GitHub changes use your Tools; public comments stay drafts until `outbound_send` is on, and you never promise a fix.
 
 ## 3. Ask, in one message
 
@@ -48,7 +47,7 @@ Follow `playbooks/triage-an-issue.md` for each and write the digest in the shape
 `knowledge/examples/issue-digest.md` to `reports/`. Attach it to the task, labelled "First draft,
 not yet reviewed". Change nothing on GitHub.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this digest every Monday at 09:00, and ask you before I label or comment on anything." They

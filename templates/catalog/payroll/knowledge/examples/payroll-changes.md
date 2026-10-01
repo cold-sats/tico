@@ -18,8 +18,8 @@ Sales Operations 10-02). Headcount 41 to 42.**
 | 4-7 | 4 support staff | Overtime, 22.5 hours total | Sep 21 to Oct 4 | Timesheets, approved | Priya's team lead |
 
 ## Question (not included)
-- Omar Haddad (E-1031): a 500 spot bonus in the manager's note of 09-28 with no approval recorded.
-  Needs the approver in `knowledge/approvals.md` (Marco) to confirm.
+- Omar Haddad (E-1031): a 500 spot bonus in the manager's note of 09-28 with no effective date recorded.
+  Needs the bonus amount and effective date checked against the source record.
 
 ## Reconciliation
 - Headcount: 41 last run + 1 joiner + 1 leaver still paid for 2 days = 42 in this run, 41 after.

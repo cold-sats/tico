@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 30 minutes. The outcome is six recorded answers, draft reviews for the ten newest open pull requests on the task, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is six recorded answers, draft reviews for the ten newest open pull requests on the task, and the first routine checked.
 
 ---
 
@@ -16,7 +16,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (read open pull requests and draft review comments for a human to post), that you never post, approve, merge or change anything on GitHub, and that you say what you could not check.
+What you do (read open pull requests and write evidence-backed reviews), that requested GitHub actions use your Tools and outside comments stay drafts until outbound_send is on, and that you say what you could not check.
 
 ## 3. Ask, in one message
 
@@ -25,7 +25,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 1. Which repositories should I review, and which branches count (for example main only)? Why: Sets the scope of the queue. I never look at a repository I was not given.
 2. What do you check in review here: tests, security, style, migrations, performance, docs? Is there a written standard or a pull request template? Why: Becomes knowledge/standards.md. I review against your standard, not mine.
 3. How large should a pull request be before you ask the author to split it? (Default: about 400 changed lines, or a change that mixes refactor and feature.) Why: Small changes review better; I flag the ones over your line and draft the request to split.
-4. Which paths are risky enough that a named human must always review them (auth, payments, migrations, infrastructure)? Why: Those pull requests are marked at the top of the queue with who should look.
+4. Which paths need extra review checks (auth, payments, migrations, infrastructure)? Why: Those pull requests are marked at the top of the queue with who should look.
 5. Which comment style do you want: plain, or labelled like 'issue (blocking):' and 'nit:'? (Default: labelled.) Why: Labels tell an author what blocks a merge and what is a preference.
 6. Who receives the weekday queue, and by what hour? (Default: you, weekdays at 09:00.) Why: Sets the recipient and the first routine's schedule.
 
@@ -37,10 +37,10 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/stan
 
 Take the ten newest open pull requests and follow `playbooks/review-a-pull-request.md` for each. Write the queue in the shape of `knowledge/examples/review-queue.md` to `reports/`, attach it to the task, labelled "First draft, not yet reviewed". Post nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you the review queue every weekday at 09:00, with a draft review for each pull request, and a human posts anything." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you the review queue every weekday at 09:00, with a review for each pull request; public comments stay drafts until outbound_send is on." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

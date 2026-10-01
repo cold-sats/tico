@@ -1,7 +1,7 @@
 # Build a salary band
 
 Triggered by a task asking for a band for a role family, or by a role with no band. Budget 45 minutes.
-The outcome is a proposed band per level with its source, for an approver to accept. Nothing is published.
+The outcome is a proposed band per level with its source, for an owner to accept. Nothing is published.
 
 ---
 
@@ -29,10 +29,9 @@ senior levels. State the overlap with the level above and below.
 ## 5. Check against current pay
 
 Using the payroll export attached for this purpose: how many people in the role family fall below the
-minimum or above the maximum (counts in the page, references in an attachment for the approvers).
+minimum or above the maximum (counts in the page, references in an attachment for the owners).
 
 ## 6. Hand over
 
-Attach the proposal with its sources and ask with `hub task ask <id>`: "Accept these bands?" On a yes,
-record them in `knowledge/bands.md` with the date and the approver. A band from fewer than three data
+Attach the proposal with its sources and record requested bands in `knowledge/bands.md` with the date and owner. A band from fewer than three data
 points is marked provisional.

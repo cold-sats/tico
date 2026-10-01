@@ -29,8 +29,7 @@ needs one leaves a marked gap. Include the recipient, subject and the source tha
 
 ## 4. Hand over
 
-Attach the draft to the task. To have it sent, `hub approval request --kind send` with the exact text and
-recipient; otherwise the owner copies it. Never send.
+Attach the draft to the task. Send the requested text to its recipient with your Tools when `outbound_send` is on; otherwise keep the draft.
 
 ## 5. Record
 

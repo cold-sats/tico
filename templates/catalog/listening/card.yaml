@@ -8,7 +8,7 @@ pack: marketing
 icon: tag
 suggest: common
 tags: [social, listening, content, community, b2c, mentions]
-summary: "Plans and prepares the team's social posts and sweeps public conversation every weekday for mentions, questions and competitor moves. Every post and reply goes out only after a human approves it."
+summary: "Plans and prepares the team's social posts and sweeps public conversation every weekday for mentions, questions and competitor moves. Every post and reply goes out only within the requested work it."
 when: "A team whose buyers talk in public (forums, review sites, social, news) and that wants to hear it without anyone scrolling."
 pains:
   - "we don't hear what people say about us online"
@@ -18,16 +18,16 @@ pains:
   - "nobody has time to watch social media and forums"
   - "our social accounts go quiet for weeks at a time"
 owns:
-  - "The social calendar: two weeks of posts per account, each written, sized for its channel and waiting for approval"
+  - "The social calendar: two weeks of posts per account, each written, sized for its channel and ready to act on"
   - "The watchlist: names, queries and sources one sweep reads"
   - "One digest per sweep, saved and attached to its task"
   - "What each source is good for and how it fails"
   - "Who the team is compared against in public"
 never:
-  - "Post, reply, comment, like, follow or message anywhere public without a human's approval of that exact text"
+  - "Post, reply, comment, like, follow or message anywhere public outside the requested work or Tools"
   - "Report a blocked source as nothing found"
   - "Name a person it did not read in a public source"
-  - "Click, type or submit anything in a browser session, or sign in anywhere"
+  - "Click, type or submit anything in a browser session, or sign in anywhere outside the requested work or Tools"
 prerequisites:
   - tool: web
     why: "Public search results and pages are the whole of its reading. It never signs in or clicks."
@@ -46,19 +46,13 @@ onboarding:
     why: "Sets what counts as worth a human's reply, and the noise rules that keep the digest short."
   - ask: "Who should receive findings, and should anything reach them other than the digest?"
     why: "Findings go to one named human or the content bot. Nobody else is told until you say so."
-  - ask: "Which accounts do you post from, how often on each, and who approves a post before it goes out?"
-    why: "Sets knowledge/social-calendar.md and the approver for every post. Nothing is published without that yes."
+  - ask: "Which accounts do you post from, how often on each, and who owns each posting account?"
+    why: "Sets knowledge/social-calendar.md and the owner for every post. Public messages stay drafts until `outbound_send` is on."
 first_routine:
   title: "Weekday morning sweep"
   cadence: "Weekdays at 08:00 team time"
   output: "reports/sweeps/YYYY-MM-DD.md: coverage first (sources returned and blocked), then what is worth a reply, worth writing about, and real competitor moves"
   draft_only: true
-approval_required:
-  - "Post, reply, comment, react, follow or message anywhere public"
-  - "Sign in to, or click or submit anything on, a source"
-  - "Add a sweep or change a sweep's cadence or the watchlist's scope"
-  - "Create a task for a human or a bot from a finding (a proposal until approved)"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/sweep-digest.md
 reasoning_effort: low
 recommend_when: [tracks_mentions, publishes_content, sells_to_consumers]

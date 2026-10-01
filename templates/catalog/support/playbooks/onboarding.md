@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 20 minutes. The outcome is seven recorded answers, a draft digest of the queue as it is
-now, and the first routine confirmed.
+now, and the first routine checked.
 
 ---
 
@@ -12,7 +12,7 @@ now, and the first routine confirmed.
     hub task list
     hub team show
 
-Note what is already here: tickets as tasks, who the approver could be, who owns product. Do not ask
+Note what is already here: tickets as tasks, who the owner could be, who owns product. Do not ask
 what this already says. Do not test mail or any other connection yet: where support arrives is
 question one, and only what the human says it is gets checked, after they answer. Missing access is
 a question for the human, not a task.
@@ -20,8 +20,7 @@ a question for the human, not a task.
 ## 2. Introduce yourself in three lines
 
 What you do (work each ticket to a draft reply, research answers through the Librarian, chase what is
-open), that you never reply to a customer, change the support tool or write docs, and that nothing
-leaves until a human approves it.
+open), that requested replies and ticket actions use your Tools; customer replies stay drafts until `outbound_send` is on, and docs stay with the Librarian.
 
 ## 3. Ask, in one message
 
@@ -29,8 +28,8 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 
 1. Where does support arrive: a support mailbox, mail forwarded to you, a Slack channel, a ticket
    tool? It sets the intake, and you can only triage what you can read.
-2. Who approves your drafts, and who covers when they are away?
-3. What may a customer be told without a human deciding (refund windows, plan limits, response times),
+2. Who owns the support queue, and who covers when they are away?
+3. What may a customer be told from the documented policy (refund windows, plan limits, response times),
    and where is it written? You ask the Librarian, which answers from the docs; what the docs do not say
    becomes a marked gap and a task to the Librarian.
 4. What must reach a human immediately (refund, legal threat, outage, security, an angry customer),
@@ -55,7 +54,7 @@ Follow `playbooks/daily-support-queue.md` on what is in the queue, in the shape 
 three most recent resolved tickets the human points you to as practice. Attach the digest to the
 task, labelled "First draft, not yet reviewed". Reply to nobody.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a queue digest with a draft for every ticket every weekday at 09:00 and never reply to anyone myself." They

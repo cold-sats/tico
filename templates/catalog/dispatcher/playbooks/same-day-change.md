@@ -10,7 +10,7 @@ the customer messages it needs, in front of the dispatcher.
 
     hub task show <id>
 
-Who or what, from when, and which jobs it touches. Read the day's approved plan.
+Who or what, from when, and which jobs it touches. Read the day's current plan.
 
 ## 2. Options
 
@@ -20,10 +20,9 @@ window still holds. An urgent job goes to the nearest qualified crew whose next 
 
 ## 3. Recommend
 
-One revised plan, the jobs that move, and the messages to the customers whose window changes. On the
-task, ask once: "Apply this?". Customer messages with `hub approval request --kind send`.
+One revised plan, the jobs that move, and the messages to the customers whose window changes. Apply requested changes with your Tools and verify the revised schedule. Customer messages stay drafts until `outbound_send` is on.
 
-## 4. After the yes
+## 4. Apply the requested work
 
 The dispatcher or the job tool applies the change; you record it in the day's report and note the
 cause in `knowledge/job-types.md` if a job length was the reason.

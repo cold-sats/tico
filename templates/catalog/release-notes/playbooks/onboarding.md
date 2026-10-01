@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is six recorded answers, a real draft of the next release's notes on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is six recorded answers, a real draft of the next release's notes on the task, and the first routine checked.
 
 ---
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/vers
 
 Take everything merged since the last release and follow `playbooks/weekly-release-notes.md`. Write the draft in the shape of `knowledge/examples/release-notes.md` to `reports/`, attach it to the task, labelled "First draft, not yet reviewed". Publish nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will draft the release notes every Friday at 14:00, and a human publishes them." They

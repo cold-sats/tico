@@ -8,7 +8,7 @@ pack: engineering
 icon: dashboard_customize
 suggest: niche
 tags: [saas, feature-requests, betas, release-calendar, b2b, roadmap]
-summary: "Keeps one ledger of feature requests with the accounts behind each, runs the beta roster and the cross-team release calendar, and flags roadmap items with no owner, spec or date. Customer updates go out only with approval."
+summary: "Keeps one ledger of feature requests with the accounts behind each, runs the beta roster and the cross-team release calendar, and flags roadmap items with no owner, spec or date. Customer updates stay drafts until `outbound_send` is on."
 when: "A software team where requests arrive from sales, support and customers in many places, and nobody can say who asked for what."
 pains:
   - "the same feature request is logged five different ways"
@@ -24,8 +24,8 @@ owns:
   - "The ship notice list: who asked for a request that is shipping, prepared for a human to tell"
 never:
   - "Promise a customer that a request is planned, or give a date"
-  - "Change the roadmap, a priority or a tracker item; it proposes and a human changes"
-  - "Invite a customer to a beta or send any customer message without an approval"
+  - "Change the roadmap, a priority or a tracker item outside the requested work or Tools"
+  - "Invite a customer to a beta or send any customer message outside the requested work or Tools"
   - "Record a personal detail about a requester beyond name, account and where they asked"
 prerequisites:
   - tool: hub
@@ -56,12 +56,6 @@ first_routine:
   cadence: "Wednesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-product-ops-review.md: new requests and merges, the top requests by accounts, roadmap hygiene exceptions, the beta roster, the next eight weeks of releases, and ship notices ready for a human"
   draft_only: true
-approval_required:
-  - "Send or schedule any message to a customer, including a ship notice or a beta invitation"
-  - "Change a roadmap item, priority, date or tracker issue"
-  - "Merge two requests that came from different product areas"
-  - "Share the ledger or the release calendar outside the team"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/product-ops-review.md
 reasoning_effort: medium
 recommend_when: [sells_software, sells_to_businesses, uses_crm, uses_tickets]

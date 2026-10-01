@@ -2,7 +2,7 @@
 
 Triggered by a task naming a role and level, or a person's manager asking for a plan. Budget 40
 minutes. The outcome is a one-page plan the manager can hand over, mostly built from work and
-colleagues, with at most two courses. Any spend goes to approval.
+colleagues, with at most two courses. Requested spending follows the stated budget and your Tools.
 
 ---
 
@@ -37,4 +37,4 @@ One observable sign per skill that the manager can check at the next review.
 ## 6. Hand over
 
 Write `knowledge/plans/<role>.md` if it is a role plan (no personal detail), attach it to the task, and
-put any course cost up with `hub approval request --kind spend --task <id>`.
+record any course cost and make requested purchases within the budget and your Tools.

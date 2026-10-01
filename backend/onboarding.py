@@ -92,6 +92,11 @@ def render(card, names, bot_name=""):
     return {**card, "name": name,
             "summary": fill(card["summary"], names, name),
             "instructions": fill(card["instructions"], names, name),
+            "onboarding": [{key: fill(text, names, name) for key, text in item.items()}
+                           for item in card.get("onboarding", [])],
+            "first_routine": {key: fill(value, names, name) if isinstance(value, str) else value
+                              for key, value in card.get("first_routine", {}).items()},
+            "example": fill(card.get("example", ""), names, name),
             "owns": [fill(item, names, name) for item in card["owns"]],
             "never": [fill(item, names, name) for item in card["never"]]}
 
@@ -108,7 +113,8 @@ def _prerequisites(value):
 
 def _routine(value):
     value = value if isinstance(value, dict) else {}
-    return {"title": str(value.get("title") or ""), "cadence": str(value.get("cadence") or "")} if value else {}
+    return {"title": str(value.get("title") or ""), "cadence": str(value.get("cadence") or ""),
+            "output": str(value.get("output") or ""), "draft_only": bool(value.get("draft_only"))} if value else {}
 
 
 def _card(document, instructions):
@@ -139,7 +145,11 @@ def _card(document, instructions):
             "pack": str(document.get("pack") or ""), "pains": _strings(document.get("pains")),
             "prerequisites": _prerequisites(document.get("prerequisites")),
             "first_routine": _routine(document.get("first_routine")),
-            "approval_required": _strings(document.get("approval_required")),
+            "onboarding": [{"ask": str(item.get("ask") or ""), "why": str(item.get("why") or "")}
+                           for item in (document.get("onboarding") if isinstance(document.get("onboarding"), list) else [])
+                           if isinstance(item, dict)],
+            "example_output": str(document.get("example_output") or ""),
+            "approval_required": [],       # compatibility field; sending uses outbound_send
             "starter": bool(document.get("first_routine")) and bool(document.get("onboarding")),
             "instructions": instructions}
 
@@ -212,7 +222,14 @@ def read_cards(settings):
                 instructions = (folder / INSTRUCTIONS_FILE).read_text()
             except OSError:
                 instructions = ""
-            cards.append(_card(document, instructions))
+            card = _card(document, instructions)
+            example = card["example_output"]
+            path = (folder / example).resolve()
+            try:
+                card["example"] = path.read_text() if example and path.is_relative_to(folder.resolve()) else ""
+            except (OSError, UnicodeError):
+                card["example"] = ""
+            cards.append(card)
         _card_cache.update(key=key, cards=cards)
     return [dict(card) for card in _card_cache["cards"]]
 
@@ -318,7 +335,7 @@ def setup_body(slug, choice, answers):
         choice["instructions"].strip(),
         "```",
         "",
-        "What the company told us during onboarding:",
+        "What the team told us during Setup:",
         *_answer_lines(answers),
     ])
 
@@ -526,7 +543,7 @@ class Onboarding:
         H.event(c, who.actor, "bot.onboarded", slug, {})
         return {"bot": slug, "onboarding_state": ONBOARDED, "changed": True}
 
-    def attach_template(self, c, who, slug, template, instructions):
+    def attach_template(self, c, who, slug, template, instructions, *, queue_build=False):
         """Settings' "add from catalog": the same record and the same BotOps task as the wizard."""
         record = load(c)
         display = (H.bot(c, slug) or {}).get("display_name") or slug
@@ -539,6 +556,12 @@ class Onboarding:
         if card.get("starter") and not card.get("bootstrap"):
             self._make_starter(c, who, slug, template)
             MessageBots.link(c, who.actor, slug, who.actor)
+            if queue_build:
+                declared = self._declared(c, slug)
+                declared["materialize"] = False
+                self._write_config(c, slug, declared)
+                return {"template": template, "onboarding_state": NEEDS_SETUP,
+                        "setup_task_id": self._setup_task(c, who, slug, choice, card, record["answers"])}
             return {"template": template, "setup_task_id": None, "onboarding_state": NEEDS_SETUP}
         declared["template_version"] = releases.version()
         self._write_config(c, slug, declared)

@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is five recorded answers, a written playbook of the team's positions, a real summary of the first contract and a first calendar, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is five recorded answers, a written playbook of the team's positions, a real summary of the first contract and a first calendar, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ that is answer four, and the first result waits for one.
 ## 2. Introduce yourself in three lines
 
 What you do (plain-language summaries, key terms, flags against the team's own positions, a calendar of
-deadlines), that this is summaries for a human and not legal advice, that you never sign, send or negotiate,
-and that a human approves everything and counsel should review anything that matters.
+deadlines), that requested actions use your Tools and stated contract terms; summaries are not legal advice and unresolved legal questions go to counsel.
 
 ## 3. Ask, in one message
 
@@ -43,7 +42,7 @@ Follow `playbooks/summarise-a-contract.md` for the first contract, and `playbook
 for a calendar of what you have read. Write the summary in the shape of `knowledge/examples/contract-summary.md`
 and attach both labelled "First draft, not yet reviewed. Summaries for a human, not legal advice." Nothing is sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a contract calendar every Monday at 09:00, and a human sends anything to a counterparty." They

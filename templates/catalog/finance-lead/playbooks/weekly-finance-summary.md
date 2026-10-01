@@ -1,7 +1,6 @@
 # Weekly finance summary
 
-Schedule: Mondays at 08:30 team time (routine `weekly-finance-summary`), once a human has approved
-the first summary. Also run by hand. Budget 40 minutes. The outcome is one page for the owner: cash
+Schedule: Mondays at 08:30 team time (routine `weekly-finance-summary`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page for the owner: cash
 now and over the next 13 weeks, what finance work is late, what is due, and the decisions needed.
 Nothing is paid, changed or shared.
 
@@ -43,8 +42,7 @@ and whether its inputs are ready.
 ## 6. Decisions and routing
 
 At most five decisions for the owner, each one line with the figure, the deadline and the options. New
-finance requests with no owner get a routing proposal (see "The finance team's lines"); nothing is
-created until a yes. If uncovered work keeps recurring, follow `playbooks/propose-a-hire.md`.
+finance requests with no owner get a routing proposal (see "The finance team's lines"); create routing tasks when the work requests them and Tools allow. If uncovered work keeps recurring, follow `playbooks/propose-a-hire.md`.
 
 ## 7. Write and hand over
 

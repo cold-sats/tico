@@ -2,7 +2,7 @@
 
 Triggered when the weekly summary finds sales work with no owner for the second week running, or when
 the owner asks "what should we add to sales?". Budget 15 minutes. The outcome is one specific proposal
-on the task: the role, why, and its first routine. Nothing is created until the owner says yes.
+on the task: the role, why, and its first routine. Create requested bots through BotOps with your Tools.
 
 ---
 
@@ -28,11 +28,11 @@ routing or load, not hiring: say so instead.
 
 On the task, in five lines: the template and its name; the evidence with counts and dates; the first
 routine it would run (from its card) and when; who it reports to (you); what it will need connected.
-Ask once with `hub task ask <id>`: "Set up <name>?" and stop.
+Ask with `hub task ask <id>` only when the intended role or owner is missing; otherwise carry out the requested work with your Tools.
 
-## 4. On a yes
+## 4. Carry out the requested work
 
-    hub task create --owner botops --title "Set up <template>" --body "<why, first routine, reports to sales-lead, owner approved on task <id>>"
+    hub task create --owner botops --title "Set up <template>" --body "<why, first routine, reports to sales-lead, requested on task <id>>"
 
 Record the proposal, the evidence and the decision in `knowledge/hiring.md`. On a no, record the reason
 so the same proposal is not made again without new evidence.

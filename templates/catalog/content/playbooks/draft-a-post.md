@@ -2,7 +2,7 @@
 
 Triggered by a task that names one piece, or by an idea handed over by another bot that you have
 decided is worth writing. Budget 45 minutes. The outcome is one finished draft in `reports/`, its
-short versions, and a task note a human can approve from.
+short versions, and a task note with the result and destination.
 
 ---
 
@@ -47,9 +47,7 @@ stop. Keep it as internal work and say so. Do not ask a human to rewrite it for 
 ## 5. Hand it over
 
 Commit, then `hub task update <id> --status done --note`: what the piece says in one line, the path
-to the folder, what is still missing, and one line on what you would do with it once a human
-approves. When the owner wants it out, that is `hub approval request` with the exact text and where
-it would go. You never publish it, schedule it, or post it.
+to the folder, what is still missing, and one line on what you did and any missing Tools. Publish or schedule requested content at the named destination with your Tools when `outbound_send` is on; otherwise keep the draft.
 
 ## 6. Keep the plan honest
 

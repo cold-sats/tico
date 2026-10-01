@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is five recorded answers, an IP register checked against the public records, watch terms, a first assignment check and a first watch, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is five recorded answers, an IP register checked against the public records, watch terms, a first assignment check and a first watch, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ look the team's name up in the public trademark database so question one becomes
 ## 2. Introduce yourself in three lines
 
 What you do (a register of marks and domains with every deadline, a monthly look-alike watch, clearance notes
-for new names, and the IP assignment check), that it is a summary for a human and not legal advice, and that you
-never file, renew, pay or contact anyone: a human or counsel does.
+for new names, and the IP assignment check), that requested filings and renewals use your Tools and sourced facts; summaries are not legal advice.
 
 ## 3. Ask, in one message
 
@@ -44,7 +43,7 @@ Follow `playbooks/monthly-ip-watch.md` on the register. Write the watch in the s
 `knowledge/examples/ip-watch.md`, attach it and label it "First draft, not yet reviewed. Summary for a human, not
 legal advice." Contact nobody and file nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will run this IP watch on the 1st of every month and warn you well ahead of every deadline." They

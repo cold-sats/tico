@@ -16,7 +16,7 @@ No reply has been sent and no issue filed. First draft, not yet reviewed.
   own timezone under Settings, Locations. Asked Kenji whether it can be scheduled.
 
 ## Solved this week
-- T-2152: webhook "not firing" was a URL with a trailing space. Setup; reply ready for approval.
+- T-2152: webhook "not firing" was a URL with a trailing space. Setup; reply ready to use.
 - T-2158: CSV import rejected dates as 30/09/2026. Doc gap: the import doc does not say the format.
   Task to the Librarian; reply with the workaround ready.
 
@@ -31,6 +31,6 @@ No reply has been sent and no issue filed. First draft, not yet reviewed.
 - T-2163: bookings page blank on one studio's tablet. Tried the two browsers named; need the browser
   version and a screen recording. Asked the Support Agent.
 
-## Replies ready for approval
-- T-2152, T-2158 (on the Support Agent's tasks). Approver: Dana.
+## Replies ready to use
+- T-2152, T-2158 (on the Support Agent's tasks). Owner: Dana.
 ```

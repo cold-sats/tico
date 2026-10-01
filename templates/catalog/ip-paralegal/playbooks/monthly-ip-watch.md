@@ -1,7 +1,6 @@
 # Monthly IP watch
 
-Schedule: the 1st of each month at 09:00 team time (routine `monthly-ip-watch`), once a human has approved
-the first watch. Also run by hand. Budget 40 minutes. The outcome is one page: deadlines, expiring domains,
+Schedule: the 1st of each month at 09:00 team time (routine `monthly-ip-watch`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page: deadlines, expiring domains,
 look-alikes worth a lawyer's look, and missing assignments. A summary for a human, not legal advice. Nothing is
 filed, renewed or sent.
 
@@ -32,4 +31,4 @@ and anyone still "does not" or "not seen".
 `reports/YYYY-MM-DD-ip-watch.md` in the shape of `knowledge/examples/ip-watch.md`: the headline, deadlines inside
 12 months, domains inside 90 days, look-alikes, assignments, what you could not search, then the not-legal-advice
 line. `hub file publish` it, commit, and `hub task update <id> --status done --note` with the nearest deadline first.
-A deadline inside 60 days becomes a task for the decision-maker only after approval on this task.
+A deadline inside 60 days becomes a task for the decision-maker on this task.

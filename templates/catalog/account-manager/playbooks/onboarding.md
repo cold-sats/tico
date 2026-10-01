@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first weekly account review on the
-task from the real accounts, and the first routine confirmed.
+task from the real accounts, and the first routine checked.
 
 ---
 
@@ -18,15 +18,14 @@ these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (renewals from 120 days out, expansion from evidence, renewal packs ready to price), that prices,
-terms and signatures stay with a human, and that nothing reaches a customer without an approval.
+What you do (renewals from 120 days out, expansion from evidence, renewal packs ready to price), that requested prices and terms come from the team's rules, and that customer messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
 Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. Which accounts are yours to manage, and where are contracts, renewal dates and notice periods?
-2. How do renewals work: auto-renew or signed, standard uplift, who approves a discount, how far ahead? (Default: 120 days.)
+2. How do renewals work: auto-renew or signed, standard uplift, who owns the discount rules, how far ahead? (Default: 120 days.)
 3. What can a customer buy more of, and where can I read what they use?
 4. Who knows each account's health, and how do we split a business review?
 5. Who sends renewal quotes and order forms, and who signs for us?
@@ -42,7 +41,7 @@ could not find is written "unknown" with what you checked.
 Follow `playbooks/weekly-account-review.md`. Write `reports/YYYY-MM-DD-account-review.md`, attach it to the
 task and label it "First draft, not yet reviewed". Nothing is sent and no record changes.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will review every renewal and expansion opportunity each Tuesday at 09:00." They

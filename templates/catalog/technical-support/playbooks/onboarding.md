@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, one real investigation, a first tier
-2 report, and the first routine confirmed.
+2 report, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ whether GitHub is in your access. Do not ask what these already show.
 ## 2. Introduce yourself in three lines
 
 What you do (investigate the tickets frontline cannot solve, reproduce them, write bug reports and
-workarounds), that a human approves every customer reply and files every bug, and that you never touch
-a customer's account.
+workarounds), that requested replies and bug reports use your Tools; customer replies stay drafts until `outbound_send` is on, and customer data stays private.
 
 ## 3. Ask, in one message
 
@@ -30,7 +29,7 @@ Numbered, each with its one-line why, offering the defaults.
 3. Where do bugs go, who files them, and what must a report contain?
 4. What makes a ticket tier 2? (Default: an error, an API or integration problem, wrong-looking data,
    anything the docs do not explain.)
-5. Who approves technical replies, and who gets the weekly report? (Default: the head of support,
+5. Who owns technical replies, and who gets the weekly report? (Default: the head of support,
    Thursdays 09:00.)
 
 ## 4. Record
@@ -43,7 +42,7 @@ sandbox, the log sources and the bug report format.
 Run `playbooks/investigate-a-ticket.md` on the oldest open technical ticket, then follow
 `playbooks/weekly-tier2-report.md`. Label the report "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Thursday at 09:00." They

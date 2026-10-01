@@ -45,8 +45,7 @@ ANSWERS = (("what_we_do", "What the company does"),
            ("customers", "Who its customers are"),
            ("team_size", "How big the team is"),
            ("work_arrives", "Where work arrives"),
-           ("repetitive_work", "What repeats often enough to hand to a bot"),
-           ("never_without_person", "What never happens without a person"))
+           ("repetitive_work", "What repeats often enough to hand to a bot"))
 
 
 # ----------------------------------------------------------------------------- reading the cards

@@ -6,6 +6,7 @@ what `TICO_CATALOG_DIR` is for, so these tests say nothing about which bots the 
 import functools
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -42,8 +43,8 @@ and people call this company's assistant {{assistant_name}}.
 ## Owns
 -
 
-## Never without approval
-See hub `policies/approvals.md`.
+## Tools and scope
+Act within the requested work and granted Tools.
 """
 
 MANIFEST = """name: CHANGE-ME
@@ -197,9 +198,30 @@ def is_helper(card):
 
 class StarterBots(unittest.TestCase):
     """Every catalog template (docs/starter-bots.md) carries the fields a chooser and a first session depend on,
-    and none of them starts a routine before a person has approved it or reaches outside the company on its own."""
+    with draft-first sending and routines activated during setup."""
 
     directory = catalog.ROOT / "templates/catalog"
+
+    def test_starter_instructions_do_not_require_a_human_approval(self):
+        """Optional approvals remain available; routine work must not acquire an approval gate."""
+        built_in = {"assistant", "botops", "librarian", "goal-manager"}
+        forbidden = re.compile(
+            r"never without (?:a human|approval)|"
+            r"must never (?:happen|be said|be claimed) without a human|"
+            r"once (?:a|the) human has approved the first|"
+            r"(?:needs?|requires?) (?:a human's|your) (?:confirm|yes|approval)|"
+            r"wait(?:s|ing)? (?:for|on) (?:an? |your )?approval|"
+            r"(?:only after|until) (?:a human|the owner) (?:approves|confirms|says yes)|"
+            r"nothing is merged without them|ready for your yes",
+            re.I,
+        )
+        roots = [self.directory / name for name in starters(self.directory) if name not in built_in]
+        roots.extend([catalog.ROOT / "policies", catalog.ROOT / "templates/employee-repo"])
+        for root in roots:
+            for path in root.rglob("*"):
+                if path.is_file() and not path.is_symlink() and path.suffix in {".md", ".yaml"}:
+                    with self.subTest(path=str(path.relative_to(catalog.ROOT))):
+                        self.assertNotRegex(" ".join(path.read_text().split()), forbidden)
 
     def test_every_template_is_complete_and_draft_first(self):
         names = starters(self.directory)
@@ -254,7 +276,7 @@ class StarterBots(unittest.TestCase):
         self.assertIn(card.get("icon"), ICONS, f"{where}: icon {card.get('icon')!r} is not in ui/vendor/fonts/icons.txt")
         self.assertTrue(card.get("tags") and all(isinstance(t, str) and t == t.lower() and len(t) <= 24 for t in card["tags"]),
                         f"{where}: tags")
-        for field in ("pains", "owns", "never", "approval_required"):
+        for field in ("pains", "owns", "never"):
             self.assertTrue(card.get(field) and all(isinstance(x, str) for x in card[field]), f"{where}: {field}")
         self.assertTrue(3 <= len(card["pains"]) <= 6 and all(len(x) <= 90 for x in card["pains"]), f"{where}: pains")
         # The first sentence of the summary is the "why" line a person reads in onboarding: concrete, and not cut short.
@@ -272,14 +294,14 @@ class StarterBots(unittest.TestCase):
         first = card["first_routine"]
         self.assertTrue(first["title"] and first["cadence"] and first["output"], where)
         self.assertIs(first["draft_only"], True, where)
-        self.assertTrue(any("routine" in x.lower() for x in card["approval_required"]), f"{where}: arming a routine needs a Confirm")
+        self.assertNotIn("approval_required", card, f"{where}: sending uses outbound_send")
         example = folder / card["example_output"]
         self.assertTrue(example.is_file(), where)
         self.assertIn("Acme", example.read_text(), where)
         agent = (folder / "AGENT.md").read_text()
         self.assertLessEqual(len(agent.splitlines()), 150, where)
         self.assertTrue(agent.startswith("# {{bot_name}}"), where)
-        for heading in ("## Owns", "## Never without approval", "## First message: setup"):
+        for heading in ("## Owns", "## Sending", "## First message: setup"):
             self.assertIn(heading, agent, where)
         playbooks = [p for p in (folder / "playbooks").glob("*.md") if p.name != "README.md"]
         self.assertGreaterEqual(len(playbooks), 3, where)
@@ -292,13 +314,12 @@ class StarterBots(unittest.TestCase):
         for routine in routines:
             self.assertIs(routine["enabled"], False, f"{where}: a routine is declared off and setup switches it on")
         for access in manifest["tools"]:
-            # Nothing a starter can do reaches outside the company on its own: no send, and no write to a
-            # service (a person applies what it proposes, until the owner turns writing on).
+            # Starter Tools begin read-only; requested writes need the corresponding Tool grant.
             self.assertFalse({"send", "write", "modify", "delete"} & set(access.get("can", [])), where)
         allowed = json.loads((folder / ".claude/settings.json").read_text())["permissions"]["allow"]
         for entry in allowed:
             self.assertNotRegex(entry, r"^Bash\(gh (issue|pr|api) (\*|comment|edit|create|close|review|merge)", f"{where}: {entry}")
-        # The last step of onboarding tells the hub a person approved the first routine.
+        # Setup records the answers and first result, then clears Needs setup.
         self.assertIn("hub bot setup-done", (folder / "playbooks/onboarding.md").read_text(), where)
 
 

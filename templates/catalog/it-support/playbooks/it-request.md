@@ -2,7 +2,7 @@
 
 Triggered by a task from anyone: "I can't log in to the CRM", "my laptop is slow", "Omar needs access to
 the finance folder". Budget 15 minutes. The outcome is a fix the human can follow, or a complete access
-change in front of its approver, and the request logged.
+change in front of its owner, and the request logged.
 
 ---
 
@@ -18,7 +18,7 @@ that password, report the device) before anything else.
 ## 2. Look for a known fix
 
 `knowledge/fixes/`, then `hub doc ask "<the problem>"`. If the team has a guide, point to it and
-give the steps; if the guide is wrong, say so and report it to the Librarian after approval.
+give the steps; if the guide is wrong, say so and report it to the Librarian.
 
 ## 3. Give the fix
 
@@ -29,9 +29,9 @@ looks at it: say who.
 ## 4. Access requests
 
 Fill every field: human, tool, role (the least that does the job), reason, end date if temporary,
-approver from `knowledge/tools.md`. Sensitive tools need the tool owner as well as the manager. Put it
-on the task and ask the approver with `hub task create --owner <approver>` after the requester
-confirms the details. Once approved, the admin applies it, or you do where the owner has given this bot
+approver from `knowledge/tools.md`. Use granted admin access only within the stated scope. Put it
+on the task and ask the owner with `hub task create --owner <owner>` after the requester
+confirms the details. When ready, the admin applies it, or you do where the owner has given this bot
 write access, and you confirm with the requester that it works.
 
 ## 5. Log

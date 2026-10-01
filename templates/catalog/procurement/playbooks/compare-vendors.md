@@ -51,4 +51,4 @@ labelled as one. For a contract's terms, `hub task create --owner legal-review`.
 
 `hub file publish reports/R-<id>-comparison.md`, attach the draft email, then `hub task update <id> --status
 done --note`: the suggestion, the decide-by date, and what you could not read. A page that failed to load
-makes that score provisional, and is said so. The human contacts vendors and decides; you never do.
+makes that score provisional, and is said so. The human contacts vendors and decides; leave the build to BotOps.

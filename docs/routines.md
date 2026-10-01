@@ -78,8 +78,8 @@ A template's `bot.yaml` may declare `routines:` (`id`, `title`, `cron` or `on`,
 their `id`. After that Tico's rows are the routines. Editing the file in the bot's repository
 changes nothing; `hub routine set` does. A seeded routine with `enabled: false` is created paused and
 visible; the bot (or a human, on the site) turns it on with `hub routine update <id> --enable`. The
-starter templates use this so no routine fires before a human has approved its first result
-([Starter bots](starter-bots.md)). `clients/preflight.py` still validates the block so a
+starter templates seed the first routine off. Starting Setup switches it on, and `hub bot setup-done`
+allows normal work. An owner's requested schedule change applies directly ([Starter bots](starter-bots.md)). `clients/preflight.py` still validates the block so a
 broken template is caught before a bot is made from it.
 
 ## What this replaced
@@ -92,3 +92,6 @@ revision. All of that is gone: `routine_versions`, `routine_tasks`, `routine_sou
 the tables and keeps every `schedules` row, its settings and its occurrence history. A runner
 older than 0.5.4 still reports the manifest's routines in its heartbeat; the server accepts
 and ignores them.
+
+Routine and run responses use `bot`. The older `employee` field is a compatibility alias for `bot`;
+existing clients may continue to read it.

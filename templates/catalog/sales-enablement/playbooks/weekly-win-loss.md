@@ -1,7 +1,6 @@
 # Weekly win/loss notes
 
-Schedule: Fridays at 10:00 team time (routine `weekly-win-loss`), once a human has approved the first
-notes. Also run by hand. Budget 45 minutes. The outcome is one page: why this week's deals were won or
+Schedule: Fridays at 10:00 team time (routine `weekly-win-loss`), after setup. Also run by hand. Budget 45 minutes. The outcome is one page: why this week's deals were won or
 lost in buyers' words, what it adds to the pattern, and one thing to change. Nothing leaves the team.
 
 ---

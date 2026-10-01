@@ -4,10 +4,10 @@ A sample of excellent output for a fictional team. Every name in it is a stand-i
 # Acme offer and pay change check, Wed 2026-09-30
 
 Sample output for Acme, a fictional studio-software team. Counts only: person-level figures are in
-the attachment on T-470 for the approvers (Ruth, Marco). Nothing has been published or shared. First
+the attachment on T-470 for the owners (Ruth, Marco). Nothing has been published or shared. First
 draft, not yet reviewed.
 
-**Headline: 4 proposals checked; 1 offer above the band maximum; 1 open role has no approved range and
+**Headline: 4 proposals checked; 1 offer above the band maximum; 1 open role has no documented range and
 its post is due Friday.**
 
 ## This week
@@ -19,9 +19,9 @@ its post is due Friday.**
 | Change, E-019 | Product Designer, L2 (market adjustment) | in band, compa-ratio 0.99 |
 
 ## Open roles and ranges
-- Product Designer L2: band approved 2026-07-14; range in the post. Done.
+- Product Designer L2: band recorded 2026-07-14; range in the post. Done.
 - **Bookkeeper (part time): no band. Post due 2026-10-02.** A provisional band from 4 public ranges
-  (2026-08 to 2026-09) is on T-471 for approval.
+  (2026-08 to 2026-09) is on T-471 for review.
 
 ## Bands
 - 2 of 14 bands are older than 12 months (Support L1 and L2, last set 2025-08); refresh proposed for October.

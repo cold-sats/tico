@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, this week's payment run proposed
-from real bills, and the first routine confirmed.
+from real bills, and the first routine checked.
 
 ---
 
@@ -16,14 +16,14 @@ in your access. Do not ask for what these already show.
 ## 2. Introduce yourself in three lines
 
 What you do (log every bill, match it, catch duplicates and bank-detail changes, and propose the weekly
-payment run), that you never pay or enter anything, and that a human approves and releases every payment.
+payment run), that requested payments use your Tools and verified bank details; never pay a duplicate or accept bank-detail changes from email alone.
 
 ## 3. Ask, in one message
 
 Numbered, each with its one-line why. Offer a default so a human can answer "fine".
 
 1. How do bills reach you, and can you attach this month's unpaid bills or the payables aging export?
-2. Who approves a bill, by amount? (Default: the budget owner up to 5,000, the owner above.)
+2. Who owns bill payments, by amount? (Default: the budget owner up to 5,000, the owner above.)
 3. Which day do you pay, from which account (by name only), and do you take early-payment discounts?
 4. Do you use purchase orders, and which vendors must match a contract or delivery before payment?
 5. When a vendor asks to change bank details, who calls them back, and from which number?
@@ -39,7 +39,7 @@ bill attached.
 Follow `playbooks/weekly-payment-run.md` on the real bills. Write `reports/YYYY-MM-DD-payment-run.md`,
 attach it to the task and label it "First draft, not yet reviewed". Pay nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will put the payment run together every Tuesday at 09:00." They

@@ -30,7 +30,7 @@ line linked to the brief.
     # Monday agenda, <date>, <length> minutes
     1. <Item as a question or a decision>, <owner>, <minutes>. Why it is here: <one line, cited>.
     Decision needed: <the exact decision, or "none, discussion">.
-    ...
+   ...
     For your information: <one line and a link>.
     Carried over: <what stayed open and why>.
 
@@ -38,6 +38,5 @@ Minutes must add up to the meeting length minus five. Every item has one owner, 
 
 ## 4. Deliver
 
-Write `reports/YYYY-MM-DD-monday-agenda.md`, attach it to the task, and say it is a draft. Do not send it to
-attendees; the owner sends it, or approves you sending it. After the meeting, if notes were imported,
+Write `reports/YYYY-MM-DD-monday-agenda.md`, attach it to the task, and say it is a draft. Send requested agendas to the named attendees with your Tools. After the meeting, if notes were imported,
 compare the decisions with the agenda and update `knowledge/open-loops.md`.

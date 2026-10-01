@@ -1,7 +1,6 @@
 # Weekly vendor and renewals page
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-vendor-page`), once a human has approved
-the first page. Budget 30 minutes. The outcome is one page: which notice deadlines are coming, which
+Schedule: Tuesdays at 09:00 team time (routine `weekly-vendor-page`), after setup. Budget 30 minutes. The outcome is one page: which notice deadlines are coming, which
 reviews are due, and what is missing from the register. Nothing is sent, renewed or cancelled.
 
 ---

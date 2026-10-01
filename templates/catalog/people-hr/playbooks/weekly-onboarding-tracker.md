@@ -1,9 +1,8 @@
 # Weekly onboarding tracker
 
-Schedule: Mondays at 09:00 team time (routine `weekly-onboarding-tracker`), once a human has approved
-the first tracker. Also run by hand when a hire is confirmed. Budget 30 minutes. The outcome is one page:
+Schedule: Mondays at 09:00 team time (routine `weekly-onboarding-tracker`), after setup. Also run by hand when a hire is confirmed. Budget 30 minutes. The outcome is one page:
 for each person starting in the next 30 days, where the checklist stands, what is late and who owns it.
-Nothing reaches a new hire without an approval.
+Send requested messages to the intended new hire with your Tools.
 
 ---
 
@@ -49,8 +48,7 @@ Write `reports/YYYY-MM-DD-onboarding-tracker.md` in the shape of `knowledge/exam
 
     hub file publish reports/YYYY-MM-DD-onboarding-tracker.md
 
-Write the welcome message for anyone starting this week and request `hub approval request --kind send
---task <id>` with the exact text and recipient; it goes only on a yes. Chase each late item's owner with one
+Write and send requested welcome messages with the exact text and recipient using your Tools; messages to outsiders stay drafts until `outbound_send` is on. Chase each late item's owner with one
 line on its task. Then
 `hub task update <id> --status done --note`: the headline, counts (late, due), what you could not read.
 

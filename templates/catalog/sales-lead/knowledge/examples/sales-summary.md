@@ -21,7 +21,7 @@ been changed in the CRM and nothing has been assigned. First draft, not yet revi
 
 ## What the sales bots produced
 - `sdr-research`: 9 leads researched, 6 first touches, 2 meetings booked; 2 touches wait on you since 2026-09-24.
-- `sales`: 5 follow-ups approved and sent, 2 mutual action plans, 1 questionnaire (46 of 52 answered).
+- `sales`: 5 requested follow-ups sent, 2 mutual action plans, 1 questionnaire (46 of 52 answered).
 - `sales-ops`: hygiene report: 11 deals missing a next step.
 - `account-manager`: 2 renewal packs (Oak Row, 120 days; Maple Studio, 60 days).
 - Blocked: `sales` waits on your price for the Harbour Pilates proposal since 2026-09-22.
@@ -35,7 +35,7 @@ Inspect on the call: Pine & Stone (commit, no signer named), Oak Row (closes 202
 
 ## Hiring (proposal, nothing requested)
 Security questionnaires took Dana 9 hours over three weeks (tasks 412, 427, 440). Proposed: Sales Engineer
-(`sales-engineer`), first routine "Weekly technical deal prep". Yours to confirm; then I ask BotOps.
+(`sales-engineer`), first routine "Weekly technical deal prep". When this hire is requested, I ask BotOps.
 
 ## Routing proposals (nothing created)
 - New lead "Cedar Barre, web form 2026-09-27" to `sdr-research`. Reason: net-new, fits the ICP.

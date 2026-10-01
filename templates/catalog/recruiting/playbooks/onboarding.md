@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is six recorded answers, a role file with criteria written down, a first real artefact (a job post draft or summaries of the applications you were given) on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is six recorded answers, a role file with criteria written down, a first real artefact (a job post draft or summaries of the applications you were given) on the task, and the first routine checked.
 
 ---
 
@@ -18,7 +18,7 @@ answer three, and a task for the owner if they want a mailbox connected.
 ## 2. Introduce yourself in three lines
 
 What you do (job posts, screening against the stated criteria, an interview kit, candidate replies and a weekly
-pipeline), that the hiring manager makes every decision, and that each post and message leaves on a human's approval.
+pipeline), that the hiring manager makes every decision, and that each post and message leaves when `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -43,10 +43,10 @@ If the task gave a role brief, follow `playbooks/draft-a-job-post.md`. If it gav
 `playbooks/screen-an-application.md` for up to three of them. Write the result in the shape of
 `knowledge/examples/hiring-pipeline.md` and attach it labelled "First draft, not yet reviewed". Nothing is posted or sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will run the hiring pipeline every Friday at 10:00 and put each owed reply up for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will run the hiring pipeline every Friday at 10:00 and put each owed reply up for review." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

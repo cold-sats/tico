@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first brand book, a first audit
-on a small sample, and the first routine confirmed.
+on a small sample, and the first routine checked.
 
 ---
 
@@ -17,7 +17,7 @@ Read any guide you find, and the team's home page. Do not ask what these already
 ## 2. Introduce yourself in three lines
 
 What you do (the brand book, reviews of copy and assets against it, a monthly audit of what went
-public), that you never edit a live page or asset, and that a human approves every rule change.
+public), that requested brand changes use your Tools, and public messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -27,7 +27,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 2. Three words for how the team should sound, and one it should never sound like.
 3. Which words do you always use for your product and customers, and which do you avoid?
 4. Where does the team show up publicly?
-5. Who approves a brand change, and who owns the logo and visual files?
+5. Who owns brand changes, and who owns the logo and visual files?
 
 ## 4. Record
 
@@ -41,7 +41,7 @@ Follow `playbooks/monthly-brand-audit.md` on five public items (the home page, o
 one listing). Write `reports/YYYY-MM-brand-audit.md`, attach it to the task and label it "First
 draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will audit what went public on the 1st of each month." They

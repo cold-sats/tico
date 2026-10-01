@@ -33,10 +33,10 @@ Nothing was changed on GitHub and nothing has been shared.
   2026-09-24, unreviewed. Technical Writer: 2 pages drifted. Senior Software Engineer and Site Reliability
   Engineer: not running.
 
-## Hiring proposal (for you to confirm)
+## Hiring proposal
 - Dependabot opened 11 security alerts in api since 2026-09-01 and 7 are older than 14 days; nobody owns
   them. Proposed: a Security Engineer (`security-engineer`), first routine "Weekly dependency and advisory
-  report", Mondays 08:00, reporting to me. Say yes and I will ask BotOps to set it up.
+  report", Mondays 08:00, reporting to me. When the work asks for this hire, I will ask BotOps to set it up.
 
 ## Proposed routing (nothing assigned)
 - "Add SMS opt-out to reminders" (task T-311, no owner): route to Sam Ortiz, who owns reminders. Alternative: Jo Lund.

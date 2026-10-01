@@ -22,7 +22,7 @@ placed to avoid that.
 ## 3. For "why did we run out"
 
 Walk back: when stock crossed the reorder point, whether it was on that week's list, whether the order
-was approved and when, when the supplier delivered against the lead time. Name the step that failed,
+was requested and when, when the supplier delivered against the lead time. Name the step that failed,
 without blaming a person; propose one change (a higher safety stock, an earlier order day).
 
 ## 4. Answer

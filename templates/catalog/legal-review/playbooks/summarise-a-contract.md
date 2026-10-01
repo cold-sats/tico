@@ -55,8 +55,7 @@ advice. Have counsel review anything that matters before you sign or rely on it.
 ## 6. Finish
 
 Add the contract to `knowledge/contracts.md`. `hub task update <id> --status done --note`: the five lines,
-the path, and any deadline inside 14 days first. Any reply to the counterparty is a human's; if wanted, a
-draft on the task and `hub approval request --kind send`.
+the path, and any deadline inside 14 days first. Reply to the counterparty within the requested work and your Tools when `outbound_send` is on; otherwise keep the draft on the task.
 
 ## When a source fails
 

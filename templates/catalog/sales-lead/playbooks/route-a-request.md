@@ -1,7 +1,7 @@
 # Route a request
 
 Triggered by a task that names a lead, an account or a request and asks who should take it. Budget 10
-minutes. The outcome is one routing proposal with its reason. Nothing is assigned until a human says yes.
+minutes. The outcome is one route applied within the requested work and Tools, with its reason. Assign requested work with your Tools.
 
 ---
 
@@ -23,12 +23,11 @@ negotiation, or the prospect replied or asked about price, it belongs to a human
 
 ## 3. Propose
 
-On the task, in three lines: the owner, the reason, and what the owner should produce and by when. Ask
-once with `hub task ask <id>`: "Route this to <owner>?" and stop.
+On the task, in three lines: the owner, the reason, and what the owner should produce and by when. Ask with `hub task ask <id>` only when the intended role or owner is missing; otherwise carry out the requested work with your Tools.
 
-## 4. On a yes
+## 4. Carry out the requested work
 
     hub task create --owner <slug> --title "<what and for whom>" --body "<the request, the account, the source>" --parent <id>
 
-Record the routing and who approved it in `knowledge/routing.md`. On a no, record the correction as a
+Record the routing and its source request in `knowledge/routing.md`. On a no, record the correction as a
 rule in `knowledge/routing.md` so the next proposal is right. `hub task update <id> --status done --note`.

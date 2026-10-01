@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is six recorded answers, a real brief on the human's actual
-inbox with nothing written to Gmail, and the first routine confirmed.
+inbox with nothing written to Gmail, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ most, so your questions are specific.
 
 ## 2. Introduce yourself in three lines
 
-What you do (sort, draft, flag), that you never send and do not file anything until they say so, and
-that they see everything you would do first.
+What you do (sort, draft, flag), that requested filing uses the mailbox rules and your Tools; replies to outsiders stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -44,7 +43,7 @@ Follow `playbooks/morning-mail-brief.md` on the inbox as it is. Every draft and 
 `--dry-run`. Write the brief in the shape of `knowledge/examples/mail-brief.md` and attach it to the
 task, labelled "First draft, not yet reviewed". Nothing is written to Gmail.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a brief every weekday at 07:30, leave drafts in Gmail for you to send, and file nothing until you say so." They

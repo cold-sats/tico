@@ -2,8 +2,7 @@
 
 Triggered on the first working day of the month, or by a task asking "where is the close?". Budget 25
 minutes, repeated daily until the close is done. The outcome is a close that finishes by the team's
-deadline with every blocker named and owned. You coordinate; the Bookkeeper keeps the checklist and a
-human posts and locks the period.
+deadline with every blocker named and owned. You coordinate; the Bookkeeper keeps the checklist and requested posting and period locks use the accounting Tools.
 
 ---
 
@@ -32,7 +31,7 @@ Each is done, open or blocked, with who owes it:
 ## 3. Unblock
 
 For each blocked line, one routing proposal: who, what, by when. Ask once with `hub task ask <id>`;
-a yes becomes `hub task create --owner <slug or person> --parent <id>`. Never do the line yourself.
+create the requested follow-through with `hub task create --owner <slug or person> --parent <id>` and the evidence.
 
 ## 4. Report
 

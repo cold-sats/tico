@@ -139,6 +139,30 @@ class Rule5Tasks(HubCase):
                  if m["to_actor"] == SEO and m["body"].startswith("Closed:")]
         self.assertEqual(len(woken), 1)
 
+    def test_reopening_clears_completion_and_preserves_history(self):
+        row = self.open_task()
+        H.task_update(self.conn, SEO, row["id"], status="done", note="posted")
+        closed = H.task_close(self.conn, CMO, row["id"], note="read")
+        opened = H.task_update(self.conn, CMO, row["id"], status="open")
+        self.assertEqual(opened["status"], "open")
+        for field in ("done_at", "closed_at", "closed_by"):
+            self.assertIsNone(opened[field])
+            event = self.conn.execute("SELECT old,new FROM task_events WHERE task_id=? AND field=? ORDER BY id DESC LIMIT 1",
+                                      (row["id"], field)).fetchone()
+            self.assertEqual(event["old"], closed[field])
+            self.assertIsNone(event["new"])
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM tasks WHERE done_at IS NOT NULL OR closed_at IS NOT NULL").fetchone()[0], 0)
+
+    def test_only_one_unanswered_question_is_allowed_on_a_task(self):
+        row = self.open_task()
+        first = H.task_ask(self.conn, SEO, row["id"], "Which format?")
+        self.refused("one-question", H.task_ask, self.conn, SEO, row["id"], "Which day?")
+        H.answer(self.conn, CMO, first["id"], "Markdown.")
+        second = H.task_ask(self.conn, SEO, row["id"], "Which day?")
+        self.refused("one-question", H.task_ask, self.conn, SEO, row["id"], "Which audience?")
+        H.answer(self.conn, CMO, second["id"], "Monday.")
+        self.assertTrue(H.task_ask(self.conn, SEO, row["id"], "Which audience?"))
+
     def stale(self, row):
         self.conn.execute("UPDATE tasks SET updated=? WHERE id=?", (H.shift(H.now(), days=-2), row["id"]))
 

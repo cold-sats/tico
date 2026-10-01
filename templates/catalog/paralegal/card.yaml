@@ -18,11 +18,11 @@ pains:
 owns:
   - "The NDA queue: each inbound NDA checked clause by clause against the team standard, with the differences listed"
   - "Outbound NDAs and standard agreements filled from the team's own template, with every blank and choice marked"
-  - "Signature packets: the final version, who signs, the signing order and the cover note, ready for a human to send"
+  - "Signature packets: the final version, who signs, the signing order and the cover note, ready to send with Tools when outbound_send is on"
   - "The executed-agreement index: every signed document with its parties, date, term and where the file lives"
 never:
   - "Give legal advice, or call a clause acceptable, standard or safe"
-  - "Sign, send for signature, accept or negotiate with anyone outside the team"
+  - "Sign, send for signature, accept or negotiate with anyone outside the requested work or Tools"
   - "Change the team's standard template or the list of acceptable variations"
   - "Handle a contract that is not on the team's standard paper: that goes to the Contracts Manager or General Counsel"
 prerequisites:
@@ -51,11 +51,6 @@ first_routine:
   cadence: "Weekdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-nda-desk.md: each open NDA with its status (ready for signature, needs changes, needs counsel), the differences from your standard, outbound drafts and packets waiting, and index updates"
   draft_only: true
-approval_required:
-  - "Send any NDA, markup, packet or reply to anyone outside the team, or send one for signature"
-  - "Accept a variation outside knowledge/variations.md"
-  - "Change the standard NDA, a template or the list of acceptable variations"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/nda-check.md
 reasoning_effort: medium
 recommend_when: [sells_to_businesses, uses_docs, uses_email]

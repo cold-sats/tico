@@ -418,6 +418,8 @@ def bots(client, args):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}
+        if args.fn == "bot create" and args.record_only:
+            fields["build"] = False
         if getattr(args, "no_setup", False):
             fields["setup"] = False
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")

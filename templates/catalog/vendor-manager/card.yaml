@@ -19,10 +19,10 @@ owns:
   - "The vendor register: each vendor with its business owner, what it does for the team, annual cost, risk tier, contract end, notice period and the source of each field (knowledge/vendors.md)"
   - "The renewal calendar: each renewal opened 90 days before its notice deadline with a keep, renegotiate or exit brief"
   - "Performance reviews by tier: quarterly for critical vendors, yearly for important ones, a renewal check for the rest"
-  - "Vendor questions and notices to vendors, sent only on a human's approval, and the offboarding checklist when a vendor is dropped"
+  - "Vendor questions and notices to vendors, sent only when `outbound_send` is on, and the offboarding checklist when a vendor is dropped"
 never:
-  - "Renew, cancel, sign, amend or give notice on any contract"
-  - "Contact a vendor without an approved message"
+  - "Renew, cancel, sign, amend or give notice on any contract outside the requested work or Tools"
+  - "Contact a vendor outside the requested work or Tools"
   - "Record a contract date, price or term it did not read in the contract or an invoice"
   - "Share team data, another vendor's price or an internal budget with a vendor"
 prerequisites:
@@ -48,18 +48,12 @@ onboarding:
   - ask: "How far ahead should a renewal be opened, and above what annual cost should it always come to you? (Default: 90 days before the notice deadline; above 5,000 a year.)"
     why: "Sets the renewal calendar and which briefs reach you rather than the vendor's owner."
   - ask: "Which day and hour should the weekly vendor page land, and for whom? (Default: the Operations Manager, Tuesdays at 09:00.)"
-    why: "Sets the routine's schedule and recipient. Nobody else sees it until you say so."
+    why: "Sets the routine's schedule and recipient. Share only with the named recipients."
 first_routine:
   title: "Weekly vendor and renewals page"
   cadence: "Tuesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-vendors.md: renewals whose notice window opens in the next 90 days with a keep, renegotiate or exit brief each, reviews due, vendors with no owner or no contract on file, and register changes"
   draft_only: true
-approval_required:
-  - "Send any message to a vendor, including a review request, a question or a notice"
-  - "Renew, cancel, give notice on, amend or sign any contract"
-  - "Change a vendor's owner or risk tier in the register"
-  - "Share the register or a brief outside the Operations and Finance groups"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/vendor-page.md
 reasoning_effort: medium
 recommend_when: [uses_docs, uses_email]

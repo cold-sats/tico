@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a first real spec and a first review on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a first real spec and a first review on the task, and the first routine checked.
 
 ---
 
@@ -17,7 +17,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (specs engineers can build from, a weekly spec and launch review), that you do not choose what is built or promise dates, and that a human files every issue.
+What you do (specs engineers can build from, a weekly spec and launch review), that requested issue handoffs use your Tools; do not invent scope, dates or promises.
 
 ## 3. Ask, in one message
 
@@ -38,7 +38,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/spec
 
 Follow `playbooks/write-a-spec.md` for the problem named, then `playbooks/weekly-spec-review.md`. Attach both to the task, labelled "First draft, not yet reviewed". File nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write the spec and launch review every Tuesday at 10:00." They

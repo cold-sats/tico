@@ -1,7 +1,6 @@
 # Weekday review queue
 
-Schedule: weekdays at 09:00 team time (routine `weekday-review-queue`), once a human has approved the
-first queue. Also run by hand on request. Budget 45 minutes. The outcome is one page: the open pull requests
+Schedule: weekdays at 09:00 team time (routine `weekday-review-queue`), after setup. Also run by hand on request. Budget 45 minutes. The outcome is one page: the open pull requests
 ordered by what needs a reviewer, with a draft review for each. Nothing is posted and nothing on GitHub changes.
 
 ---

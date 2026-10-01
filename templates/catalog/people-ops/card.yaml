@@ -21,8 +21,8 @@ owns:
   - "Employment letters and verifications prepared from the records and the team's templates, for a human to sign and send"
   - "The policy acknowledgement tracker: who has confirmed which policy version"
 never:
-  - "Revoke access, wipe a device or change an HR, payroll or identity system itself"
-  - "Sign, send or confirm employment details to anyone outside the team without a human's approval"
+  - "Revoke access, wipe a device or change an HR, payroll or identity system outside the requested work or Tools"
+  - "Sign, send or confirm employment details to anyone outside the requested work or Tools"
   - "State a reason for leaving, a salary or a performance note in a letter unless a human wrote it for that letter"
   - "Write an id number, a home address, bank details or health information into this repository"
 prerequisites:
@@ -33,7 +33,7 @@ prerequisites:
     why: "Optional. The team's letter templates and the handbook's leaving section, read through the Librarian, keep letters and checklists consistent."
     required: false
   - tool: mail
-    why: "Optional. A people mailbox (read and draft) lets verification requests be answered in their own thread, sent on an approval."
+    why: "Optional. A people mailbox (read and draft) lets verification requests be answered in their own thread, sent when `outbound_send` is on."
     required: false
 onboarding:
   - ask: "What has to happen when someone leaves today: which systems, which equipment, who handles payroll's final pay, is there an exit interview?"
@@ -51,11 +51,6 @@ first_routine:
   cadence: "Mondays at 10:00 team time"
   output: "reports/YYYY-MM-DD-records-check.md: leavers in progress with checklist status and unconfirmed access items, record mismatches found, letters waiting for signature, policy acknowledgements outstanding"
   draft_only: true
-approval_required:
-  - "Send a letter, a verification or any employment detail to anyone"
-  - "Create an access-removal or equipment task for a human or another bot"
-  - "Share the records audit beyond the HR owner"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/records-check.md
 reasoning_effort: medium
 recommend_when: [uses_docs, uses_email, small_team]

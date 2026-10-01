@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first weekly summary on the
-task, and the first routine confirmed.
+task, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ workstream to start with and why, not a summary of nothing.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly marketing summary, a six week calendar, routing proposals), that you never
-assign work, publish or contact anyone outside the team, and that a human approves every routing.
+What you do (a weekly marketing summary, a six week calendar, routing proposals), that requested routing uses your Tools, and that public messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -29,7 +28,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 2. Which workstreams should it report on and who owns each?
 3. What are the two or three marketing numbers you look at weekly, and where do they live?
 4. What is on the calendar for the next six weeks?
-5. When a new marketing request arrives, who decides where it goes? Anything I must never route without you?
+5. When a new marketing request arrives, who decides where it goes? Which routing rules should I use?
 
 ## 4. Record
 
@@ -43,7 +42,7 @@ Follow `playbooks/weekly-marketing-summary.md`. Write it in the shape of
 `knowledge/examples/marketing-week.md`, attach it to the task, labelled "First draft, not yet
 reviewed". Nothing is shared and no task is created for anyone.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will draft this summary every Friday at 14:00 for you to review." They

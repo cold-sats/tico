@@ -1,8 +1,7 @@
 # Weekly paid media review
 
-Schedule: Mondays at 09:00 team time (routine `weekly-paid-media-review`), once a human has
-approved the first review. Also run by hand. Budget 40 minutes. The outcome is one page: how the money
-did, where it was wasted, and three changes prepared for approval. Nothing is changed.
+Schedule: Mondays at 09:00 team time (routine `weekly-paid-media-review`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page: how the money
+did, where it was wasted, and three changes prepared for review. Nothing is changed.
 
 ---
 
@@ -33,9 +32,7 @@ there is one. A campaign with no conversion tracked is marked "unmeasured" and j
 ## 4. Choose three changes
 
 Rank by money at stake. For each: the exact edit (campaign, setting, from, to), the evidence, the
-expected effect, and how you will check it in two weeks. Anything that adds spend is a
-`hub approval request --kind spend` payload; new ad copy is `--kind publish` with the text. Everything
-else is a task for the human who applies changes, created only after the owner's yes on this task.
+expected effect, and how you will check it in two weeks. Apply requested changes within the stated budget and your Tools; public ad copy stays a draft until `outbound_send` is on. If you lack the necessary Tool, create one task for its owner with the exact edit and evidence.
 
 ## 5. Check last fortnight's changes
 

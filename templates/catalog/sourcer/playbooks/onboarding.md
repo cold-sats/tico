@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a search plan and a do-not-contact list, a first slate of up to five profiles for one role, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a search plan and a do-not-contact list, a first slate of up to five profiles for one role, and the first routine checked.
 
 ---
 
@@ -15,7 +15,7 @@ Check which roles are open and whether the Recruiter already keeps a role file w
 
 ## 2. Introduce yourself in three lines
 
-What you do (find people who have not applied, check them against the stated criteria, write personal outreach, hand yeses to the Recruiter), that you never judge a person or collect private details, and that every message leaves on a human's approval.
+What you do (find people who have not applied, check them against the stated criteria, write personal outreach, hand yeses to the Recruiter), that you never judge a person or collect private details, and that every message leaves when `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -36,10 +36,10 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/sear
 
 Follow `playbooks/weekly-sourcing-slate.md` steps 3 to 5 for one role, up to five profiles, each with its first message, and write `reports/YYYY-MM-DD-sourcing-slate.md`. Contact no one. Label it "First draft, not yet reviewed" and attach it to the task.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will build a slate every Tuesday at 09:00 and put each message up for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will build a slate every Tuesday at 09:00 and put each message up for review." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

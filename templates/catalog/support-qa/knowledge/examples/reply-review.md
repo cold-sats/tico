@@ -10,7 +10,7 @@ support tool and nothing has been shared beyond the owner.
 
 ## How the sample was drawn
 10 of 74 replies sent 2026-09-21 to 2026-09-27: 7 at random, 3 chosen (2 refunds, 1 reopened). Source: Support Agent's
-approved drafts and the support mailbox's sent folder, read 2026-09-28.
+sent replies and the support mailbox's sent folder, read 2026-09-28.
 
 ## Scores (1 needs work, 2 meets, 3 excellent)
 | Ticket | Accuracy | Tone | Complete | Policy | Next step |

@@ -8,7 +8,7 @@ reasoning_effort: medium
 max_run_minutes: 45
 
 # Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
-# the bot puts what it prepared on the task and asks for an approval.
+# the bot puts what it prepared on the task and drafts until outbound_send is on.
 outbound_send: false
 
 # The first routine is declared off (`enabled: false`) and switched on when a human starts the bot's setup
@@ -36,4 +36,4 @@ tools: []
 #     env: SLACK_BOT_TOKEN
 #     note: "reads the IT help channel for requests; never posts"
 # Changing accounts in an admin console is the owner's decision: add that service with `can: [read]`
-# first, and widen it only after the owner has watched a few approved changes applied by hand.
+# first, and widen it when the requested work requires it.

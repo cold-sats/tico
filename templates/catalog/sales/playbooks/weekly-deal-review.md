@@ -1,8 +1,7 @@
 # Weekly deal review
 
-Schedule: Mondays at 09:00 team time (routine `weekly-deal-review`), once a human has approved the
-first review. Also run by hand. Budget 40 minutes. The outcome is one page per week: every open deal
-with a dated next step, the follow-ups ready to approve, and what is due. Nothing leaves without a Confirm.
+Schedule: Mondays at 09:00 team time (routine `weekly-deal-review`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page per week: every open deal
+with a dated next step, the follow-ups ready to use, and what is due. Messages to outsiders stay drafts until `outbound_send` is on.
 
 ---
 
@@ -30,8 +29,7 @@ milestone. Days quiet = today minus the last two-way contact, not the last email
 
 For each at-risk deal, prepare one follow-up that adds a new reason (an answer to their open question, a
 relevant fact, a smaller ask), under 120 words, in `knowledge/voice.md`. Never "just checking in". Put the
-recipient, subject and body on the task and request `hub approval request --kind send` for each, or leave
-it as a draft in the seller's mailbox where one is connected.
+recipient, subject and body on the task and send requested follow-ups with your Tools when `outbound_send` is on; otherwise leave drafts in the connected seller's mailbox.
 
 ## 5. List what is due
 
@@ -42,4 +40,4 @@ think are due (a stage, a close date) go in as proposals for the owner; you chan
 
 Write `reports/YYYY-MM-DD-deal-review.md` in the shape of `knowledge/examples/deal-review.md`, then
 `hub file publish reports/YYYY-MM-DD-deal-review.md`. Commit and `hub task update <id> --status done
---note`: deals needing a human, follow-ups awaiting approval, sources not read. Always finish the task.
+--note`: deals needing a human, follow-ups drafted or sent, sources not read. Always finish the task.

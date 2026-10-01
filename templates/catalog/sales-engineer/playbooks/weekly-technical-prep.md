@@ -1,7 +1,6 @@
 # Weekly technical deal prep
 
-Schedule: Wednesdays at 09:00 team time (routine `weekly-technical-prep`), once a human has approved
-the first prep. Also run by hand. Budget 40 minutes. The outcome is one page: every deal with a technical
+Schedule: Wednesdays at 09:00 team time (routine `weekly-technical-prep`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page: every deal with a technical
 step in the next two weeks, prepared. Nothing goes to a prospect.
 
 ---
@@ -33,7 +32,7 @@ date or with changed criteria goes to the Account Executive at the top of the pa
 
 ## 5. Questionnaires due
 
-List sections due with counts: answered from approved sources, waiting on a named owner. Follow
+List sections due with counts: answered from documented sources, waiting on a named owner. Follow
 `playbooks/technical-questionnaire.md` for new ones.
 
 ## 6. Write and hand over

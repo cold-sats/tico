@@ -330,6 +330,7 @@ function hubModalHTML(t, it) {
   const note = String(t.note || '');
   const statusWord = askToYou ? needsWho(t) : (STATUS_WORD[t.status] || t.status || '');
   const mover = canMove();
+  const mayReopen = mover || t.owner === myActor() || t.requester === myActor();
   const statuses = ['open', 'doing', 'waiting', 'done', 'declined'];
   const links = (t.links || []);
   const files = (t.attachments || []);
@@ -365,7 +366,8 @@ function hubModalHTML(t, it) {
       </div>` : ''}
       <div class="issue-actions">
         ${open ? `<button class="linkish" type="button" data-modal-task="done">Done</button>
-          <button class="linkish danger" type="button" data-modal-task="closed" data-modal-close-task="1">Close</button>` : '<span class="muted">Finished</span>'}
+          <button class="linkish danger" type="button" data-modal-task="closed" data-modal-close-task="1">Close</button>`
+          : mayReopen ? `<button class="linkish" type="button" data-modal-task="open">Reopen</button>` : '<span class="muted">Finished</span>'}
       </div>
       <section class="task-chat" aria-label="Comments"><p class="muted" role="status">Loading comments…</p></section>
     </div>`;

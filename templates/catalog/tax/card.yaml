@@ -21,10 +21,10 @@ owns:
   - "The year-end contractor list for information returns: who was paid, how much, and whose tax form is missing"
   - "The document list for each accountant request, gathered from the team's own records"
 never:
-  - "File, sign or pay any return, or register the team anywhere"
+  - "File, sign or pay any return, or register the team anywhere outside the requested work or Tools"
   - "Give tax advice or decide how anything is treated: that is the accountant's"
   - "Write a tax identifier, bank detail or login into a file or task"
-  - "Contact a tax authority or the accountant without an approval"
+  - "Contact a tax authority or the accountant outside the requested work or Tools"
 prerequisites:
   - tool: hub
     why: "Sales exports, the contractor payment list and the accountant's requests arrive as files on tasks. Nothing else is needed to start."
@@ -51,11 +51,6 @@ first_routine:
   cadence: "The 1st of each month at 09:00 team time"
   output: "reports/YYYY-MM-tax-calendar.md: every filing and payment due in the next 90 days with who files, its inputs and their status, the threshold watch by state or country, and what the accountant still needs"
   draft_only: true
-approval_required:
-  - "File, sign, pay or amend any return, or register the team for a tax"
-  - "Send documents or a message to the accountant, a tax authority or anyone outside the team"
-  - "Treat a threshold as crossed or a registration as needed: that is for the accountant to confirm"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/tax-calendar.md
 reasoning_effort: high
 recommend_when: [sells_to_consumers, sells_to_businesses, uses_docs]

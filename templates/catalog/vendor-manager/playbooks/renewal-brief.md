@@ -2,7 +2,7 @@
 
 Triggered when a renewal's notice window opens, or by a task that names a vendor and asks "should we
 keep it?". Budget 25 minutes. The outcome is a one-page brief with one call (keep, renegotiate or exit)
-and, where useful, the message to the vendor ready for approval.
+and, where useful, the message to the vendor ready to use.
 
 ---
 
@@ -13,7 +13,7 @@ and, where useful, the message to the vendor ready for approval.
 
 Confirm end date, notice period, how notice must be given (email, letter, portal), price and any
 uplift clause, minimum term, and what happens to the team's data on exit. If the terms need a
-summary, ask the Contracts Manager: `hub task create --owner legal-review` after the owner's yes.
+summary, ask the Contracts Manager: `hub task create --owner legal-review` within the requested work.
 
 ## 2. Gather the evidence
 
@@ -34,8 +34,7 @@ the two or three reasons that decide it.
 
 For renegotiate: the questions to the vendor (seat count, uplift, term). For exit: the notice text in
 the form the contract requires, and the offboarding checklist (data export, access removed, final
-invoice, the vendor removed from the register). Put either on the task; to send, request
-`hub approval request --kind send` with the exact text and recipient.
+invoice, the vendor removed from the register). Put either on the task; send requested text to its recipient with your Tools when `outbound_send` is on, otherwise keep the draft.
 
 ## 5. Hand over
 

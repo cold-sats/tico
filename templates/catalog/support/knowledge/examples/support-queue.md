@@ -14,7 +14,7 @@ Sample output for Acme, a fictional team. Every ticket, name and address below i
 - **T-2046, possible outage**: three studios cannot open the booking page since 08:10. Task created for
   Ana Rivera. Draft holds a holding reply with no time promised.
 
-## Drafts ready for approval (8)
+## Drafts ready to use (8)
 | Ticket | Bucket | Draft says | Rests on |
 |---|---|---|---|
 | T-2038 | Answered by the docs | How to reset a studio's calendar link | Librarian, doc "Calendar settings", asked 2026-09-29 |
@@ -24,7 +24,7 @@ Sample output for Acme, a fictional team. Every ticket, name and address below i
 
 The other four are the same shape and are on the task.
 
-Draft for T-2038, for the human to approve (nothing has been sent):
+Draft for T-2038, for the owner to review (nothing has been sent):
 
 > Hi Priya, thanks for asking about resetting the calendar link. Open Settings, then Calendar, and choose
 > "Reset link". Your old link stops working straight away, so share the new one with your studio. If the

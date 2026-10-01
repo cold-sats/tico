@@ -1,8 +1,6 @@
 # Weekly payment run proposal
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-payment-run`), once a human has approved
-the first proposal. Budget 35 minutes. The outcome is one proposal a human approves as a whole or line
-by line, and a spend approval request for exactly what is approved. Nothing is paid.
+Schedule: Tuesdays at 09:00 team time (routine `weekly-payment-run`), after setup. Budget 35 minutes. The outcome is one payment run from matched bills and verified payment details. Execute requested payments only with the necessary Tools.
 
 ---
 
@@ -18,7 +16,7 @@ the team takes. Everything else waits, and its due date is shown in the "coming 
 
 ## 3. Hold what is not ready
 
-Hold, with the reason in one clause: no approver sign-off; no match where a purchase order or contract
+Hold, with the reason in one clause: missing payment facts;  no match where a purchase order or contract
 is required, or a price or quantity difference; a duplicate candidate; a vendor whose bank details
 changed and are not yet verified by a callback on a number already on file; a disputed bill.
 
@@ -31,6 +29,5 @@ bills could move to the next run without a fee.
 ## 5. Write and request
 
 Write `reports/YYYY-MM-DD-payment-run.md` in the shape of `knowledge/examples/payment-run.md` and
-`hub file publish` it. Ask the requester on the task to approve. On their yes, request exactly the
-approved lines: `hub approval request --kind spend --payload-file run.json --task <id>`. Commit, and
+`hub file publish` it. Execute the requested, matched lines using verified payment details when your Tools allow it; otherwise attach `run.json` and name the missing access. Commit, and
 `hub task update <id> --status done --note` with the total, the held count and the path.

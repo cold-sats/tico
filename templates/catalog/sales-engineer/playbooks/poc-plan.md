@@ -2,7 +2,7 @@
 
 Triggered by a task asking for a proof of concept, pilot or technical trial for a named deal. Budget 30
 minutes. The outcome is a one-page plan the buyer can agree to before anything is set up. No access is
-given and nothing is sent without approval.
+given and nothing is sent outside the stated rules.
 
 ---
 
@@ -30,6 +30,5 @@ as scope changes with a new date.
 
 ## 4. Hand over
 
-Save it to `knowledge/poc/<deal>.md` and attach it. The Account Executive approves; then request
-`hub approval request --kind send` with the plan and recipient. Access to a sandbox is a separate request
-for a human. `hub task update <id> --status done --note`: the criteria, the dates, what waits on approval.
+Save it to `knowledge/poc/<deal>.md` and attach it. Send the requested plan to its recipient with your Tools when `outbound_send` is on; otherwise keep the draft. Access to a sandbox is a separate request
+for a human. `hub task update <id> --status done --note`: the criteria, the dates, what is ready to act on.

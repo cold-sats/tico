@@ -14,7 +14,7 @@ no ratings appear here. Nothing has been sent to managers. First draft, not yet 
 - Calibration: 2026-10-14, facilitated by Ruth. Conversations: 2026-10-19 to 2026-10-30.
 
 ## Behind
-| Manager | Team | Due | In | Proposed reminder (approval on the task) |
+| Manager | Team | Due | In | Proposed reminder (source and destination on the task) |
 |---|---|---|---|---|
 | Omar | Sales | 6 | 0 | "Your 6 reviews are due Fri 9 Oct; packs are on T-512." |
 | Kenji | Engineering | 9 | 0 | "Your 9 reviews are due Fri 9 Oct; packs are on T-513." |

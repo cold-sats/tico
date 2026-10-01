@@ -1,7 +1,7 @@
 # Review a counsel invoice
 
-Triggered by a task attaching a law firm invoice. Budget 20 minutes. The outcome is a review the approver can act
-on in two minutes: the total, the lines to question and why. You never approve, pay or dispute it.
+Triggered by a task attaching a law firm invoice. Budget 20 minutes. The outcome is a review the owner can act
+on in two minutes: the total, the lines to question and why. Process requested invoice actions with your Tools and verified terms.
 
 ---
 
@@ -28,10 +28,9 @@ Check the arithmetic of every line and the total.
 
 `reports/invoices/<firm>-<invoice>.md`: two lines first (billed, in question, the main reason), the lines to question
 in a table with the rule each breaks, budget position after this invoice, then a draft query to the firm in plain
-words for a human to send, then **Summary for a human, not legal advice.** `hub file publish` it.
+words to send with Tools when outbound_send is on, then **Summary for a human, not legal advice.** `hub file publish` it.
 
 ## 4. Hand over
 
-Put it on the task for the approver named at setup, and ask once: "Approve as billed, or query the lines
-above?" The query to the firm is sent by a human, or through `hub approval request --kind send`. Update the
+Put it on the task for the owner named at setup. Process requested payments or queries within the stated terms and your Tools; messages to the firm stay drafts until `outbound_send` is on. Update the
 matter's spend to date in `knowledge/matters.md`, commit, and `hub task update <id> --status done --note`.

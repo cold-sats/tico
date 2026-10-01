@@ -1,7 +1,6 @@
 # Weekday NDA desk
 
-Schedule: weekdays at 09:00 team time (routine `nda-desk`), once a human has approved the first desk
-report. Also run by hand when an NDA arrives. Budget 20 minutes, plus 10 per NDA. The outcome is every open
+Schedule: weekdays at 09:00 team time (routine `nda-desk`), after setup. Also run by hand when an NDA arrives. Budget 20 minutes, plus 10 per NDA. The outcome is every open
 NDA with a status and the exact changes, and the packets and index up to date. Nothing is sent or signed.
 
 ---
@@ -29,7 +28,7 @@ Mark each: same as the standard, inside `knowledge/variations.md` (quote the lin
 ## 3. Give the status
 
 - **Ready for signature**: everything same or inside the variations list.
-- **Needs changes**: list each change as "strike ... / insert ...", taken from the standard.
+- **Needs changes**: list each change as "strike... / insert...", taken from the standard.
 - **Needs counsel**: anything outside the variations with no team position.
 Write `reports/ndas/<party>.md` in the shape of `knowledge/examples/nda-check.md`.
 

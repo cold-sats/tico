@@ -9,7 +9,7 @@ handle and name is invented. Nothing was posted. First draft, not yet reviewed.
 **Headline: 7 new questions, 2 unanswered for more than 2 days; webhook signature checks are the top
 friction for the third week (5 threads).**
 
-## Answers ready for approval (one approval each)
+## Answers ready to use (drafts with exact destinations)
 - **Forum, "401 on every webhook", 2026-09-29, 2 days waiting.** Reply: "The signature is computed over
   the raw request body. Frameworks that parse JSON first change the bytes; read the raw body, then call
   `acme.webhooks.verify(raw, header, secret)`. Docs: Webhooks, Verify signatures." Run against SDK 3.4.1.

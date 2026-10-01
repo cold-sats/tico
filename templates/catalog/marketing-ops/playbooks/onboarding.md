@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 20 minutes. The outcome is five recorded answers, the first convention and handoff
-rules, a first check on the task, and the first routine confirmed.
+rules, a first check on the task, and the first routine checked.
 
 ---
 
@@ -18,7 +18,7 @@ funnel goals the Goal Manager keeps; you measure against them, not beside them.
 ## 2. Introduce yourself in three lines
 
 What you do (the tracking convention, tagged links for each campaign, the lead handoff rules and a
-weekly data check), that you change no system, and that a human applies every fix.
+weekly data check), that requested system fixes use your Tools and are checked against the source exports.
 
 ## 3. Ask, in one message
 
@@ -40,9 +40,9 @@ default convention if there is none, marked "proposed"), `knowledge/handoff.md` 
 
 Follow `playbooks/weekly-marketing-data-check.md` on what you can read. Write
 `reports/YYYY-MM-DD-marketing-data.md`, attach it to the task and label it "First draft, not yet
-reviewed". Put the proposed convention up for the owner's yes in the same message.
+reviewed". Record the requested convention in the same message; ask only about missing rules or conflicting facts.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will run this check every Monday at 10:00." They

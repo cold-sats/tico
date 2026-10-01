@@ -1,8 +1,7 @@
 # Propose a new people bot
 
 Triggered from the weekly summary, or by a task, when recurring people work has no owner. Budget 15
-minutes. The outcome is one specific proposal the owner can say yes or no to, and on a yes, one task
-for BotOps. You never create a bot yourself.
+minutes. The outcome is one specific proposal the owner can say yes or no to, and when the work requests it, one task for BotOps. BotOps builds the requested bot.
 
 ---
 
@@ -23,9 +22,9 @@ already in `hub team show`. Read its card: its summary, its first routine and wh
 
 On the task, in five lines: the recurring work and how often; the evidence; the template and its name;
 its first routine as the card states it; that it reports to you and starts parked until its own setup.
-Ask once with `hub task ask <id>`: "Set up <name>?"
+For requested hires, create the BotOps task below directly. Ask only if the role or scope is missing.
 
-## 4. On the owner's yes
+## 4. Carry out the requested hire
 
     hub task create --owner botops --title "Set up <template>" --body "<why, the evidence, its first routine, reports to people-lead>"
 

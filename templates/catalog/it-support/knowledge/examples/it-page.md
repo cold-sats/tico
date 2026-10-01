@@ -7,12 +7,12 @@ Sample output for Acme, a fictional studio-software team of about 40 people. Eve
 device is invented. Nothing has been changed in any tool. First draft, not yet reviewed.
 
 **Headline: 1 P1: Tomas left on Friday and his chat and CRM accounts are still active. 7 requests
-open, 2 access changes wait on approvers.**
+open, 2 access changes need admin Tools.**
 
 ## P1
 - **Leaver, Tomas, last day 2026-09-25.** Mail suspended 2026-09-25 (admin confirmed). Chat and CRM
   still active on 2026-09-28 (tools admin page, read 09:10). Laptop not returned. Prepared: suspend
-  both accounts; approver Priya (CRM owner) and Dana (chat admin).
+  both accounts; tool owner Priya (CRM owner) and Dana (chat admin).
 
 ## Open requests (7)
 | Priority | Request | Who | Age | Waiting on |

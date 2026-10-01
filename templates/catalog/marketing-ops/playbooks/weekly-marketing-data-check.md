@@ -1,7 +1,6 @@
 # Weekly marketing data check
 
-Schedule: Mondays at 10:00 team time (routine `weekly-marketing-data-check`), once a human has
-approved the first check. Also run by hand. Budget 35 minutes. The outcome is one page: tagging,
+Schedule: Mondays at 10:00 team time (routine `weekly-marketing-data-check`), after setup. Also run by hand. Budget 35 minutes. The outcome is one page: tagging,
 sources and handoff, each with the fixes and their owners. Nothing in any system is changed.
 
 ---

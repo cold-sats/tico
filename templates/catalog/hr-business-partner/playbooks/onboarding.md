@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers, the cycle plan, the rating scale and the probation list, a first weekly tracker, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, the cycle plan, the rating scale and the probation list, a first weekly tracker, and the first routine checked.
 
 ---
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/revi
 
 Follow `playbooks/weekly-performance-tracker.md` on the real roster and dates and write `reports/YYYY-MM-DD-performance-tracker.md`. Send nothing to managers. Label it "First draft, not yet reviewed" and attach it to the task.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this tracker every Wednesday at 09:00 for the HR owner only." They

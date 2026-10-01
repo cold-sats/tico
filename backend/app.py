@@ -47,7 +47,7 @@ from . import fleet_check as fleet_check_module
 from .getting_started import _online_runners
 from .credential_cards import install_credential_cards, scrub_attempt
 from .github import PATH as GITHUB_WEBHOOK_PATH
-from .store import H, P, Problem, Store, encode, message_page, repo_url, task_message_page
+from .store import H, P, Problem, Store, bot_readiness, encode, message_page, repo_url, task_message_page
 
 
 
@@ -2405,7 +2405,7 @@ def create_app(settings=None):
         auth.domain(who)
         with store.read() as c:
             auth.require_read(c, who, bot)
-            return H.status_history(c, bot, since=since)
+            return H.status_history(c, bot, since=views.since_time(since))
 
     @app.get("/api/v2/bots/{bot}/turns")
     def turns(request: Request, bot: str, since: str | None = None):
@@ -2414,7 +2414,7 @@ def create_app(settings=None):
         with store.read() as c:
             auth.require_read(c, who, bot)
             result = []
-            for turn in H.turns(c, bot, since=since):
+            for turn in H.turns(c, bot, since=views.since_time(since)):
                 msg = H.message(c, turn["message_id"])
                 if not msg:
                     continue
@@ -2422,7 +2422,9 @@ def create_app(settings=None):
                     auth.conversation(c, who, msg["conversation_id"])
                 except Problem:
                     continue
-                result.append(turn)
+                result.append({**turn, **views.attempt_details(c, turn)})
+            result.extend(views.failed_attempts(c, who, auth, bot, views.since_time(since)))
+            result.sort(key=lambda row: row.get("started") or "", reverse=True)
             return result
 
     @app.post("/api/v2/enrollments")
@@ -2656,7 +2658,26 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            return fleet_check_module.check(c, who, auth, settings)
+            result = fleet_check_module.check(c, who, auth, settings)
+            result["computers"] = computer_rows(c, who)
+            return result
+
+    def computer_rows(c, who):
+        online = {r["id"] for r in _online_runners(c)}
+        everyone = who.role == "owner" or auth.bot_admin(who)
+        mine = H.actor_id(who.actor)
+        readable = auth.bot_accesses(c, who)
+        rows = []
+        for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL ORDER BY label"):
+            if not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
+                continue
+            bots = [x["bot"] for x in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (r["id"],))
+                    if (readable.get(x["bot"]) or {}).get("see")]
+            rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online,
+                         "platform": r["platform"] or "", "operator": r["operator"],
+                         "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots,
+                         **views.computer_details(c, r, who, auth)})
+        return rows
 
     @app.get("/api/v2/computers")
     def computers(request: Request):
@@ -2665,17 +2686,7 @@ def create_app(settings=None):
         who = request.state.identity
         auth.domain(who)
         with store.read() as c:
-            online = {r["id"] for r in _online_runners(c)}
-            everyone = who.role == "owner" or auth.bot_admin(who)
-            mine = H.actor_id(who.actor)
-            rows = []
-            for r in c.execute("SELECT * FROM runners WHERE revoked_at IS NULL ORDER BY label"):
-                if not (everyone or r["operator"] == mine or r["accepts_member_bots"]):
-                    continue
-                bots = [x["bot"] for x in c.execute("SELECT bot FROM assignments WHERE runner_id=? ORDER BY bot", (r["id"],))]
-                rows.append({"id": r["id"], "label": r["label"], "online": r["id"] in online, "platform": r["platform"] or "",
-                             "operator": r["operator"], "accepts_member_bots": bool(r["accepts_member_bots"]), "bots": bots})
-            return {"computers": rows}
+            return {"computers": computer_rows(c, who)}
 
     @app.post("/api/v2/bots/{bot}/place")
     def place_bot(request: Request, bot: str, body: M.BotPlace):
@@ -2697,6 +2708,24 @@ def create_app(settings=None):
             row = H.bot(c, bot)
             if row["state"] == "quarantined":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
+            building = False
+            if not agents.external_harness(c, bot):
+                assignment = c.execute("SELECT r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id "
+                                       "WHERE a.bot=?", (bot,)).fetchone()
+                report = bot_readiness(assignment["readiness_json"], bot) if assignment else {}
+                if not report.get("repository_present"):
+                    declared = onboarding._declared(c, bot)
+                    if declared.get("materialize"):
+                        building = True
+                    elif declared.get("template"):
+                        if not H.bot(c, "botops"):
+                            raise Problem("repository_missing", "Its repository is not built yet. Add BotOps to build it", 409)
+                        build = onboarding.attach_template(c, who, bot, declared["template"],
+                                                           declared.get("instructions") or "", queue_build=True)
+                        return {"bot": bot, "state": row["state"], **placed, **build, "building": True,
+                                "setup_started": False, "note": "BotOps is building its repository; watch setup_task_id"}
+                    else:
+                        raise Problem("repository_missing", "Its repository is not built yet. Ask BotOps to build it", 409)
             activated = row["state"] != "active"
             if activated:
                 settings_admin.update_bot(c, who, bot, M.BotDefinitionUpdate(
@@ -2709,7 +2738,9 @@ def create_app(settings=None):
             # Going live turns its first routine on too: nobody approves it separately.
             armed = onboarding.arm_first_routine(c, who, bot)
             return {"bot": bot, "state": H.bot(c, bot)["state"], "computer": placed["computer"], "placed": placed["placed"],
-                    "activated": activated, "setup_started": setup, "routine_armed": armed}
+                    "activated": activated, "setup_started": setup, "routine_armed": armed,
+                    **({"building": True, "note": "The computer is building its repository; queued work starts when it is ready"}
+                       if building else {})}
         return mutate(request, body, work)
 
     @app.post("/api/v2/runners/{rid}/member-bots")
@@ -2873,7 +2904,15 @@ def create_app(settings=None):
             who = delegated_identity(c, caller, body.on_behalf_of) if body.on_behalf_of else caller
             if who.role not in ("owner", "human"):
                 raise Problem("forbidden", "Only people register bots", 403)
-            return settings_admin.register(c, who, body)
+            created = settings_admin.register(c, who, body)
+            if body.build and body.template:
+                if not H.bot(c, "botops"):
+                    raise Problem("not_found", "Add BotOps from Templates to build this bot", 409)
+                current = onboarding._declared(c, body.slug)
+                if not created["created"] and current.get("template") != body.template:
+                    raise Problem("template", "Change the bot's template in its definition before building it", 409)
+                created.update(onboarding.attach_template(c, who, body.slug, body.template, "", queue_build=True))
+            return created
         return mutate(request, body, work)
 
     @app.post("/api/v2/bots/{bot}/co-owners")

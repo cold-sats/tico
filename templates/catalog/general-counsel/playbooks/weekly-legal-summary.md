@@ -1,7 +1,6 @@
 # Weekly legal summary
 
-Schedule: Mondays at 08:30 team time (routine `weekly-legal-summary`), once a human has approved the
-first summary. Also run by hand. Budget 30 minutes. The outcome is one page for the owner: what is open, what
+Schedule: Mondays at 08:30 team time (routine `weekly-legal-summary`), after setup. Also run by hand. Budget 30 minutes. The outcome is one page for the owner: what is open, what
 is due, which decisions are theirs, and who should take what next. A summary for a human, not legal advice.
 
 ---
@@ -36,8 +35,7 @@ one line, the date, the options as the record states them, and the lawyer to cal
 
 ## 5. Routing and hiring proposals
 
-For each request with no owner: the owner from the team lines in `AGENT.md`, with the reason. Do not create
-tasks. If one kind of request recurred with no bot to take it (three or more in four weeks), add a hiring
+For each request with no owner: the owner from the team lines in `AGENT.md`, with the reason. Create tasks for requested follow-through with your Tools. If one kind of request recurred with no bot to take it (three or more in four weeks), add a hiring
 proposal as `AGENT.md` "Hiring" describes; it is asked on the task, never acted on here.
 
 ## 6. Write and hand over

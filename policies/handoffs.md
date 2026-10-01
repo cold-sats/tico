@@ -1,6 +1,6 @@
 # Handoff policy
 
-Tico's Hub database is the only work queue. GitHub Issues are disabled and must not be used for
+Tico's database is the only work queue. GitHub Issues are disabled and must not be used for
 tracking. Bots use the `hub` CLI; people use Tico at `https://hub.acme.example`.
 
 ## Starting a task
@@ -34,7 +34,7 @@ refuses it once the rule is enforced; `hub task create --dry-run` shows what it 
   are a product or engineering bot) and moves Backlog → Doing → In review → Ready to ship →
   Shipped. Set `--status review` when your pull request is open and attach it with
   `hub task link <task-id> <pr url>`; the merge and the deploy move it the rest of the way.
-  Everything else is the **company** lane.
+  Everything else is the **Team** lane.
 - A project is a label: `hub task label <task-id> --add pricing-page`. So is a kind (`bug`).
 - What you are waiting on, when it is another task: link it as a child and mark the parent
   `waiting` with the child ID in its note. If your role can change `blocked_by`, set it too;
@@ -122,10 +122,9 @@ would want it stopped.
 The owner reads requests on a phone between meetings. `hub task ask` sends to the task's requester.
 Use it once when that requester is the owner and one answer unblocks the task. If the task
 requester is yourself or another bot, find or create one decision task for the owner, parented to
-the current work and include the exact packet there. Put that decision task in the **company**
-lane (`--lane company`), even when its parent is a product task, so it appears in **Needs you**;
+the current work and include the exact packet there. Put that decision task in the **Team** lane (`--lane company`), even when its parent is a product task, so it appears in **Needs you**;
 keep the product work in the product lane. That human task is the ask. Do not call
-`hub question ask` or `hub message send` to the owner for the same gate; each sends another notification. A direct
+`hub question ask` or `hub message send` to the owner for the same question; each sends another notification. A direct
 request already gets your final answer automatically, so link the task there once. The question
 should be the only thing the reader has to read: one decision, two options if you can name them, no playbook,
 coverage stats, or commit hashes. The human task title starts with a verb, its first line contains
@@ -134,8 +133,7 @@ brief into the task note.
 
 Give one recommendation with the material consequence and include the relevant draft or summary.
 Longer supporting files belong in the task's S3 deliverables prefix. Check for an existing request
-before creating another. Only an explicit yes grants approval; closing or completing a task does
-not.
+before creating another. Ask only when information is missing or a real choice remains. Work already requested needs no separate approval.
 
 Example:
 
@@ -143,7 +141,7 @@ Example:
 Should the homepage headline be our next test?
 
 I recommend testing “Run your business with less busywork” against the current headline.
-Nothing starts until you approve and the site-health checks pass.
+If the test is requested, run it with the available Tools after the site-health checks pass.
 
 Full proposal: s3://<company>-tico-hub/cro/deliverables/<task-id>/funnel-review.md
 ```
@@ -160,10 +158,10 @@ whether to remind or hand work to another bot, whether to mark completed bot wor
 to open a branch or draft pull request. Read the task graph and route the work yourself. If another
 bot owns the next step, create one concrete task for that bot. Opening a branch or draft pull
 request is preparation; proceed when the assigned work authorizes it. Ask a person only for an
-actual business choice or a gated action that the bot cannot take.
+actual business choice or an action requiring Tools the bot lacks.
 
 Rules:
-- **Title** is the decision in plain words, starting with a verb: "Approve X reply about 20% fees".
+- **Title** is the decision in plain words, starting with a verb: "Choose the wording for the reply about fees".
 - **First line is the ask** with the choices spelled out. Never make the reader scroll to find it.
 - **System attribution.** Call the background system **Tico** in text for people; name the actual bot when its identity is known. Keep actor IDs unchanged in commands.
 - **Plain language.** No internal codes, tags, or scores (no "keeper", "class", "GEO citation",
@@ -197,9 +195,7 @@ Our current pages disagree. I recommend keeping the customer responsible until y
 service we provide. Reply ‘Acme files’ or ‘customer files’; I will then prepare consistent wording
 for review. The documentation change is waiting on this answer.”
 
-Do not invent a recommendation or consequence. If evidence is missing, investigate first. For
-an actual permission block, name the exact action, destination and scope needing approval; explain
-why it is needed and what happens if declined. A task being closed is not approval.
+Do not invent a recommendation or consequence. If evidence is missing, investigate first. For missing Tools, name the exact action, destination and access needed; explain what remains blocked. Do not turn a tool failure into a request to approve work already assigned.
 
 ## From review to result
 
@@ -207,8 +203,7 @@ When the deliverable is ready but the business result depends on a person, recor
 action on the existing task: the artifact and version, the destination, the decision owner, and
 the check you will run after the decision. Keep a product task with an open review PR in `review`
 and attach the PR link; that link is the handoff, so do not add a generic merge approval. Keep a
-company task awaiting a human decision in `waiting`. For accepted unpublished content, name the
-exact assets and placement in one publication decision after factual review. Do not count
+team task awaiting a missing decision in `waiting`. For requested publication, verify the facts, assets and placement, then publish with your Tools when `outbound_send` is on. Ask only if the destination or scope is missing. Do not count
 acceptance as publication.
 
 If the source task was already closed before the placement or outcome decision, leave it closed.
@@ -223,8 +218,7 @@ On the next turn, check the current source of truth for that action (for example
 live URL) before repeating the ask. Use the exact URL already attached to the task; do not guess
 the repository or destination from its title. If a lookup fails, inspect that link and retry the
 source check. If the action happened, update the existing task and verify the
-result; then record the first useful outcome measure and its date. If it has not happened, leave
-the same request visible and continue independent work. Do not create another reminder task.
+result; then record the first useful outcome measure and its date. If it has not happened, complete it when the requested work and Tools allow; otherwise leave the same dependency visible and continue independent work. Do not create another reminder task.
 
 When the live placement is verified but the outcome signal will not be available until a later
 date, keep that measurement in the Hub queue. Reuse an existing measurement task if it names the

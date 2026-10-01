@@ -1,7 +1,6 @@
 # Monthly close checklist
 
-Schedule: the 1st of each month at 09:00 team time (routine `monthly-close-checklist`), once a
-human has approved the first status. On a weekend or when the bank feed has not reached month end,
+Schedule: the 1st of each month at 09:00 team time (routine `monthly-close-checklist`), after setup. On a weekend or when the bank feed has not reached month end,
 still run, and say which lines are waiting on the feed. Budget 40 minutes. The outcome is one status
 the owner or accountant can act on in five minutes. Nothing is posted.
 
@@ -48,8 +47,7 @@ checklist, proposed categories, owner questions, accountant list, could not read
 
     hub file publish reports/YYYY-MM-close-status.md
 
-To send it to anyone other than the requester, `hub approval request --kind send` with the exact
-text and recipient. Do not send it yourself.
+Share within the requested work and intended audience with your Tools. Messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 5. Finish
 

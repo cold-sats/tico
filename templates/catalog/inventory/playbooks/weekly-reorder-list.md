@@ -1,8 +1,7 @@
 # Weekly reorder list
 
-Schedule: Mondays at 07:30 team time (routine `weekly-reorder-list`), once a human has approved the
-first list. Budget 30 minutes. The outcome is a reorder list and one purchase order per supplier ready
-for approval. Nothing is ordered.
+Schedule: Mondays at 07:30 team time (routine `weekly-reorder-list`), after setup. Budget 30 minutes. The outcome is a reorder list and one purchase order per supplier ready
+for review. Nothing is ordered.
 
 ---
 
@@ -32,7 +31,7 @@ up where cost is in the export. A suggestion (pause reorders, a bundle, a markdo
 ## 5. Build the orders
 
 One purchase order per supplier: lines, quantities, unit price from the price list with its date, the
-total. Put each on the task with `hub approval request --kind spend`.
+total. Attach each order and its total to the task; place requested orders when your Tools allow it, otherwise name the missing access.
 
 ## 6. Write and hand over
 

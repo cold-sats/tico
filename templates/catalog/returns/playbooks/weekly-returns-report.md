@@ -1,7 +1,6 @@
 # Weekly returns report
 
-Schedule: Mondays at 09:00 team time (routine `weekly-returns-report`), once a human has approved
-the first report. Budget 30 minutes. The outcome is one page: what came back, what is waiting on a
+Schedule: Mondays at 09:00 team time (routine `weekly-returns-report`), after setup. Budget 30 minutes. The outcome is one page: what came back, what is waiting on a
 decision or a refund, and which products keep returning.
 
 ---
@@ -9,7 +8,7 @@ decision or a refund, and which products keep returning.
 ## 1. Work the open requests
 
 Run `playbooks/decide-a-return.md` for every request without a decision. List them with the
-recommended decision and the reply waiting for approval.
+recommended decision and the reply ready to act on.
 
 ## 2. Age the refunds
 

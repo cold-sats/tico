@@ -1,7 +1,6 @@
 # Monthly pricing review
 
-Schedule: the 1st of each month at 09:00 team time (routine `monthly-pricing-review`), once a human
-has approved the first review. Budget 45 minutes. The outcome is one page on prices, discounts and plan
+Schedule: the 1st of each month at 09:00 team time (routine `monthly-pricing-review`), after setup. Budget 45 minutes. The outcome is one page on prices, discounts and plan
 mix for the Head of Product. Nothing is changed and nothing leaves the team.
 
 ---

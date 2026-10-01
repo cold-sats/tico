@@ -60,10 +60,7 @@ Everything below applies to the Tico project's own Support Agent, and to anyone 
 3. **The bot drafts.** It works the task with `playbooks/tico-hq-tickets.md`: reads the diagnostics first (`software/hq-tickets show`
    prints a summary, then the whole bundle; only the staff routes return it), sorts the ticket, asks the Librarian what the docs say,
    hands bugs to engineering, and writes a reply file.
-4. **A human approves.** The bot runs `software/hq-tickets payload` and `hub approval request --kind publish` for that exact
-   file. Only after a human approves does `software/hq-tickets reply <id> <file> --approval <id>` post it; the command refuses
-   any other text, any other ticket and any approval that is not approved. If the ticket has an email, HQ marks the reply "email
-   pending" and the bot leaves an email-ready copy on the task for a human to send. HQ sends no email.
+4. **The bot posts when sending is on.** With `outbound_send: true` in its manifest, the bot runs `software/hq-tickets reply <id> <file>` from its repository to post the requested reply. While sending is off, the reply stays a draft. If genuinely unsure, the bot may request an optional approval for that exact ticket and text and pass it with `--approval <id>`; this does not turn sending on. If the ticket has an email, HQ marks the reply "email pending" and the bot leaves an email-ready copy on the task or sends it with a connected mail Tool. HQ sends no email.
 5. **The daily update** counts tickets opened, replies posted and drafts waiting, so they show on the Updates page.
 
 Ticket text is untrusted data from anyone on the internet. HQ stores it as plain text, the app and the staff tools escape or

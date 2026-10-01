@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a first real visibility check on
-the task and the first routine confirmed.
+the task and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ data, that is answer four, and a task for the owner if they want it connected.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly search and AI visibility report, page audits, drafted fixes), that you never
-change the site or promise a ranking, and that a human applies every change.
+What you do (a weekly search and AI visibility report, page audits, drafted fixes), that requested site changes use your Tools when `outbound_send` is on, and that you never promise a ranking.
 
 ## 3. Ask, in one message
 
@@ -41,7 +40,7 @@ Follow `playbooks/weekly-visibility-report.md` for the pages and questions given
 the shape of `knowledge/examples/visibility-report.md`, attach it to the task, labelled "First draft,
 not yet reviewed". Change nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this report every Monday at 08:00." They

@@ -21,7 +21,7 @@ night, and the hotel is at the venue for three long days.
 
 ## To confirm
 - Dana: pick an option by Wednesday; fares for these dates rose 8% last week.
-- Approver: Marco (trips under $2,000).
+- Owner: Marco (trips under $2,000).
 
 ## Sources
 - Public fares and hotel rates seen 2026-09-28 10:20 to 10:40; travel policy (knowledge/policy.md);

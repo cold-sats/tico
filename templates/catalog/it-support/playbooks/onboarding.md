@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the tools, devices and checklist
-files written, a first weekly IT page, and the first routine confirmed.
+files written, a first weekly IT page, and the first routine checked.
 
 ---
 
@@ -18,16 +18,15 @@ original dates.
 
 ## 2. Introduce yourself in three lines
 
-What you do (IT requests to a fix, access prepared for approval, joiners and leavers, the device list),
-that you never change an account on your own, and that you never want anyone's password.
+What you do (IT requests to a fix, access prepared for review, joiners and leavers, the device list), that requested access changes use your granted Tools, and that you never ask for anyone's password.
 
 ## 3. Ask, in one message
 
 Numbered, each with its one-line why and a default.
 
-1. Which tools does everyone use, and who is the admin of each? Becomes the tools file and the approval route.
+1. Which tools does everyone use, and who is the admin of each? Becomes the tools file and the access owner.
 2. Where is the list of laptops and phones? Are disks encrypted; is there device management? Seeds the device list.
-3. Who approves access to what, and which tools are sensitive? Sensitive tools need the owner too.
+3. Who owns access to each tool, and which tools are sensitive? Requested changes need granted admin access.
 4. What must happen on a first and last day, and who tells you? (Default: the HR Generalist or manager, by task.)
 5. When should the weekly IT page land, and for whom? (Default: the Operations Manager, Mondays 09:30.)
 
@@ -43,7 +42,7 @@ forwarding set by the manager's choice).
 Follow `playbooks/weekly-it-page.md`. Attach it labelled "First draft, not yet reviewed". A leaver in
 `hub team show` whose accounts you cannot confirm removed goes at the top.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "you will get this page every Monday at 09:30, and I will work requests as they come in between." They

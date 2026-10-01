@@ -34,7 +34,7 @@ dates appear. Nothing has been assigned, published or sent. First draft, not yet
 - 2026-10-20: review cycle self-assessments open (`hr-business-partner`, packs ready).
 
 ## What the people bots produced
-- `recruiting`: 18 applications screened; 2 replies waiting on approval since 2026-09-25.
+- `recruiting`: 18 applications screened; 2 replies ready to act on since 2026-09-25.
 - `people-hr`: onboarding tracker for Dev; one handbook gap (equipment returns) sent to the Librarian.
 - Not in this team yet: benefits, offboarding (see proposals).
 

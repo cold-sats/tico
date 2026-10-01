@@ -8,7 +8,7 @@ pack: marketing
 icon: edit_note
 suggest: default
 tags: [content, blog, seo, social, b2b, b2c, smb]
-summary: "Plans the next four weeks of posts and articles and writes one finished piece a week in the team's voice, ready to publish. Nothing goes live until a human approves it."
+summary: "Plans the next four weeks of posts and articles and writes one finished piece a week in the team's voice, ready to publish. Public messages stay drafts until `outbound_send` is on."
 when: "A team that publishes posts or articles and has no one with the hours to plan and draft them."
 pains:
   - "we don't post regularly"
@@ -22,10 +22,10 @@ owns:
   - "How the team sounds in public (knowledge/voice.md)"
   - "The list of ideas that have not been written yet, each with where it came from"
 never:
-  - "Publish, schedule, post, comment or reply on any channel"
-  - "Change live copy on the website"
+  - "Publish, schedule, post, comment or reply on any channel outside the requested work or Tools"
+  - "Change live copy on the website outside the requested work or Tools"
   - "Invent a number, a customer quote or a result"
-  - "Contact anyone outside the team, including for an interview or a comment"
+  - "Contact anyone outside the team, including for an interview or a comment outside the requested work or Tools"
 prerequisites:
   - tool: hub
     why: "Tasks carry the ideas and requests, other bots hand over questions worth answering, and the drafts go back on the task."
@@ -55,12 +55,6 @@ first_routine:
   cadence: "Mondays at 09:00 team time"
   output: "reports/YYYY-MM-DD-content-plan.md: the next four weeks, one full draft for the top item with its short versions and sources, and the ideas added or dropped"
   draft_only: true
-approval_required:
-  - "Publish, schedule, post, comment or reply on any channel, or change live copy"
-  - "Use a customer's name, words or numbers in a piece"
-  - "Contact anyone outside the team for an interview, a quote or a comment"
-  - "Make a claim, a comparison or a promise about an outcome the team cannot source"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/content-plan.md
 reasoning_effort: medium
 recommend_when: [publishes_content, sells_to_consumers, small_team]

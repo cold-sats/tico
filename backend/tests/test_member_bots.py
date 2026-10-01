@@ -383,3 +383,64 @@ def test_botops_updates_a_tool_in_place_as_the_requester_and_only_on_her_bot(api
     finish(api, botops, attempt)
     assert api.post("/api/v2/bots/cara-mail/tools/gmail/update", json={"note": "x"},
                     headers=headers(botops["token"])).status_code in (401, 403)
+
+
+def test_template_create_uses_team_default_and_validates_metadata(api, botops):
+    from backend.tests.test_settings_transitions import _company_default
+    _company_default(api, "ops")
+    body = {"slug": "release-helper", "display_name": "Release Helper", "model": "", "effort": "",
+            "template": "release-notes"}
+    made = post(api, "bots", body)
+    with api.app.state.store.read() as c:
+        from backend import providers
+        assert made["model"] == providers.load(c, api.app.state.store.settings)["model"]
+    assert made["onboarding_state"] == "needs_setup"
+    starting = post(api, "bots/release-helper/go-live", {})
+    assert starting["building"] and starting["setup_started"] and starting["state"] == "active"
+    duplicate = post(api, "bots", {**body, "slug": "release-helper-two"})
+    assert duplicate["matching_slugs"] == ["release-helper"]
+    invalid = post(api, "bots/register", {"slug": "unknown-helper", "template": "release-notez"}, expected=422)
+    assert "hub_template_list" in invalid["error"]["detail"] and "release-notes" in invalid["error"]["detail"]
+    with api.app.state.store.read() as c:
+        assert H.bot(c, "unknown-helper") is None
+    changed = post(api, "bots/release-helper/definition", {"template": "meeting-notes",
+                   "expected_revision": get(api, "bots/release-helper/access")["revision"]})
+    assert changed["template"] == "meeting-notes"
+    post(api, "bots/release-helper/definition", {"template": "no-such-template", "expected_revision": changed["revision"]}, expected=422)
+
+
+def test_owner_mcp_template_creation_queues_one_botops_build(api, botops):
+    from backend.tests.test_mcp import call as mcp_call
+    bad, made = mcp_call(api, "hub_bot_create", {"slug": "release-helper", "template": "release-notes"})
+    assert not bad, made
+    assert made["setup_task_id"]
+    task = get(api, "tasks/" + made["setup_task_id"])["task"]
+    assert task["owner"] == "bot:botops" and task["requester"] == "human:ana"
+    assert "release-notes" in task["body"]
+    bad, again = mcp_call(api, "hub_bot_create", {"slug": "release-helper", "template": "release-notes"})
+    assert not bad and again["setup_task_id"] == made["setup_task_id"]
+    only_record = post(api, "bots/register", {"slug": "record-helper", "template": "release-notes"})
+    assert "setup_task_id" not in only_record
+    pending = post(api, "bots/record-helper/go-live", {})
+    assert pending["building"] and pending["state"] == "planned" and pending["setup_task_id"]
+    ready(api, botops, ["botops", "record-helper"])
+    working = post(api, "bots/record-helper/go-live", {})
+    assert working["state"] == "active" and working["setup_started"]
+
+
+def test_template_preview_includes_setup_and_example(api):
+    card = next(c for c in get(api, "templates")["cards"] if c["template"] == "release-notes")
+    assert card["onboarding"] and all(q["ask"] and q["why"] for q in card["onboarding"])
+    assert card["first_routine"]["output"] and card["first_routine"]["draft_only"] is True
+    assert card["example_output"] and card["example"]
+
+
+def test_computer_and_health_include_release_and_services(api, botops):
+    post(api, "runners/heartbeat", {"version": "test", "platform": "test", "release": "0.2.29",
+         "kind": "linux", "update": {"state": "failed", "target": "0.2.30", "error": "Download failed"},
+         "readiness": {"botops": True}}, token=botops["token"])
+    computer = get(api, "computers")["computers"][0]
+    assert computer["update"]["release"] == "0.2.29" and computer["update"]["target"] == "0.2.30"
+    assert computer["update"]["error"] == "Download failed" and "wanted_release" in computer["update"]
+    assert computer["readiness"]["bots"]["botops"]["ready"] and "services" in computer
+    assert get(api, "health/issues")["computers"][0] == computer

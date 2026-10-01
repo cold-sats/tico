@@ -38,7 +38,7 @@ no signer named (rule 2 in `knowledge/forecast-rules.md`); Oak Row ($9k) closes 
 
 ## Duplicates (monthly check)
 2 sure groups, 1 maybe. Sure: "Harbour Pilates" lead and account created 2026-09-12 share a domain.
-Proposed survivor: the older record, which holds 3 notes. A human merges.
+Proposed survivor: the older record, which holds 3 notes. Requested merges use the CRM Tool and preserve the listed fields.
 
 ## Trend
 Exceptions older than 30 days: Dana 4, Priya 3. That is a habit, not a typo: propose a Friday five-minute review.

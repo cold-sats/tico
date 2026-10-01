@@ -2,8 +2,7 @@
 
 Triggered by a human asking "what is still open?", by a project's status meeting, or by a task that
 names a project. Budget 20 minutes. The outcome is one status page for the project or the week: what
-is done, what is late, what is at risk, and a chase ready for each late owner. Nobody is chased until
-a human approves.
+is done, what is late, what is at risk, and a chase ready for each late owner. Nobody is chased within the requested work and Tools.
 
 ---
 
@@ -36,6 +35,5 @@ last time as a count. Write `reports/YYYY-MM-DD-actions.md` and `hub file publis
 
 ## 5. Hand over
 
-Put the chases on the task and ask once with `hub task ask <id>`: "Send these three chases?". On a
-yes, `hub message send --fyi <person> "<the chase and the link>"` for each. Update `knowledge/actions.md` (last
+Put the chases on the task and ask once with `hub task ask <id>`: "Send these three chases?". Carry out the requested work, `hub message send --fyi <person> "<the chase and the link>"` for each. Update `knowledge/actions.md` (last
 chased, the date), commit, and `hub task update <id> --status done --note` with the headline.

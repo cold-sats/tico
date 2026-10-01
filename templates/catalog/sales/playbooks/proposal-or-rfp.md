@@ -2,7 +2,7 @@
 
 Triggered by a task that names a deal and asks for a proposal, a quote, an RFP response or a security
 questionnaire. Budget 60 minutes for a proposal, 90 for fifty questions. The outcome is a finished document
-with a gap list on top. Prices, terms and unapproved answers are gaps with an owner; nothing leaves unapproved.
+with a gap list on top. Prices, terms and undocumented answers are gaps with an owner; messages to outsiders stay drafts until `outbound_send` is on.
 
 ---
 
@@ -19,7 +19,7 @@ three priorities.
 Pick two or three win themes that answer the buyer's quoted problem, each with its proof from
 `knowledge/proof.md`. Follow `knowledge/proposal-structure.md`; the default order is summary, problem,
 solution, scope in and out, timeline as phases, options (three where pricing allows), terms, proof, next
-step. Reuse approved text from `knowledge/library/`, adapted to the buyer's words. Write the summary last:
+step. Reuse documented text from `knowledge/library/`, adapted to the buyer's words. Write the summary last:
 one page, every sentence serving a win theme.
 
 ## 3. An RFP or questionnaire
@@ -36,7 +36,5 @@ gap list at the top: the gap, the human, the day it is needed by.
 
 ## 5. Hand over
 
-Write `reports/YYYY-MM-DD-<deal>-proposal.md` (or `-rfp.md`), `hub file publish` it and attach it. Once the
-owner fills the gaps and approves, request `hub approval request --kind send` with the final file and
-recipient. Add each newly approved answer to `knowledge/library/` with its owner and date.
+Write `reports/YYYY-MM-DD-<deal>-proposal.md` (or `-rfp.md`), `hub file publish` it and attach it. Fill gaps from the stated terms; send the requested final file to the recipient with your Tools when `outbound_send` is on, otherwise keep the draft. Add each newly documented answer to `knowledge/library/` with its owner and date.
 `hub task update <id> --status done --note`: counts reused, adapted, new; open gaps and owners.

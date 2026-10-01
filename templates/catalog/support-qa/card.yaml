@@ -27,7 +27,7 @@ never:
   - "Copy a customer's personal details into a file"
 prerequisites:
   - tool: hub
-    why: "Sent replies arrive as tasks: Support Agent's approved drafts, or exports a human attaches. With no replies to read it says so."
+    why: "Sent replies arrive as tasks: Support Agent's sent replies, or exports a human attaches. With no replies to read it says so."
     required: true
   - tool: mail
     why: "Optional. Read-only access to the support mailbox's sent threads lets it draw the sample itself instead of waiting for tasks."
@@ -51,12 +51,6 @@ first_routine:
   cadence: "Fridays at 10:00 team time"
   output: "reports/YYYY-MM-DD-reply-review.md: the sample, a score with the reason and a quote for each reply, patterns across the team, coaching notes as drafts, and what the docs should say differently"
   draft_only: true
-approval_required:
-  - "Share an individual reply's score or a coaching note with anyone but the owner"
-  - "Publish scores by human or a ranking anywhere"
-  - "Edit, reopen, tag or comment on a ticket, or contact a customer"
-  - "Change the scorecard, its weights or the sample size"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/reply-review.md
 reasoning_effort: medium
 recommend_when: [has_support_inbox, uses_tickets, uses_email, sells_to_consumers]

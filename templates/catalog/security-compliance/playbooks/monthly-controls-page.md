@@ -1,8 +1,6 @@
 # Monthly evidence and controls page
 
-Schedule: the first of each month at 10:00 team time (routine `monthly-controls-page`), once a
-human has approved the first page. Budget 40 minutes. The outcome is one page and, for the approved
-owners, one evidence request each. Nothing in any system is changed.
+Schedule: the first of each month at 10:00 team time (routine `monthly-controls-page`), after setup. Budget 40 minutes. The outcome is one page and, for the named control owners, one evidence request each. Nothing in any system is changed.
 
 ---
 
@@ -32,5 +30,5 @@ vendors holding team or customer data with no security review, or one older than
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-controls.md` in the shape of `knowledge/examples/controls-page.md` and
-`hub file publish` it. For owners on the approved list, `hub task create --owner <human>` with the
+`hub file publish` it. For owners on the control-owner list, `hub task create --owner <human>` with the
 exact evidence, the control and the due date. Commit, then `hub task update <id> --status done --note`.

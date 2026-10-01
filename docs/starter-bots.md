@@ -219,8 +219,8 @@ confirms anything that would send, post, pay, change a record or delete.
 3. **A routine that starts with setup.** It confirms the first routine and tells the human what it does. The routine is declared in
    `bot.yaml` with `enabled: false`, so `hub bot create` seeds it off; starting the setup (**Start setup**, go-live) switches it on,
    so nobody approves it separately, and the bot logs it.
-4. **An approval before anything external.** The card's `approval_required` list is what the bot never
-   does alone. The platform's own gates still apply (`outbound_send: false`, the approvals policy).
+4. **Draft until sending is on.** A bot drafts messages to outsiders until its owner turns on
+   `outbound_send`. Once it is on, the bot sends within the requested work and granted Tools.
 5. **Parked until then.** Finish setup creates every starter `needs_setup`: it answers a human's message and nothing else
    (no routine, task notice, Slack route or bot request wakes it) until its setup playbook ends with `hub bot setup-done`,
    which it calls once its answers and first result are recorded. **Set up** on its page, or any first message, begins the
@@ -239,8 +239,8 @@ A starter's own prompt is not the gate. What the platform does, checked for ever
 | Comment on or label a GitHub issue, or review a pull request | **Added in this release.** The team's GitHub App token carries Issues: write, so nothing but a prompt stood between the QA Engineer (`issue-triage`) and a public comment. Its access is now `read`, and its `.claude/settings.json` denies `gh issue edit` and `gh issue comment` next to close, reopen, lock, transfer and create. It proposes labels and comments with an approval and the exact commands on the task, and a human runs them. Senior Software Engineer, Release Manager, Technical Writer, Security Engineer, DevOps Engineer and Head of Engineering read GitHub the same way: `read` access, only `gh pr list`, `view`, `diff` and `checks` allowed, and `gh pr review`, `comment`, `merge`, `close`, `edit` and `create` denied, so a review is a draft on the task that a human posts. Turning writing on is the owner's edit of `bot.yaml` and the settings file, described in a comment there. The harness reads `.claude/settings.json`; the Codex runtime does not, so for a Codex-run bot the gate is the read-only access declared, the absence of any default write credential to a product repository, and the prompt | `templates/catalog/issue-triage`, `clients/tests/test_catalog.py` |
 | Invite someone to a calendar event | Any address may be invited. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to limit bots to humans on the team roster (`403 external_attendee` otherwise); an invitation to anyone else is then a human's act | `backend/connectors.py`, `backend/tests/test_security_review.py` |
 | Message a human inside the team | Bot-to-human messages are linted and capped at ten unsolicited a day | `hub message send` |
-| Change a record in a CRM, the support tool, the books or a repository | The starters declare no such access. Sales Operations Manager reads the CRM and only lists the fixes; the finance roles read exports and never post, pay or send (Accounts Payable Specialist proposes the payment run as a `spend` approval). A CRM stage change is on `approval_required`, and a tool the team adds is the owner's decision | the card |
-| Act on a public review surface | Reputation Manager declares `read` on its review surfaces and on Slack, and keeps `act` and `post` as a commented block the owner uncomments after a human has approved the first batch; until then a human carries out each approved batch | `templates/catalog/reputation`, `clients/tests/test_catalog.py` |
+| Change a record in a CRM, the support tool, the books or a repository | The starters declare no such access. Sales Operations Manager reads the CRM and only lists the fixes; the finance roles read exports and never post, pay or send with the Tools shipped in their templates. A requested change needs that Tool's declared write access | the card |
+| Act on a public review surface | Reputation Manager declares `read` on its review surfaces and on Slack, and keeps `act` and `post` as a commented block the owner enables when it is needed; until then it drafts the requested batch | `templates/catalog/reputation`, `clients/tests/test_catalog.py` |
 
 No template declares a `send`, `write`, `modify` or `delete` verb in `tools:`, and the template test fails one that does. A template's `.claude/settings.json` allows only its own repository's `git` and, for the GitHub bots, the read-only `gh` commands above; none allows `gh issue *` or `gh pr *` as a whole.
 
@@ -266,7 +266,6 @@ templates add these fields to the existing ones (`template`, `slug`, `name`, `su
 | `prerequisites` | A list of `{tool, why, required}`. `tool` is one of `hub`, `mail`, `chat`, `crm`, `github`, `meetings`, `calendar`, `docs`, `web`. Nothing is held back for a missing tool: the bot asks for what it needs in its own Set up conversation. Keep `required` for what the bot cannot work at all without |
 | `onboarding` | Four to seven `{ask, why}` questions the bot asks on its first message |
 | `first_routine` | `{title, cadence, output, draft_only: true}`: the reviewable internal result the bot produces first |
-| `approval_required` | Actions that always need a human's Confirm: send, post, pay, sign, comment on GitHub, change a CRM stage, arm a routine, and for heads, ask BotOps to set up a bot |
 | `example_output` | Path, inside the template, to a short sample of excellent output under `knowledge/examples/` |
 | `when` | Optional, existing: one sentence saying who wants the template |
 
@@ -301,10 +300,6 @@ first_routine:
   cadence: "Mondays at 09:00 team time"
   output: "reports/YYYY-MM-DD-deal-review.md: each open deal with its stage, days quiet and next step, the recaps and follow-ups ready to send, mutual action plan slips, and the proposals and questionnaires due this week"
   draft_only: true
-approval_required:
-  - "Send, schedule or reply to any email or message to a prospect, customer or partner"
-  - "Change a stage, amount or close date in the CRM"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/deal-review.md
 ```
 
@@ -325,8 +320,7 @@ team_templates: [bookkeeping, ar-followup, accounts-payable, expense-auditor, sp
 
 Same layout as every template, plus what makes a starter reviewable:
 
-- `AGENT.md`, under 150 lines (most are 80 to 100): mandate, what it owns, its setup conversation, `## Never without
-  approval` (matching `approval_required`), how it starts and ends a run, how it uses `hub`, quality
+- `AGENT.md`, under 150 lines (most are 80 to 100): mandate, what it owns, its setup conversation, `## Sending` (matching `outbound_send`), how it starts and ends a run, how it uses `hub`, quality
   standards and how it escalates. A head's also has `## Hiring`.
 - `playbooks/`: one for the first routine, one for the most common request, and `onboarding.md`.
 - `knowledge/examples/`: one sample of excellent output for the fictional team Acme. Never a real
@@ -345,8 +339,8 @@ The quality bar, in five checks a reviewer can apply to any bot in ten minutes:
    left out.
 4. **Honest about gaps.** What it could not read is named. "Not found" is never used for "could not
    look". A missing fact is a marked gap, never an invented one.
-5. **Gated.** Nothing leaves the team, changes a record or commits a human without a Confirm, and the
-   draft it leaves is ready to approve with one edit.
+5. **Sending off by default.** The first result is a useful draft. Sending to outsiders starts when
+   the owner turns on `outbound_send`; requested work then uses the bot's granted Tools.
 
 A worked example. A human asks Support Agent about a ticket. Weak:
 

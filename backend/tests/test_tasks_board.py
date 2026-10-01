@@ -123,3 +123,17 @@ def test_only_a_mover_changes_lane_labels_or_blocked_by_on_someone_elses_task(ap
 
 # ----------------------------------------------------------------------------- titles
 # ----------------------------------------------------------------------------- preferences
+
+
+def test_task_labels_and_links_with_an_attachment(api):
+    import json
+    response = api.post("/api/v2/uploads/tasks", headers=headers(), data={
+        "owner": "ana", "title": "Review the release", "body": "Check the attached notes.",
+        "labels": json.dumps(["release"]), "links": json.dumps(["https://example.com/release"]),
+        "acceptance_criteria": json.dumps(["Read the notes"])},
+        files={"files": ("notes.md", b"Release notes", "text/markdown")})
+    assert response.status_code == 200, response.text
+    task = response.json()["task"]
+    assert task["labels"] == ["release"]
+    assert task["links"][0]["url"] == "https://example.com/release"
+    assert task["attachments"][0]["name"] == "notes.md"

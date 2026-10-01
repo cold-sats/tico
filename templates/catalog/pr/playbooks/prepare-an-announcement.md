@@ -2,7 +2,7 @@
 
 Triggered by a task like "we launch X on the 14th, can we get press?" or "we closed our funding
 round". Budget 60 minutes. The outcome is a press pack on the task: release, targeted pitches,
-spokesperson briefing and a plan, every outbound item waiting for approval.
+spokesperson briefing and a plan, every outbound item ready to act on.
 
 ---
 
@@ -23,7 +23,7 @@ marked "needs clearance" and a question goes to the owner with `hub task ask <id
 
 `reports/<announcement>/release.md`: headline with the news, a first sentence that could stand alone,
 the facts in order of importance, one quote from the spokesperson and one from a cleared customer
-(each marked "for <name> to approve"), the boilerplate from `knowledge/company.md`, a contact line.
+(each marked "facts supplied by <owner>"), the boilerplate from `knowledge/company.md`, a contact line.
 Under 500 words.
 
 ## 4. Choose the reporters and write the pitches
@@ -37,8 +37,6 @@ can offer, the embargo if the owner agreed one. Under 150 words each.
 `reports/<announcement>/briefing.md`: the three messages, likely questions with suggested answers,
 what not to discuss, numbers they may use.
 
-## 6. Put it up for approval
+## 6. Put it up for review
 
-On the task: the pack, the send plan (who, when, one follow-up after two business days). Each pitch
-leaves only as `hub approval request --kind send` with its recipient and text, or from a human. The
-release is `--kind publish`. `hub task update <id> --status done --note`.
+On the task: the pack, the send plan (who, when, one follow-up after two business days). Send requested pitches with their recipients and text, and publish requested releases, with your Tools when `outbound_send` is on; otherwise keep drafts. `hub task update <id> --status done --note`.

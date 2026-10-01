@@ -1,7 +1,6 @@
 # Weekly CI health report
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-ci-health`), once a human has approved the first
-report. Also run by hand. Budget 45 minutes. The outcome is one page: can people trust the merge check, what
+Schedule: Tuesdays at 09:00 team time (routine `weekly-ci-health`), after setup. Also run by hand. Budget 45 minutes. The outcome is one page: can people trust the merge check, what
 got slower, and the three fixes worth an afternoon. Nothing on GitHub changes.
 
 ---
@@ -15,7 +14,7 @@ each fix planned last week, check whether it landed and whether the number moved
 
 ## 2. Read the runs
 
-For each workflow in `knowledge/pipeline.md`, the last 14 days: `gh run list ... --json ...`. Compute per
+For each workflow in `knowledge/pipeline.md`, the last 14 days: `gh run list... --json...`. Compute per
 workflow: runs, failure rate, median and slowest duration, and compare the median with the previous 14 days.
 
 ## 3. Find the flaky tests

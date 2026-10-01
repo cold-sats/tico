@@ -1,7 +1,6 @@
 # Monthly brand consistency audit
 
-Schedule: the 1st of each month at 10:00 team time (routine `monthly-brand-audit`), once a human
-has approved the first audit. Also run by hand. Budget 45 minutes. The outcome is one page: how
+Schedule: the 1st of each month at 10:00 team time (routine `monthly-brand-audit`), after setup. Also run by hand. Budget 45 minutes. The outcome is one page: how
 consistent last month's public work was, and the three fixes that matter most. Nothing is edited.
 
 ---
@@ -33,10 +32,10 @@ the line as it is and as it should be, the rule, and the owner of the item.
 ## 5. Find gaps in the book
 
 A question the audit could not answer from `knowledge/brand.md` (how to write a price change, whether
-to use emoji in posts) becomes a proposed rule with an example, for the approver.
+to use emoji in posts) becomes a proposed rule with an example, for the owner.
 
 ## 6. Write and hand over
 
 Write `reports/YYYY-MM-brand-audit.md` in the shape of `knowledge/examples/brand-audit.md`, then
 `hub file publish reports/YYYY-MM-brand-audit.md`. Commit, and `hub task update <id> --status done
---note`. Fix tasks for owners are created only after the marketing head's yes.
+--note`. Create requested fix tasks for the owners with your Tools.

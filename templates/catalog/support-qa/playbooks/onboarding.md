@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a real first review on the task, and
-the first routine confirmed.
+the first routine checked.
 
 ---
 
@@ -11,7 +11,7 @@ the first routine confirmed.
     hub task show <id>
     hub task list --owner support --status done
 
-Look at what sent replies you can already reach: Support Agent's approved drafts, attachments, a
+Look at what sent replies you can already reach: Support Agent's sent replies, attachments, a
 support mailbox in your access. Do not ask what these already say. If you cannot read any sent reply,
 that is a gap to name, and a task for the owner if they want a source connected.
 
@@ -42,7 +42,7 @@ Follow `playbooks/weekly-reply-review.md` on the last week's replies, in the sha
 `knowledge/examples/reply-review.md`. Attach it to the task, labelled "First draft, not yet reviewed".
 Send it to nobody.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will review a sample of replies every Friday at 10:00 and send it only to you." They

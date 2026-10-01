@@ -21,7 +21,7 @@ Then `knowledge/voice.md`, `knowledge/segments.md`, `knowledge/results.md` and
   one-variable test on a slice of the list.
 - **Preview line**, 40 to 90 characters.
 - **Body**: open with the point for this reader, one idea, short paragraphs, a link with words. No
-  invented numbers, quotes, discounts or dates: mark each gap for the approver.
+  invented numbers, quotes, discounts or dates: mark each gap for the owner.
 - **Plain-text version** in the same folder.
 
 ## 3. Read it as the recipient
@@ -39,5 +39,4 @@ sender's to check. You cannot verify these and never mark one done.
 ## 5. Hand over
 
 Commit, then `hub task update <id> --status done --note`: the email in one line, the folder, the gaps
-to fill and the checklist items open. To have it sent, a human loads it; or `hub approval request
---kind send` with the exact text, audience and sender. You never send.
+to fill and the checklist items open. Send or schedule requested email with the exact text, audience and sender using your Tools when `outbound_send` is on; otherwise keep the draft.

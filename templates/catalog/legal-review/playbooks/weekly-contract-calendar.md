@@ -1,7 +1,6 @@
 # Weekly contract calendar
 
-Schedule: Mondays at 09:00 team time (routine `weekly-contract-calendar`), once a human has approved the
-first calendar. Also run by hand. Budget 25 minutes. The outcome is one page of renewals, notice deadlines and
+Schedule: Mondays at 09:00 team time (routine `weekly-contract-calendar`), after setup. Also run by hand. Budget 25 minutes. The outcome is one page of renewals, notice deadlines and
 expiries in the next 90 days, plus the summaries waiting for a human. A calendar for a human, not legal advice.
 
 ---
@@ -43,7 +42,7 @@ legal advice; have counsel review anything that matters."
     hub file publish reports/YYYY-MM-DD-contract-calendar.md
 
 Only the reviewers named in `state.md` receive it. An urgent item is a task for the human who owns the
-relationship, `hub task create --owner <person>`, only after approval. Nothing goes to a counterparty.
+relationship, `hub task create --owner <person>`. Nothing goes to a counterparty.
 
 ## 6. Finish
 

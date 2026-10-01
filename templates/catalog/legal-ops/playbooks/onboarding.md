@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is five recorded answers, the firms, billing rules and matter list written down, a first invoice review and a first spend summary, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is five recorded answers, the firms, billing rules and matter list written down, a first invoice review and a first spend summary, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ If the letters are there, question one becomes "is this every firm?".
 ## 2. Introduce yourself in three lines
 
 What you do (the matter list, a consistent brief for each firm, every law firm invoice checked against its
-terms, and a monthly spend summary), that it is a summary for a human and not legal advice, and that you never
-approve, pay or dispute an invoice or instruct a firm: a human does.
+terms, and a monthly spend summary), that requested invoice actions use your Tools and verified terms; summaries are not legal advice.
 
 ## 3. Ask, in one message
 
@@ -29,7 +28,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 1. Which law firms do you use, for what, and where are their engagement letters and rates? Every invoice is checked against its own letter. Without one I say so rather than guess the rates.
 2. Do you have billing rules (time in 0.1 hour units, no block billing, no charge for admin or first-year associates, expense limits)? If not, may I start from those defaults? Becomes knowledge/billing-rules.md, the standard every line is read against.
 3. Which legal matters are open now, who leads each inside the team, and is there a budget for any? Starts the matter list, so spend is tied to a matter from the first invoice.
-4. Who approves legal invoices and legal spend, and up to what amount? Names who each review goes to. I never approve, pay or dispute an invoice.
+4. Who owns legal invoices and legal spending, and up to what amount? Names who each review goes to. Requested invoice actions use the necessary Tools and verified terms.
 5. When should the monthly spend summary land, and who reads it? (Default: the 5th of each month, the owner.) Sets the routine's schedule and reader.
 
 ## 4. Record
@@ -45,7 +44,7 @@ Follow `playbooks/review-a-counsel-invoice.md` for the newest invoice you have, 
 `knowledge/examples/legal-spend.md`, attach them and label them "First draft, not yet reviewed. Summary for a
 human, not legal advice." Nothing goes to a firm.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this legal spend summary on the 5th of every month and review each invoice the day it arrives." They

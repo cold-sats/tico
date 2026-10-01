@@ -1,8 +1,7 @@
 # Weekly onboarding board
 
-Schedule: Mondays at 10:00 team time (routine `weekly-onboarding-board`), once a human has
-approved the first board. Budget 30 minutes. The outcome is one page: who is on track, who is behind,
-who is stuck and why, and the customer messages ready for approval.
+Schedule: Mondays at 10:00 team time (routine `weekly-onboarding-board`), after setup. Budget 30 minutes. The outcome is one page: who is on track, who is behind,
+who is stuck and why, and the customer messages ready to use.
 
 ---
 
@@ -29,11 +28,11 @@ plan's progress log. A milestone is done only with evidence.
 
 For each stuck or behind customer, one next step with an owner and a date. Where the step is a
 message to the customer, write the exact text (under 120 words, one clear ask, their goal in the first
-line) and the recipient, ready for approval. Nothing is sent.
+line) and the recipient, ready to use. Nothing is sent.
 
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-onboarding-board.md` in the shape of
 `knowledge/examples/onboarding-board.md`, then `hub file publish` it. Put the messages on the task as
-separate items so each can be approved on its own. Customers who reached go-live get a handover task
+separate items so each result can be verified on its own. Customers who reached go-live get a handover task
 to `customer-success`. Commit, and finish the task with the counts and the path.

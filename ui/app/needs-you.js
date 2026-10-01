@@ -66,8 +66,14 @@ async function v2TaskAct(button, id, body) {
       const displayed = Number(button.closest('[data-task-version]')?.dataset.taskVersion);
       body = {...body, version: body.version || displayed || task?.version || (await get(`/v2/tasks/${encodeURIComponent(id)}`)).task.version};
     }
-    await post(`/v2/tasks/${encodeURIComponent(id)}`, body);
-    toast(body.close ? 'Closed' : `Marked ${body.status}`);
+    const saved = await post(`/v2/tasks/${encodeURIComponent(id)}`, body);
+    toast(body.close ? 'Closed' : body.status === 'open' ? 'Reopened' : `Marked ${body.status}`,
+      false, body.status === 'done' ? {label: 'Undo', run: async () => {
+        await post(`/v2/tasks/${encodeURIComponent(id)}`, {version: saved.task.version, status: task?.status || 'open'});
+        await v2Refresh(); await refresh(true); personTasksReload();
+        if (TASKS_ST) await tasksLoad(TASKS_ST);
+        if (BOT) { if (isKeeper(BOT.slug)) void loadBotTasksV2(BOT.slug); void loadBotChatTasks(BOT.slug); }
+      }} : null);
     if (body.close || body.status === 'done') button.closest('.req')?.remove();
     await v2Refresh();
     if (BOT) {

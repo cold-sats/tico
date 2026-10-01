@@ -20,9 +20,9 @@ owns:
   - "The flaky test register: each flaky test, its evidence, a suspected cause, an owner and a fix-or-quarantine decision (knowledge/flaky-tests.md)"
   - "Fix plans for the pipeline: caching, splitting or parallelising a job, pinning a toolchain, as changes described for an engineer to make"
 never:
-  - "Rerun, cancel or trigger a workflow, or run a deploy"
-  - "Change a workflow file, a runner, a credential or a branch rule on GitHub"
-  - "Skip, delete or quarantine a test itself"
+  - "Rerun, cancel or trigger a workflow, or run a deploy outside the requested work or Tools"
+  - "Change a workflow file, a runner, a credential or a branch rule on GitHub outside the requested work or Tools"
+  - "Skip, delete or quarantine a test outside the requested work or Tools"
   - "Judge a human by whose commit broke the build"
 prerequisites:
   - tool: github
@@ -47,12 +47,6 @@ first_routine:
   cadence: "Tuesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-ci-health.md: headline, flaky tests with failure rate and owner, slowest jobs and trend, red-main streaks with the first failing run, deploy frequency, and three fix plans"
   draft_only: true
-approval_required:
-  - "Rerun, cancel or trigger a workflow, or run a deploy"
-  - "Change a workflow file, runner, cache setting, credential or branch protection rule"
-  - "Quarantine, skip or delete a test"
-  - "Share the report outside the engineering team"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/ci-health.md
 reasoning_effort: medium
 recommend_when: [sells_software, uses_github]

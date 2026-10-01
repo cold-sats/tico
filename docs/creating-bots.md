@@ -192,9 +192,9 @@ Every run is the same shape, and `AGENT.md` should say so plainly:
 3. **Check `memory/learnings.md` and the playbook the task names** before touching anything.
 4. **Do the work**, updating `knowledge/` as it learns rather than at the end.
 5. **Report in the task conversation.** The result goes in the task's completion note, first line
-   first. Anything addressed to a human is linted: the first line is the ask, under 120 words.
+   first. Put the ask first and stay under 120 words. The lint checks that the first line is not empty; it does not judge its meaning.
 6. **When blocked, ask through the task**, having read the record first, since most questions a bot
-   wants to ask are already answered there. One clarifying question per task, phrased so the
+   wants to ask are already answered there. One open clarifying question per task, phrased so the
    question is the only thing the human has to read. Internal routing, reminders, task closure,
    branches and draft pull requests are the bot's work, not questions for a human. Use an approval
    request only when the exact action is gated by the current shared or role policy.
@@ -530,14 +530,15 @@ or the bot will not run, which is why the plainest repository names neither.
    `<workspace>/bot-<slug>` on the computer that will run it, fill in `AGENT.md` and `bot.yaml`,
    commit, push, and record the repository link on the bot. Leave `outbound_send: false` and
    add no routines yet.
-2. **Run preflight** and fix everything it fails on. Warnings can wait; failures cannot.
+2. **Run preflight** and fix everything it fails on. Then set the bot to `active` so it can take tasks.
+   Keep sending off and routines disabled while you check its work.
 3. **Give it one narrow task**, by hand, that a human could check in two minutes. One slice of the
    job, not the job.
 4. **Read the first three runs end to end**, the run and not just the completion note. You are
    looking for where it guessed, what it read that it did not need, and what it invented.
 5. **Fix the instructions, not the task.** Every correction you find yourself typing into a task
    conversation twice belongs in `AGENT.md` or a playbook. This is the whole of the first week.
-6. **Promote to `active`** when three runs in a row need no correction.
+6. **Keep it active** when three runs in a row need no correction; adjust its Instructions when needed.
 7. **Add one routine**, pointing at a playbook written from those three runs, and watch the first
    two occurrences.
 8. **Review `memory/` weekly** for the first month, pruning: scaffolds that fixed a one-time
@@ -560,7 +561,7 @@ Drawn from real bot reviews, stated generically.
   credential that was in the environment for another reason. Declare it or stop.
 - **The completion note buries the result.** Lead with the result, under 120 words, link the rest.
 - **Near-duplicate knowledge files** instead of an edit to the file that already covers the topic.
-- **Asking a human what the record already answers.** Read first; one clarifying question per task.
+- **Asking a human what the record already answers.** Read first; one open clarifying question per task.
 - **Asking a human to coordinate bots.** Route the child task, reminder, completion or draft pull
   request yourself. Escalate the choice, not the task plumbing.
 - **Too much effort, too many routines, too early.** Output nobody reads, billed daily, out of a
@@ -589,3 +590,26 @@ Two consequences when you run more than one environment:
   environment.
 - **Credentials never travel.** Each environment's `secrets/` directory is its own, on its own
   computer, and a vault grant in one environment means nothing in another.
+
+### Templates over MCP
+
+`hub_bot_create` with `template` uses the Team default model and queues BotOps to build the repository.
+Watch its `setup_task_id` with `hub_task_show`. Use `build: false` to register only the record,
+for example when building it yourself on a Computer. BotOps defaults to record-only registration.
+An empty model in Add from template also inherits the Team default; choose one in Settings > AI providers
+if none is saved. `hub_template_list` includes Setup questions, first-routine output and draft-only status,
+and the example result. Unknown templates are refused before creating a record. To correct an existing
+record, update its `template` through the definition API or `hub_bot_update`; this changes metadata,
+without replacing the existing repository. Matching display names are allowed; responses include the
+other slugs, and the UI shows slugs beside matching names.
+
+### Move a local bot to another Computer
+
+A local repository lives on its current Computer. Before moving it, copy the complete `bot-<slug>`
+repository, including its Git history and `AGENT.md`, into the destination runner's workspace.
+Use the runner's configured workspace on that Computer. Keep the directory name that the bot's
+repository field specifies. Credentials are granted separately and do not belong in the repository.
+Alternatively, push the bot's history to its configured GitHub repository so the destination can clone it.
+Once the repository is available, change the Computer in bot settings. Computers and Health show the
+destination's repository readiness; if it is missing, transfer the repository or ask BotOps to build it.
+Go-live reports a pending build instead of saying an unbuilt bot is working.

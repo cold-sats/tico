@@ -1,7 +1,6 @@
 # Monthly investor update draft
 
-Schedule: the third of each month at 09:00 team time (routine `monthly-investor-update`), once a
-human has approved the first draft. Also run by hand. Budget 40 minutes. The outcome is one page for
+Schedule: the third of each month at 09:00 team time (routine `monthly-investor-update`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page for
 the owner to review and send. Nothing is sent or shared.
 
 ---

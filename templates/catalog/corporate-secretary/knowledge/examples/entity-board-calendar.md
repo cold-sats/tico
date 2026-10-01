@@ -7,7 +7,7 @@ Sample output for Acme, a fictional studio-software team with a parent team and 
 five-seat board and two investors with consent rights. Every entity, person and date is invented. Nothing has
 been sent, signed or filed.
 
-**Headline: Q4 board meeting 2026-10-22, pack due 2026-10-08; 2 option grants without approval; July minutes
+**Headline: Q4 board meeting 2026-10-22, pack due 2026-10-08; 2 option grants outside the stated rules; July minutes
 still unsigned.**
 
 ## Meetings in the next 90 days
@@ -16,11 +16,11 @@ still unsigned.**
 | 2026-10-22 | Q4 board, parent | 2026-10-15 | 2026-10-08 | Agenda drafted; finance paper missing (Omar) |
 | 2026-12-10 | Annual shareholder meeting, parent | 2026-11-19 (21 days, bylaws 2.4) | 2026-11-26 | Not started |
 
-## Waiting for approval or signature
+## ready for review or signature
 - **July board minutes (2026-07-16)**: settled by counsel 2026-08-02, not yet signed by the chair. 62 days.
 - **Consent: new bank signatories**: signed by 4 of 5 directors; waiting on Kenji since 2026-09-21.
 
-## Cap table changes without an approval
+## Cap table changes while outbound_send is off
 - Options for 2 hires (Lena, Marco), granted in the cap table 2026-08-15 and 2026-09-01. No consent or minute
   found. Proposed: a resolution in the Q4 pack approving both at the board's chosen date. For counsel.
 

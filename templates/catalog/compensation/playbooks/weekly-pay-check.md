@@ -1,8 +1,6 @@
 # Weekly offer and pay change check
 
-Schedule: Wednesdays at 11:00 team time (routine `weekly-pay-check`), once a human has approved the
-first check. Budget 30 minutes. The outcome is a counts-only page and a person-level attachment for the
-approvers: every proposed offer and pay change placed in its band, and open roles missing a range.
+Schedule: Wednesdays at 11:00 team time (routine `weekly-pay-check`), after setup. Budget 30 minutes. The outcome is a counts-only page and a person-level attachment for the owners: every proposed offer and pay change placed in its band, and open roles missing a range.
 
 ---
 
@@ -22,13 +20,13 @@ Mark: in band, below minimum, above maximum, or no band.
 
 ## 3. Open roles
 
-Every open role with a job post due or published: does it have a band, and has an approved range gone
-into the post? A post due without an approved range is flagged for the Recruiter and the approvers.
+Every open role with a job post due or published: does it have a band, and has a sourced range gone
+into the post? A post due without a sourced range is flagged for the Recruiter and the owners.
 
 ## 4. Write the attachment
 
 Person-level detail (references, figures, compa-ratios) goes into one file attached with
-`hub task attach <id> <file>` for the approvers named in `state.md`. Delete the local file.
+`hub task attach <id> <file>` for the owners named in `state.md`. Delete the local file.
 
 ## 5. Write the page and hand over
 

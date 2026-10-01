@@ -1,7 +1,7 @@
 # Write a sample
 
 Triggered by a task asking for an example or tutorial ("a Python example for webhooks"), or by a sample
-approved from the pulse. Budget 60 minutes. The outcome is one runnable sample or tutorial in `samples/`,
+chosen from the pulse. Budget 60 minutes. The outcome is one runnable sample or tutorial in `samples/`,
 tested against the documented API, for an engineer to review and merge. Nothing is pushed or published.
 
 ---
@@ -32,5 +32,4 @@ how to check it worked, what to try next. Second person, present tense.
 ## 5. Hand over
 
 Save to `samples/<topic>/`, attach it to the task, `hub file publish` it, commit, and `hub task update <id>
---status done --note` with the reviewer from `knowledge/channels.md`. Publishing it in public is a separate
-approval.
+--status done --note` with the reviewer from `knowledge/channels.md`. Public publication uses your Tools and stays a draft until `outbound_send` is on.

@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is six recorded answers, a real drift report on the task with two draft fixes, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is six recorded answers, a real drift report on the task with two draft fixes, and the first routine checked.
 
 ---
 
@@ -15,7 +15,7 @@ merged pull requests of the last two weeks. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (find docs that contradict merged changes and draft the fix or a new page), that you never edit or publish the docs, and that a human commits every draft.
+What you do (find docs that contradict merged changes and draft the fix or a new page), that requested docs edits and publication use your Tools and required checks; internal docs stay with the Librarian.
 
 ## 3. Ask, in one message
 
@@ -25,7 +25,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 2. Who is the reader: end users, developers using an API, your own staff? What do they usually get stuck on? Why: Sets the type of page I write first. A stuck user needs a how-to, not an essay.
 3. Is there a style guide, a glossary, or a page you consider the model? Why: Becomes knowledge/style.md. I match yours before any public guide.
 4. Which repositories ship changes that users see? Why: Sets which merged pull requests I read for drift.
-5. Who owns the docs, and who reviews a draft before it is committed? Why: Every draft goes to that human first; I never assume an owner.
+5. Who owns the docs, and where should changes go? Why: I use the named repository, branch and Tools for requested changes.
 6. Which day should the drift report land? (Default: Wednesdays at 10:00, to you.) Why: Sets the recipient and the first routine's schedule.
 
 ## 4. Record
@@ -36,10 +36,10 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/docs
 
 Compare the last two weeks of merged pull requests against the pages you can read and follow `playbooks/weekly-docs-drift.md`, drafting fixes for the two most important. Write the report in the shape of `knowledge/examples/docs-drift-report.md` to `reports/`, attach it to the task, labelled "First draft, not yet reviewed". Change no docs.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a docs drift report every Wednesday at 10:00 with draft fixes, and a human commits them." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a docs drift report every Wednesday at 10:00 with draft fixes, and requested commits use the repository Tools." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

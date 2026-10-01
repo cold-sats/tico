@@ -6,7 +6,7 @@ A sample of excellent output for a fictional team. Every name in it is a stand-i
 Sample output for Acme, a fictional studio-software team. Every lead is invented and every address
 uses a reserved example domain. Nothing has been sent and the CRM is untouched.
 
-**Headline: 1 meeting booked, 2 inbound qualified, 7 new leads (2 A, 3 B, 1 C); 5 touches await approval.**
+**Headline: 1 meeting booked, 2 inbound qualified, 7 new leads (2 A, 3 B, 1 C); 5 touches stay drafts until `outbound_send` is on.**
 
 ## Needs a human now
 - **Cedar Barre** (inbound, 2026-09-28 18:40): asked whether multi-location pricing is per studio. Price is
@@ -14,7 +14,7 @@ uses a reserved example domain. Nothing has been sent and the CRM is untouched.
 
 ## Inbound qualified
 - **Oak Row Dance** (form, 2026-09-28 21:05): fit 4 of 5, wants a demo. Reply offering Wed 10:00 or Thu
-  14:00 (Dana's free slots) is on the task for approval.
+  14:00 (Dana's free slots) is on the task for review.
 - **Maple Kids Gym** (form): not a fit (a gym chain of 30 sites, ICP rule 1); a polite no is on the task.
 
 ## A leads
@@ -42,7 +42,7 @@ Willow Yoga (fit, last signal 2026-06-30).
 ## C leads
 Ridgeline Fitness Wholesale: not a studio; ruled out by ICP rule 2 (`knowledge/icp.md`).
 
-## Follow-ups due today (3, approval requested)
+## Follow-ups due today (3, draft prepared)
 - Willow Yoga, touch 2 of 4: answers their question on class packs from the 2026-09-24 reply.
 - Lantern Studio, touch 3 of 4: a smaller ask (a two-minute video instead of a call).
 - Fern Pilates, touch 4 of 4: last touch; closed quiet after this.

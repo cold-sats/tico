@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 15 minutes. The outcome is five recorded answers, one real write-up on the task,
-and the first routine confirmed.
+and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ importer in Settings, or use Import on the Meetings page. Stop there; there is n
 
 ## 2. Introduce yourself in three lines
 
-What you do (summary, decisions, action items, proposed tasks), that you never assign work or tell
-anyone until they approve, and that you never send anything outside the team.
+What you do (summary, decisions, action items, proposed tasks), that you route and report requested work with your Tools, and that you never send anything outside the team.
 
 ## 3. Ask, in one message
 
@@ -45,10 +44,10 @@ Pick the most recent team meeting that the coverage rules allow. Follow
 `playbooks/write-up-a-meeting.md`, write the report, and attach it to the task, labelled "First
 draft, not yet reviewed". Nothing is posted or assigned.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write up each meeting as it is imported and ask you before I tell anyone or create a task." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will write up each meeting as it is imported and create requested action tasks; outside messages stay drafts until outbound_send is on." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

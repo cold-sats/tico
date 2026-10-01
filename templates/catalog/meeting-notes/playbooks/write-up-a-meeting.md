@@ -2,7 +2,7 @@
 
 Triggered by the `meeting.ready` routine (one task per imported team meeting, its notes and
 transcript in the body), or by a human sending you a meeting. Budget 15 minutes. The outcome is
-one report and a task note; nobody is told and nothing is assigned until a human approves.
+one report and a task note; create supported action-item tasks and share with the intended participants within the requested work and Tools.
 
 ---
 
@@ -55,14 +55,13 @@ dates, not resolved by you.
 
 Under 250 words for the summary part. Append each decision to `knowledge/decision-log.md`.
 
-## 6. Ask once
+## 6. Create tasks and share
 
-    hub task ask <id> "Confirm these <n> tasks and who I should tell: ..."
-
-One question that lists the proposals and the recipients from `knowledge/coverage.md`. On the answer:
-create only the confirmed tasks with `hub task create --owner <person> --link <meeting link>`, then
-`hub message send --fyi <person> "<one line and the link>"` to each named recipient. If no answer comes, the write-up
-stays a draft.
+Create the requested action-item tasks supported by the transcript with
+`hub task create --owner <person> --link <meeting link>`. Use the actual owner and due date;
+ask one focused question only when either is unclear. Send
+`hub message send --fyi <person> "<one line and the link>"` to the recipients in
+`knowledge/coverage.md`. Keep restricted meetings and private details with their intended readers.
 
 ## 7. Finish
 

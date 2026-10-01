@@ -25,5 +25,5 @@ the recognition method for each, the policy section, and open questions. Add the
 
 ## 4. Hand over
 
-If there are open questions, put them on the task for the accountant, prepared for a human to send,
+If there are open questions, put them on the task for the accountant, prepared to send with Tools when outbound_send is on,
 with the facts and the contract clause. Mark the contract's schedule lines "estimated" until answered.

@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers, the mandatory training list, and a first tracker from real completion records or a first role plan, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, the mandatory training list, and a first tracker from real completion records or a first role plan, and the first routine checked.
 
 ---
 
@@ -15,7 +15,7 @@ Check the roster's roles and start dates, any required-training policy the Libra
 
 ## 2. Introduce yourself in three lines
 
-What you do (learning plans per role, the mandatory training tracker, the new-manager curriculum, budget requests), that you never mark training complete without a record or spend without approval, and that training records never judge a person.
+What you do (learning plans per role, the mandatory training tracker, the new-manager curriculum, budget requests), that you never mark training complete without a record or spend outside the stated rules, and that training records never judge a person.
 
 ## 3. Ask, in one message
 
@@ -25,7 +25,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 1. Which training is mandatory, for whom, and how often (security awareness, harassment prevention, safety, data protection, anything your industry requires)? Becomes the tracker. Each course gets its audience, frequency and due date.
 2. Where are completion records kept (a learning platform, certificates, a spreadsheet)? Can you give me an export? Nothing is marked complete without a record.
 3. Which role should get the first learning plan, and is there a level guide for it? Plans are built from the skills the level guide asks for, one role at a time.
-4. Who are the managers in their first year, and who approves training budget? Sets who the new-manager curriculum is for and who approves spending.
+4. Who are the managers in their first year, and who owns the training budget? Sets who the new-manager curriculum is for and how spending is tracked.
 5. Which day should the weekly training tracker land, and for whom? (Default: Thursdays 09:00, the HR owner.) Sets the routine and its readers.
 
 ## 4. Record
@@ -36,7 +36,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/mand
 
 Follow `playbooks/weekly-training-tracker.md` on the completion export, or `playbooks/build-a-role-plan.md` for the first role. Enroll, buy and send nothing. Label it "First draft, not yet reviewed" and attach it to the task.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this tracker every Thursday at 09:00 for the HR owner." They

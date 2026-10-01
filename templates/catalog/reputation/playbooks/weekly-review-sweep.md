@@ -4,7 +4,7 @@ Schedule: `0 9 * * 1` America/Los_Angeles, routine `weekly-review-sweep`. Take t
 from the task title.
 
 Budget 45 minutes for the read, then `playbooks/work-queue.md` per surface. The outcome is the
-ledger brought up to date, one digest in `reports/sweeps/`, one approval per surface with work,
+ledger brought up to date, one digest in `reports/sweeps/`, one batch per surface with work,
 and the outcomes of last sweep's batch recorded. Quiet is a normal result.
 
 ---
@@ -22,7 +22,7 @@ one found by search is a line added to `surfaces.md` in this run, then read.
 Newest first, over the window since the last sweep (the newest `review_date` in the ledger for
 that surface). Open the listing through the browser tool:
 
-    $HUB_DIR/connectors/browser.py repl --as reputation "const p = await openTab('<listing url>'); ..."
+    $HUB_DIR/connectors/browser.py repl --as reputation "const p = await openTab('<listing url>');..."
 
 Reading only, in this step. A sign-in wall or a challenge means that surface is blocked for this
 run: record it and move on. Keep a note of every surface as you go: returned, or blocked.
@@ -37,7 +37,7 @@ edited, removed or answered. Never delete a row.
 ## 4. Work the queue
 
 Run `playbooks/work-queue.md` for each surface with rows that have no lever yet, newest and
-most visible first, capped per batch. Then, when the owner has enabled execution (`act` access), execute any batch approved since the last sweep; otherwise a human carries it out from the approved payload.
+most visible first, capped per batch. Then, when the owner has enabled execution (`act` access), execute requested items with the necessary Tools. Replies stay drafts until `outbound_send` is on; name any missing access on the task.
 
 ## 5. Write the digest
 
@@ -47,7 +47,7 @@ most visible first, capped per batch. Then, when the owner has enabled execution
 2. **Counts**: per surface, rating and total today, new rows this week, rows by lever.
 3. **Outcomes**: flags upheld and rejected since last sweep, by ground; replies and answers
    posted; the BBB grade and the G2 and Gartner review counts today against last week.
-4. **Batches requested**: one line per approval, with the surface and the item count.
+4. **Batches requested**: one line per batch, with the surface and the item count.
 5. **Claims and programs**: what is still unclaimed, what the invitation program did this week.
 
 A section with nothing in it is absent. Put coverage, counts and outcomes in five lines or fewer at the top of the task note with the path to the digest. Posting them to the team channel needs the Slack `post` access, which the owner turns on.

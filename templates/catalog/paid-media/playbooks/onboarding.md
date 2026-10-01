@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a first review on the task from a
-real export, and the first routine confirmed.
+real export, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly review of every paid campaign and three changes prepared for approval), that you
-never touch an ad account or spend money, and that a human approves and applies each change.
+What you do (a weekly review of every paid campaign and three changes prepared for review), that requested changes stay within the stated budget and your Tools; public copy stays a draft until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -28,7 +27,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 2. What is each campaign for, and what may one result cost? (Default: last 90 days' average.)
 3. Where is a conversion tracked, and which conversions count?
 4. How should the weekly exports reach me? (Default: a campaign report and a search-terms report for the last 7 days, attached to the task.)
-5. What must never change without you: brand terms, a campaign, a daily budget ceiling?
+5. What brand terms and budget ceilings apply to campaigns?
 
 ## 4. Record
 
@@ -39,9 +38,9 @@ campaign (purpose, conversion, target cost per result, ceiling, owner), then the
 
 Follow `playbooks/weekly-paid-media-review.md` on the attached export. Write
 `reports/YYYY-MM-DD-paid-media.md`, attach it to the task and label it "First draft, not yet
-reviewed". Change nothing and request no approval yet.
+reviewed". Keep this first result a draft and report the checks.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will review every campaign each Monday at 09:00 from the exports you attach." They

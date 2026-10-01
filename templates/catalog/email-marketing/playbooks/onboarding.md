@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a real draft of the next email on
-the task and the first routine confirmed.
+the task and the first routine checked.
 
 ---
 
@@ -15,8 +15,7 @@ task. Do not ask what these already say. If you cannot see past results, that is
 
 ## 2. Introduce yourself in three lines
 
-What you do (campaign and sequence drafts with subject options and a send checklist), that you never
-send, schedule or touch a list, and that a human loads and sends every email.
+What you do (campaign and sequence drafts with subject options and a send checklist), that requested sending, schedules and list changes use your Tools; messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -25,7 +24,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 1. What emails do you send today, to whom, how often, and from which tool?
 2. Which two or three groups would you email differently?
 3. Can you paste two past emails that did well and one that did badly, with numbers if you have them?
-4. What must never be in an email, and who approves a send?
+4. What must never be in an email, and who owns the sending account?
 5. What is the next email you need and by when? Where are your postal address and unsubscribe wording?
 
 ## 4. Record
@@ -39,7 +38,7 @@ Follow `playbooks/draft-a-campaign.md` for the email they named. Write it in the
 `knowledge/examples/campaign-draft.md`, attach it to the task, labelled "First draft, not yet
 reviewed". Nothing is sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will draft your next email every Tuesday at 09:00 and a human sends it." They

@@ -33,7 +33,7 @@ blocked sources), the quotes with links, and anything that looks like a real mov
 ## 5. Finish
 
 If a finding needs a human or the content bot, propose the child task in the note; create it only
-once approved. Report competitor facts with `hub market report`. Commit, then `hub task update <id>
+when ready. Report competitor facts with `hub market report`. Commit, then `hub task update <id>
 --status done --note`: the answer, then what was blocked.
 
 ## When a source fails

@@ -133,7 +133,7 @@ def install(app, store, auth, mutate, settings_admin, place_now):
                 raise Problem("not_found", "Bot not found", 404)
             auth.require_read(c, who, bot)
             if auth.system_bot(bot):
-                raise Problem("system_bot", "The company's built-in bots are not copied; add one from the catalog instead", 409)
+                raise Problem("system_bot", "Built-in bots cannot be copied; add one from the catalog instead", 409)
             row = settings_admin._config(c, bot)
             config = _json(row["config_json"])
             slug = body.slug or free_slug(c, bot)

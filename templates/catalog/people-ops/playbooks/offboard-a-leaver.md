@@ -1,7 +1,7 @@
 # Offboard a leaver
 
 Triggered by a task naming a leaver and a last day. Budget 25 minutes. The outcome is a checklist with
-an owner and a date for every item, proposed for approval, and a plan to confirm access is gone. You
+an owner and a date for every item, proposed for review, and a plan to confirm access is gone. You
 remove nothing yourself.
 
 ---
@@ -27,8 +27,7 @@ Each item: what, owner from `knowledge/systems.md`, due date.
 
 ## 3. Propose
 
-Attach the checklist and ask the HR owner once with `hub task ask <id>`. On a yes, create one task per
-owner: `hub task create --owner <owner> --title "<leaver ref>: <item>" --due <date> --parent <id>`.
+Attach the checklist, ask only for missing offboarding facts with `hub task ask <id>`, and create one requested task per owner: `hub task create --owner <owner> --title "<leaver ref>: <item>" --due <date> --parent <id>`.
 
 ## 4. Confirm
 

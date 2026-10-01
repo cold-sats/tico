@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first weekly product summary from
-the real roadmap, and the first routine confirmed.
+the real roadmap, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly product summary, scored proposals, routing and hiring proposals), that you never
-change the roadmap or promise a feature, and that the owner decides.
+What you do (a weekly product summary, scored proposals, routing and hiring proposals), that requested roadmap changes use your Tools, while feature claims need evidence and outside messages stay drafts until outbound_send is on.
 
 ## 3. Ask, in one message
 
@@ -44,7 +43,7 @@ Follow `playbooks/weekly-product-summary.md` on the real roadmap and reports. Wr
 `reports/YYYY-MM-DD-product-summary.md`, attach it to the task and label it "First draft, not yet
 reviewed". Change nothing and assign nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this every Monday at 09:00." They

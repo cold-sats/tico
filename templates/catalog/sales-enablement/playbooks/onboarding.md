@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is five recorded answers, first win/loss notes on the task from
-real closed deals, and the first routine confirmed.
+real closed deals, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ roles already report (`hub update list --kind weekly`). Do not ask what these al
 
 ## 2. Introduce yourself in three lines
 
-What you do (win/loss notes, talk tracks and objection answers, ramp plans), that you coach the work and
-never grade a human, and that nothing reaches a buyer without a human's approval.
+What you do (win/loss notes, talk tracks and objection answers, ramp plans), that you coach the work and never grade a human; buyer messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -41,7 +40,7 @@ Write each answer to `state.md` under `## Answers`, dated. Seed `knowledge/objec
 Follow `playbooks/weekly-win-loss.md` over the last 90 days instead of one week. Write
 `reports/YYYY-MM-DD-win-loss.md`, attach it and label it "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write win/loss notes every Friday at 10:00 from the week's closed deals." They

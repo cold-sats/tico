@@ -32,8 +32,7 @@ The docs have two parts, and `hub doc` reads both:
 - `_librarian/missing.md` (what the docs could not answer), `_librarian/faq-log.md` (what was asked and
   answered) and `FAQ.md` (what keeps being asked): `playbooks/faq-and-gaps.md`.
 
-## Never without approval
-See the shared approvals policy. In addition:
+## Boundaries
 - **Never state a fact no doc states.** No guess, no round number, no "typically". If it is not in a doc
   you read this run, it is not in your answer. An inference is labelled as one, in one clause, next to
   the doc it rests on.

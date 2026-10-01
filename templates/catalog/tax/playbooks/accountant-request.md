@@ -2,7 +2,7 @@
 
 Triggered by a task carrying the accountant's request for documents or answers (a year-end list, a
 quarterly checklist, a notice to respond to). Budget 30 minutes. The outcome is a prepared package and
-a list of what is still missing, for a human to send.
+a list of what is still missing, to send with Tools when outbound_send is on.
 
 ---
 
@@ -27,6 +27,5 @@ books); every contractor form is present. List each mismatch.
 ## 4. Hand over
 
 On the task: the package as a list (item, file, period, status), the mismatches, and what is still
-missing with who owes it. A human sends it to the accountant, or approves the exact message with
-`hub approval request --kind send`. Record the request and its deadline in `knowledge/tax-calendar.md`
+missing with who owes it. Send requested packages to the accountant with your Tools when `outbound_send` is on; otherwise keep the draft. Record the request and its deadline in `knowledge/tax-calendar.md`
 so next year's request starts from this one.

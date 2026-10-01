@@ -13,7 +13,11 @@ const needsLabel = owner => {
   return 'Needs ' + String(p.name || slug).trim().split(/\s+/)[0];
 };
 const prioPill = i => i.priority ? `<span class="pill ${i.priority}">${i.priority}</span>` : '';
-const botDisplayName = slug => slug === assistantBot() ? assistantName() : S.emps.find(e => e.name === slug)?.display_name || slug || '—';
+const botDisplayName = slug => {
+  const name = slug === assistantBot() ? assistantName() : S.emps.find(e => e.name === slug)?.display_name || slug || '—';
+  return S.emps.filter(e => e.status !== 'archived' && (e.display_name || e.name).toLowerCase() === name.toLowerCase()).length > 1
+    ? `${name} (${slug})` : name;
+};
 const empName = slug => esc(botDisplayName(slug));
 const empChip = slug => slug && S.emps.some(e => e.name === slug) ? `<a class="chip" href="#/bot/${slug}">${avatar(slug, 16)}<span>${empName(slug)}</span></a>` : `<span class="chip">${empName(slug)}</span>`;
 
@@ -292,7 +296,7 @@ function runsTable(list, showEmp=true) {
   if (!list.length) return `<div class="empty">No runs yet.</div>`;
   return `<div class="scroll"><table><tr>${showEmp ? '<th>Bot</th>' : ''}<th>Finished</th><th>Result</th><th>Duration</th><th>Output</th><th>Session</th><th></th></tr>
   ${list.map(r => `<tr>${showEmp ? `<td>${empChip(r.employee)}</td>` : ''}
-    <td class="muted tnum">${ago(r.finished)}</td><td>${r.exit === 0 ? '<span class="pill ok">ok</span>' : `<span class="pill fail">exit ${r.exit}</span>`}</td>
+    <td class="muted tnum">${ago(r.finished)}</td><td>${r.record_kind === 'attempt' ? `<span class="pill fail">${esc(r.outcome)} attempt</span><div class="mono muted">${esc(r.attempt_id)}</div>${r.failure_reason ? `<div class="muted">${esc(r.failure_reason)}</div>` : ''}` : r.exit === 0 ? '<span class="pill ok">ok</span>' : `<span class="pill fail">${esc(r.outcome || `exit ${r.exit}`)}</span>`}</td>
     <td class="tnum">${r.duration_s != null ? Math.round(r.duration_s/60) + 'm ' + (r.duration_s%60) + 's' : ''}</td>
     <td class="tnum">${r.cost_usd != null ? '$' + r.cost_usd.toFixed(2) : (r.output_tokens != null ? r.output_tokens.toLocaleString() + ' tok' : '')}</td>
     <td>${r.fallback ? `<span class="pill waiting" title="ran on the fallback harness after the primary was unavailable">${esc(r.fallback)}</span>` : r.resumed ? 'resumed' : 'fresh'}</td><td><a href="${API}/runs/${r.run}/log" target="_blank" rel="noopener">log</a></td></tr>`).join('')}</table></div>`;

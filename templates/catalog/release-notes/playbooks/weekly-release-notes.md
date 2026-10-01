@@ -1,7 +1,6 @@
 # Weekly release notes draft
 
-Schedule: Fridays at 14:00 team time (routine `weekly-release-notes`), once a human has approved the
-first draft. Also run by hand for a named release. Budget 40 minutes. The outcome is one draft: a suggested
+Schedule: Fridays at 14:00 team time (routine `weekly-release-notes`), after setup. Also run by hand for a named release. Budget 40 minutes. The outcome is one draft: a suggested
 version, a changelog entry and plain-language notes, plus the changes you could not classify. Nothing is
 published and no tag is pushed.
 
