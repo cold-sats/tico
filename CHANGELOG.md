@@ -7,6 +7,8 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
 ### Changed
 - **Assistant** in the left rail opens your private chat as a page of its own (`#/assistant`), with the same thread,
   composer and live reply as a bot's chat and suggestions while it is empty. Your own page's Assistant tab and "Ask the
@@ -1545,7 +1547,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.39...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ticoteam/tico/compare/v0.2.42...v0.3.0
 [0.2.39]: https://github.com/ticoteam/tico/compare/v0.2.38...v0.2.39
 [0.2.35]: https://github.com/ticoteam/tico/compare/v0.2.34...v0.2.35
 [0.2.34]: https://github.com/ticoteam/tico/compare/v0.2.33...v0.2.34
