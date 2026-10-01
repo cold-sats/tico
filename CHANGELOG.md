@@ -18,6 +18,8 @@ All notable changes to Tico are recorded here. The format follows
   800px wide in 13.5px type on roomier lines; your words are in a bubble, bot replies stay plain.
 - The sidebar is narrower (236px) and can be dragged wider or narrower; so can the tasks column on a bot page.
   Your widths follow you between computers. Double-click an edge to reset it.
+- Bot avatars are clearly blob-shaped: each bot gets one of ten soft shape families and a little more distortion,
+  with a slow wiggle only while it works.
 
 ## [0.2.42] - 2026-10-01
 
