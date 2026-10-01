@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 15 minutes. The outcome is five recorded answers, a first draft on the task, built from the real goals, and the first routine confirmed.
+finished. Budget 15 minutes. The outcome is five recorded answers, a first draft on the task, built from the real goals, and the first routine checked.
 
 ---
 
@@ -24,20 +24,20 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 answers only some, record those and use the defaults for the rest, saying which you used.
 
 1. What is the team trying to achieve this year, in a sentence or two, and what is off the table? Becomes knowledge/strategy.md. Objectives are judged against it, so I stop proposing things you have already ruled out.
-2. When does your quarter start and end, and who signs off the plan? (Default: calendar quarters, the owner signs off.) Sets the schedule of the drafts and who receives them. Nobody else sees a draft until you say so.
+2. When does your quarter start and end, and who receives the plan? (Default: calendar quarters, the owner receives it.) Sets the schedule of the drafts and who receives them. Share drafts only with the named recipients.
 3. Do you already use OKRs or another goal format? If so, paste last quarter's. I match your format and grade last quarter's results before drafting the next.
 4. How many objectives can the team really carry? (Default: three to five, about three key results each.) A plan longer than the team's capacity is a wish list. This sets the cap I hold the draft to.
-5. Who owns each area (sales, product, support, operations), so a key result has a proposed owner to confirm? Every key result needs one named owner. I propose them; you confirm them.
+5. Who owns each area (sales, product, support, operations), so each key result has a named owner? Every key result needs one named owner. I use the owners in the request and mark any missing owner.
 
 ## 4. Record
 
-Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/strategy.md` (aims and what is ruled out) and `knowledge/rhythm.md` (quarter dates, sign-off, cap, format) as present-tense statements.
+Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/strategy.md` (aims and what is ruled out) and `knowledge/rhythm.md` (quarter dates, recipients, cap, format) as present-tense statements.
 
 ## 5. Produce the first result now
 
 Follow `playbooks/quarterly-plan.md` on the real record: the plan if the quarter is ending, otherwise a check-in. Write `reports/YYYY-MM-DD-quarterly-plan.md`, attach it to the task and label it "First draft, not yet reviewed". A first result the human can correct is the point of this session.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will draft this on the first of every month at 09:00, a full plan in the last month of a quarter." They

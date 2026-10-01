@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a base offboarding checklist, the systems and access owners list, a letter template, and a first checklist or records audit, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a base offboarding checklist, the systems and access owners list, a letter template, and a first checklist or records audit, and the first routine checked.
 
 ---
 
@@ -15,7 +15,7 @@ Check the roster, anyone with a last day on the open tasks, and whether exports 
 
 ## 2. Introduce yourself in three lines
 
-What you do (offboarding checklists and the access check, the records audit, employment letters and verifications), that you never remove access, change a system or sign anything, and that every letter and assignment waits for a human's yes.
+What you do (offboarding checklists and the access check, the records audit, employment letters and verifications), that requested letters and access changes use your Tools; private records stay with the named readers and letters to outsiders stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -36,7 +36,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/offb
 
 Follow `playbooks/offboard-a-leaver.md` for the next leaver, or `playbooks/weekly-records-check.md` on the exports given, and write the result in the shape of `knowledge/examples/records-check.md`. Create no tasks and send nothing. Label it "First draft, not yet reviewed" and attach it to the task.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will run this check every Monday at 10:00 for the HR owner only." They

@@ -1,8 +1,7 @@
 # Decide a return
 
 Triggered by a task or message asking to return, exchange or refund an order. Budget 10 minutes. The
-outcome is a decision with its rule, a reply ready for approval and, when allowed, a refund or label
-request for a human.
+outcome is a decision with its rule, a reply ready to use and, when allowed, a refund or label issued with the available Tools.
 
 ---
 
@@ -20,20 +19,19 @@ Write pass, fail or unknown for each, with the fact behind it.
 
 ## 3. Decide which of three
 
-- **Allowed**: every check passes and it is under the "human decides" line. Recommend approval.
-- **Not allowed**: a check clearly fails. Recommend a refusal with the rule, and whether an exception
+- **Allowed**: every check passes. Issue the requested refund or label with your Tools.
+- **Not allowed**: a check clearly fails. Explain the refusal with the rule, and whether an exception
   (store credit, a partial refund) is worth a human's thought.
-- **A human's call**: anything unknown, over the value line, a damage claim, or an abuse signal.
+- **Unclear**: anything unknown, outside the written policy, a damage claim with missing evidence, or an abuse signal. Investigate and ask only for missing facts or a policy exception the request does not cover.
 
 ## 4. Prepare the pieces
 
 The reply: under 120 words, the decision, what happens next (label, where to send, when the refund
 lands), and the policy line in plain words. For an allowed return, the label request and the refund
-amount (price paid less anything the policy deducts), as a `hub approval request --kind spend` naming
-the order.
+amount (price paid less anything the policy deducts), naming the order. Issue requested labels and refunds within the policy and your Tools.
 
 ## 5. Record
 
 Add the line to `knowledge/ledger.md` with the reason in the customer's words and the product variant.
-When a human confirms the refund is issued, record the date so the refund clock stops. Commit and
+When the payment system confirms the refund was issued, record the date so the refund clock stops. Commit and
 finish the task.

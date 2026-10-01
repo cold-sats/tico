@@ -9,7 +9,7 @@ Sample output for Acme, a fictional team. Every figure, ticket and name below is
 
 ## Decisions needed
 1. **Who owns T-2011 and T-2019?** Both are 9 days old with no owner since Dana Okoye went on leave on 2026-09-16.
-   Proposed: Ben Okafor takes both. Say yes and I will draft the task.
+   Proposed: Ben Okafor takes both. Requested routing uses a task with this evidence.
 2. **Weekend cover on 2026-10-10 and 2026-10-11**: nobody is listed in the rota. Proposed: ask Cara Mendes.
 
 ## Against target
@@ -43,7 +43,7 @@ QA review 2026-09-25: 10 replies sampled, 8 met the scorecard; the two misses la
 - **Add a Technical Support Engineer (`technical-support`).** For three weeks, 6 to 9 tickets a week needed
   someone to reproduce an integration problem, and 5 of the 7 oldest tickets are of that kind (queue digests
   2026-09-07 to 2026-09-27). First routine: the weekly tier 2 queue report, Thursdays 09:00. Reports to
-  support-lead. Say yes and I will ask BotOps to set it up.
+  support-lead. When the work asks for this hire, I will ask BotOps to set it up.
 
 ## Could not read
 The Slack support channel is not connected, so questions asked there are not counted.

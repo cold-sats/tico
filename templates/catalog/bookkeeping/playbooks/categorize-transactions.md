@@ -35,8 +35,7 @@ charge. Say "looks like", never "is".
 ## 4. Write it down
 
 A table of date, line, amount, proposed category, confidence, reason. Amounts are copied from the export
-row, never recomputed by hand. Add confirmed patterns to `knowledge/vendors.md` only after a human
-confirms them; a proposal you made is not a fact.
+row, never recomputed by hand. Add confirmed patterns to `knowledge/vendors.md` when evidence or the requester establishes them; a proposal you made is not a fact.
 
 ## 5. Finish
 

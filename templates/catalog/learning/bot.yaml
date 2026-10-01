@@ -8,7 +8,7 @@ reasoning_effort: medium
 max_run_minutes: 45
 
 # Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
-# the bot puts the finished message on the task and asks for an approval.
+# the bot puts the finished message on the task and drafts until outbound_send is on.
 outbound_send: false
 
 # The first routine is declared off (`enabled: false`) and switched on when a human starts the bot's setup
@@ -27,4 +27,4 @@ routines:
 # owner decision, so the bot files a task for the owner rather than editing this file.
 tools: []
 # There is deliberately no learning-platform entry: completion records arrive as exports on tasks, and a human
-# enrolls people and buys courses once a spend request is approved.
+# enrolls people and buys courses within the requested budget and Tools.

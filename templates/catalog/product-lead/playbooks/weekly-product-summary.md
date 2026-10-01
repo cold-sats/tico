@@ -1,7 +1,6 @@
 # Weekly product summary
 
-Schedule: Mondays at 09:00 team time (routine `weekly-product-summary`), once a human has approved
-the first summary. Also run by hand. Budget 40 minutes. The outcome is one page for the owner: where the
+Schedule: Mondays at 09:00 team time (routine `weekly-product-summary`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page for the owner: where the
 committed roadmap stands, which decisions wait on a human, and what to build or route next. Nothing is
 changed in any tool.
 

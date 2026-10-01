@@ -1,8 +1,7 @@
 # Tomorrow's dispatch plan
 
-Schedule: weekdays at 15:00 team time (routine `tomorrows-dispatch-plan`), once a human has approved
-the first plan. Budget 30 minutes. The outcome is tomorrow's plan by crew, the clash list and the
-arrival notices, all waiting for the dispatcher's approval. Nothing is sent or changed.
+Schedule: weekdays at 15:00 team time (routine `tomorrows-dispatch-plan`), after setup. Budget 30 minutes. The outcome is tomorrow's plan by crew, the clash list and the
+arrival notices, all ready for the requested dispatch work. Nothing is sent or changed.
 
 ---
 
@@ -27,7 +26,7 @@ or call the customer.
 ## 4. Arrival notices
 
 One per customer in the agreed form: the day, the window, the technician's first name, what to prepare
-(clear access, a pet shut away). One batch on the task with `hub approval request --kind send`.
+(clear access, a pet shut away). Attach the batch to the task; send requested notices with your Tools when `outbound_send` is on, otherwise keep drafts.
 
 ## 5. Close-out check
 

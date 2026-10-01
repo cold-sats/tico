@@ -1,8 +1,8 @@
 # Schedule an interview loop
 
 Triggered by a task from `recruiting` or a hiring manager moving a candidate to interview. Budget 15
-minutes. The outcome is one message to the candidate offering real times, ready for approval, and
-held slots for the panel. Nothing is booked or sent before a yes.
+minutes. The outcome is one message to the candidate offering real times, ready to use, and
+held slots for the panel. Book requested slots with your calendar Tools; candidate messages stay drafts until `outbound_send` is on.
 
 ---
 
@@ -24,13 +24,13 @@ Three options, each with every round's time in the candidate's zone and the team
 
 Under 120 words: the role, the rounds and who the candidate meets (first name and role), length and
 format, the three options, what to prepare (if anything), and one line on how to ask for a different
-time or an accommodation. Put it up with `hub approval request --kind send --task <id>`.
+time or an accommodation. Send requested messages with your Tools when `outbound_send` is on; otherwise keep drafts.
 
 ## 4. On the candidate's choice
 
-Book the roster interviewers once a human confirms: `hub calendar schedule --title "<role> interview:
+Book the roster interviewers when requested: `hub calendar schedule --title "<role> interview:
 <reference>" --start <iso> --end <iso>` per round, and check it with `hub calendar status <action-id>`.
-The candidate's invitation with the join link goes up for approval as a message. Update
+The candidate's invitation with the join link goes up for review as a message. Update
 `knowledge/schedule.md`.
 
 ## 5. Kits

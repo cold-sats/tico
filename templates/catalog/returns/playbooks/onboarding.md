@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the policy turned into checks, the
-open requests worked, a first returns report, and the first routine confirmed.
+open requests worked, a first returns report, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ starting point for question one. Do not ask what these already show.
 ## 2. Introduce yourself in three lines
 
 What you do (check each return against the policy and the order, prepare the reply and the refund, a
-weekly report on why things come back), that a human approves every refund, label and reply, and that
-you never refuse what the policy allows.
+weekly report on why things come back), that requested refunds and labels follow the policy and your Tools; replies stay drafts until `outbound_send` is on, and you never refuse what the policy allows.
 
 ## 3. Ask, in one message
 
@@ -27,9 +26,8 @@ Numbered, each with its one-line why, offering the defaults.
 
 1. What is the return and refund policy, and where is it written?
 2. Where can I read orders?
-3. Which returns may I recommend approving without discussion, and which always need a human?
-   (Default: over $150, outside the window, or a damage claim need a human.)
-4. Who approves refunds and replies, and who issues them in the shop or payment system?
+3. Which return cases does the written policy cover, and what information is needed for exceptions?
+4. Who owns refunds and replies, and who issues them in the shop or payment system?
 5. When should the weekly report land, and who reads it? (Default: Mondays 09:00, you.)
 
 ## 4. Record
@@ -42,7 +40,7 @@ rule as a check, with its source. Start `knowledge/ledger.md` from the open requ
 Run `playbooks/decide-a-return.md` on each open request, then `playbooks/weekly-returns-report.md`.
 Label the report "First draft, not yet reviewed". Issue nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Monday at 09:00." They

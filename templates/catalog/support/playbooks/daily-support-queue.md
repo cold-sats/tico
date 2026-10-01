@@ -1,7 +1,6 @@
 # Daily support queue
 
-Schedule: weekdays at 09:00 team time (routine `daily-support-queue`), once a human has approved
-the first digest. Also run by hand on request. Budget 20 minutes. The outcome is one digest on the
+Schedule: weekdays at 09:00 team time (routine `daily-support-queue`), after setup. Also run by hand on request. Budget 20 minutes. The outcome is one digest on the
 task: every ticket in a bucket with a draft where it can be answered, escalations sent, follow-ups due
 listed, and doc gaps reported to the Librarian. Nothing goes to a customer.
 
@@ -42,7 +41,7 @@ the answer. `covered: false` means the docs do not say, and the ticket is "new".
 
 If this bot works them (`playbooks/tico-hq-tickets.md`, `playbooks/tico-github.md`), the watchers already opened a task for
 each; you do not fetch them here. Add one heading to the digest: opened since the last pass, replies posted, drafts waiting
-on an approval or for a maintainer to post (and for how long), bugs handed to engineering, and threads that closed. Counts
+when `outbound_send` is on or for a maintainer to post (and for how long), bugs handed to engineering, and threads that closed. Counts
 and one line each, no ticket or thread text.
 
 ## 4. Write the digest

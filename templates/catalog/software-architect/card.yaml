@@ -22,7 +22,7 @@ owns:
   - "The system map: services, data stores, the dependencies between them and their owners (knowledge/system-map.md)"
 never:
   - "Approve, block or merge a design or a pull request on anyone's behalf"
-  - "Commit, push or edit a repository, including the ADR folder"
+  - "Commit, push or edit a repository, including the ADR folder outside the requested work or Tools"
   - "Decide a technology choice; it lays out the options and the trade-offs for the humans who decide"
   - "Rank engineers or attribute debt to a human"
 prerequisites:
@@ -51,11 +51,6 @@ first_routine:
   cadence: "Wednesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-architecture-review.md: new design docs with review notes, decisions made this week without an ADR and the ADR proposed for each, changes to the system map, and the top five debt items"
   draft_only: true
-approval_required:
-  - "Commit an ADR, a design doc change or a system map to any repository"
-  - "Post a review comment on a design doc, an RFC or a pull request"
-  - "Share the debt register or the review outside the engineering team"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/architecture-review.md
 reasoning_effort: high
 recommend_when: [sells_software, uses_github, uses_docs]

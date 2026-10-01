@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first CI health report on the task
-from the last two weeks of runs, and the first routine confirmed.
+from the last two weeks of runs, and the first routine checked.
 
 ---
 
@@ -41,7 +41,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/thre
 Follow `playbooks/weekly-ci-health.md` over the last two weeks. Write `reports/YYYY-MM-DD-ci-health.md`,
 attach it to the task and label it "First draft, not yet reviewed". Rerun nothing and change nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Tuesday at 09:00." They

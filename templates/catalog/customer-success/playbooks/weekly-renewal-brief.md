@@ -1,7 +1,6 @@
 # Weekly renewal and health brief
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-renewal-brief`), once a human has approved
-the first brief. Also run by hand. Budget 40 minutes. The outcome is one page: what renews when, who is
+Schedule: Tuesdays at 09:00 team time (routine `weekly-renewal-brief`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page: what renews when, who is
 at risk and why, and a draft next touch. Nothing is sent and no record changes.
 
 ---

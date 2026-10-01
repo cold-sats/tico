@@ -1,8 +1,7 @@
 # Weekly delivery and exceptions report
 
-Schedule: Mondays at 08:00 team time (routine `weekly-delivery-report`), once a human has approved
-the first report. Budget 35 minutes. The outcome is one report, and on the task the customer updates,
-claims and invoice disputes ready for approval. Nothing is sent or filed.
+Schedule: Mondays at 08:00 team time (routine `weekly-delivery-report`), after setup. Budget 35 minutes. The outcome is one report, and on the task the customer updates,
+claims and invoice disputes ready to use. Nothing is sent or filed.
 
 ---
 
@@ -16,7 +15,7 @@ fewer than 10 shipments are grouped as "other".
 
 Every shipment late past the threshold, stuck (no scan for 3 working days), returned to sender,
 damaged or lost. For each: last scan and time, carrier case (open one if none, via the carrier's
-process, on approval), what the customer has been told. Work each with `playbooks/work-an-exception.md`.
+process, when `outbound_send` is on), what the customer has been told. Work each with `playbooks/work-an-exception.md`.
 
 ## 3. Claims
 
@@ -27,7 +26,7 @@ within 7 days of the carrier's deadline at the top.
 
 For each carrier invoice received: compare each line with `knowledge/carriers.md`. List overcharges
 (wrong rate, a surcharge not in the contract, a duplicate charge, a charge for a shipment that was
-never collected) with the amount and the rate's source. Disputes are prepared for approval.
+never collected) with the amount and the rate's source. Disputes are prepared for review.
 
 ## 5. Write and hand over
 

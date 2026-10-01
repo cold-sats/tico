@@ -1,7 +1,6 @@
 # Weekly research digest
 
-Schedule: Thursdays at 10:00 team time (routine `weekly-research-digest`), once a human has approved the
-first digest. Also run by hand. Budget 45 minutes. The outcome is one page for the product team: what users
+Schedule: Thursdays at 10:00 team time (routine `weekly-research-digest`), after setup. Also run by hand. Budget 45 minutes. The outcome is one page for the product team: what users
 said this week, which opportunities gained evidence, and one thing worth testing. You contact no one.
 
 ---

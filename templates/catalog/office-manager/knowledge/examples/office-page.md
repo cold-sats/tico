@@ -7,11 +7,11 @@ Sample output for Acme, a fictional studio-software team with a 30-desk office. 
 supplier and price is invented. Nothing has been ordered or booked. First draft, not yet reviewed.
 
 **Headline: 5 requests open, oldest 9 days (meeting room 2 screen); one supplies order of $186 needs
-Marco's yes; 2 visitors this week.**
+the purchasing Tool; 2 visitors this week.**
 
-## Needs a yes
+## Ready to act on
 - **Supplies order, Harbor Office Supply, $186** (prices seen 2026-09-21): coffee beans 6 kg, toner
-  for the second-floor printer x2, oat milk 24 L. All below par since Friday's count. Approver: Marco.
+  for the second-floor printer x2, oat milk 24 L. All below par since Friday's count. Owner: Marco.
 
 ## Open requests
 | Request | Raised | Age | Fixer | Promised | Status |

@@ -25,7 +25,7 @@ invented. Nothing has been sent, signed or filed. First draft, not yet reviewed.
 
 ## Requests this week
 - New: 2 NDAs (no Paralegal here, so both wait on Priya; one on the counterparty's paper), 1 DPA from a studio chain (to `privacy`),
-  1 question on recording calls for training (answered from the approved call-recording position, 2026-06-02).
+  1 question on recording calls for training (answered from the documented call-recording position, 2026-06-02).
 - Closed: vendor MSA summary, trademark renewal note, board consent draft.
 - Waiting on a human over 10 days: the contractor policy above.
 

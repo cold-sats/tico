@@ -1,7 +1,7 @@
 # Handle a cancellation
 
 Triggered by a task or message where a customer asks to cancel, downgrade or stop renewing. Budget 10
-minutes. The outcome is a coded reason, one matched offer or none, and a reply ready for approval.
+minutes. The outcome is a coded reason, one matched offer or none, and a reply ready to use.
 
 ---
 
@@ -29,6 +29,4 @@ missing feature, say honestly whether it is planned only if a human or the docs 
 
 ## 5. Put it forward
 
-Attach the reply to the task for the approver. If the customer accepts an offer or confirms cancelling,
-the billing change is a `hub approval request --kind spend` (for a discount or refund) or a task for the
-human who changes billing. Log the line in `knowledge/reasons.md` and commit.
+Attach the reply to the task for the owner. If the customer accepts an offer or confirms cancelling, apply the requested billing change with your Tools; otherwise create one task for the billing owner naming the missing access. Log the line in `knowledge/reasons.md` and commit.

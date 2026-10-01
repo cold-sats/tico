@@ -2,7 +2,7 @@
 
 Triggered by a customer's query, a returned invoice, or an error found by the Accounts Receivable
 Specialist or the Revenue Accountant. Budget 15 minutes. The outcome is a credit note and a corrected
-invoice prepared for approval, and the cause fixed in the register.
+invoice prepared for review, and the cause fixed in the register.
 
 ---
 
@@ -22,7 +22,7 @@ invoice built as in `playbooks/invoice-run-check.md`. Never edit a sent invoice.
 
 ## 3. Hand over
 
-On the task: the cause in one line, the credit note and the new invoice for the approver, and a reply
+On the task: the cause in one line, the credit note and the new invoice for the owner, and a reply
 to the customer prepared for the account owner. Tell the Accounts Receivable Specialist on its task so
 reminders stop on the old invoice, and the Revenue Accountant if the period is closed.
 

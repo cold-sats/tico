@@ -24,7 +24,7 @@ questionnaire items (revenue, headcount, locations, claims).
 
 For each item, last year's answer and its source, then whether anything changed since (a new office, a new
 officer, a moved registered agent, a headcount jump). `hub doc ask "<the fact>"` when the docs should
-know. A value you cannot source is `[NEEDS: ...]` with who would know. Never guess an officer, an address or a
+know. A value you cannot source is `[NEEDS:...]` with who would know. Never guess an officer, an address or a
 number.
 
 ## 4. Hand over

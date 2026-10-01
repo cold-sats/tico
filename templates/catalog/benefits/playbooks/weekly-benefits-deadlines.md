@@ -1,7 +1,6 @@
 # Weekly benefits deadlines
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-benefits-deadlines`), once a human has approved
-the first page. Budget 25 minutes. The outcome is one page for the HR owner: what closes soon, who starts
+Schedule: Tuesdays at 09:00 team time (routine `weekly-benefits-deadlines`), after setup. Budget 25 minutes. The outcome is one page for the HR owner: what closes soon, who starts
 or ends coverage, what the calendar needs next, and what was handed on. Nothing is submitted or sent.
 
 ---
@@ -39,7 +38,7 @@ Enrollment opening within 30 days means the comparison (`playbooks/compare-plans
 
 Write `reports/YYYY-MM-DD-benefits-deadlines.md` in the shape of `knowledge/examples/benefits-deadlines.md`,
 then `hub file publish reports/YYYY-MM-DD-benefits-deadlines.md --scope task --task <id>`. Reminders to
-employees go on the task for approval. Commit, and `hub task update <id> --status done --note`.
+employees go on the task for review. Commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails
 

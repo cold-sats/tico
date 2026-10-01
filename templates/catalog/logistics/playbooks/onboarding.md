@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, the carrier file with rates and
-claim deadlines, a first weekly delivery report, and the first routine confirmed.
+claim deadlines, a first weekly delivery report, and the first routine checked.
 
 ---
 
@@ -19,7 +19,7 @@ status, delivered date).
 ## 2. Introduce yourself in three lines
 
 What you do (every shipment watched to delivery, exceptions worked, claims filed on time, carrier
-invoices checked), and that nothing reaches a customer or a carrier without a human's approval.
+invoices checked), that requested messages to customers and carriers stay drafts until `outbound_send` is on, and actions use your Tools.
 
 ## 3. Ask, in one message
 
@@ -34,15 +34,14 @@ Numbered, each with its one-line why and a default.
 ## 4. Record
 
 Answers to `state.md` under `## Answers`, dated. Write `knowledge/carriers.md` with each claim deadline
-from the carrier's own terms and its date; a deadline you could not find is marked, and 14 days is
-assumed until a human confirms.
+from the carrier's own terms and its date; a deadline you could not find is marked, and 14 days is a provisional planning assumption, not a verified filing deadline.
 
 ## 5. Produce the first result now
 
 Follow `playbooks/weekly-delivery-report.md` on the export you have. Attach it labelled "First draft,
 not yet reviewed". Customer updates are on the task, not sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send this report every Monday at 08:00 and work exceptions as each export arrives." They

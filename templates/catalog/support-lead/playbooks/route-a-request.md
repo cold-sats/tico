@@ -1,7 +1,7 @@
 # Route a request
 
 Triggered by a task that says a request is stuck, misrouted or has no owner, or by step 4 of the weekly
-summary. Budget 10 minutes. The outcome is one proposal on the task: who should take it, and why.
+summary. Budget 10 minutes. The outcome is a routed task naming who should take it, and why.
 
 ---
 
@@ -14,7 +14,7 @@ Read `knowledge/team.md` for who owns what and who is covering today.
 
 ## 2. Pick the owner by what the work is
 
-- Answering a customer: the Support Agent (`support`) prepares the reply, a human approves it.
+- Answering a customer: the Support Agent (`support`) prepares the reply, send within the requested work when `outbound_send` is on.
 - A repeated question the docs do not answer: the Librarian (`librarian`), as a task naming the question and the tickets.
 - A reply that already went out and may be wrong: the Support Quality Analyst (`support-qa`).
 - A technical problem that needs reproducing: the Technical Support Engineer (`technical-support`).
@@ -31,13 +31,10 @@ Read `knowledge/team.md` for who owns what and who is covering today.
 
 If two owners fit, say which you would choose and why. If the human in `team.md` is away, name their cover.
 
-## 3. Write the proposal
+## 3. Route the requested work
 
-On the task: one line naming the owner and the reason, the age and what it waits on, and the draft task
-you would create. You do not create it or assign it. `hub task ask <id>` the support owner once, and stop.
-
-## 4. After a yes
-
+On the task: one line naming the owner and the reason, the age and what it waits on.
 Create the task with `hub task create --owner <owner> --parent <id>`, link the ticket, and note it in
-`knowledge/decisions-needed.md`. On a no, record the reason in `memory/learnings.md` so the next proposal
-is better.
+`knowledge/decisions-needed.md`. If the routing rules do not identify an owner, ask the support owner
+with `hub task ask <id>` for that missing information. Record useful routing lessons in
+`memory/learnings.md`.

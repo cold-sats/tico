@@ -14,7 +14,7 @@ issue below is invented. Nothing has been changed on GitHub.
 - #1428 may be a security report. Not discussed here; task created for Ben Okafor.
 
 ## Proposed labels and duplicates
-Approve as one batch (approval request 1 of 1). Only existing labels are used.
+Apply the requested label changes with the GitHub Tool. Only existing labels are used.
 
 ### Calendar
 | Issue | Proposed | Why |
@@ -30,7 +30,7 @@ Approve as one batch (approval request 1 of 1). Only existing labels are used.
 | #1433 | feature request, area/billing | Asks for annual invoices |
 
 ## Waiting on the reporter
-- #1418 no version, no steps. Waiting 6 days. Drafted comment (needs your Confirm):
+- #1418 no version, no steps. Waiting 6 days. Drafted comment (draft until `outbound_send` is on):
   "Thanks for the report. To look into this we need the app version and the steps that led to the
   error. Could you add them here? Once we can reproduce it we will pick it up."
 - #1422 no logs. Waiting 2 days. Comment drafted the same way.

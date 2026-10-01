@@ -1,7 +1,6 @@
 # Weekly compliance calendar
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-compliance-calendar`), once a human has approved the
-first calendar. Also run by hand. Budget 25 minutes. The outcome is one page: what is overdue, what is due, who
+Schedule: Tuesdays at 09:00 team time (routine `weekly-compliance-calendar`), after setup. Also run by hand. Budget 25 minutes. The outcome is one page: what is overdue, what is due, who
 files it, and what still has no proof. A calendar for a human, not legal advice. Nothing is filed or paid.
 
 ---
@@ -39,5 +38,4 @@ headline, overdue, urgent, the table, waiting for proof, unchecked places, and t
 
     hub file publish reports/YYYY-MM-DD-compliance-calendar.md
 
-A filing that now needs its owner becomes `hub task create --owner <person>` only after the requester approves
-it on this task. Commit, and `hub task update <id> --status done --note` with the overdue count first.
+A filing that now needs its owner becomes `hub task create --owner <person>` within the requested work. Commit, and `hub task update <id> --status done --note` with the overdue count first.

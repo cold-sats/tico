@@ -360,3 +360,26 @@ def test_a_files_metadata_follows_the_same_access_as_the_file(api):
     get(api, "files/blob-meta-0001/meta", token="ben-test", expected=403)
     get(api, "files/nope-nope-nope/meta", expected=404)
 
+
+
+def test_run_windows_include_failed_attempts_without_turns_and_hide_private_rooms(api):
+    machine, message, attempt = setup_attempt(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE attempts SET state='expired',finished=? WHERE id=?", (H.now(), attempt["id"]))
+        c.execute("DELETE FROM turns WHERE id=?", (attempt["id"],))
+        H.status_set(c, "bot:ops", "ops", "running")
+        H.status_set(c, "bot:ops", "ops", "idle")
+    rows = get(api, "bots/ops/turns?since=24h")
+    failed = next(row for row in rows if row["id"] == attempt["id"])
+    assert failed["record_kind"] == "attempt" and failed["exit"] == "expired"
+    assert failed["failure_reason"] and "token_hash" not in failed
+    assert get(api, "bots/ops/history?since=24h")
+    assert get(api, "bots/ops/turns?since=not-a-window", expected=422)["error"]["code"] == "date"
+    assert get(api, "bots/ops/history?since=not-a-window", expected=422)["error"]["code"] == "date"
+    assert get(api, "bots/ops/turns?since=24h", token="ben-test") == []
+    run = next(r for r in api.get("/api/runs", headers=headers()).json() if r["run"] == attempt["id"])
+    assert run["record_kind"] == "attempt" and run["attempt_id"] == attempt["id"]
+    assert api.get("/api/runs/" + attempt["id"] + "/log", headers=headers()).status_code == 200
+    assert api.get("/api/runs/" + attempt["id"] + "/log", headers=headers("ben-test")).status_code == 404
+    issue = next(i for i in get(api, "fleet/check")["issues"] if i["kind"] == "failing_runs")
+    assert "expired attempt" in issue["text"] and "last 24 hours" in issue["text"]

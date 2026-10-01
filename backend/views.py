@@ -39,6 +39,71 @@ def since_time(value):
     return value
 
 
+def attempt_details(c, turn):
+    attempt = c.execute("SELECT state,result_json,finished FROM attempts WHERE id=?", (turn["id"],)).fetchone()
+    failed = bool(attempt and attempt["state"] in ("failed", "expired"))
+    details = {"record_kind": "attempt" if failed else "run", "attempt_id": turn["id"]}
+    if failed:
+        try:
+            result = json.loads(attempt["result_json"] or "{}")
+        except (ValueError, TypeError):
+            result = {}
+        reason = result.get("error") or result.get("reason") or result.get("message") or (
+            "Lease expired before completion" if attempt["state"] == "expired" else "Attempt failed before completion")
+        details.update(exit=attempt["state"], finished=attempt["finished"] or turn.get("finished"),
+                       failure_reason=str(reason))
+    return details
+
+
+def failed_attempts(c, who, auth, bot=None, since=None, limit=200):
+    readable = auth.bot_accesses(c, who)
+    rows = []
+    for row in c.execute(
+            "SELECT a.id,a.bot,a.started,a.created,a.finished,a.state,a.result_json,j.message_id FROM attempts a "
+            "JOIN jobs j ON j.id=a.job_id WHERE a.state IN ('failed','expired') AND (? IS NULL OR a.bot=?) "
+            "AND (? IS NULL OR coalesce(a.finished,a.created)>=?) AND NOT EXISTS "
+            "(SELECT 1 FROM turns t WHERE t.id=a.id) ORDER BY coalesce(a.finished,a.created) DESC LIMIT ?",
+            (bot, bot, since, since, limit)):
+        if not (readable.get(row["bot"]) or {}).get("read"):
+            continue
+        message = H.message(c, row["message_id"])
+        if not message:
+            continue
+        try:
+            auth.conversation(c, who, message["conversation_id"])
+        except Problem:
+            continue
+        try:
+            result = json.loads(row["result_json"] or "{}")
+        except (ValueError, TypeError):
+            result = {}
+        reason = (result.get("error") or result.get("reason") or result.get("message")
+                  or ("Lease expired before completion" if row["state"] == "expired" else "Attempt failed before completion"))
+        rows.append({"id": row["id"], "attempt_id": row["id"], "bot": row["bot"],
+                     "started": row["started"] or row["created"], "finished": row["finished"],
+                     "exit": row["state"], "message_id": row["message_id"],
+                     "record_kind": "attempt", "failure_reason": str(reason)})
+    return rows
+
+
+def computer_details(c, row, who, auth):
+    value = dict(row)
+    readiness = readiness_document(value.get("readiness_json"))
+    access = auth.bot_accesses(c, who)
+    elsewhere = {r[0] for r in c.execute("SELECT bot FROM assignments WHERE runner_id<>?", (row["id"],))}
+    readiness["bots"] = {bot: {k: v for k, v in report.items() if k != "tools"}
+                         for bot, report in readiness.get("bots", {}).items()
+                         if bot not in elsewhere and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
+    update = runner_versions.view(runner_versions.load(c).get(row["id"]))
+    update["wanted_release"] = runner_versions.desired()["version"]
+    return {"version": value.get("version") or "", "last_seen": value.get("last_seen"),
+            "readiness": readiness, "update": update, "fix": "Open Settings > Computers to retry the update" if update.get("error") else "Open Settings > Computers",
+            "services": [{**dict(r), "text": f"{r['service']}: {r['last_error'] or 'No reported error'}",
+                          "fix": "Open Health for " + r["service"]} for r in c.execute(
+                              "SELECT service,last_success,last_error FROM service_health")]
+            if who.role == "owner" or auth.bot_admin(who) else []}
+
+
 def roster(c):
     row = c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()
     if row:
@@ -673,15 +738,21 @@ def install_views(app, store, auth, mutate, task_view):
             except Problem:
                 continue
             rows.append((turn, message))
-        return rows
+        for attempt in failed_attempts(c, who, auth, bot, limit=limit):
+            rows.append((attempt, H.message(c, attempt["message_id"])))
+        rows.sort(key=lambda item: item[0].get("started") or "", reverse=True)
+        return rows[:limit]
 
     def run_view(turn, c=None):
+        turn = {**turn, **attempt_details(c, turn)} if c else turn
         started, finished = H.parse_ts(turn.get("started")), H.parse_ts(turn.get("finished"))
         duration = max(0, round((finished - started).total_seconds())) if started and finished else None
         success = turn.get("exit") == "completed"
         fallback = c.execute("SELECT json_extract(result_json,'$.fallback') FROM attempts WHERE id=?",
                              (turn["id"],)).fetchone() if c is not None else None
-        return {"run": turn["id"], "employee": turn["bot"], "issue": None,
+        return {"run": turn["id"], "bot": turn["bot"], "employee": turn["bot"], "issue": None,
+                "record_kind": turn.get("record_kind", "run"), "attempt_id": turn["id"],
+                "outcome": turn.get("exit"), "failure_reason": turn.get("failure_reason") or "",
                 "finished": turn.get("finished") or turn.get("started"),
                 "exit": 0 if success else 1, "duration_s": duration,
                 "output_tokens": turn.get("tokens_out"), "cost_usd": turn.get("cost"),
@@ -926,6 +997,8 @@ def install_views(app, store, auth, mutate, task_view):
         human_only(who)
         with store.read() as c:
             turn = c.execute("SELECT * FROM turns WHERE id=?", (run_id,)).fetchone()
+            if not turn:
+                turn = next((r for r in failed_attempts(c, who, auth) if r["id"] == run_id), None)
             if not turn:
                 raise Problem("not_found", "Run not found", 404)
             rows = visible_turns(c, who, turn["bot"])

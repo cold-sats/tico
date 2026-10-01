@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is six recorded answers, a snapshot of the first one or two conversations you can read, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is six recorded answers, a snapshot of the first one or two conversations you can read, and the first routine checked.
 
 ---
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write the outcome and
 
 Take the first one or two conversations you can read and follow `playbooks/write-an-interview-snapshot.md`. Write the digest in the shape of `knowledge/examples/research-digest.md` to `reports/`, attach it to the task, labelled "First draft, not yet reviewed". Contact no one.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you a research digest every Thursday at 10:00 with new snapshots and the opportunities they support, and I will contact no one." They

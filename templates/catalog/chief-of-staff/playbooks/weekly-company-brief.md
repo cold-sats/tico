@@ -1,7 +1,6 @@
 # Weekly team brief
 
-Schedule: Fridays at 15:00 team time (routine `weekly-company-brief`), once a human has approved
-the first draft. Also run by hand on request. Budget 25 minutes. The outcome is one page for the
+Schedule: Fridays at 15:00 team time (routine `weekly-company-brief`), after setup. Also run by hand on request. Budget 25 minutes. The outcome is one page for the
 owner. Nothing is sent to anyone else.
 
 ---
@@ -43,7 +42,7 @@ For each stalled item find who owns the next step (`hub goal show`, `hub task sh
 1. Check `knowledge/open-loops.md`. If you already asked this week, do not ask again; say so.
 2. Draft one nudge of one or two sentences that names the item, what has been quiet and for how long,
    and the specific thing you need. Put it in the brief under the item.
-3. Send it only if the owner has approved nudges (`hub message send --fyi <person> "..."`) and it is within the
+3. Send requested nudges with your Tools (`hub message send --fyi <person> "..."`) and it is within the
    limit of ten unsolicited messages to a human a day. Otherwise it stays a draft.
 4. Add the loop to `knowledge/open-loops.md` with today's date.
 

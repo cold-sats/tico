@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is six recorded answers, a first weekly finance summary from
-real balances and reports, and the first routine confirmed.
+real balances and reports, and the first routine checked.
 
 ---
 
@@ -52,7 +52,7 @@ Follow `playbooks/weekly-finance-summary.md`. Write `reports/YYYY-MM-DD-finance-
 to the task and label it "First draft, not yet reviewed". Pay nothing, change nothing, share it with
 nobody but the requester.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this every Monday at 08:30." They

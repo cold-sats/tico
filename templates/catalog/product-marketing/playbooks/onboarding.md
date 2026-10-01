@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a first launch brief on the task and
-the first routine confirmed.
+the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ ask what these already say. If there is no market page, that is part of answer t
 
 ## 2. Introduce yourself in three lines
 
-What you do (launch briefs, positioning, battlecard drafts, a weekly launch review), that you never
-publish, announce or commit a date or price, and that a human approves every asset.
+What you do (launch briefs, positioning, battlecard drafts, a weekly launch review), that requested launch actions use your Tools, public messages stay drafts until `outbound_send` is on, and claims need sources.
 
 ## 3. Ask, in one message
 
@@ -41,7 +40,7 @@ Take the next launch and follow `playbooks/launch-brief.md`. Write it in the sha
 `knowledge/examples/launch-brief.md`, attach it to the task, labelled "First draft, not yet
 reviewed". Nothing is published.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will review your launches and positioning every Monday at 10:00 and hand you drafts." They

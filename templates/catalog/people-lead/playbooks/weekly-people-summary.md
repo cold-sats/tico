@@ -1,7 +1,6 @@
 # Weekly people summary
 
-Schedule: Mondays at 08:30 team time (routine `weekly-people-summary`), once a human has approved the
-first summary. Also run by hand. Budget 35 minutes. The outcome is one confidential page for the named
+Schedule: Mondays at 08:30 team time (routine `weekly-people-summary`), after setup. Also run by hand. Budget 35 minutes. The outcome is one confidential page for the named
 readers: hires against plan, who starts and leaves, what is due, and who should take what. Nothing is
 assigned, published or sent.
 

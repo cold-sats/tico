@@ -23,8 +23,8 @@ opens 2026-10-19.**
 | Support team rota fix for weekend cover | Dana | 2026-09-30 | **late, 1 day** |
 
 ## Coming up
-- Q4 pulse opens 2026-10-19; same 8 questions as Q3. Launch message on the task for approval by 2026-10-12.
-- Team offsite 2026-11-06: venue quote $2,400 of the $3,000 budget, spend approval on T-455.
+- Q4 pulse opens 2026-10-19; same 8 questions as Q3. Launch message on the task for review by 2026-10-12.
+- Team offsite 2026-11-06: venue quote $2,400 of the $3,000 budget, spending record on T-455.
 
 ## Sources
 - `hub team show`, `knowledge/actions.md`, `hub calendar list`, read 2026-10-01

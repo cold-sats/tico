@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is five recorded answers, one real draft on the task and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is five recorded answers, one real draft on the task and the first routine checked.
 
 ---
 
@@ -14,8 +14,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a rolling content plan and finished drafts with short versions), that you never publish,
-post, reply or change live copy, and that a human decides what goes out.
+What you do (a rolling content plan and finished drafts with short versions), that requested publication uses your Tools when `outbound_send` is on; otherwise the work stays a draft.
 
 ## 3. Ask, in one message
 
@@ -39,7 +38,7 @@ Take the top idea and follow `playbooks/draft-a-post.md`. Attach the draft and i
 the task, labelled "First draft, not yet reviewed", in the shape of
 `knowledge/examples/content-plan.md`. Nothing is published.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you the next four weeks and one finished draft every Monday at 09:00, and a human publishes." They

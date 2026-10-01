@@ -17,13 +17,13 @@ First draft, not yet reviewed.
 - KR4 Launch the waitlist feature: no reading, ungraded. The goal had no measure.
 - Total 0.57 over three graded results; the launch is not counted.
 
-## Objectives for Q4 (proposed owners are to confirm)
+## Objectives for Q4 (owners from the request)
 **O1. Studios choose Acme for their whole schedule.**
-- KR1 Paying studios from 26 to 40 by 2026-12-18. Owner: sales, to confirm. Aspirational.
-- KR2 Share of studios using booking and reminders together from 41% to 60%. Owner: product, to confirm.
+- KR1 Paying studios from 26 to 40 by 2026-12-18. Owner: sales. Aspirational.
+- KR2 Share of studios using booking and reminders together from 41% to 60%. Owner: product.
 **O2. A customer never waits for an answer.**
-- KR1 First reply under 4 hours, 90th percentile, by 2026-11-15. Committed. Owner: support, to confirm.
-- KR2 Repeat questions answered by a help article, from 22% to 45%. Owner: support, to confirm.
+- KR1 First reply under 4 hours, 90th percentile, by 2026-11-15. Committed. Owner: support.
+- KR2 Repeat questions answered by a help article, from 22% to 45%. Owner: support.
 
 ## Not this quarter
 Second-country launch (ruled out in `knowledge/strategy.md`, 2026-07-10). Referral programme: no owner.

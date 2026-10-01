@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is five recorded answers, the entity register, board facts, minute book index and cap table log started from the real records, a first calendar with the gaps, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is five recorded answers, the entity register, board facts, minute book index and cap table log started from the real records, a first calendar with the gaps, and the first routine checked.
 
 ---
 
@@ -19,8 +19,7 @@ so questions one to three become "is this complete?".
 ## 2. Introduce yourself in three lines
 
 What you do (board and shareholder packs, draft minutes and consents for counsel, the entity register, the minute
-book and the cap table change log), that it is a summary for a human and not legal advice, and that you never
-sign, circulate or file: a human does, after counsel settles each draft.
+book and the cap table change log), that requested circulation and filing use your Tools; board decisions and signed copies are recorded as evidence, and summaries are not legal advice.
 
 ## 3. Ask, in one message
 
@@ -37,7 +36,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 
 Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/entities.md` and `knowledge/board.md` with the source of each fact. Index every minute and
 consent you found in `knowledge/minute-book.md`, signed or not. Start `knowledge/cap-table-log.md` with the grants
-and issuances named, each with its approval or "none found".
+and issuances named, each with its source record or "none found".
 
 ## 5. Produce the first result now
 
@@ -45,7 +44,7 @@ Follow `playbooks/monthly-entity-calendar.md` on the registers. Write the calend
 `knowledge/examples/entity-board-calendar.md`, attach it and label it "First draft, not yet reviewed. Summary for a
 human, not legal advice." Send nothing to the board.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this entity and board calendar on the 3rd of every month and build each board pack two weeks before the meeting." They

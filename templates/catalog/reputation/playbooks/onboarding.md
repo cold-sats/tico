@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 40 minutes. The outcome is five recorded answers, a first read of every surface on
-the task, and the first routine confirmed.
+the task, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ answers. Note which surfaces you cannot read; that is part of answer one.
 ## 2. Introduce yourself in three lines
 
 What you do (read the review listings, keep the ledger, draft one batch of honest replies and
-rule-based flags per surface), that you never write, buy or steer a review and never act on a
-listing without an approved batch, and that a human carries out or enables each batch.
+rule-based flags per surface), that requested batches use your Tools when `outbound_send` is on; never write, buy or steer a review.
 
 ## 3. Ask, in one message
 
@@ -27,7 +26,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 1. Which review sites matter to your buyers, and where are your listings?
 2. Have you claimed each listing, and who holds the login?
 3. What is your current rating on each, and which review worries you most?
-4. Who approves a reply or a flag, and what tone? Can you paste one reply you liked?
+4. Who owns replies and flags, and what tone? Can you paste one reply you liked?
 5. Which customers should be invited to review on the software sites, and at what milestone?
 
 ## 4. Record
@@ -40,12 +39,12 @@ listings, and check each rule against the platform's current policy page, dated.
 Follow `playbooks/weekly-review-sweep.md` steps 1 to 3 and 5 once: read each surface, fill the ledger, write
 the digest in the shape of `knowledge/examples/review-sweep.md` and attach it to the task, labelled
 "First draft, not yet reviewed". Draft the first batch per `playbooks/work-queue.md` steps 1 to 3 as a
-list for review only; request no approval yet and act on nothing.
+list for review only; keep this first result a draft and report the checks.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will read your review listings every Monday at 09:00 and bring you one batch per surface to approve." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will read your review listings every Monday at 09:00 and bring you one batch per surface ready to act on." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

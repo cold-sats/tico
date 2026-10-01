@@ -1923,6 +1923,11 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if status == "done":
         sets.append("done_at=:done_at")
         args["done_at"] = ts
+    elif status in ("open", "doing", "waiting", "review", "ready"):
+        for field in ("done_at", "closed_at", "closed_by"):
+            if row.get(field) is not None:
+                _task_event(conn, task_id, actor, field, row[field], None, note or "")
+            sets.append(field + "=NULL")
     if not sets:
         return row
     args["id"] = task_id
@@ -2067,18 +2072,14 @@ def task_ask(conn, actor, task_id, body):
     if actor != row["owner"]:
         refuse(conn, actor, "identity", "only the task owner can ask its requester")
     if actor == row["owner"]:
-        asks = conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=? AND kind='ask' "
-                            "AND from_actor=? AND coalesce(json_extract(refs_json,'$.task'),"
-                            "json_extract(refs_json,'$.task_id'))=?",
-                            (row["conversation_id"], actor, task_id)).fetchone()[0]
-        answered = conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id=? AND "
-                                "kind='answer' AND to_actor=? AND in_reply_to IN "
-                                "(SELECT id FROM messages WHERE conversation_id=? AND kind='ask' "
-                                "AND from_actor=? AND coalesce(json_extract(refs_json,'$.task'),"
-                                "json_extract(refs_json,'$.task_id'))=?)",
-                                (row["conversation_id"], actor, row["conversation_id"], actor,
-                                 task_id)).fetchone()[0]
-        if asks and not answered:
+        unanswered = conn.execute(
+            "SELECT 1 FROM messages ask WHERE ask.conversation_id=? AND ask.kind='ask' "
+            "AND ask.from_actor=? AND coalesce(json_extract(ask.refs_json,'$.task'),"
+            "json_extract(ask.refs_json,'$.task_id'))=? AND NOT EXISTS "
+            "(SELECT 1 FROM messages answer WHERE answer.kind='answer' AND answer.to_actor=? "
+            "AND answer.conversation_id=ask.conversation_id AND answer.in_reply_to=ask.id) LIMIT 1",
+            (row["conversation_id"], actor, task_id, actor)).fetchone()
+        if unanswered:
             refuse(conn, actor, "one-question",
                    "you already asked about this task; wait for the answer")
     msg = say(conn, actor, row["requester"], body, conversation_id=row["conversation_id"],

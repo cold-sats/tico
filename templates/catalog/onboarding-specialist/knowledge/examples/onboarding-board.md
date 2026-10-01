@@ -28,7 +28,7 @@ Nothing has been sent to a customer. First draft, not yet reviewed.
 - **Cedar Barre**, closed 2026-09-25 (CRM). Sales promised a data import from their old booking tool
   (deal note 2026-09-18). Plan and kickoff agenda by end of today.
 
-## Ready for approval (nothing sent)
+## ready to use (nothing sent)
 To: the Northside Dance studio manager. "Hi Lena, you told us on the 10th that you want members
 booking online before your October term. The one thing we need to get there is your class schedule
 spreadsheet; once it arrives we import it within a day. Could you send it by Thursday?"

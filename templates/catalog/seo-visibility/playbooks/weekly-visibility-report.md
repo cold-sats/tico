@@ -1,7 +1,6 @@
 # Weekly search and AI visibility report
 
-Schedule: Mondays at 08:00 team time (routine `weekly-visibility-report`), once a human has
-approved the first report. Also run by hand on request. Budget 45 minutes. The outcome is one report:
+Schedule: Mondays at 08:00 team time (routine `weekly-visibility-report`), after setup. Also run by hand on request. Budget 45 minutes. The outcome is one report:
 how the team shows up in search and AI answers, three fixes with drafted changes, and the gaps.
 Nothing on the site changes.
 
@@ -33,9 +32,7 @@ For the two or three pages that matter most this week, follow `playbooks/page-au
 ## 5. Choose three fixes
 
 Rank what you found by likely effect on a buyer finding an answer. For each: the page, the problem,
-the drafted change (exact new title, description or paragraph, in the team's voice), and how a
-human applies it. Put drafts in `knowledge/drafts/`. A content gap is a proposed brief for the
-content bot, not a task you create.
+the drafted change (exact new title, description or paragraph, in the team's voice), and how to apply it with the necessary Tools. Put drafts in `knowledge/drafts/`. A content gap becomes a brief for the content bot; create the task when requested.
 
 ## 6. Write the report and hand it over
 

@@ -18,7 +18,7 @@ in 58% of September deals (August 41%), median 20% against a written cap of 15%.
 | Mat and Motion | Not read: pricing page now asks for a demo | 2026-09-01 | 2026-09-30 |
 
 ## Discounts, September closed-won (CRM read 2026-10-01; 24 deals)
-- Discounted: 14 of 24 (58%). Median 20%, range 5% to 35%. Written cap 15% without Dana's approval.
+- Discounted: 14 of 24 (58%). Median 20%, range 5% to 35%. Written cap 15%; larger discounts need an applicable exception rule.
 - Over the cap: 6 deals, all multi-location studios, 5 on annual terms (list on the task).
 
 ## Plan mix

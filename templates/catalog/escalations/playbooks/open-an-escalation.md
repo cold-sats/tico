@@ -37,4 +37,4 @@ Support Engineer with `hub task create --owner technical-support` first.
 ## 6. Prepare the first update
 
 Acknowledge the problem in the customer's terms, say who owns it and when they will hear next. Ready
-for approval on the task. Save the case file, add the register line, commit.
+for review on the task. Save the case file, add the register line, commit.

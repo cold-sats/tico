@@ -1,8 +1,7 @@
 # Weekly issue digest
 
-Schedule: Mondays at 09:00 team time (routine `weekly-issue-digest`), once a human has approved
-the first digest. Also run by hand on request. Budget 30 minutes. The outcome is one report for the
-recipient in `knowledge/areas.md`, and a batch of proposals waiting for a Confirm. Nothing on GitHub
+Schedule: Mondays at 09:00 team time (routine `weekly-issue-digest`), after setup. Also run by hand on request. Budget 30 minutes. The outcome is one report for the
+recipient in `knowledge/areas.md`, and a batch of proposals ready to apply within the requested work and Tools. Nothing on GitHub
 changes.
 
 ---
@@ -43,7 +42,7 @@ drafted question, themes, and what you could not read. Then:
 
     hub file publish reports/YYYY-MM-DD-issue-digest.md
 
-Request the label approval described in `playbooks/triage-an-issue.md` step 6. Once the routine is
+Apply the requested label changes described in `playbooks/triage-an-issue.md` step 6. Once the routine is
 armed, tell the recipient with `hub message send --fyi <person> "<one line and the link>"`.
 
 ## 6. Finish

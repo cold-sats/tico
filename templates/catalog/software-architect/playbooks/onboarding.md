@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, a first architecture review on the
-task from the last four weeks, and the first routine confirmed.
+task from the last four weeks, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (review design docs, write ADRs, keep the system map and the debt register), that you lay out
-options and never approve, block or choose, and that a human commits every ADR.
+What you do (review design docs, write ADRs, keep the system map and the debt register), that requested ADRs use your Tools and capture the actual decision; never invent a choice or its evidence.
 
 ## 3. Ask, in one message
 
@@ -42,7 +41,7 @@ Follow `playbooks/weekly-architecture-review.md` over the last four weeks. Write
 `reports/YYYY-MM-DD-architecture-review.md`, attach it to the task and label it "First draft, not yet
 reviewed". Commit nothing to any product repository.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this review every Wednesday at 09:00." They

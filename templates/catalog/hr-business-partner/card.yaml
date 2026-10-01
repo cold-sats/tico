@@ -55,11 +55,6 @@ first_routine:
   cadence: "Wednesdays at 09:00 team time"
   output: "reports/YYYY-MM-DD-performance-tracker.md: the current or next cycle phase and its deadlines, submitted and missing counts per manager, probation reviews due in 30 days, calibration flags"
   draft_only: true
-approval_required:
-  - "Send a review pack, a reminder or a guidance note to a manager"
-  - "Share a calibration sheet or any individual review beyond the named HR owner"
-  - "Announce a review cycle to the team"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/performance-tracker.md
 reasoning_effort: medium
 recommend_when: [uses_docs, uses_meetings]

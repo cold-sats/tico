@@ -1,7 +1,6 @@
 # Weekly ops checklist and team summary
 
-Schedule: Mondays at 08:30 team time (routine `weekly-ops-checklist`), once a human has approved the
-first page. Also run by hand on request. Budget 35 minutes. The outcome is one page for the recipient:
+Schedule: Mondays at 08:30 team time (routine `weekly-ops-checklist`), after setup. Also run by hand on request. Budget 35 minutes. The outcome is one page for the recipient:
 what is overdue, what is due, what is blocked, what the Operations bots produced, and what to route. Nothing
 is sent, assigned or changed.
 
@@ -46,7 +45,7 @@ the drafts to the task. Never more than three in one page; the rest are listed b
 One line per sibling bot: what it produced this week, with the report path, and what is waiting on a
 human. Bots with nothing to report say "quiet" once, not a paragraph. Route work as proposals only:
 "Ask `vendor-manager` to review the cleaning contract before its renewal on 2026-10-31" is a line on the
-page, and becomes a task only after a human approves it. Work for another group goes to its head
+page, and becomes a task only within the requested work it. Work for another group goes to its head
 (`finance-lead`, `general-counsel`, `people-lead`) as a proposal, never to its workers directly.
 
 ## 6. Hiring check
@@ -63,7 +62,7 @@ could not read. Then:
     hub file publish reports/YYYY-MM-DD-ops-weekly.md
 
 Update `knowledge/duties.md` and `knowledge/vendors.md` with what you learned. Only the recipient in
-`knowledge/rhythm.md` gets it, as `hub message send --fyi <person> "<one line and the link>"` after approval.
+`knowledge/rhythm.md` gets it, as `hub message send --fyi <person> "<one line and the link>"`.
 
 ## 8. Finish
 

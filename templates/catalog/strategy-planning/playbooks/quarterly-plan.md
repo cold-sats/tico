@@ -1,7 +1,6 @@
 # Quarterly plan and OKR draft
 
-Schedule: the first of each month at 09:00 team time (routine `quarterly-plan`), once a human
-has approved the first draft. Also run by hand. Budget 45 minutes. The outcome is one report for the
+Schedule: the first of each month at 09:00 team time (routine `quarterly-plan`), after setup. Also run by hand. Budget 45 minutes. The outcome is one report for the
 owner: in the last month of a quarter, last quarter graded and next quarter drafted; in the other
 months, a mid-quarter check-in. Nothing in Tico changes.
 

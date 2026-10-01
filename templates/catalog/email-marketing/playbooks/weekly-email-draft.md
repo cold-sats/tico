@@ -1,7 +1,6 @@
 # Weekly email campaign draft
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-email-draft`), once a human has approved
-the first draft. Also run by hand. Budget 40 minutes. The outcome is one draft for the next email
+Schedule: Tuesdays at 09:00 team time (routine `weekly-email-draft`), after setup. Also run by hand. Budget 40 minutes. The outcome is one draft for the next email
 on the calendar, or a note that none is due. Nothing is sent.
 
 ---
@@ -33,7 +32,7 @@ audience within three days.
 ## 5. Hand over
 
 Commit, then `hub task update <id> --status done --note`: what the email says in one line, the path,
-and which checklist items the sender must confirm. Always finish it: an open scheduled task absorbs the next.
+and which checklist items remain unchecked. Always finish it: an open scheduled task absorbs the next.
 
 ## When a source fails
 

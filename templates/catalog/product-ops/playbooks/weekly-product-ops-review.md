@@ -1,7 +1,6 @@
 # Weekly product ops review
 
-Schedule: Wednesdays at 09:00 team time (routine `weekly-product-ops-review`), once a human has
-approved the first review. Budget 40 minutes. The outcome is one page: what came in, what is most
+Schedule: Wednesdays at 09:00 team time (routine `weekly-product-ops-review`), after setup. Budget 40 minutes. The outcome is one page: what came in, what is most
 asked for, what is incomplete on the roadmap, what ships next, and who should be told. Nothing is sent.
 
 ---
@@ -38,7 +37,7 @@ without a support briefing or release notes owner.
 ## 6. Ship notices
 
 For each request marked shipped since last week: the requesting accounts, where they asked, and a short
-notice text. Put them on the task for a human to approve; nothing is sent.
+notice text. Put them on the task for the owner to review; nothing is sent.
 
 ## 7. Write and hand over
 

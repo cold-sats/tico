@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 30 minutes. The outcome is five recorded answers, the next 90 days of the tax
-calendar, and the first routine confirmed.
+calendar, and the first routine checked.
 
 ---
 
@@ -40,7 +40,7 @@ country, its revenue department's page), each date with its source and the date 
 Follow `playbooks/monthly-tax-calendar.md`. Write `reports/YYYY-MM-tax-calendar.md`, attach it to the
 task and label it "First draft, not yet reviewed". Contact nobody.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will refresh the calendar on the 1st of each month." They

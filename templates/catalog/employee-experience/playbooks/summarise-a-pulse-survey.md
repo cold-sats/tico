@@ -2,7 +2,7 @@
 
 Triggered by a task with a survey results export. Budget 40 minutes. The outcome is a two-page readout
 for the owner: participation, what changed, themes, and two or three actions with owners. It is
-shared further only after approval.
+shared further.
 
 ---
 
@@ -37,5 +37,5 @@ what employees will be told. Open with last quarter's actions and whether they h
 ## 6. Hand over
 
 Write `reports/YYYY-MM-DD-pulse-readout.md`, attach it to the task, and ask the owner with
-`hub task ask <id>` whether to share it and with whom. Add the approved actions to `knowledge/actions.md`.
+Share it only with the requested audience using your Tools; ask only if the audience is missing. Add requested actions to `knowledge/actions.md`.
 Delete the export from the working tree.

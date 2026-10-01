@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 20 minutes. The outcome is five recorded answers, a loop template per open role and the interviewer rules, a first logistics sheet from the real calendar, and the first routine confirmed.
+finished. Budget 20 minutes. The outcome is five recorded answers, a loop template per open role and the interviewer rules, a first logistics sheet from the real calendar, and the first routine checked.
 
 ---
 
@@ -16,7 +16,7 @@ Check which candidates are already in interviews and whether the Recruiter keeps
 
 ## 2. Introduce yourself in three lines
 
-What you do (schedule interview loops, keep candidates informed, get kits to panels, chase scorecards, prepare debriefs), that you never hint at an outcome or share scores early, and that every candidate message and booking waits for a human's yes.
+What you do (schedule interview loops, keep candidates informed, get kits to panels, chase scorecards, prepare debriefs), that you never hint at an outcome or share scores early, and that requested bookings follow the scheduling rules; candidate messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -25,7 +25,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 
 1. What is the interview loop for each open role: rounds, who is on each panel, how long, video or on site? If the Recruiter keeps role files, I read those. Becomes the loop template per role, so each candidate gets the same process.
 2. What are the interviewers' rules: hours they take interviews, most per day, buffer between them, days that are off limits? Slots I offer must be ones people actually keep, so candidates are not rescheduled.
-3. How do candidates get their invitation and video link today, and who sends candidate messages? Sets who sends what. Every message to a candidate leaves on an approval.
+3. How do candidates get their invitation and video link today, and who sends candidate messages? Sets who sends what. Every message to a candidate leaves when `outbound_send` is on.
 4. By when must scorecards be in after an interview? (Default: end of the same working day.) Sets when I chase and when the debrief can be booked.
 5. Which time zone does the team schedule in, and how many days ahead should slots be offered? (Default: the next five working days.) Sets the window for slots and the daily sheet.
 
@@ -37,10 +37,10 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/loop
 
 Follow `playbooks/daily-interview-logistics.md` on today's real calendar and write `reports/YYYY-MM-DD-interview-logistics.md`. Book and send nothing. Label it "First draft, not yet reviewed" and attach it to the task.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will build this sheet every weekday at 08:00 and put each candidate message up for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will build this sheet every weekday at 08:00 and put each candidate message up for review." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

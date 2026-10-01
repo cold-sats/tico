@@ -24,7 +24,7 @@ Decides: Dana.
 
 ## Open, reply ready (nothing sent)
 - **Riverbend Dance, studio closing at month end.** Code: business closed. No offer (policy).
-  Reply confirms cancellation on 2026-09-30 and the last invoice date. Approver: Priya.
+  Reply confirms cancellation on 2026-09-30 and the last invoice date. Owner: Priya.
 
 ## Watch list (new this week)
 - Pine & Stone: no logins by staff since 2026-08-29 (usage read 2026-09-25).

@@ -12,9 +12,9 @@ leads from 2026-09-24 are still not with sales.**
 ## Needs a human
 - **Webinar "Fill your 6am classes", 2026-09-24: 22 attendees asked a question or stayed to the
   end; none handed to sales.** Deadline was 2026-09-28. List with each question is on the task.
-  Proposed owner: Priya (inbound). Approve and I create her task.
-- **Studio expo, 2026-10-17: badge scanner rental ($180) needs spend approval by 2026-10-05.**
-  Without it, leads go on paper cards. Approval requested.
+  Proposed owner: Priya (inbound). Requested routing creates the task with this evidence.
+- **Studio expo, 2026-10-17: badge scanner rental ($180) needs spending record by 2026-10-05.**
+  Without it, leads go on paper cards. draft prepared.
 
 ## Next 90 days (source: knowledge/calendar.md, calendar read 2026-10-01)
 | Event | Date | Goal | Budget | Brief | Late |

@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 20 minutes. The outcome is five recorded answers, a real draft update on the task with any missing figure marked, and the first routine confirmed.
+finished. Budget 20 minutes. The outcome is five recorded answers, a real draft update on the task with any missing figure marked, and the first routine checked.
 
 ---
 
@@ -15,7 +15,7 @@ Do not ask what these already say. If last month's update is in Docs or the mail
 
 ## 2. Introduce yourself in three lines
 
-What you do (a monthly investor update draft, answers to investor questions), that you never send or share anything, and that you never write a finance figure nobody supplied.
+What you do (a monthly investor update draft, answers to investor questions), that sharing stays within the intended audience and Tools; never write a finance figure nobody supplied.
 
 ## 3. Ask, in one message
 
@@ -36,7 +36,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/metr
 
 Follow `playbooks/monthly-investor-update.md` on the real record for the month just ended. Leave any missing finance figure as "not supplied". Write `reports/YYYY-MM-DD-investor-update.md`, attach it to the task and label it "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will have a draft ready on the 3rd of every month at 09:00 for you to review and send." They

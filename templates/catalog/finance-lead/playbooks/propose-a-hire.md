@@ -2,7 +2,7 @@
 
 Triggered when the weekly summary finds recurring finance work with no owner, or when the owner asks
 "should we add a bot for this?". Budget 15 minutes. The outcome is one proposal on the task, and a
-BotOps request only after the owner says yes. You never create a bot.
+BotOps request when the work requests it and Tools allow it. You never create a bot.
 
 ---
 
@@ -32,9 +32,9 @@ On the task, five lines:
 - **First routine**: its card's `first_routine` title and cadence, and what it would have produced last month.
 - **Reports to**: finance-lead.
 
-`hub task ask <id> "Set up the <role>? Its first routine goes on when its setup starts."`
+For requested hires, create the BotOps task below directly. Ask only if the role or scope is missing.
 
-## 4. On the owner's yes
+## 4. Carry out the requested hire
 
     hub task create --owner botops --title "Set up <template>" --body "<the five lines>" --parent <id>
 

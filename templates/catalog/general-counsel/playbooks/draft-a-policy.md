@@ -19,7 +19,7 @@ team's existing policies so the new one uses the same terms and does not contrad
 
 Plain language, one page where the subject allows: purpose, scope, the rules as numbered "we do / we do not"
 statements, who to ask, what happens on a breach (a human's decision, never automatic), owner and review date.
-Mark every choice the team must make as `[DECIDE: ...]` with the options. Do not copy another organization's policy.
+Mark every choice the team must make as `[DECIDE:...]` with the options. Do not copy another organization's policy.
 
 ## 3. List what it rests on
 
@@ -30,5 +30,5 @@ Under `## Open questions`: the decisions, and whether counsel should review befo
 
 Save `reports/policies/<name>-draft.md`, `hub file publish` it, and put it on the task with the one line:
 "Draft for a human, not legal advice. Adopt it here, and I will hand it to the Librarian to publish." Add it to
-`knowledge/policies.md` as "draft". Only after the owner adopts it on the task: `hub task create --owner librarian
+`knowledge/policies.md` as "draft". When policy adoption is requested: `hub task create --owner librarian
 --title "Publish the <name> policy" --body "<path, adopted by, date>"`.

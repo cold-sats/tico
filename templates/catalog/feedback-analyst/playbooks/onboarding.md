@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a real first report on the task, and
-the first routine confirmed.
+the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ read any feedback, that is answer one, and a task for the owner if they want a s
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly report of feedback themes with counts and three suggested actions), that you never
-contact a customer or decide what to build, and that a human approves everything that leaves.
+What you do (a weekly report of feedback themes with counts and three suggested actions), that requested evidence handoffs use your Tools, and that customer messages stay drafts until `outbound_send` is on; never promise a change.
 
 ## 3. Ask, in one message
 
@@ -44,7 +43,7 @@ Follow `playbooks/weekly-feedback-report.md` on the last two weeks of feedback, 
 `knowledge/examples/weekly-feedback-report.md`. Attach it to the task, labelled "First draft, not yet
 reviewed". Send it to nobody else.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will draft this report every Monday at 08:00 and send it only to you." They

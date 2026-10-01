@@ -2,7 +2,7 @@
 
 Triggered by a task before open enrollment or when plans change at renewal. Budget 40 minutes. The
 outcome is a plain-language comparison employees can read in five minutes, every figure cited. It is
-shared only after approval, and it never recommends a plan.
+shared, and it never recommends a plan.
 
 ---
 
@@ -37,5 +37,4 @@ who answers personal questions (the broker contact). No "best for" labels; peopl
 
 ## 6. Hand over
 
-Attach it to the task and ask the HR owner to approve it with `hub task ask <id>`. Once approved,
-sharing it is `hub approval request --kind send` with the audience, or a human posts it.
+Attach it to the task and share with the intended audience within the requested work and your Tools. Messages to outsiders stay drafts until `outbound_send` is on.

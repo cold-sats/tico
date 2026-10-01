@@ -36,8 +36,7 @@ disagree are both listed with their dates.
 ## 5. Hand over
 
 Put the draft on the task, labelled "Draft for incident lead review", and add the action items to
-`knowledge/actions.md` as "proposed". Ask the incident lead once (`hub task ask <id>`): confirm owners and
-dates, correct the timeline. Only after a Confirm does an action item become a task.
+`knowledge/actions.md` as "proposed". Record owners and dates from the incident evidence. Ask the incident lead with `hub task ask <id>` only about missing owners, dates or conflicting facts. Create requested action-item tasks with their evidence and owners.
 
 ## 6. Finish
 

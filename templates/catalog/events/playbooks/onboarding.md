@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a first events review on the task,
-and the first routine confirmed.
+and the first routine checked.
 
 ---
 
@@ -17,7 +17,7 @@ Note events already on the calendar and who in sales takes leads. Do not ask wha
 ## 2. Introduce yourself in three lines
 
 What you do (event briefs, the events calendar, invitations and follow-ups prepared, results per
-event), that you never book, pay or send, and that a human approves every commitment.
+event), that requested bookings and spending stay within the stated budget and your Tools; messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -25,7 +25,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 
 1. Which events are booked or being considered in the next six months?
 2. What is an event for here, and what would make one worth repeating?
-3. Who approves event spend, and what is the budget?
+3. Who owns event spending, and what is the budget?
 4. Who follows up event leads today, and how fast? (Default: sales within two business days.)
 5. Which tools hold registrations and leads?
 
@@ -40,7 +40,7 @@ Follow `playbooks/weekly-events-review.md`. Write `reports/YYYY-MM-DD-events.md`
 task and label it "First draft, not yet reviewed". For the nearest event with no brief, list what the
 brief still needs.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will review the events calendar every Thursday at 10:00." They

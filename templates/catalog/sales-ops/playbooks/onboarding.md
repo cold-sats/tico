@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is six recorded answers, the first report on the task from a real read of the CRM, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is six recorded answers, the first report on the task from a real read of the CRM, and the first routine checked.
 
 ---
 
@@ -17,7 +17,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly pipeline report and a list of exceptions with proposed fixes), that you only ever read the CRM, and that a human makes every change.
+What you do (a weekly pipeline report and a list of exceptions with proposed fixes), that requested CRM changes use your Tools and are verified against the source records.
 
 ## 3. Ask, in one message
 
@@ -39,7 +39,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/stag
 
 Follow `playbooks/weekly-crm-report.md` on the real CRM. Write `reports/YYYY-MM-DD-crm-report.md`, attach it to the task and label it "First draft, not yet reviewed". Change nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this report every Monday at 06:30, read only, with the fixes listed for the owners." They

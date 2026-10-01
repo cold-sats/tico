@@ -67,10 +67,10 @@ def check(c, bot, runner_id, people):
         if len(here) == len(inbox) and single_owner(c):
             offer = (f" Or, since one owner runs everything here, let inbox bots share it: "
                      f"`hub api POST runners/{runner_id}/inbox-sharing '{{\"allowed\": true}}'`.")
-        raise Problem("inbox_isolation", f"{bot} reads a mailbox with a key that can open every mailbox in the company, "
+        raise Problem("inbox_isolation", f"{bot} reads a mailbox with a key that can open every mailbox in the team, "
                       f"so it cannot share a computer with {', '.join(clash)}. Add a computer for {bot} "
                       f"(Settings > Computers) and place it there." + offer, 409)
     if not mine and inbox:
         raise Problem("inbox_isolation", f"{', '.join(inbox)} reads a mailbox with a key that can open every mailbox in "
-                      f"the company, so this computer is kept for it alone. Add a computer for {bot} "
+                      f"the team, so this computer is kept for it alone. Add a computer for {bot} "
                       f"(Settings > Computers) and place it there.", 409)

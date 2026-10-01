@@ -7,7 +7,7 @@ Sample output for Acme, a fictional studio-software team. Every deal and person 
 address uses a reserved example domain. Nothing has been sent and the CRM is untouched. First draft, not
 yet reviewed.
 
-**Headline: 7 open deals ($142k); 2 need you today, 2 at risk, 3 moving. 3 follow-ups await approval.**
+**Headline: 7 open deals ($142k); 2 need you today, 2 at risk, 3 moving. 3 follow-ups stay drafts until `outbound_send` is on.**
 
 ## Needs you now
 - **Harbour Pilates, $18k, proposal stage.** Buyer (Sam, studio owner) asked on the 2026-09-24 call for
@@ -17,7 +17,7 @@ yet reviewed.
 
 ## At risk
 - **Elm Street Studio, $9k, 12 days quiet** (threshold 10). Last two-way contact 2026-09-16. Follow-up
-  ready: answers their open question on rebooking from reminders. Approval requested.
+  ready: answers their open question on rebooking from reminders. draft prepared.
 - **Pine & Stone, $31k, plan slipped twice.** Security review was due 2026-09-18, then 2026-09-25. Their
   IT lead has our questionnaire answers since 2026-09-15. Follow-up ready asking for a new date.
 

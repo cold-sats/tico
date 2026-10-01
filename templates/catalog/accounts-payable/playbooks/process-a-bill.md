@@ -2,7 +2,7 @@
 
 Triggered by a bill attached to a task, forwarded to the bills mailbox, or a question "did we get /
 pay the invoice from X?". Budget 10 minutes per bill. The outcome is a register line with its match and
-approver, and any flag raised the same day.
+owner, and any flag raised the same day.
 
 ---
 
@@ -27,13 +27,13 @@ or email. Record who verified it and when once they report back.
 ## 4. Match
 
 Against the purchase order, contract or delivery the rule requires: vendor, quantity, unit price,
-total, terms. List each difference. A bill with no required order is held for the approver.
+total, terms. List each difference. A bill with no required order is held for the owner.
 
-## 5. Route for approval
+## 5. Apply or route
 
-Name the approver from `knowledge/approvals.md` and ask on the task, batching bills per approver. A
-question from a vendor about payment gets a reply prepared on the task, sent only on approval.
+Use the spending rules in `knowledge/approvals.md` for requested payment actions with your Tools. Name missing facts or access on the task, batching questions per owner. A
+question from a vendor about payment gets a reply prepared on the task, sent only when `outbound_send` is on.
 
 ## 6. Register
 
-Add the line to `knowledge/bills.md`: received, matched or held (why), approver, due, status.
+Add the line to `knowledge/bills.md`: received, matched or held (why), owner, due, status.

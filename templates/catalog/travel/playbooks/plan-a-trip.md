@@ -2,7 +2,7 @@
 
 Triggered by a task: "Dana needs to be in Denver for the studio expo, 14 to 16 October". Budget 25
 minutes. The outcome is a trip plan with two or three options, a recommendation, and after the
-traveller agrees, a booking request in front of the approver.
+traveller agrees, a booking request in front of the owner.
 
 ---
 
@@ -30,8 +30,7 @@ traveller to confirm passport validity and visas themselves.
 ## 4. Recommend and ask
 
 Write `reports/trip-<traveller>-<date>.md` in the shape of `knowledge/examples/trip-plan.md`. Ask the
-traveller to pick (`hub task ask <id>`). Then the booking request goes to the approver with
-`hub approval request --kind spend`: option, total, fare rules, within policy or the exception.
+traveller to pick (`hub task ask <id>`). Record the option, total, fare rules and policy fit. Make the requested booking with your Tools; if a travel fact or Tool is missing, name it.
 
 ## 5. After it is booked
 

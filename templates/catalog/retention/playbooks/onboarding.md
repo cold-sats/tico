@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, the save policy written down, a
-first retention report from the last four weeks, and the first routine confirmed.
+first retention report from the last four weeks, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ mailbox if connected). Whatever policy the Librarian cites is the starting point
 ## 2. Introduce yourself in three lines
 
 What you do (work each cancellation request, one save offer from written policy, a weekly report on
-why customers leave), that cancelling always stays easy, and that a human approves every reply, offer
-and billing change.
+why customers leave), that cancelling always stays easy; requested offers and billing changes follow the policy and your Tools, and replies stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -30,12 +29,12 @@ Numbered, each with its one-line why, offering the defaults.
 3. What reasons do customers give? (Default codes: price, not using it, missing feature, switching,
    problem not solved, business closed, other.)
 4. Which signals say a customer may leave soon, and which can I read?
-5. Who approves replies and offers, and who gets the weekly report? (Default: you, Fridays 10:00.)
+5. Who owns replies and offers, and who gets the weekly report? (Default: you, Fridays 10:00.)
 
 ## 4. Record
 
 Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/save-policy.md`: reason
-codes, one offer per code with its limits, the approver. Start `knowledge/reasons.md` from the
+codes, one offer per code with its limits, the owner. Start `knowledge/reasons.md` from the
 requests you collected, coding each one.
 
 ## 5. Produce the first result now
@@ -43,7 +42,7 @@ requests you collected, coding each one.
 Follow `playbooks/weekly-retention-report.md` over the last four weeks. Label the report "First draft,
 not yet reviewed". Prepare replies for any open request, send none.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Friday at 10:00." They

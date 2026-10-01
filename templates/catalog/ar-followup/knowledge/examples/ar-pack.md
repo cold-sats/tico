@@ -18,7 +18,7 @@ Sample output for Acme, a fictional studio-software team. Every customer is inve
 ## Needs you now
 - **Invoice 2041, Elm Street Studio, 2,900, 61 days**: the last step of the ladder. Two reminders went unanswered (2026-08-10, 2026-08-24). A human should call; I have drafted no email.
 
-## Drafts for approval
+## Drafts for review
 ### Invoice 2057, Harbour Pilates, 1,150, 6 days overdue (step 2, friendly)
 To: accounts@harbour-pilates.example. Terms: net 30 (`knowledge/customers.md`). No dispute on record.
 

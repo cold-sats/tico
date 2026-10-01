@@ -30,4 +30,4 @@ so, it is flaky, not broken: say so, and propose the register entry.
 On the task, in four lines: **Cause** with the quoted evidence; **First bad run and commit** (link);
 **Fix** (the change or the revert a human should consider) or **Owner** from `knowledge/pipeline.md`;
 **Confidence** and what would confirm it. `hub task update <id> --status done --note`. A product bug also
-becomes a note for the QA Engineer to triage, after the requester's yes.
+becomes a note for the QA Engineer to triage, when their decision is needed.

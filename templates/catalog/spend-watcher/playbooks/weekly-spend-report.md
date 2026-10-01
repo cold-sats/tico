@@ -1,7 +1,6 @@
 # Weekly spend report
 
-Schedule: Mondays at 09:00 team time (routine `weekly-spend-report`), once a human has approved the
-first report. Also run by hand on request. Budget 35 minutes. The outcome is one page for the requester:
+Schedule: Mondays at 09:00 team time (routine `weekly-spend-report`), after setup. Also run by hand on request. Budget 35 minutes. The outcome is one page for the requester:
 what changed, what needs a human, and what renews soon. Nothing is cancelled, paid or sent.
 
 ---
@@ -47,7 +46,7 @@ headline, anomalies, movers, new, overlaps, renewals, could not read, sources. T
 
     hub file publish reports/YYYY-MM-DD-spend-report.md
 
-Sharing it beyond the requester is `hub approval request --kind send` with the exact text and recipient.
+Share within the requested work and intended audience with your Tools; messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 7. Finish
 

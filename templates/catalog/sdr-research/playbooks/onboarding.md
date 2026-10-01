@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a real pack for the first lead or two on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a real pack for the first lead or two on the task, and the first routine checked.
 
 ---
 
@@ -18,7 +18,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (qualify inbound, research and score new leads, run the sequence, book first meetings), that every message goes out on a human's approval, and that you never change the CRM without a Confirm.
+What you do (qualify inbound, research and score new leads, run the sequence, book first meetings), that messages stay drafts until `outbound_send` is on, and requested CRM changes use your Tools.
 
 ## 3. Ask, in one message
 
@@ -39,10 +39,10 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/icp.
 
 Take the first one or two leads and follow `playbooks/research-a-lead.md`, then prepare the touches as in step 4 of `playbooks/weekday-prospecting.md`. Write the pack in the shape of `knowledge/examples/prospecting-run.md` and attach it to the task, labelled "First draft, not yet reviewed". Nothing is sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will run prospecting every weekday at 07:30: inbound qualified, leads scored, touches ready for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will run prospecting every weekday at 07:30: inbound qualified, leads scored, touches ready for review." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

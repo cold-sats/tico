@@ -4,7 +4,7 @@ A sample of excellent output for a fictional team. Every name in it is a stand-i
 # Acme hiring pipeline, Fri 2026-09-25
 
 Sample output for Acme, a fictional studio-software team. Every candidate is a reference and every
-address is invented. Nothing has been sent, posted or decided; two replies wait for approval.
+address is invented. Nothing has been sent, posted or decided; two replies is ready to act on.
 
 **Headline: 2 roles open, 14 applications in, 3 waiting on Ben Okafor for more than 2 days; the
 Support Specialist kit is missing a scoring guide.**
@@ -23,7 +23,7 @@ Criteria from `roles/support-specialist.md`, written by Ben Okafor on 2026-09-16
 Not ranked. Questions for the manager to consider asking SS-09: how many tickets a day at the previous
 role; which booking tools.
 
-## Replies ready (2, approval requested on the task)
+## Replies ready (2, draft prepared on the task)
 - SS-02: acknowledgement, applied 2026-09-21, 4 days without a word. Agreed wait: 2.
 - SS-05: decline Ben Okafor recorded on 2026-09-24, kind wording from `knowledge/wording.md`.
 

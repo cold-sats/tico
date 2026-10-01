@@ -1,7 +1,6 @@
 # Weekly marketing summary
 
-Schedule: Fridays at 14:00 team time (routine `weekly-marketing-summary`), once a human has
-approved the first draft. Also run by hand on request. Budget 30 minutes. The outcome is one page for
+Schedule: Fridays at 14:00 team time (routine `weekly-marketing-summary`), after setup. Also run by hand on request. Budget 30 minutes. The outcome is one page for
 the marketing owner: how the week went, what is blocked, the next six weeks on the calendar and
 proposed priorities. Nothing is shared and no task is created.
 
@@ -29,7 +28,7 @@ the owner and the next step. Red means blocked or missed; amber means at risk wi
 ## 4. Blockers and asks
 
 List each blocker once: what is blocked, who can clear it, what they must decide, by when. Waiting on
-an approval is a blocker and names the approval.
+missing facts or Tools are named as blockers.
 
 ## 5. Calendar, six weeks ahead
 
@@ -39,7 +38,7 @@ sends or two launches the same day), launches inside two weeks with no brief or 
 ## 6. Propose next week's priorities
 
 At most three, each with the workstream, the reason and the owner. Say what was dropped and why.
-These are proposals: never create or reassign a task.
+Create or reassign tasks when the work requests routing and your Tools allow it.
 
 ## 7. Write the page and hand it over
 

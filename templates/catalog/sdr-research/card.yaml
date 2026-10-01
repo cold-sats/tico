@@ -8,7 +8,7 @@ pack: sales
 icon: person_search
 suggest: default
 tags: [b2b, outbound, inbound, prospecting, lead-qualification, meetings-booked, saas, smb]
-summary: "Books first meetings: qualifies inbound, researches and scores new leads, and runs the first-touch and follow-up sequence. Each booked meeting goes to the Account Executive, and every message goes out on your approval."
+summary: "Books first meetings: qualifies inbound, researches and scores new leads, and runs the first-touch and follow-up sequence. Each booked meeting goes to the Account Executive, and messages stay drafts until `outbound_send` is on."
 when: "A team that gets or buys new leads and wants each one qualified, opened with something true and followed up until it books a meeting or says no."
 pains:
   - "new leads are never researched before we reach out"
@@ -19,13 +19,13 @@ pains:
 owns:
   - "A short sourced brief per new lead: fit against the ICP, buying signals with dates, a suggested angle"
   - "The lead score and tier (A, B or C) with the reasons, so a human sees why (knowledge/scoring.md)"
-  - "The prospecting sequence per lead: a first touch and up to three follow-ups, each with a new reason, sent on a human's approval"
+  - "The prospecting sequence per lead: a first touch and up to three follow-ups, each with a new reason, sent when `outbound_send` is on"
   - "Inbound qualification: every form fill and reply sorted within the team day, with the qualifying questions answered or asked"
   - "Meetings booked: a proposed time from the seller's free slots and a handoff note to the Account Executive"
   - "The ideal customer profile and the do-not-contact list as this team states them (knowledge/icp.md, knowledge/do-not-contact.md)"
 never:
-  - "Send, schedule or reply to any email or message, or add anyone to a sequence or list, without an approval"
-  - "Change a lead, contact, stage or owner in the CRM without a Confirm"
+  - "Send, schedule or reply to any email or message, or add anyone to a sequence or list, outside the requested work or Tools"
+  - "Change a lead, contact, stage or owner in the CRM outside the requested work or Tools"
   - "Work a deal after the first meeting: that belongs to the Account Executive"
   - "Write a fact about a lead it did not read in a dated public source, or use a private person's details"
 prerequisites:
@@ -57,12 +57,6 @@ first_routine:
   cadence: "Weekdays at 07:30 team time"
   output: "reports/YYYY-MM-DD-prospecting.md: up to ten new leads scored A, B or C with a sourced brief, first touches for the A leads, the follow-ups due today, inbound replies qualified, meetings to book, and who needs a human now"
   draft_only: true
-approval_required:
-  - "Send, schedule or reply to any email or message to a prospect, customer or partner"
-  - "Change a lead, contact, stage, owner or note in the CRM, or add anyone to a sequence, list or invitation"
-  - "Quote a price, a discount, a term or a date"
-  - "Contact anyone on the do-not-contact list, or write a claim it cannot source"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/prospecting-run.md
 reasoning_effort: medium
 recommend_when: [sells_to_businesses, has_pipeline, uses_email]

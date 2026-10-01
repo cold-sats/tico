@@ -1,7 +1,6 @@
 # Weekly incident review
 
-Schedule: Mondays at 10:00 team time (routine `weekly-incident-review`), once a human has approved the
-first draft. Also run by hand. Budget 45 minutes. The outcome is one page: incidents since last week, a draft
+Schedule: Mondays at 10:00 team time (routine `weekly-incident-review`), after setup. Also run by hand. Budget 45 minutes. The outcome is one page: incidents since last week, a draft
 postmortem for each that meets the trigger, open action items past due, and repeats. Nothing is posted.
 
 ---
@@ -43,7 +42,7 @@ action items past due, repeats, what you could not read. Then `hub file publish 
 ## 7. Finish
 
 Commit, then `hub task update <id> --status done --note`: incidents, drafts, past-due items, unread sources.
-Always finish it. Share beyond the incident lead only after a Confirm.
+Always finish it. Share with the intended audience within the requested work and your Tools; protect unpatched details.
 
 ## When a source fails
 

@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers and a first request ledger and review on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers and a first request ledger and review on the task, and the first routine checked.
 
 ---
 
@@ -16,7 +16,7 @@ GitHub are readable. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a feature request ledger, the beta roster, the release calendar, roadmap hygiene), that you never promise a customer anything or change the roadmap, and that every customer message needs a human's yes.
+What you do (a feature request ledger, the beta roster, the release calendar, roadmap hygiene), that requested customer messages stay drafts until `outbound_send` is on, and you never invent a roadmap promise.
 
 ## 3. Ask, in one message
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Start `knowledge/requ
 
 Follow `playbooks/weekly-product-ops-review.md` on the real requests. Attach the review to the task, labelled "First draft, not yet reviewed". Send nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this review every Wednesday at 09:00." They

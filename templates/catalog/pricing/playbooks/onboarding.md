@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers and a first pricing review on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers and a first pricing review on the task, and the first routine checked.
 
 ---
 
@@ -16,7 +16,7 @@ whether the CRM is readable. Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a monthly pricing review, price change impact notes, the competitor price book), that you never change or quote a price, and that the owner decides every price.
+What you do (a monthly pricing review, price change impact notes, the competitor price book), that requested price changes use your Tools and documented terms; outside quotes stay drafts until outbound_send is on.
 
 ## 3. Ask, in one message
 
@@ -25,7 +25,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 
 1. What are your plans and prices, and what does a customer pay for as they grow? The value metric comes first in every analysis.
 2. Which three to five competitors do buyers compare you with? Sets the price book.
-3. Where do closed deals and discounts live, and who approves a discount? The analysis compares what was charged with the rule.
+3. Where do closed deals and discounts live, and who owns the discount rules? The analysis compares what was charged with the rule.
 4. Is a price or packaging change being considered now? The first impact note serves that decision.
 5. When should the monthly review land? (Default: the 1st at 09:00, the Head of Product.) Sets the routine.
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/our-
 
 Follow `playbooks/monthly-pricing-review.md` on the real pages and deals. Attach the review to the task, labelled "First draft, not yet reviewed". Change nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this review on the 1st of every month at 09:00." They

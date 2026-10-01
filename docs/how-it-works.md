@@ -36,10 +36,10 @@ The current system, in one page. For a teammate's questions read [Using Tico](us
 The rules for all six live in the backend's write layer, not in prompts: a bot acts only as
 itself; it may message only active bots and humans; at most 20 bot-to-bot messages per
 conversation per hour and 10 unsolicited messages per human per bot per day
-(`TICO_UNSOLICITED_PER_DAY`); one clarifying question per task; the requester closes; an approval
+(`TICO_UNSOLICITED_PER_DAY`); one open clarifying question per task; the requester closes; an approval
 is decided by a human and consumed once; anything addressed to a human is linted (first line is
-the ask, under 120 words); repeated refusals open a review task and, at 10 a day, pause the bot for
-an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
+not empty, under 120 words). Put the ask first; the check does not judge its meaning. Repeated refusals
+open a review task and, at 10 a day, pause the bot for an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
 (`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a human clears it.
 
 ## The three places
@@ -275,3 +275,8 @@ made or revoked is an `events` row (`token.create`, `token.revoke`).
 | `registry/` | bootstrap data: humans, sign-in access, mail rules, Slack channels; `employees.yaml` seeds a new database only |
 | `templates/` | the bot repository contract and prompt templates |
 | `skills/` | shared runtime skills for bots |
+
+To reopen a finished task, open it and choose **Reopen**. After **Done**, the toast offers **Undo**.
+Reopening clears its completion dates and closer, so Goals and KPIs count it as active again;
+the earlier completion stays in task history. Questions may be asked in sequence, with one open
+clarifying question on a task at a time.

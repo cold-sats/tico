@@ -1,7 +1,6 @@
 # Weekly reply review
 
-Schedule: Fridays at 10:00 team time (routine `weekly-reply-review`), once a human has approved the
-first review. Also run by hand on request. Budget 40 minutes. The outcome is one review for the owner:
+Schedule: Fridays at 10:00 team time (routine `weekly-reply-review`), after setup. Also run by hand on request. Budget 40 minutes. The outcome is one review for the owner:
 a scored sample, patterns and drafted coaching. Nothing changes in the support tool.
 
 ---

@@ -2,7 +2,7 @@
 
 Triggered by a task about an unassigned lead, a territory question or a proposed rule change, and by
 the weekly report's routing check. Budget 20 minutes. The outcome is each unassigned lead with the owner
-the rules give, and any rule change as a proposal. Nothing is reassigned without a Confirm.
+the rules give, and any rule change as a proposal. Reassign requested work with your Tools.
 
 ---
 
@@ -21,15 +21,14 @@ which rule decided each lead. A lead that matches no rule, or two, is a rule gap
 
 ## 3. Propose
 
-For each lead: the lead id, the owner the rule gives, the rule. Put the list on the task. On a yes, and
-only where the owner has turned CRM writing on, assign exactly those leads; otherwise
+For each lead: the lead id, the owner the rule gives, the rule. Put the list on the task. Where the requested work and your Tools allow CRM writing, assign exactly those leads; otherwise
 `hub task create --owner <human>` with the list for the human who assigns.
 
 ## 4. Fix the rules, not the leads
 
 For a rule gap, propose the smallest rule change and show which of last month's leads it would have
 moved. A change to a territory or the round robin order is the Sales Manager's decision. Record decided
-changes, with date and who approved, in `knowledge/routing-rules.md`.
+changes, with date and the source request, in `knowledge/routing-rules.md`.
 
 ## 5. Finish
 

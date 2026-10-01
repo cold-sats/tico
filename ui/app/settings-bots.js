@@ -320,7 +320,7 @@ function renderSettingsBots() {
     const badges = `${isBuiltInBot(e.name) ? '<span class="pill" data-built-in>Built-in</span>' : ''}${e.status && e.status !== 'active' ? `<span class="pill ${e.status === 'paused' ? 'waiting' : ''}">${esc(statusWord(e.status))}</span>` : ''}`;
     const model = e.agent ? `<span class="muted" title="${esc(e.agent.model ? `profile's model · ${e.agent.model}` : "the profile's own model")}">${esc(agentKind(e.agent))}</span>` : settingsChoiceCombo(e, 'model');
     return `<tr data-settings-bot="${esc(e.name)}"><td class="settings-pick">${pick(e)}</td>
-      <td class="sb-cell-name"><div class="sb-bot">${avatar(e.name, 27, stateOf(e.name))}<div class="sb-text"><div class="sb-line"><a class="sb-name" href="#/bot/${esc(e.name)}">${shownName(e)}</a>${badges}</div>${e.team || problem ? `<small>${e.team ? esc(teamLabel(e.team)) : ''}${e.team && problem ? ' · ' : ''}${problem ? `<span class="sb-problem">${esc(problem)}</span>` : ''}</small>` : ''}</div></div></td>
+      <td class="sb-cell-name"><div class="sb-bot">${avatar(e.name, 27, stateOf(e.name))}<div class="sb-text"><div class="sb-line"><a class="sb-name" href="#/bot/${esc(e.name)}">${shownName(e)}</a>${botDisplayName(e.name) !== (e.display_name || e.name) ? `<span class="mono muted">${esc(e.name)}</span>` : ''}${badges}</div>${e.team || problem ? `<small>${e.team ? esc(teamLabel(e.team)) : ''}${e.team && problem ? ' · ' : ''}${problem ? `<span class="sb-problem">${esc(problem)}</span>` : ''}</small>` : ''}</div></div></td>
       <td class="sb-cell-access">${settingsAccessCell(e)}</td><td class="sb-cell-model">${model}</td>
       <td class="sb-cell-fallback">${e.agent ? '<span class="muted">-</span>' : settingsChoiceCombo(e, 'fallback')}</td>
       <td class="sb-cell-owners">${stack(e)}</td><td class="sb-cell-computer">${settingsMachineSelect(e)}</td>
@@ -412,6 +412,7 @@ async function settingsCatalogPicker() {
     if (!S.me?.id) { status.innerHTML = '<span class="err">Sign in before adding a bot.</span>'; return; }
     submit.disabled = true; status.textContent = 'Adding…';
     try {
+      const hints = [];
       for (const card of chosen) {
         if (card.template === 'inbox' && !catalogPerson(state, card)) {
           status.innerHTML = '<span class="err">Choose whose mailbox the message bot reads.</span>';
@@ -423,14 +424,23 @@ async function settingsCatalogPicker() {
         const named = catalogName(state, card);
         const display = card.template === 'inbox' && person && named === (card.name || card.slug)
           ? `${person.name || person.id} message bot` : named;
-        await post('/v2/bots', {
+        const added = await post('/v2/bots', {
           slug, display_name: display, description: card.summary || '',
           template: card.template, instructions: catalogInstructions(state, card),
           reports_to: null, status: 'planned', repo: `bot-${slug}`, thread_mode: 'personal',
-          model: card.model, effort: card.reasoning_effort, operator: S.me.id, owners: [S.me.id], runner_id: null});
+          model: card.model || '', effort: card.reasoning_effort || '', operator: S.me.id, owners: [S.me.id], runner_id: null});
+        if (added.name_hint) hints.push(added.name_hint);
       }
       dialog.close(); await loadSettings(); settingsShow('bots');
-      toast(chosen.length === 1 ? `Added ${catalogName(state, chosen[0])}` : `Added ${chosen.length} bots`);
-    } catch (error) { status.innerHTML = `<span class="err">${esc(error.message)}</span>`; submit.disabled = false; }
+      toast(hints.length ? hints.join('; ') : chosen.length === 1 ? `Added ${catalogName(state, chosen[0])}` : `Added ${chosen.length} bots`);
+    } catch (error) {
+      status.innerHTML = `<span class="err">${esc(error.message)}</span>`;
+      if (String(error.message).includes('Team default')) {
+        const link = document.createElement('button'); link.type = 'button'; link.className = 'linkish'; link.textContent = 'AI providers';
+        link.onclick = () => { dialog.close(); settingsShow('providers'); };
+        status.append(' ', link);
+      }
+      submit.disabled = false;
+    }
   };
 }

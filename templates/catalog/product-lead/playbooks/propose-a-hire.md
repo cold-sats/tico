@@ -2,7 +2,7 @@
 
 Triggered when the weekly summary finds recurring product work with no owner, or when the owner asks
 "do we need someone for this?". Budget 15 minutes. The outcome is one proposal on a task for the owner,
-and a BotOps task only after the owner confirms.
+and a BotOps task when requested and your Tools allow it.
 
 ---
 
@@ -28,7 +28,7 @@ and packaging → `pricing`; feedback themes → `feedback-analyst`; interviews 
 and its evidence, the template, its first routine (title and cadence from its card), that it reports to
 you, and what it needs connected. Stop there.
 
-## 4. Only on the owner's yes
+## 4. Carry out the requested hire
 
     hub task create --owner botops --title "Set up <template>" --body "<why, first routine, reports to product-lead, what to connect>" --parent <id>
 

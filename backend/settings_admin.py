@@ -1,5 +1,6 @@
 """Audited bot settings, reversible changes, and transitions that apply at once."""
 
+import difflib
 import json
 import re
 from types import SimpleNamespace
@@ -146,6 +147,7 @@ class SettingsAdmin:
         config, row = self._config(c, bot), H.bot(c, bot)
         repo = config["repo"] or ("emp-" + bot)
         return {"slug": bot, "display_name": row["display_name"],
+                "template": (_json(config["config_json"], {}) or {}).get("template") or "",
                 "description": config["description"] or "", "reports_to": config["reports_to"],
                 "bot_contact": (_json(config["config_json"], {}) or {}).get("bot_contact") or "open",
                 "status": row["state"], "repo": repo,
@@ -163,7 +165,18 @@ class SettingsAdmin:
         if choice.get("deprecated"):
             raise Problem("model", f"{choice['label']} is retired; choose a current model", 422)
 
+    def validate_template(self, template):
+        if not template:
+            return
+        from .onboarding import read_cards
+        names = [card["template"] for card in read_cards(self.settings)]
+        if template not in names:
+            closest = difflib.get_close_matches(template, names, n=3)
+            hint = " Closest: " + ", ".join(closest) + "." if closest else ""
+            raise Problem("template", f"Unknown template {template}. Use hub_template_list.{hint}", 422)
+
     def create_bot(self, c, who, body):
+        self.validate_template(body.template)
         self._creator(c, who)
         privileged = who.role == "owner" or self.auth.bot_admin(who)
         pid = H.actor_id(who.actor)
@@ -181,11 +194,13 @@ class SettingsAdmin:
             manager = "human:" + pid           # a member's bot hangs under them until they say otherwise
         if manager:
             body = body.model_copy(update={"reports_to": manager})
-        choice = self.models.get(body.model)
+        default = providers.load(c, self.settings) if not body.model else {}
+        choice = self.models.get(body.model or default.get("model"))
         if not choice:
-            raise Problem("model", "Choose one of the supported models", 422)
+            raise Problem("model", "Choose a Team default in Settings > AI providers" if not body.model
+                          else "Choose one of the supported models", 422)
         self.refuse_retired(choice)
-        effort = self._effort(choice, body.effort)
+        effort = self._effort(choice, body.effort or default.get("effort") or None)
         harness = self._harness(choice, getattr(body, "harness", None))
         self._parent(c, body.slug, body.reports_to)
         runner = None
@@ -253,13 +268,20 @@ class SettingsAdmin:
                         "admin to open one to members' bots (Settings > Computers); it starts on its own when one can take it")
         H.event(c, who.actor, "bot.definition_created", body.slug,
                 {"operator": operator, "owners": owners, "runner": body.runner_id})
+        visible = self.auth.bot_accesses(c, who)
+        same_name = [r["slug"] for r in c.execute(
+            "SELECT slug FROM bots WHERE display_name=? COLLATE NOCASE AND slug<>? AND state<>'archived' ORDER BY slug",
+            (body.display_name, body.slug)) if (visible.get(r["slug"]) or {}).get("see")]
         return {**self.definition(c, body.slug), "owners": owners, "assignment": assignment,
-                "bot_owners": [pid], **({"note": note} if note else {})}
+                "bot_owners": [pid], **({"note": note} if note else {}),
+                **({"name_hint": "Also named " + body.display_name + ": " + ", ".join(same_name),
+                    "matching_slugs": same_name} if same_name else {})}
 
     def register(self, c, who, body):
         """Register a bot with the server, planned, as `who`: the record BotOps then builds the repository for.
         Idempotent for the bot's own owners; a slug someone else holds is a 409. The model is the company's
         default until the bot's owner picks one."""
+        self.validate_template(body.template)
         existing = H.bot(c, body.slug)
         if existing:
             if existing["state"] != "archived" and self.auth.bot_manager(c, who, body.slug):
@@ -369,6 +391,8 @@ class SettingsAdmin:
 
     def update_bot(self, c, who, bot, body):
         self._manager(c, who, bot)
+        if "template" in body.model_fields_set:
+            self.validate_template(body.template)
         config = self._config(c, bot)
         if config["revision"] != body.expected_revision:
             raise Problem("version_conflict", "Bot configuration changed; refresh before saving", 409)
@@ -392,6 +416,8 @@ class SettingsAdmin:
                 "SELECT 1 FROM attempts WHERE bot=? AND state IN ('leased','running')", (bot,)).fetchone():
             raise Problem("busy", "Wait for the current bot turn before changing its room type", 409)
         declared = _json(config["config_json"], {}) or {}
+        if "template" in body.model_fields_set:
+            declared["template"] = body.template or ""
         declared.update({"name": bot, "display_name": values["display_name"],
                          "description": values["description"], "reports_to": values.get("reports_to"),
                          "bot_contact": values.get("bot_contact") or "open",

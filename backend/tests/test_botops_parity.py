@@ -224,15 +224,17 @@ def test_an_external_agent_has_no_computer_to_place(api):
 
 
 def test_go_live_places_activates_and_starts_setup_as_the_requester(api, botops):
-    open_computer(api)
+    computer = open_computer(api)
     cara = turn(api, botops, person="cara-test", text="Make it live")
     register(api, cara, "jira-manager")
     with api.app.state.store.transaction() as c:
         c.execute("UPDATE bot_config SET onboarding_state='needs_setup' WHERE bot='jira-manager'")
+    post(api, "bots/jira-manager/place", {"computer": computer["runner_id"]}, token="cara-test")
+    ready(api, computer, ["jira-manager"])
     gone = act(api, cara, "POST", "bots/jira-manager/go-live", {})
     assert gone.status_code == 200, gone.text
     done = gone.json()
-    assert (done["state"], done["placed"], done["activated"], done["setup_started"]) == ("active", True, True, True)
+    assert (done["state"], done["placed"], done["activated"], done["setup_started"]) == ("active", False, True, True)
     with api.app.state.store.read() as c:
         said = c.execute("SELECT from_actor,body FROM messages WHERE to_actor='bot:jira-manager'").fetchone()
         assert (said["from_actor"], said["body"]) == ("human:cara", "Let's set you up.")

@@ -1,7 +1,7 @@
 # After a call
 
 Triggered by a task that names a sales call, or by a new imported meeting with a prospect. Budget 20
-minutes. The outcome is a recap ready to approve, an updated deal note and mutual action plan, and the
+minutes. The outcome is a recap ready to use, an updated deal note and mutual action plan, and the
 next step with a date and an owner on both sides.
 
 ---
@@ -31,10 +31,9 @@ they gave one. A step with no date is marked "date to agree".
 
 Under 150 words, plain text, the seller's voice: what we heard (two or three lines in their words), what we
 agreed, who does what by when, the next meeting. A price or term question is not answered: it is a line
-for the seller. Put it on the task and request `hub approval request --kind send` with the exact text and
-recipients, or leave it as a draft in the seller's mailbox.
+for the seller. Put the exact text and recipients on the task. Send requested recaps with your Tools when `outbound_send` is on; otherwise leave a draft in the seller's mailbox.
 
 ## 5. Hand over
 
 If the buyer asked for a proposal or sent a questionnaire, open `playbooks/proposal-or-rfp.md` as a
-follow-on task. `hub task update <id> --status done --note`: the next step and date, what waits on approval.
+follow-on task. `hub task update <id> --status done --note`: the next step and date, what is ready to act on.

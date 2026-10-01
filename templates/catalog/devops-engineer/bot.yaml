@@ -30,4 +30,4 @@ tools:
     can: [read]
     note: "reads workflow runs, job timings, logs and releases; never reruns, cancels, triggers or edits a workflow"
 # The token can trigger workflows, so the only thing between this bot and a rerun or a deploy is this entry and
-# .claude/settings.json, which denies every run, workflow, cache, credential and api command. Keep it read only.
+#.claude/settings.json, which denies every run, workflow, cache, credential and api command. Keep it read only.

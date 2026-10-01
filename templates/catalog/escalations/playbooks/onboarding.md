@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a register of open escalations,
-a first daily digest, and the first routine confirmed.
+a first daily digest, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ older than a week from a large account, a bug waiting on engineering. Do not ask
 ## 2. Introduce yourself in three lines
 
 What you do (drive each escalated ticket to resolution with one owner, a timeline, bug reports and
-updates on cadence), that every customer update is approved by a human before it goes, and that you
-never promise money or dates.
+updates on cadence), that customer updates stay drafts until `outbound_send` is on, and that you never invent promises of money or dates.
 
 ## 3. Ask, in one message
 
@@ -29,7 +28,7 @@ Numbered, each with its one-line why, offering the defaults.
 2. Which customers are VIP or have contractual support terms, and what do those promise?
 3. How often should an escalated customer hear from us at each severity? (Default: sev 1 every 4
    business hours, sev 2 daily, sev 3 twice a week.)
-4. Who can own an escalation, who approves customer updates, who in engineering takes a bug report?
+4. Who can own an escalation, who owns customer updates, who in engineering takes a bug report?
 5. Who gets the daily digest, and when? (Default: the head of support and you, weekdays 08:30.)
 
 ## 4. Record
@@ -43,7 +42,7 @@ Open a case file for each escalation you found (`playbooks/open-an-escalation.md
 anything), write `knowledge/register.md`, then follow `playbooks/daily-escalation-digest.md`. Label
 the digest "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send this digest every weekday at 08:30." They

@@ -21,13 +21,13 @@ account. First draft, not yet reviewed.
   near me" ($212, consumers looking for a class), "yoga app for students" ($148).
 - Social: the "studio growth tips" ad has run 71 days; click-through fell from 1.1% to 0.4%.
 
-## Three changes, prepared for approval
+## Three changes, prepared for review
 1. **Add 9 exclusions to "yoga booking app"** (list attached, exact match). Evidence: $512 of last
    week's spend, 0 trials. Check on 2026-10-12: cost per trial under $80.
 2. **Move $300 a week from "yoga booking app" to "studio scheduling"**, which converts at $55 and
-   lost 18% of impressions to budget. Spend approval requested (no net increase).
+   lost 18% of impressions to budget. Spend draft prepared (no net increase).
 3. **Replace the 71-day social ad** with three variants: the no-show pain, the 10-minute setup, a
-   studio owner's quote (cleared by Dana on 2026-09-18). Copy on the task for publish approval.
+   studio owner's quote (cleared by Dana on 2026-09-18). Copy on the task drafted until `outbound_send` is on.
 
 ## Last fortnight's changes
 - 2026-09-08 exclusions on "studio scheduling": cost per trial $67 to $55. Kept.

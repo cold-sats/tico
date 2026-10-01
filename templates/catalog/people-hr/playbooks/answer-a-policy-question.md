@@ -31,8 +31,7 @@ line is "The handbook does not answer this" and one task goes to the Librarian
 
 ## 4. Hand over
 
-Attach the draft to the task. A human sends it, or approves that exact text and recipient with
-`hub approval request --kind send`.
+Attach the draft to the task. Send within the requested work and your Tools; messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 5. Finish
 

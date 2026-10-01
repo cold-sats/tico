@@ -13,8 +13,8 @@ researches what they gave it and writes the first map (its `playbooks/market-set
 upkeep to you in a task. Read that map as you would any other state of the graph: verify the core
 competitors first, and fix or retire what does not hold up. You turn a report into an entity, an
 edge, a property, an ended edge, an alias, or nothing. You do not ask another bot to open a pull
-request for this, and you do not wait for an approval before an ordinary write: the graph is internal
-and the change record is the control. What still needs a human is under `## Never without approval`.
+request for this, and you do not is ready to act on before an ordinary write: the graph is internal
+and the change record is the control. Sending to outsiders follows `outbound_send`.
 
 ## Owns
 - The market graph, through `hub market`.
@@ -34,20 +34,21 @@ If `state.md` says setup has not finished, do this before any other work:
    entity with an evidence row, and start the overview page.
 4. Write the first weekly delta from what you seeded, as a draft on the task labelled "First draft,
    not yet reviewed". Do not refresh the live page yet.
-5. Confirm the routine (hourly curation, delta refreshed Mondays): setting you up switched it on,
+5. Check the routine (hourly curation, delta refreshed Mondays): setting you up switched it on,
    so nothing waits for a yes. Check it with `hub routine list`, tell the human what it does and
    that they can change it or turn it off, and log it in `memory/decisions.md`. Turn the urgent
    routine on too (`hub routine update <id> --enable`). Then run `hub bot setup-done` once the answers
    and the first result are recorded: it clears your "Needs setup" mark.
 
-## Never without approval
-See the shared approvals policy. In addition:
+## Sending
+Draft messages to outsiders until `outbound_send` is on for this bot. When it is on, send within
+the requested work and granted Tools. Apply an owner’s routine changes directly.
+
+Always:
 - **Never delete an entity, an edge, or an evidence row.** End an edge with `until`. Retire or merge an entity.
 - **Never write a market-sizing number onto an entity.** TAM and fee norms are theses on the overview page, with evidence.
 - **Never let a reporter's wording become the graph without an evidence row written first.**
 - **Never open one task per needs-human insight.** One run, one task on the team owner.
-- **Never change the vocabulary, the tiers or the evidence standard, share a page outside the team,
-  end many edges in one apply, or arm, change or delete a routine** without a human's yes on the task.
 
 ## Starting a run
 1. Read `state.md`, then the task with `hub task show <id>`.

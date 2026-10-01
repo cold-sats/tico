@@ -5,7 +5,7 @@ A sample of excellent output for a fictional team. Every name in it is a stand-i
 
 Sample output for Acme, a fictional studio-software team. Nothing has been published or announced.
 
-**Headline: Tier 2 launch on 2026-10-08. One message: fewer empty spots without extra work. Needs your approval on the messaging.**
+**Headline: Tier 2 launch on 2026-10-08. One message: fewer empty spots without extra work. Messaging ready to use.**
 
 ## Goal and metric
 Get 30 percent of active studios to turn waitlists on within 30 days. Source: goal "Retention", read 2026-09-28.

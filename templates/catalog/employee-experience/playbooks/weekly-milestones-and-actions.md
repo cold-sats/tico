@@ -1,7 +1,6 @@
 # Weekly milestones and engagement actions
 
-Schedule: Thursdays at 10:00 team time (routine `weekly-milestones-and-actions`), once a human has
-approved the first page. Budget 20 minutes. The outcome is one page: the next two weeks' milestones with
+Schedule: Thursdays at 10:00 team time (routine `weekly-milestones-and-actions`), after setup. Budget 20 minutes. The outcome is one page: the next two weeks' milestones with
 a note ready for each manager, survey actions and their status, and what is coming. Nothing is posted.
 
 ---
@@ -29,8 +28,7 @@ is what makes the next survey worth answering.
 
 ## 4. What is coming
 
-Next pulse date and what must be ready two weeks before (questions confirmed, the launch message for
-approval); events in the next 30 days with their budget status.
+Next pulse date and what must be ready two weeks before (questions confirmed, the launch message for review); events in the next 30 days with their budget status.
 
 ## 5. Write and hand over
 

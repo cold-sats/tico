@@ -1,7 +1,6 @@
 # Weekly content plan
 
-Schedule: Mondays at 09:00 team time (routine `weekly-content-plan`), once a human has approved
-the first plan. Also run by hand. Budget 45 minutes. The outcome is the next four weeks of content,
+Schedule: Mondays at 09:00 team time (routine `weekly-content-plan`), after setup. Also run by hand. Budget 45 minutes. The outcome is the next four weeks of content,
 one finished draft for the top item with its short versions, and an honest ideas list. Nothing is published.
 
 ---
@@ -17,7 +16,7 @@ Read tasks from other bots (`hub task list`): a listening digest may hold a ques
 
 Keep four to six weeks ahead, three to five themes the team can speak on truthfully. Each planned
 piece has: the reader's question, the one point, the channel, the source it needs and its status
-(idea, outlined, drafted, approved, published by a human). Drop what went stale and say why. Two
+(idea, outlined, drafted, approved, published). Drop what went stale and say why. Two
 real drafts under a plan beat twenty titles.
 
 ## 3. Draft the top item

@@ -1,7 +1,6 @@
 # Weekly performance cycle tracker
 
-Schedule: Wednesdays at 09:00 team time (routine `weekly-performance-tracker`), once a human has
-approved the first tracker. Budget 25 minutes. The outcome is one page for the HR owner: where the cycle
+Schedule: Wednesdays at 09:00 team time (routine `weekly-performance-tracker`), after setup. Budget 25 minutes. The outcome is one page for the HR owner: where the cycle
 stands, who is behind, which probation reviews are coming, and what calibration should look at. It
 carries counts and references, never a rating.
 
@@ -40,7 +39,7 @@ calibration file on its task.
 
 Write `reports/YYYY-MM-DD-performance-tracker.md` in the shape of `knowledge/examples/performance-tracker.md`,
 then `hub file publish reports/YYYY-MM-DD-performance-tracker.md --scope task --task <id>`. Reminders for
-managers go on the task as one-line texts for approval. Commit, and `hub task update <id> --status done --note`.
+managers go on the task as one-line texts for review. Commit, and `hub task update <id> --status done --note`.
 
 ## When a source fails
 

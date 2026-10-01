@@ -16,8 +16,7 @@ counsel can settle. You never send either and never sign.
   cap table log shows are missing (grants, issuances) and anything investors must consent to under `knowledge/board.md`.
 - **Papers**: ask each author on the task for their paper by 7 days before; list what is missing.
 - **Notice**: the date the notice must go under the bylaws, and a draft notice for the chair.
-Save `reports/packs/YYYY-MM-DD-<entity>-board.md`, mark it **Draft for counsel**, `hub file publish` it and ask
-once whether it may go to the chair for sending. Sending is a human's, or `hub approval request --kind send`.
+Save `reports/packs/YYYY-MM-DD-<entity>-board.md`, mark it **Draft for counsel**, `hub file publish` it and share it with the chair within the requested work. Board messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 2. The minutes
 
@@ -28,7 +27,7 @@ the chair's notes on the task:
 - each resolution as passed or not, with the vote;
 - actions with an owner and a date.
 Record decisions, not discussion. Never add what was not said. A point you could not hear or find is
-`[CONFIRM: ...]` for the chair.
+`[CONFIRM:...]` for the chair.
 
 ## 3. Hand over
 

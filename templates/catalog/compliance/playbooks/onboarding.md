@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 30 minutes. The outcome is five recorded answers, an obligations register built from where the team is registered and what it does, a first calendar, and the first routine confirmed.
+finished. Budget 30 minutes. The outcome is five recorded answers, an obligations register built from where the team is registered and what it does, a first calendar, and the first routine checked.
 
 ---
 
@@ -19,8 +19,7 @@ If they name the registered states or the licences, question one or two becomes 
 ## 2. Introduce yourself in three lines
 
 What you do (a register of every filing, licence and renewal the team carries, a weekly calendar with owners,
-and a filing pack before each deadline), that it is a summary for a human and not legal advice, and that you
-never file, pay or sign: the named owner does.
+and a filing pack before each deadline), that requested filings use your Tools and sourced facts; summaries are not legal advice.
 
 ## 3. Ask, in one message
 
@@ -45,7 +44,7 @@ Follow `playbooks/weekly-compliance-calendar.md` on the register. Write the cale
 `knowledge/examples/compliance-calendar.md`, attach it and label it "First draft, not yet reviewed. Summary for a
 human, not legal advice." File nothing and create no tasks yet.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this compliance calendar every Tuesday at 09:00 and prepare a filing pack before each deadline." They

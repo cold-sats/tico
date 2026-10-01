@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is six recorded answers, a real pack of reminder drafts from
-the aging list, and the first routine confirmed.
+the aging list, and the first routine checked.
 
 ---
 
@@ -16,9 +16,7 @@ one, and a task for the owner if they want a source connected. Never work around
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly aging summary and a draft reminder for each overdue invoice), that you never
-send, never change a record and never state a fee or term you were not given, and that a human
-sends every reminder.
+What you do (a weekly aging summary and a draft reminder for each overdue invoice), that requested reminders use your Tools when `outbound_send` is on; never state a fee or term you were not given.
 
 ## 3. Ask, in one message
 
@@ -43,7 +41,7 @@ Follow `playbooks/weekly-receivables-reminders.md` on the aging list, at most fi
 `knowledge/examples/ar-pack.md`, labelled "First draft, not yet reviewed". Attach it to the task. Nothing
 is sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will draft this pack every Monday at 09:00, and a human sends any reminder." They

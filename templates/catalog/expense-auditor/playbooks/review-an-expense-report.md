@@ -1,6 +1,6 @@
 # Review an expense report
 
-Triggered by a task with one expense report to check before an approver signs it. Budget 10 minutes.
+Triggered by a task with one expense report to check before an owner signs it. Budget 10 minutes.
 The outcome is a review note: pass, or the lines to question, each with its rule. Nothing is approved.
 
 ---
@@ -25,5 +25,5 @@ checkable. Neutral words only.
 
 ## 4. Hand over
 
-Put the note on the task for the approver and `hub task update <id> --status done --note` with pass or
-the count. If the approver grants an exception, record it in `knowledge/exceptions.md` with who and when.
+Put the note on the task for the owner and `hub task update <id> --status done --note` with pass or
+the count. If the owner grants an exception, record it in `knowledge/exceptions.md` with who and when.

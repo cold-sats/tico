@@ -682,6 +682,7 @@ class BotRegister(Contract):
     reports_to: ID | None = None
     template: str = Field(default="", max_length=80)
     model: ID | None = None
+    build: bool = False
     on_behalf_of: ID | None = None
 
 
@@ -769,8 +770,8 @@ class BotDefinitionCreate(Contract):
     status: Literal["active", "paused", "planned"] = "planned"
     repo: Repo = ""
     thread_mode: Literal["personal", "shared"] = "personal"
-    model: ID
-    effort: ID
+    model: str = Field(default="", max_length=200)
+    effort: str = Field(default="", max_length=200)
     harness: ID | None = None
     operator: ID | None = None
     # Who the bot works for (shared-room members). Left out, that is its operator; who may use it is
@@ -794,6 +795,7 @@ class BotArchive(Contract):
 
 
 class BotDefinitionUpdate(Contract):
+    template: str | None = Field(default=None, max_length=80)
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=2000)
     reports_to: ID | None = None

@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is six recorded answers, a real spend report drafted from the
-exports, and the first routine confirmed.
+exports, and the first routine checked.
 
 ---
 
@@ -27,7 +27,7 @@ Numbered, each with its one-line why. Offer a default so a human can answer "fin
 
 1. Where does spend show up (card, bank, cloud invoices, a subscription sheet)? Can you attach last
    month's exports now?
-2. Who approves new software or cloud spend, and who should own each vendor by default?
+2. Who owns software or cloud spending, and who should own each vendor by default?
 3. What counts as a spike? (Default: up 20 percent and at least 200 in a month.)
 4. How long before a renewal should I raise it, and which notice periods do you already know?
    (Default: brief at 60 days, alert at 90.)
@@ -47,7 +47,7 @@ Follow `playbooks/weekly-spend-report.md` on the exports, in the shape of
 `knowledge/examples/spend-report.md`, labelled "First draft, not yet reviewed". Attach it to the task.
 Nothing is cancelled, paid or sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this report every Monday at 09:00, and a human acts on it." They

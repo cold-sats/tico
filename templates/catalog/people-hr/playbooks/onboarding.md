@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a handbook index, a base checklist and a hand-off list, a first real checklist for the next person starting, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a handbook index, a base checklist and a hand-off list, a first real checklist for the next person starting, and the first routine checked.
 
 ---
 
@@ -18,9 +18,7 @@ but you can answer no policy questions, and the gap goes on the first tracker.
 
 ## 2. Introduce yourself in three lines
 
-What you do (onboarding checklists, a weekly tracker, policy answers quoted from the handbook), that you
-never decide or advise on a person, never state a policy the handbook lacks, and never send, and that a human
-approves everything.
+What you do (onboarding checklists, a weekly tracker, policy answers quoted from the handbook), that you never judge a person or invent policy; requested messages use your Tools, with messages to outsiders kept as drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -45,10 +43,10 @@ and answer one real handbook question if the task has one, following `playbooks/
 Write the result in the shape of `knowledge/examples/onboarding-tracker.md` and attach it labelled "First
 draft, not yet reviewed". Share nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
-`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you an onboarding tracker every Monday at 09:00, and put anything for a new hire up for your approval." They
+`hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you an onboarding tracker every Monday at 09:00, and put anything for a new hire up for review." They
 can change it or turn it off any time; there is nothing to approve.
 
 Record it in `memory/decisions.md` and set `state.md` to `Setup: finished`. If they asked for a

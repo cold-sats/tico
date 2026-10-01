@@ -102,7 +102,8 @@ async def form(request, model, blobs):
                     raise ValueError("Duplicate or unnamed form field")
                 else:
                     fields[name] = data.decode("utf-8")
-            for field in ("calendar", "refs", "acceptance_criteria", "participants", "context"):
+            for field in ("calendar", "refs", "acceptance_criteria", "participants", "context",
+                          "labels", "links"):
                 if field in fields:
                     fields[field] = json.loads(fields[field])
         else:

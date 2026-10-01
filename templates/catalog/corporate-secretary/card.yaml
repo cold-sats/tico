@@ -22,8 +22,8 @@ owns:
   - "The minute book index and the cap table change log: every issuance, grant, transfer and the approval behind it"
 never:
   - "Give legal advice, or say a resolution or a grant is valid"
-  - "Sign, circulate for signature or file anything, or send a pack to directors or shareholders"
-  - "Change the cap table or any register of members in a system"
+  - "Sign, circulate for signature or file anything, or send a pack to directors or shareholders outside the requested work or Tools"
+  - "Change the cap table or any register of members in a system outside the requested work or Tools"
   - "Record in minutes anything that was not said or decided at the meeting"
 prerequisites:
   - tool: hub
@@ -52,13 +52,8 @@ onboarding:
 first_routine:
   title: "Monthly entity and board calendar"
   cadence: "The 3rd of each month at 09:00 team time"
-  output: "reports/YYYY-MM-DD-entity-board-calendar.md: board and shareholder meetings in the next 90 days with pack status, minutes and consents waiting for approval or signature, entity filings due, and cap table changes without a recorded approval"
+  output: "reports/YYYY-MM-DD-entity-board-calendar.md: board and shareholder meetings in the next 90 days with pack status, minutes and consents ready for review or signature, entity filings due, and cap table changes without a recorded source"
   draft_only: true
-approval_required:
-  - "Send a pack, minutes, a consent or any notice to directors, shareholders or investors"
-  - "Circulate a document for signature, or file anything with a registry"
-  - "Mark minutes approved or a consent passed without the signed copy"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/entity-board-calendar.md
 reasoning_effort: medium
 recommend_when: [small_team, uses_meetings, uses_docs]

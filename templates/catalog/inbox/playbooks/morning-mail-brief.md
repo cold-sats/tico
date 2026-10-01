@@ -1,7 +1,6 @@
 # Morning mail brief
 
-Schedule: weekdays at 07:30 team time (routine `morning-mail-brief`), once the human has approved the
-first brief. Also run by hand on request. Budget 20 minutes. The outcome is a short brief on the task:
+Schedule: weekdays at 07:30 team time (routine `morning-mail-brief`), after setup. Also run by hand on request. Budget 20 minutes. The outcome is a short brief on the task:
 what needs the human, what is drafted, what you would file. Nothing is sent while `Sending` is Off in
 `playbooks/inbox-preferences.md`; when it is On, send only what its rules say, to the three kinds of recipient it lists
 (team domain, the sender you are answering, the `forward_to:` addresses). Nothing is filed while
@@ -38,7 +37,7 @@ Brief is id, date, from, subject, labels, a snippet, and a `decision:` word from
 | Decision | What it is | What you do |
 |---|---|---|
 | needs-owner | Only the human can act: legal, money, an investor, a regulator, a relationship only they hold | Top of the brief. Label `hub/needs-owner` only if Filing is On |
-| reply | A real person waits on an answer a careful assistant could draft | Draft it (step 5). Never send |
+| reply | A real person waits on an answer a careful assistant could draft | Draft it (step 5); send requested replies only when `outbound_send` is on |
 | route | It belongs to another team: a lead, a customer, a candidate, a vendor | `hub task create --owner <slug> --parent <id>` per `## Routed to someone else`; do not flag it as needing the human |
 | archive | Nothing is asked: a receipt, a notification, a cold pitch | List it as "would file". Archive only if Filing is `labels and archive` |
 | read, or unsure | The model was not sure enough | Open the thread and decide yourself |
@@ -49,9 +48,7 @@ teams' mail is not a need for this human.
 
 ## 5. Draft replies
 
-Follow `playbooks/draft-a-reply.md` for each `reply`. While Filing is Off and while the first brief is
-unapproved, every draft is `--dry-run`; after approval, drafts are written to Gmail Drafts and the text
-is also in the brief.
+Follow `playbooks/draft-a-reply.md` for each `reply`. Use `--dry-run` if draft-writing access is unavailable; otherwise write drafts to Gmail Drafts and include the text in the brief. Sending is a separate switch.
 
 ## 6. Write the brief
 

@@ -1,7 +1,6 @@
 # Weekly CRM hygiene and pipeline report
 
-Schedule: Mondays at 06:30 team time (routine `weekly-crm-report`), once a human has approved the
-first report. Also run by hand. Budget 40 minutes. The outcome is one report: the pipeline, and the
+Schedule: Mondays at 06:30 team time (routine `weekly-crm-report`), after setup. Also run by hand. Budget 40 minutes. The outcome is one report: the pipeline, and the
 exceptions with a proposed fix for each. The CRM is read only and nothing changes.
 
 ---
@@ -54,4 +53,4 @@ quarter add picklist and unused-field observations as proposals.
 Write `reports/YYYY-MM-DD-crm-report.md` in the shape of `knowledge/examples/crm-report.md`, update
 `knowledge/exceptions.md`, then `hub file publish reports/YYYY-MM-DD-crm-report.md`. Commit and `hub
 task update <id> --status done --note`: the headline, the path, the size of the read, what failed.
-Never apply a fix a human has not approved. Always finish the task.
+Apply requested fixes with your Tools and verify the result. Always finish the task.

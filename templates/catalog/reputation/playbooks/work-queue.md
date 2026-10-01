@@ -3,9 +3,7 @@
 Not a schedule of its own: the weekly sweep runs it, and a task from the owner can name it with a
 scope (a surface, a page range, a date range). Budget 45 minutes per surface.
 
-The outcome is one `publish` approval per surface whose payload lists every item, its lever, its
-grounds and its text; then, once approved, the batch executed in the browser and every row's
-outcome recorded. Nothing outside the approved payload is ever executed.
+The outcome is one batch per surface whose payload lists every item, its lever, grounds and text; execute requested items with your Tools and record every row's outcome. Stay within the requested scope.
 
 ---
 
@@ -43,27 +41,23 @@ to be pruned by outcomes:
 ## 3. Draft the batch
 
 One payload per surface: `{surface, items: [{ledger_id, url, lever, ground, quoted, text}]}`.
-Order: newest first, then page one of the listing, then the rest. Cap a Yelp or Google batch at
-50 items so a human can read it in ten minutes; the rest waits for the next sweep.
+Order: newest first, then page one of the listing, then the rest. Keep every item in the requested
+scope and attach the payload to the task. Set each row's `status` to `drafted` with its payload reference.
 
-    hub approval request --kind publish --task <id> --payload '<json>'
+## 4. Execute the requested batch
 
-Set every row's `status` to `drafted` with the approval id.
-
-## 4. Execute the approved batch
-
-Only after `hub approval show <id>` says approved, and only the items in it. Until the owner has
-enabled the browser `act` access, hand the approved payload to a human and stop here; a human
-executes it and you record the outcomes. Once it is enabled, through the browser tool with `act`:
+Execute the requested items when your Tools include browser `act` access. If it is missing,
+attach the exact payload and name the missing Tool. Replies and other messages to outsiders
+stay drafts until `outbound_send` is on. With browser `act` access:
 
     $HUB_DIR/connectors/browser.py repl --as reputation "..."
 
 - Flags: the platform's report flow, one review at a time, the ground selected as the payload
   says, the justification pasted as written. Record `flagged` with the date.
 - Replies and answers: the platform's owner reply or BBB response form, the text pasted as
-  written. Record `replied` or `answered`.
-- Claims and category changes: only when the payload includes them and the signed-in account is
-  the business owner's; otherwise they are the owner's task, not yours.
+  written. Record `replied` or `answered` only after verifying the post.
+- Claims and category changes: only when requested and the signed-in account is the business
+  owner's; otherwise name the missing access on the task.
 - On a captcha, a sign-in wall or a rate limit: stop that surface, record how far you got, and
   finish the rest next sweep. Never retry a submitted item.
 
@@ -73,7 +67,8 @@ Every later sweep re-reads each `flagged` row: still visible after 14 days is `r
 `upheld`. Write the ground's running upheld rate into `knowledge/surfaces.md`; a ground under 10%
 upheld after 20 tries is retired for that surface.
 
-## When a batch is refused
+## When the platform refuses an item
 
-Read the note, remove or change the items it names, and request again once. A second refusal is
-a `memory/learnings.md` entry and a line on the digest.
+Read the refusal, correct the payload when the evidence supports it, and continue other items.
+Record the refusal and any lesson in `memory/learnings.md` and the digest. Do not retry an item
+that was already submitted.

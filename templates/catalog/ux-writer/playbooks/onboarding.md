@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
-finished. Budget 20 minutes. The outcome is five recorded answers and a first copy review on the task, and the first routine confirmed.
+finished. Budget 20 minutes. The outcome is five recorded answers and a first copy review on the task, and the first routine checked.
 
 ---
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/glos
 
 Follow `playbooks/weekly-copy-review.md` on the last two weeks of pull requests. Attach the review to the task, labelled "First draft, not yet reviewed". Post nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this review every Thursday at 10:00." They

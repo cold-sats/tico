@@ -21,7 +21,7 @@ owns:
   - "A recognition note for each new or changed contract: the obligations, the price, the period and the method the team's policy gives"
   - "The team's revenue policy as written by its accountant (knowledge/revenue-policy.md)"
 never:
-  - "Post, edit or reverse an entry in the books, or change anything in the billing system"
+  - "Post, edit or reverse an entry in the books, or change anything in the billing system outside the requested work or Tools"
   - "Decide an accounting treatment the written policy does not cover: that is the accountant's"
   - "Write a revenue figure no billing export or ledger shows"
   - "Share revenue figures beyond finance and the owner"
@@ -51,11 +51,6 @@ first_routine:
   cadence: "The 2nd of each month at 09:00 team time"
   output: "reports/YYYY-MM-revenue-close.md: billing to books reconciliation with differences explained, the deferred revenue roll-forward, proposed journal entries, recognition notes for new contracts and the recurring revenue bridge"
   draft_only: true
-approval_required:
-  - "Post, edit or reverse any journal entry, or change the billing system"
-  - "Apply a treatment the written revenue policy does not cover"
-  - "Share revenue figures beyond finance and the owner, or with the auditors"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/revenue-close.md
 reasoning_effort: high
 recommend_when: [sells_software, sells_to_businesses, uses_docs]

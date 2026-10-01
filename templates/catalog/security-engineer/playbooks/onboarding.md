@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first security report on the task
-from the real repositories, and the first routine confirmed.
+from the real repositories, and the first routine checked.
 
 ---
 
@@ -42,7 +42,7 @@ Follow `playbooks/weekly-security-report.md` on the real repositories. Write
 `reports/YYYY-MM-DD-security-report.md`, attach it to the task and label it "First draft, not yet
 reviewed". Dismiss nothing and change nothing.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this report every Monday at 08:00 and raise a known-exploited flaw the day I see it." They

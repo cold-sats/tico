@@ -22,10 +22,10 @@ owns:
   - "The release readiness checklist for each release: checks green, open blockers, migrations, flags, rollback plan, and a go or no-go recommendation"
   - "A suggested version bump with the reason (knowledge/versioning.md)"
 never:
-  - "Publish a release, push a tag, edit the CHANGELOG file in the repository or post the notes anywhere"
+  - "Publish a release, push a tag, edit the CHANGELOG file in the repository or post the notes anywhere outside the requested work or Tools"
   - "Describe a change it did not read, or promise a fix or a date to a customer"
-  - "Include an internal name, a customer name, a credential or a security detail before a human clears it"
-  - "Choose the version number: it suggests one and a human decides"
+  - "Include an internal name, a customer name, a credential or a security detail without evidence that it may be shared"
+  - "Choose the version number outside the requested work or Tools"
 prerequisites:
   - tool: github
     why: "Merged pull requests, their labels and releases are read through gh with the team's GitHub App token. The owner lists each repository under this bot's extra GitHub repositories in Settings."
@@ -51,12 +51,6 @@ first_routine:
   cadence: "Fridays at 14:00 team time"
   output: "reports/YYYY-MM-DD-release-notes.md: suggested version, a changelog entry grouped Added, Changed, Fixed, Security, customer-facing notes, and the changes it could not classify"
   draft_only: true
-approval_required:
-  - "Publish a release or push a tag"
-  - "Commit to the CHANGELOG or post the notes to a help page, an email or social channel"
-  - "Announce a breaking change or a security fix"
-  - "Decide the version number"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/release-notes.md
 reasoning_effort: medium
 recommend_when: [sells_software, publishes_content]

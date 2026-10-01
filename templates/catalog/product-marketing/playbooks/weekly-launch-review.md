@@ -1,7 +1,6 @@
 # Weekly launch and positioning review
 
-Schedule: Mondays at 10:00 team time (routine `weekly-launch-review`), once a human has approved
-the first pack. Also run by hand. Budget 40 minutes. The outcome is one page: launches in the next
+Schedule: Mondays at 10:00 team time (routine `weekly-launch-review`), after setup. Also run by hand. Budget 40 minutes. The outcome is one page: launches in the next
 90 days with brief status, positioning gaps found this week and one battlecard refreshed. Nothing is published.
 
 ---
@@ -15,16 +14,15 @@ Then `knowledge/launches.md`, `knowledge/positioning.md`, and the open product a
 
 ## 2. Launches
 
-For each launch in the next 90 days: tier, date, owner, brief status (none, draft, approved), assets
+For each launch in the next 90 days: tier, date, owner, brief status (none, draft, ready), assets
 outstanding, and whether sales and support have been told. A Tier 1 or 2 launch inside four weeks
-with no approved brief is red, and says who must decide.
+with no complete brief is red, and names the missing information and its owner.
 
 ## 3. Positioning check
 
 Read what sales calls and lost deals said this week (`hub meeting search`), the market graph delta
 for the competitors, and the public product page. Note where buyers describe the problem or the
-alternatives differently from `knowledge/positioning.md`, with the quote and date. Propose the change;
-never rewrite the approved statement yourself.
+alternatives differently from `knowledge/positioning.md`, with the quote and date. Apply requested positioning changes with dated evidence; mark unsupported claims as gaps.
 
 ## 4. Refresh one battlecard
 

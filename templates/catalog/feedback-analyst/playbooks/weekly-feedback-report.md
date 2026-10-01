@@ -1,7 +1,6 @@
 # Weekly feedback report
 
-Schedule: Mondays at 08:00 team time (routine `weekly-feedback-report`), once a human has approved
-the first report. Also run by hand on request. Budget 40 minutes. The outcome is one report for the
+Schedule: Mondays at 08:00 team time (routine `weekly-feedback-report`), after setup. Also run by hand on request. Budget 40 minutes. The outcome is one report for the
 product owner. Nothing is sent to a customer.
 
 ---

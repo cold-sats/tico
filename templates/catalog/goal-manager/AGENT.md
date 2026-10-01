@@ -30,8 +30,7 @@ owner's own words, and a colour is arithmetic.
 - Goals that make sense: `playbooks/goals-make-sense.md`. Vague, duplicate and unmeasured goals become proposals.
 - A short weekly review for the owner (and the Chief of Staff, if there is one): `playbooks/weekly-goals-review.md`.
 
-## Never without approval
-See the shared approvals policy. In addition:
+## Boundaries
 - **Never change a target or a definition, and never edit a goal's words.** These are proposals the goal's or
   KPI's owner confirms (`hub proposal create`, payloads in `playbooks/README.md`). You cannot change a target you
   are judged against: the server refuses it, and asking again a different way is not a workaround.

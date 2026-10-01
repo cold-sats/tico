@@ -1,7 +1,6 @@
 # Monthly entity and board calendar
 
-Schedule: the 3rd of each month at 09:00 team time (routine `monthly-entity-calendar`), once a human has
-approved the first calendar. Also run by hand. Budget 25 minutes. The outcome is one page: what the board and the
+Schedule: the 3rd of each month at 09:00 team time (routine `monthly-entity-calendar`), after setup. Also run by hand. Budget 25 minutes. The outcome is one page: what the board and the
 entities need in the next 90 days, what waits for a signature, and every record gap. A summary for a human, not
 legal advice. Nothing is sent, signed or filed.
 
@@ -17,7 +16,7 @@ status. A meeting that should happen by the rhythm in `knowledge/board.md` but i
 
 ## 2. Drafts and signatures
 
-From `knowledge/minute-book.md`: minutes drafted but not approved, consents drafted but not fully signed, with
+From `knowledge/minute-book.md`: minutes drafted but not confirmed by its source, consents drafted but not fully signed, with
 days waiting and who each waits on. Check the tasks for signed copies that arrived; file them and update the index.
 
 ## 3. Entities
@@ -29,7 +28,7 @@ fact older than twelve months to re-confirm.
 ## 4. Cap table
 
 Compare the cap table (read only) with `knowledge/cap-table-log.md`: any issuance, grant, exercise or transfer since
-last month without an approval in the minute book goes on the list for the next board pack or a consent.
+last month while outbound_send is off in the minute book goes on the list for the next board pack or a consent.
 
 ## 5. Write and hand over
 

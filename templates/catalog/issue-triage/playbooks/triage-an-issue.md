@@ -56,17 +56,14 @@ One line per issue: number, title, kind, area, labels to add, duplicate or relat
 question if any, urgency. Group by area. Anything urgent per `knowledge/areas.md` is a task for its
 owner now.
 
-## 6. Ask for approval
+## 6. Apply requested changes
 
-For labels, one request for the whole pass:
-
-    hub approval request --kind publish --payload-file plan.json --task <id>
-
-The payload lists each issue and the exact labels to add or remove. For a comment, one request per
-comment with the issue number and the exact text. Put the exact `gh issue edit` or `gh issue comment`
-commands on the task. A human runs them: writing to GitHub is off until the owner turns it on in
-`bot.yaml` and `.claude/settings.json`, and the harness refuses the commands until then. Once it is
-on, apply exactly what was approved, nothing extra. Record the approval id on the task either way.
+Keep `plan.json` on the task with each issue and its exact labels to add or remove. Apply the
+requested changes with `gh issue edit` when your Tools allow it. Post requested comments with
+`gh issue comment` and the exact issue number and text when `outbound_send` is on; otherwise
+keep the draft. If GitHub writing is unavailable in `bot.yaml` or `.claude/settings.json`, name
+the missing Tool and attach the exact commands for the teammate who has access. Record the
+changes and verify them; do not claim a prepared command was run.
 
 ## When GitHub refuses
 

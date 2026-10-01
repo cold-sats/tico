@@ -1,7 +1,6 @@
 # Weekly receivables reminders
 
-Schedule: Mondays at 09:00 team time (routine `weekly-receivables-reminders`), once a human has
-approved the first pack. Also run by hand on request. Budget 35 minutes. The outcome is one pack for the
+Schedule: Mondays at 09:00 team time (routine `weekly-receivables-reminders`), after setup. Also run by hand on request. Budget 35 minutes. The outcome is one pack for the
 sender: the aging summary, a draft reminder per invoice at its step, and what was held back. Nothing is
 sent and no record changes.
 
@@ -42,8 +41,7 @@ aging, needs you now, drafts, held back, could not read, sources. Then:
 
     hub file publish reports/YYYY-MM-DD-ar-followup.md
 
-Attach the drafts to the task. To have one sent, `hub approval request --kind send` with the exact text and
-recipient; otherwise the sender copies it. Never send.
+Attach the drafts to the task. Send requested reminders with their exact text and recipients when `outbound_send` is on; otherwise keep drafts.
 
 ## 6. Finish
 

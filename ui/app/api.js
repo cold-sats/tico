@@ -100,4 +100,12 @@ async function cloudCompose(path, body, files = []) {
   if (!response.ok || !result.task && !result.message) throw new Error(apiError(result, response) || 'The server did not confirm this upload.');
   return result;
 }
-const toast = (msg, isErr) => { const t = document.createElement('div'); t.className = 'toast' + (isErr ? ' err' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), isErr ? 8000 : 3500); };
+const toast = (msg, isErr, action) => {
+  const t = document.createElement('div'); t.className = 'toast' + (isErr ? ' err' : ''); t.textContent = msg;
+  if (action) {
+    const button = document.createElement('button'); button.className = 'linkish'; button.textContent = action.label;
+    button.onclick = async () => { button.disabled = true; try { await action.run(); t.remove(); } catch (e) { toast(e.message, true); button.disabled = false; } };
+    t.append(' ', button);
+  }
+  document.body.appendChild(t); setTimeout(() => t.remove(), action ? 8000 : isErr ? 8000 : 3500);
+};

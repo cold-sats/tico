@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers, a first brief on the task from the customers you can read, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers, a first brief on the task from the customers you can read, and the first routine checked.
 
 ---
 
@@ -18,7 +18,7 @@ Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly renewal and health brief, review packs, drafted next touches), that you never contact a customer or change a contract, and that a human sends everything.
+What you do (a weekly renewal and health brief, review packs, drafted next touches), that requested customer messages use your Tools when `outbound_send` is on; commercial terms stay with the Account Manager.
 
 ## 3. Ask, in one message
 
@@ -29,7 +29,7 @@ answers only some, record those and use the defaults for the rest, saying which 
 2. What does a healthy customer look like for you: usage, tickets, meetings, payments? Which signals can I actually read? Becomes knowledge/health-rules.md. I score only from signals I can read, and name the ones I cannot.
 3. Who owns each account relationship, and who owns the contract and price? (Default: an account owner talks to the customer, the Account Manager owns price and renewal terms.) Health and the next touch are mine to draft; price and contract belong to a human. Every note names its owner.
 4. How far ahead should renewals be prepared, and which customers get a quarterly review? (Default: 120 days ahead; your top ten by value.) Sets the horizon of the brief and who gets a review pack.
-5. Which day should the brief land, and who reads it? (Default: Tuesdays 09:00, you.) Sets the routine's schedule and recipient. Nobody else gets it until you say so.
+5. Which day should the brief land, and who reads it? (Default: Tuesdays 09:00, you.) Sets the routine's schedule and recipient. Share only with the named recipients.
 
 ## 4. Record
 
@@ -39,7 +39,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/rene
 
 Follow `playbooks/weekly-renewal-brief.md` on the customers you can read. Write `reports/YYYY-MM-DD-renewal-brief.md`, attach it to the task and label it "First draft, not yet reviewed". Contact no one.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will send you this every Tuesday at 09:00, with a drafted next touch for anyone at risk." They

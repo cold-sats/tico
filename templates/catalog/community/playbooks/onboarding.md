@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 20 minutes. The outcome is five recorded answers, a first digest on the task from
-the real community, and the first routine confirmed.
+the real community, and the first routine checked.
 
 ---
 
@@ -17,7 +17,7 @@ team's public site links to a forum. Do not ask what these already say.
 ## 2. Introduce yourself in three lines
 
 What you do (a weekly community digest, sourced replies to waiting questions, champions and feedback
-routed), that you never post, message or moderate, and that a human approves every public reply.
+routed), that requested replies and moderation use your Tools, with public messages kept as drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -40,7 +40,7 @@ purpose, rules, response target, who answers, who moderates, where feedback goes
 Follow `playbooks/weekly-community-digest.md` over the last 14 days. Write
 `reports/YYYY-MM-DD-community.md`, attach it to the task and label it "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this digest every Friday at 11:00 and prepare replies for the waiting questions." They

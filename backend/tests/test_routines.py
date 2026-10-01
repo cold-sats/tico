@@ -130,3 +130,13 @@ def test_delete_keeps_history_closes_unclaimed_work_and_leaves_running_work(api)
         assert H.task(c, attempt["task"]["id"])["status"] == "open"
         assert c.execute("SELECT state FROM attempts WHERE id=?", (attempt["id"],)).fetchone()[0] == "leased"
 
+
+
+def test_routine_errors_name_the_field_and_routine():
+    import pytest
+    from clients.routines import validate_schedules
+    entry = {"title": "Weekly review", "cron": "not a cron"}
+    with pytest.raises(ValueError, match="Weekly review: cron.*five fields"):
+        validate_schedules([entry])
+    with pytest.raises(ValueError, match="Weekly review: QA/Invalid is not a time zone"):
+        validate_schedules([{**entry, "cron": "0 9 * * 1-5", "timezone": "QA/Invalid"}])

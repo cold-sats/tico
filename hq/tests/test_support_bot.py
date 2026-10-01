@@ -1,5 +1,4 @@
-"""The Support Agent's `hq-tickets` script against the real HQ routes: what `watch` emits, and that a reply needs an
-approval for exactly that text."""
+"""The Support Agent's `hq-tickets` script against HQ: watcher events, outbound sends and optional approvals."""
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -73,7 +72,9 @@ def hq(tmp_path):
 
 
 @pytest.fixture
-def rig(hq, tmp_path):
+def rig(hq, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bot.yaml").write_text("outbound_send: true\n")
     class Rig:
         env = {"HQ_STAFF_KEY": STAFF, "TICO_HQ_URL": URL, "TICO_WATCHER_STATE": str(tmp_path / "state")}
         events, lines = [], []
@@ -163,7 +164,7 @@ def approval(decision, url, digest):
                                                               "payload": {"url": url, "content_sha256": digest}}))
 
 
-def test_a_reply_is_posted_only_with_an_approval_for_exactly_that_text_and_ticket(rig, hq, tmp_path):
+def test_an_optional_approval_must_match_exactly_that_text_and_ticket(rig, hq, tmp_path):
     tid, mine = rig.file("The board will not load", email="ana@acme.example")
     other, _ = rig.file("Another")
     reply = tmp_path / "reply.md"
@@ -193,7 +194,33 @@ def test_a_reply_is_posted_only_with_an_approval_for_exactly_that_text_and_ticke
 
     reply.write_text("x" * 8001)
     assert post(approval("approved", "hq-ticket:" + tid, hashlib.sha256(reply.read_bytes()).hexdigest()))[0] == 1
-    assert tickets_cli.main(["reply", tid, str(reply)], rig.env, out=rig.lines.append, opener=rig.opener) == 2   # --approval is required
+    assert tickets_cli.main(["reply", tid, str(reply)], rig.env, out=rig.lines.append, opener=rig.opener) == 1
+
+
+@pytest.mark.parametrize("manifest", ["outbound_send: false\n", "{}", "outbound_send: 'true'\n", "[invalid"])
+def test_sending_off_keeps_a_reply_a_draft_even_with_an_approval(rig, hq, tmp_path, manifest):
+    tid, mine = rig.file("The board will not load")
+    reply = tmp_path / "reply.md"
+    reply.write_text("Try the latest release.\n")
+    (tmp_path / "bot.yaml").write_text(manifest)
+    digest = hashlib.sha256(reply.read_bytes()).hexdigest()
+    for extra in ([], ["--approval", "a1"]):
+        code = tickets_cli.main(["reply", tid, str(reply), *extra], rig.env, out=rig.lines.append,
+                                opener=rig.opener, run=approval("approved", "hq-ticket:" + tid, digest))
+        assert code == 1
+    assert hq.get(f"/v1/support/{tid}", headers=mine).json()["messages"] == []
+
+
+def test_sending_on_posts_without_a_separate_approval_and_reads_the_legacy_manifest(rig, hq, tmp_path):
+    reply = tmp_path / "reply.md"
+    reply.write_text("Try the latest release.\n")
+    for legacy in (False, True):
+        if legacy:
+            (tmp_path / "bot.yaml").rename(tmp_path / "employee.yaml")
+        tid, mine = rig.file("The board will not load")
+        code, text = rig.cli("reply", tid, str(reply))
+        assert code == 0 and "posted reply" in text and tid in text
+        assert hq.get(f"/v1/support/{tid}", headers=mine).json()["messages"][0]["body"] == reply.read_text().strip()
 
 
 def test_show_prints_the_diagnostics_summary_first_and_the_whole_bundle_last(rig, hq):

@@ -2,7 +2,7 @@
 
 Triggered by a new registration from a partner (a form, an email, a task), and for each waiting one in the
 weekly review. Budget 10 minutes. The outcome is a proposed decision with the rule that decides it.
-Nothing is approved or sent until a human says yes.
+Apply requested registration decisions with your Tools; partner messages stay drafts until `outbound_send` is on.
 
 ---
 
@@ -17,7 +17,7 @@ date and time received, and what the partner has done so far.
 
 Against `knowledge/rules-of-engagement.md`: every required field present, the prospect in scope (size,
 region, new customer or expansion as the rules allow), the partner eligible. An incomplete registration
-gets a request for the missing fields, ready for approval; its clock starts when complete.
+gets a request for the missing fields, ready to use; its clock starts when complete.
 
 ## 3. Check conflicts
 
@@ -30,8 +30,7 @@ date.
 One line: approve, decline or ask for more, with the clause that decides it, the protection end date on
 approve, and who works the deal. Draft the reply to the partner in two to four sentences. Ask on the task.
 
-## 5. On a yes
+## 5. Carry out the requested work
 
-Request `hub approval request --kind send` for the reply, record the decision, approver and date in
-`knowledge/registrations.md`, and on approve propose `hub task create --owner sales` with the partner noted
+Send the requested reply with your Tools when `outbound_send` is on, otherwise keep the draft. Record the decision, owner and date in `knowledge/registrations.md`, and for an accepted registration create `hub task create --owner sales` with the partner noted
 as source. `hub task update <id> --status done --note`.

@@ -77,7 +77,7 @@ def check(c, who, auth, settings):
                     f"hub api PUT usage/limits/{slug} (a card: raising a limit is their click)")
         if failed.get(slug):
             n = failed[slug]
-            add(bot, "failing_runs", HIGH if n >= 3 else MEDIUM, f"{name} had {n} failed run{'s' if n != 1 else ''} today.",
+            add(bot, "failing_runs", HIGH if n >= 3 else MEDIUM, f"{name} had {n} failed or expired attempt{'s' if n != 1 else ''} in the last 24 hours.",
                 f"hub run list {slug} --since 24h")
         if state in ("active", "paused"):
             try:

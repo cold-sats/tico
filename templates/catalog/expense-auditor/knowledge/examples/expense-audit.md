@@ -13,14 +13,14 @@ candidate (412) and a flight booked above the policy class (690).**
 - Card export `acme-cards-2026-09.csv`, 2026-09-01 to 2026-09-30, 171 rows, 9 cards.
 - Reimbursement export `acme-claims-2026-09.csv`, 43 rows, 12 people. Receipts: 196 files.
 
-## Approver: Marco (sales team)
+## Owner: Marco (sales team)
 - **Duplicate candidate.** 2026-09-14, Harbor Grill, 412.00: on Omar's card and in Lena's claim
   CL-0913 (same receipt file `r-0914-harbor.jpg`). Rule: one reimbursement per expense (policy 2.1).
 - **Flight class.** 2026-09-19, 690.00 premium economy, 3 h flight. Rule: economy under 6 h (policy 4.2).
-  Resolves with: a pre-approval, or the fare difference noted.
+  Resolves with: a source record, or the fare difference noted.
 - 5 meals over the 60 per person limit, total 38 over. Grouped; your call.
 
-## Approver: Priya (support team)
+## Owner: Priya (support team)
 - **Missing receipts.** 3 card lines over 75, total 311 (rows 44, 61, 102). Rule: policy 1.3.
 
 ## Late claims

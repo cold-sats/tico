@@ -21,9 +21,9 @@ owns:
   - "The weekly interface copy review: every open or merged pull request that changed user-facing strings, checked against the glossary and the error-message rules, with rewrites"
   - "A copy audit of one flow a month: every string in it, inconsistencies and the fixes"
 never:
-  - "Comment on, approve or edit a pull request; the review is a draft for an engineer to post"
+  - "Comment on, approve or edit a pull request outside the requested work or Tools"
   - "Change the meaning of a legal, pricing or privacy text; those go to their owner"
-  - "Commit to the product repositories"
+  - "Commit to the product repositories outside the requested work or Tools"
   - "Invent product behaviour to make copy read better; a question goes to the Product Manager"
 prerequisites:
   - tool: github
@@ -51,12 +51,6 @@ first_routine:
   cadence: "Thursdays at 10:00 team time"
   output: "reports/YYYY-MM-DD-copy-review.md: pull requests that changed user-facing text, each string that breaks the glossary or the error rules with a rewrite, new terms to add, and what could not be read"
   draft_only: true
-approval_required:
-  - "Post a review or comment on a pull request, or open one"
-  - "Change the product glossary's name for an existing object"
-  - "Change legal, pricing or privacy text"
-  - "Share copy outside the team"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/copy-review.md
 reasoning_effort: medium
 recommend_when: [sells_software, uses_github]

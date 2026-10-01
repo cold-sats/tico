@@ -27,6 +27,14 @@ Every run is under your email → **Runs**, and on the bot's **More** tab with i
 *Doing*: being worked on (*Doing · starting* until a computer picks it up). *Needs you*, or *Needs <Name>* for someone else: a
 human must act — a question, an approval, a blocked or declined item. *Done*: finished, awaiting close.
 
+**Marked a task Done by mistake?**
+Choose **Undo** in the toast, or open the finished task under **Done** and choose **Reopen**.
+A task you requested for yourself closes when you mark it Done; Reopen works for it too.
+The earlier completion stays in its history, while Goals and KPIs count it as active again.
+
+A bot's final answer to a reply appears under that update automatically. An acknowledgement such as
+"Thanks" needs only a short answer; it does not need a new task. `hub_update_reply` is for humans.
+
 **My Mac is asleep. What happens?**
 Your team's Tico server keeps running: everything is saved and other humans' bots keep answering. Bots on your
 Mac show *offline* and new requests show *Saved — waiting for <your Mac>*; they run when it wakes.

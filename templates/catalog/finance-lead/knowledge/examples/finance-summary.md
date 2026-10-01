@@ -25,7 +25,7 @@ Assumption to check: the annual insurance premium (48k) is in week of 2026-11-02
 - Blocker to watch: 5 receipts over the 75 rule still missing since August (Bookkeeper).
 
 ## Due in and out, next 14 days
-- In: 212k of invoices due; 31k already over 30 days (AR Specialist has reminders waiting for your approval).
+- In: 212k of invoices due; 31k already over 30 days (AR Specialist has reminders waiting for review).
 - Out: payment run of 64k proposed for Thu 10-01 (AP Specialist, 14 bills, 1 flagged: a new bank
   account for Studio Supply Co, not yet verified by phone). Payroll 214k on 10-09.
 
@@ -39,7 +39,7 @@ Assumption to check: the annual insurance premium (48k) is in week of 2026-11-02
 - Blocked: Investor Relations Manager waits on the September cash figure (yours, due 10-02).
 
 ## Decisions for you
-1. Approve the 10-01 payment run without the Studio Supply Co bill until its bank change is verified? Due 09-30.
+1. Run the requested 10-01 payment batch with the payment Tool, excluding the bill whose bank change is unverified. Due 09-30.
 2. Supply the Q3 estimated tax amount from the accountant. Due 10-09.
 3. Contractor spend is 22k over budget for two months running: keep, or cap? No deadline.
 

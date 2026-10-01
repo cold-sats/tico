@@ -2,7 +2,7 @@
 
 Triggered by a task or message asking marketing for something ("we need a case study", "can we
 announce this?"). Budget 10 minutes. The outcome is a routing proposal on the task that a human can
-approve with one word. You route; you never do the work and never create the task yourself.
+use in one pass. Route requested work by creating a task for the matching owner; do not take over their specialist work.
 
 ---
 
@@ -33,10 +33,10 @@ already planned, say what would slip.
 
 On the task, in under 100 words: owner, one-line brief, deadline, what it displaces if anything,
 and the one thing the owner needs from the requester. Anything that leaves the team or changes a
-live page is marked "needs approval before it goes out".
+live page is marked "draft until `outbound_send` is on".
 
 ## 5. Finish
 
-On the marketing owner's yes, run `hub task create --owner <slug>` with the brief, link it to this
+For requested routing, run `hub task create --owner <slug>` with the brief, link it to this
 task, and log the routing in `knowledge/routing.md` if it teaches a rule. Then
 `hub task update <id> --status done --note`. A no or a change is recorded and nothing is created.

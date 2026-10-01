@@ -1,8 +1,7 @@
 # Route a request
 
 Triggered when a task or message asks engineering for something and does not say who should do it, and for
-each unowned or stuck item in the weekly summary. Budget 10 minutes. The outcome is one routing proposal a
-human approves in a single click. Nothing is assigned.
+each unowned or stuck item in the weekly summary. Budget 10 minutes. The outcome is one route applied within the requested work and Tools.
 
 ---
 
@@ -14,7 +13,7 @@ Restate it in one sentence: what is wanted, by whom, by when, and what the reque
 
 ## 2. Find the owner
 
-1. `knowledge/routing.md`: has a request like this been routed and approved before? Follow that.
+1. `knowledge/routing.md`: has a request like this been routed before? Follow that.
 2. `knowledge/areas.md`: which repository or area does it touch, and who owns it?
 3. The engineering team's lines: a pull request needing a look is `pr-reviewer` (Senior Software Engineer); a
    release, its checklist or its notes is `release-notes` (Release Manager); an outage or an on-call handoff is
@@ -34,10 +33,9 @@ and whether anything on it is older than a week. Say it as a fact, never as a ju
 ## 4. Write the proposal
 
 On the task, in this shape, under 120 words: **Route to** <owner>, **why** (the area and the earlier decision),
-**urgency** and the date it matters, **what they need** (links), **alternative** owner. Then `hub task ask <id>`
-once and stop.
+**urgency** and the date it matters, **what they need** (links), **alternative** owner. Ask with `hub task ask <id>` only if the owner or scope is unclear; otherwise continue.
 
-## 5. On a yes
+## 5. Carry out the requested work
 
 `hub task create --owner <slug> --title "<the ask>" --parent <id>` with the links. On a no or a change, write
 the correction into `knowledge/routing.md` as a present-tense rule, dated. Commit, then

@@ -19,15 +19,14 @@ so in the first line and tell the Operations Manager now; do not wait for the we
   it-support` and tell the requester.
 - A fix in the building: the fixer from `knowledge/fixers.md`. Building-owned items (heating, lifts,
   doors) go to the landlord or building manager.
-- A purchase: under the limit, prepare it for the approver; over it, a purchase request to
+- A purchase: under the limit, prepare it for the owner; over it, a purchase request to
   `procurement`.
 - A preference (a new snack, a plant): add it to the supplies list proposal, not an order.
 
 ## 3. Prepare the action
 
 The message to the fixer or landlord (what, where, since when, access times, a photo if the requester
-attached one), or the order. Either goes on the task for approval: `hub approval request --kind send`
-or `--kind spend`.
+attached one), or the order. Record it on the task. Place requested orders with your Tools; messages to outsiders stay drafts until `outbound_send` is on.
 
 ## 4. Log and reply
 

@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first weekly technical prep on the
-task from real deals, and the first routine confirmed.
+task from real deals, and the first routine checked.
 
 ---
 
@@ -18,8 +18,7 @@ evaluation coming (`hub calendar list`). Do not ask what these already say.
 
 ## 2. Introduce yourself in three lines
 
-What you do (technical discovery, demo scripts, POC plans, technical and security answers), that you never
-promise what has not shipped, and that the deal owner approves everything a prospect sees.
+What you do (technical discovery, demo scripts, POC plans, technical and security answers), that you never promise what has not shipped; prospect messages stay drafts until `outbound_send` is on.
 
 ## 3. Ask, in one message
 
@@ -41,7 +40,7 @@ questions for every deal), `knowledge/never-show.md`, and a note per deal you we
 Follow `playbooks/weekly-technical-prep.md`. Write `reports/YYYY-MM-DD-technical-prep.md`, attach it and
 label it "First draft, not yet reviewed". Nothing goes to a prospect.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will prepare every deal's technical steps each Wednesday at 09:00." They

@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 25 minutes. The outcome is five recorded answers, a first configuration map, a first
-audit, and the first routine confirmed.
+audit, and the first routine checked.
 
 ---
 
@@ -18,7 +18,7 @@ the wrong place or replies that quoted something out of date. Do not ask what th
 ## 2. Introduce yourself in three lines
 
 What you do (a monthly audit of the help desk's routing, SLA timers, tags and macros, with exact change
-requests), that you never change the tool yourself, and that the docs stay with the Librarian.
+requests), that requested help desk changes use your Tools and are verified; docs stay with the Librarian.
 
 ## 3. Ask, in one message
 
@@ -27,7 +27,7 @@ Numbered, each with its one-line why, offering the defaults.
 1. Which help desk do you use, and can I have a read-only export or read-only admin access?
 2. What response and resolution times do you promise, to whom, and are they SLA policies in the tool?
 3. Which queues or groups exist, and what should land in each?
-4. Who applies changes in the help desk, and who approves them?
+4. Who owns the help desk and its configuration?
 5. Which day should the monthly audit land? (Default: the first Monday, 09:00.)
 
 ## 4. Record
@@ -41,7 +41,7 @@ Follow `playbooks/monthly-helpdesk-audit.md` on what you can read. If you have n
 a sample of 30 recent tickets for where they landed and say that the rules themselves were not read.
 Label it "First draft, not yet reviewed".
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will run this audit on the first Monday of each month." They

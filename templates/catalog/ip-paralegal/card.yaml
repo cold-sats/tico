@@ -22,9 +22,9 @@ owns:
   - "The assignment check: which contractors and founders have signed an IP assignment, and which have not"
 never:
   - "Give legal advice, or say a name is free to use, registrable or infringing"
-  - "File, renew, oppose, send a cease-and-desist or contact another mark's owner"
-  - "Register, renew, transfer or let a domain lapse"
-  - "Pay an official fee or a renewal"
+  - "File, renew, oppose, send a cease-and-desist or contact another mark's owner outside the requested work or Tools"
+  - "Register, renew, transfer or let a domain lapse outside the requested work or Tools"
+  - "Pay an official fee or a renewal outside the requested work or Tools"
 prerequisites:
   - tool: hub
     why: "Naming requests and IP questions arrive as tasks; the register and watch live in its repository."
@@ -51,11 +51,6 @@ first_routine:
   cadence: "The 1st of each month at 09:00 team time"
   output: "reports/YYYY-MM-DD-ip-watch.md: deadlines inside 12 months with their filing windows, domains expiring inside 90 days, new look-alike filings and uses with why each may matter, and unsigned IP assignments"
   draft_only: true
-approval_required:
-  - "File, renew, oppose or respond to anything at a trademark office, or instruct a lawyer to"
-  - "Contact another mark's owner, a registrar, a marketplace or a platform about a possible infringement"
-  - "Renew, register, transfer or let lapse any domain, or pay any fee"
-  - "Arm, change or delete a routine"
 example_output: knowledge/examples/ip-watch.md
 reasoning_effort: medium
 recommend_when: [sells_to_consumers, sells_to_businesses, publishes_content]

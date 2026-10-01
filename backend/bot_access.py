@@ -78,7 +78,7 @@ def parse(body, roster_ids, teams, bots):
         if unknown:
             raise Problem("access", f"{level}: unknown field {unknown[0]}", 422)
         one = audience(raw)
-        for key, known, label in (("people", roster_ids, "person"), ("teams", teams, "team"), ("bots", bots, "bot")):
+        for key, known, label in (("people", roster_ids, "person"), ("teams", teams, "group"), ("bots", bots, "bot")):
             if len(one[key]) > MAX_ENTRIES:
                 raise Problem("access", f"{level}: at most {MAX_ENTRIES} {key}", 422)
             missing = [item for item in one[key] if item not in known]

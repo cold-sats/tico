@@ -1,8 +1,7 @@
 # Duplicate review
 
 Triggered by a task that asks for duplicates, and by the monthly step in `playbooks/weekly-crm-report.md`.
-Budget 30 minutes. The outcome is a list of duplicate candidate groups with a proposed survivor for a
-human to merge. Nothing is merged.
+Budget 30 minutes. The outcome is a list of duplicate candidate groups with a proposed survivor, and requested merges applied with CRM Tools.
 
 ---
 
@@ -27,7 +26,7 @@ or phone in a file: refer to records by id and organization name.
 ## 4. Write the list
 
 In the report or on the task: the group, the records with owners, the proposed survivor, why, and who
-should merge. A human merges. If a group crosses two owners, name both.
+should merge. Apply requested merges with your CRM Tools and verify the surviving record. If a group crosses two owners, name both.
 
 ## 5. Finish
 

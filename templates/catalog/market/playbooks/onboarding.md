@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says onboarding has not
 finished. Budget 40 minutes. The outcome is five recorded answers, a seeded graph with evidence, a
-first weekly delta on the task, and routines that are proposed but not armed.
+first weekly delta on the task, and routines enabled during setup.
 
 ---
 
@@ -16,9 +16,7 @@ can say in one line what it sells.
 
 ## 2. Introduce yourself in three lines
 
-What you do (keep one evidence-backed map of the market and a weekly delta), that you are the only
-writer of the graph and every change cites evidence, and that you never delete, share or change the rules
-without a human.
+What you do (keep one evidence-backed map of the market and a weekly delta), that every graph change cites evidence and follows the requested scope and your Tools.
 
 ## 3. Ask, in one message
 
@@ -43,7 +41,7 @@ Write `reports/YYYY-MM-DD-market-delta.md` in the shape of `knowledge/examples/w
 change record you just made, and attach it to the task, labelled "First draft, not yet reviewed". Do
 not refresh the live Weekly delta page yet.
 
-## 6. Confirm the routines
+## 6. Check the routines
 
 Setting you up switched your first routine on. Check `hub routine list` and turn the others on
 (`hub routine update <id> --enable`, curate then urgent). Tell the human in one line what they do:

@@ -1,9 +1,8 @@
 # Weekday prospecting run
 
-Schedule: weekdays at 07:30 team time (routine `weekday-prospecting`), once a human has approved the
-first pack. Also run by hand. Budget 45 minutes. The outcome is one pack: inbound replies qualified, new
-leads scored and briefed, first touches and due follow-ups ready for approval, and meetings to book.
-Nothing leaves without a Confirm, and nothing in the CRM changes.
+Schedule: weekdays at 07:30 team time (routine `weekday-prospecting`), after setup. Also run by hand. Budget 45 minutes. The outcome is one pack: inbound replies qualified, new
+leads scored and briefed, first touches and due follow-ups ready to use, and meetings to book.
+Messages to outsiders stay drafts until `outbound_send` is on; requested CRM changes use your Tools.
 
 ---
 
@@ -20,7 +19,7 @@ is skipped and named as skipped.
 New form fills and replies come before anything else: speed decides inbound. For each, sort it: wants a
 meeting, has a question, not a fit, or asked to stop. A stop goes on `knowledge/do-not-contact.md` at
 once. A meeting request gets a reply offering two times from `hub calendar list` for the seller,
-prepared for approval. A price or terms question goes to a human under "Needs a human now".
+prepared for review. A price or terms question goes to a human under "Needs a human now".
 
 ## 3. New leads: filter, research, score
 
@@ -36,8 +35,7 @@ without a recent signal; C is parked with the reason.
 - **Follow-ups due today** from `knowledge/sequences.md`: each adds a new reason (a fact, an answer, a
   smaller ask), never "just checking in". After the last agreed touch, stop and mark the lead "closed quiet".
 
-Each touch carries recipient, subject, body and its source. Put them on the task and request
-`hub approval request --kind send` for the batch, or leave drafts in the seller's mailbox where connected.
+Each touch carries recipient, subject, body and its source. Put them on the task and send the requested batch with your Tools when `outbound_send` is on; otherwise leave drafts in the connected seller's mailbox.
 
 ## 5. Hand over booked meetings
 
@@ -49,5 +47,5 @@ is a human's act.
 
 Write `reports/YYYY-MM-DD-prospecting.md` in the shape of `knowledge/examples/prospecting-run.md`, update
 `knowledge/sequences.md`, `hub file publish` the pack, commit, and `hub task update <id> --status done
---note`: inbound handled, leads worked, A/B/C, touches awaiting approval, meetings booked, sources not
+--note`: inbound handled, leads worked, A/B/C, touches drafted or sent, meetings booked, sources not
 read. Always finish it: an open routine task absorbs tomorrow's.

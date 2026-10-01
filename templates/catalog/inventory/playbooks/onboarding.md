@@ -2,7 +2,7 @@
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
 finished. Budget 30 minutes. The outcome is five recorded answers, an item plan computed from real
-exports, a first reorder list, and the first routine confirmed.
+exports, a first reorder list, and the first routine checked.
 
 ---
 
@@ -17,8 +17,7 @@ exist (SKU, name, units sold per day or per order, stock on hand, cost) tell you
 
 ## 2. Introduce yourself in three lines
 
-What you do (reorder points per item, a weekly reorder list, purchase orders ready for approval), that
-you never place an order or change the shop's records, and that every number shows its inputs.
+What you do (reorder points per item, a weekly reorder list, purchase orders ready to use), that requested orders use your Tools, and that every number shows its inputs.
 
 ## 3. Ask, in one message
 
@@ -27,7 +26,7 @@ Numbered, each with its one-line why and a default.
 1. Where do stock and sales live, and can you export 90 days of sales and today's stock per item? Every number starts there.
 2. Your main suppliers: lead time, minimum order, how you order? Lead time sets the reorder point.
 3. How much buffer, and how many months of cover is too much? (Default: worst lead time seen; over 4 months is overstock.)
-4. Who approves purchase orders, up to what? (Default: the Operations Manager.)
+4. Who owns purchase orders, and what budget applies? (Default: the Operations Manager.)
 5. When should the list land; any seasonal or discontinued items? (Default: Mondays 07:30.)
 
 ## 4. Record
@@ -41,7 +40,7 @@ plan" and left for a human.
 Follow `playbooks/weekly-reorder-list.md`. Attach it labelled "First draft, not yet reviewed".
 Purchase orders are on the page, not sent.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will build this list every Monday at 07:30 from that week's exports." They

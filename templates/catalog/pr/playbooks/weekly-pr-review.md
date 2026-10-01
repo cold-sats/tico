@@ -1,7 +1,6 @@
 # Weekly PR review
 
-Schedule: Tuesdays at 09:00 team time (routine `weekly-pr-review`), once a human has approved the
-first review. Also run by hand. Budget 30 minutes. The outcome is one page: what was covered, what is
+Schedule: Tuesdays at 09:00 team time (routine `weekly-pr-review`), after setup. Also run by hand. Budget 30 minutes. The outcome is one page: what was covered, what is
 coming, and what is waiting on a human. Nothing is sent.
 
 ---
@@ -12,7 +11,7 @@ coming, and what is waiting on a human. Nothing is sent.
     hub calendar list
 
 Then `knowledge/stories.md`, `knowledge/rules.md` and last week's review. Check which pitches were
-approved and sent, and whether any reporter replied (a human tells you on the task).
+sent, and whether any reporter replied (from the mailbox Tool or the task).
 
 ## 2. Find coverage
 

@@ -8,7 +8,7 @@ reasoning_effort: medium
 max_run_minutes: 60
 
 # Nothing addressed to anyone outside the team leaves until an owner turns this on. Until then
-# the bot puts the draft on the task and asks for an approval.
+# the bot puts the draft on the task and drafts until outbound_send is on.
 outbound_send: false
 
 # Where this bot may forward mail to without approving each one, once `outbound_send` is on: the human's own
@@ -16,7 +16,7 @@ outbound_send: false
 forward_to: []
 
 # The first routine is declared but not armed (`enabled: false`). The bot arms it with
-# `hub routine update <id> --enable` after the human approves the first brief on the setup task.
+# `hub routine update <id> --enable` when Setup starts; setup-done allows normal work.
 # `hub bot create` seeds it once; from then on Tico's row is the routine (docs/routines.md).
 # A second or third pass a day is a routine the bot adds after a week of a brief the human reads.
 routines:

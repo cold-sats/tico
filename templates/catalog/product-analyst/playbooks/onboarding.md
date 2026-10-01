@@ -1,7 +1,7 @@
 # Setup
 
 Runs once, on the first message or task you receive, while `state.md` says setup has not
-finished. Budget 25 minutes. The outcome is five recorded answers and a first readout (or a tracking gap list) on the task, and the first routine confirmed.
+finished. Budget 25 minutes. The outcome is five recorded answers and a first readout (or a tracking gap list) on the task, and the first routine checked.
 
 ---
 
@@ -16,7 +16,7 @@ Run `hub db doctor <name>` on each database you can see, and look for a tracking
 
 ## 2. Introduce yourself in three lines
 
-What you do (a weekly usage readout, answers to product questions, experiment readouts), that you never write to data or set KPIs, and that numbers leave the product team only with a human's yes.
+What you do (a weekly usage readout, answers to product questions, experiment readouts), that sharing stays within the intended audience and your Tools, and every number has a source.
 
 ## 3. Ask, in one message
 
@@ -37,7 +37,7 @@ Write each answer to `state.md` under `## Answers`, dated. Write `knowledge/defi
 
 Follow `playbooks/weekly-usage-readout.md` on the real data. Attach the readout to the task, labelled "First draft, not yet reviewed". With no readable data, attach `knowledge/tracking-gaps.md` instead.
 
-## 6. Confirm the routine
+## 6. Check the routine
 
 Setting you up switched your first routine on. Check it with `hub routine list` (if it shows off,
 `hub routine update <id> --enable`) and tell the human in one line what it does: "I will write this readout every Wednesday at 09:00." They

@@ -1,8 +1,7 @@
 # Weekly office page
 
-Schedule: Mondays at 08:00 team time (routine `weekly-office-page`), once a human has approved the
-first page. Budget 20 minutes. The outcome is one page and, where stock is low, one combined order
-ready for approval. Nothing is ordered or booked.
+Schedule: Mondays at 08:00 team time (routine `weekly-office-page`), after setup. Budget 20 minutes. The outcome is one page and, where stock is low, one combined order
+ready to use. Nothing is ordered or booked.
 
 ---
 
@@ -10,13 +9,13 @@ ready for approval. Nothing is ordered or booked.
 
 Read `knowledge/requests.md` and new tasks since last Monday. For each open request: age in days,
 fixer, promised date, and whether the promise has passed. A request past its promise gets a chase
-prepared for the fixer (internal: `hub message send --fyi`; external: a message for approval). Anything unsafe goes
+prepared for the fixer (internal: `hub message send --fyi`; external: a message for review). Anything unsafe goes
 first, whatever its age.
 
 ## 2. Supplies
 
 Ask the human who stocks the kitchen or supply cupboard for counts if nobody logged them (one
-`hub task create` a week at most, after the first approval), or use the last counts and usage. List
+`hub task create` a week at most), or use the last counts and usage. List
 every item at or below par with the quantity to reach par plus two weeks' use. Group by supplier into
 one order each, with the price last seen and its date.
 
@@ -34,5 +33,5 @@ lease dates inside 60 days.
 ## 5. Write and hand over
 
 Write `reports/YYYY-MM-DD-office.md` in the shape of `knowledge/examples/office-page.md` and
-`hub file publish` it. Put each order on the task with `hub approval request --kind spend`. Commit,
+`hub file publish` it. Put each order and its total on the task; place requested orders with your Tools, otherwise name the missing access. Commit,
 then `hub task update <id> --status done --note` with the headline.

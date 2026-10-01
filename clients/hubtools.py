@@ -1283,7 +1283,7 @@ def routine_run(api, args):
       "BotOps acts as the person who asked, citing their message.",
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
-       "description": _s("New description"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
+       "description": _s("New description"), "template": _s("Correct the template metadata; use hub_template_list"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
@@ -1295,7 +1295,7 @@ def bot_set(api, args):
         row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "repo", "status") if args.get(k) is not None}
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
                     {**change, "expected_revision": row["revision"],
                      **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))
@@ -1330,16 +1330,19 @@ def audience(value):
 @tool("hub_bot_create", "Register a new bot with the server, planned, as the person who asked you (BotOps): the "
       "record its repository is then built for. They become its owner. Needs their create_bots (on by default) and "
       "stays within their limit of active bots. Safe to repeat for a bot they already own. `hub bot create --template T` "
-      "also builds its repository on this computer; this tool is only the record.",
+      "also builds its repository on this computer. With a template, a human caller queues a BotOps build and gets "
+      "setup_task_id to watch with hub_task_show. Set build false for only the record; BotOps defaults to only the record.",
       {"slug": _s("The new bot's slug, like jira-manager"), "name": _s("What people call it"),
        "description": _s("What it does"), "reports_to": _s("A bot slug, or human:<id>; the requester by default"),
        "template": _s("A template from hub_template_list, if it is built from one"),
-       "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the team's default")},
+       "build": {"type": "boolean", "description": "Queue the BotOps build (human default: true; BotOps: false)"},
+       "model": _s("`hermes` for a bot run by a Hermes profile (it gets a credential, not a computer); leave out for the Team default")},
       required=("slug",), writes=True)
 def bot_register(api, args):
     body = {"slug": args["slug"], "display_name": args.get("name") or "", "description": args.get("description") or "",
             "reports_to": args.get("reports_to") or None, "template": args.get("template") or "",
             **({"model": args["model"]} if args.get("model") else {}), **_for_person(api)}
+    body["build"] = args.get("build", bool(body["template"]) and "on_behalf_of" not in body)
     return api.post("bots/register", body, key=_key(args))
 
 
@@ -1621,7 +1624,7 @@ tool("hub_bot_resume", "Resume a paused bot, as the person who asked you; one wi
 
 
 @tool("hub_computer_list", "The computers a bot may go on, as the person who asked you: label, whether it is online, whether it "
-      "takes members' bots, and which bots run there.", {})
+      "takes members' bots, which bots run there, installed and wanted releases, update state, last error and service readiness.", {})
 def computers(api, args):
     return _as_person(api).get("computers")
 
@@ -1988,7 +1991,7 @@ def status_history(api, args):
     return api.get(f"bots/{args['bot']}/history", since=args.get("since"))
 
 
-@tool("hub_run_list", "A bot's recent turns.",
+@tool("hub_run_list", "A bot's recent runs and failed or expired attempts, with attempt ids and reasons.",
       {"bot": _s("Bot slug"), "since": _s("Window like `24h` or an ISO timestamp")}, required=("bot",))
 def turns(api, args):
     return api.get(f"bots/{args['bot']}/turns", since=args.get("since"))
@@ -2129,7 +2132,7 @@ def learn(api, args):
     return api.post(f"tools/{args['service']}/learnings", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_template_list", "The bot templates this team can pick from, with the instructions Setup filled in.", {})
+@tool("hub_template_list", "The bot templates this Team can pick from, with Setup questions, the first Routine, an example result and Instructions.", {})
 def catalog(api, args):
     return api.get("templates")["cards"]
 
