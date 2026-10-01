@@ -46,7 +46,7 @@ watchers:
 #   - service: tico-hq
 #     identity: "Tico HQ support tickets"
 #     can: [read]
-#     env: HQ_STAFF_KEY           # with TICO_HQ_URL in the same credentials file; a reply goes out only when outbound_send is on
+#     env: HQ_STAFF_KEY           # with TICO_HQ_URL also stored and granted; a reply goes out only when outbound_send is on
 #     note: "lists and reads tickets; posts a reply when outbound_send is on, using the requested payload"
 #   - service: github
 #     identity: "the public repositories named in config/github.yaml"

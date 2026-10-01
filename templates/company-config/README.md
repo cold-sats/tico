@@ -13,8 +13,10 @@ your-team-config/
       queries/warehouse.yaml      its named queries
       atlas.md, queries/atlas.yaml   the same for a MongoDB Atlas database (`mongo:` entries instead of `sql:`)
   bot-<slug>/bot.yaml     -> each bot's repository: `tools:` declares which databases it may read
-  secrets/                     -> on the runner computer only, never in git: DB_WAREHOUSE_URL=...
 ```
+
+Store `DB_WAREHOUSE_URL` (or `DB_ATLAS_URL`) in **Tools → Credentials**, set that Bot variable
+name and grant it to each bot that needs the database. Values never belong in this config.
 
 `integrations/` here is a working example for a fictional team (Acme). Copy it, rename the
 service to your database's name, and edit.

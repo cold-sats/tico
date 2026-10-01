@@ -29,8 +29,8 @@ routines:
     enabled: false
 
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
-# arrives in, never the value; the value lives in the workspace secrets directory on the computer
-# that runs the bot. Declaring access here does not create it. BotOps replaces {{mailbox}} from
+# arrives in, never the value. Store a Credential in Tico and grant it to this bot;
+# the runner delivers it during a run. Declaring access here does not create a grant. BotOps replaces {{mailbox}} from
 # the Mailbox: line in the reviewed instructions. Only the assigned mailbox is read: reading the
 # people who report to that human (`org_read: true`) is a separate decision for the owner.
 tools:

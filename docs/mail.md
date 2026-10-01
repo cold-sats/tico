@@ -25,7 +25,7 @@ Reading:
 
 ```bash
 $HUB_DIR/scripts/mail.sh inbox --untriaged --format brief   # inbox mail with no hub/* label; the list you work
-$HUB_DIR/scripts/mail.sh inbox --untriaged --all-mailboxes --format brief  # own mailbox plus reports
+$HUB_DIR/scripts/mail.sh inbox --untriaged --all-mailboxes --format brief  # granted mailboxes; reports only with org_read: true
 $HUB_DIR/scripts/mail.sh inbox --new --since 24h      # what you have not seen in the last day (marks it seen)
 $HUB_DIR/scripts/mail.sh inbox --label hub/needs-owner --format brief
 $HUB_DIR/scripts/mail.sh thread 18f2c9a3b4d5e6f7 --format brief   # the conversation, no bodies; md when drafting
@@ -62,7 +62,10 @@ $HUB_DIR/scripts/mail.sh rules explain 18f2...        # why this message got wha
 Rules run before any model. Marketing (unsubscribe links), notification senders, and
 `registry/mail-rules.yaml` `skip:` addresses/domains are filed and never opened by the bot.
 Each mailbox can add its own rules under that address after `common`. A message bot for a
-human also reads everyone who reports to them; use `--all-mailboxes`.
+human reads only its assigned mailbox by default (`org_read: false`). The owner can deliberately
+turn on `org_read: true` to include reports' mail; only then does `--all-mailboxes` include them.
+The Inbox Manager starts with one disabled weekday 07:30 Routine in America/Los_Angeles; Setup
+switches it on. Change its timezone in **Settings → Routines** for your team.
 
 And the record:
 
@@ -194,11 +197,13 @@ flagged `"review": "unavailable"`, and a send is downgraded to a draft.
 
 ## Calendar
 
-Every bot can read and schedule appointments through the Tico MCP, without a Gmail grant in its
-manifest:
+Tico's MCP/API calendar tools let a bot read and schedule on the **team owner's calendar**
+(the default) and **its operator's calendar**, without a Gmail grant in its manifest. Other roster
+calendars are refused on this path. Humans can use calendars whose mail they may read; the team
+owner can use all of them. This example uses the default team-owner calendar:
 
 ```text
-hub_calendar_list(calendar="ana@acme.example")
+hub_calendar_list()
 hub_calendar_schedule(title="Murphy hold", start="2026-09-22T09:00:00-07:00",
                       end="2026-09-22T09:30:00-07:00", attendees=["person@example.com"])
 hub_calendar_status(id="<action id>")
@@ -210,9 +215,11 @@ The schedule call queues one idempotent action for the private Mac calendar tool
 reading, drafting or sending. The equivalent shell commands are `hub calendar list`,
 `hub calendar schedule` and `hub calendar status`.
 
-The mail-local calendar commands use the same team-wide grant. Every bot can read or create an
-event on any address in `registry/people.yaml`; Gmail permissions, including `read_only`, do not
-change that calendar access:
+The mail-local calendar commands have a broader registry-based grant: every bot can read or create
+an event on any address in `registry/people.yaml`; Gmail permissions, including `read_only`, do not
+change that calendar access. An address outside the roster needs an explicit `google-calendar`
+Tool entry with the required verbs. The private Google service-account setup must also be working
+on that computer. These commands do not expand the MCP/API rule above:
 
 ```bash
 $HUB_DIR/scripts/mail.sh slots --for ana@acme.example --n 2 --minutes 20 [--days 7]

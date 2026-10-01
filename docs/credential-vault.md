@@ -20,7 +20,7 @@ Four words, used the same way everywhere:
 
 ## Tico's Credentials
 
-Settings → Credentials lists team credentials, usernames and masked previews. The owner and admins administer the vault. Each credential has its own grants. A granted human may reveal/copy it or attach it to bots they manage; a direct bot grant works on its assigned computer during an active run. Revoking the parent grant removes delegated bot access. Changing a bot owner invalidates delegation from its former owner.
+Tools → Credentials lists team credentials, usernames and masked previews. The owner and admins administer the vault. Each credential has its own grants. A granted human may reveal/copy it or attach it to bots they manage; a direct bot grant works on its assigned computer during an active run. Revoking the parent grant removes delegated bot access. Changing a bot owner invalidates delegation from its former owner.
 
 Credentials use AES-256-GCM with per-write random nonces and credential-bound authenticated data. Reveal operations are audited; credential values are excluded from audit and idempotency receipts. Restoring a snapshot revokes restored grants to avoid resurrecting permissions.
 
@@ -45,10 +45,20 @@ is in the database. Setting it on a server that has been using the key file wrap
 re-encrypting anything, and the file can then be deleted. An install that began with KMS is unchanged, and taking the KMS key away
 again is refused rather than starting a second key.
 
+## Store a new Credential
+
+Open **Tools → Credentials → Add credential**. Set the type, value and **Bot variable name**
+(the exact variable its Tool needs), then save. In the Credential's **Access** dialog, choose
+the bot under **Grant access to** and press **Grant access**. Storing alone does not grant it.
+BotOps can instead request a Credential card in chat and store and grant it with your rights.
+Use file import only to migrate a value already in an older install; never set up a new bot by
+writing `secrets/<bot>.env` or `_shared.env`.
+
 ## Give a bot a credential another bot has
 
 Say it in the chat with BotOps: "Give Engineering Monitor the Jira access Jira Manager has." BotOps acts as you. A credential administrator may grant it; a holder may delegate a stored credential to a bot they own or run.
-Importing from another bot's file still needs a credential administrator. It runs at once, with no Confirm card, and then tries the connection as the bot:
+Importing from another bot's file still needs a credential administrator. File import is only for migration of an existing value. It runs at once, with no Confirm card,
+and then tries the connection as the bot:
 
 1. If the credential is only in the first bot's own file (`secrets/<bot>.env` on its computer), BotOps moves it into Credentials first
    (`hub credential import JIRA_BASIC_AUTH --from-bot jira-manager`). The computer that runs that bot reads the variable from
@@ -59,7 +69,7 @@ Importing from another bot's file still needs a credential administrator. It run
    bot's name or slug; the credential is named by its name or its variable.) The second bot has it, as that variable, from its next run.
 3. To take it away: `hub credential revoke "JIRA_BASIC_AUTH" --from engineering-monitor`.
 
-The same three steps are the tools `hub_credential_import`, `hub_credential_grant` and `hub_credential_revoke`, and Settings → Credentials
+The same three steps are the tools `hub_credential_import`, `hub_credential_grant` and `hub_credential_revoke`, and Tools → Credentials
 does the grant and revoke by hand. A grant to a person, or to every computer, still asks for the person's own click when it comes through BotOps.
 
 ## The local credential key and backups
@@ -105,7 +115,9 @@ On upgrade, each existing bot automatically gets grants for everything it could 
 every key in its computer's `_shared.env` (except the Codex sign-in key), the variables its Tools name, and the key used
 by its model runtime. The Computer encrypts those values into Credentials through its own signed-in
 channel. A bot created after the upgrade inherits no shared tool credentials. Migration is once per existing bot, and
-never restores a revoked grant. Legacy files stay available to operator tools, but are no longer a source for run environments.
+never restores a revoked grant. A pending one-time migration waits for a runner version that supports
+it; an older, pinned or offline runner does not consume the step. The `HUB_` migration needs a
+runner reporting 0.2.31 or newer. Legacy files stay available to operator tools, but are no longer a source for run environments.
 On isolated Computers, the supervisor owns these files. A Computer without process isolation still has the shared
 filesystem trust boundary described in [SECURITY.md](../SECURITY.md); environment filtering does not isolate its shell.
 Use Credentials or its chat card for new values; grant them to the bot that needs them.
@@ -119,7 +131,8 @@ empty value, so preflight shows it as missing instead of a run failing halfway. 
 in 1Password reaches a reference on the next run.
 
 `scripts/vault-sync.sh` is the by-hand complement: it copies plain values from 1Password into
-the credential files, for tools and checks that run outside a run. Its map
+legacy credential files for migration or service jobs outside bot runs. It does not grant a bot access;
+store new bot values in Credentials and grant them instead. Its map
 (`secrets/vault-map.txt`, or the file `VAULT_SYNC_MAP` names) has one line per variable,
 `ENV_VAR | op://<vault>/<item>/<field> | target env file`; the target defaults to
 `_shared.env`. Keep the map private; it names your vault items. An item whose name contains `@`

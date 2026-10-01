@@ -237,6 +237,12 @@ def test_doctor_reports_read_only_and_names_a_missing_credential(tmp_path):
                                 for c in report["databases"][0]["checks"])
     report = D.doctor("bot:ops", ["acme"], workspace(tmp_path / "z", "ops", [GRANT]))
     assert not report["ok"] and report["databases"][0]["checks"][0]["check"] == "credential"
+    detail = report["databases"][0]["checks"][0]["detail"]
+    assert "Tools > Credentials" in detail and "Bot variable name DB_ACME_URL" in detail
+    assert "grant it to this bot" in detail and "secrets/" not in detail
+    with pytest.raises(D.Refusal) as caught:
+        D.open_database("acme", "human:ana", {})
+    assert "own shell environment" in caught.value.detail
 
 
 def test_the_cli_declares_db_and_keeps_it_off_the_servers_tool_table():

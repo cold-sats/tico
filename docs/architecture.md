@@ -26,7 +26,7 @@ starts the conversation.
   | (native)  |        | runner    |       | runner    |
   +-----------+        +-----------+       +-----------+
    harnesses (Codex, Claude Code, Gemini CLI, Grok, catch-all),
-   model logins, bot repos, bot credentials
+   local model logins, bot repos, granted run credentials
         |                              |
         v                              v
   model providers                 GitHub (per-team App,
@@ -39,7 +39,7 @@ starts the conversation.
 | Where | What |
 |---|---|
 | Server | The web app and API, sign-in, the human roster, tasks, chats, approvals, the routine scheduler (the clock), files, the credential store, Litestream backups, and the optional updater. |
-| Each computer | The runner, the harnesses installed on it, the workspace with one `bot-<slug>` git repository per bot, the bots' credentials, and the model logins. |
+| Each computer | The runner, the harnesses installed on it, the workspace with one `bot-<slug>` git repository per bot, Credentials delivered for active runs, and local model logins. |
 | Model providers | Bots reach them from computers, using that computer's logins. The server reaches only the decision provider, when decisions or Slack routing are on. |
 | GitHub | Reached from computers with short-lived tokens the server mints per bot. |
 
@@ -68,9 +68,12 @@ offline; the work waits and runs when it returns.
 
 The server never runs a bot or a model CLI; when decisions (or Slack routing) are on, it sends the text of each question to the decision provider you configured (the optional hosted decisions service, or OpenAI, Anthropic, Gemini, xAI or OpenRouter with a key stored on the server).
 
-- **Bot credentials stay with your computers.** Model subscriptions and credentials for bots are signed in on
-  computers you control. A compromised server does not hand over those logins. It does hold the decision
-provider's credential, if you stored one.
+- **Local model logins stay on computers; Credentials are held by the server.** Subscription sign-ins
+  for model CLIs stay on the computer where you signed in. Tico's server stores encrypted bot
+  Credentials and model keys granted to **Every computer**, decrypts them and delivers them to
+  granted bots or computers. It also holds the Decision provider's key when configured. A compromised
+  server can expose those stored values; protect the Credential key and the complete backup.
+  See [Credential storage and recovery](credential-vault.md).
 - **The server stays small.** It does bookkeeping, not inference or long-running agent processes, so
   1 to 2 GB of RAM has served a small pilot ([sizing](sizing.md)).
 - **Bots run next to their work.** A harness needs a shell, git, build tools and the bot's files, which

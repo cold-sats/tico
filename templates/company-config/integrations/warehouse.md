@@ -5,7 +5,7 @@ kind: sql
 summary: Acme's reporting PostgreSQL replica (customers, orders, products), read through `hub db warehouse`.
 access: "`hub db warehouse \"<select>\"` or `hub db warehouse --query <id>`; read-only, audited."
 credentials:
-  - DB_WAREHOUSE_URL — read-only connection string, in secrets/_shared.env on the runner computer (or a credential granted to the bot)
+  - DB_WAREHOUSE_URL — read-only connection string, stored in Tools > Credentials and granted to the bot
 declared_as: |
   - service: postgres
     identity: read-only role on the reporting replica

@@ -15,7 +15,12 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
 sh install.sh --version vX.Y.Z --dir "$PWD"
 ```
 
-Replace `vX.Y.Z` with the target release. It verifies and refreshes the release bundle and changes `TICO_TAG`, keeping your other
+Replace `vX.Y.Z` with the target release (for this fix release, `v0.2.32`). Update the server first;
+computers follow over the next few minutes. A pinned or offline computer keeps its version until
+unpinned or reconnected; existing bot Credential grants remain in place during that mixed-version window.
+New one-time Credential migrations wait for a runner version that can perform them.
+
+It verifies and refreshes the release bundle and changes `TICO_TAG`, keeping your other
 `.env` settings. For a local install, add `--local --owner-email you@example.com`. Raw `docker compose pull` refreshes the configured
 tag only; a raw-compose upgrade also requires changing that tag and refreshing the bundle first. Use **Update now** for the
 health check and automatic rollback described below.

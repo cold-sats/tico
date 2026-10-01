@@ -40,7 +40,7 @@ The words Tico uses, and what each replaces.
 - **Proposal**: a suggested change to a goal or KPI, for its owner to confirm.
 - **Run**: one time a bot works.
 - **Update**: a bot's daily or weekly post, and a new Tico version.
-- **Message**, **Comment**, **Note**: a message is chat. A comment is on a task. A note is quiet, for a bot's next run.
+- **Message**, **Comment**, **Note**: a message is chat. A comment is on a task. A note is quiet, for a bot's next run ([leave work for the next run](using-tico.md#leave-work-for-the-next-run)).
 - **Decision**: the typed-question model that classifies and decides.
 - **Handoff**: delegating work by opening a child task and setting the parent to waiting.
 - **Session**: the model conversation a bot is resuming. Disposable.

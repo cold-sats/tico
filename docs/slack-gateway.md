@@ -34,7 +34,7 @@ Every accepted message is one decision, through the same primitive every bot has
 `questions/slack-route.json` and the call is labelled `slack-route@1`. The state the decision model reads:
 
 - the message, the sender (roster human, group, `primary_for`) and the channel or DM with its
-  note from the Slack channel list (Settings > Tools > Slack);
+  note from the Slack channel list (Tools > Slack);
 - the last twelve exchanges in this Slack thread, each with the bot it went to;
 - the thread's previous routing: bots, confidences, reason, and whether each bot is still waiting
   on a reply (the last line in its conversation is the bot's own `ask`, or ends with a question;
@@ -145,7 +145,7 @@ goes on), for each reader that is an active bot, in one transaction:
    messages wait unread and the cursor stays. A high-volume channel is best read daily: otherwise every message would cost a short run.
 
 Readers are named per channel in the Slack channel list, which lives in the database and is managed
-in the app (Settings > Tools > Slack channels, `hub slack channel add '#name' --reader cto`, or BotOps
+in the app (Tools > Slack channels, `hub slack channel add '#name' --reader cto`, or BotOps
 as the person who asked). Only an owner or an admin changes it, like turning posting off. A channel may be listed
 by name alone: the gateway asks Slack for its id. Reading grants no posting right: a reader that wants to say
 something in the channel is bound by `post:` and the solicited-reply rule exactly as before,

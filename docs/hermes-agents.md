@@ -6,15 +6,17 @@ starts a run for it.
 
 ## Connect a Hermes profile in 2 minutes
 
-You need the profile to exist already (`hermes profile create <name>`), and to know the runner
-address of your Tico: the hostname in **Settings → Computers → Add computer**, for example
-`runner.acme.example`. Use the runner address, not the public one (see Troubleshooting).
+You need the profile to exist already (`hermes profile create <name>`), and the Tico address shown
+in **Settings → Computers → Add computer**. Use that full address as `<Tico URL>` below: normally
+`https://tico.example.com`, or `http://127.0.0.1:8765` for a local install on the same computer.
+A separate runner hostname is needed only if an external sign-in proxy intercepts API requests
+(see Troubleshooting).
 
 1. On the computer that runs the profile:
 
    ```bash
-   curl -fsSL https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py \
-     && python3 hermes_agent.py pair --profile <name> --url https://<runner host>
+   curl -fsSL "<Tico URL>/api/v2/agents/setup-script" -o hermes_agent.py \
+     && python3 hermes_agent.py pair --profile <name> --url "<Tico URL>"
    ```
 
    It prints a code like `K7QM-4F2P` and waits up to 10 minutes. No token to copy.
@@ -30,8 +32,9 @@ The `pair` command sets up the profile's config, saves the credential on the com
 heartbeat timer and schedules the sync job (hourly unless you add `--sync`, see
 [Keep it in sync](#keep-it-in-sync)), then prints what it did. It never prints the credential.
 
-The setup script downloads without a sign-in from the runner address (Tico 0.2.26 and later). If
-you get a sign-in page instead, you used the public address: use `runner.<domain>`.
+The setup script downloads without a browser sign-in from the address Tico shows (Tico 0.2.26
+and later). Built-in sign-in and local installs need no separate hostname. If an external proxy
+returns a sign-in page, follow Troubleshooting below.
 
 ### The manual way
 
@@ -41,8 +44,8 @@ you get a sign-in page instead, you used the public address: use `runner.<domain
    gives one install command to run on the computer that runs the profile:
 
    ```bash
-   curl -fsSL -H "Authorization: Bearer <credential>" https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py \
-     && python3 hermes_agent.py install --profile <name> --url https://<runner host> --bot <slug> --token <credential>
+   curl -fsSL -H "Authorization: Bearer <credential>" "<Tico URL>/api/v2/agents/setup-script" -o hermes_agent.py \
+     && python3 hermes_agent.py install --profile <name> --url "<Tico URL>" --bot <slug> --token <credential>
    ```
 
 3. `/reload-mcp` in the profile.
@@ -72,7 +75,7 @@ The profile uses the shared tool list (`clients/hubtools.py`); its bot credentia
 | `off` | never on its own; the skill stays installed and you can run it by hand |
 
 ```bash
-python3 hermes_agent.py pair --profile <name> --url https://<runner host> --sync 15m
+python3 hermes_agent.py pair --profile <name> --url "<Tico URL>" --sync 15m
 ```
 
 What it installs, all inside the profile:
@@ -149,7 +152,7 @@ downloaded `hermes_agent.py` in your current folder works the same while it is t
 |---|---|---|
 | Heartbeat or tool says **409**, "bot is archived" | The bot was archived. The agent stops and retries only once an hour. | Restore the bot (**Settings → Bots → Archived → Restore**, `hub bot restore <slug>`, or ask BotOps). `hermes_agent.py` tries again within the hour and reconnects by itself. |
 | **401** | The credential was revoked or replaced (archiving with the revoke box on does this). | Restore the bot if it is archived, then pair again (`pair`) and approve it. |
-| A login page instead of JSON, or `curl` gets HTML | You used the public address behind Cloudflare Access. | Use `runner.<domain>` ([connect-an-agent.md](connect-an-agent.md)). |
+| A login page instead of JSON, or `curl` gets HTML | An external sign-in proxy is intercepting API requests. | Configure a bypass or a separate API hostname, then use the address Tico shows. See [proxy troubleshooting](connect-an-agent.md#behind-cloudflare-access-or-another-sign-in-proxy). Built-in sign-in and local installs need neither. |
 | Two heartbeats a minute, or double answers | A duplicate heartbeat job from an older install. | Run `update`. It removes older jobs. `doctor` lists what it found. |
 | The bot is online but no messages arrive | Tico never pushes work. The profile only looks when something makes it. | Run `doctor`: it says whether the `tico-sync` job exists and when it last ran. Hermes runs cron only while the profile's gateway runs: `doctor` says so, and `hermes -p <name> gateway install` fixes it. `reinstall --sync 1h` brings the job back. |
 | Tool not found | An old tool name. | See renamed tools above. |

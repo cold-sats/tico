@@ -1,5 +1,7 @@
 # Message bots
 
+For quiet Notes and deferred Tasks, see [Leave work for the next run](using-tico.md#leave-work-for-the-next-run).
+
 The **Message bots** section in the sidebar is the directory for repeating email and Slack work;
 there is no separate messaging index or search page. Choosing a mailbox or channel opens its bot
 directly. The left side shows covered sources, published instructions, status, current routines,
@@ -14,7 +16,7 @@ and occurrence are part of the normal history. Event routines need their event's
 cannot run this way.
 
 Coverage is read from the live bot config and roster for Gmail, and from
-the Slack channel list (Settings > Tools > Slack) for Slack readers. A bot may cover many sources. Source assignments
+the Slack channel list (Tools > Slack) for Slack readers. A bot may cover many sources. Source assignments
 still follow the tool and registry configuration that grants actual access; this view does
 not create a Gmail permission or change a Slack channel reader.
 

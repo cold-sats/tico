@@ -25,8 +25,8 @@ Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab l
 
 | Screen | What it asks | What it stores |
 |---|---|---|
-| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use. Optional: leave none ticked and Skip for now moves on | The team's providers, as Settings > Providers saves them |
-| Names | Team/Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add coworkers at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
+| AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use. Optional: leave none ticked and Skip for now moves on | The team's providers, as Settings > AI providers saves them |
+| Names | Team/Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add teammates at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
 | About the team | What you do, who you sell to, whether software is your product, and team size | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your team chart | The groups, then one question per group and the bots to recruit into it, with the chart growing beside it, and the message bot switch under the finished chart ([The team builder](#the-team-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a human `human:<id>` or a bot slug). Nothing is created yet |
 | Add the computer that runs your bots | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/setup` every ten seconds and reports the enrolled computer |
@@ -248,11 +248,16 @@ exception, so the computer keeps reporting the others.
 BotOps works one setup task at a time, following `playbooks/set-up-a-bot.md` in its own repository:
 read the task, `hub bot create <slug> --template <template> --name "<Display>"`, put the reviewed
 instructions into `AGENT.md` (or tailor the template's to the answers), run `hub bot check <slug>`
-and fix every failure, commit, then finish the task with the repository path, what it changed, the
-check result and the one thing to read before activating.
+and fix every failure, then commit the result.
 
-It never activates a bot, never creates a credential, and never overwrites a repository that
-already exists.
+For a human's authorized chat request, BotOps finishes the work: it places the bot on a computer,
+turns it on, starts Setup, opens [Credential cards](credential-vault.md#credentials-asked-for-in-the-chat)
+for missing values, runs one small test and reports the result in chat. It stores and grants
+Credentials with the requester's rights; values stay out of messages.
+
+An unattended setup task prepares and checks the repository, then reports readiness, the repository
+path and any missing Tool or Credential to the owner. It leaves activation to the owner in that case.
+An existing repository is checked and updated for the requested work, rather than overwritten.
 
 ## The assistant, BotOps, the Librarian and the Goal Manager are built in
 
@@ -296,8 +301,9 @@ While an assistant is off, or paused, what used to fall back to it goes to BotOp
 Only an active bot is given work. Finishing setup activates the assistant and BotOps as soon
 as a computer hosts them (and again when a computer is enrolled later), because BotOps cannot be
 handed setup tasks while it is planned. A starter is activated the same way once placed, and is still parked: it answers a human and
-nothing else until it is set up. Every bot BotOps builds gets its own **Activate** button
-when its repository is reported present; that stays a human's decision.
+nothing else until it is set up. A ready bot has an **Activate** action when its repository is
+reported present. BotOps can activate it for an authorized human chat request; an unattended
+setup task reports readiness for the owner to act.
 
 ## Adding a bot later
 
@@ -333,8 +339,8 @@ Tico ships 94 templates, by group, each with a card; [Starter bots](starter-bots
 - `{{company_name}}`, `{{app_name}}`, `{{assistant_name}}` and `{{bot_name}}` are filled in every
   text file before the first commit, and in the card's own words wherever a human reads it.
 - `required: true` means the wizard always includes it. `bootstrap: true` means the computer
-  materializes it itself and no BotOps task is filed for it. Both are true for the assistant and
-  BotOps only.
+  materializes it itself and no BotOps task is filed for it. Both are true for all four Built-in bots:
+  Assistant, BotOps, Librarian and Goal Manager.
 - `recommend_when` says who a card is for. The team builder reads only `sells_to_businesses` and `sells_to_consumers` (a business-only card is suggested last to a team that sells only to consumers); the rest
   (`publishes_content`, `has_pipeline`, `uses_github`, ...) are descriptive and harmless. The `inbox` card (the message bot) needs a
   human's mailbox chosen whenever it is switched on.

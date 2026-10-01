@@ -37,8 +37,10 @@ The rules for all six live in the backend's write layer, not in prompts: a bot a
 itself; it may message only active bots and humans; at most 20 bot-to-bot messages per
 conversation per hour and 10 unsolicited messages per human per bot per day
 (`TICO_UNSOLICITED_PER_DAY`); one open clarifying question per task; the requester closes; an approval
-is decided by a human and consumed once; anything addressed to a human is linted (first line is
-not empty, under 120 words). Put the ask first; the check does not judge its meaning. Repeated refusals
+is optional, decided by a human and consumed once. Bot requests to a human are linted:
+a nonempty first line and under 120 words outside quoted drafts. Put the ask first; the first-line
+check does not judge whether it is an ask. Replies to the human's own message are exempt from this
+request-format lint; title and Credential checks apply separately. Repeated refusals
 open a review task and, at 10 a day, pause the bot for an hour; a third attempt in a day to reach another bot's files or a `secrets/` path
 (`TICO_ESCAPE_QUARANTINE_AT`) quarantines it until a human clears it.
 
@@ -56,8 +58,9 @@ reply back under that bot's name, and stores everything else said in the channel
 in so that each channel's readers see it within the hour (`docs/slack-gateway.md`).
 Pages: **Tasks** (where the app opens), **Meetings** (imported transcripts, source sync status, Import, and each meeting's
 action items), **Docs**,
-**Tools**, **Changelog**, the **Team** tree, and under your email **Runs**, **Settings**, **Credentials**
-and, for the owner and admins, **SQL**. Tasks has List, Board, Routines and Done. A bot's page has **Chat**,
+**Tools**, **Changelog**, the **Team** tree, and under your email **Runs** and **Settings**
+and, for the owner and admins, **SQL**. Tasks has List, Board and Done; Routines are in **Settings → Routines**.
+Credentials are in **Tools → Credentials**. See [Navigation](navigation.md). A bot's page has **Chat**,
 **Tasks**, **Docs** and **More**. The assistant (Tico, `coo`), BotOps, the Librarian and the Goal Manager are built in and cannot be archived or deleted (`409 system_bot`); the assistant
 and the Librarian work in the background and are not listed for humans. Each human has one private **Assistant** chat, the first tab on their own page
 and "Ask the Assistant…" in search: it looks things up at once, does low-risk things as that human, and
@@ -69,7 +72,7 @@ one `SELECT` at a time, each caller seeing only what the JSON API would show it,
 ([Querying Tico with SQL](hub-sql.md)).
 
 **Your Mac's runner** — `runner/`, started as `python -m runner`, registered once with
-**Add computer** in **Settings → Bots** (`scripts/setup-runner.sh`, credential in
+**Add computer** in **Settings → Computers** (`scripts/setup-runner.sh`, credential in
 `~/.config/tico/runner.json`). Four launchd jobs, installed and managed with `scripts/tico`:
 
 | Job | Command | What it does |
@@ -87,9 +90,10 @@ Tico names this computer's owner in `TICO_PROCESSING_OPERATORS`) as child proces
 
 Logs are `~/.config/tico/logs/tico-{bot,connectors,close-calls,importers}.log`. The runner makes outbound
 HTTPS calls only; nothing listens on the Mac. Model subscriptions (Codex, Claude, Gemini, Grok
-Build) are signed in on the Mac and never leave it. Bot credentials come from
-`<projects>/secrets/_shared.env` and `<projects>/secrets/<slug>.env` on the Mac, or from the
-shared vault (**Credentials**) for a bot explicitly granted them, delivered only for that run.
+Build) are signed in on the Mac and never leave it. Bot Credentials are stored in
+**Tools → Credentials**, granted to each bot and delivered only for its run. Existing own files,
+`_shared.env` and declared profiles migrate into grants on upgrade; new runs do not load those files.
+Model API keys stored in Tico are separate from local subscription logins.
 Each run gets a scoped credential in `HUB_API_URL`/`HUB_TOKEN`; the bot talks to hub.acme.example
 through the `hub` CLI (`scripts/hub`) or Tico's MCP tools (`hub_*`, the same names with
 underscores: `hub task create` is `hub_task_create`), and downloads attachments with
@@ -101,7 +105,8 @@ the same routes and `backend/hubdb.py` rules; there is no privileged path.
 
 Calendar appointments are three shared Tico tools available to every bot:
 `hub_calendar_list`, `hub_calendar_schedule`, and `hub_calendar_status`. Reads come from the
-bounded calendar snapshot. A schedule call writes an idempotent Tico action; the private calendar tool
+bounded calendar snapshot, limited to the team owner's or the bot operator's calendar
+([calendar paths](mail.md#calendar)). A schedule call writes an idempotent Tico action; the private calendar tool
 claims it once, creates the Google event and invitations locally, and reports the result. Bots must
 see `succeeded` before saying the appointment exists. This path grants no generic Gmail authority.
 
@@ -174,7 +179,7 @@ wherever they are in the app, with the action inline: *Review now* opens the int
 *Open bot* goes to the bot. Closing it is remembered per issue and *Snooze* quiets it for an hour;
 the alert under the sidebar reopens it any time. Issues Tico resolves itself (a computer that
 just dropped off, a usage limit that is retrying) stay out of the way as *resolves on its own* in
-**Settings → Needs attention**, one row per computer rather than one per bot. A cloud deploy is different: hub.acme.example is
+**Settings → Health**, one row per computer rather than one per bot. A cloud deploy is different: hub.acme.example is
 unreachable for a few minutes, the runner keeps the run going and the server extends every
 running lease when it comes back, so the finished reply still lands. The same forgiveness covers
 a server that stalls without restarting (the daily backup runs at the lowest CPU and I/O
@@ -192,11 +197,11 @@ review is owed while chat still answers.
 **A subscription usage limit.** A run that hits one fails with `limited` set; it did nothing, so
 the job stays queued however often this happens (it is never *Interrupted*), the bot shows
 *limited* and the cloud claims it again after 30 minutes. A third limit in a row waits two hours
-and says so in **Settings → Needs attention**, with the retry time. If the bot has a fallback
+and says so in **Settings → Health**, with the retry time. If the bot has a fallback
 harness in **Settings → Bots**, the runner reruns that run at once on the fallback (fresh
 session) and reports `fallback` as that harness, which **Runs** shows in the Session column.
 Tico is seeded with Gemini CLI as its fallback from Antigravity, so a usage limit uses
-`GEMINI_API_KEY` in `secrets/coo.env` the same way as before. **None (fail)** means no hop:
+a stored `GEMINI_API_KEY` Credential granted to the bot. **None (fail)** means no hop:
 the cloud cooldown applies.
 
 **A bot's session is its own.** Each bot has one provider thread: chat, tasks and
@@ -223,13 +228,14 @@ requested it gets a *Finished: <title>* message (`/api/v2/messages?unread=1`) an
 bot-requested task closes itself after three days). Every run is listed under **Runs** and on
 the bot's **More** tab.
 
-**You change a bot's instructions.** Edit `AGENT.md` (or a playbook, `memory/`, `knowledge/`) in
+**You change a bot's Instructions.** Open **Bot → More → Instructions → Edit Instructions**
+and ask BotOps to make the change. It commits and pushes the update for the next run. For a manual edit, change `AGENT.md` (or a playbook, `memory/`, `knowledge/`) in
 `bot-<slug>` and commit. The runner reads the checkout on its Mac at the start of every run, so
 the change is live on the next run once that checkout has it: push, and pull on the runner Mac
 if you edited elsewhere. Do not edit while the bot is running there.
 
 **You change a routine.** Routines are rows in Tico (`docs/routines.md`): edit one on the
-site under Tasks → Routines, or a bot changes its own with `hub routine set`. The change is in
+site under Settings → Routines, or a bot changes its own with `hub routine set`. The change is in
 the table at once; a sleeping Mac does not block it. **You change a bot's switches.** Tools
 read `outbound_send` and `tools:` from the Mac checkout each time a bot sends or posts. Model, effort, computer, humans, name,
 status and reporting line are changed in **Settings → Bots**, not in the file.
@@ -238,7 +244,8 @@ status and reporting line are changed in **Settings → Bots**, not in the file.
 
 A human is normally the browser sign-in (Cloudflare Access). A **personal API token** is the
 same human from a script, a cron job or another computer, with no browser: any human (the owner may
-limit it to admins, Settings > Humans) opens **Settings, Computers, API tokens**, gives the
+limit it to admins, Settings > Humans) opens **Connect an external agent** beside their email
+(or, for an admin, **Settings → Computers → API tokens**), gives the
 token a label and a life (90 days unless changed, a year at most), and copies it once; it is
 not shown again and only its hash is kept. Then:
 

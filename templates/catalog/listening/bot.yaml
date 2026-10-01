@@ -24,8 +24,8 @@ routines:
     enabled: false
 
 # What this bot may touch. Not listed is not allowed. `env:` names the variable a credential
-# arrives in, never the value; the value lives in the workspace secrets directory on the computer
-# that runs the bot. Declaring access here does not create it. A browser access also names
+# arrives in, never the value. Store a Credential in Tico and grant it to this bot;
+# the runner delivers it during a run. Declaring access here does not create a grant. A browser access also names
 # `sites:`, so the tool can refuse every other host.
 # tools:
 #   - service: browser

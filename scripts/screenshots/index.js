@@ -58,7 +58,19 @@ const PAGES = [
     await page.click('[data-tour-next]');
     await page.waitForTimeout(400);
   }},
-  {name: 'docs', route: '#/docs/support-refund-policy', ready: 'Support may refund up to the limit Ana sets.'},
+  {name: 'docs', route: async page => '#/docs/' + encodeURIComponent(await page.evaluate(async () => {
+    const {docs} = await (await fetch('/api/v2/docs?limit=500')).json();
+    return docs.find(doc => doc.title === 'Refund policy').id;
+  })), ready: 'Support may refund up to the limit Ana sets.', steps: async page => {
+    if (page.viewportSize().width < 600) {
+      await page.getByText('Back to docs').click();
+      await page.locator('#docs-h-linked').waitFor();
+      const folders = page.locator('details[data-docs-folder][open] > summary');
+      while (await folders.count()) await folders.first().click();
+    }
+    await page.locator('#docs-h-internal').waitFor();
+    await page.locator('#docs-h-linked').waitFor();
+  }},
   {name: 'market', route: '#/market?note=company%2Fnorthwind', ready: 'Cheapest starter plan'},
 ];
 

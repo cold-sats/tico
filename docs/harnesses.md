@@ -69,9 +69,13 @@ volume, so harnesses survive a restart or a new image. The directory is put last
   `npm` on the Mac.
 - **Linux (Docker)**: the image has node, npm, python, pip, git, gh, build tools, ripgrep, jq and curl, and no model
   CLI.
-- The tools directory is writable by the runner user, like the rest of its home. Bots share that user, so a bot could
-  replace a CLI; that is the same trust boundary as the runner's own state (see the isolation note in
-  [install.md](install.md)).
+- **Current Docker runner**: the supervisor `ticorun` (UID 10002) owns the tools directory, registration
+  and runner state; bot code runs as `bot` (UID 10003) and cannot replace those files. Bots still share
+  their bot user, workspace and model logins. Start with the release's
+  [runner Compose file](../docker/runner.compose.yaml), which supplies the required user and capabilities.
+- **Native Mac/Linux and legacy containers without isolation**: bots share the runner's user and can
+  replace a CLI or reach that user's runner state. See the isolation notes in
+  [Install](install.md#add-computers-to-run-your-bots) and [Security](../SECURITY.md).
 
 ## Updating and pinning
 

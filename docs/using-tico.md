@@ -1,7 +1,7 @@
 # Using Tico
 
 Short answers to common questions. Sign in at your team's Tico address with the email on its Humans roster. Ask your owner for the address.
-How the pieces fit is in [How Tico works](how-it-works.md). Words are defined in the [Glossary](glossary.md).
+How the pieces fit is in [How Tico works](how-it-works.md). Words are defined in the [Glossary](glossary.md); [Navigation](navigation.md) lists the current controls.
 
 ![Tasks in the demo team](images/tasks-desktop-light.png)
 
@@ -46,14 +46,12 @@ a few minutes is not something you are asked about; after ten minutes it is.
 ![Needs you: a decision and an approval waiting](images/needs-you-desktop-light.png)
 
 **What needs my approval, and why?**
-Sending outside the team, spending, publishing, credentials or unusual production changes, and
-irreversible deletion: a bot files an approval with the exact action attached and it appears in
-**Needs you** with **Approve** / **Decline**. A bot may improve and merge its own repository after
-checks pass. Authorized maintainers may merge tested Tico changes without a separate approval.
-BotOps handles requested bot and repository deletion, adding humans outside the domain (for owners and admins), and Tico updates
-directly with your rights. Its outbound sending switch still needs you to turn it on. Product and public documentation repositories
-keep their stated review rules. Full rules:
-`policies/approvals.md`.
+Bots carry out authorized work with their granted Tools. Spending, publishing, record changes,
+bot or repository deletion, adding outside humans and updating Tico have no blanket Confirm step.
+Messages to outsiders stay drafts until the bot's owner turns on its outbound send switch.
+A bot may request an optional approval when an action is uncertain; its exact action appears in
+**Needs you** with **Approve** / **Decline**. Repository review rules still apply.
+Full rules: [Permissions](permissions.md) and [approval policy](../policies/approvals.md).
 
 ![The team chart with goals](images/org-chart-desktop-light.png)
 
@@ -69,9 +67,56 @@ title, a cron (five fields, America/Los_Angeles by default) or a Tico event, and
 is told each time. A bot can set up its own with `hub routine set`. Details: `docs/routines.md`.
 
 **How do I change what a bot does?**
-Edit `AGENT.md` in its `bot-<slug>` repository (playbooks and `knowledge/` for methods and facts),
-commit and push; it is read at the start of the bot's next run once the Mac's checkout has it.
-Model, effort, computer, owners and status are changed in **Settings → Bots**. One-off requests are tasks, not edits.
+Open **Bot → More → Instructions → Edit Instructions**, describe the change, and choose
+**Ask BotOps to change**. BotOps updates the Instructions, commits and pushes the result; the
+bot reads it at its next run once its computer's checkout has the update. An older app may show
+the Instructions card under **Docs**. See [Creating bots](creating-bots.md#edit-instructions).
+
+For a manual edit, change `AGENT.md` in `bot-<slug>` (playbooks and `knowledge/` for methods and
+facts), commit and push. The runner pulls before the next run; if you maintain its checkout by
+hand, pull the update there too. Model, effort, computer, owners and status are changed in
+**Settings → Bots**. One-off requests are tasks, not edits.
+
+## Leave work for the next run
+
+A **Note** gives a bot context without starting a run. A **Task** filed with `--next-run`
+(alias `--quiet`) is work to do, with an owner, status, result and history; creating it does not
+wake the bot. Use your [personal token or external agent](connect-an-agent.md) for the CLI:
+
+```bash
+hub note create content "Use the revised tone guide for the next draft."
+hub note list --to content --waiting
+hub note delete <note-id>
+hub task create --owner content --title "Draft the weekly post" \
+  --body "Use the notes attached to this task." --next-run
+```
+
+`--text-file notes.txt` can replace the note text; `--body-file request.txt` can replace a task's
+body. Notes are only for other bots, never a human or the sender itself. You need Write access to
+leave one, and the normal task/contact permissions apply to deferred work. Never put a secret in either.
+
+The next run started by chat, a Routine or another task carries waiting notes and deferred tasks.
+For a Note, the API reports `waiting`, `carried` and `cancelled_at`. `carried` means a run received
+it, not that the bot completed work. A failed run makes it waiting again. A sender or a human who
+can see it can cancel a waiting note; once a live or completed run carries it, it cannot be taken
+back. Cancellation keeps the history. Bots see notes sent by or to them; humans see their own
+sent notes and notes between bots whose activity they may read.
+
+A deferred Task remains open with `next_run_waiting: true` until a run carries it. It then follows
+ordinary task states and needs a completion result. Close it with
+`hub task close <task-id> --note "Cancelled before work began"` under the normal task permissions, or choose
+**Run now** on the task to start it sooner. Deferred does not mean delayed forever: the stalled-task
+check can wake an idle bot after 30 minutes when no other work or Routine will move it.
+
+The equivalent API calls are internal routes (subject to change); use your own rights and an
+`Idempotency-Key` on writes:
+
+```text
+POST /api/v2/notes                    {"to":"bot:content","text":"Use the revised tone guide."}
+GET  /api/v2/notes?to=bot:content&waiting=true
+POST /api/v2/notes/<note-id>/cancel    {}
+POST /api/v2/tasks                    {"owner":"bot:content","title":"Draft the weekly post","body":"Use the attached notes.","next_run":true}
+```
 
 **Where do files go?**
 Files you attach to a task or a chat are stored privately by your team's Tico server and the bot downloads them

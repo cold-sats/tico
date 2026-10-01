@@ -25,7 +25,7 @@ paste the new tokens. Invite Tico to a channel with `/invite @Tico`.
 Tico, invited to a channel, stores what is said there. Which bots read it, and whether bots may post in it, is a
 list in Tico's database, not a file:
 
-- **In the app.** Settings > Tools > Slack channels (an owner or an admin): the channel (`#customer_success` or its id),
+- **In the app.** Tools > Slack channels (an owner or an admin): the channel (`#customer_success` or its id),
   the bots that read it, whether bots may post (on unless you turn it off), and a note. A channel listed by name gets
   its id from Slack once Tico is in it.
 - **With `hub`.** `hub slack channel add '#customer_success' --reader support`, `hub slack channel list`,
@@ -58,7 +58,7 @@ file is ignored. A public install has no such file and needs none.
 | Socket Mode did not connect | The app-level token is wrong or lacks `connections:write`, or Socket Mode is off (the manifest turns it on). |
 | Missing scopes in `docker compose logs slack` | Paste the current manifest over the app's, then reinstall it. |
 | No reply in a channel | Tico must be invited to it, and the sender must be on the roster. |
-| A bot is refused a channel ("not on the team's Slack channel list") | Add the channel and the bot as a reader under Settings > Tools > Slack channels, or ask BotOps. |
+| A bot is refused a channel ("not on the team's Slack channel list") | Add the channel and the bot as a reader under Tools > Slack channels, or ask BotOps. |
 | Replies show as "Tico", not the bot | The `chat:write.customize` scope is missing; update the manifest and reinstall. |
 
 Kill switch: remove `slack` from `COMPOSE_PROFILES` and run `docker compose up -d --remove-orphans`.

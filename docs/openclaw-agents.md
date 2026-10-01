@@ -8,14 +8,17 @@ with `--harness openclaw`.
 ## Connect an OpenClaw profile in 2 minutes
 
 You need the OpenClaw profile set up already (`openclaw --profile <name> setup`, or the default profile in
-`~/.openclaw`), and the runner address of your Tico: the hostname in **Settings → Computers → Add computer**,
-for example `runner.acme.example`. Use the runner address, not the public one.
+`~/.openclaw`), and the Tico address shown in **Settings → Computers → Add computer**. Use that
+full address as `<Tico URL>` below: normally `https://tico.example.com`, or `http://127.0.0.1:8765`
+for a local install on the same computer. If an external sign-in proxy returns HTML instead of
+JSON, follow [proxy troubleshooting](connect-an-agent.md#behind-cloudflare-access-or-another-sign-in-proxy);
+built-in sign-in needs no separate hostname.
 
 1. On the computer that runs OpenClaw:
 
    ```bash
-   curl -fsSL https://<runner host>/api/v2/agents/setup-script -o hermes_agent.py \
-     && python3 hermes_agent.py pair --harness openclaw --profile <name> --url https://<runner host>
+   curl -fsSL "<Tico URL>/api/v2/agents/setup-script" -o hermes_agent.py \
+     && python3 hermes_agent.py pair --harness openclaw --profile <name> --url "<Tico URL>"
    ```
 
    Leave out `--profile <name>` for the default profile. The command prints a code like `K7QM-4F2P` and waits

@@ -19,7 +19,7 @@ outbound_send: false
 #   - service: gmail
 #     identity: "owner@example.com"
 #     can: [read, draft]          # send only with outbound_send: true
-#     env: GMAIL_CREDENTIALS      # credential in <workspace>/secrets/<slug>.env
+#     env: GMAIL_CREDENTIALS      # store a Credential and grant it to this bot
 # Files: what the runner lists on this bot's page after a completed run (docs/files.md). Default is
 # reports/ and artifacts/; `publish: []` turns it off.
 # files:

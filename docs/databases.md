@@ -17,9 +17,9 @@ hub db atlas find orders '{"status": "paid"}' --limit 20        # MongoDB: see "
 ## Where it runs, and why
 
 `hub db` runs on the computer that runs the bot, inside the run, not on the Tico server. The
-connection string can stay in a bot's local credential file, or be stored in Tico's credential vault and delivered for one run.
-The local-file path does not send the value to the server. In vault mode the server stores, decrypts and delivers it, so a
-compromised server could expose it. Actual database access depends on network reachability and the database role.
+connection string is stored in Tico's Credentials and delivered only to a bot granted it, for one run.
+The server stores, decrypts and delivers it, so a compromised server could expose it; protect the
+[Credential key and backups](credential-vault.md#the-local-credential-key-and-backups). Actual database access depends on network reachability and the database role.
 The server authenticates the caller, keeps the audit trail and serves named queries; `hub db` executes on the computer, and
 there is no `hub_db` tool on the server's MCP endpoint for that reason.
 
@@ -77,25 +77,25 @@ your runner computers are on.
 SQLite: nothing to create; give the owner's user read access to the file. `hub db` opens it
 `mode=ro`.
 
-### 2. Put the connection string on the computer
+### 2. Store a Credential and grant it
 
-The name is `DB_<NAME>_URL` for a database you will call `<name>` (`warehouse` gives
-`DB_WAREHOUSE_URL`; a `-` becomes `_`). In the runner's credentials folder, mode 600, never in git:
-
-```
-# <workspace>/secrets/<bot>.env  (only the bot granted this credential)
-DB_WAREHOUSE_URL=postgresql://tico_readonly:PASSWORD@replica.internal:5432/app?sslmode=require
-# Shared credentials are delivered only to bots granted them; see Shared credentials.
-# DB_WAREHOUSE_URL=op://Team Bots/Warehouse read only/url          (a 1Password reference works too)
-```
+The variable name is `DB_<NAME>_URL` for a database you will call `<name>` (`warehouse` gives
+`DB_WAREHOUSE_URL`; a `-` becomes `_`). In **Tools → Credentials → Add credential**, choose
+**connection**, set **Bot variable name** to `DB_WAREHOUSE_URL`, and paste the read-only connection
+string into **Value**. Save, then use **Access → Grant access to** to grant it to each bot that needs it.
+BotOps can open the Credential card and grant it for you. Never paste the value into ordinary chat,
+a task or a repository.
 
 Formats: `postgresql://user:pass@host:5432/db?sslmode=require`, `mysql://user:pass@host:3306/db`
 (`?ssl=true` or `?ssl_ca=/path/ca.pem` for TLS), `sqlite:////absolute/path/data.db`. Percent-encode
-special characters in a password (`@` is `%40`).
+special characters in a password (`@` is `%40`). Tico delivers the granted variable only during the
+bot's run. A stored `op://Team Bots/Warehouse read only/url` reference is resolved on its computer
+([Credentials](credential-vault.md)).
 
-Alternatively store it in **Settings, Credentials** with the environment name `DB_WAREHOUSE_URL`
-and grant it to the bots that need it ([credential-vault.md](credential-vault.md)); it reaches the
-bot's environment for the length of a run, and the access entry says `vault: hub`.
+Existing installs migrate their old credential files into grants on upgrade. File import is a
+migration path, not setup for a new bot: `hub credential import DB_WAREHOUSE_URL --from-bot <bot>`
+imports an old own-file value, then `hub credential grant DB_WAREHOUSE_URL --to <bot>` grants it.
+New runs do not load `secrets/<bot>.env` or `_shared.env` as a fallback.
 
 ### 3. Grant bots
 
@@ -114,7 +114,7 @@ tools:
     note: "revenue reporting only; counts, no customer rows"
 ```
 
-A bot without the entry is refused even when the credential sits in `_shared.env`. A human who
+A bot without the entry is refused even when it has the Credential grant. Both are needed. A human who
 runs `hub db` from their own shell (with their personal API token, see
 [how-it-works.md](how-it-works.md)) is granted by having the connection string in their own
 environment.
@@ -218,15 +218,15 @@ Network access, in one of two ways:
   Endpoint**, create the endpoint for the runner's VPC, and use the *private-endpoint* connection
   string Atlas shows for it (`mongodb+srv://...-pri.xxxxx.mongodb.net`). Nothing is opened to the internet.
 
-### 2. Put the SRV connection string on the computer
+### 2. Store and grant the SRV connection string
 
 In **Atlas, Database, Connect, Drivers**, copy the `mongodb+srv://` string and add the password, the
 database name in the path and `authSource=admin`:
 
-```
-# <workspace>/secrets/_shared.env  (mode 600, never in git)
-DB_ATLAS_URL=mongodb+srv://tico_readonly:PASSWORD@cluster0.ab1cd.mongodb.net/app?authSource=admin&retryWrites=false
-```
+Store that string as a **connection** Credential in **Tools → Credentials**, set **Bot variable name**
+to `DB_ATLAS_URL`, and grant it to each bot that needs Atlas (the same steps as SQL step 2).
+Its shape is `mongodb+srv://tico_readonly:<password>@<cluster-host>/app?authSource=admin&retryWrites=false`;
+put the actual value only in the Credential card.
 
 The name follows the same rule as for the SQL databases (`atlas` gives `DB_ATLAS_URL`). The path
 database (`/app`) is required: it is the database the operations run on. For a host under
@@ -330,15 +330,15 @@ audit records the entry with `{"$param": ...}` left in and the parameter names, 
 - **The statement checks are not a sandbox.** They catch the common mistake; a database
   function with side effects is only stopped by the role and the read-only session.
 - **Never share a writable URL** with a bot, and do not put the connection string in a repository,
-  a task or a chat. Rotate the password by changing it in step 1 and step 2; nothing in Tico
-  needs to change.
+  a task or a chat. Rotate the password in the database and update the stored Credential's value in **Tools → Credentials**
+  (step 2). Keep its name and grants; the next run receives the new value.
 
 ## Troubleshooting
 
 | You see | Usually |
 |---|---|
 | `grant: ... does not declare database` | the bot's `bot.yaml` has no `tools:` entry with `database: <name>` (step 3) |
-| `credential: DB_X_URL is not set` | step 2: wrong file, wrong name, or the bot's computer is not the one holding it |
+| `credential: DB_X_URL is not set` | step 2: store the Credential with the exact Bot variable name and grant it to this bot; files and shell exports do not grant access |
 | `driver: the postgres driver is not installed` | `pip install 'psycopg[binary]'` (MySQL: `PyMySQL`) in the runner's environment; both are in `backend/requirements.txt` |
 | `timeout` | add a date window or an index, or lower the work; the limit is 20 s unless the entry raises `timeout_seconds` (ceiling 120 s) |
 | `read_only` | the statement wrote, or used `INTO`. `hub db` never writes |
@@ -396,9 +396,9 @@ process, so restart the server after a change.
 **Deploying to the runners.** A runner needs three things and no query files:
 
 1. The Tico release (`hub`, `clients/dbquery.py`), which is what the runner already runs.
-2. Each bot's repository with its `bot.yaml` `tools:` entries: that is the grant.
-3. `secrets/` on the computer with the `DB_<NAME>_URL` values, kept out of git and out of the
-   config repository.
+2. Each bot's repository with its `bot.yaml` `tools:` entries declaring the databases.
+3. A stored Credential for each `DB_<NAME>_URL`, granted to that bot and delivered for its run.
+   Keep values out of git and out of the config repository.
 
 Named queries reach the runner over Tico's API at query time (`hub db <name> --query <id>` asks
 the server for the statement), so a query update is a server deploy only.
@@ -410,7 +410,7 @@ Do not send upstream pull requests that contain them.
 ## BigQuery, Snowflake and other warehouses
 
 `hub db` speaks PostgreSQL, MySQL/MariaDB, MongoDB and SQLite. For a warehouse with its own CLI, keep the
-same shape by hand: credentials in the runner's credential files, a read-only role or service account,
+same shape by hand: stored Credentials granted to the bot, a read-only role or service account,
 a bot `tools:` entry, and a tool page in your private config saying how to call the CLI.
 Examples: `bq query --use_legacy_sql=false --maximum_bytes_billed=1000000000 --format=csv 'SELECT ...'`
 (a service account with only `roles/bigquery.dataViewer` and `roles/bigquery.jobUser`, and a

@@ -21,7 +21,7 @@ Finish setup, and the wizard uses the same templates. A starter is created parke
 materializes the repository, and **Set up** opens its first conversation. Answer its questions and review its first draft.
 For another template, a task goes to BotOps to build the repository, apply the reviewed Instructions and check readiness.
 You can also ask BotOps for a custom bot in chat; it takes the bot through placement and setup as you.
-Assistant, BotOps, Librarian and Goal Manager are the four built-in bots; they cannot be archived or deleted.
+Assistant, BotOps, Librarian and Goal Manager are the four Built-in bots; they cannot be archived or deleted.
 
 The 94 templates, in nine groups with a Leadership extra and one message bot, are described in
 [Starter bots](starter-bots.md), with the card fields and the quality bar this page's advice is
@@ -33,7 +33,8 @@ are in [Finish setup](onboarding.md).
 
 ## Edit Instructions
 
-Open the bot's **Docs > Instructions > Edit Instructions**, or **Bot settings > Edit Instructions**.
+Open the bot's **More → Instructions → Edit Instructions**, or **Bot settings → Edit Instructions**.
+The Instructions card may be under **Docs** in an older app.
 Describe the change and choose **Ask BotOps to change**. BotOps receives your request in its chat and updates
 `AGENT.md` on the bot's computer. Description is separate: it summarizes the bot on the roster.
 The app displays the Instructions from the latest repository snapshot; refresh after BotOps finishes.
@@ -42,7 +43,7 @@ New repositories default to `bot-<slug>`.
 ## Copy a bot
 
 Ask BotOps to copy a bot ("make me a copy of the support bot"), or run `hub bot copy <bot> [--name "..."] [--with-memory]`
-on the computer that holds its repository. Anyone who may read the bot can ask. The copy is an ordinary, independent bot: it belongs
+on the computer that holds its repository. Anyone who may read the bot can ask. The Librarian cannot be copied. The copy is an ordinary, independent bot: it belongs
 to the person who asked, reports to them, counts toward their limit of bots like any bot they add, and starts `planned`. It has the
 original's model where the person may use it (else the team's default), and a new repository `bot-<slug>` made from the original's
 files at its current commit: `AGENT.md`, `skills/`, `playbooks/`, `knowledge/` and the `tools:` list, as one fresh commit (`Copied
@@ -79,14 +80,16 @@ A message bot is assigned to one human on the roster. **Settings → Bots → Ad
 the Finish setup cards) show a human picker when the template is `inbox`. The chosen address is
 appended to the instructions as `Mailbox: <email>`, and BotOps fills `{{mailbox}}` in
 `bot.yaml` from that line. The bot is created `planned`, with `outbound_send: false`, one
-routine, the weekday 07:30 email brief, declared off and switched on when its setup starts, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
+routine, the weekday 07:30 email brief in America/Los_Angeles (change its timezone in Settings → Routines),
+declared off and switched on when its setup starts, and gmail `read`/`draft` plus calendar `read` on that mailbox. It reads only that mailbox;
 `org_read: true`, which also reads everyone who reports to the human, is added by the owner
 deliberately. It starts with filing off (no labels, no archive) and shows what it would do.
 
 There is no per-user OAuth. One Google service account acts as every mailbox; the `tools:` block
-names the address, never a personal login. Calendar access is broader than Gmail access: every
-bot can read and create events on every address in `registry/people.yaml`, whether or not its
-manifest includes that mailbox and even when Gmail is read-only. After the first message bot, pick
+names the address, never a personal login. Mail-local calendar commands can read and create events on every address in `registry/people.yaml`,
+whether or not the manifest includes that mailbox and even when Gmail is read-only. Tico's MCP/API
+calendar tools instead allow a bot only the team owner's and its operator's calendars
+([calendar paths](mail.md#calendar)). After the first message bot, pick
 another human to create another (`<id>-inbox`).
 
 A brief runs `mail rules run`, then `mail inbox --untriaged --format brief --decisions`, and sorts
@@ -108,7 +111,7 @@ A bot is **one durable git repository plus one row in the server**. Three parts:
 
 | The server owns (change it in **Settings → Bots**) | The repository owns (change it in git) |
 |---|---|
-| Runtime, model, reasoning effort, `max_run_minutes` | `AGENT.md`, the standing instructions |
+| Runtime, model, reasoning effort, `max_run_minutes` | `AGENT.md`, the Instructions |
 | Which computer runs the bot | `playbooks/`, the repeatable methods |
 | Record status: `planned`, `active`, `paused`, `quarantined` | `knowledge/`, what is true in the domain |
 | Display name, reporting line, owner and primary human | `memory/`, dated learnings and decisions |
@@ -127,7 +130,7 @@ own paths, so renaming later is real work.
 
 | Path | What it is for |
 |---|---|
-| `AGENT.md` | The standing instructions. Read at the start of every run. **Required.** `AGENTS.md` and `CLAUDE.md` are one-line pointers at it, so any model CLI finds it |
+| `AGENT.md` | The Instructions. Read at the start of every run. **Required.** `AGENTS.md` and `CLAUDE.md` are one-line pointers at it, so any model CLI finds it |
 | `bot.yaml` | Identity and switches: `name`, optional runtime overrides, `tools:`, `outbound_send`, `reads:`. An older `employee.yaml` (with `access:` and `schedules:`) is still read for one release; the template refresh renames it |
 | `state.md` | Current focus, open threads, next step. Rewritten at the end of each run |
 | `memory/learnings.md` | How to do the job: the flag it forgot, the tool that refused, dated |
@@ -154,7 +157,7 @@ The runner checks these before it will run the bot, and the preflight script
 - **`routines:` in a template is a seed.** `hub bot create` turns it into the new bot's
   first routines in Tico; after that Tico's rows are the routines (`docs/routines.md`).
   Preflight validates the block so a broken template is caught before a bot is made from it.
-- **`.env` is never committed.** Credentials live on the computer or in the vault. Declaring a credential in
+- **`.env` is never committed.** Store Credentials in Tico and grant them to the bot. Declaring a credential in
   `tools:` does not create it.
 - **The working tree should be clean and have a remote.** A dirty tree or no remote is flagged:
   the bot commits and pushes after each run, and it cannot push without a remote.
@@ -328,16 +331,17 @@ Keep them current the cheap way: the bot edits its own playbook at the end of a 
 sideways, and notes it in `memory/learnings.md`. A playbook untouched for months, for a routine
 that fires daily, is either perfect or unread.
 
-**Do not hedge about permissions in prose.** Public-facing text, outbound messages, spending,
-publishing and merging are gated by the server: the bot files an approval and a human decides,
-and the approval is spent once. `outbound_send: false` keeps sends off entirely. So a playbook says
-"draft it and request approval", never "if you are allowed to, consider perhaps sending".
+**Say what the bot may do.** A playbook carries out the authorized request with its granted Tools;
+spending, publishing, merging, record changes and deletion have no blanket approval step.
+`outbound_send: false` keeps messages to outsiders as drafts until the owner turns sending on.
+An approval can still be requested for an uncertain action, with the exact action attached;
+it is optional, decided by a human and used once. See [Permissions](permissions.md).
 
 ## 5. Routines
 
 A routine is a row in Tico owned by the bot: a cron (or a Tico event), a title, and the text the
 bot is told. The server runs the clock and turns each occurrence into a normal task
-(`docs/routines.md`). Humans add them on the site (Tasks → Routines); a bot adds its own from a
+(`docs/routines.md`). Humans add them on the site (Settings → Routines); a bot adds its own from a
 run:
 
 ```
@@ -349,7 +353,7 @@ A template may declare the same thing under `routines:` in its `bot.yaml`
 (`id`, `title`, `cron` or `on`, `timezone`, `template: playbooks/<file>.md`, and optionally
 `enabled: false`); `hub bot create` seeds the new bot's routines from it once, and from then on
 Tico's rows are the routines. The starter templates declare their first routine with `enabled: false`:
-it exists and is visible under Tasks, Routines, and is switched on when the bot's setup starts (**Start setup**, go-live),
+it exists and is visible under Settings → Routines, and is switched on when the bot's setup starts (**Start setup**, go-live),
 so nobody approves it separately. Quote `"on":` in the
 YAML; an unquoted `on` is read as a boolean.
 
@@ -428,7 +432,7 @@ preflight then reports whether every declared Credential actually
 resolves. Two things need no entry: Tico itself (`hub` and the `hub_*` MCP tools come with
 every run) and the decision model behind `hub_decision_ask` (`skills/decisions/SKILL.md`), whose credential
 Tico holds. A bot that needs a service it has not declared stops and says so on the task; it never
-borrows another bot's credential. To let it use one, the owner grants it (Settings > Credentials), or asks BotOps in chat, which moves the value
+borrows another bot's credential. To let it use one, the owner grants it (Tools > Credentials), or asks BotOps in chat, which moves the value
 into the vault if needed and grants it as them ([credential-vault.md](credential-vault.md)).
 
 ### What humans see about a bot's tools
@@ -485,9 +489,9 @@ being changed until the computer reports it, and nothing is removed.
 
 **Credentials are never part of it.** `env` is the variable's *name*. A value is refused, and so is
 anything that looks like a key, a token, a password or a URL with one in it; the check is a guard
-against pasting one by mistake, not a substitute for care. The owner puts the value on the bot's
-computer ([install.md](install.md), "Add computers to run your bots", or the credentials table above),
-or grants it from the credential vault ([credential-vault.md](credential-vault.md)). Until it is
+against pasting one by mistake, not a substitute for care. Store the value in **Tools → Credentials**
+or its chat card, set its Bot variable name and grant it to the bot
+([Credentials](credential-vault.md)). Until it is
 there the tool shows "Credential missing on <computer>".
 
 ## 7. Harness, model, effort and fallback
@@ -593,8 +597,8 @@ Two consequences when you run more than one environment:
 - **Promote instructions, not state.** `AGENT.md`, `playbooks/` and `software/` travel well.
   `state.md`, `memory/` and most of `knowledge/` do not: they are that bot's history in that
   environment.
-- **Credentials never travel.** Each environment's `secrets/` directory is its own, on its own
-  computer, and a vault grant in one environment means nothing in another.
+- **Credentials stay with their environment.** Store and grant them separately in each environment;
+  a Credential grant in one environment means nothing in another. Legacy files are migration sources only.
 
 Custom `can` verbs describe intent; they do not add enforcement. Standard verbs use each Tool's supported permission checks.
 Use `hub tool add <bot> <service> --can <verbs> --dry-run` to validate an entry without opening a BotOps task.

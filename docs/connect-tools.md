@@ -33,8 +33,9 @@ is one example. When Tico cannot maintain the MCP connection, a REST skill with 
 
    - `url` is https (plain http only for localhost). `transport` is `http` (streamable HTTP, the default) or `sse`.
    - `headers` may use `${VAR}` for the entry's own `env` variable and nothing else. The value is never in the file.
-   - The value reaches the run only if it is granted to this bot: its own secrets file, a credential profile, or
-     Settings > Credentials. Nothing from the runner's own environment is used. A server whose variable is not
+   - Store the value in **Tools → Credentials** or a Credential card and grant it to this bot.
+     Its own secrets file and credential profiles are legacy migration sources; new runs do not load them.
+     Nothing from the runner's own environment is used. A server whose variable is not
      granted is left out, and the run's log says which.
    - From a shell or a chat: `hub tool add <bot> linear --can read,write --env LINEAR_API_KEY --mcp-url https://mcp.linear.app/mcp
      --header 'Authorization: Bearer ${LINEAR_API_KEY}'`. `hub tool update` takes the same three flags.
@@ -127,8 +128,9 @@ can use a **personal API key** instead, created with the **MCP Server** preset (
   env: POSTHOG_PERSONAL_API_KEY
 ```
 
-Not verified: the EU cloud address for a key. PostHog's page says the server routes by the account you sign in with; a search
-result named `mcp-eu.posthog.com`. If the Tools tab says auth failed on an EU project, try that address.
+Use `https://mcp.posthog.com/mcp` for both US and EU projects. PostHog routes authentication to the
+account's region; see its [server URL and region note](https://posthog.com/docs/model-context-protocol/codex#server-url).
+If authentication fails, check the personal API key's project and MCP Server preset.
 
 ## Sentry
 

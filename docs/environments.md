@@ -31,7 +31,8 @@ lowercase letters, digits and single hyphens.
 The **workspace** is deliberately outside this directory, because it is the team's own material
 rather than the product's state. It defaults to `~/Companies/<Company>`, is created mode 0700, and
 holds `bot-<slug>/` bot checkouts (older `emp-<slug>/` folders keep working), their uncommitted `bot-<slug>.data/` siblings, and `secrets/`
-(mode 0700) with the `.env` files bots are given. `env remove` never deletes it.
+(mode 0700) with legacy credential files for migration and the service jobs' own files.
+Bot runs receive only granted Credentials from Tico. `env remove` never deletes it.
 
 Every run is given the workspace as `HUB_WORKSPACE`, alongside `HUB_API_URL`, `HUB_TOKEN`,
 `HUB_BOT` and `HUB_DIR` (this checkout). It is how `hub bot create` knows where a new bot
@@ -139,7 +140,9 @@ Because a relocated `HOME` is an empty home, `profile add` copies `~/.gitconfig`
 and `grok` homes, so a bot's commits still have an author. Edit them per environment if that is wrong.
 
 **Gemini is an API key, not an interactive login.** `profile login <name> gemini` says so and
-exits: put `GEMINI_API_KEY` in `<workspace>/secrets/_shared.env` or `<workspace>/secrets/<bot>.env`.
+exits: store a Credential with **Bot variable name** `GEMINI_API_KEY` in **Tools → Credentials**
+and grant it to the bot. **Every computer (signs models in)** separately signs model software in;
+a bot still needs its own grant. Existing credential files are migration sources only.
 The profile still owns that runtime's session directory.
 
 **Antigravity stays per macOS user.** A bot with `runtime: gemini` and `harness: antigravity` runs
@@ -343,8 +346,10 @@ scripts/tico env remove acme --delete-data
 `remove` refuses, and names what it found, while `hub.sqlite`, `blobs/`, `profiles/`, `runner.json`
 or any `state-*` directory exists. Repeat with `--delete-data` once the services are stopped and a
 backup is taken. Logs are not on that list. **The workspace is never deleted either way**, so the
-bot repositories survive. Neither form revokes the runner on the server, and there is no button for
-it yet: `POST /api/v2/computers/<runner_id>/revoke` is what stops that credential working.
+bot repositories survive. Neither form revokes the runner on the server. In **Settings → Computers**,
+choose **Remove computer** to revoke its registration (`POST /api/v2/computers/<runner_id>/revoke`).
+Its bots remain visible; reassign them to another computer in **Settings → Bots**. Removal does not
+stop the local runner or delete its files; follow the stop command shown on the Computers page.
 
 ## Troubleshooting
 

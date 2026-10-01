@@ -168,8 +168,10 @@ POST /api/v2/me/tokens   {"label": "portal-backend", "expires_in_days": 90}
 The token is shown once and only its hash is kept. `GET /api/v2/me/tokens` lists yours (without the tokens) and
 `POST /api/v2/me/tokens/{id}/revoke` ends one at once. Know what you are creating:
 
-- **There are no scopes.** A token has all the rights of the human, and the human must be the owner or a bot
-  administrator to make one, so a token is at least a bot administrator. It cannot create or revoke tokens.
+- **There are no scopes.** A personal token acts with its human's own rights, including a member's.
+  Members can create tokens by default; the owner can turn off member tokens in **Settings → Humans**.
+  A token grants no extra rights and cannot create or revoke tokens. See
+  [External agent permissions](connect-an-agent.md).
 - It lasts 90 days unless you say otherwise, at most a year. Rotate before it expires. It ends when the human leaves
   the roster.
 - **Never put one in a browser**, in a mobile app, or in frontend source code. Anything a browser holds, a human can read.

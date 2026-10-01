@@ -104,8 +104,8 @@ format is a `422` that names the problem.
 ## Who can do what
 
 - **A human** (the owner or anyone on the roster) imports meetings of their own with their own
-  credential, from the page or with a personal token (`Connect an external agent` makes one for the owner
-  and bot administrators). The meeting is theirs: only they and the team owner edit, delete or
+  credential, from the page or with a personal token. **Connect an external agent** makes a token
+  with that human's own rights; members can make one by default unless the owner switches off member tokens. The meeting is theirs: only they and the team owner edit, delete or
   Send it.
 - **A computer** that runs an importer (a registered runner whose owner is in
   `TICO_PROCESSING_OPERATORS`, else the owner's) files meetings for a roster human it names in

@@ -1,17 +1,17 @@
-"""`hub db`: read-only queries against a company database, run on the computer that holds the credential.
+"""`hub db`: read-only queries against a team database, run on the computer that holds the credential.
 
   hub db list                                    the databases this bot may use
   hub db doctor [name]                           check the grant, the credential, the connection, read-only
   hub db <name> "<select>" [--param k=v ...]     one read-only statement
-  hub db <name> --query <id> [--param k=v ...]   a named query from the company's catalog
+  hub db <name> --query <id> [--param k=v ...]   a named query from the team's catalog
   hub db <name> find|aggregate|count|distinct|collections ...   a MongoDB database (clients/dbmongo.py)
 
-It runs beside the bot, never on the server, because the connection string lives on the runner
-computer (`secrets/*.env` or a vault credential delivered for the turn) and the server must never
-hold it. The rules are enforced here, in layers: the bot must declare the database under
+Queries execute beside the bot, never on the server. Tico stores the encrypted Credential and
+delivers it only to a granted bot for the run; database access also needs network reachability
+from that computer. The rules are enforced here, in layers: the bot must declare the database under
 `tools:` in `bot.yaml` (older: `access:` in `employee.yaml`); the statement must be one SELECT-like statement; the session is
 opened read-only; a row cap and a timeout apply; credentials are scrubbed from every message;
-and each query is recorded on the hub (statement, row count, time, no result data) before its
+and each query is recorded in Tico (statement, row count, time, no result data) before its
 rows are shown. The database role's own permissions are still the first line of defence:
 `docs/databases.md` says how to create a read-only one.
 """
@@ -522,8 +522,10 @@ def open_database(name, actor, environ=None):
     variable = str(entry.get("env") or env_name(name))
     url = str(environ.get(variable) or "").strip()
     if not url:
-        raise Refusal("credential", f"{variable} is not set for this run. The operator puts the read-only connection string "
-                                    "in secrets/_shared.env or secrets/<bot>.env, or grants the vault credential to the bot "
+        setup = (f"Store the read-only connection string in Tools > Credentials with Bot variable name {variable} "
+                 "and grant it to this bot" if actor.startswith("bot:") else
+                 f"Set {variable} to the read-only connection string in your own shell environment")
+        raise Refusal("credential", f"{variable} is not set for this run. {setup} "
                                     "(docs/databases.md, step 2). Do not ask for a writable URL.")
     return Database(name=name, kind=kind_of(url), url=url, max_rows=limit(entry, "max_rows", DEFAULT_MAX_ROWS, MAX_ROWS_CEILING),
                     timeout=limit(entry, "timeout_seconds", DEFAULT_TIMEOUT, TIMEOUT_CEILING),

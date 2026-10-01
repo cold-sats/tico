@@ -69,7 +69,7 @@ Five checks you can apply to any bot's output in ten minutes (the full version, 
 2. **Short and scannable.** One page, one line per item, decided in two minutes.
 3. **Cited.** Every claim names its record and date.
 4. **Honest about gaps.** What it could not read is named; a missing fact is a marked gap, never an invented one.
-5. **Gated.** Nothing leaves the team or changes a record without a Confirm, and the draft is ready to approve with one edit.
+5. **Within the request.** The bot uses its granted Tools for the requested work. Messages to outsiders stay drafts until its outbound send switch is on.
 
 Your first approved output is the milestone that matters: the checklist counts it, not how many bots exist.
 

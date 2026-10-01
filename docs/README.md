@@ -1,6 +1,6 @@
 # Tico documentation
 
-[Start here](install.md) · [Use Tico](using-tico.md) · [Glossary](glossary.md)
+[Start here](install.md) · [Use Tico](using-tico.md) · [Navigation](navigation.md) · [Glossary](glossary.md)
 
 Tico coordinates a Team of humans and bots. A small server stores the app and team data; computers run bots with the team's
 model subscriptions. The server runs no bots or model CLIs; it may call your configured Decision provider. Setup suggestions

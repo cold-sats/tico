@@ -48,12 +48,25 @@ It prints a link that signs you in once. Open it in your browser: the app opens 
    Wait for the computer's model sign-in to show **ready**. Other harnesses use their own terminal sign-in; API credentials and
    profiles are explained in [Harnesses](harnesses.md). Pick a provider in **Settings > AI providers** if you skipped it,
    then choose the starter's model in **Settings > Bots**.
-6. **Set up one starter.** Select just one, such as Docs Writer, open its page and press **Set up**. Tell it who its work is for
-   and give it a few notes. If it needs a Tool or Credential, use the connection or credential card it opens. Answer its questions
-   and review its first draft in the same chat. Outbound sending stays off until you turn it on for that bot.
-7. **Finish one task.** On **Tasks > New task**, assign the starter a small job, such as “Write a one-page welcome guide from
-   these notes: our team builds an example app; we meet Mondays; ask Sam for help.” Open the task to read its result, then close it.
-   Success is a reviewed draft and a completed task, with the computer online and no blocking Health issue.
+6. **Set up one starter.** Select **Content Marketer** (`content`, in Marketing), open its page and press **Set up**.
+   It needs only Tico; no GitHub or outside Tool is required. Paste the sample answers below, answer any remaining
+   questions and review its first draft in the same chat. Outbound sending stays off until you turn it on for that bot.
+7. **Finish one task.** On **Tasks > New task**, assign it: “Draft a 150-word launch post for project teams from these facts:
+   our example app keeps tasks and meeting notes together; readers can try it locally; use a plain, friendly voice and invent
+   no claims.” Open the task to read its result, then close it. Success is a reviewed draft and a completed task, with the
+   computer online and no blocking Health issue.
+
+### Sample answers for Content Marketer
+
+Paste this into its Setup chat (or replace it with your own facts):
+
+> Our readers are project teams; the next step is to try our example app locally. Plan a weekly blog post and a short
+> social version; keep both as drafts for me. Two voice examples: “Keep the next task beside the meeting notes.” and
+> “Pick one job, write down the result, and share it with your team.” Avoid “The ultimate revolutionary platform.”
+> Readers ask how to keep tasks and notes together, how to follow up after a meeting, and how to get a first result.
+> Facts for the first draft: our example app keeps tasks and meeting notes together, and people can try it locally.
+> No customer names, invented numbers, testimonials, comparisons or roadmap promises. Send the plan to me; use no
+> external Tools for this first draft.
 
 ### First-result recovery
 
@@ -71,15 +84,15 @@ By hand, on any computer with Docker (the same thing the installer does): downlo
 to `.env`, keep only these lines, and run `docker compose up -d`:
 
 ```
-TICO_COMPANY_NAME=Acme
+TICO_TEAM_NAME=Acme
 TICO_OWNER_EMAIL=you@example.com
-TICO_TAG=v0.2.30
+TICO_TAG=v0.2.32
 TICO_PORT=8765
 COMPOSE_PROFILES=updater
 TICO_UPDATER_URL=http://updater:8080
 ```
 
-Set `TICO_TAG` to the release whose bundle you downloaded. To upgrade by hand, run that release's installer with `--version vX.Y.Z`; it replaces the bundle and pins the images.
+Set `TICO_TAG` to the release whose bundle you downloaded. `TICO_COMPANY_NAME` remains an alias for existing installs. To upgrade by hand, run that release's installer with `--version vX.Y.Z`; it replaces the bundle and pins the images.
 
 Then get the sign-in token with `docker compose exec server cat /data/local-owner.token` and open
 `http://127.0.0.1:8765/api/v2/local-signin?token=<token>`. The app opens on the first-run wizard; you can create the team
@@ -444,7 +457,7 @@ docker exec -it -u bot tico-runner codex login --device-auth      # ChatGPT subs
 docker exec -it -u bot tico-runner claude setup-token             # Claude: prints a long-lived token
 ```
 
-Store API keys and other Credentials in **Settings > Credentials**, set their environment-variable name,
+Store API keys and other Credentials in **Tools > Credentials**, set their environment-variable name,
 and grant them to each bot that needs them. A bot run receives only its grants; it does not inherit
 `_shared.env` or the runner's process credentials. On upgrade, each existing bot is granted its own keys and every
 key in its computer's `_shared.env`, so its access continues. Bots created after the upgrade start with none. See [Credentials](credential-vault.md).

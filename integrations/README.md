@@ -27,7 +27,7 @@ kind: api                   # api | sql | browser | mail | cli  (sql = any datab
 summary: One line for the list.
 access: How a bot reaches it (the connector, CLI or API), one line.
 credentials:                # env var names and where the value lives; never values
-  - POSTHOG_API_KEY — a read-only key, granted from Settings → Credentials or in the bot's secrets file
+  - POSTHOG_API_KEY — a read-only key, stored in Tools → Credentials and granted to this bot
 declared_as: |              # the `tools:` entry a bot carries in bot.yaml
   - service: posthog
     can: [read]

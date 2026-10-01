@@ -6,10 +6,10 @@ summary: Close call and Notetaker transcripts imported into Meetings by the runn
 access: "The runner's `close-calls` job imports transcripts; a bot that declares it calls the Close REST API at https://api.close.com/api/v1/ with CLOSE_API_KEY (HTTP Basic, the key as username, empty password); no shared connector"
 credentials:
   - CLOSE_API_KEY in secrets/close-calls.env on one runner computer, read only by the close-calls job
-  - CLOSE_API_KEY in a bot's own secrets file, or granted from Settings → Credentials, for a bot that reads the Close account
+  - CLOSE_API_KEY stored in Tools → Credentials and granted to the bot, for a bot that reads the Close account
 declared_as: |
   - service: close-crm
-    identity: "the company's Close account"
+    identity: "the team's Close account"
     can: [read]
     env: CLOSE_API_KEY
     note: "GET only; ids and labels, no contact details in tasks or reports"
