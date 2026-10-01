@@ -75,6 +75,11 @@ When the bot's repository is on GitHub and the file is committed and pushed, the
 the commit and the row offers **View on GitHub** at that exact commit.
 
 A bot's deliverable attached to a task (`hub task attach`) is listed as a file for that task too.
+Text attachments preserve indentation, spaces and final newlines. Unsupported bot deliverable types return a clear
+422 error listing the allowed types.
+
+`hub file archive <id>` also accepts a task attachment's ID. A task participant or a human who may move the task can
+archive it; the attachment is detached from the task and the action is recorded. Stored bytes and version history remain.
 
 ## Visibility
 
@@ -100,6 +105,9 @@ Stable v2 (`docs/openapi/v2.json`): `GET /api/v2/bots/{bot}/files?limit=&cursor=
 activity, with the visible `total`), `POST /api/v2/files/uploads`, `/links`, `/imports`,
 `PATCH /api/v2/files/{id}` (title, task, archive, promote), `GET /api/v2/files/{id}/activity` and
 `/versions`. Display names come as `actor_name` and in `actors`, as everywhere in v2.
+`GET /api/v2/bots/{bot}/instructions` reads the Computer's latest Instructions snapshot with the bot's Read permission.
+It returns `content`, `published`, `updated` and `source`; `published: false` means the Computer has not reported content yet.
+It never substitutes the bot's description for its Instructions.
 `docs/custom-frontend.md` and `examples/custom-frontend` show a bot's Files in a frontend of your own.
 
 ## Retention

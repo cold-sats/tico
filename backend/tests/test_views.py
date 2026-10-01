@@ -108,10 +108,18 @@ def test_bot_instructions_show_the_published_file_and_do_not_substitute_descript
     path = "/api/employees/ops/files"
     before = api.get(path, headers=headers()).json()
     assert before["AGENT.md"] == ""
+    snapshot = get(api, "bots/ops/instructions")
+    assert snapshot["content"] == "" and snapshot["published"] is False and snapshot["updated"] is None
     text = "# Instructions\n\nUse the support policy.\n"
     with api.app.state.store.transaction() as c:
         c.execute("INSERT INTO bot_agent_instructions VALUES(?,?,?,?)", ("ops", text, "computer-1", H.now()))
     assert api.get(path, headers=headers()).json()["AGENT.md"] == text
+    snapshot = get(api, "bots/ops/instructions")
+    assert snapshot["content"] == text and snapshot["published"] is True and snapshot["updated"]
+    from backend.tests.test_api import restrict
+    with api.app.state.store.transaction() as c:
+        restrict(c, "ops", people=["ana"])
+    assert api.get("/api/v2/bots/ops/instructions", headers=headers("cara-test")).status_code == 404
 
 
 def test_computers_omit_archived_bots_and_show_team_services_once(api):

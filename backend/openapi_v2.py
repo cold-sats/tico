@@ -75,6 +75,9 @@ STABLE = [
      "Who may see, read and write to a bot (its managers only; docs/permissions.md)", "BotAccessView"),
     ("/api/v2/bots/{bot}/access", "put", "Bots", "setBotAccess",
      "Set who may see, read and write to a bot; send the revision you read (409 version_conflict otherwise)", "BotAccessView"),
+    ("/api/v2/bots/{bot}/instructions", "get", "Bots", "getBotInstructions",
+     "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
+     "BotInstructions"),
     ("/api/v2/bots/{bot}/onboarded", "post", "Bots", "markBotOnboarded",
      "A starter bot's own call, or its manager's, once its setup is done: `onboarding_state` goes "
      "from `needs_setup` to `onboarded`. Repeating it changes nothing; 409 bot_limit for a member's bot over their limit",
@@ -358,6 +361,7 @@ SCHEMAS = {
     "GroupList": items(ref("Group")),
     "Org": obj({"people": items(ref("Person")), "bots": items(ref("OrgBot")), "org_groups": "a", "teams": "o"}),
     "BotList": items(ref("Bot")),
+    "BotInstructions": obj({"bot": "s", "content": "s", "published": "b", "updated": "n", "source": "s"}),
     "BotOnboarded": obj({"bot": "s", "onboarding_state": "s", "changed": "b"}, required=["bot", "onboarding_state", "changed"]),
     "BotTool": obj({"id": "s", "service": "s", "name": "s", "logo_key": "n", "identity": "s", "can": items({"type": "string"}),
                     "scope": {"type": "object", "description": "Service-specific fields, a string or a list of strings each: "

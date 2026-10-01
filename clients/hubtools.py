@@ -163,8 +163,8 @@ def doc_archive(api, args):
     return person.patch(f"docs/{row['id']}", {"version": row["version"], "archived": True}, key=_key(args))
 
 
-@tool("hub_file_archive", "Archive a File with your rights; its history stays.",
-      {"id": _s("File id")}, required=("id",), writes=True)
+@tool("hub_file_archive", "Archive a File or detach a task attachment with your rights; its history stays.",
+      {"id": _s("File or task attachment id")}, required=("id",), writes=True)
 def file_archive(api, args):
     return _as_person(api).patch(f"files/{args['id']}", {"archived": True}, key=_key(args))
 
@@ -1317,12 +1317,10 @@ def bot_set(api, args):
 
 
 # ----------------------------------------------------------------------------- bots and people, for BotOps
-# BotOps acts for the person whose chat message started its turn: the server checks every one of these with
-# that person's own rights (docs/permissions.md). What always needs their click comes back as a Confirm
-# card (`needs_confirm: true`): tell them it is waiting in their chat; do not ask them to use Settings.
+# The server applies the requester's rights to all BotOps calls (docs/permissions.md).
 def _for_person(api):
     """`{"on_behalf_of": "turn"}` when a bot (BotOps) is calling: the requester's rights, not the bot's."""
-    return {"on_behalf_of": "turn"} if str(api.get("me").get("actor", "")).startswith("bot:") else {}
+    return {"on_behalf_of": "turn"} if kind_of(api.get("me")) == "botops" else {}
 
 
 def audience(value):
@@ -1455,8 +1453,7 @@ def group_update(api, args):
 
 # ----------------------------------------------------------------------------- BotOps: what the app can do, as the requester
 class _Requester:
-    """The same `api`, acting as the person BotOps works for: the server answers each call with that person's own rights
-    and records it "via BotOps", or answers with a Confirm card for what always needs their click."""
+    """The same `api`, using the requester's rights, recorded via BotOps."""
 
     def __init__(self, api):
         self.api = api
@@ -1475,10 +1472,12 @@ class _Requester:
 
 
 def _as_person(api):
-    """`api` itself for a person's own token; the requester's for a bot (only BotOps is let)."""
-    if "_tico_is_bot" not in api.__dict__:
-        api.__dict__["_tico_is_bot"] = str(api.get("me").get("actor", "")).startswith("bot:")
-    return _Requester(api) if api.__dict__["_tico_is_bot"] else api
+    """BotOps uses the requester; other callers keep their own rights."""
+    if isinstance(api, _Requester):
+        return api
+    if "_tico_is_botops" not in api.__dict__:
+        api.__dict__["_tico_is_botops"] = kind_of(api.get("me")) == "botops"
+    return _Requester(api) if api.__dict__["_tico_is_botops"] else api
 
 
 def _api_path(path):
@@ -1486,8 +1485,8 @@ def _api_path(path):
     return path[len("/api/v2/"):] if path.startswith("/api/v2/") else path.lstrip("/")
 
 
-@tool("hub_api", "Use a v2 route with your own rights. BotOps acts as the human who asked, with that person's rights. "
-      "A server Confirm card still needs their click. Requested bot deletion, outside-domain invites, Team rules and "
+@tool("hub_api", "Use a v2 route with your own rights. BotOps uses the requester's rights by default, including a requesting bot's narrower rights. "
+      "Requested bot deletion, outside-domain invites, Team rules and "
       "Tico updates run directly. Never put a secret in body; use Credentials or its chat card. Prefer a friendly tool when one fits.",
       {"method": _s("GET, POST, PUT, PATCH or DELETE", enum=["GET", "POST", "PUT", "PATCH", "DELETE"]),
        "path": _s("A v2 route: /api/v2/bots/jira-manager/model or bots/jira-manager/model"),

@@ -58,8 +58,7 @@ def check_name(name):
         raise Refused(f"{base} looks like a credential, so it is never published")
     suffix = Path(base).suffix.lower()
     if suffix not in TYPES:
-        raise Refused(f"{suffix or base} files are not published (documents, images, csv, json, md, html, pdf, "
-                      "office files are)")
+        raise Refused(f"{suffix or base} files are not published. Allowed types: " + ", ".join(sorted(TYPES)))
     return base, TYPES[suffix]
 
 

@@ -20,6 +20,7 @@ from . import models as M
 from . import note_outcomes
 from .blobs import Blobs, brief, register
 from .files import is_file_id
+from clients import bot_files as BF
 from . import rooms
 from .store import H, P, Problem, encode
 from .views import default_bot, human_only, roster
@@ -46,6 +47,7 @@ class Send(M.Contract):
 
 class TaskFile(M.Contract):
     """A deliverable a bot (or person) attaches to a task: text as-is, or bytes base64-encoded."""
+    model_config = {**M.Contract.model_config, "str_strip_whitespace": False}
     name: str = Field(min_length=1, max_length=200)
     text: str | None = Field(default=None, min_length=1, max_length=2_000_000)
     content_base64: str | None = Field(default=None, min_length=1, max_length=14_000_000)
@@ -373,6 +375,13 @@ def install_media(app, store, auth, mutate, send_message, task_create):
         if not data or len(data) > 10_000_000:
             raise Problem("validation", "A file is at least one byte and at most 10 MB", 422)
         content_type = mimetypes.guess_type(body.name)[0] or ("text/plain" if body.text is not None else "application/octet-stream")
+        if who.role == "bot":
+            try:
+                BF.check_name(body.name)
+            except BF.Refused as exc:
+                raise Problem("file_refused", str(exc), 422) from exc
+        with store.read() as c:
+            auth.task(c, who, tid)
         digest = blobs.put(data)
         def work(c):
             auth.task(c, who, tid)

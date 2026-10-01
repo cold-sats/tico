@@ -155,3 +155,21 @@ def test_go_live_turns_the_first_routine_on_once_and_a_strangers_message_does_no
         c.execute("UPDATE schedule_config SET enabled=0 WHERE schedule_id LIKE 'support:%'")
     again = api.post("/api/v2/bots/support/go-live", json={}, headers=signed_in())
     assert again.status_code == 200 and enabled() == 0
+
+
+def test_go_live_preserves_a_routine_disabled_before_activation(environment):
+    api = environment(cards=[(ASSISTANT_CARD, ASSISTANT_AGENT), (BOTOPS_CARD, "")])
+    real_starters(api, "support")
+    machine(api)
+    assert draft(api, selected={"support": {"template": "support", "display_name": "Help desk",
+                                            "instructions": "No schedule"}}).status_code == 200
+    api.post("/api/v2/onboarding/complete", json={}, headers=signed_in())
+    with api.app.state.store.read() as c:
+        sid = c.execute("SELECT id FROM schedules WHERE bot='support'").fetchone()[0]
+    disabled = api.post("/api/v2/routines/" + sid, json={"enabled": False}, headers=signed_in())
+    assert disabled.status_code == 200, disabled.text
+    live = api.post("/api/v2/bots/support/go-live", json={}, headers=signed_in())
+    assert live.status_code == 200, live.text
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT enabled FROM schedule_config WHERE schedule_id=?", (sid,)).fetchone()[0] == 0
+        assert not c.execute("SELECT 1 FROM events WHERE action='bot.routine_armed' AND target='support'").fetchone()

@@ -84,7 +84,7 @@ The product favours getting going fast, and the owner tightens it later. Setting
 | Rule | On (default) | Off |
 | --- | --- | --- |
 | **Assistant acts without asking** | the Assistant makes tasks for bots, comments on tasks no other human is on, and messages bots directly; a card is for anything else ([Assistant](assistant.md)) | the Assistant acts directly only on the human's own tasks; a task, message or comment involving a bot is a card |
-| **BotOps changes providers and limits without asking** | BotOps sets the team's AI providers and raises spending limits at once (lowering a limit is always direct) | both are a Confirm card |
+| **BotOps changes providers and limits without asking** | Legacy setting kept for compatibility; BotOps uses the requester's rights directly | BotOps still uses the requester's rights directly |
 | **Admins store credentials** | Admins are credential administrators | only the owner (and `TICO_CREDENTIAL_ADMINS`) stores credentials |
 | **Admins see SQL** | Admins open the SQL page | the SQL page is the owner's |
 | **Members make personal tokens** | any human makes a personal API token, which sees what they see | the owner and the Admins do |
@@ -145,7 +145,7 @@ created by a member has Instructions the Team has not reviewed, so it does not g
 
 A computer still hosts its owner's bots and the team owner's; taking members' bots adds members' bots, it does not move anyone else's.
 
-## BotOps acts as the human who asked
+## BotOps uses the requester’s rights
 
 An owner should be able to say "build me a Jira bot, and add Sam" in chat with BotOps and have it done. BotOps therefore acts **as the
 human whose own chat message started its current run**, checked with that human's rights and recorded as theirs, "via BotOps"
@@ -155,15 +155,18 @@ For unfinished work, BotOps can create a continuation task with `hub task create
 The server checks that the request came from the human's own BotOps chat and keeps that human as requester.
 Progress with `hub task update <id> --quiet --note "..."` stays on the task; chat still shows its link and status.
 
-BotOps never acts for a message a **bot** wrote, one the **Assistant** wrote for a human (`refs.via`), a human's words
-**inside a task** or a document, a message **routed from Slack** (anyone in the thread can shape it), or a message more than a week old.
+Every BotOps tool uses the requester's rights by default. A human's chat or task uses that human's full rights.
+A bot's message or task uses only that bot's rights, including its Credential grants; BotOps never lends it a human's
+or its own wider access. Unattended work with no requester keeps BotOps' own rights. Personal tokens use their human's rights.
+Task text cannot select another requester. A message the **Assistant** wrote for a human (`refs.via`), words inside a
+document, a message **routed from Slack**, or a chat message more than a week old cannot borrow human authority.
 A message cited by id (`on_behalf_of`) must be the requester's own, in their own chat with BotOps rather than a room another human
 spoke in, and under a day old, and it must be the same human whose message started the run. Someone who has left lends nothing.
-A refused request answers `on_behalf_of`; BotOps reports it and stops.
+If a friendly tool refuses for permissions, BotOps retries the same action with `hub_api` before handing work back. Both use the same rights.
 
 The same goes for routines and quarantine: BotOps sets a bot's routines only as the human who asked, who must manage that bot (a
 run no human started, such as setup, may seed routines on a bot still being built from its template and nothing else), and clears
-a quarantine only citing that human's message and their management of the bot. BotOps has no authority of its own over other bots.
+a quarantine only citing that human's message and their management of the bot. Unattended BotOps work retains its own rights.
 
 The commands (with MCP tools of the same names):
 
@@ -185,59 +188,25 @@ The commands (with MCP tools of the same names):
 | `hub credential request\|set\|list` | a card for a credential in the chat, storing one a human pasted, the credentials with their bots (never a value); see [credential-vault.md](credential-vault.md) |
 | `hub credential grant <name> --to <bot>`, `hub credential revoke <name> --from <bot>` | give a bot a stored credential, or take it away; at once for a credential administrator or a holder delegating to a bot they own or run; revoke the delegation to take it away |
 | `hub credential import <VAR> --from-bot <bot>` | move one variable from that bot's own secrets file into Credentials, granted to that bot; the computer sends the value itself and nobody sees it |
-| `hub support file "<message>"` | tells the Tico team about a gap or a fault: a Confirm card shows the exact message, and nothing is sent until they confirm |
+| `hub support file "<message>"` | sends a requested support message to the Tico team with the requester's rights |
 | `hub api <METHOD> <path> ['{json}']` | any other v2 route, as the requester |
 
-`hub api` (and every friendly command above) sends `X-Tico-On-Behalf-Of: turn`. The server answers the request **as the requester**, so its own
-checks are the only gate: a member is refused what only an owner may do, an owner is not. A route is one of three kinds
-(`backend/botops_act.py`): it **runs at once** (bots, routines, goals, tasks, docs, access, models, placement, credential grants and revoking them, a computer's restart
-and model sign-in, providers and spending limits, messages and chat to bots, adding humans (outside the domain needs an owner or admin), deleting bots and their repositories, updating Tico), it comes
-back as a **Confirm card** (below), or it is **not delegable** at all: tokens and enrollment codes, approvals, transferring ownership, a
-stored credential's own routes, external agent credentials. Reads are the requester's reads. A credential never travels in a `hub api` body (a key named
-`secret`, `password`, `token`, `api_key` and the like is refused).
+The server applies the requester's rights to every BotOps v2 call, including friendly tools and `hub api`.
+Older Computers receive the same behavior without adding a delegation header. `X-Tico-On-Behalf-Of: turn` and
+`on_behalf_of` remain supported; citing another human cannot widen the current requester's access. `/me` identifies
+the calling credential so clients can discover which tools are offered; it does not change the rights used by tools.
+The route's normal permission checks apply, just as when the requester uses it directly. No per-tool opt-in is needed.
+A Credential never travels in a `hub api` body (a key named `secret`, `password`, `token`, `api_key` and the like is refused).
 
-Everyday edits to a bot the human owns happen at once. Requested bot deletion, outside-domain invites by an Owner or Admin,
-Tico updates, and the Owner's Team rule changes also run directly. Archiving removes Routines and placement and may revoke
-its External agent Credential; restoring the bot does not recover those. Other settings edits have history for undo.
+Everyday edits, requested bot deletion, outside-domain invites by an Owner or Admin, Tico updates, and the Owner's
+Team rule changes run directly with the requester's rights. Sending to outsiders stays off until enabled for that bot.
+Archiving removes Routines and placement and may revoke its External agent Credential; restoring the bot does not
+recover those. Other settings edits have history for undo. The four Built-in bots cannot be deleted, and the Librarian
+cannot be copied.
 
-### What still needs their click
-
-These are proposed instead: the command answers `needs_confirm: true` and a **Confirm card** appears in the human's chat with BotOps
-(the same card the Assistant uses: "Runs as you, only when you confirm"). Nothing changes until they click, and only they can:
-BotOps, the owner and the admins cannot confirm for them.
-
-- making someone an Admin, granting `add_people`, changing roles, or changing a human's email (it decides who is an Admin) or group
-  (it is an access audience);
-- giving a person, or every computer, a stored credential (a bot grant runs at once for an administrator or a holder delegating to a bot they own or run);
-- placing a member's bot on a computer that is neither its owner's nor open to members' bots (admins only);
-- removing a Computer and changing whether a Computer takes members' bots;
-- who may sign in, and what members may do (the bot limit);
-- directory sync and disconnecting Slack or GitHub;
-- a message in their name to a human (a message or chat to a bot goes at once), a decision on a proposal, and a support message to the Tico team.
-
-The team's AI providers and raising a spending limit go at once too, unless the owner turns **BotOps changes providers and limits
-without asking** off ([Team rules](#team-rules)); then they are cards, and lowering a limit still is not. BotOps can start a model
-sign-in on a computer (`POST /api/v2/runners/<id>/logins`, and read its link and code): the code a human pastes back is theirs to
-give in the app. It can turn inbox sharing on for a computer (`POST /api/v2/runners/<id>/inbox-sharing`, [Mail](mail.md)) only where
-one owner runs every computer and bot; anywhere else an owner or an admin does it. It turns on a bot's sending outside the
-Team only when the human asks. It deletes a bot or its repository when requested with the human's rights; the four
-Built-in bots cannot be deleted. It may delete a branch that is already merged.
-
-What only an owner or an admin may ask for (sign-in and member limits, a computer taking members' bots, providers and the team
-spending limit when they are cards, updates, directory, disconnecting) is refused at once for a member, not handed over as a card that would fail.
-
-The card shows every field the request carries, and its description, written by the server and never by the bot, names each field it
-changes and, for a placement, the computer and whether it takes members' bots.
-
-BotOps reports "there is a card waiting in this chat" instead of asking the human to go to Settings.
-
-### Why it is built this way
-
-A bot's instructions and everything it reads (email, web pages, documents, a colleague's task) can try to steer it. If BotOps could
-act with the team's full authority, or for whoever a piece of text names, one injected sentence would be a privilege escalation.
-So it borrows one human's rights at a time, only from the message that human typed to it in chat, never more than they have, and
-the few changes that widen who can get in or what a bot can hold need that human's own click. For the same reason a member's bot goes
-only on computers set aside for members' bots: bots on one computer are not isolated from each other.
+A bot's Instructions and the text it reads cannot select a human whose rights BotOps should borrow. The server resolves
+the requester from the run's message or task, checks that human is still on the roster, and applies only that identity's
+permissions. A requesting bot keeps its own narrower rights throughout the work.
 
 ### A computer for every active bot
 

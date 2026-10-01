@@ -919,6 +919,58 @@
         ]
       }
     },
+    "/api/v2/bots/{bot}/instructions": {
+      "get": {
+        "summary": "Latest Instructions snapshot published by the Computer; requires Read, published is false until content arrives",
+        "operationId": "getBotInstructions",
+        "parameters": [
+          {
+            "name": "bot",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotInstructions"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A problem: {\"error\": {\"code\", \"detail\", \"retryable\", ...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Bots"
+        ]
+      }
+    },
     "/api/v2/bots/{bot}/kpis": {
       "get": {
         "summary": "A bot's five automatic KPIs, computed from Tico's own data (Read on the bot)",
@@ -8429,6 +8481,37 @@
         },
         "required": [
           "file"
+        ],
+        "additionalProperties": true
+      },
+      "BotInstructions": {
+        "type": "object",
+        "properties": {
+          "bot": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "updated": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bot",
+          "content",
+          "published",
+          "source",
+          "updated"
         ],
         "additionalProperties": true
       },

@@ -336,6 +336,11 @@ def create_app(settings=None):
                                   "the person confirms it in " + settings.app_name, 403)
             early = None
             on_behalf = request.headers.get(botops_act.HEADER)
+            if (not on_behalf and getattr(request.state, "identity", None) is not None
+                    and request.state.identity.actor == "bot:" + BOTOPS
+                    and request.url.path.startswith("/api/v2/")
+                    and request.url.path not in ("/api/v2/me", "/api/v2/mcp")):
+                on_behalf = "default"
             if on_behalf and getattr(request.state, "identity", None) is not None:
                 # BotOps doing what the person who asked it could do in the app (backend/botops_act.py).
                 early, acted = await asyncio.get_running_loop().run_in_executor(
@@ -420,7 +425,7 @@ def create_app(settings=None):
                 person = delegated_identity(c, who, "turn")
             except Problem:
                 person = None
-            if person is not None:
+            if person is not None and person.actor != who.actor:
                 if auth.bot_manager(c, person, bot) or auth.operator(c, person, bot):
                     return
                 raise Problem("forbidden", "The person BotOps is acting for may not change this bot's routines", 403)
@@ -2203,37 +2208,53 @@ def create_app(settings=None):
     DELEGATION_CITED_HOURS = 24       # a message cited by id
 
     def delegated_identity(c, who, ref):
-        """The person BotOps is acting for: the one whose direct chat message to BotOps started this turn
-        (`ref` is "turn"), or whose message it cites by id.
-
-        "Set the scribe's reports to Ben and move it there": a person's instruction to BotOps is enough;
-        they should not have to click it themselves. The change is checked with that person's own
-        permissions (no more), and recorded as theirs, "via BotOps". It never comes from a message a bot
-        wrote, from one the Assistant wrote for a person (`refs.via`), from text inside a task or a
-        document, or from a message more than a week old. What always needs the person's own click is
-        proposed instead (`propose_card`).
+        """Resolve the run's requester, never a human named in its text. Human messages and tasks
+        carry that human's rights; bot messages and tasks carry only that bot's rights. Fleet work
+        with no requester keeps BotOps' own. Explicit message references must belong to this requester.
         """
+        if who.via == "botops" and who.role == "bot" and not who.attempt_id:
+            if ref in ("turn", "default"):
+                return who
+            raise Problem("on_behalf_of", "A bot request cannot borrow a human's rights", 403)
+        if who.via == "botops" and who.attempt_id:
+            who = Identity("bot:" + BOTOPS, "bot", runner_id=who.runner_id, attempt_id=who.attempt_id)
         if who.actor != "bot:" + BOTOPS:
-            raise Problem("forbidden", "Only BotOps applies changes on a person's behalf", 403)
+            raise Problem("forbidden", "Only BotOps applies changes on a requester's behalf", 403)
         message_id = ref
-        explicit = bool(ref) and ref != "turn"
+        explicit = bool(ref) and ref not in ("turn", "default")
         turn = c.execute("SELECT j.message_id FROM attempts a JOIN jobs j ON j.id=a.job_id WHERE a.id=?",
                          (who.attempt_id,)).fetchone() if who.attempt_id else None
+        if explicit and not turn:
+            raise Problem("on_behalf_of", "Cite the request that started this run", 403)
         if not explicit:
             if not turn:
-                raise Problem("on_behalf_of", "BotOps acts for a person only in a turn a person's chat message started", 403)
+                return who
             message_id = turn["message_id"]
             initial = H.message(c, message_id)
             task_id = H.message_task_id(initial) if initial else None
             task = H.task(c, task_id) if task_id else None
+            requester = task["requester"] if task else (initial or {}).get("from_actor", "")
+            if str(requester).startswith("bot:") and requester != who.actor:
+                if (H.bot(c, H.actor_id(requester)) or {}).get("state") != "active":
+                    raise Problem("forbidden", "The requesting bot is no longer active", 403)
+                return Identity(requester, "bot", runner_id=who.runner_id, attempt_id=who.attempt_id,
+                                via="botops", confirmed=True)
+            if not initial or requester == H.KEEPER or requester == who.actor:
+                return who
             if task and task["owner"] == who.actor and not task.get("request_id"):
+                if str(task["requester"]).startswith("human:"):
+                    made = c.execute("SELECT detail_json FROM events WHERE action='task.create' AND target=? "
+                                     "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
+                    if made and H._json(made["detail_json"], {}).get("via") != "assistant":
+                        person = auth.identity_for_actor(c, task["requester"])
+                        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
                 origin = c.execute("SELECT actor FROM events WHERE action='botops.task_requested' AND target=? "
                                    "AND actor=? LIMIT 1", (task_id, task["requester"])).fetchone()
                 if origin and str(origin["actor"]).startswith("human:"):
                     auth.conversation(c, who, task["conversation_id"])
                     person = auth.identity_for_actor(c, origin["actor"])
                     H.VIA.set("botops")
-                    return replace(person, via="botops")
+                    return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
             if task and task.get("request_id") and task["owner"] == who.actor:
                 origin = H.message(c, task["request_id"])
                 if origin and origin["from_actor"] == task["requester"]:
@@ -2241,7 +2262,7 @@ def create_app(settings=None):
                     c.execute("INSERT OR IGNORE INTO attempt_conversations VALUES(?,?)", (who.attempt_id, origin["conversation_id"]))
         msg = H.message(c, message_id)
         started = (H.message(c, turn["message_id"]) or {}).get("from_actor", "") if turn else ""
-        if explicit and str(started).startswith("human:") and msg and msg["from_actor"] != started:
+        if explicit and started and msg and msg["from_actor"] != started:
             # A turn a person started acts for that person: another person's message id borrows nothing.
             raise Problem("on_behalf_of", "Cite the message of the person who asked you, not someone else's", 403)
         if (not msg or not str(msg["from_actor"]).startswith("human:")
@@ -2275,37 +2296,22 @@ def create_app(settings=None):
             raise Problem("on_behalf_of", "Cite a request from the conversation you are working on", 403) from None
         person = auth.identity_for_actor(c, msg["from_actor"])
         H.VIA.set("botops")           # every event and history row from here says "via BotOps"
-        return replace(person, via="botops")
+        return replace(person, via="botops", attempt_id=who.attempt_id, confirmed=True)
 
     def act_for_requester(request, ref):
-        """`(card, None)` when this request is one the person confirms with their own click, `(None, person)` when it
-        runs at once as them (checked with their rights, recorded via BotOps), else a refusal."""
+        """Apply the requester's identity before the route checks its normal permissions."""
         who = request.state.identity
         if who.actor != "bot:" + BOTOPS:
             raise Problem("forbidden", "Only BotOps acts on a person's behalf", 403)
-        body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
         with store.read() as c:
-            rules = team_rules.load(c) if request.method != "GET" else None
-            kind = botops_act.classify(request.method, request.url.path, body, rules,
-                                       lambda name: str(H.resolve_actor(c, name) or "").startswith("bot:"))
-            limits = botops_act.LIMITS.fullmatch(botops_act.normalize(request.url.path) or "")
-            if kind == "confirm" and request.method == "PUT" and limits and usage_limits.only_lowers(
-                    c, (limits.group(1) or "")[1:], body):
-                kind = "do"            # a spending limit that goes down never needs a click
-        if kind is None:
-            raise Problem("not_delegable", botops_act.DETAIL_ROUTE, 403)
-        if botops_act.secret_in(body):
-            raise Problem("secret_in_request", botops_act.DETAIL_SECRET, 422)
-        if kind == "confirm":
-            with store.transaction() as c:
-                person = delegated_identity(c, who, ref)
-                path = botops_act.normalize(request.url.path)
-                if botops_act.admin_only(request.method, path) and not (person.role == "owner" or auth.bot_admin(person)):
-                    raise Problem("forbidden", "Only an owner or an admin can do that", 403)
-                what = describe_action(c, request.method, path, body or {})[0]
-                return JSONResponse(propose_card(c, person, request.method, path, body or {}, what)), None
-        with store.read() as c:
-            return None, delegated_identity(c, who, ref)
+            acting = delegated_identity(c, who, ref)
+            if acting.actor == who.actor:
+                return None, None
+            body = botops_act.parse_body(getattr(request, "_body", b"")) if request.method != "GET" else None
+            if botops_act.secret_in(body):
+                raise Problem("secret_in_request", botops_act.DETAIL_SECRET, 422)
+            # The ordinary route checks the requester's rights, including its own outbound send switch.
+            return None, acting
 
     def propose_card(c, acting, method, path, body, summary):
         """What always needs the requesting person's own click: a Confirm card in their chat with BotOps,

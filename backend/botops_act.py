@@ -1,19 +1,9 @@
-"""What BotOps may do for the person who asked it, on any v2 route (`hub api`).
+"""BotOps request origins and legacy route classification.
 
-BotOps is the Team's bot engineer: a person asks it in chat for something they could click in the app, and it
-does that as them. A request carries `X-Tico-On-Behalf-Of` (`turn`, the person whose chat message started this
-turn, or the id of one of their messages); `backend/app.py` then answers it as that person, so the server's own
-permission checks are the only gate: a member is refused what only an owner may do, and an owner is not.
-
-This module is only the list of routes and the two guards around it:
-
-* a route is `do` (it runs at once, as the person, recorded "via BotOps" and undoable where the app is),
-  `confirm` (it comes back as a Confirm card in their chat and runs only on their click) or not delegable. The owner's
-  rule "BotOps changes providers and limits without asking" (backend/team_rules.py), off, turns two `do` groups into cards;
-* a secret never travels in a request body here. A key, password or token goes in through a credential card
-  (backend/credential_cards.py), which the model never sees the value of.
-
-Reads are delegated the same way, so BotOps sees what the person sees, no more.
+The server dispatcher (app.py) resolves the human or bot that requested the run and applies
+that identity's own rights to every v2 route by default. No requester means BotOps' own rights.
+The route tables and classifier remain for older callers; they do not limit that dispatcher.
+Secrets go through Credentials, never arbitrary API request bodies.
 """
 import json
 import re

@@ -151,3 +151,38 @@ def test_runner_upload_is_retried_after_a_restart_and_lands_once(api, live, tmp_
     log = api.get(f"/api/v2/files/{page['files'][0]['id']}/activity", headers=headers("ben-test")).json()["activity"]
     assert len(log) == 1
 
+
+
+def test_task_attachment_preserves_text_and_can_be_archived_with_task_permissions(api):
+    task = post(api, "tasks", {"owner": "ana", "title": "Read QA attachment", "body": "Read the fixture."})
+    text = "  indented first line\nsecond line  \n"
+    made = post(api, f"tasks/{task['id']}/files", {"name": "fixture.txt", "text": text})
+    fid = made["file"]["id"]
+    assert api.get("/api/v2/files/" + fid, headers=headers()).content == text.encode()
+    denied = api.patch("/api/v2/files/" + fid, json={"archived": True}, headers=headers("cara-test"))
+    assert denied.status_code == 403
+    from backend.tests.test_mcp import call as mcp
+    err, archived = mcp(api, "hub_file_archive", {"id": fid})
+    assert not err and archived["file"]["archived"] is True, archived
+    with api.app.state.store.read() as c:
+        assert not c.execute("SELECT 1 FROM task_assets WHERE blob_id=?", (fid,)).fetchone()
+        assert c.execute("SELECT 1 FROM events WHERE action='task.file_archived' AND target=?", (task["id"],)).fetchone()
+
+
+def test_unsupported_bot_task_attachment_returns_allowed_types_without_storing_bytes(api):
+    machine, attempt = turn(api)
+    task = post(api, "tasks", {"owner": "ops", "title": "QA deliverable", "body": "Attach the report."})
+    with api.app.state.store.read() as c:
+        before = c.execute("SELECT count(*) FROM blobs").fetchone()[0]
+    response = api.post(f"/api/v2/tasks/{task['id']}/files", json={"name": "fixture.zip", "text": "fixture"},
+                        headers=headers(attempt["token"]))
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "file_refused"
+    assert "pdf" in response.json()["error"]["detail"] and ".docx" in response.json()["error"]["detail"]
+    with api.app.state.store.read() as c:
+        assert c.execute("SELECT count(*) FROM blobs").fetchone()[0] == before
+    made = post(api, f"tasks/{task['id']}/files", {"name": "fixture.txt", "text": "fixture\n"}, attempt["token"])
+    assert listing(api, who="ana-test")["total"] == 1
+    archived = api.patch("/api/v2/files/" + made["file"]["id"], json={"archived": True}, headers=headers())
+    assert archived.status_code == 200, archived.text
+    assert listing(api, who="ana-test")["total"] == 0

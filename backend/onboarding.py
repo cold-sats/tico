@@ -745,7 +745,7 @@ class Onboarding:
     def arm_first_routine(self, c, who, slug):
         """Setting a bot up turns its first routine on: the template seeds it off, and starting the setup
         (Start setup, go-live) is the go-ahead, so nobody approves it separately. Once only: a routine a
-        person turns off afterwards stays off. Returns the routine's key, or None."""
+        person explicitly turns off before or after activation stays off. Returns the routine's key, or None."""
         declared = self._declared(c, slug)
         if declared.get("routine_armed") or not declared.get("template"):
             return None
@@ -758,7 +758,9 @@ class Onboarding:
             return None
         declared["routine_armed"] = first["id"]
         self._write_config(c, slug, declared)
-        if not found["enabled"]:
+        explicitly_disabled = c.execute("SELECT 1 FROM events WHERE action='routine.updated' AND target=? "
+                                        "AND json_extract(detail_json,'$.enabled')=0 LIMIT 1", (found["id"],)).fetchone()
+        if not found["enabled"] and not explicitly_disabled:
             routines.update(c, who.actor, found["id"], {"enabled": True})
             H.event(c, who.actor, "bot.routine_armed", slug, {"routine": first["id"]})
         return first["id"]

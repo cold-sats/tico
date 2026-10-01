@@ -248,12 +248,14 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
 
     def requester(c, who, ref="turn"):
         """The person a bot's turn is for, and the conversation they are in: the one whose own chat message started it."""
-        if who.role != "bot" or not who.attempt_id:
+        if (who.role != "bot" and who.via != "botops") or not who.attempt_id:
             raise Problem("forbidden", "Only a bot in a turn asks for a credential", 403)
         turn = turn_of(c, who)
-        if who.actor == "bot:" + botops:
+        if who.actor == "bot:" + botops or who.via == "botops":
             person = delegate(c, who, ref or "turn")
-            msg = H.message(c, ref) if ref and ref != "turn" else turn
+            if person.role not in ("owner", "human"):
+                raise Problem("no_person", "A credential card needs a human requester", 409)
+            msg = H.message(c, ref) if ref and ref not in ("turn", "default") else turn
         else:
             msg = turn
             refs = (msg or {}).get("refs") or {}
@@ -284,7 +286,7 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
         with store.transaction() as c:
             validate_identity(c, who)
             person, msg = requester(c, who, body.on_behalf_of or "turn")
-            asker = H.actor_id(who.actor)
+            asker = botops if who.via == "botops" and who.role in ("owner", "human") else H.actor_id(who.actor)
             target = body.for_bot or asker
             if target != asker and asker != botops:
                 raise Problem("forbidden", "A bot asks for its own credential", 403)
@@ -301,7 +303,7 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
             c.execute("INSERT INTO credential_requests VALUES(:id,:requester,:conversation_id,:bot,:asker,:env,:label,:format,:help_url,"
                       ":kind,:status,:created,:updated,:credential_id,:message_id)", row)
             shown = view(c, row, person)
-            card = H._write_message(c, who.actor, person.actor, shown["title"], H.conversation(c, msg["conversation_id"]), "say",
+            card = H._write_message(c, "bot:" + asker, person.actor, shown["title"], H.conversation(c, msg["conversation_id"]), "say",
                                     {"credential_request": rid}, None, None, delivered_at=H.now())
             c.execute("UPDATE credential_requests SET message_id=? WHERE id=?", (card["id"], rid))
             H.event(c, who.actor, "credential.requested", rid, {"env": body.env, "bot": target, "for": person.actor})
@@ -348,7 +350,7 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
         """The person: the caller, or the one BotOps works for."""
         if ref:
             return delegate(c, who, ref)
-        if who.role not in ("owner", "human") or who.via or (who.via_token and not metadata_only):
+        if who.role not in ("owner", "human") or who.via not in ("", "botops"):
             raise Problem("forbidden", "A person stores a credential, or BotOps for the person who asked it", 403)
         return who
 
@@ -361,7 +363,7 @@ def install_credential_cards(app, store, vault, auth, botops, delegate, manager)
             manager(c, person, body.for_bot)
             value = check_format("", body.value.get_secret_value())
             stored = store_for_bot(c, vault, person, body.env, body.for_bot, value, body.name, body.kind, body.username)
-            if body.on_behalf_of and caller.role == "bot":
+            if (body.on_behalf_of and caller.role == "bot") or (caller.via == "botops" and caller.attempt_id):
                 turn = turn_of(c, caller)
                 stored["redacted"] = redact_value(c, person, value, body.env, (turn or {}).get("conversation_id", ""),
                                                   caller.attempt_id, (turn or {}).get("id", "")) if body.redact else 0

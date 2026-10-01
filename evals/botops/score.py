@@ -18,7 +18,7 @@ from difflib import SequenceMatcher
 JARGON = re.compile(
     r"\b(planned|runners?|assignments?|placement|on[_ ]behalf[_ ]of|needs_confirm|expected_revision|idempotency|"
     r"quarantin\w+|harness|env(?:ironment)? vars?|[A-Z][A-Z0-9]*_[A-Z0-9_]{2,}|[0-9a-f]{7,40}|"
-    r"hub (?:api|bot|routine|credential|human|health|computer|support|doc|task|message)\b(?: [a-z-]+)?)(?![\w-])",
+    r"hub\b|hub (?:api|bot|routine|credential|human|health|computer|support|doc|task|message)\b(?: [a-z-]+)?)(?![\w-])",
     re.I)
 # A hash needs a digit and a letter; a plain word of hex letters ("defaced") is not one.
 HASH = re.compile(r"^(?=.*\d)(?=.*[a-f])[0-9a-f]{7,40}$", re.I)

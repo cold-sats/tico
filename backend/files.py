@@ -206,7 +206,10 @@ class Files:
         if who.role != "bot":
             return None
         bot = H.actor_id(who.actor)
-        name, mime = BF.check_name(item["name"])
+        try:
+            name, mime = BF.check_name(item["name"])
+        except BF.Refused as exc:
+            raise refused(exc) from exc
         row, *_ = self.add_version(c, bot=bot, actor=who.actor, scope="task:" + task_id, task=task_id,
                                    conversation=None, attempt=who.attempt_id, identity=series(bot, "task-file/" + name),
                                    title=name, name=name, mime=mime, blob_id=item["id"], digest=digest,
@@ -350,6 +353,27 @@ class Files:
         who = request.state.identity
 
         def work(c):
+            if not is_file_id(fid):
+                if body.model_dump(exclude_none=True) != {"archived": True}:
+                    raise Problem("validation", "Task attachments support archive only", 422)
+                linked = c.execute("SELECT task_id FROM task_assets WHERE blob_id=?", (fid,)).fetchall()
+                if not linked:
+                    raise Problem("not_found", "File not found", 404)
+                for task in linked:
+                    row = self.auth.task(c, who, task["task_id"])
+                    if (who.actor not in (row["owner"], row["requester"])
+                            and not (who.role == "owner" or who.role == "human" and H.can_move(c, who.actor))):
+                        raise Problem("forbidden", "Only a task participant or someone who can move it archives its attachments", 403)
+                c.execute("DELETE FROM task_assets WHERE blob_id=?", (fid,))
+                for task in linked:
+                    for published in c.execute("SELECT f.id FROM bot_files f JOIN bot_file_versions v "
+                                               "ON v.file_id=f.id AND v.version=f.current_version "
+                                               "WHERE v.blob_id=? AND f.scope=? AND f.archived=0",
+                                               (fid, "task:" + task["task_id"])).fetchall():
+                        c.execute("UPDATE bot_files SET archived=1,last_activity_at=? WHERE id=?", (H.now(), published["id"]))
+                        self.activity(c, published["id"], who.actor, "archived", task=task["task_id"])
+                    H.event(c, who.actor, "task.file_archived", task["task_id"], {"file": fid})
+                return {"file": {"id": fid, "archived": True}}
             row = c.execute("SELECT * FROM bot_files WHERE id=?", (fid,)).fetchone()
             if not row or not self.visible(c, who, row, {}):
                 raise Problem("not_found", "File not found", 404)

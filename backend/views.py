@@ -1069,6 +1069,20 @@ def install_views(app, store, auth, mutate, task_view):
             return {"ok": True}
         return mutate(request, body, work)
 
+    @app.get("/api/v2/bots/{bot}/instructions")
+    def bot_instructions(request: Request, bot: str):
+        who = request.state.identity
+        with store.read() as c:
+            if not H.bot(c, bot):
+                raise Problem("not_found", "Bot not found", 404)
+            auth.require_read(c, who, bot)
+            row = c.execute("SELECT content,updated FROM bot_agent_instructions WHERE bot=?", (bot,)).fetchone()
+            if not row:
+                row = c.execute("SELECT content,updated FROM mail_agent_instructions WHERE bot=?", (bot,)).fetchone()
+            return {"bot": bot, "content": row["content"] if row else "",
+                    "published": bool(row and row["content"].strip()), "updated": row["updated"] if row else None,
+                    "source": "Computer snapshot" if row else "Not published yet"}
+
     @app.get("/api/employees/{bot}/files")
     def bot_files(request: Request, bot: str):
         who = request.state.identity
