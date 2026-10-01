@@ -1,0 +1,60 @@
+/* ui/styles/chat-goal.css — A chat's pinned goal (ui/app/chat-goal.js) and the "/" command menu (ui/app/slash-commands.js). */
+
+/* The bar sits above the thread in the chat column and stays put while the thread scrolls. */
+.chat-goal{flex:none;margin:0 0 8px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.chat-goal[hidden]{display:none}
+#main.bot-chat-layout #pane-chat>#chat-goal{width:100%;max-width:var(--read-width);margin-left:auto;margin-right:auto}
+.chat-goal .cg-icon,.chat-goal-line .cg-icon{width:18px;height:18px;font-size:18px;color:var(--accent);flex:none}
+.cg-bar{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 10px 8px 12px;cursor:pointer;border-radius:inherit}
+@media (hover:hover){.cg-bar:hover{background:var(--surface2)}}
+.cg-bar:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.cg-bar .cg-icon{margin-top:2px}
+.cg-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;font-size:13.5px;line-height:1.5;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.cg-chip{margin-top:2px}
+/* Tapped open: the whole goal, scrolling inside the bar when it is long. */
+.chat-goal.open .cg-text{display:block;-webkit-line-clamp:unset;line-clamp:none;max-height:40vh;overflow-y:auto}
+.cg-actions{display:flex;flex-wrap:wrap;gap:6px;padding:0 10px 8px 40px}
+.cg-actions[hidden]{display:none}
+.cg-actions button{height:30px;padding:0 12px;font-size:12.5px}
+.cg-edit{display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px 10px;align-items:start;padding:8px 10px 8px 12px}
+.cg-edit .cg-icon{margin-top:7px}
+.cg-edit textarea{width:100%;min-height:52px;max-height:30vh;resize:vertical;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:13.5px;line-height:1.5}
+.cg-edit textarea:focus{outline:none;border-color:var(--accent)}
+.cg-edit-go{grid-column:2;display:flex;justify-content:flex-end;gap:6px}
+.cg-edit-go button{height:30px;padding:0 12px;font-size:12.5px}
+
+/* A met or stopped goal: one line in the thread. */
+.chat-goal-line{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
+.chat-goal-line b{flex:none}
+.chat-goal-line .cg-line-text{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.chat-goal-line .cg-line-note{flex:0 1 auto;max-width:45%;min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+/* The composer's target: filled while a goal is pinned. */
+.p-goal[hidden]{display:none}
+.p-goal{width:34px;padding:0;justify-content:center}
+.p-goal .nav-icon{width:20px;height:20px;font-size:20px;color:inherit}
+.p-goal.on{background:var(--accent);color:var(--accent-ink)}
+.p-goal.on:hover{background:var(--accent);color:var(--accent-ink);filter:brightness(1.08)}
+
+/* The sidebar's mark on a bot with a pinned goal. */
+.tree a.node .tree-goal{width:14px;height:14px;font-size:14px;color:var(--accent);flex:none}
+
+/* The "/" menu: just above the box, the picked row on a raised step. */
+#chat-composer .ask{position:relative}
+.slash-menu{position:absolute;left:0;right:0;bottom:calc(100% + 6px);z-index:30;max-height:min(280px,40vh);overflow-y:auto;padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.slash-menu[hidden]{display:none}
+.slash-row{display:flex;align-items:baseline;gap:8px;width:100%;min-height:34px;padding:6px 10px;border:0;border-radius:8px;background:none;color:var(--ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.slash-row.on,.slash-row:hover{background:var(--surface2)}
+.slash-name{font-family:var(--mono);font-size:12.5px;flex:none}
+.slash-args{font-family:var(--mono);font-size:12px;color:var(--muted);flex:none}
+.slash-help{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto}
+
+@media (max-width:760px){
+  .cg-text{-webkit-line-clamp:2;line-clamp:2;font-size:13px}
+  .chat-goal{margin-bottom:6px}
+  .cg-bar{padding:6px 8px 6px 10px;gap:8px}
+  .cg-actions{padding-left:36px}
+  .cg-actions button{height:36px}
+  #chat-composer .p-goal{grid-column:-3;grid-row:1;width:36px;height:36px;padding:0;justify-content:center}
+  .slash-row{min-height:44px}
+}
