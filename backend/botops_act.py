@@ -185,3 +185,18 @@ def parse_body(raw):
         return json.loads(raw)
     except ValueError:
         return None
+
+
+# BotOps' own: the run's plumbing and what BotOps says itself. Never switched to the requester by default.
+OWN = re.compile(API + r"(credential-runtime|runner-credential-.*|runner-watcher-credentials|attempts.*|jobs.*|runners/.*|"
+                 r"messages(/.*)?|chat/.*|conversations/.*|bots/" + "botops" + r"(/.*)?|files/(uploads|imports)|uploads/.*|me(/.*)?)")
+
+
+def default_delegable(method, path, body=None):
+    """Whether a BotOps call with no explicit `on_behalf_of` acts as the person who asked: only the routes BotOps
+    may do or propose for a person, and never its own plumbing or its own messages."""
+    path = normalize(path)
+    if not path or OWN.fullmatch(path):
+        return False
+    return classify(method, path, body) in ("do", "confirm")
+

@@ -423,12 +423,14 @@ def test_every_botops_tool_uses_requester_rights_by_default(api, botops, monkeyp
     from backend.store import H
     from clients import hubtools
 
-    @api.app.api_route("/api/v2/qa-requester", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    # One delegable route per method (backend/botops_act.py DO list): what BotOps does for a person. Its own run
+    # plumbing stays BotOps' (test_a_human_requested_botops_run_starts_with_its_own_credentials_and_acts_as_the_person).
+    probe = {"GET": "qa-requester", "POST": "tasks", "PUT": "providers", "PATCH": "docs/qa", "DELETE": "groups/qa"}
+
     def identity(request: Request):
         who = request.state.identity
         return {"actor": who.actor, "role": who.role}
 
-    api.app.router.routes.insert(0, api.app.router.routes.pop())
     if requester.startswith("human"):
         if requester == "human task":
             post(api, "tasks", {"owner": "botops", "title": "Review the QA fixture", "body": "Review the fixture."})
@@ -451,6 +453,10 @@ def test_every_botops_tool_uses_requester_rights_by_default(api, botops, monkeyp
         attempt = claim(api, botops, "botops")
         expected = {"actor": "bot:botops", "role": "bot"}
 
+    for method, path in probe.items():
+        api.app.add_api_route("/api/v2/" + path, identity, methods=[method])
+        api.app.router.routes.insert(0, api.app.router.routes.pop())
+
     class ProbeApi:
         # Same requests as an old client: no delegation flag or header.
         def call(self, method, path, body=None, key=None, query=None):
@@ -466,10 +472,11 @@ def test_every_botops_tool_uses_requester_rights_by_default(api, botops, monkeyp
         # tools must reach the same server policy, even if their handler never opts in.
         monkeypatch.setitem(entry, "inputSchema", {"type": "object", "properties": {}})
         for method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
-            monkeypatch.setitem(entry, "fn", lambda client, args, method=method: client.call(method, "qa-requester"))
+            monkeypatch.setitem(entry, "fn", lambda client, args, method=method: client.call(method, probe[method]))
             reply = protocol.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                                      "params": {"name": entry["name"], "arguments": {}}})
-            assert reply["result"]["structuredContent"] == expected, (entry["name"], method, reply)
+            got = reply["result"]["structuredContent"]
+            assert {k: got.get(k) for k in ("actor", "role")} == expected, (entry["name"], method, reply)
 
 
 def test_bot_request_cannot_borrow_a_previous_human_request_through_any_route(api, botops):
@@ -517,4 +524,19 @@ def test_bot_requester_receives_only_its_granted_credentials_and_personal_tokens
     attempt = claim(api, botops, "botops")
     result = api.get("/api/v2/credential-runtime", headers=headers(attempt["token"]))
     assert result.status_code == 200, result.text
-    assert [row["env"] for row in result.json()["credentials"]] == ["QA_OPS_TOKEN"]
+    # A BotOps run gets BotOps' own grants whoever asked: a requesting bot never lends it (or borrows) credentials.
+    assert [row["env"] for row in result.json()["credentials"]] == ["QA_ENGINEER_TOKEN"]
+
+
+def test_a_human_requested_botops_run_starts_with_its_own_credentials_and_acts_as_the_person(api, botops):
+    """0.2.33 switched every BotOps call to the person, so the run's own credential fetch was refused (403) and no
+    human-requested turn could start. The run's plumbing stays BotOps'; the actions are the person's."""
+    vault(api)
+    ana = turn(api, botops, person="ana-test", text="Use a bigger model on ops")
+    fetched = api.get("/api/v2/credential-runtime", headers=headers(ana["token"]))
+    assert fetched.status_code == 200, fetched.text
+    changed = act(api, ana, "POST", "bots/ops/model", {"model": "gpt-6-astra", "expected_revision": 1})
+    assert changed.status_code == 200, changed.text
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT actor FROM events WHERE action='bot.model_changed' AND target='ops'").fetchone()
+        assert row["actor"] == "human:ana"

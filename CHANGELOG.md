@@ -7,6 +7,14 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.34] - 2026-10-01
+
+### Fixed
+- **BotOps could not start any turn a human asked for** (0.2.33). Every BotOps call switched to the person, including the
+  run's own credential fetch, which only a bot may make, so the run failed before it began. Only what BotOps does for a
+  person (the delegable routes) acts as that person now; the run's own plumbing, its status and its own messages stay
+  BotOps'. A BotOps run always receives BotOps' own credentials, whoever asked.
+
 ## [0.2.33] - 2026-10-01
 
 ### Changed
@@ -1429,7 +1437,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.33...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.34...HEAD
+[0.2.34]: https://github.com/ticoteam/tico/compare/v0.2.33...v0.2.34
 [0.2.33]: https://github.com/ticoteam/tico/compare/v0.2.32...v0.2.33
 [0.2.32]: https://github.com/ticoteam/tico/compare/v0.2.31...v0.2.32
 [0.2.31]: https://github.com/ticoteam/tico/compare/v0.2.30...v0.2.31

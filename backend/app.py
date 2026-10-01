@@ -342,7 +342,12 @@ def create_app(settings=None):
                     and request.url.path not in ("/api/v2/me", "/api/v2/mcp")):
                 body = botops_act.parse_body(getattr(request, "_body", b""))
                 on_behalf = ((body.get("on_behalf_of") if isinstance(body, dict) else None)
-                             or request.query_params.get("on_behalf_of") or "default")
+                             or request.query_params.get("on_behalf_of"))
+                # The default applies only to what BotOps does for a person (the delegable routes). Its own run's
+                # plumbing (credentials, attempts, jobs, its status) and its own messages stay BotOps': a run's
+                # credential fetch as the person was refused, and every human-requested turn failed to start.
+                if not on_behalf and botops_act.default_delegable(request.method, request.url.path, body):
+                    on_behalf = "default"
             if on_behalf and getattr(request.state, "identity", None) is not None:
                 # BotOps doing what the person who asked it could do in the app (backend/botops_act.py).
                 early, acted = await asyncio.get_running_loop().run_in_executor(
