@@ -18,7 +18,7 @@ def test_general_backfill_is_idempotent_and_does_not_reassign_custom_tasks(tmp_p
     H._apply(c, "ALTER TABLE tasks ADD COLUMN labels_json TEXT NOT NULL DEFAULT '[]';")
     c.execute('UPDATE tasks SET labels_json=?', ('["release","bug"]',))
     H.migrate(c)
-    assert c.execute('PRAGMA user_version').fetchone()[0] == 15
+    assert c.execute('PRAGMA user_version').fetchone()[0] == len(H.MIGRATIONS)
     for row in c.execute('SELECT * FROM tasks'):
         assert row['type_id'] == H.GENERAL_TYPE
         assert row['step_id'] == 'general-' + row['status']

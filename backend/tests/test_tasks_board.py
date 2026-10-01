@@ -158,7 +158,7 @@ def test_tag_migration_backfills_once_and_preserves_legacy_column(api, cloud):
         c = H.connect(store.settings.db_path)
         c.close()
     with store.read() as c:
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert c.execute("PRAGMA user_version").fetchone()[0] == len(H.MIGRATIONS)
         assert H.task(c, task["id"])["type_id"] == typ["id"]
         assert H.task(c, task["id"])["step_id"] == task["step_id"]
         assert {tag["key"] for tag in H.tags(c)} == {"release", "bug"}
