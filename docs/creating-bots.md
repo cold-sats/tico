@@ -52,9 +52,14 @@ BotOps uses `hub_bot_update(slug, shared=true)` (the current name of `hub_bot_se
 
 On the original's page, choose **Make my branch** and one of your computers. Or use
 `hub bot branch <bot> [--computer <label-or-id>]` or the MCP tool `hub_bot_branch(bot, runner_id?)`.
-Without a computer the CLI and tool create a planned branch; repeat with your computer to activate it.
+Without a computer the CLI and tool create a planned branch. The dialog offers **Create planned branch** when
+none of your computers can host it. It starts on the next computer you add; you can also repeat the CLI command
+with an existing eligible computer to activate it.
 The bot is named `<bot>-<person>`, reports to that person and shares the original's repository.
 Asking again returns the same branch. Choose a different computer from the one running the original or another branch of it.
+The computer clones the original repository with the bot's GitHub App token when available, otherwise with your own
+`gh` or git credentials. A matching local checkout is reused when no repository address is available. If cloning
+fails, Health gives the repository and command to run on that computer, or you can ask BotOps to fix it.
 
 The page's branch picker opens the **Original** or each person's branch. A branch links back to its original.
 New tasks and chats addressed to the original go to your active branch while branches are allowed.

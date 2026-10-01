@@ -8,10 +8,12 @@ REPO = "Acme/emp-ops"
 GENERIC = "Missing bot repository or AGENT.md"
 
 
-def report(api, machine, present, published=None, problems=(), ready=None):
+def report(api, machine, present, published=None, problems=(), ready=None, repository=""):
     row = {"ready": (not problems) if ready is None else ready, "runtime": "codex", "model": "gpt-6-sol",
            "repository_present": present, "repository_revision": "abc" if present else "",
            "configuration_valid": True, "problems": list(problems), "warnings": []}
+    if repository:
+        row["repository"] = repository
     if published is not None:
         row["published"] = published
     post(api, "runners/heartbeat", {"version": "0.5.4", "platform": "linux", "capacity": 4, "readiness": {
@@ -89,9 +91,21 @@ def test_health_and_the_fleet_check_name_why_a_bot_has_no_repository(api):
     health = {row["id"]: row for row in get(api, "health")["checks"]}
     assert health["repositories"]["status"] == "bad" and REPO in health["repositories"]["summary"]
     assert "ops on Old Mac" in health["repositories"]["summary"]
+    assert "gh repo clone Acme/emp-ops" in health["repositories"]["summary"]
     issues = [i for i in get(api, "fleet/check")["issues"] if i["kind"] == "repository_missing"]
     assert [i["bot"] for i in issues] == ["ops"] and REPO in issues[0]["text"]
     assert issues[0]["severity"] == "high" and issues[0]["fix"].startswith("hub bot repo-create ops --empty")
     report(api, old, present=True, published=True)
     assert "repositories" not in {row["id"]: row for row in get(api, "health")["checks"]}
     assert not [i for i in get(api, "fleet/check")["issues"] if i["kind"] == "repository_missing"]
+
+
+def test_health_and_fleet_name_the_personal_clone_destination(api):
+    old, _ = two_computers(api)
+    path = "/Users/ana/My Projects/emp-ops"
+    report(api, old, present=False, problems=[GENERIC], repository=path)
+    fix = f"Run `gh repo clone Acme/emp-ops '{path}'` on Old Mac, or ask BotOps"
+    health = {row["id"]: row for row in get(api, "health")["checks"]}
+    assert fix in health["repositories"]["summary"]
+    issue = next(i for i in get(api, "fleet/check")["issues"] if i["kind"] == "repository_missing")
+    assert issue["fix"] == fix

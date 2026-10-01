@@ -63,14 +63,20 @@ async function botBranchesLoad(slug) {
 async function botBranchCreate(source) {
   try {
     const data = await get('/v2/computers');
-    const computers = (data.computers || []).filter(c => !c.revoked_at && c.operator === S.me?.id);
+    const owned = (data.computers || []).filter(c => !c.revoked_at && c.operator === S.me?.id);
+    const family = new Set(S.emps.filter(e => e.name === source || e.shared_from === source).map(e => e.name));
+    const occupied = new Set(S.emps.filter(e => family.has(e.name)).map(e => e.machine?.runner_id || e.assignment?.runner_id).filter(Boolean));
+    const computers = owned.filter(c => !occupied.has(c.id) && !(c.bots || []).some(bot => family.has(typeof bot === 'string' ? bot : bot.slug || bot.name)));
+    const planned = !computers.length;
     const dialog = branchDialog('Make my branch');
     dialog.innerHTML = `<form><div class="tmodal-head"><h2>Make my branch</h2><span class="spacer"></span>
       <button class="ghost" type="button" data-branch-close aria-label="Close">✕</button></div>
-      <div class="bot-editor-body"><label>Computer<select name="runner_id" required>
-      ${computers.map(c => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('')}</select></label>
-      ${computers.length ? '' : '<p>Add your computer in Settings → Computers.</p>'}
-      <div class="row"><button class="primary" type="submit" ${computers.length ? '' : 'disabled'}>Make my branch</button>
+      <div class="bot-editor-body">${planned
+        ? `<p>${owned.length ? 'Your computers already run the original or a branch of it.' : 'You have no computer yet.'} Your branch needs another computer.</p>
+          <p>Create a planned branch now. It waits until you add a computer in Settings → Computers.</p>`
+        : `<label>Computer<select name="runner_id" required>
+          ${computers.map(c => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('')}</select></label>`}
+      <div class="row"><button class="primary" type="submit">${planned ? 'Create planned branch' : 'Make my branch'}</button>
       <span role="status" data-branch-status></span></div></div></form>`;
     dialog.querySelector('[data-branch-close]').onclick = () => dialog.close();
     dialog.querySelector('form').onsubmit = async event => {
@@ -78,7 +84,7 @@ async function botBranchCreate(source) {
       const form = event.currentTarget, button = form.querySelector('[type=submit]'), status = form.querySelector('[data-branch-status]');
       button.disabled = true; status.textContent = 'Creating…';
       try {
-        const made = await post(`/v2/bots/${encodeURIComponent(source)}/copies`, {runner_id: form.elements.runner_id.value});
+        const made = await post(`/v2/bots/${encodeURIComponent(source)}/copies`, planned ? {} : {runner_id: form.elements.runner_id.value});
         dialog.close(); await refresh(true);
         if (!S.emps.some(e => e.name === made.slug)) S.emps.push({...made, name: made.slug,
           host: 'keeper', schedules: [], users: [], can_chat: true, can_manage: true,

@@ -554,6 +554,8 @@ class BotReadiness(Contract):
     ready: bool
     runtime: str = Field(default="", max_length=100)
     model: str = Field(default="", max_length=200)
+    # The runner's checkout path lets Health name the exact clone destination on that computer.
+    repository: str = Field(default="", max_length=2000)
     repository_present: bool = False
     repository_revision: str = Field(default="", max_length=100)
     # Whether GitHub holds this checkout's history (it has an upstream). False means the only copy is on that

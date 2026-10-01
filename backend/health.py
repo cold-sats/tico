@@ -8,6 +8,7 @@ which the page turns into one-click links. People who are not administrators see
 
 import json
 import os
+import shlex
 
 from . import access, inbox_isolation, model_login, providers, releases, runner_versions, watchers
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
@@ -97,6 +98,25 @@ def missing_repositories(c, online_ids):
             why = next((p for p in report.get("problems") or [] if "repositor" in p.lower()), "Missing bot repository")
             out.append((r["bot"], r["label"], why))
     return out
+
+
+def repository_fix(c, bot, label, github_owner=""):
+    """The original repository and the clone command on the computer that is missing it."""
+    from .shared_bots import declared, follow
+    from .store import repo_url
+    config = follow(c, bot, declared(c, bot))
+    source = config.get("shared_from") or bot
+    row = c.execute("SELECT repo FROM bot_config WHERE bot=?", (source,)).fetchone()
+    repo = str((row["repo"] if row else "") or config.get("repo") or "emp-" + source)
+    app = c.execute("SELECT org FROM github_app WHERE id='app'").fetchone()
+    address = repo_url(repo, (app["org"] if app else "") or github_owner) or config.get("repo_url") or repo
+    repository = str(address).rstrip("/").removesuffix(".git").removeprefix("https://github.com/")
+    row = c.execute("SELECT r.readiness_json FROM assignments a JOIN runners r ON r.id=a.runner_id WHERE a.bot=?",
+                    (bot,)).fetchone()
+    report = ((readiness_document(row[0]).get("bots") or {}).get(bot) or {}) if row else {}
+    path = report.get("repository") or "<projects>/" + repo.rstrip("/").split("/")[-1].removesuffix(".git")
+    command = f"gh repo clone {shlex.quote(repository)} {shlex.quote(path)}"
+    return repository, f"Run `{command}` on {label}, or ask BotOps"
 
 
 def _member_bots_beside_shared_keys(c):
@@ -345,7 +365,8 @@ def view(c, who, settings, auth, github, config):
     if lacking:
         checks.append(_check("repositories", "Bot repositories", "bad",
                              "Bots cannot run because their computer has no repository for them: "
-                             + "; ".join(f"{bot} on {label}: {why}" for bot, label, why in lacking[:3])
+                             + "; ".join(f"{bot} on {label}: {why}. {repository_fix(c, bot, label, settings.github_owner)[1]}"
+                                         for bot, label, why in lacking[:3])
                              + ("." if len(lacking) <= 3 else f"; and {len(lacking) - 3} more."),
                              [_fix("Open bots", "#/settings", "bots")]))
     fixes = [_fix("Add a computer", "#/settings", "devices")] if full else []
