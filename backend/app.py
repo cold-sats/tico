@@ -1529,7 +1529,7 @@ def create_app(settings=None):
     def messages(request: Request, cid: str, since: str | None = None, before: str | None = None):
         with store.read() as c:
             auth.conversation(c, request.state.identity, cid)
-            page = message_page(c, cid, since=since, before=before)
+            page = message_page(c, cid, since=views.since_time(since), before=before)
             turn_work.annotate(c, auth, request.state.identity, page["messages"])
             return {"conversation": H.conversation(c, cid), **page}
 
@@ -1705,7 +1705,7 @@ def create_app(settings=None):
         views.human_only(who)
         if since and (not H.parse_ts(since) or H.parse_ts(since).tzinfo is None):
             raise Problem("date", "since must be an ISO-8601 date/time with a timezone", 422)
-        start = since or H.shift(H.now(), hours=-12)
+        start = views.since_time(since) or H.shift(H.now(), hours=-12)
         with store.read() as c:
             items = views.needs_items(c, auth, who, task_view)
             snapshot = views.fleet_snapshot_cached(c, auth, who, task_view)
@@ -1875,7 +1875,7 @@ def create_app(settings=None):
             if sender:
                 where.append("n.from_actor=?"); args.append(H.resolve_actor(c, sender) or sender)
             if since:
-                where.append("n.created>=?"); args.append(since)
+                where.append("n.created>=?"); args.append(views.since_time(since))
             if waiting:
                 where.append(H.NOTE_WAITING_SQL)
             if who.role == "bot":

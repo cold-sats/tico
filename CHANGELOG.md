@@ -7,6 +7,16 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.37] - 2026-10-01
+
+### Fixed
+- Chat, notes, status and live-brief `since` filters accept a whole-second, fractional or offset time and no longer
+  skip messages later in that same second.
+- docs-eval reads a sentence's capitalized first word as a plan name only when the price follows it ("Team costs"), so
+  "Ultimately, it costs $99" fails; "nearly", "almost", "close to", "or so" and "-ish" count as approximate.
+- The Librarian's wording repair leaves "new machine" and "that machine" alone and keeps a sentence's capital letter.
+- Settings > Health > Services shows Calendar Tool and Mail Tool.
+
 ## [0.2.36] - 2026-10-01
 
 ### Fixed

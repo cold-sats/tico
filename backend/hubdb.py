@@ -1474,11 +1474,10 @@ def librarian_text(body):
         for old, new in ((r"\bcompany docs\b", "team docs"),
                          (r"\bcompany information\b", "team information"),
                          (r"\bcoworkers\b", "teammates"), (r"\bcoworker\b", "teammate"),
-                         (r"\bnew machine\b", "new Computer"), (r"\bthat machine\b", "that Computer"),
                          (r"\bthrough the runner\b", "through Tico"),
                          (r"\bstanding instructions\b", "Instructions"),
                          (r"\bHub docs\b", "Tico docs")):
-            text = re.sub(old, new, text, flags=re.I)
+            text = re.sub(old, lambda m, new=new: new[0].upper() + new[1:] if m[0][0].isupper() else new, text, flags=re.I)
         text = re.sub(r"\b(the) runner (?=(?:pulls?|updates?|syncs?|reads?)\b)",
                       lambda m: m[1] + " Computer ", text, flags=re.I)
         parts[i] = text

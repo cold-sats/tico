@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from datetime import timezone
 
 import yaml
 from fastapi import Request
@@ -34,9 +35,11 @@ def since_time(value):
     match = re.fullmatch(r"(\d+)([dhm])", value)
     if match:
         return H.shift(H.now(), seconds=-int(match[1]) * {"d": 86400, "h": 3600, "m": 60}[match[2]])
-    if not H.parse_ts(value):
+    at = H.parse_ts(value)
+    if not at:
         raise Problem("date", "Use an ISO date/time or a duration such as 7d", 422)
-    return value
+    # Stored times are UTC to the microsecond and compared as text: "19:36:14Z" sorts after "19:36:14.5Z".
+    return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
 
 
 def attempt_details(c, turn):
@@ -967,7 +970,8 @@ def install_views(app, store, auth, mutate, task_view):
                 machines.append({**value, "bots": bots, "needed_runtimes": sorted(wanted | assigned.get(row["id"], set())),
                                  "update": runner_versions.view(fleet.get(row["id"])),
                                  "harness_actions": recent(c, row["id"]) if who.role == "owner" else []})
-            health = [dict(r) for r in c.execute("SELECT service,last_success,last_error FROM service_health")]
+            health = [{**dict(r), "name": SERVICE_NAMES.get(r["service"], r["service"])}
+                      for r in c.execute("SELECT service,last_success,last_error FROM service_health")]
             from .agents import listing as agent_listing
             # `machines` is the older name of `computers`, kept for older clients.
             return {"cloud": True, "computers": machines, "machines": machines, "agents": agent_listing(c, who, auth), "services": health,

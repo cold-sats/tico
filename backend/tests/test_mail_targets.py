@@ -252,6 +252,7 @@ def test_the_health_issue_names_the_mailbox_and_the_domain(api):
     assert mail["name"] == "Mail Tool" and mail["text"].startswith("Mail Tool: ") and mail["fix"] == "Open Health for Mail Tool"
     ops = get(api, "operations")
     assert ops["computers"] == ops["machines"] and ops["computers"]
+    assert {"connector:mail": "Mail Tool"}.items() <= {s["service"]: s["name"] for s in ops["services"]}.items()
 
 
 def named(api, person, body, token="ana-test", expected=200):

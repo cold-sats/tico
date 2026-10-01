@@ -101,6 +101,7 @@ def test_value_claims_reject_negation_contradiction_wrong_subject_and_double_neg
         assert scored["cited"] and not scored["facts"], wrong
     assert E.fact_matches("Studio costs $29 from the pricing docs, updated 2026-09-12.", fact)
     assert E.fact_matches("Studio costs $29. Team costs $99. Its price is $99.", fact)
+    assert E.fact_matches("Studio costs $29. The Team plan is $99.", fact)
     monthly = {"subject": "monthly", "predicate": "refund(?:able|s)?", "polarity": "negative"}
     assert not E.fact_matches("Monthly plans are not non-refundable.", monthly)
     assert not E.fact_matches("Monthly plans aren't not refundable.", monthly)
@@ -117,7 +118,9 @@ def test_value_claims_reject_negation_contradiction_wrong_subject_and_double_neg
     "Studio costs $29. The price is $99.", "Studio costs $29. In reality, it costs $99.", "Studio costs roughly $29.",
     "Studio costs $29. In practice, it costs $99.", "Studio costs $29. The monthly price is $99.",
     "Studio costs $29. It actually costs $99.", "Studio costs $29. In fact, the price is $99.", "Studio costs circa $29.",
-    "Studio costs $29. To be clear, it costs $99."])
+    "Studio costs $29. To be clear, it costs $99.", "Studio costs $29. Ultimately, it costs $99.",
+    "Studio costs $29. Nevertheless, the price is $99.", "Studio costs $29. Subscription pricing is $99 per month.",
+    "Studio costs nearly $29.", "Studio costs $29 or so.", "Studio costs $29. As a result, the price is $99."])
 def test_a_later_sentence_contradicting_the_fact_fails_it(answer):
     fact = {"subject": "studio", "predicate": "cost|price|month", "value": "$29"}
     assert not E.fact_matches(answer, fact)

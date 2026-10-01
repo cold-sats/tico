@@ -15,7 +15,7 @@ curl -fsSL https://github.com/ticoteam/tico/releases/download/vX.Y.Z/install.sh 
 sh install.sh --version vX.Y.Z --dir "$PWD"
 ```
 
-Replace `vX.Y.Z` with the target release (for this fix release, `v0.2.36`). Update the server first;
+Replace `vX.Y.Z` with the target release (for this fix release, `v0.2.37`). Update the server first;
 computers follow over the next few minutes. A pinned or offline computer keeps its version until
 unpinned or reconnected; existing bot Credential grants remain in place during that mixed-version window.
 New one-time Credential migrations wait for a runner version that can perform them.
@@ -215,7 +215,7 @@ bot had before is kept in the repository's history. The bot's own notes, knowled
   run once in `/opt/tico-runner`:
 
   ```
-  sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.2.36/' .env && docker compose -f runner.compose.yaml up -d updater
+  sed -i 's/^TICO_UPDATER_TAG=.*/TICO_UPDATER_TAG=v0.2.37/' .env && docker compose -f runner.compose.yaml up -d updater
   ```
 
 - **v0.2.16 to v0.2.18:** the update is in the app, with no manual steps. Browser tabs left open show "New version · Reload".

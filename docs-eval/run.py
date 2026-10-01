@@ -96,7 +96,8 @@ def fact_matches(text, fact):
                 unit = re.sub(r"^[\d.,]+\s*", "", expected)
                 pattern = r"\d+(?:\.\d+)?\s+" + re.escape(unit)
         number = re.match(r"^\$?(\d+(?:[.,]\d+)*)", expected)
-        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|approx\.?)\s+\$?\d"
+        approximate = r"\b(?:between|from|less than|more than|at least|at most|under|over|up to|about|approximately|roughly|around|circa|nearly|almost|close to|approx\.?)\s+\$?\d"
+        approximate += r"|\d[\d.,]*\s*(?:or so|or thereabouts|-?ish)\b"
         if number:
             value = r"(?<!\d)\$?" + re.escape(number.group(1)) + r"(?!\d)"
             separator = r"\s*(?:[-–—]|to|through)\s*"
@@ -112,8 +113,13 @@ def fact_matches(text, fact):
         # you pay $99" and "The price is $99" fail; "The Team plan is $99" does not.
         about = True                    # a sentence naming nothing refers back to the last thing named
         for sentence in re.split(r"(?<!\d)\.|\.(?!\d)|[;!?\n]|\b(?:and|but|while|whereas)\b", text, flags=re.I):
-            names = [w for w in re.findall(r"\b[A-Z][a-zA-Z]+\b", sentence)
-                     if not re.fullmatch(subject, w, re.I) and w.lower() not in ARTICLES]
+            # A clause's first word is capitalized anyway ("Ultimately", "Subscription pricing"): it names
+            # something only when the price follows it ("Team costs $99").
+            start = len(sentence) - len(sentence.lstrip())
+            names = [m[0] for m in re.finditer(r"\b[A-Z][a-zA-Z]+\b", sentence)
+                     if not re.fullmatch(subject, m[0], re.I) and m[0].lower() not in ARTICLES
+                     and (m.start() != start or re.match(r"(?:'s)?\s+(?:plan\s+)?(?:(?:" + predicate + r")|(?:is|are)\b)",
+                                                          sentence[m.end():], re.I))]
             about = bool(re.search(subject, sentence, re.I)) or (about and not names)
             others = [v for v in re.findall(pattern, sentence, re.I) if not exact_fact(v, expected)]
             if others and about:

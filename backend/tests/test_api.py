@@ -386,3 +386,15 @@ def test_run_windows_include_failed_attempts_without_turns_and_hide_private_room
     assert api.get("/api/runs/" + attempt["id"] + "/log", headers=headers("ben-test")).status_code == 404
     issue = next(i for i in get(api, "fleet/check")["issues"] if i["kind"] == "failing_runs")
     assert "expired attempt" in issue["text"] and "last 24 hours" in issue["text"]
+
+
+def test_messages_since_a_whole_second_include_later_messages_in_that_second(api):
+    task = post(api, "tasks", {"owner": "coo", "title": "Since check", "body": "Context."})
+    cid = task["conversation_id"]
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE messages SET created='2026-10-01T19:36:14.558728Z' WHERE conversation_id=?", (cid,))
+    path = "conversations/" + cid + "/messages?since="
+    for since in ("2026-10-01T19:36:14Z", "2026-10-01T19:36:14.000000Z", "2026-10-01T21:36:14%2B02:00"):
+        assert get(api, path + since)["messages"], since
+    assert not get(api, path + "2026-10-01T19:36:15Z")["messages"]
+    get(api, path + "yesterday", expected=422)
