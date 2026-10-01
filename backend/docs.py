@@ -237,8 +237,33 @@ def migrate(c, settings=None):
     return added
 
 
+def refresh_generated_wording(c):
+    """Repair generated how-to prose from installs that already completed earlier repairs."""
+    marker = "librarian_wording35"
+    if c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (marker,)).fetchone():
+        return
+    docs = Docs(None, None, None, None)
+    rows = c.execute("SELECT rowid AS rid,* FROM docs WHERE archived=0 "
+                     "AND (path GLOB '_librarian/*' OR path='FAQ.md') "
+                     "AND (updated_by='bot:librarian' OR (updated_by='keeper' AND (created_by='bot:librarian' OR id IN "
+                     "(SELECT doc_id FROM doc_versions WHERE actor='bot:librarian' "
+                     "OR note='Updated generated Tico wording'))))").fetchall()
+    for row in rows:
+        text = H.librarian_text(row["body"])
+        if text == row["body"]:
+            continue
+        c.execute("UPDATE docs SET body=?,version=version+1,updated_by='keeper',updated=? WHERE id=?",
+                  (text, H.now(), row["id"]))
+        fresh = docs.get_row(c, row["id"])
+        docs.snapshot(c, fresh, H.KEEPER, "Updated generated Tico wording")
+        index(c, row["rid"], row["title"], row["path"], text)
+        H.event(c, H.KEEPER, "docs.updated", row["id"], {"path": row["path"], "version": fresh["version"]})
+    c.execute("INSERT INTO registry_metadata VALUES(?,?)", (marker, encode({"at": H.now()})))
+
+
 def refresh_generated_docs(c):
     """Repair older Librarian caches once, then queue source reconciliation on its next run."""
+    refresh_generated_wording(c)
     marker = "librarian_fix33"
     if c.execute("SELECT 1 FROM registry_metadata WHERE key=?", (marker,)).fetchone():
         return
@@ -425,6 +450,8 @@ class Docs:
     def insert(self, c, actor, title, body, path=None, note="", event="docs.created", detail=None):
         """One new doc at version 1: the row, its first version, its index entry and the audit event."""
         path = self.free_path(c, clean_path(path)) if path else self.free_path(c, slugify(title) + ".md", unique=True)
+        if actor == "bot:librarian":
+            body = H.librarian_text(body)
         now, doc_id = H.now(), "doc-" + secrets.token_hex(6)
         c.execute("INSERT INTO docs(id,path,title,body,version,created_by,created,updated_by,updated) "
                   "VALUES(?,?,?,?,1,?,?,?,?)", (doc_id, path, title, body, actor, now, actor, now))
@@ -465,6 +492,8 @@ class Docs:
                                      "updated_by_name": name_of(row["updated_by"], names)})
             title = body.title if body.title is not None else row["title"]
             text = body.body if body.body is not None else row["body"]
+            if who.actor == "bot:librarian" and body.body is not None:
+                text = H.librarian_text(text)
             archived = int(body.archived) if body.archived is not None else row["archived"]
             path = clean_path(body.path) if body.path is not None else row["path"]
             if not archived and (path.casefold() != row["path"].casefold() or row["archived"]):

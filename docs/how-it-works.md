@@ -308,3 +308,11 @@ To reopen a finished task, open it and choose **Reopen**. After **Done**, the to
 Reopening clears its completion dates and closer, so Goals and KPIs count it as active again;
 the earlier completion stays in task history. Questions may be asked in sequence, with one open
 clarifying question on a task at a time.
+
+An ordinary bot-to-bot `hub message send` starts work but does not return the receiving bot's
+final answer. Use `hub question ask` (`hub_question_ask` over MCP) when you need an answer.
+A bot receiving an ordinary message that asks for a reply sends that reply explicitly with
+`hub message send`. Humans' chat replies and ask-message answers are delivered automatically.
+
+Computer readiness covers only bots assigned to that Computer. Eligible bots are placement
+options, and their missing repositories do not count as readiness or Health failures there.

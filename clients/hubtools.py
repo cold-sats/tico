@@ -109,7 +109,9 @@ def whoami(api, args):
 
 @tool("hub_message_send", "Send a message to a bot or a human. Bot-to-human messages are linted "
       "(a nonempty first line, under 120 words) and capped at 10 unsolicited a day. `fyi` expects no reply. "
-      "Use in_reply_to or steer for a correction to an active run; it is queued until the Computer applies it.",
+      "An ordinary bot-to-bot message does not deliver the recipient's final reply. "
+      "Use hub_question_ask when you need an answer. Use in_reply_to or steer for a correction to an active run; "
+      "it is queued until the Computer applies it.",
       {"to": _s("Recipient: a bot slug, `bot:<slug>`, or a human id"),
        "text": _s("The message"),
        "fyi": {"type": "boolean", "default": False,

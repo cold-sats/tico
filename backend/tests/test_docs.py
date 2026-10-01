@@ -264,3 +264,25 @@ def test_upgrade_repairs_generated_docs_once_and_queues_next_run_refresh(api):
         tasks = c.execute("SELECT * FROM tasks WHERE owner='bot:librarian' AND title='Refresh the map'").fetchall()
         assert len(tasks) == 1 and tasks[0]["next_run"] == 1
         assert "unreadable" in tasks[0]["body"] and "archived" in tasks[0]["body"]
+
+
+def test_wording_upgrade_repairs_previously_migrated_faq_once_and_preserves_human_docs(api):
+    from backend import docs
+    faq = make(api, "FAQ", "Change standing instructions. The runner pulls the update.", path="FAQ.md")
+    human = make(api, "Our terms", "Our runner manages standing instructions.", path="_librarian/glossary.md")
+    modified = make(api, "Edited by a human", "My standing instructions.", path="_librarian/edited.md")
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE docs SET created_by='bot:librarian' WHERE id=?", (modified["id"],))
+        c.execute("DELETE FROM registry_metadata WHERE key='librarian_wording35'")
+        c.execute("UPDATE docs SET updated_by='keeper' WHERE id=?", (faq["id"],))
+        c.execute("UPDATE doc_versions SET note='Updated generated Tico wording' WHERE doc_id=?", (faq["id"],))
+        docs.refresh_generated_wording(c)
+    fresh = call(api, "GET", "docs/" + faq["id"])["doc"]
+    assert fresh["body"] == "Change Instructions. The Computer pulls the update."
+    assert fresh["version"] == faq["version"] + 1
+    assert call(api, "GET", "docs/" + modified["id"])["doc"]["body"] == modified["body"]
+    assert call(api, "GET", "docs/" + human["id"])["doc"]["body"] == human["body"]
+    assert call(api, "GET", "docs/%s/versions/1" % faq["id"])["version"]["body"] == faq["body"]
+    with api.app.state.store.transaction() as c:
+        docs.refresh_generated_wording(c)
+    assert call(api, "GET", "docs/" + faq["id"])["doc"]["version"] == fresh["version"]

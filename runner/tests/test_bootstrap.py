@@ -116,3 +116,12 @@ class Bootstrap(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_readiness_candidates_only_include_assigned_bots():
+    assigned = [{"bot": "ops", "runner_id": "this-computer", "config": {"runtime": "fake"}}]
+    eligible = [{"bot": "support", "config": {"runtime": "fake"}},
+                {"bot": "archived", "state": "archived", "config": {}},
+                {"bot": "ops", "config": {"runtime": "other"}}]
+    assert Runner.readiness_candidates(assigned, eligible) == assigned
+    assert Runner.readiness_candidates([], eligible) == []

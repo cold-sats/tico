@@ -90,11 +90,12 @@ def computer_details(c, row, who, auth):
     value = dict(row)
     readiness = readiness_document(value.get("readiness_json"))
     access = auth.bot_accesses(c, who)
-    elsewhere = {r[0] for r in c.execute("SELECT bot FROM assignments WHERE runner_id<>?", (row["id"],))}
-    archived = {r[0] for r in c.execute("SELECT slug FROM bots WHERE state='archived'")}
+    assigned = {r[0] for r in c.execute(
+        "SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot "
+        "WHERE a.runner_id=? AND b.state<>'archived'", (row["id"],))}
     readiness["bots"] = {bot: {k: v for k, v in report.items() if k != "tools"}
                          for bot, report in readiness.get("bots", {}).items()
-                         if bot not in elsewhere | archived and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
+                         if bot in assigned and (access.get(bot) or {}).get("read") and isinstance(report, dict)}
     update = runner_versions.view(runner_versions.load(c).get(row["id"]))
     update["wanted_release"] = runner_versions.desired()["version"]
     return {"version": value.get("version") or "", "last_seen": value.get("last_seen"),
@@ -951,12 +952,11 @@ def install_views(app, store, auth, mutate, task_view):
                 value = dict(row)
                 value["accepts_member_bots"] = bool(row["accepts_member_bots"])
                 value["readiness"] = readiness_document(value.pop("readiness_json"))
-                # A computer reports on the bots it could host as well as the ones it does. A bot placed on another
-                # computer is not ready here, whatever an old checkout says, so its row is not shown as this
-                # computer's (and does not count toward its failures).
-                hosted = {a[0] for a in c.execute("SELECT bot FROM assignments WHERE runner_id<>?", (row["id"],))}
-                for elsewhere in [b for b in value["readiness"].get("bots", {}) if b in hosted]:
-                    del value["readiness"]["bots"][elsewhere]
+                assigned_here = {a[0] for a in c.execute(
+                    "SELECT a.bot FROM assignments a JOIN bots b ON b.slug=a.bot "
+                    "WHERE a.runner_id=? AND b.state<>'archived'", (row["id"],))}
+                value["readiness"]["bots"] = {bot: report for bot, report in value["readiness"].get("bots", {}).items()
+                                             if bot in assigned_here}
                 for report in value["readiness"].get("bots", {}).values():
                     report.pop("tools", None)
                 from .harness_actions import recent

@@ -26,7 +26,8 @@ and repair the bots that do it.
    detailed task note in chat. Leave out internal commands unless they ask.
    Use Team, teammate, Computer, Setup, Tools, Credential, Instructions, Routine and Decision.
    Call the product Tico in completion messages too; never call it Hub. Translate internal terms;
-   keep command and variable names when needed.
+   keep command and variable names when needed. Say "Setup was already marked done" when
+   that detail matters; never use "onboarding" in completion prose or expose `onboarding_state`.
 3. **"Tell me issues to solve", "what's broken", "status":** run `hub health check`, fix what you
    may right away (`playbooks/health-check.md`), and reply with a short prioritised list: what is
    wrong, what you already fixed, the one thing they need to do.
@@ -176,3 +177,9 @@ Humans find what you made under Files on your page. A report, draft or export go
 `artifacts/` in this repo: it is listed after a completed run, or at once with `hub file publish
 reports/<name>.md`. A Google Doc, Sheet, Slides, Notion page or Figma file you created is listed with
 `hub file link <url> --title "..."`. Files humans send you are inputs, not yours to list.
+
+## Replies between bots
+Use `hub question ask` when you need another bot's answer. An ordinary `hub message send`
+does not deliver the recipient's final answer to the sending bot. If an incoming ordinary
+bot message requests a reply, send it explicitly with `hub message send <sender> "<reply>"`;
+do not leave that bot waiting for your final answer. An ask message receives your final answer automatically.

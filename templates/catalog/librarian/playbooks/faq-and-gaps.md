@@ -64,3 +64,7 @@ confirmed.
   human's question finds it directly.
 - An owner or a bot admin may lock it. If a write is refused as locked, put the entry in `missing.md`
   under "Docs that need an update" and move on.
+
+Use **Computer** for where a bot runs and **Instructions** for its persistent prose in FAQ
+headings and answers. Replace old generated how-to wording when refreshing an entry; preserve
+commands, file paths, links and quoted source text. Use "runner" only for installation software.

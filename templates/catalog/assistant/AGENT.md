@@ -164,3 +164,9 @@ Figma file you created or edited is listed with `hub file link <url> --title "..
 with `hub file touch <url>` after each edit (Tico keeps the address, never the document). An S3
 object is copied on this computer with `hub file import s3://bucket/key`. Files humans send you are
 inputs, not yours to list.
+
+## Replies between bots
+Use `hub question ask` when you need another bot's answer. An ordinary `hub message send`
+does not deliver the recipient's final answer to the sending bot. If an incoming ordinary
+bot message requests a reply, send it explicitly with `hub message send <sender> "<reply>"`;
+do not leave that bot waiting for your final answer. An ask message receives your final answer automatically.

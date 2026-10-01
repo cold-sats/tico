@@ -83,9 +83,22 @@ def test_value_claims_reject_negation_contradiction_wrong_subject_and_double_neg
                   "Team costs $29. Studio costs $99.", "Studio costs $299.", "Studio costs $29.99.",
                   "Studio costs $29. Its price is $99.", "Studio costs $29. Actually, it costs $99.",
                   "Studio costs $29–$99.", "Studio costs $29 to $99.", "Studio costs at least $29.",
-                  "Studio costs $29. Their price is $99."]:
+                  "Studio costs $29. Their price is $99.",
+                  "Studio costs $29. The price is $99.", "Studio costs $29. In reality, it costs $99.",
+                  "Studio costs roughly $29.", "Studio costs about $29.", "Studio costs approximately $29.",
+                  "Studio costs around $29.", "Studio costs ~$29.", "Studio costs between $29 and $99.",
+                  "Studio costs from $29 to $99.", "Studio costs $19–$29."]:
         assert not E.fact_matches(wrong, fact), wrong
     assert E.fact_matches("Studio costs $29. Its price is $29.", fact)
+    assert E.fact_matches("Studio costs $29. The price is $29.", fact)
+    assert E.fact_matches("Studio costs $29. In reality, it costs $29.", fact)
+    assert not E.fact_matches("Team costs $29. Its price is $29.", fact)
+    for wrong in ["Its price is $99.", "Actually, it costs $99.", "The price is $99.",
+                  "In reality, it costs $99."]:
+        answer = "Studio costs $29. " + wrong + " [Internal doc · Pricing](doc:d1)"
+        scored = E.score({"cite": ["sales/pricing.md"], "facts": [fact]}, answer,
+                         {E.PREFIX + "sales/pricing.md": "d1"})
+        assert scored["cited"] and not scored["facts"], wrong
     assert E.fact_matches("Studio costs $29 from the pricing docs, updated 2026-09-12.", fact)
     assert E.fact_matches("Studio costs $29. Team costs $99. Its price is $99.", fact)
     monthly = {"subject": "monthly", "predicate": "refund(?:able|s)?", "polarity": "negative"}

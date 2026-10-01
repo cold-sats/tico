@@ -30,6 +30,8 @@ LIMITS = {"owner": (5000, 20.0), "human": (500, 5.0), "bot": (500, 5.0)}
 OPEN = {"cloud_migrations", "rate_limits", "service_health", "learnings", "sqlite_master"}
 # Table-valued functions SQLite reports like tables of the main schema.
 TABLE_FUNCTIONS = {"json_each", "json_tree"}
+SAFE_COLUMNS = {"slack_posts": {"message_id", "bot", "state", "attempts", "next_attempt",
+                                "slack_ts", "created", "updated"}}
 # Columns nobody reads through SQL. Tables not named in `guarded` (credentials, credential_keys,
 # credential_grants, idempotency, runners, enrollments, session_epochs, settings_changes,
 # backup_verified_blobs, _litestream_*, sqlite_* except sqlite_master) are denied outright.
@@ -176,6 +178,7 @@ def guarded(c, auth, who, inner):
         "mail_mailboxes": "1" if owner else "0",
         "mail_messages": "1" if owner else "0",
         "mail_fts": "1" if owner else "0",
+        "slack_posts": by_message if owner else "message_id IS NULL",
     }
     hidden = {table: set(HIDDEN.get(table, ())) for table in rules}
     if bot:
@@ -194,13 +197,18 @@ def connect(path, c, auth, who):
         conn.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 0)
         conn.execute("PRAGMA busy_timeout=5000")
         for table, (_, hidden) in tables.items():
-            columns = [row[1] for row in conn.execute(f'PRAGMA table_info("{table}")') if row[1] not in hidden]
+            columns = [row[1] for row in conn.execute(f'PRAGMA table_info("{table}")') if row[1] not in hidden
+                       and (table not in SAFE_COLUMNS or row[1] in SAFE_COLUMNS[table])]
             if not columns:
                 raise Problem("schema", f"Table {table} is missing from this database", 500)
             names = ",".join(f'"{column}"' for column in columns)
             conn.execute(f'CREATE TEMP VIEW {inner(table)} AS SELECT {names} FROM main."{table}"')
         for table, (predicate, _) in tables.items():
             conn.execute(f'CREATE TEMP VIEW "{table}" AS SELECT * FROM {inner(table)} WHERE {predicate}')
+        # Older SQLite versions initialize JSON virtual tables with schema authorization calls.
+        # Initialize only these built-ins before installing the read-only authorizer.
+        for function in sorted(TABLE_FUNCTIONS):
+            conn.execute(f"SELECT value FROM {function}('[]')").fetchall()
         conn.execute("PRAGMA query_only=1")
         # Every other object in the file is off limits, even as a bare `count(*)`.
         denied = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")} | {"sqlite_temp_master"}

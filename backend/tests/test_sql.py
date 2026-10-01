@@ -125,7 +125,7 @@ def test_owner_sees_everything_but_other_peoples_rooms(api, world):
         jobs = c.execute("SELECT count(*) FROM jobs").fetchone()[0]
     # Every queued job but the one Ben's private room raised.
     assert jobs == 5 and len(column(api, "SELECT id FROM jobs")) == 4
-    assert column(api, "SELECT key FROM registry_metadata") == ["access", "access_bot_limit", "bot_access", "credential-file-migration-v1", "credential-file-migration-v2-hub", "docs_migrated", "onboarding", "owner", "people", "usage-count"]
+    assert column(api, "SELECT key FROM registry_metadata") == ["access", "access_bot_limit", "bot_access", "credential-file-migration-v1", "credential-file-migration-v2-hub", "docs_migrated", "librarian_wording35", "onboarding", "owner", "people", "usage-count"]
 
 
 def test_a_person_sees_the_company_but_not_private_bots_or_other_rooms(api, world):
@@ -190,3 +190,42 @@ def test_current_docs_and_files_follow_api_visibility(api, world):
     assert "prohibited" in error(api, "SELECT * FROM main.bot_files")
     for table in ("bot_file_versions", "bot_file_activity"):
         assert query(api, "SELECT count(*) FROM " + table)["rows"] == [[0]]
+
+
+def test_json_table_functions_are_read_only_and_keep_source_visibility(api, world):
+    for token in ("ana-test", "ben-test", world["attempt"]["token"]):
+        assert query(api, "SELECT value FROM json_each('[1,2]')", token)["rows"] == [[1], [2]]
+        assert query(api, "SELECT key,value,type FROM json_tree('{\"qa\":1}') WHERE key='qa'", token)["rows"] == [["qa", 1, "integer"]]
+        assert query(api, "SELECT j.value FROM messages m, json_each(m.refs_json) j "
+                          "WHERE m.conversation_id=:room", token,
+                     params={"room": world["steven_room"]})["rows"] == []
+        assert "prohibited" in error(api, "SELECT j.value FROM main.messages m, json_each(m.refs_json) j", token)
+        assert "prohibited" in error(api, "SELECT j.value FROM credentials c, json_each(c.id) j", token)
+        assert "not authorized" in error(api, "SELECT load_extension('missing')", token)
+    assert query(api, "SELECT count(*) FROM messages m, json_tree(m.refs_json) j",
+                 world["attempt"]["token"])["rows"][0][0] >= 1
+
+
+def test_slack_queue_status_is_owner_only_and_hides_values(api, world):
+    with api.app.state.store.transaction() as c:
+        for mid in (c.execute("SELECT id FROM messages WHERE conversation_id=?", (world["ana_room"],)).fetchone()[0],
+                    c.execute("SELECT id FROM messages WHERE conversation_id=?", (world["steven_room"],)).fetchone()[0]):
+            c.execute("INSERT INTO slack_posts(message_id,channel,thread_ts,bot,text,error,state,created,updated) "
+                      "VALUES(?,'private-channel','thread','ops','private text','private error','ready',?,?)",
+                      (mid, H.now(), H.now()))
+    visible = column(api, "SELECT message_id FROM slack_posts")
+    assert len(visible) == 1
+    assert query(api, "SELECT count(*) FROM slack_posts")["rows"] == [[1]]
+    assert query(api, "SELECT state FROM slack_posts WHERE message_id=:mid",
+                 params={"mid": visible[0]})["rows"] == [["ready"]]
+    for token in ("ben-test", world["attempt"]["token"]):
+        assert query(api, "SELECT * FROM slack_posts", token)["rows"] == []
+        assert query(api, "SELECT count(*) FROM slack_posts", token)["rows"] == [[0]]
+    for token in ("ana-test", "ben-test", world["attempt"]["token"]):
+        columns = query(api, "SELECT * FROM slack_posts", token)["columns"]
+        assert set(columns) == SQL.SAFE_COLUMNS["slack_posts"]
+        for field in ("text", "channel", "thread_ts", "error"):
+            assert "no such column" in error(api, f"SELECT {field} FROM slack_posts", token)
+        assert "prohibited" in error(api, "SELECT message_id FROM main.slack_posts", token)
+        assert "prohibited" in error(api, "WITH slack_posts AS (SELECT * FROM main.slack_posts) "
+                                    "SELECT * FROM slack_posts", token)

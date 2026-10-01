@@ -808,19 +808,13 @@ class Runner:
             self.push(path)
 
     @staticmethod
-    def readiness_candidates(assignments, eligible):
-        """Inspect hostable bots before assignment, with live assignments authoritative."""
-        candidates = {entry["bot"]: entry for entry in eligible if isinstance(entry.get("config"), dict)}
-        candidates.update({entry["bot"]: entry for entry in assignments})
+    def readiness_candidates(assignments, eligible=()):
+        """Only live assignments are readiness candidates; eligible rows are placement options."""
+        candidates = {entry["bot"]: entry for entry in assignments}
         return [candidates[bot] for bot in sorted(candidates)]
 
     def assigned_here(self, entry):
-        """Whether this machine is the one that hosts this bot.
-
-        Readiness inspects every bot the operator could host (`runners/eligible`), not only the
-        ones assigned here, and both kinds of row carry the runner holding the bot. Anything this
-        machine would write — a bootstrap repository — belongs only to its own assignments.
-        """
+        """Whether this Computer is the one that hosts this bot."""
         mine = str(self.config.get("runner_id") or "")
         return bool(mine) and str((entry or {}).get("runner_id") or "") == mine
 
@@ -2087,8 +2081,7 @@ class Runner:
         self.migrate_credentials(assignments)
         self.bot_credential_names = self.client.get("runner-credential-grants")["bots"]
         self.assignments_seen = assignments
-        eligible = self.client.get("runners/eligible")
-        candidates = self.readiness_candidates(assignments, eligible)
+        candidates = self.readiness_candidates(assignments)
         runtimes = self.runtime_report(candidates)
         self.runtime_rows = runtimes
         checks = self.preflight(candidates, runtimes)

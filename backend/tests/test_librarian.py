@@ -144,3 +144,29 @@ def test_mcp_docs_ask_status_collects_the_same_private_answer(desk):
     assert not err and final["covered"] and final["answer"].startswith("14 days")
     snapshot = get(desk, f"conversations/{pending['conversation_id']}/snapshot")
     assert len([m for m in snapshot["messages"] if m["from_actor"] == "human:ana"]) == 1
+
+
+def test_how_to_wording_preserves_installation_software_and_source_literals():
+    source = ('Change standing instructions. The runner pulls the update before the next run. '
+              'Install the runner. `runner --help` [runner](https://example.com/runner) '
+              '"standing instructions" runner/service.py')
+    result = H.librarian_text(source)
+    assert result.startswith('Change Instructions. The Computer pulls the update before the next run.')
+    assert 'Install the runner.' in result
+    for literal in ('`runner --help`', '[runner](https://example.com/runner)',
+                    '"standing instructions"', 'runner/service.py'):
+        assert literal in result
+
+
+def test_librarian_doc_writes_normalize_generated_instructions_and_computers(desk):
+    ask(desk, "How do I change Instructions?")
+    attempt = claim(desk, desk.runner)
+    created = post(desk, "docs", {"title": "FAQ", "path": "FAQ.md",
+                                  "body": "Change standing instructions. The runner pulls the update."},
+                   token=attempt["token"])["doc"]
+    assert created["body"] == "Change Instructions. The Computer pulls the update."
+    edited = desk.patch("/api/v2/docs/" + created["id"],
+                        json={"version": created["version"], "body": "Standing instructions: the runner reads AGENT.md."},
+                        headers=headers(attempt["token"]))
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["doc"]["body"] == "Instructions: the Computer reads AGENT.md."

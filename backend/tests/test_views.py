@@ -162,3 +162,27 @@ def test_queued_chat_names_readiness_problem(api, problems, expected, reason):
     snap = get(api, f"conversations/{msg['conversation_id']}/snapshot")["execution"]
     assert snap["label"] == "Saved — waiting for computer setup"
     assert "readiness_reason" not in snap
+
+
+def test_old_computer_reports_ignore_unassigned_and_archived_bots(api):
+    from backend import health
+    machine = runner(api)
+    assign(api, machine, "ops")
+    ready(api, machine, ["ops"])
+    report = {"ready": False, "repository_present": False,
+              "problems": ["Missing bot repository"],
+              "warnings": ["GitHub history not published: unavailable"]}
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='archived' WHERE slug='coo'")
+        c.execute("UPDATE runners SET readiness_json=? WHERE id=?",
+                  (json.dumps({"schema_version": 1, "bots": {"ops": {"ready": True}, "finance": report,
+                                        "coo": report, "unknown": report}}), machine["runner_id"]))
+    computers = get(api, "computers")["computers"]
+    computer = next(row for row in computers if row["id"] == machine["runner_id"])
+    assert set(computer["readiness"]["bots"]) == {"ops"}
+    operations = get(api, "operations")
+    row = next(row for row in operations["machines"] if row["id"] == machine["runner_id"])
+    assert set(row["readiness"]["bots"]) == {"ops"}
+    with api.app.state.store.read() as c:
+        assert health.missing_repositories(c, {machine["runner_id"]}) == []
+        assert health._unpublished(c) == []

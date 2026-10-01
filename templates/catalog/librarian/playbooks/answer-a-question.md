@@ -19,7 +19,9 @@ Translate the human's words into the team's words with the map (`_librarian/glos
 terms" may be "net 30" in the docs, "the CRM" a product's name.
 
 For Tico terms, search maps the manual glossary's **Instead of** column to current words before ranking.
-Use those words in the answer too. The team's glossary adds its own domain terms.
+Use those words in the answer too. Call the bot's host its **Computer** and its persistent
+prose **Instructions**. Say "The bot's Computer pulls the update before its next run."
+Reserve "runner" for the software in installation instructions. The team's glossary adds its own domain terms.
 
 ## 2. Search the docs
 
