@@ -89,7 +89,7 @@ The product favours getting going fast, and the owner tightens it later. Setting
 | **Admins see SQL** | Admins open the SQL page | the SQL page is the owner's |
 | **Members make personal tokens** | any human makes a personal API token, which sees what they see | the owner and the Admins do |
 
-Only the owner changes them. When the owner asks, BotOps updates these Team rules directly with the owner's rights.
+Only the Owner changes them, directly in Settings or by asking BotOps to act with the Owner's rights.
 
 **Groups.** A group is a sub-team of humans and bots, and groups nest ([the team chart](org-chart.md)). Owners and admins add, rename, move
 and remove groups and put humans and bots in them; members read them. A group is an access audience, so moving a human or a bot into a
@@ -124,12 +124,15 @@ A bot gets only credentials granted to it, including its own local credentials; 
 Credential administrators store, delete and grant credentials. A human who holds a credential may also delegate it to a bot
 they own or run, directly or through BotOps. Revoking the human's grant removes the delegated bot access; changing the bot owner
 invalidates delegation from its former owner. A holder cannot delegate a credential they do not hold ([credential-vault.md](credential-vault.md)).
-On upgrade, Tico automatically grants each bot the shared credentials it already uses; bots do not inherit the whole environment or `_shared.env`.
+On upgrade, Tico automatically grants each existing bot its own-file values, the shared Credentials it could read,
+and its declared profile and runtime keys. New bots do not inherit the whole environment or `_shared.env`.
 
 ## Computers for members' bots
 
-Every bot on a computer shares that computer's trust: the same OS user, workspace and model sign-in. Credential delivery is filtered to each bot's grants, including values sourced from `secrets/_shared.env`. A bot
-created by a member has instructions the team has not reviewed, so it does not go on just any computer. Each computer has
+Bots on one Computer share its workspace and model sign-in trust. Run environments receive only granted Credentials,
+with no process or `_shared.env` fallback. On isolated Computers, the runner supervisor owns legacy secret files.
+Computers without process isolation still share one user and filesystem ([SECURITY.md](../SECURITY.md)). A bot
+created by a member has Instructions the Team has not reviewed, so it does not go on just any Computer. Each computer has
 **Accepts members' bots** (Settings > Computers, owners and admins):
 
 - **On** for every new computer, whoever enrols it, so members' bots go on any computer without asking; an owner or an admin turns
@@ -139,8 +142,6 @@ created by a member has instructions the team has not reviewed, so it does not g
   bot on any computer. Placing a member's bot never hands it to the computer's owner: it stays theirs.
 - Setup that places bots for you (a computer enrolling, the wizard) leaves a member's bot alone unless the computer is its owner's
   or takes members' bots.
-- Credential delivery filters `secrets/_shared.env` to the bot's grants. Sharing a computer still shares an OS trust boundary;
-  use a separate computer for bot instructions you do not trust.
 
 A computer still hosts its owner's bots and the team owner's; taking members' bots adds members' bots, it does not move anyone else's.
 
@@ -149,6 +150,10 @@ A computer still hosts its owner's bots and the team owner's; taking members' bo
 An owner should be able to say "build me a Jira bot, and add Sam" in chat with BotOps and have it done. BotOps therefore acts **as the
 human whose own chat message started its current run**, checked with that human's rights and recorded as theirs, "via BotOps"
 (events, settings history). Not more than they may do: a member cannot edit another human's bot through BotOps any more than by hand.
+
+For unfinished work, BotOps can create a continuation task with `hub task create --request-id <originating message id>`.
+The server checks that the request came from the human's own BotOps chat and keeps that human as requester.
+Progress with `hub task update <id> --quiet --note "..."` stays on the task; chat still shows its link and status.
 
 BotOps never acts for a message a **bot** wrote, one the **Assistant** wrote for a human (`refs.via`), a human's words
 **inside a task** or a document, a message **routed from Slack** (anyone in the thread can shape it), or a message more than a week old.
@@ -191,7 +196,9 @@ back as a **Confirm card** (below), or it is **not delegable** at all: tokens an
 stored credential's own routes, external agent credentials. Reads are the requester's reads. A credential never travels in a `hub api` body (a key named
 `secret`, `password`, `token`, `api_key` and the like is refused).
 
-Everyday edits to a bot the human owns happen at once, and each is undoable from Settings > Bots history.
+Everyday edits to a bot the human owns happen at once. Requested bot deletion, outside-domain invites by an Owner or Admin,
+Tico updates, and the Owner's Team rule changes also run directly. Archiving removes Routines and placement and may revoke
+its External agent Credential; restoring the bot does not recover those. Other settings edits have history for undo.
 
 ### What still needs their click
 
@@ -203,17 +210,18 @@ BotOps, the owner and the admins cannot confirm for them.
   (it is an access audience);
 - giving a person, or every computer, a stored credential (a bot grant runs at once for an administrator or a holder delegating to a bot they own or run);
 - placing a member's bot on a computer that is neither its owner's nor open to members' bots (admins only);
-- removing a computer and changing whether a computer takes members' bots;
+- removing a Computer and changing whether a Computer takes members' bots;
 - who may sign in, and what members may do (the bot limit);
-- the directory sync, disconnecting Slack or GitHub;
+- directory sync and disconnecting Slack or GitHub;
 - a message in their name to a human (a message or chat to a bot goes at once), a decision on a proposal, and a support message to the Tico team.
 
 The team's AI providers and raising a spending limit go at once too, unless the owner turns **BotOps changes providers and limits
 without asking** off ([Team rules](#team-rules)); then they are cards, and lowering a limit still is not. BotOps can start a model
 sign-in on a computer (`POST /api/v2/runners/<id>/logins`, and read its link and code): the code a human pastes back is theirs to
 give in the app. It can turn inbox sharing on for a computer (`POST /api/v2/runners/<id>/inbox-sharing`, [Mail](mail.md)) only where
-one owner runs every computer and bot; anywhere else an owner or an admin does it. It still never turns on a bot's sending outside the
-team. It deletes a bot and its repository when asked, subject to the requester's rights; the four built-in bots cannot be deleted.
+one owner runs every computer and bot; anywhere else an owner or an admin does it. It turns on a bot's sending outside the
+Team only when the human asks. It deletes a bot or its repository when requested with the human's rights; the four
+Built-in bots cannot be deleted. It may delete a branch that is already merged.
 
 What only an owner or an admin may ask for (sign-in and member limits, a computer taking members' bots, providers and the team
 spending limit when they are cards, updates, directory, disconnecting) is refused at once for a member, not handed over as a card that would fail.

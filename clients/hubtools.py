@@ -48,7 +48,7 @@ PROPOSAL_KINDS = ("goal_wording", "goal_kpi", "kpi_definition", "kpi_target", "f
 
 # What an agent reads on connect: the hub in one line, then the skill a person's own agent
 # follows to work their bots (clients/agent_skill.py). Bots ignore the skill; it is for people.
-INSTRUCTIONS = ("Tico: tasks, messages, approvals, status. "
+INSTRUCTIONS = ("Tico: tasks, messages, Decisions, status. "
                 "Every rule is enforced server-side; a refusal says which.\n\n" + WHO_NEEDS_ME)
 
 TOOLS = []
@@ -101,7 +101,7 @@ def _key(args, suffix=""):
 # ----------------------------------------------------------------------------- identity, messages
 from clients.tico import APIError  # noqa: E402
 
-@tool("hub_whoami", "Who you are to Tico: actor, role, runner and attempt, or the external "
+@tool("hub_whoami", "Who you are to Tico: actor, role, Computer and attempt, or the External "
       "agent harness (a Hermes profile) when that is what runs you.", {})
 def whoami(api, args):
     return api.get("me")
@@ -119,12 +119,57 @@ def whoami(api, args):
                 "description": "References like `task:<id>` or `approval:<id>`"}},
       required=("to", "text"), writes=True)
 def message_send(api, args):
+    if str(args["to"]).lower() == "assistant":
+        return assistant_send(api, args)
     if args.get("fyi"):
         return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "notice",
                                      "conversation_id": None, "refs": {}}, key=_key(args))
     return api.post("messages", {"to": args["to"], "text": args["text"], "kind": "say",
                                  "conversation_id": args.get("conversation_id"),
                                  "refs": _refs(args.get("refs"))}, key=_key(args))
+
+
+@tool("hub_assistant_read", "Read your private Assistant chat and its pending Decisions. Uses only your own room.", {})
+def assistant_read(api, args):
+    return api.get("assistant")
+
+
+@tool("hub_assistant_send", "Ask your private Assistant. Uses only your own room; Confirm cards still need your click in Tico.",
+      {"text": _s("Your request")}, required=("text",), writes=True)
+def assistant_send(api, args):
+    return api.post("assistant/messages", {"text": args["text"]}, key=_key(args))
+
+
+@tool("hub_bot_archive", "Archive a bot you manage. Routines and placement are removed; its External agent Credential "
+      "is revoked by default. Restore does not recover those. Built-in bots cannot be archived.",
+      {"bot": _s("Bot slug"), "successor": _s("Bot taking over its open work")}, required=("bot",), writes=True)
+def bot_archive(api, args):
+    person = _as_person(api)
+    definition = person.get(f"bots/{args['bot']}/access")
+    return person.post(f"bots/{args['bot']}/archive", {"successor": args.get("successor") or None,
+                       "expected_revision": definition["revision"]}, key=_key(args))
+
+
+@tool("hub_doc_archive", "Archive an internal Doc with your rights. Its history stays.",
+      {"ref": _s("Doc id or path")}, required=("ref",), writes=True)
+def doc_archive(api, args):
+    person = _as_person(api)
+    row = _doc_lookup(person, args["ref"])
+    if not row:
+        raise ValueError("No internal Doc " + args["ref"])
+    return person.patch(f"docs/{row['id']}", {"version": row["version"], "archived": True}, key=_key(args))
+
+
+@tool("hub_file_archive", "Archive a File with your rights; its history stays.",
+      {"id": _s("File id")}, required=("id",), writes=True)
+def file_archive(api, args):
+    return _as_person(api).patch(f"files/{args['id']}", {"archived": True}, key=_key(args))
+
+
+@tool("hub_meeting_delete", "Delete a Meeting you may edit. Its record remains recoverable.",
+      {"id": _s("Meeting id")}, required=("id",), writes=True)
+def meeting_delete(api, args):
+    return _as_person(api).post(f"meetings/{args['id']}/delete", {}, key=_key(args))
 
 
 @tool("hub_note_create", "Leave a bot a quiet note: it wakes nobody, asks nothing, and the bot's next run "
@@ -252,6 +297,7 @@ def meetings_import_file(api, args):
        "body": _s("The details", default=""),
        "due": _s("ISO-8601 date-time with timezone"),
        "parent_id": _s("Parent task id (or 8-character short id), when this is one part of a bigger task"),
+       "request_id": _s("BotOps continuation: originating human chat message id"),
        "labels": {"type": "array", "items": {"type": "string"},
                   "description": "Labels: a project name, a kind (bug, front-end). Lower-case words."},
        "top": {"type": "boolean", "default": False,
@@ -267,7 +313,7 @@ def task_create(api, args):
     body = {"owner": _target(api, args["owner"]), "title": args["title"], "body": args.get("body") or "",
             "due": args.get("due"), "parent_id": args.get("parent_id"),
             "goal_id": args.get("goal_id") or None}
-    for field in ("labels", "top", "links", "next_run"):
+    for field in ("labels", "top", "links", "next_run", "request_id"):
         if args.get(field) not in (None, "", [], False):
             body[field] = args[field]
     if args.get("dry_run"):
@@ -324,6 +370,7 @@ def task_ask(api, args):
       {"id": TASK_ID,
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
        "note": _s("What changed, or the result"),
+       "quiet": {"type": "boolean", "description": "Keep detailed notes on the task; chat receives only its title and status"},
        "owner": _s("Hand the task to this bot or person"),
        "due": _s("ISO-8601 date-time with timezone"),
        "labels": {"type": "array", "items": {"type": "string"}, "description": "Replace the labels"},
@@ -334,6 +381,8 @@ def task_update(api, args):
     current = api.get("tasks/" + args["id"])["task"]
     body = {"version": current["version"], "note": args.get("note"), "status": args.get("status"),
             "owner": args.get("owner"), "due": args.get("due"), "goal_id": args.get("goal_id")}
+    if args.get("quiet"):
+        body["quiet"] = True
     if args.get("labels") is not None:
         body["labels"] = args["labels"]
     if args.get("blocked_by") is not None:
@@ -1047,7 +1096,7 @@ def history(api, args):
 # ----------------------------------------------------------------------------- routines
 # ----------------------------------------------------------------------------- tools
 # What a bot uses, as its page shows it (docs/creating-bots.md, "What people see about a bot's tools"). Adding one
-# never carries a credential: `env` is a variable's name, and the operator installs the value on the bot's computer.
+# never carries a credential: `env` is a variable's name, and its stored Credential is granted to the bot.
 def _scope_of(value):
     """A scope as an object, from an object or from KEY=VALUE strings (a comma makes a list)."""
     if isinstance(value, dict):
@@ -1094,18 +1143,19 @@ def tools_report(api, args):
 
 
 @tool("hub_tool_add", "Register a tool for a bot you manage (BotOps: one the person who asked you manages): a `tools:` entry for its bot.yaml. The server checks "
-      "it and opens a task for BotOps, or for an external profile to configure itself. The tool stays pending until a tool report lists "
-      "it. Names and verbs only: never a credential value. `env` names the variable, which the operator puts on the "
-      "bot's computer. To give the bot a vendor's remote MCP server, add `mcp_url`, `transport` and `headers` (the "
+      "it and opens a task with the exact YAML for BotOps, or for an External agent profile to configure itself. The tool stays pending until a tool report lists "
+      "it. Names and verbs only: never a Credential value. `env` names a stored Credential granted to the bot. To give the bot a vendor's remote MCP server, add `mcp_url`, `transport` and `headers` (the "
       "credential is a ${VAR} placeholder for `env`).",
       {"bot": _s("The bot's slug"), "service": _s("A short name such as posthog or google-calendar"),
        **MCP_PROPERTIES,
        "identity": _s("Who it acts as, for a person to read: an account, a project, a role"),
        "can": {"type": ["array", "string"], "items": {"type": "string"}, "minItems": 1,
-               "description": "What it may do: read, draft, post, act, use, send, write (or a comma list)"},
+               "description": "read, draft, post, act, use, send, write (or a comma list). Custom verbs describe intent; they add no enforcement"},
        "scope": {"type": ["object", "array"], "items": {"type": "string"}, "description": "database, channels, project, mailbox, sites, repo and the like"},
        "env": _s("The environment variable's name, such as POSTHOG_KEY; never its value"),
-       "note": _s("Who authorized it and what is excluded")},
+       "note": _s("Who authorized it and what is excluded"),
+       "title_prefix": _s("Keep this prefix on the generated BotOps task"),
+       "dry_run": {"type": "boolean", "description": "Validate only; create no task"}},
       required=("bot", "service", "can"), writes=True)
 def tools_add(api, args):
     can = args["can"]
@@ -1115,7 +1165,7 @@ def tools_add(api, args):
         raise ValueError("An MCP server needs its address: mcp_url")
     body = {"service": args["service"], "can": can, "scope": _scope_of(args.get("scope")),
             **({"mcp": mcp} if mcp else {}),
-            **{k: args[k] for k in ("identity", "env", "note") if args.get(k)}}
+            **{k: args[k] for k in ("identity", "env", "note", "title_prefix", "dry_run") if args.get(k)}}
     return _as_person(api).post(f"bots/{args['bot']}/tools", body, key=_key(args))
 
 
@@ -1129,7 +1179,8 @@ def tools_add(api, args):
        "can": {"type": ["array", "string"], "items": {"type": "string"}, "minItems": 1,
                "description": "The full list of what it may do from now on: read, draft, post, act, use, send, write (or a comma list)"},
        "scope": {"type": ["object", "array"], "items": {"type": "string"}, "description": "Keys to set: database, channels, project, mailbox and the like; '' takes one off"},
-       "note": _s("The new note; an empty string clears it")},
+       "note": _s("The new note; an empty string clears it"),
+       "title_prefix": _s("Keep this prefix on the generated BotOps task")},
       required=("bot", "id"), writes=True)
 def tools_update(api, args):
     body = {}
@@ -1144,6 +1195,8 @@ def tools_update(api, args):
         body["mcp"] = _mcp_of(args)
     if not body:
         raise ValueError("Say what changes: can, scope, note or an MCP server's mcp_url, transport or headers")
+    if args.get("title_prefix"):
+        body["title_prefix"] = args["title_prefix"]
     return _as_person(api).post(f"bots/{args['bot']}/tools/{args['id']}/update", body, key=_key(args))
 
 
@@ -1159,20 +1212,25 @@ def _bot_of(api, args):
     return args.get("bot") or api.get("me")["actor"].split(":", 1)[-1]
 
 
+def _routine_api(api, bot):
+    return _as_person(api) if bot != _bot_of(api, {}) else api
+
+
 @tool("hub_routine_list", "The routines a bot runs on a schedule: what it is told, and when. "
       "Yours unless `bot` is given.", {"bot": _s("Another bot's slug")})
 def routine_list(api, args):
-    return api.get(f"bots/{_bot_of(api, args)}/routines")["routines"]
+    bot = _bot_of(api, args)
+    return _routine_api(api, bot).get(f"bots/{bot}/routines")["routines"]
 
 
 @tool("hub_routine_set", "Create a routine, or update the one with this key. Tico opens a "
       "task with `text` each time it is due; a bot sets up its own, an operator sets a bot's. "
-      "Give `cron` (five fields, in `timezone`) or `on` (a hub event), never both.",
+      "Give `cron` (five fields, in `timezone`) or `on` (a Tico event), never both.",
       {"key": _s("A stable name: letters, digits, dots, dashes or underscores"),
        "title": _s("What the task is called"),
        "text": _s("What the bot is told each time", default=""),
        "cron": _s("Five-field cron, e.g. `0 7 * * 1-5`"),
-       "on": _s("A hub event instead of a time: `recording.ready`"),
+       "on": _s("A Tico event instead of a time: `recording.ready`"),
        "timezone": _s("IANA zone for the cron; America/Los_Angeles by default"),
        "enabled": {"type": "boolean", "default": True},
        "bot": _s("Set it on another bot you operate; yourself by default")},
@@ -1181,7 +1239,8 @@ def routine_set(api, args):
     body = {"key": args["key"], "title": args["title"], "text": args.get("text") or "",
             "cron": args.get("cron") or "", "on": args.get("on") or "", "timezone": args.get("timezone") or "",
             "enabled": args.get("enabled", True)}
-    return api.post(f"bots/{_bot_of(api, args)}/routines", body, key=_key(args))["routine"]
+    bot = _bot_of(api, args)
+    return _routine_api(api, bot).post(f"bots/{bot}/routines", body, key=_key(args))["routine"]
 
 
 @tool("hub_routine_update", "Change one routine: title, text, cron, on, timezone, or `enabled` to turn it on or off. "
@@ -1194,10 +1253,9 @@ def routine_set(api, args):
       required=("id",), writes=True)
 def routine_update(api, args):
     body = {k: args.get(k) for k in ("title", "text", "cron", "on", "timezone", "enabled")}
-    who = api
-    if args.get("bot") and args["bot"] != _bot_of(api, {}):
-        who = _as_person(api)                   # BotOps switching a bot's routine: the requester's rights, not its own
     ident = args["id"]
+    bot = args.get("bot") or (str(ident).split(":", 1)[0] if ":" in str(ident) else _bot_of(api, {}))
+    who = _routine_api(api, bot)
     if args.get("bot") or ":" not in str(ident):      # an id is `<bot>:<key>`; a bare key is looked up on the bot
         rows = who.get(f"bots/{_bot_of(api, args)}/routines")["routines"]
         row = next((r for r in rows if ident in (r.get("id"), r.get("key"))), None)
@@ -1210,28 +1268,37 @@ def routine_update(api, args):
 @tool("hub_routine_delete", "Delete a routine. Its history stays; an occurrence nobody has "
       "claimed yet closes.", {"id": _s("Routine id")}, required=("id",), writes=True)
 def routine_delete(api, args):
-    return api.post(f"routines/{args['id']}/delete", {}, key=_key(args))["routine"]
+    bot = str(args["id"]).split(":", 1)[0]
+    return _routine_api(api, bot).post(f"routines/{args['id']}/delete", {}, key=_key(args))["routine"]
 
 
-@tool("hub_bot_update", "BotOps only: apply a person's bot-settings request (reports to, name, "
-      "description, status) as that person, citing the message they sent you. The server checks "
-      "the change with their own permissions and refuses a message older than a week.",
+@tool("hub_routine_run", "Run a scheduled routine now, with your own rights or BotOps's requester rights.",
+      {"id": _s("Routine id")}, required=("id",), writes=True)
+def routine_run(api, args):
+    bot = str(args["id"]).split(":", 1)[0]
+    return _routine_api(api, bot).post(f"routines/{args['id']}/run", {}, key=_key(args))
+
+
+@tool("hub_bot_update", "Change a bot's settings (reports to, name, description, status) with your own rights. "
+      "BotOps acts as the person who asked, citing their message.",
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
        "description": _s("New description"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
-    on_behalf = args.get("on_behalf_of") or "turn"
+    delegated = _for_person(api)
+    on_behalf = args.get("on_behalf_of") or "turn" if delegated else None
     # The bot's own revision, read as the person: BotOps may not see a bot they own but it does not.
     row = next((b for b in api.get("bots") if (b.get("slug") or b.get("name")) == args["slug"]), None)
     if not row or row.get("revision") is None:
-        row = api.get(f"bots/{args['slug']}/access", on_behalf_of=on_behalf)
+        row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
     change = {k: args[k] for k in ("reports_to", "display_name", "description", "repo", "status") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
-                    {**change, "expected_revision": row["revision"], "on_behalf_of": on_behalf}, key=_key(args))
+                    {**change, "expected_revision": row["revision"],
+                     **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))
 
 
 # ----------------------------------------------------------------------------- bots and people, for BotOps
@@ -1399,11 +1466,9 @@ def _api_path(path):
     return path[len("/api/v2/"):] if path.startswith("/api/v2/") else path.lstrip("/")
 
 
-@tool("hub_api", "BotOps: do what the person who asked you could do in the app, on any v2 route, as them. Their own rights "
-      "decide: a member is refused what only an owner may do. It answers at once, or with `needs_confirm: true` and a card in "
-      "their chat for what needs their click (people outside the team's domain, admin changes, deleting, computers for "
-      "members, messages to a person in their name): say it is waiting there. Never put a secret in `body` (use hub_credential_request or hub_credential_set). "
-      "Prefer the friendly tools (hub_bot_place, hub_bot_go_live, hub_bot_model, hub_bot_access, hub_routine_update) when one fits.",
+@tool("hub_api", "Use a v2 route with your own rights. BotOps acts as the human who asked, with that person's rights. "
+      "A server Confirm card still needs their click. Requested bot deletion, outside-domain invites, Team rules and "
+      "Tico updates run directly. Never put a secret in body; use Credentials or its chat card. Prefer a friendly tool when one fits.",
       {"method": _s("GET, POST, PUT, PATCH or DELETE", enum=["GET", "POST", "PUT", "PATCH", "DELETE"]),
        "path": _s("A v2 route: /api/v2/bots/jira-manager/model or bots/jira-manager/model"),
        "body": {"type": "object", "description": "The JSON body for a write"},
@@ -1425,11 +1490,14 @@ def bot_place(api, args):
 @tool("hub_bot_go_live", "Take a built bot to working, as the person who asked you: place it if it has no computer, turn it on and "
       "start its setup with the person. Then send it one small task to test it and report what happened.",
       {"bot": _s("The bot's slug"), "computer": _s("A computer's label or id; leave out to pick one"),
-       "setup": {"type": "boolean", "default": True, "description": "Start its setup chat when it is a starter bot"}},
+       "setup": {"type": "boolean", "default": True, "description": "Start its setup chat when it is a starter bot"},
+       "routines": {"type": "array", "items": {"type": "object"}, "description":
+                    "Requested live schedule: id, title, cron, timezone, enabled and on for each Routine; activation checks it"}},
       required=("bot",), writes=True)
 def bot_go_live(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/go-live", {"computer": args.get("computer") or "",
-                                                              "setup": args.get("setup", True)}, key=_key(args))
+                                                              "setup": args.get("setup", True),
+                                                              **({"routines": args["routines"]} if args.get("routines") is not None else {})}, key=_key(args))
 
 
 @tool("hub_bot_restore", "Bring an archived bot back, as the person who asked you (its owner or an admin): to the status it had "
@@ -1708,6 +1776,15 @@ def credential_revoke(api, args):
     return {"credential": row.get("name"), "env": row.get("env"), "bot": bot, "revoked": len(grants)}
 
 
+@tool("hub_credential_delete", "Delete a stored Credential and all its grants. Credential administrators only. "
+      "The encrypted value is erased; history keeps metadata only.",
+      {"credential": _s("Credential name, id or variable name")}, required=("credential",), writes=True)
+def credential_delete(api, args):
+    person = _as_person(api)
+    row = _credential_of(person.get("credentials"), args["credential"])
+    return person.call("DELETE", f"credentials/{row['id']}", key=_key(args))
+
+
 @tool("hub_credential_import", "Move one variable a bot keeps in its own secrets file (secrets/<bot>.env on its computer) into "
       "Credentials, granted to that bot, as the person who asked you (a credential administrator). The bot's computer reads the "
       "value and sends it to the server itself: you never see it, and the bot keeps working as before. Afterwards "
@@ -1791,7 +1868,7 @@ def status_set(api, args):
                                            "task_id": args.get("task_id")}, key=_key(args))
 
 
-@tool("hub_team_show", "The team chart: who each person is, how to reach them (email, Slack, "
+@tool("hub_team_show", "The Team chart: who each person is, how to reach them (email, Slack, "
       "phone), what they own, their goals, and which bots hang under them. Use this to find who "
       "handles a kind of work before you file a task or ping someone.",
       {"person": _s("Optional person id: that person and everyone under them"),
@@ -2286,22 +2363,24 @@ HUMANS_AND_ASSISTANT = PEOPLE + ("assistant",)      # views.human_only: bots are
 ASSISTANT_WRITES = {"hub_task_create", "hub_task_update", "hub_task_comment", "hub_task_label",
                     "hub_update_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
-    # BotOps only: it acts for a human through `on_behalf_of`, which the server allows for no other bot.
-    "hub_bot_update": BOTOPS, "hub_api": BOTOPS, "hub_credential_request": BOTOPS,
+    # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
+    "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),
-    **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import")},
+    **{name: REQUESTER for name in ("hub_credential_grant", "hub_credential_revoke", "hub_credential_import", "hub_credential_delete")},
     **{name: REQUESTER for name in ("hub_bot_create", "hub_bot_restore", "hub_agent_pair_show", "hub_agent_pair_approve", "hub_agent_pair_decline", "hub_bot_place", "hub_bot_go_live", "hub_bot_model", "hub_bot_pause",
                                     "hub_bot_resume", "hub_bot_access", "hub_bot_owners", "hub_human_add", "hub_group_update",
                                     "hub_tool_add", "hub_tool_update", "hub_tool_remove",
                                     "hub_bot_copy", "hub_bot_update_from_original", "hub_bot_suggest_to_original", "hub_skill_copy")},
     **{name: REQUESTER_READ for name in ("hub_computer_list", "hub_credential_list", "hub_health_check")},
+    **{name: REQUESTER for name in ("hub_bot_archive", "hub_doc_archive", "hub_file_archive", "hub_meeting_delete")},
     # The Assistant only.
     "hub_assistant_propose": ("assistant",),
+    "hub_assistant_read": PEOPLE, "hub_assistant_send": PEOPLE,
     # Humans only (views.human_only and the batch routes refuse a bot); a bot's own posts are the other way round.
     "hub_brief": HUMANS_AND_ASSISTANT, "hub_bot_recent": HUMANS_AND_ASSISTANT,
     "hub_mcp_stats": HUMANS_AND_ASSISTANT + BOTOPS,
-    "hub_update_mark_read": HUMANS_AND_ASSISTANT, "hub_update_reply": PEOPLE, "hub_grokbot_sync": PEOPLE,
+    "hub_update_mark_read": HUMANS_AND_ASSISTANT, "hub_update_reply": PEOPLE, "hub_grokbot_sync": ("owner", "admin"),
     "hub_proposal_decide": PEOPLE,
     **{f"hub_needs_you_{step}": PEOPLE for step in ("start", "next", "respond", "commit", "abandon")},
     "hub_tool_report": ("agent",),
@@ -2479,7 +2558,10 @@ class Protocol:
         if not entry and (new := renamed_to(name)):
             return self._tool_error(rid, {"error": "renamed", "detail": f"`{name}` was renamed `{new}` in Tico 0.2.21.",
                                           "renamed_to": new, "retryable": False})
-        if not entry or (entry.get("local") and not self.local):
+        if entry and entry.get("local") and not self.local:
+            return self._tool_error(rid, {"error": "local_only", "detail":
+                f"{name} runs on the Computer holding the bot repository. Run it there, or ask BotOps.", "retryable": False})
+        if not entry:
             return self._error(rid, -32602, f"Unknown tool: {name}")
         if not isinstance(args, dict):
             return self._error(rid, -32602, "arguments must be an object")
@@ -2494,6 +2576,8 @@ class Protocol:
             return self._tool_error(rid, {"error": "validation", "detail": error, "retryable": False})
         try:
             result = entry["fn"](self.api, args)
+        except ValueError as exc:
+            return self._tool_error(rid, {"error": "usage", "detail": str(exc), "retryable": False})
         except (self.api_error, APIError) as exc:        # a refusal the tool itself raises reads like the API's
             return self._tool_error(rid, error_payload(exc))
         return self._result(rid, {"content": [{"type": "text", "text": json.dumps(result, default=str)}],

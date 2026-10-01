@@ -132,16 +132,20 @@ def botops_tasks(api):
 def test_a_manager_registers_a_tool_and_botops_gets_the_exact_entry(api):
     botops(api)
     register(api, who="cara-test", expected=403)                     # a member who does not manage ops
-    made = register(api)
+    checked = register(api, entry={**ENTRY, "can": ["qa-custom-verb"], "dry_run": True})
+    assert checked["ok"] and "qa-custom-verb" in checked["yaml"] and botops_tasks(api) == []
+    made = register(api, entry={**ENTRY, "title_prefix": "QA "})
     assert made["tool"]["status"] == "pending" and made["tool"]["pending"] == "add"
     assert made["tool"]["service"] == "posthog" and made["tool"]["logo_key"] == "posthog"
-    assert "operator puts its value on the bot's computer" in made["credentials"] and "docs/install.md" in made["credentials"]
+    assert "Credentials or its chat card" in made["credentials"] and "grant it to this bot" in made["credentials"]
     task = botops_tasks(api)[0]
-    assert task["id"] == made["task_id"] and task["title"] == "Add PostHog access to ops"
+    assert task["id"] == made["task_id"] and task["title"] == "QA Add PostHog access to ops"
     body = api.get("/api/v2/tasks/" + task["id"], headers=headers()).json()["task"]["body"]
     assert made["yaml"] in body and "- service: posthog" in body and "env: POSTHOG_KEY" in body
     assert "can: [read]" in body and "project: '340585'" in body
     assert "bot.yaml" in body and "never commit it" in body
+    assert "hub bot check ops" in body and "publishes its own repository" in body
+    assert "commit and push" not in body and "scripts/preflight.sh" not in body
     # It is visible, pending, until the computer reports the entry.
     page = tools_of(api)
     assert [t["status"] for t in page["tools"] if t["id"].startswith("pending-")] == ["pending"]

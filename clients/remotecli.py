@@ -93,6 +93,8 @@ def run(args, who=None):
         return hubtools.BY_NAME[tool_name(fn)]["fn"](client, fields)
     if args.cmd == "assistant":
         from clients import hubtools
+        if args.sub in ("read", "send"):
+            return via_tool(client, args)
         try:
             body = json.loads(args.body or "{}")
         except ValueError:
@@ -198,6 +200,8 @@ def run(args, who=None):
                 payload["links"] = list(args.link)
             if getattr(args, "next_run", False):
                 payload["next_run"] = True
+            if getattr(args, "request_id", None):
+                payload["request_id"] = args.request_id
             return post("tasks", payload)
         if sub == "show":
             return client.get("tasks/" + args.id)
@@ -234,6 +238,8 @@ def run(args, who=None):
         if sub in ("update", "close"):
             current = client.get("tasks/" + args.id)["task"]
             body = {"version": current["version"], "note": args.note}
+            if getattr(args, "quiet", False):
+                body["quiet"] = True
             if sub == "close":
                 body["close"] = True
             else:
@@ -325,14 +331,12 @@ def run(args, who=None):
     if cmd == "routine":
         bot = getattr(args, "bot", None) or actor.split(":", 1)[-1]
         if sub == "list":
-            return client.get(f"bots/{bot}/routines")["routines"]
+            return via_tool(client, args)
         if sub == "set":
             text = Path(args.text_file).read_text() if args.text_file else args.text
-            return post(f"bots/{bot}/routines", {"key": args.key, "title": args.title, "text": text,
-                        "cron": args.cron or "", "on": args.on or "", "timezone": args.timezone or "",
-                        "enabled": not args.disabled})["routine"]
-        if sub == "delete":
-            return post(f"routines/{args.id}/delete", {})["routine"]
+            return via_tool(client, args, text=text, enabled=not args.disabled)
+        if sub in ("delete", "run"):
+            return via_tool(client, args)
     if cmd == "approval":
         if sub == "show":
             return client.get("approvals/" + args.id)
@@ -416,12 +420,14 @@ def bots(client, args):
         except ValueError as exc:
             raise APIError("not_found", str(exc)) from None
     if args.fn in ("bot access", "bot owners", "bot setup-done", "bot place", "bot go-live", "bot model", "bot pause",
-                   "bot resume", "bot restore") or (args.fn == "bot create" and args.record_only):
+                   "bot resume", "bot restore", "bot archive") or (args.fn == "bot create" and args.record_only):
         from clients import hubtools
         fields = {k: v for k, v in vars(args).items()
                   if k not in ("cmd", "sub", "subsub", "fn", "no_setup", "record_only") and v not in (None, [])}
         if getattr(args, "no_setup", False):
             fields["setup"] = False
+        if getattr(args, "routines_file", None):
+            fields["routines"] = json.loads(Path(args.routines_file).read_text())
         fields["operation_id"] = os.environ.get("HUB_OPERATION_ID")
         return hubtools.BY_NAME[tool_name(args.fn)]["fn"](client, fields)
     if args.fn == "bot check":

@@ -74,20 +74,25 @@ def test_full_http_runner_roundtrip_and_one_provider_session_per_bot(api, live, 
     service.pool.shutdown()
 
 
-def test_vault_injects_only_granted_secrets_and_removes_temporary_files(api, live, tmp_path):
+def test_vault_injects_only_granted_secrets_and_removes_temporary_files(api, live, tmp_path, monkeypatch):
     from backend.tests.test_credentials import setup, create
     setup(api)
     file_secret='synthetic-service-account-fixture'
     secret=create(api,name='Service account',kind='file',env='GOOGLE_SA_KEY',secret=file_secret)
     create(api,name='Unassigned',env='UNASSIGNED_API_KEY',secret='never-deliver-this-fixture')
-    post(api,f"credentials/{secret['id']}/grants",{'subject':'bot:ops'})
+    grant=post(api,f"credentials/{secret['id']}/grants",{'subject':'bot:ops'})
     machine=runner(api);assign(api,machine,'ops');ready(api,machine,['ops'])
     msg=post(api,'chat/ops',{'text':'Use a synthetic granted credential'})
+    secrets=tmp_path/'secrets'
+    secrets.mkdir()
+    (secrets/'_shared.env').write_text('SHARED_API_KEY=legacy-fixture\nGOOGLE_SA_KEY=legacy-fallback\n')
+    (secrets/'ops.env').write_text('OWN_API_KEY=own-fixture\n')
+    monkeypatch.setenv('AMBIENT_API_KEY', 'ambient-fixture')
     files=[]
     def factory(attempt,env):
         p=Path(env['GOOGLE_SA_KEY']);files.append(p)
         assert p.read_text()==file_secret and p.stat().st_mode & 0o777 == 0o600
-        assert 'UNASSIGNED_API_KEY' not in env
+        assert not {'UNASSIGNED_API_KEY','SHARED_API_KEY','OWN_API_KEY','AMBIENT_API_KEY'} & env.keys()
         return FakeHost(replies=['A diagnostic with '+file_secret])
     service=Runner({'url':live,'token':machine['token'],'projects_dir':str(tmp_path)},tmp_path/'state',host_factory=factory)
     try:
@@ -97,6 +102,11 @@ def test_vault_injects_only_granted_secrets_and_removes_temporary_files(api, liv
         messages=get(api,f"conversations/{msg['conversation_id']}/messages")
         assert file_secret not in json.dumps(messages)
         assert '••••' in messages[-1]['body']
+        post(api,f"credentials/{secret['id']}/grants/{grant['id']}/revoke",{})
+        post(api,'chat/ops',{'text':'QA check after revocation'})
+        after=claim(api,machine)
+        env=service.environment(after)
+        assert not {'GOOGLE_SA_KEY','SHARED_API_KEY','OWN_API_KEY','AMBIENT_API_KEY'} & env.keys()
     finally:
         service.pool.shutdown()
 

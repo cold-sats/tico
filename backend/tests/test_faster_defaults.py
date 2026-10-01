@@ -15,9 +15,10 @@ def test_which_routes_run_without_a_card_and_which_still_need_one():
               ("PUT", "usage/limits/ops", None), ("PUT", "usage/limits", None), ("PUT", "providers", None),
               ("POST", "chat/ops", None), ("POST", "messages", {"to": "bot:ops"}), ("POST", "runners/r1/logins", None),
               ("GET", "runners/r1/logins/l1", None), ("POST", "runners/r1/inbox-sharing", None),
-              ("PUT", "bots/ops/github-repos", None)]
+              ("PUT", "bots/ops/github-repos", None), ("POST", "bots/ops/archive", None),
+              ("POST", "system/update", None), ("PUT", "access/rules", None)]
     cards = [("POST", "runners/r1/revoke", None), ("POST", "runners/r1/member-bots", None), ("PUT", "access/allow", None),
-             ("PUT", "access/limits", None), ("POST", "bots/ops/archive", None), ("POST", "system/update", None),
+             ("PUT", "access/limits", None),
              ("POST", "messages", {"to": "human:ben"}), ("POST", "messages", {"to": "nobody"}), ("POST", "messages", None)]
     for method, path, body in direct:
         assert B.classify(method, path, body, None, to_bot) == "do", (method, path)

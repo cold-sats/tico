@@ -675,7 +675,7 @@
     },
     "/api/v2/bots/{bot}": {
       "get": {
-        "summary": "One bot: its profile for anyone who can see it; status, machine, queue and goals too for anyone who can read it",
+        "summary": "One bot: its profile for anyone who can see it; status, computer, queue and goals too for anyone who can read it",
         "operationId": "getBot",
         "parameters": [
           {
@@ -2308,6 +2308,16 @@
               "maxLength": 400,
               "default": "",
               "title": "Cursor"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Archived"
             }
           }
         ],
@@ -6125,7 +6135,7 @@
     },
     "/api/v2/org": {
       "get": {
-        "summary": "People, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to",
+        "summary": "Humans, the bots the caller can see and reports_to; ?can=read|write keeps the bots they can read or write to",
         "operationId": "getOrg",
         "parameters": [
           {
@@ -12341,7 +12351,7 @@
           },
           "body_raw": {
             "type": "string",
-            "description": "A notice the hub wrote, as stored (with actor ids); `body` shows names to people"
+            "description": "A notice Tico wrote, as stored (with actor ids); `body` shows names to people"
           },
           "run": {
             "type": "object",
@@ -13191,6 +13201,19 @@
             "type": "boolean",
             "title": "Next Run",
             "default": false
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
           }
         },
         "additionalProperties": false,
@@ -13326,6 +13349,11 @@
               }
             ],
             "title": "Note"
+          },
+          "quiet": {
+            "type": "boolean",
+            "title": "Quiet",
+            "default": false
           },
           "owner": {
             "anyOf": [
@@ -13547,6 +13575,17 @@
             "maxLength": 500,
             "title": "Note",
             "default": ""
+          },
+          "title_prefix": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title Prefix",
+            "default": ""
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -13612,6 +13651,12 @@
               }
             ],
             "title": "Mcp"
+          },
+          "title_prefix": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Title Prefix",
+            "default": ""
           }
         },
         "additionalProperties": false,

@@ -34,9 +34,8 @@ CREATE TABLE IF NOT EXISTS bot_tool_requests(
  task_id TEXT, requested_by TEXT NOT NULL, created TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending');
 CREATE INDEX IF NOT EXISTS bot_tool_requests_bot ON bot_tool_requests(bot, state, kind);
 """
-CREDENTIALS_NOTE = ("Tico never takes a credential. The operator puts its value on the bot's computer "
-                    "(docs/install.md, and docs/creating-bots.md, \"Access and credentials\"); this entry names "
-                    "only the variable.")
+CREDENTIALS_NOTE = ("Store a needed Credential through Credentials or its chat card, and grant it to this bot. "
+                    "Never put a value in a task or repository. This entry names only the variable.")
 
 ONLINE_WITHIN_S = 60
 
@@ -334,13 +333,12 @@ def _task_text(verb, bot, name, entry, computer, repo=None):
     # The bot's recorded repository (`emp-<slug>` for a bot made before `bot-<slug>`), and its manifest under either name.
     where = str(repo or "bot-" + bot).rsplit("/", 1)[-1] + "/bot.yaml (employee.yaml in a repository not yet renamed)"
     if verb == "add":
-        do = (f"Add this entry to the `tools:` list (older: `access:`) in {where}, keeping the entries already there, then commit and "
-              "push it:")
+        do = (f"Add this entry to the `tools:` list (older: `access:`) in {where}, keeping the entries already there, then commit locally:")
     elif verb == "update":
         do = (f"Replace the entry for this service and identity in the `tools:` list (older: `access:`) in {where} with this one "
-              "(match it by service and identity; keep every other entry and do not remove and re-add it), then commit and push it:")
+              "(match it by service and identity; keep every other entry and do not remove and re-add it), then commit locally:")
     else:
-        do = f"Remove this entry from the `tools:` list (older: `access:`) in {where} (match it by service and identity), then commit and push it:"
+        do = f"Remove this entry from the `tools:` list (older: `access:`) in {where} (match it by service and identity), then commit locally:"
     return "\n".join([
         f"{VERBS[verb][0]} {name} access {VERBS[verb][1]} {bot}.", "",
         do, "", "```yaml", access_entry.to_yaml(entry), "```", "",
@@ -348,19 +346,22 @@ def _task_text(verb, bot, name, entry, computer, repo=None):
            "filled from the bot's granted credential at run time. Keep the placeholder as it is; never write the value in "
            "the file. Once it is granted, check it with one read-only call (docs/connect-tools.md).", ""]
           if entry.get("mcp") else []),
-        "Then run preflight for the bot (`scripts/preflight.sh " + bot + "`) and say on this task what it reported. "
+        "Commit the bot repository locally and run `hub bot check " + bot + "`. The bot publishes its own repository "
+        "with its own access on its next run. Say on this task what the check reported. "
         "Tico shows the entry on the bot's page once the computer's readiness report "
         + {"add": "lists it.", "update": "lists it as changed.", "remove": "no longer lists it."}[verb], "",
         CREDENTIALS_NOTE + (" Do not ask for the value here, and never commit it." if verb == "add" else "")
         + (f" The computer is {computer}." if computer else "")])
 
 
-def _request_task(c, auth, who, verb, bot, name, entry, computer, taken, repo=None):
+def _request_task(c, auth, who, verb, bot, name, entry, computer, taken, repo=None, title_prefix=""):
     from . import getting_started as G
     external = resolve_harness(H._json(c.execute("SELECT config_json FROM bot_config WHERE bot=?", (bot,)).fetchone()[0], {})) in EXTERNAL_HARNESSES
     if not external:
         G._botops(c)
     title = f"{VERBS[verb][0]} {name} access {VERBS[verb][1]} {bot}"
+    if title_prefix:
+        title = title_prefix.strip() + " " + title
     if taken:
         title += f" ({taken + 1})"        # the hub refuses a second live task with the same title
     if external:
@@ -383,6 +384,8 @@ def register(c, auth, settings_admin, settings, who, bot, body):
         entry = access_entry.clean(body.model_dump())
     except access_entry.EntryError as exc:
         raise Problem(exc.code, str(exc), 422) from None
+    if body.dry_run:
+        return {"ok": True, "yaml": access_entry.to_yaml(entry), "credentials": CREDENTIALS_NOTE}
     state = _state(c, settings, bot)
     if any(_same(entry, declared) for declared in state["raw"]) or any(
             r["kind"] == "add" and _same(entry, r["entry"]) for r in _requests(c, bot)):
@@ -391,7 +394,7 @@ def register(c, auth, settings_admin, settings, who, bot, body):
                       (bot, entry["service"])).fetchone()[0]
     name = service_name(entry["service"])
     task = _request_task(c, auth, who, "add", bot, name, entry, state["runner"] and state["label"], taken,
-                         state["row"] and state["row"]["repo"])
+                         state["row"] and state["row"]["repo"], body.title_prefix)
     rid = H.new_id()
     c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
               "VALUES(?,?,?,?,?,?,?,?,?)", (rid, bot, "add", entry["service"], entry.get("identity", ""), encode(entry),
@@ -507,7 +510,7 @@ def update(c, auth, settings_admin, settings, who, bot, tool_id, body):
     taken = c.execute("SELECT count(*) FROM bot_tool_requests WHERE bot=? AND service=? AND kind='update' AND state='pending'",
                       (bot, entry["service"])).fetchone()[0]
     task = _request_task(c, auth, who, "update", bot, service_name(entry["service"]), entry, state["label"], taken,
-                         state["row"] and state["row"]["repo"])
+                         state["row"] and state["row"]["repo"], body.title_prefix)
     c.execute("INSERT INTO bot_tool_requests(id,bot,kind,service,identity,entry_json,task_id,requested_by,created) "
               "VALUES(?,?,?,?,?,?,?,?,?)", (H.new_id(), bot, "update", entry["service"], entry.get("identity", ""),
                                             encode(entry), task["id"], who.actor, H.now()))

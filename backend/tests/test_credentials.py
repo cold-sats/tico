@@ -92,3 +92,50 @@ def test_ungranted_bot_tamper_idempotency_and_stale_lease(api):
         c.execute('UPDATE attempts SET lease_until=? WHERE id=?',(H.shift(H.now(),seconds=-1),attempt['id']))
     get(api,'credential-runtime',attempt['token'],expected=409)
 
+
+def test_admin_deletes_the_value_and_all_grants_with_metadata_only_history(api):
+    setup(api)
+    row=create(api)
+    parent=post(api,f"credentials/{row['id']}/grants",{'subject':'human:cara'})
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET operator='cara' WHERE bot='finance'")
+    post(api,f"credentials/{row['id']}/grants",{'subject':'bot:finance'},'cara-test')
+    assert api.delete('/api/v2/credentials/'+row['id'],headers=headers('cara-test')).status_code==403
+    token=post(api,'me/tokens',{'label':'QA cleanup'},'ben-test')['token']
+    from backend.tests.test_mcp import call
+    err,out=call(api,'hub_credential_delete',{'credential':row['name']},token=token)
+    assert not err and out['deleted']
+    with api.app.state.store.read() as c:
+        assert not c.execute('SELECT 1 FROM credentials WHERE id=?',(row['id'],)).fetchone()
+        assert not c.execute('SELECT 1 FROM credential_grants WHERE credential_id=?',(row['id'],)).fetchone()
+        event=c.execute("SELECT detail_json FROM events WHERE action='credential.deleted' AND target=?",(row['id'],)).fetchone()[0]
+        assert 'PostHog' in event and 'synthetic-private' not in event and 'ciphertext' not in event
+
+
+def test_upgrade_migration_is_assigned_once_and_never_resurrects_revoked_grants(api):
+    setup(api)
+    from backend.credentials import FILE_MIGRATION
+    machine=runner(api);assign(api,machine,'ops');ready(api,machine,['ops'])
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(json.dumps(['ops']),FILE_MIGRATION))
+    assert get(api,'runner-credential-migration',machine['token'])['bots']==['ops']
+    values={'bot':'ops','credentials':[{'env':'QA_MIGRATED_KEY','value':'fixture-private-migration'}]}
+    post(api,'runner-credential-migration',values,'cara-test',expected=403)
+    other=runner(api,label='Other Computer')
+    post(api,'runner-credential-migration',values,other['token'],expected=403)
+    post(api,'runner-credential-migration',values,machine['token'])
+    assert get(api,'runner-credential-migration',machine['token'])['bots']==[]
+    assert get(api,'runner-credential-grants',machine['token'])['bots']=={'ops':['QA_MIGRATED_KEY']}
+    post(api,'chat/ops',{'text':'Check granted fixture'})
+    attempt=claim(api,machine,'ops')
+    delivered=get(api,'credential-runtime',attempt['token'])['credentials']
+    assert delivered[0]['env']=='QA_MIGRATED_KEY' and delivered[0]['value']=='fixture-private-migration'
+    row=get(api,'credentials')['credentials'][0]
+    post(api,f"credentials/{row['id']}/grants/{row['grants'][0]['id']}/revoke",{})
+    post(api,'runner-credential-migration',values,machine['token'])
+    assert get(api,'credential-runtime',attempt['token'])['credentials']==[]
+    # A retry across an upgrade cannot overwrite an explicitly revoked variable either.
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(json.dumps(['ops']),FILE_MIGRATION))
+    post(api,'runner-credential-migration',values,machine['token'])
+    assert get(api,'runner-credential-grants',machine['token'])['bots']=={'ops':[]}

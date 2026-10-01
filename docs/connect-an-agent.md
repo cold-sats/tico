@@ -28,7 +28,24 @@ once. The same tokens are under **Settings > Computers > API tokens**.
 | Tools | The `hub` command set (`clients/hubtools.py`): tasks, goals and KPIs, docs, bots, messages, approvals, updates, SQL. Each call runs as the token's human through the same routes the web app uses |
 | Instructions | The server's `initialize` reply carries the "who needs me" skill (`skills/who-needs-me/SKILL.md`), so nothing else needs pasting |
 
-The token cannot make or revoke tokens. It has `hub_api` and `hub_bot_update` with the token human's own rights.
+A personal token can use `hub_api` on v2 routes and `hub_bot_update` with the human's own rights. It never sends
+`on_behalf_of`; BotOps alone uses that to act for the human who asked it. Friendly tools also archive bots, docs and files,
+delete meetings, and run Routines now.
+
+The token cannot create or revoke tokens or click Confirm cards. Those cards require the human's own click in Tico.
+Ask BotOps to collect Credential values through your chat card. The API pass-through retains the
+human's existing Credential permissions, including storing or revealing values when authorized. A Credential administrator can import a bot's existing Credential with
+`hub_credential_import`, grant or revoke access, and delete it with `hub_credential_delete`; values never pass through the
+agent during import. Bot deletion, outside-domain invites by an owner or admin, Team rule changes by the Owner, and Tico
+updates run directly when requested.
+
+Use `hub_assistant_read` and `hub_assistant_send` for your private Assistant chat. `assistant` is also a friendly recipient
+for `hub_message_send`. These always use your own room; another human's Assistant room stays private.
+
+Tools that need a local repository or make a local network call are available only on a Computer: `hub_bot_copy`,
+`hub_bot_update_from_original`, `hub_bot_suggest_to_original`, `hub_skill_copy` and `hub_doc_fetch`. Run them on the Computer
+holding the repository, or ask BotOps. The server explains this when one is called.
+
 For a complete Needs you walkthrough, see [Needs you batches](needs-you-batches.md).
 
 ## Sign in to the model first

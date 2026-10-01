@@ -5,6 +5,7 @@ operator's global servers stay out, and one that cannot is named in the bot's re
 No network beyond a loopback socket, no runtime started."""
 import http.server
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -81,20 +82,58 @@ class Substitution(unittest.TestCase):
         self.assertIn("not valid", mcp_servers.problem_of(bad))
 
     def test_the_runners_own_environment_is_not_the_bots_to_use(self):
-        # OPENAI_API_KEY-style variables live in the runner's process; only the bot's secrets, a profile and its grants count.
+        # OPENAI_API_KEY-style variables live in the runner's process; only explicit vault grants count.
         with tempfile.TemporaryDirectory() as tmp:
             secrets = Path(tmp) / "secrets"
             secrets.mkdir()
             (secrets / "atlas.env").write_text("JIRA_API_TOKEN=tok-own\n")
             runner = Runner.__new__(Runner)
             runner.config = {"projects_dir": tmp}
-            runner.vault_names = {"a1": {"LINEAR_API_KEY"}}
+            runner.vault_names = {"a1": {"JIRA_API_TOKEN", "LINEAR_API_KEY"}}
             attempt = {"id": "a1", "bot": "atlas", "config": {}}
             env = {"JIRA_API_TOKEN": "tok-own", "LINEAR_API_KEY": "tok-vault", "WIKI_AUTH": "from-the-runners-process"}
             self.assertEqual(runner.granted_environment(attempt, env), {"JIRA_API_TOKEN": "tok-own", "LINEAR_API_KEY": "tok-vault"})
             servers, problems = mcp_servers.servers_for_run([JIRA, LINEAR_SSE, BASIC], runner.granted_environment(attempt, env))
             self.assertEqual([s["name"] for s in servers], ["jira", "linear"])
             self.assertIn("WIKI_AUTH is not granted", problems[0])
+
+    def test_upgrade_preserves_used_credentials_and_runs_never_read_legacy_fallbacks(self):
+        from runner.hosts.pi import openrouter_key
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            secrets = root / "secrets"
+            secrets.mkdir()
+            (secrets / "_shared.env").write_text("JIRA_API_TOKEN=op://fixture/jira/token\nUNUSED_KEY=unused-fixture\nOPENROUTER_API_KEY=model-fixture\n")
+            (secrets / "atlas.env").write_text("OWN_KEY=own-fixture\nFILE_KEY=" + str(secrets / "fixture.json") + "\n")
+            (secrets / "fixture.json").write_text('{"fixture":true}')
+            service = Runner.__new__(Runner)
+            service.config = {"projects_dir": tmp}
+            service.client = mock.Mock()
+            service.client.get.return_value = {"bots": ["atlas"]}
+            service.local_path = lambda bot: root / ("bot-" + bot)
+            entry = {"bot": "atlas", "config": {"runtime": "pi", "tools": [JIRA]}}
+            with mock.patch.dict(os.environ, {"UNRELATED_KEY": "ambient-fixture"}), mock.patch("runner.service.isolation.identity", return_value=None):
+                service.migrate_credentials([entry, {"bot": "new-bot", "config": entry["config"]}])
+                body = service.client.post.call_args.args[1]
+                values = {item["env"]: item for item in body["credentials"]}
+                self.assertEqual(set(values), {"OWN_KEY", "FILE_KEY", "JIRA_API_TOKEN", "OPENROUTER_API_KEY"})
+                self.assertEqual(values["FILE_KEY"]["kind"], "file")
+                self.assertEqual(values["FILE_KEY"]["value"], '{"fixture":true}')
+                self.assertEqual(values["JIRA_API_TOKEN"]["value"], "op://fixture/jira/token")
+                self.assertEqual(service.client.post.call_count, 1)
+                ambient = service.credential_environment("atlas", entry["config"])
+                self.assertFalse(set(values) & set(ambient))
+                self.assertNotIn("UNRELATED_KEY", ambient)
+            service.vault_names = {"attempt": set()}
+            self.assertEqual(service.granted_environment({"id": "attempt", "bot": "atlas"}, {"OWN_KEY": "own-fixture"}), {})
+            with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "ambient-fixture"}):
+                self.assertEqual(openrouter_key({"HUB_WORKSPACE": tmp}, local=False), "")
+                self.assertEqual(openrouter_key({"OPENROUTER_API_KEY": "granted-fixture"}, local=False), "granted-fixture")
+            with mock.patch("runner.service.isolation.identity", return_value=(10003, 10002)), mock.patch("runner.service.os.chown") as owner, mock.patch("runner.service.os.chmod") as modes:
+                service.protect_credential_files()
+                owner.assert_any_call(secrets, os.geteuid(), os.getegid(), follow_symlinks=False)
+                modes.assert_any_call(secrets, 0o700)
+                modes.assert_any_call(secrets / "atlas.env", 0o600)
 
 
 class HostConfigs(unittest.TestCase):
@@ -180,6 +219,7 @@ class Readiness(unittest.TestCase):
         runner = Runner.__new__(Runner)
         runner.config = {"url": "https://acme.test", "token": "t", "runner_id": "r1", "projects_dir": tmp.name}
         runner._names = None
+        runner.bot_credential_names = {"atlas": ["JIRA_API_TOKEN"]}
         config = {"runtime": runtime, "model": "m", **({"harness": harness} if harness else {})}
         entries = [{"bot": "atlas", "runner_id": "r1", "state": "active", "config": config}]
         runtimes = {runtime: {"installed": True, "authenticated": "ready", "detail": "", "models": [], "version": "1", "controls": []}}

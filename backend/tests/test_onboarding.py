@@ -153,7 +153,11 @@ def test_completing_twice_duplicates_neither_a_bot_nor_a_task(environment):
 def test_botops_and_the_assistant_are_always_built(environment):
     """An owner who skips every card still gets BotOps and the assistant: both are built in."""
     api = environment(seed={})
-    draft(api)
+    saved = draft(api)
+    assert saved.status_code == 200 and "never_without_person" not in saved.json()["answers"]
+    with api.app.state.store.read() as c:
+        kept = c.execute("SELECT value_json FROM registry_metadata WHERE key='onboarding'").fetchone()[0]
+        assert "never_without_person" not in kept
     record = api.post("/api/v2/onboarding/complete", json={}, headers=signed_in()).json()
     bots = {row["slug"]: row for row in record["bots"]}
     assert sorted(bots) == ["botops", "coo"]

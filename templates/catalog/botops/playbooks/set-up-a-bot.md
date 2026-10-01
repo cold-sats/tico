@@ -40,7 +40,7 @@ answer. From here on a routine is changed with `hub routine set`, not by editing
 ## 3. Put the real instructions in
 
 If the task carries the owner's reviewed instructions, replace `AGENT.md` with them. Keep the
-section order the template uses, so `## Role`, `## Owns` and `## Never without approval` are still
+section order the template uses, so `## Role`, `## Owns` and `## Boundaries` are still
 where a reader and the readiness check expect them, and keep at least one real bullet under
 `## Owns`.
 
@@ -49,7 +49,7 @@ answers instead. Three things have to be true and specific in it:
 
 - what the team does, in the words the answers used;
 - what arrives where, so the bot knows which queue, inbox or source is its input;
-- what never happens without a human, named concretely rather than as a general caution.
+- which work the bot owns, named concretely. Sending to outsiders stays off until requested.
 
 Cut every line that is not true for this team. A vague line left in is worse than a missing one,
 because the bot will act on it. Do the same pass over `bot.yaml`: the display name, the labels,
@@ -107,7 +107,7 @@ task did not name.
 
 ## 5c. Close what you filed for a human
 
-If you filed a task for a human about this bot ("Create the record", "Add Sean", "Paste the key") and you have
+If you filed a task for a human about this bot ("Create the record", "Add Sam", "Paste the key") and you have
 now done that work yourself, or it is already true, close it with one line: `hub task close <id> --note "Done:
 <what>"`. Find them with `hub task list --requester me --status open`. A task left open after the work is
 done sends the human to do something that is finished.
@@ -121,7 +121,7 @@ The note says, in this order:
 1. the repository path;
 2. what you changed from the template, in a sentence or two;
 3. the readiness result, with anything still warning;
-4. the one thing the owner should read before it goes live, usually the `## Never without approval`
+4. the one thing the owner should read before it goes live, usually the `## Boundaries`
    section or a gap the answers did not fill.
 
 The requester closes the task. Unless a human asked you in chat to take it live, the bot stays as it is

@@ -21,6 +21,7 @@ CONTEXT = {'application': 'tico-credentials'}
 # A grant to every computer, present and future: a model API key or token that signs each computer's model CLI in
 # (runner/service.py `team_model_keys`). Never a bot's: a bot still gets only what is granted to it.
 COMPUTERS = 'computers'
+FILE_MIGRATION = 'credential-file-migration-v1'
 
 
 def administrator(c, who, admins):
@@ -85,6 +86,17 @@ class CredentialWrite(Contract):
 class CredentialGrant(Contract):
     subject: ID
     on_behalf_of: ID | None = None
+
+
+class LegacyCredential(Contract):
+    env: str = Field(max_length=100, pattern=r'^[A-Z_][A-Z0-9_]*$')
+    value: SecretStr = Field(min_length=1, max_length=100_000)
+    kind: Literal['api_key', 'file'] = 'api_key'
+
+
+class CredentialMigration(Contract):
+    bot: ID
+    credentials: list[LegacyCredential] = Field(default_factory=list, max_length=500)
 
 
 LOCAL = 'local'                                   # `credential_keys.kms_key` for a data key kept in a file
@@ -335,6 +347,59 @@ class Vault:
 
 def install_credentials(app,store,delegate=None,propose=None):
     vault=app.state.vault=Vault(store)
+    def migration_runner(c,who):
+        if who.role!='runner' or not c.execute('SELECT 1 FROM runners WHERE id=? AND revoked_at IS NULL',(who.runner_id,)).fetchone():
+            raise Problem('forbidden','Only a registered Computer may migrate its bots\' credentials',403)
+
+    @app.get('/api/v2/runner-credential-migration')
+    def pending_migration(request:Request):
+        who=request.state.identity
+        with store.read() as c:
+            migration_runner(c,who)
+            pending=json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(FILE_MIGRATION,)).fetchone()[0])
+            return {'bots':[r[0] for r in c.execute('SELECT bot FROM assignments WHERE runner_id=?',(who.runner_id,)) if r[0] in pending]}
+
+    @app.get('/api/v2/runner-credential-grants')
+    def runner_grants(request:Request):
+        who=request.state.identity
+        with store.read() as c:
+            migration_runner(c,who)
+            bots={r[0]:[] for r in c.execute('SELECT bot FROM assignments WHERE runner_id=?',(who.runner_id,))}
+            for bot,names in bots.items():
+                names.extend(r['env'] for r in c.execute('SELECT id,env FROM credentials WHERE ciphertext IS NOT NULL AND env!=\'\'')
+                             if effective_grant(c,r['id'],'bot:'+bot))
+            return {'bots':bots}
+
+    @app.post('/api/v2/runner-credential-migration')
+    def migrate_credentials(request:Request,body:CredentialMigration):
+        from clients.access_entry import RESERVED_ENV, RESERVED_PREFIXES
+        who=request.state.identity
+        with store.transaction() as c:
+            migration_runner(c,who)
+            if not c.execute('SELECT 1 FROM assignments WHERE runner_id=? AND bot=?',(who.runner_id,body.bot)).fetchone():
+                raise Problem('forbidden','That bot is not on this Computer',403)
+            pending=json.loads(c.execute('SELECT value_json FROM registry_metadata WHERE key=?',(FILE_MIGRATION,)).fetchone()[0])
+            if body.bot not in pending:
+                return {'migrated':True}
+            subject='bot:'+body.bot
+            for item in body.credentials:
+                if item.env in RESERVED_ENV or item.env.startswith(RESERVED_PREFIXES):
+                    raise Problem('env','A Computer setting cannot be granted as a Credential',422)
+                # Even a revoked grant wins over an old file: migration never resurrects access.
+                if c.execute('SELECT 1 FROM credentials v JOIN credential_grants g ON g.credential_id=v.id '
+                             'WHERE v.env=? AND g.subject=?',(item.env,subject)).fetchone():
+                    continue
+                cid,gid,now=H.new_id(),H.new_id(),H.now()
+                ciphertext,nonce=vault.cipher.encrypt(c,cid,item.value.get_secret_value())
+                c.execute('INSERT INTO credentials(id,name,kind,env,preview,ciphertext,nonce,source,created,updated,updated_by) '
+                          'VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                          (cid,f'{item.env} ({body.bot})',item.kind,item.env,'••••••',ciphertext,nonce,'Computer migration',now,now,who.actor))
+                c.execute('INSERT INTO credential_grants(id,credential_id,subject,granted_by,created) VALUES(?,?,?,?,?)',
+                          (gid,cid,subject,who.actor,now))
+                H.event(c,who.actor,'credential.migrated',cid,{'env':item.env,'bot':body.bot,'grant':gid})
+            pending.remove(body.bot)
+            c.execute('UPDATE registry_metadata SET value_json=? WHERE key=?',(encode(pending),FILE_MIGRATION))
+            return {'migrated':True}
 
     def acting(request, body, message_id=None):
         """For "Add to credentials" / "Do this for me": the caller, or the person
@@ -419,6 +484,19 @@ def install_credentials(app,store,delegate=None,propose=None):
             c.execute('UPDATE credential_grants SET revoked=coalesce(revoked,?),revoked_by=? WHERE id=?',(H.now(),who.actor,gid))
             H.event(c,who.actor,'credential.revoked',cid,{'grant':gid,'subject':row['subject']})
             return {'ok':True}
+
+    @app.delete('/api/v2/credentials/{cid}')
+    def delete(request:Request,cid:str):
+        who=request.state.identity
+        with store.transaction() as c:
+            validate_identity(c,who)
+            require_admin(c,who,vault.admins)
+            row=vault.row(c,cid)
+            grants=c.execute('SELECT count(*) FROM credential_grants WHERE credential_id=?',(cid,)).fetchone()[0]
+            c.execute('DELETE FROM credential_grants WHERE credential_id=?',(cid,))
+            c.execute('DELETE FROM credentials WHERE id=?',(cid,))
+            H.event(c,who.actor,'credential.deleted',cid,{'name':row['name'],'env':row['env'],'grants':grants})
+            return {'deleted':True,'id':cid}
 
     @app.post('/api/v2/credentials/{cid}/reveal')
     def reveal(request:Request,cid:str):

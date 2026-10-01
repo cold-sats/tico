@@ -10,7 +10,7 @@ OpenRouter id in MODELS below; the catalog id stays.
 
 Turn ids are the runner's uuid4. Pi has no MCP and no permission prompts; the bot uses the
 hub CLI over bash. `steer` is refused. OPENROUTER_API_KEY is injected into the Pi process
-from the machine key (secrets/_shared.env); other runtimes still strip it.
+from this bot's granted Credential; other runtimes still strip it.
 """
 
 import json
@@ -91,12 +91,14 @@ def usage_increment(usage):
             "output": count("output", "output_tokens", "outputTokens", "completion_tokens", "completionTokens")}
 
 
-def openrouter_key(env):
-    """The machine OpenRouter key. Not taken from a bot secrets file."""
+def openrouter_key(env, local=True):
+    """Use the run's granted key; local diagnostics may also read the machine key."""
     env = env or {}
-    for value in (env.get("OPENROUTER_API_KEY"), os.environ.get("OPENROUTER_API_KEY")):
+    for value in (env.get("OPENROUTER_API_KEY"), os.environ.get("OPENROUTER_API_KEY") if local else None):
         if str(value or "").strip():
             return str(value).strip()
+    if not local:
+        return ""
     root = Path(env.get("HUB_WORKSPACE") or "")
     path = root / "secrets" / "_shared.env"
     if not path.is_file():
@@ -197,7 +199,7 @@ class PiHost(Host):
         env = dict(settings.get("env") or os.environ)
         if not env.get("HOME") and os.environ.get("HOME"):
             env["HOME"] = os.environ["HOME"]
-        key = openrouter_key(env)
+        key = openrouter_key(env, local="env" not in settings)
         if key:
             env["OPENROUTER_API_KEY"] = key
         return env

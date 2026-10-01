@@ -23,18 +23,23 @@ not waiting on it. The human reads one message at the end.
    finish everything else. When the human saves it you are woken.
 4. **Who sees it.** Default is everyone. If they said otherwise, `hub bot access <slug> ...` now. Do
    not ask a question they did not raise.
-5. **Take it live.** `hub bot go-live <slug>`: it puts the bot on a computer (the only one, or the
+5. **Verify the live Routines.** Read them as the requester with `hub routine list --bot <slug>`.
+   Apply the requested schedule, disable unrelated template Routines, and read back each title,
+   timing, time zone and enabled state. A local `bot.yaml` edit does not prove the live schedule
+   changed. If verification fails, leave the bot paused and report one specific blocker.
+6. **Take it live.** `hub bot go-live <slug>` (pass the verified requested Routines as `routines` with
+   `hub_bot_go_live`, or `--routines-file` with the CLI): it puts the bot on a computer (the only one, or the
    least busy), turns it on and starts its setup with them. If it answers that a card is waiting
    (a computer that does not take members' bots), say so and go on.
-6. **Optionally, test it once.** Give the bot one small, read-only job that proves the connection, with
+7. **Optionally, test it once.** Give the bot one small, read-only job that proves the connection, with
    `hub task create --owner <slug> --title "..." --body "..."`, and wait for the answer. If it fails,
    read why, fix what is yours to fix, and try once more. Skip it when they want it live now, and say
    in the report that it was not tested.
-7. **Close what you filed.** Any task you filed for them while building ("Create the Jira Manager record", "Add
-   Sean to the hub", "Paste the key") whose work you or the server finished is settled now:
+8. **Close what you filed.** Any task you filed for them while building ("Create the Jira Manager record", "Add
+   Sam to Tico", "Paste the key") whose work you or the server finished is settled now:
    `hub task list --requester me --status open`, then `hub task close <id> --note "Done: <one line>"` for each.
    Nothing you filed stays open once its condition is true.
-8. **Report.** One message, in their words:
+9. **Report.** One message, in their words:
    - what exists ("Jira Manager is live"), and what it can do now;
    - who can see and use it;
    - what the test showed, or that it was not tested;
@@ -46,11 +51,9 @@ not waiting on it. The human reads one message at the end.
     hub human list
     hub human add <email> --name "<Name>" [--title T] [--reports-to <person id>]
 
-A member may add a coworker in the team's email domain; an owner or an admin anyone. A coworker in
-the domain is added at once. Anyone outside it needs their own click: the command answers
-`needs_confirm: true` and a card is in their chat. Say it is waiting there, then carry on. The same
-goes for making someone an admin, changing what a member may do, and placing a bot on a computer that
-does not take members' bots.
+A member may add a coworker in the Team's domain; an owner or admin may add anyone. Both run directly.
+Admin changes, what members may do, and placement on a Computer closed to members' bots still return a Confirm card.
+Say what needs their click, then carry on with everything else.
 
 Everyday edits to a bot the human owns (name, description, model, routines, access, co-owners, on or
 off) happen at once, and each can be undone from Settings > Bots history.
@@ -60,7 +63,7 @@ off) happen at once, and each can be undone from Settings > Bots history.
 - "Use a cheaper model on X": `hub bot model <bot> <model>` (`hub bot model <bot>` lists them).
 - "Make X read-only on GitHub": `hub tool update <tool-id> --bot <bot> --can read` (the id from
   `hub tool list --bot <bot>`; never remove and add it again), and in its repository set the github entry in `tools:` to
-  `can: [read]`, add "never push, merge or comment" under `## Never without approval` in its
+  `can: [read]`, add "never push, merge or comment" under `## Boundaries` in its
   `AGENT.md`, run `hub bot check <slug>` and commit. Say plainly that this is its rules and declared
   access, not a narrower credential, unless they gave it a separate read-only token.
 - "Turn off the Monday routine": `hub routine update <key> --disable --bot <bot>`.

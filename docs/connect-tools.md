@@ -60,9 +60,9 @@ The operator's own MCP servers never reach a bot through Tico. The bot's own `.m
 
 ### When the vendor's server needs OAuth
 
-Tico does not run initial OAuth consent or manage renewal for scheduled bots today. Use a supported API credential when
-available, or an external connection that manages refresh. Check the provider's renewal rules; some require fresh human consent.
-A REST skill with a vendor-supported API credential is the fallback when no maintained MCP connection is available.
+An OAuth connection may renew automatically when the provider and client support refresh. Tico does not currently
+manage that renewal for bots. Use a supported API Credential, or a connection that manages automatic refresh, and check
+whether the provider requires renewed human consent. Trello's REST skill below is an example of the API Credential route.
 
 ## Jira and Confluence
 

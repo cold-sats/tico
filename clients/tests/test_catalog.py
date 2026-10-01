@@ -106,6 +106,10 @@ class Materialize(unittest.TestCase):
 
     def test_an_existing_repository_is_never_overwritten(self):
         path = self.make()
+        knowledge = (path / "knowledge/company.md").read_text()
+        self.assertIn("What the Team does", knowledge)
+        self.assertNotIn("refunds", knowledge)
+        self.assertNotIn("signing a contract", knowledge)
         (path / "state.md").write_text("# State\n\nA turn happened here.\n")
         with self.assertRaises(ValueError) as caught:
             self.make()

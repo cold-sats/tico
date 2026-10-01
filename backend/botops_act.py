@@ -1,6 +1,6 @@
 """What BotOps may do for the person who asked it, on any v2 route (`hub api`).
 
-BotOps is the company's bot engineer: a person asks it in chat for something they could click in the app, and it
+BotOps is the Team's bot engineer: a person asks it in chat for something they could click in the app, and it
 does that as them. A request carries `X-Tico-On-Behalf-Of` (`turn`, the person whose chat message started this
 turn, or the id of one of their messages); `backend/app.py` then answers it as that person, so the server's own
 permission checks are the only gate: a member is refused what only an owner may do, and an owner is not.
@@ -28,7 +28,7 @@ def _routes(*rows):
 
 
 # Runs at once, as the person. Some of these keep their own "always a click" rule inside the route (adding someone
-# outside the team's domain, a role, a computer that does not take members' bots): the route answers with the card.
+# a role, a Computer that does not take members' bots): the route answers with the card.
 # A credential grant to a bot runs at once when the person is a credential administrator and is refused, with who to
 # ask, when they are not; only a grant to a person or to every computer is a card (backend/credentials.py).
 DO = _routes(
@@ -41,7 +41,7 @@ DO = _routes(
     ("POST", rf"bots/{_S}/(copy|update-from-original|suggest-to-original|skills/copy|repository-read-token)"),
     # A Hermes bot (docs/hermes-agents.md): restoring an archived bot, pairing its profile with the code the connector
     # prints, and rotating or revoking its agent credential. The token itself never comes back to BotOps (the route).
-    ("POST", rf"bots/{_S}/restore"), ("POST", rf"bots/{_S}/agent-credential"), ("POST", rf"bots/{_S}/agent-credential/revoke"),
+    ("POST", rf"bots/{_S}/(archive|restore)"), ("POST", rf"bots/{_S}/agent-credential"), ("POST", rf"bots/{_S}/agent-credential/revoke"),
     ("POST", r"agents/pairings/(approve|decline)"),
     ("POST", rf"bots/{_S}/access"), ("PUT", rf"bots/{_S}/access"),
     ("PUT", rf"bots/{_S}/github-repos"), ("POST", r"github/repos"),
@@ -57,15 +57,18 @@ DO = _routes(
     ("POST", rf"tasks/{_S}/(comments|links|ask|run-now)"),
     ("POST", r"docs"), ("PATCH", rf"docs/{_S}"), ("POST", rf"docs/{_S}/restore"),
     ("POST", r"linked-docs"), ("PATCH", rf"linked-docs/{_S}"),
+    ("POST", rf"meetings/{_S}/delete"),
     ("POST", rf"(integrations|tools)/{_S}/learnings"), ("POST", rf"(integrations|tools)/{_S}/learnings/{_S}/delete"),
     ("POST", r"health/bot-access/dismiss"),
     # People and access. The route asks for the click on what needs it.
     ("POST", r"access/(people|humans)"), ("POST", rf"access/(people|humans)/{_S}"),
+    ("PUT", r"access/rules"),
     # Groups: an owner or an admin changes them (the route says so), and a delete moves what is in the group up.
     ("POST", r"groups"), ("PATCH", rf"groups/{_S}"), ("DELETE", rf"groups/{_S}"),
     # Which Slack channels bots read and post in: an owner or an admin's call, which the route checks.
     ("POST", r"slack/channels"), ("POST", r"slack/channels/(remove|import)"),
     ("POST", rf"credentials/{_S}/grants"), ("POST", rf"credentials/{_S}/grants/{_S}/revoke"),
+    ("DELETE", rf"credentials/{_S}"),
     # Computers: a restart, a model sign-in (its code is pasted in the app, never here), inbox sharing where one owner runs
     # everything (the route says where). Limits are spending: lowering one is always direct; raising one, and the providers,
     # are direct unless the owner's rule says otherwise (TIGHTENED).
@@ -73,7 +76,7 @@ DO = _routes(
     ("PUT", r"providers"), ("PUT", r"usage/limits"), ("PUT", rf"usage/limits/{_S}"),
     # A message or chat to a bot stays in the team; a message to a person is a card (`classify`).
     ("POST", rf"chat/{_S}"),
-    ("POST", r"system/update/check"),
+    ("POST", r"system/update(/check)?"),
 )
 
 # Cards again when the owner turned "BotOps changes providers and limits without asking" off. A limit lowered is
@@ -83,11 +86,9 @@ LIMITS = re.compile(API + rf"usage/limits(/{_S})?")
 
 # Comes back as a Confirm card; it runs only on the person's own click, as them.
 CONFIRM = _routes(
-    ("POST", rf"bots/{_S}/archive"),
     ("POST", rf"(people|humans)/{_S}"),
     ("PUT", r"access/limits"), ("PUT", r"access/allow"),
     ("POST", rf"(runners|computers)/{_S}/(member-bots|revoke)"),
-    ("POST", r"system/update"),
     ("POST", rf"(goal-proposals|proposals)/{_S}/decide"),
     ("POST", r"support/tickets"),
     ("PATCH", rf"files/{_S}"),
@@ -106,7 +107,7 @@ ADMIN_ONLY = _routes(
 )
 
 # Read as the person, except what hands back a secret or is a computer's own channel.
-NO_READ = re.compile(API + r"(credential-runtime|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*"
+NO_READ = re.compile(API + r"(credential-runtime|runner-credential-(migration|grants)|me/tokens.*|mcp|agents/setup-script|jobs.*|attempts.*"
                      r"|runner-logins.*|runner-model-credentials|runners/desired|runners/assignments|runners/eligible|directory/scim-token)")
 
 # Named like a secret: refused whatever route it is on.

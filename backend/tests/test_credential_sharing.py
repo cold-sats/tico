@@ -191,7 +191,10 @@ def test_a_bots_own_secret_moves_into_the_vault_over_its_computer_and_is_then_sh
         post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "cara-test", expected=403)
         post(api, "credential-imports", {"env": "HUB_TOKEN", "bot": "finance"}, "ana-test", expected=422)
         post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "doc-updater"}, "ana-test", expected=409)        # on no computer
-        asked = post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "ben-test")
+        token = post(api, "me/tokens", {"label": "QA credential admin"}, "ben-test")["token"]
+        err, requested = mcp(api, "hub_credential_import", {"env": "JIRA_BASIC_AUTH", "from_bot": "finance", "wait": 0}, token=token)
+        assert not err and requested["state"] == "waiting" and JIRA not in json.dumps(requested)
+        asked = post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, token)
         assert asked["state"] == "requested" and JIRA not in json.dumps(asked)
         assert post(api, "credential-imports", {"env": "JIRA_BASIC_AUTH", "bot": "finance"}, "ben-test")["id"] == asked["id"]
         assert get(api, "runner-credential-imports", machine["token"])["imports"] == [{"id": asked["id"], "bot": "finance", "env": "JIRA_BASIC_AUTH"}]
@@ -226,13 +229,13 @@ def test_a_bots_own_secret_moves_into_the_vault_over_its_computer_and_is_then_sh
         ops_run = claim(api, machine, "ops")
         assert ops_run["credential_vault"] is True
         env = service.environment(ops_run)
-        assert env["JIRA_BASIC_AUTH"] == JIRA and env["OPS_ONLY_KEY"] == "ops-own-synthetic" and "OTHER_KEY" not in env
+        assert env["JIRA_BASIC_AUTH"] == JIRA and "OPS_ONLY_KEY" not in env and "OTHER_KEY" not in env
         assert service.vault_values[ops_run["id"]] == [JIRA]
-        # Another bot that was not granted it does not get it, and finance's own file works as before.
-        assert service.credential_environment("ops", {})["OPS_ONLY_KEY"] == "ops-own-synthetic"
+        # Only grants reach a run; old files are no longer a fallback.
+        assert "OPS_ONLY_KEY" not in service.credential_environment("ops", {})
         assert "JIRA_BASIC_AUTH" not in service.credential_environment("ops", {})
         assert "JIRA_BASIC_AUTH" not in service.credential_environment("doc-updater", {})
-        assert service.credential_environment("finance", {})["JIRA_BASIC_AUTH"] == JIRA
+        assert "JIRA_BASIC_AUTH" not in service.credential_environment("finance", {})
     finally:
         service.pool.shutdown()
 
