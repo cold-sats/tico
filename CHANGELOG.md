@@ -7,6 +7,21 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.35] - 2026-10-01
+
+### Fixed
+- The Goal Manager panel keeps its conversation after a reload. With no AI provider, the Librarian rail and the Goal
+  Manager say so and link to Settings > AI providers instead of looking busy.
+- A computer lists only the bots assigned to it; archived bots and other computers' bots no longer show as not ready.
+- The Librarian says Computer and Instructions in how-to answers, and older generated FAQs are repaired once (prior
+  versions and human edits kept).
+- docs-eval ties each fact to its subject and fails more contradictions ("Its price is", "Actually", approximate prices,
+  ranges).
+- Owner SQL can read a safe status view of the Slack outbound queue, and JSON table functions work read-only.
+- BotOps' completion text says Setup; tool text and the built-in Instructions say that a bot's ordinary message is not
+  its final answer.
+- Install and update recipes point at the current release. Help says computers, not machines.
+
 ## [0.2.34] - 2026-10-01
 
 ### Fixed
@@ -1437,7 +1452,8 @@ First public release.
 - Hosting: local only on a Mac, or self-hosted, including a reference AWS stack under `infra/ec2/`
   with Litestream backups.
 
-[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.34...HEAD
+[Unreleased]: https://github.com/ticoteam/tico/compare/v0.2.35...HEAD
+[0.2.35]: https://github.com/ticoteam/tico/compare/v0.2.34...v0.2.35
 [0.2.34]: https://github.com/ticoteam/tico/compare/v0.2.33...v0.2.34
 [0.2.33]: https://github.com/ticoteam/tico/compare/v0.2.32...v0.2.33
 [0.2.32]: https://github.com/ticoteam/tico/compare/v0.2.31...v0.2.32
