@@ -300,6 +300,45 @@ def shared_checkout(config):
     return name[:-4] if name.endswith(".git") else name
 
 
+def shared_repository_url(config):
+    """Prefer the original's current repo over an older branch's saved address."""
+    repo = str(config.get("repo") or "").strip()
+    url = repo if "/" in repo or ":" in repo else str(config.get("repo_url") or "").strip()
+    if url and not url.startswith(("/", "./", "../")) and ":" not in url:
+        url = "https://github.com/" + url
+    return url
+
+
+def clone_shared(path, config, env=None, timeout=120):
+    """Clone the original with the person's git access when there is no GitHub App link."""
+    path = Path(path)
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        return f"{path.name} already exists here and is not an empty folder; left as it is"
+    url = shared_repository_url(config)
+    if not url:
+        return "The original repository's address is unknown"
+    slug = re.sub(r"^(?:https?://|ssh://git@|git@)github\.com[:/]", "", url).rstrip("/").removesuffix(".git")
+    github = slug != url.rstrip("/").removesuffix(".git")
+    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    commands = []
+    if github and shutil.which("gh"):
+        commands.append(["gh", "repo", "clone", slug, str(path), "--", "--quiet"])
+    commands.append(["git", "clone", "--quiet", url, str(path)])
+    for command in commands:
+        try:
+            result = isolation.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                   env=env, timeout=timeout)
+            if result.returncode == 0:
+                return ""
+            problem = (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1][:200]
+        except (OSError, subprocess.SubprocessError) as exc:
+            problem = type(exc).__name__
+        # Git credentials can still work when gh is installed but not signed in. Never overwrite leftovers.
+        if path.exists() and (not path.is_dir() or any(path.iterdir())):
+            break
+    return problem
+
+
 def sync_shared(path, env=None, timeout=45):
     """Rebase the shared checkout onto its upstream before the turn, or say why not.
 
@@ -589,6 +628,14 @@ class Runner:
         explicit = self.config.get("repos", {}).get(source or bot)
         if checkout:
             checkouts[bot] = Path(explicit or Path(self.config["projects_dir"]) / checkout)
+            if not explicit and not shared_repository_url(config) and not checkouts[bot].exists():
+                # A local-only original may still have the older emp- folder name.
+                slug = checkout.removeprefix("bot-").removeprefix("emp-")
+                sibling = repo_dir(self.config["projects_dir"], slug)
+                if (sibling / "AGENT.md").is_file():
+                    checkouts[bot] = sibling
+        elif source:
+            checkouts[bot] = Path(explicit or repo_dir(self.config["projects_dir"], source))
         if bot in checkouts:
             return checkouts[bot]
         return Path(explicit or repo_dir(self.config["projects_dir"], bot))
@@ -819,20 +866,33 @@ class Runner:
 
         This is how a bot placed on a new computer, or moved to one, gets its repository: the server names
         it on the assignment (`repository`) and the runner clones it with the bot's own token. Returns the
-        readiness problem to show, or "" when the checkout is now here (or the server named no repository,
-        which leaves the generic "Missing bot repository"). A failure is remembered for FETCH_RETRY_S so
+        readiness problem to show, or "" when the checkout is now here (or an independent bot has no link).
+        Branches without that link use the original's config and the person's git access.
+        A failure is remembered for FETCH_RETRY_S so
         every heartbeat is not a clone, and the cause is named rather than the repository called missing."""
         repository = str(entry.get("repository") or "")
-        if not repository:
+        config = entry.get("config") or {}
+        personal = not repository and bool(config.get("shared_from"))
+        if personal:
+            repository = shared_repository_url(config) or str(config.get("repo") or "")
+        if not repository and not personal:
             return ""
         notes = self.__dict__.setdefault("fetch_notes", {})
-        key = (repository, entry.get("generation"))
+        key = (repository, str(path), entry.get("generation"))
         last = notes.get(bot)
         if last and last["key"] == key and time.monotonic() - last["at"] < FETCH_RETRY_S:
             return last["problem"]
         problem = ""
         if (path / ".git").exists():
             problem = f"{repository} is checked out here but has no AGENT.md"      # a clone of an empty repository
+        elif personal:
+            detail = clone_shared(path, config)
+            if not detail:
+                isolation.chown(path, recursive=True)
+                log(f"Tico runner: {bot} cloned from {repository} to {path}")
+                problem = "" if (path / "AGENT.md").is_file() else f"{repository} was cloned but has no AGENT.md"
+            else:
+                problem = f"Could not clone the original repository {repository or config['shared_from']}: {detail}"
         else:
             env, problem = self.github_access(bot)
             if env is not None:
@@ -1527,8 +1587,10 @@ class Runner:
         bots = {}
         for row in checks:
             bots[row["bot"]] = {k: row[k] for k in (
-                "ready", "runtime", "model", "repository_present", "repository_revision",
+                "ready", "runtime", "model", "repository", "repository_present", "repository_revision",
                 "configuration_valid", "problems") if k in row}
+            if time.monotonic() < self.__dict__.get("_repository_after", 0):
+                bots[row["bot"]].pop("repository", None)
             if row.get("published") is not None:
                 bots[row["bot"]]["published"] = row["published"]
             if row.get("tools"):
@@ -2277,6 +2339,13 @@ class Runner:
                 # Old servers reject optional fields. Drop only the named field and retry;
                 # old generic errors are handled one field at a time.
                 extra = "extra" in detail.lower()
+                bot_paths = any("repository" in row for row in readiness.get("bots", {}).values())
+                if extra and bot_paths and ("readiness." not in detail or re.search(
+                        r"readiness\.(?:StructuredReadiness\.)?bots\.[^. :;]+\.repository(?:[.: ;]|$)", detail)):
+                    for row in readiness["bots"].values():
+                        row.pop("repository", None)
+                    self._repository_after = time.monotonic() + 600
+                    continue
                 field = next((name for name in optional if name in readiness and
                               re.search(r"readiness\.(?:StructuredReadiness\.)?" + name + r"(?:[.: ;]|$)", detail)), None) if extra else None
                 generic = extra and "readiness." not in detail

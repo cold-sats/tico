@@ -103,6 +103,55 @@ def test_refuses_a_computer_already_running_original_or_a_sibling_branch(api):
     post(api, 'bots/cpo/assignment', {'runner_id': computer['runner_id'], 'expected_generation': 0}, expected=409)
 
 
+def test_a_planned_branch_starts_when_its_person_adds_a_computer(api):
+    share(api)
+    made = branch(api)
+    assert made['status'] == 'planned' and made['assignment'] is None
+    runner(api, 'ana')
+    assert get(api, 'bots/cpo-cara', 'cara-test')['state'] == 'planned'
+    computer = runner(api, 'cara')
+    bot = get(api, 'bots/cpo-cara', 'cara-test')
+    assert bot['state'] == 'active' and bot['assignment']['runner_id'] == computer['runner_id']
+
+
+def test_pending_branch_does_not_block_enrollment_if_branches_are_disabled(api):
+    share(api)
+    branch(api)
+    share(api, False)
+    runner(api, 'cara')
+    bot = get(api, 'bots/cpo-cara', 'cara-test')
+    assert bot['state'] == 'planned' and bot['assignment'] is None
+
+
+def test_an_owners_new_computer_keeps_the_planned_branch_instead_of_placing_its_original(api):
+    share(api)
+    branch(api, token='ana-test')
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.template','software-architect') WHERE bot='cpo'")
+        c.execute("INSERT OR REPLACE INTO registry_metadata VALUES('onboarding',?)", (json.dumps({'completed': H.now()}),))
+    computer = runner(api, 'ana')
+    bot = get(api, 'bots/cpo-ana')
+    assert bot['state'] == 'active' and bot['assignment']['runner_id'] == computer['runner_id']
+    assert get(api, 'bots/cpo')['assignment'] is None
+
+
+def test_missing_branch_health_uses_the_original_repository_and_never_creates_an_empty_one(api):
+    share(api)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bot_config SET repo='Acme/bot-reviewer' WHERE bot='cpo'")
+    computer = runner(api, 'cara', 'Branch Mac')
+    branch(api, computer)
+    post(api, 'runners/heartbeat', {'version': '0.5.4', 'platform': 'test', 'capacity': 4,
+        'readiness': {'schema_version': 1, 'bots': {'cpo-cara': {
+            'ready': False, 'repository_present': False, 'repository': '/projects/bot-reviewer',
+            'problems': ['The original repository does not exist yet on GitHub.']}}}}, computer['token'])
+    issue = next(i for i in get(api, 'fleet/check')['issues'] if i['kind'] == 'repository_missing')
+    assert issue['bot'] == 'cpo-cara'
+    assert issue['fix'] == 'Run `gh repo clone Acme/bot-reviewer /projects/bot-reviewer` on Branch Mac, or ask BotOps'
+    summary = next(c['summary'] for c in get(api, 'health')['checks'] if c['id'] == 'repositories')
+    assert issue['fix'] in summary
+
+
 def test_archive_restores_branches_without_losing_their_work_or_assignment(api):
     share(api)
     computer = runner(api, 'cara')

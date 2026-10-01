@@ -7,7 +7,7 @@ report the rest.
 """
 from . import bot_tools, usage_limits
 from .getting_started import _online_runners
-from .health import missing_repositories
+from .health import missing_repositories, repository_fix
 from .statuses import is_parked
 from .store import H
 
@@ -62,9 +62,12 @@ def check(c, who, auth, settings):
             if slug in lacking:
                 label, why = lacking[slug]
                 unpublished = "not on GitHub" in why or "does not exist" in why
+                from .shared_bots import declared, source_of
+                branch = bool(source_of(declared(c, slug)))
+                _, clone = repository_fix(c, slug, label, settings.github_owner)
                 add(bot, "repository_missing", HIGH, f"{name} cannot run on {label}: {why}",
                     f"hub bot repo-create {slug} --empty (or `hub bot place {slug}` back on the computer that held its repository)"
-                    if unpublished else f"hub bot check {slug}")
+                    if unpublished and not branch else clone)
             if is_parked(bot["onboarding_state"]) and (bot["created"] or "") < H.shift(H.now(), hours=-24):
                 add(bot, "needs_setup", MEDIUM, f"{name} is waiting for its first setup with its owner.", f"hub bot go-live {slug}")
         if state == "active":

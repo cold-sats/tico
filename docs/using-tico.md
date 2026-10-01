@@ -149,6 +149,10 @@ first conversation. See [Creating bots](creating-bots.md) for custom Instruction
 
 **How do I use my own branch of a bot?**
 Its owner enables **Allow branches**. Choose **Make my branch** on its page and your computer.
+If all your computers already run the original or a branch of it, choose **Create planned branch**.
+It starts when you add another computer in **Settings → Computers**. Without a GitHub App, the
+computer clones the original repository using your own git access; a local checkout can be reused.
+Health names the repository and clone command if that fails. You can also ask BotOps to fix it.
 The branch picker opens the original or a person's branch. New tasks and chats to the original go to your active branch.
 Branches share instructions and repository lessons; `hub bot copy` creates an independent bot. See [Branches](creating-bots.md#branches).
 

@@ -161,6 +161,27 @@ def check_runner(c, bot, runner_id, source=None):
             raise Problem("operator", "A branch runs only on its person's computers", 403)
 
 
+def place_pending(c, operator, runner_id, settings_admin, execution, github_owner):
+    """A planned branch starts on the next computer its person enrolls, with the usual checks."""
+    from .auth import Identity
+    who = (settings_admin.auth.owner_identity(c) if operator == settings_admin.auth.owner_id(c)
+           else Identity("human:" + operator, "human"))
+    placed = []
+    for row in c.execute("SELECT bc.bot,bc.config_json FROM bot_config bc JOIN bots b ON b.slug=bc.bot "
+                         "LEFT JOIN assignments a ON a.bot=bc.bot "
+                         "WHERE bc.operator=? AND b.state='planned' AND a.bot IS NULL ORDER BY bc.bot",
+                         (operator,)).fetchall():
+        source = source_of(_json(row["config_json"]))
+        if not source:
+            continue
+        try:
+            add_copy(c, who, source, runner_id, settings_admin, execution, github_owner)
+        except Problem:
+            continue                      # enrollment still works if access or branching has since changed
+        placed.append(row["bot"])
+    return placed
+
+
 def route(c, actor, target):
     """Route a person's new work to their active branch while branches are allowed."""
     resolved = H.resolve_actor(c, target)

@@ -590,9 +590,9 @@ class Onboarding:
                 self.execution.assign(c, who, row["bot"], SimpleNamespace(
                     runner_id=runner_id, expected_generation=0))
             except Problem as refusal:
-                if refusal.code != "inbox_isolation":
+                if refusal.code not in ("inbox_isolation", "shared_runner"):
                     raise
-                continue                     # an inbox bot never shares a computer; Health says so
+                continue                     # an inbox or a shared checkout cannot take a second bot here
             placed.append(row["bot"])
         return placed
 
@@ -768,16 +768,18 @@ class Onboarding:
     def on_runner_enrolled(self, c, runner_id, operator):
         """Enrolling the owner's Mac after the wizard finishes wires it up too, so the order
         the company happens to do things in does not decide whether its bots ever start."""
+        from .shared_bots import place_pending
+        branches = place_pending(c, operator, runner_id, self.admin, self.execution, self.settings.github_owner)
         if operator != self.auth.owner_id(c):
-            return []
+            return branches
         record = load(c)
         if not record["completed"]:
-            return []
+            return branches
         self.ensure_librarian(c)              # a company from before it was built in
         self.ensure_goal_manager(c)
         placed = self._wire(c, record, "human:" + operator, runner_id)
         self._store(c, record, "human:" + operator)
-        return placed
+        return branches + placed
 
     def _wire(self, c, record, actor, runner_id=None):
         """Hand the unplaced bots to a machine and record which one took them. With several

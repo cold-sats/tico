@@ -16,6 +16,10 @@ const {html, uiFile} = require('./support/page.cjs');
     const original = {...base, name: 'architect', slug: 'architect', display_name: 'Architect', operator: 'sam', shared: true, repo: 'bot-architect'};
     const bots = [original];
     const people = [{id: 'ana', name: 'Ana'}, {id: 'sam', name: 'Sam'}];
+    let computers = [
+      {id: 'ana-mac', label: 'My Mac', operator: 'ana'},
+      {id: 'sam-mac', label: 'Other Mac', operator: 'sam'},
+      {id: 'old-mac', label: 'Old Mac', operator: 'ana', revoked_at: '2026-01-01'}];
     let collision = true, stale = true;
     await page.route('**/*', route => {
       const request = route.request(), url = new URL(request.url()), p = url.pathname;
@@ -33,16 +37,14 @@ const {html, uiFile} = require('./support/page.cjs');
       if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, today: {}});
       if (p === '/api/v2/tasks') return json({tasks: []});
       if (p === '/api/v2/conversations') return json({conversations: []});
-      if (p === '/api/v2/computers') return json({computers: [
-        {id: 'ana-mac', label: 'My Mac', operator: 'ana'},
-        {id: 'sam-mac', label: 'Other Mac', operator: 'sam'},
-        {id: 'old-mac', label: 'Old Mac', operator: 'ana', revoked_at: '2026-01-01'}]});
+      if (p === '/api/v2/computers') return json({computers});
       if (p.endsWith('/branches')) return json({original: 'architect', shared: original.shared,
         branches: bots.filter(b => b.shared_from).map(b => ({...b, slug: b.name}))});
       if (p.endsWith('/copies')) {
         writes.push([p, JSON.parse(request.postData())]);
         if (collision) return route.fulfill({status: 409, contentType: 'application/json', body: JSON.stringify({error: {detail: 'That computer already runs the original or a branch of it. Choose another computer.'}})});
-        const branch = {...base, name: 'architect-ana', slug: 'architect-ana', display_name: 'Architect', operator: 'ana', shared_from: 'architect'};
+        const branch = {...base, name: 'architect-ana', slug: 'architect-ana', display_name: 'Architect', operator: 'ana', shared_from: 'architect',
+          status: JSON.parse(request.postData()).runner_id ? 'active' : 'planned'};
         bots.push(branch); return json(branch);
       }
       if (p.endsWith('/definition')) {
@@ -104,6 +106,35 @@ const {html, uiFile} = require('./support/page.cjs');
     await dialog.locator('[type=submit]').click();
     await page.waitForFunction(() => !document.querySelector('#bot-editor').open);
     assert.equal(writes.at(-1)[1].shared, true);
+    // Eligibility comes from both the current computer assignments and the roster's family.
+    original.shared = true;
+    computers = [{id: 'ana-mac', label: 'My Mac', operator: 'ana', bots: ['architect']},
+      {id: 'ana-other', label: 'Second Mac', operator: 'ana', bots: []}];
+    await page.evaluate(() => botBranchCreate('architect'));
+    dialog = page.locator('#branch-editor');
+    assert.deepEqual(await dialog.locator('[name=runner_id] option').allTextContents(), ['Second Mac']);
+    await dialog.locator('[data-branch-close]').click();
+    // No submit is needed to discover the collision, and a planned branch posts the existing empty payload.
+    computers.pop();
+    await page.evaluate(() => botBranchCreate('architect'));
+    assert.match(await dialog.innerText(), /Your computers already run the original or a branch/);
+    assert.equal(await dialog.locator('[name=runner_id]').count(), 0);
+    assert.equal(await dialog.locator('[type=submit]').innerText(), 'Create planned branch');
+    await dialog.locator('[type=submit]').click();
+    await page.waitForFunction(() => !document.querySelector('#branch-editor'));
+    assert.deepEqual(writes.at(-1)[1], {});
+    computers = [{id: 'ana-mac', label: 'My Mac', operator: 'ana', bots: ['architect-sam']}];
+    await page.evaluate(() => {
+      S.emps.push({name: 'architect-sam', shared_from: 'architect', operator: 'sam', machine: {runner_id: 'ana-mac'}});
+      return botBranchCreate('architect');
+    });
+    assert.match(await dialog.innerText(), /Your computers already run/);
+    await dialog.locator('[data-branch-close]').click();
+    computers = [];
+    await page.evaluate(() => botBranchCreate('architect'));
+    assert.match(await dialog.innerText(), /You have no computer yet/);
+    assert.equal(await dialog.locator('[type=submit]').isEnabled(), true);
+    await dialog.locator('[data-branch-close]').click();
     assert.deepEqual(errors, []);
     console.log('bot branches: passed');
     await page.close();

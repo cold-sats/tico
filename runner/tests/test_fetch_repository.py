@@ -7,14 +7,14 @@ from pathlib import Path
 from unittest import mock
 
 from clients.tico import APIError
-from runner import git_credentials
+from runner import git_credentials, service
 from runner.service import Runner
 
 REPO = "Acme/emp-helper"
 RUNTIMES = {"codex": {"installed": True, "authenticated": "ready", "detail": "", "models": [],
                       "version": "codex 1.0", "controls": []}}
-GIT = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
-       "GIT_COMMITTER_EMAIL": "t@example.com", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": "/tmp"}
+GIT = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "bot@acme.example", "GIT_COMMITTER_NAME": "t",
+       "GIT_COMMITTER_EMAIL": "bot@acme.example", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": "/tmp"}
 
 
 def git(*args):
@@ -123,6 +123,84 @@ class FetchRepository(unittest.TestCase):
         self.assertTrue(runner.readiness([entry()], runtimes=RUNTIMES)["bots"]["helper"]["warnings"][0]
                         .startswith("GitHub history not published: "))
         self.assertIs(runner.readiness([entry()], runtimes=RUNTIMES)["bots"]["helper"]["published"], False)
+
+    def test_a_branch_without_an_app_link_clones_the_original_using_personal_git(self):
+        cloud = Cloud()
+        runner = self.runner(cloud)
+        assignment = entry(repository="")
+        assignment["bot"] = "helper-ana"
+        assignment["config"].update(shared_from="helper", repo="bot-helper", repo_url=str(self.remote))
+        row = runner.preflight([assignment], RUNTIMES)[0]
+        self.assertTrue(row["ready"] and row["repository_present"])
+        self.assertEqual(cloud.asked, 0)
+        self.assertEqual(runner.local_path("helper-ana"), self.projects / "bot-helper")
+        self.assertEqual(runner.readiness([assignment], runtimes=RUNTIMES)["bots"]["helper-ana"]["repository"],
+                         str(self.projects / "bot-helper"))
+
+    def test_a_local_only_branch_reuses_the_originals_sibling_checkout(self):
+        git("clone", "-q", str(self.remote), str(self.projects / "emp-helper"))
+        runner = self.runner(Cloud())
+        for repo in ("bot-helper", ""):
+            assignment = entry(repository="")
+            assignment["bot"] = "helper-ana"
+            assignment["config"].update(shared_from="helper", repo=repo)
+            with mock.patch.object(service, "clone_shared") as clone:
+                row = runner.preflight([assignment], RUNTIMES)[0]
+            self.assertTrue(row["ready"])
+            self.assertEqual(runner.local_path("helper-ana"), self.projects / "emp-helper")
+            clone.assert_not_called()
+
+    def test_an_unknown_branch_address_is_named_and_retried_only_after_the_delay(self):
+        runner = self.runner(Cloud())
+        assignment = entry(repository="")
+        assignment["config"].update(shared_from="original", repo="bot-original")
+        with mock.patch.object(service, "clone_shared", wraps=service.clone_shared) as clone:
+            first = runner.preflight([assignment], RUNTIMES)[0]
+            self.assertIn("original repository bot-original", first["problems"][0])
+            self.assertIn("address is unknown", first["problems"][0])
+            runner.preflight([assignment], RUNTIMES)
+            self.assertEqual(clone.call_count, 1)
+
+    def test_a_branch_with_an_app_link_keeps_the_scoped_clone_path(self):
+        assignment = entry()
+        assignment["config"].update(shared_from="original", repo="bot-original")
+        cloud = Cloud()
+        with mock.patch.object(service, "clone_shared") as personal:
+            row = self.runner(cloud).preflight([assignment], RUNTIMES)[0]
+        self.assertTrue(row["ready"])
+        self.assertEqual(cloud.asked, 1)
+        personal.assert_not_called()
+
+    def test_personal_github_clone_prefers_gh_and_falls_back_to_git_credentials(self):
+        target = self.projects / "bot-original"
+        config = {"repo": "Acme/bot-original", "repo_url": "https://github.com/Acme/old-repo"}
+        with mock.patch.object(service.shutil, "which", return_value="/bin/gh"), \
+                mock.patch.object(service.isolation, "run", side_effect=[
+                    subprocess.CompletedProcess([], 1, "", "not signed in"),
+                    subprocess.CompletedProcess([], 0, "", "")]) as run:
+            self.assertEqual(service.clone_shared(target, config), "")
+        self.assertEqual(run.call_args_list[0].args[0][:4], ["gh", "repo", "clone", "Acme/bot-original"])
+        self.assertEqual(run.call_args_list[1].args[0],
+                         ["git", "clone", "--quiet", "https://github.com/Acme/bot-original", str(target)])
+        self.assertEqual(run.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+
+    def test_personal_clone_never_overwrites_an_existing_folder(self):
+        target = self.projects / "bot-original"
+        target.mkdir()
+        (target / "draft.md").write_text("unfinished")
+        with mock.patch.object(service.isolation, "run") as run:
+            self.assertIn("left as it is", service.clone_shared(target, {"repo": "Acme/bot-original"}))
+        run.assert_not_called()
+        self.assertEqual((target / "draft.md").read_text(), "unfinished")
+
+    def test_a_server_before_checkout_paths_still_receives_heartbeats(self):
+        runner = self.runner(mock.Mock())
+        runner.client.post.side_effect = [APIError("validation", "readiness.bots.helper.repository: Extra inputs are not permitted", 422), {}]
+        body = {"readiness": {"bots": {"helper": {"ready": False, "repository": "/projects/bot-helper"}}}}
+        self.assertEqual(runner.report_heartbeat(body), {})
+        self.assertEqual(runner.client.post.call_count, 2)
+        self.assertNotIn("repository", body["readiness"]["bots"]["helper"])
+        self.assertGreater(runner._repository_after, 0)
 
 
 if __name__ == "__main__":

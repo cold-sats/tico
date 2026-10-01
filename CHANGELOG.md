@@ -20,6 +20,10 @@ All notable changes to Tico are recorded here. The format follows
   Your widths follow you between computers. Double-click an edge to reset it.
 - Bot avatars are clearly blob-shaped: each bot gets one of ten soft shape families and a little more distortion,
   with a slow wiggle only while it works.
+### Fixed
+- Branches clone their original repository using your own git access when no GitHub App link is available.
+- Health names missing repositories and the clone command on the computer that needs them; BotOps can fix them when asked.
+- Make my branch offers a planned branch when your computers already run the original or a branch. It starts when you add another computer.
 
 ## [0.2.42] - 2026-10-01
 
