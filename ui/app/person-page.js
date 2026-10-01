@@ -79,6 +79,9 @@ function pagePerson(id, tab) {
     <section class="card tasks" id="person-tasks-card"><header><h2>Tasks</h2>
         <button class="ghost" type="button" id="person-task-add" aria-haspopup="dialog">+ Add task</button></header>
       <div id="person-tasks">Loading…</div></section>
+    ${edit ? `<section class="card"><header><h2>Notifications</h2></header>
+      <label><input type="checkbox" id="person-notify-slack" ${p.notify_slack_task_done !== false ? 'checked' : ''}> Task results in Slack</label>
+      <span role="status" id="person-notify-status"></span></section>` : ''}
     ${fieldEditor('Goals', p.goals, {placeholder: 'What they are trying to get done.', save: edit})}
     ${fieldEditor('Notes', p.notes, {placeholder: 'Working notes about this human. Visible to humans who can open this profile.', rows: 8, save: edit})}
     ${reports.length ? `<section class="card"><header><h2>Reports</h2></header>
@@ -99,6 +102,19 @@ function pagePerson(id, tab) {
   if (more) more.onclick = () => {
     const rest = $('#goal-rest'), open = rest.hidden;
     rest.hidden = !open; more.textContent = open ? 'less' : 'more'; more.setAttribute('aria-expanded', String(open));
+  };
+  const notifySlack = $('#person-notify-slack');
+  if (notifySlack) notifySlack.onchange = async () => {
+    const value = notifySlack.checked;
+    notifySlack.disabled = true;
+    try {
+      const row = await post(`/v2/humans/${encodeURIComponent(p.id)}`, {notify_slack_task_done: value});
+      p.notify_slack_task_done = row.notify_slack_task_done;
+      $('#person-notify-status').textContent = '';
+    } catch (e) {
+      notifySlack.checked = !value;
+      $('#person-notify-status').textContent = e.message;
+    } finally { notifySlack.disabled = false; }
   };
   const cards = $('#pane-profile').querySelectorAll('section.card');
   const goalsCard = [...cards].find(el => el.querySelector('h2')?.textContent === 'Goals');

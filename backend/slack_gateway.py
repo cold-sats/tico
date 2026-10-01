@@ -962,6 +962,7 @@ class Gateway:
                 "SELECT m.id,m.body,m.conversation_id,m.from_actor,m.to_actor FROM messages m "
                 "WHERE m.kind IN ('say','ask','answer','notice') AND m.from_actor LIKE 'bot:%' "
                 "AND m.to_actor LIKE 'human:%' "
+                "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) "
                 "AND NOT EXISTS (SELECT 1 FROM slack_threads t WHERE t.conversation_id=m.conversation_id) "
                 "ORDER BY m.created LIMIT 20")]
@@ -1023,6 +1024,7 @@ class Gateway:
                 "SELECT m.id,m.body,m.in_reply_to,t.channel,t.thread_ts,t.bot FROM messages m "
                 "JOIN slack_threads t ON t.conversation_id=m.conversation_id AND m.from_actor='bot:'||t.bot "
                 "WHERE m.created>t.created AND m.kind IN ('say','ask','answer','notice') AND m.to_actor LIKE 'human:%' "
+                "AND json_extract(m.refs_json,'$.task_completion') IS NULL "
                 "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) ORDER BY m.created LIMIT 50").fetchall()
             for r in rows:
                 # The reply goes where the message it answers was: the thread root in a channel;
@@ -1040,8 +1042,87 @@ class Gateway:
                           "VALUES(?,?,?,?,?,'ready',?,?)", (r["id"], r["channel"], reply_ts, r["bot"], r["body"], now, now))
         return len(rows)
 
+    def task_completions(self):
+        """Completion notices use the same durable post queue, sent by the Tico app."""
+        if not self.settings.slack_gateway_enabled:
+            return 0
+        with self.store.read() as c:
+            pending = [dict(r) for r in c.execute(
+                "SELECT m.* FROM messages m WHERE m.to_actor LIKE 'human:%' "
+                "AND json_extract(m.refs_json,'$.task_completion.notify')=1 "
+                "AND COALESCE(json_extract(m.refs_json,'$.task_completion.checked'),0)=0 "
+                "AND (json_extract(m.refs_json,'$.task_completion.retry_after') IS NULL "
+                "OR json_extract(m.refs_json,'$.task_completion.retry_after')<=?) "
+                "AND NOT EXISTS (SELECT 1 FROM slack_posts p WHERE p.message_id=m.id) "
+                "ORDER BY m.created LIMIT 20", (self.clock(),))]
+        queued = 0
+        for message in pending:
+            pid = message["to_actor"][6:]
+            with self.store.read() as c:
+                person = P.person(pid, roster(c))
+                channel = self.im_channel(c, pid)
+                slack_id = str((H.human(c, pid) or {}).get("slack_id") or
+                               (person or {}).get("slack_id") or "").strip()
+                if not slack_id:
+                    linked = c.execute("SELECT user_id FROM slack_events WHERE actor=? AND state IN ('routed','recorded') "
+                                       "ORDER BY received DESC LIMIT 1", (message["to_actor"],)).fetchone()
+                    slack_id = linked["user_id"] if linked else ""
+            if not person or person.get("hidden") or person.get("directory_left") or person.get("sign_in") is False or not slack_id:
+                self.completion_checked(message["id"])
+                continue
+            if person.get("notify_slack_task_done") is False:
+                self.completion_checked(message["id"])
+                continue
+            # Verify the mapping against the pinned workspace and the current roster. An old
+            # DM or a manually supplied Slack id must never send task details outside the team.
+            with self.store.read() as c:
+                verified, _, denied = self.verify_sender(c, {"user_id": slack_id})
+            if denied or not verified or verified["id"] != pid:
+                self.completion_checked(message["id"], retry=bool(denied and denied.startswith("users.info:")))
+                continue
+            if not channel:
+                try:
+                    channel = str(self.slack.conversations_open(slack_id).get("id") or "")
+                except (SlackError, SlackUnreachable) as exc:
+                    LOG.warning("Could not open a task notification DM for %s: %s", pid, type(exc).__name__)
+                    self.completion_checked(message["id"], retry=True,
+                                            seconds=getattr(exc, "retry_after", None) or RETRY_SECONDS)
+                    continue
+            if not channel or not channel.startswith("D"):
+                self.completion_checked(message["id"])
+                continue
+            with self.store.transaction() as c:
+                completion = json.loads(message["refs_json"])["task_completion"]
+                owner = completion["owner"]
+                who = H.human(c, owner) if H.is_human(owner) else H.bot(c, owner)
+                name = (who or {}).get("name") or (who or {}).get("display_name") or H.actor_id(owner)
+                title = message["body"].splitlines()[0]
+                text = title + "\nby " + name
+                if completion.get("note"):
+                    text += "\n" + completion["note"]
+                now = self.clock()
+                queued += c.execute(
+                    "INSERT OR IGNORE INTO slack_posts(message_id,channel,thread_ts,bot,text,state,created,updated) "
+                    "VALUES(?,?, '', '',?,'ready',?,?)", (message["id"], channel, text, now, now)).rowcount
+        return queued
+
+    def completion_checked(self, message_id, retry=False, seconds=RETRY_SECONDS):
+        with self.store.transaction() as c:
+            if retry:
+                c.execute("UPDATE messages SET refs_json=json_set(refs_json,'$.task_completion.retry_after',?) WHERE id=?",
+                          (H.shift(self.clock(), seconds=seconds), message_id))
+            else:
+                c.execute("UPDATE messages SET refs_json=json_set(refs_json,'$.task_completion.checked',1) WHERE id=?",
+                          (message_id,))
+
     def rendered(self, c, post):
         """What Slack shows: the reply, then the footer that names the bot even where customize is not honoured."""
+        if not post["bot"]:
+            message = H.message(c, post["message_id"])
+            task_id = message["refs"]["task"]
+            url = self.settings.public_url + "/#/task/" + urllib.parse.quote(task_id, safe="")
+            return {"text": slack_escape(str(post["text"])[:POST_CHARS]) + "\n<" + slack_escape(url) + "|Open task>",
+                    "username": None, "icon_emoji": None, "icon_url": None}
         bot = H.bot(c, post["bot"]) or {}
         name = bot.get("display_name") or post["bot"]
         config = (entries(c).get(post["bot"]) or {})
@@ -1062,6 +1143,8 @@ class Gateway:
             shaped = {row["message_id"]: self.rendered(c, row) for row in due}
         results = []
         for post in due:
+            if not post["bot"] and not self.settings.slack_gateway_enabled:
+                continue
             with self.store.transaction() as c:
                 claimed = c.execute("UPDATE slack_posts SET state='sending',attempts=attempts+1,updated=? "
                                     "WHERE message_id=? AND state IN ('ready','rate_limited')", (self.clock(), post["message_id"])).rowcount
@@ -1093,7 +1176,7 @@ class Gateway:
             with self.store.transaction() as c:
                 c.execute("UPDATE slack_posts SET state=?,slack_ts=?,error=?,next_attempt=?,updated=? WHERE message_id=?",
                           (state, slack_ts, error, next_attempt, self.clock(), post["message_id"]))
-                H.event(c, "bot:" + post["bot"], "slack.post", post["message_id"],
+                H.event(c, "bot:" + post["bot"] if post["bot"] else H.KEEPER, "slack.post", post["message_id"],
                         {"state": state, "channel": post["channel"], "thread_ts": post["thread_ts"], "error": error})
             if state != "sent":
                 LOG.warning("Post %s for %s is %s: %s", post["message_id"], post["bot"], state, error)
@@ -1396,6 +1479,7 @@ class Gateway:
                 with self.store.transaction() as c:
                     self.finish(c, event, "failed", reason=f"{type(exc).__name__}: {exc}")
                 out.append({"event_id": event["event_id"], "state": "failed"})
+        self.task_completions()
         self.originate()
         self.mirror()
         posts = self.deliver()

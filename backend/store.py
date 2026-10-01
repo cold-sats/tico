@@ -315,6 +315,9 @@ CREATE TABLE IF NOT EXISTS slack_posts(
  state TEXT NOT NULL DEFAULT 'ready', attempts INTEGER NOT NULL DEFAULT 0, next_attempt TEXT,
  slack_ts TEXT, error TEXT, created TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS slack_posts_state ON slack_posts(state, next_attempt);
+CREATE INDEX IF NOT EXISTS slack_task_completion_notices ON messages(
+ json_extract(refs_json,'$.task'), json_extract(refs_json,'$.task_completion.status'), created)
+ WHERE json_extract(refs_json,'$.task_completion.notify')=1;
 """
 SCHEMA += SLACK_SCHEMA
 

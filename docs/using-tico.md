@@ -127,6 +127,8 @@ task the same way (`hub task attach`) and linked from its note; open it from the
 while signed in. Other files a bot publishes are listed on its page under Files ([Files](files.md)); a bot's own
 record stays in its repo's `reports/`. Meeting transcripts come from the tools that made them ([Meetings](meetings.md)).
 
+When someone finishes or declines a task you requested, Tico DMs your linked Slack account; turn off **Task results in Slack** on your human page under **Profile → Notifications**.
+
 **How do I review message bots?**
 Choose a mailbox or Slack channel under **Message bots** in the sidebar. The bot's instructions and
 routines are on the left, with example messages and actions to review on the right. Open an
