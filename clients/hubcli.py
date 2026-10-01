@@ -26,6 +26,7 @@ the server (`backend/hubdb.py`), never here. A command is its tool's name (clien
                     [--next-run]           for a bot: no wake; its next run carries the task
     hub task ask <id> "<question>"
     hub task update <id> --status doing|waiting|done|declined [--note "..."] [--goal ID|--goal ""]
+                    [--title "..."]        rename it: checked as a new task's title would be
     hub task close <id> [--note "..."]
     hub task attach <id> <file> [--name "..."]
                                            store a deliverable with the task; prints the link
@@ -609,6 +610,7 @@ def parser():
     s.set_defaults(fn="task ask")
     s = task.add_parser("update")
     s.add_argument("id")
+    s.add_argument("--title", help="a new title, checked as a new task's title would be")
     s.add_argument("--status", choices=list(TASK_STATUSES))
     s.add_argument("--note")
     s.add_argument("--owner")

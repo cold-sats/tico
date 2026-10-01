@@ -959,15 +959,7 @@ def lint_human_item(text, title=None):
     if "mistake to fix or a limit to keep" in body or "touches something you care about" in body:
         problems.append("write a concrete human decision, recommendation, and next step; do not forward a refusal diagnostic")
     if title is not None:
-        head = str(title or "").strip()
-        if not head:
-            problems.append("give it a title that says what you are asking for")
-        else:
-            if not _is_verb_opener(head):
-                problems.append(f'start the title with a verb (it starts "{head.split()[0]}")')
-        m = LINT_CODES.search(head) or LINT_JARGON.search(head)
-        if m:
-            problems.append(f'internal codes in the title: "{m.group(0)}"')
+        problems += lint_human_title(title)
     if not _first_line(body):
         problems.append("write the ask in the first line, with your recommendation")
     outside = _outside_quotes(body)
@@ -980,6 +972,21 @@ def lint_human_item(text, title=None):
     m = LINT_JARGON.search(body)
     if m:
         problems.append(f'internal jargon: "{m.group(0)}"')
+    return problems
+
+
+def lint_human_title(title):
+    """Rule 7's title half: a verb at the front, no `owner:`/`status:` codes. What a renamed task
+    for a person is checked on, since its body was checked when it was filed."""
+    head = str(title or "").strip()
+    if not head:
+        return ["give it a title that says what you are asking for"]
+    problems = []
+    if not _is_verb_opener(head):
+        problems.append(f'start the title with a verb (it starts "{head.split()[0]}")')
+    m = LINT_CODES.search(head) or LINT_JARGON.search(head)
+    if m:
+        problems.append(f'internal codes in the title: "{m.group(0)}"')
     return problems
 
 
@@ -2217,14 +2224,39 @@ def task_create(conn, actor, title, body, owner, due=None, parent_id=None, *, de
     return task(conn, row["id"])
 
 
+def _retitle(conn, actor, row, title, owner, type_id):
+    """A new title gets the checks a new task's title would, against the task as the update
+    leaves it: never empty; on a General task for a person, rule 7's title half; no live task
+    between the same requester and owner already called that; for a bot, the plain-English
+    check, whose warnings are returned to be recorded once the title lands."""
+    target = resolve_actor(conn, owner) if owner is not None else row["owner"]
+    if not title:
+        refuse(conn, actor, "lint", "give it a title that says what you are asking for")
+    if is_human(target) and type_id == GENERAL_TYPE:
+        problems = lint_human_title(title)
+        if problems:
+            refuse(conn, actor, "lint", "; ".join(problems))
+    dup = _one(conn, "SELECT id FROM tasks WHERE id<>? AND requester=? AND owner=? AND title=? "
+                     f"AND status IN ({','.join('?' * len(LIVE_STATUSES))})",
+               (row["id"], row["requester"], target, title, *LIVE_STATUSES))
+    if dup:
+        refuse(conn, actor, "duplicate", f"{dup['id']} already asks {actor_id(target)} for this")
+    plain = lint_title(title) if is_bot(actor) and TITLE_LINT != "off" else []
+    if plain and TITLE_LINT == "refuse":
+        refuse(conn, actor, "lint", "; ".join(plain))
+    return plain
+
+
 def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=None, body=None,
-                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None):
+                lane=None, labels=None, blocked_by=None, rank=None, parent_id=None, mover=None, goal_id=None, quiet=False, type=None, step=None,
+                title=None):
     """Rule 5. The owner may set doing|waiting|review|done|declined and a note; it may not close.
 
     `lane`, `labels`, `blocked_by` and `parent_id` are a mover's to change (`mover` says whether
     this actor is one; the keeper always is). Pass `blocked_by=""` or `parent_id=""` to clear.
     `rank` is the position in the owner's queue: a participant may rank its own tasks.
     `goal_id` names the goal the task serves; "" takes it off (backend/goals.py).
+    `title` renames it, checked as a new task's title would be (`_retitle`).
     """
     _writer(conn, actor)
     row = task(conn, task_id)
@@ -2239,8 +2271,9 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     if not mine and not mover and actor != KEEPER:
         refuse(conn, actor, "identity", f"{task_id} is not yours to change")
     state_change = status is not None or type is not None or step is not None
+    type_id = row.get("type_id") or GENERAL_TYPE
     if state_change:
-        _, _, effective = _task_state(conn, actor, row, status, type, step)
+        type_id, _, effective = _task_state(conn, actor, row, status, type, step)
         if status is not None or step is not None:
             status = effective
         # A move between steps with the same status changes only the pipeline label.
@@ -2284,14 +2317,19 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
                f"the {', '.join(MOVER_TEAMS)} teams, not by {actor_id(actor)}")
     if lane is not None:
         lane = _lane_for(conn, lane, row["owner"], actor)    # a task moves only onto company
+    if title is not None:
+        title = str(title).strip()
+    if title == row["title"]:
+        title = None                # sent back unchanged: nothing to check or record
+    plain = _retitle(conn, actor, row, title, owner, type_id) if title is not None else []
     ts = now()
     sets, args = [], {}
-    for field, value in (("note", note), ("due", due), ("body", body), ("lane", lane)):
+    for field, value in (("title", title), ("note", note), ("due", due), ("body", body), ("lane", lane)):
         if value is None:
             continue
-        severity = classify(str(value), actor=actor, conn=conn) if field == "body" and is_bot(actor) else "normal"
+        severity = classify(str(value), actor=actor, conn=conn) if field in ("title", "body") and is_bot(actor) else "normal"
         if severity == "escape":
-            refuse(conn, actor, "escape", f"the task body reaches outside the hub: {_clip(value, 80)}", severity)
+            refuse(conn, actor, "escape", f"the task {field} reaches outside the hub: {_clip(value, 80)}", severity)
         sets.append(f"{field}=:{field}")
         args[field] = value
         _task_event(conn, task_id, actor, field, row.get(field), value, note or "")
@@ -2350,6 +2388,13 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
     args["updated"] = ts
     if sets:
         conn.execute(f"UPDATE tasks SET {', '.join(sets)}, updated=:updated WHERE id=:id", args)
+    if title is not None:
+        # The task's own thread was named after it; a room many tasks share keeps its subject.
+        conn.execute("UPDATE conversations SET subject=? WHERE id=? AND task_id=? AND subject=?",
+                     (title, row["conversation_id"], task_id, row["title"]))
+    if plain:
+        _task_event(conn, task_id, KEEPER, "lint", None, "; ".join(plain), "")
+        event(conn, actor, "task.lint", task_id, {"problems": plain})
     event(conn, actor, "task.update", task_id, {"status": status, "note": note})
     after = task(conn, task_id)
     # A bot that asked for `tasks` is always told and never woken for it, so there is nothing to

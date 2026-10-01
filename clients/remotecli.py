@@ -286,7 +286,7 @@ def run(args, who=None):
             else:
                 body.update({"status": args.status, "owner": args.owner, "due": args.due,
                              "goal_id": getattr(args, "goal", None)})
-                for field in ("type", "step"):
+                for field in ("title", "type", "step"):
                     if getattr(args, field, None) is not None:
                         body[field] = getattr(args, field)
                 if args.blocked_by is not None:

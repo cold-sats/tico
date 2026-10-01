@@ -7,6 +7,11 @@ All notable changes to Tico are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A task can be renamed: `title` on `POST /api/v2/tasks/{id}`, `hub_task_update` and `hub task update --title`, for
+  whoever may change its other fields. The new title gets the checks a new task's title would, is kept in the task's
+  history, and becomes the subject of the task's own conversation.
+
 ### Changed
 - A task on a custom type is a ticket on that type's board, not an ask: the rule for a request to a person (a title
   that starts with a verb, the ask first, under 120 words) applies to General tasks only, in the API, MCP, `hub` and

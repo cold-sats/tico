@@ -321,6 +321,26 @@ def test_a_custom_types_task_is_a_ticket_not_an_ask(api):
     assert task["title"] == ticket["title"] and task["type"]["id"] == typ["id"]
 
 
+def test_a_renamed_task_is_checked_like_a_new_one_and_keeps_its_history(api):
+    ask = post(api, "tasks", {"owner": "priya", "title": "Approve the launch copy", "body": "Yes or no?"})
+    refused = api.post("/api/v2/tasks/" + ask["id"], json={"version": ask["version"], "title": "The launch copy"},
+                       headers=headers())
+    assert refused.status_code == 422 and refused.json()["error"]["code"] == "lint"
+    renamed = post(api, "tasks/" + ask["id"], {"version": ask["version"], "title": "Approve the final copy"},
+                   token="priya-test")
+    assert renamed["title"] == "Approve the final copy"
+    assert any(e["field"] == "title" and (e["old"], e["new"]) == ("Approve the launch copy", "Approve the final copy")
+               for e in get(api, "tasks/" + ask["id"])["events"])
+    with api.app.state.store.read() as c:
+        subject = c.execute("SELECT subject FROM conversations WHERE id=?", (renamed["conversation_id"],)).fetchone()[0]
+    assert subject == "Approve the final copy"
+    ticket = post(api, "tasks", {"owner": "priya", "title": "(B) Account page", "body": "x", "type": pipeline(api)["id"]})
+    ticket = post(api, "tasks/" + ticket["id"], {"version": ticket["version"], "title": "(B/F) Account page: the copy"})
+    assert ticket["title"] == "(B/F) Account page: the copy"
+    other = post(api, "tasks", {"owner": "cmo", "title": "Draft the launch copy", "body": "x"})
+    post(api, "tasks/" + other["id"], {"version": other["version"], "title": "Draft it"}, token="priya-test", expected=403)
+
+
 def test_steps_keep_status_contract_stay_first_match_and_clear(api):
     typ = pipeline(api)
     task = post(api, 'tasks', {'owner': 'cmo', 'title': 'Draft the campaign', 'body': 'Please.', 'type': typ['id']})

@@ -410,9 +410,10 @@ def task_ask(api, args):
     return api.post(f"tasks/{args['id']}/ask", {"text": args["text"]}, key=_key(args))
 
 
-@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, or what blocks it. "
+@tool("hub_task_update", "Move a task you own: status, note, owner, due, labels, title, or what blocks it. "
       "Finish with `status: done` and a concise result note; the requester closes.",
       {"id": TASK_ID,
+       "title": _s("A new title; it is checked as a new task's title would be"),
        "status": {"type": "string", "enum": ["open", "doing", "waiting", "review", "done", "declined"]},
        "type": _s("Task type id or name"),
        "step": _s("Step id or name within the task type; sets status. An empty string clears it"),
@@ -432,7 +433,7 @@ def task_update(api, args):
         body["quiet"] = True
     if args.get("labels") is not None:
         body["labels"] = args["labels"]
-    for field in ("type", "step"):
+    for field in ("title", "type", "step"):
         if args.get(field) is not None:
             body[field] = args[field]
     if args.get("blocked_by") is not None:
