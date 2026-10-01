@@ -105,7 +105,7 @@ def test_mail_tables_are_owner_only_in_sql(api):
 
 
 def test_an_overlong_mail_field_is_cut_not_refused_so_the_mailbox_keeps_syncing(api):
-    # Bruno 2026-09-27 and Chris 2026-10-01: one 32,809-character body refused every batch for hours.
+    # One 32,809-character body used to refuse every batch for hours.
     from backend.connectors import MAIL_BODY_MAX
     from backend.tests.test_sql import column
 

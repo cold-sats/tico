@@ -180,8 +180,8 @@ class MailMessage(M.Contract):
     rule_hits: list = Field(default_factory=list, max_length=100)
 
     # A field over its cap is cut, not refused: the batch is never acknowledged, so one refused
-    # message came back first on every retry and stopped its mailbox's copy for hours (Bruno
-    # 2026-09-27, Chris 2026-10-01). Only the message id stays strict; it has to be exact.
+    # message came back first on every retry and stopped its mailbox's copy for hours. Only the
+    # message id stays strict; it has to be exact.
     @model_validator(mode="before")
     @classmethod
     def clip(cls, data):
