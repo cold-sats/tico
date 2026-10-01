@@ -26,7 +26,7 @@ Every **Next** saves the whole draft with `PUT /api/v2/setup`, so a closed tab l
 | Screen | What it asks | What it stores |
 |---|---|---|
 | AI providers | Only while no provider is chosen yet; otherwise the wizard starts at Names. Which AI providers the bots may use. Optional: leave none ticked and Skip for now moves on | The team's providers, as Settings > AI providers saves them |
-| Names | Team/Company name, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_COMPANY_NAME` and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add teammates at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
+| Names | **Team/Company name**, app name, and optionally your own name | `names`. From the moment they are saved they override `TICO_TEAM_NAME` (the old `TICO_COMPANY_NAME` remains an alias) and `TICO_APP_NAME` everywhere, including in the template cards. **Your name** (`names.owner_name`) is saved on the owner's roster entry, so the team chart and the sidebar show it instead of the address; it is prefilled from the roster, or from the display name the sign-in proxy vouches for (a `name` claim from Cloudflare Access or the AWS load balancer), and left blank it changes nothing. **Team email domain** (`names.team_domain`) is asked only when the owner signs in with public email such as gmail.com and no team address is on the roster; it is optional, and lets members add teammates at that domain (it does not let anyone sign in). The wizard does not ask for an assistant name: the tab is always called Assistant, and `names.assistant_name` is `TICO_ASSISTANT_NAME`, which is `Assistant` unless set (a name equal to the team's reads as `Assistant`) |
 | About the team | What you do, who you sell to, whether software is your product, and team size | `answers`. Whether software is the product decides which groups start picked, and the description helps the suggestions. It is also written into every bot's `knowledge/company.md` |
 | Your team chart | The groups, then one question per group and the bots to recruit into it, with the chart growing beside it, and the message bot switch under the finished chart ([The team builder](#the-team-builder)) | `answers.departments`, `answers.briefings` and `selected`: for each chosen slug, its template, display name, the `AGENT.md` text and `reports_to` (a human `human:<id>` or a bot slug). Nothing is created yet |
 | Add the computer that runs your bots | If a runner is already online (the server's own) the step is one line, `<label> online`. Otherwise the kind of computer, **A Linux or cloud server (Docker)** when the server itself runs in Docker (`in_docker` in `GET /api/v2/config`, the usual install) and **A Mac** when it does not, then a one-time code or setup file and the commands | Nothing. It polls `GET /api/v2/setup` every ten seconds and reports the enrolled computer |
@@ -93,7 +93,8 @@ The browser only ever talks to its own server:
 
 Both are for the owner and bot administrators, and neither is part of the stable v2 contract (like the rest of the wizard's routes).
 
-The group card carries a toggle, **Suggestions from Tico HQ (sends this answer)**, on by default and off (and disabled, with the
+The group card carries a toggle, **Suggestions from Tico HQ**, with a privacy link and the exact payload: group, answer,
+team description, customer type, software choice, catalog version and install ID (when counting is on and its notice has been shown). It is on by default and off (and disabled, with the
 reason) when the install may not ask HQ. The server asks Tico HQ (`POST <TICO_HQ_URL>/v1/recruit`, [Tico HQ](tico-hq.md)) only when the
 toggle is on **and** none of these is true: demo mode, `TICO_TELEMETRY=off`, `DO_NOT_TRACK` set, or the anonymous usage count switched off
 in Settings (`hq.off_by` says which). It sends the group, the answer, three facts from "About the team" (`what`, at most 500
@@ -155,8 +156,10 @@ lets its routines run and counts it toward a member's limit. Until then it stays
 
 - **Finish setup**: each bot with its progress. A starter says *Setting up its repository* until the repository exists,
   then its **Set up** works.
-- **Invite an admin**: a name and an email. The human joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/humans`,
-  then `POST /api/v2/access/humans/{id}` with `role: admin`). Tico sends no email.
+- **AI providers**: the first link opens Settings > AI providers so bots can start working.
+- **Add an admin**: a name and an email. The human joins the roster and the sign-in list and is made an admin (`POST /api/v2/access/humans`,
+  then `POST /api/v2/access/humans/{id}` with `role: admin`). Tico sends no email. On a local install, only you can sign in
+  until you add a domain and sign-in; adding an admin still saves their roster entry.
 - **Who owns each bot**: add a human as an owner of any bot (`POST /api/v2/bots/{bot}/co-owners`; [permissions](permissions.md#bot-owners)).
 - **Tools**: links to Credentials and Tools, where credentials go. Credentials
   are entered in those fields, **never in a chat with a bot**; the BotOps playbook says the same, and a credential pasted into a chat is treated as
@@ -389,4 +392,6 @@ also call `POST /api/v2/bots/{bot}/onboarded` to release a bot whose conversatio
 
 In **AI providers**, **Skip for now** continues without a provider; bots wait until one is added.
 Settings > AI providers can also save with no providers enabled. After choosing providers, sign in on each computer
-from that page, or store the model key in **Credentials**, set its **Bot variable name**, and grant **Every computer**.
+from that page, or store the model key in **Tools > Credentials** and grant **Every computer**. For a model API key or token
+named `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or `CURSOR_API_KEY`, a blank **Bot variable name** is
+inferred automatically; otherwise set the model's variable explicitly. Bot access still needs its own grant.

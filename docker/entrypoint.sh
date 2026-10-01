@@ -16,7 +16,9 @@ die() { printf 'tico: error: %s\n' "$*" >&2; exit 1; }
 rehearsal() { case "${TICO_REHEARSAL:-}" in 1|true|TRUE|True|yes|YES|Yes|on|ON|On) return 0 ;; *) return 1 ;; esac; }
 
 server_environment() {
-  [ -n "${TICO_COMPANY_NAME:-}" ] || die "set TICO_COMPANY_NAME"
+  export TICO_TEAM_NAME="${TICO_TEAM_NAME:-${TICO_COMPANY_NAME:-}}"
+  export TICO_COMPANY_NAME="$TICO_TEAM_NAME"  # alias for older initialization code
+  [ -n "$TICO_TEAM_NAME" ] || die "set TICO_TEAM_NAME"
   [ -n "${TICO_OWNER_EMAIL:-}" ] || die "set TICO_OWNER_EMAIL"
   case "$TICO_OWNER_EMAIL" in *[!A-Za-z0-9.@_+-]*|*@*@*|'') die "TICO_OWNER_EMAIL is not a plain email address" ;; esac
   case "$TICO_OWNER_EMAIL" in *@*) ;; *) die "TICO_OWNER_EMAIL is not a plain email address" ;; esac
@@ -41,10 +43,10 @@ server_environment() {
   fi
 
   # No domain and no sign-in setup is the quick start: a local server on loopback, the owner signs in with a token on
-  # this machine. "none" is the older spelling. A domain (a public address) always needs a sign-in.
+  # this computer. "none" is the older spelling. A domain (a public address) always needs a sign-in.
   case "${TICO_AUTH_PROXY:-}" in
     none|'')
-      [ -z "${TICO_DOMAIN:-}" ] || die "TICO_DOMAIN is set, so people reach this server over a public address and it needs sign-in: set TICO_AUTH_PROXY (oidc or cloudflare), or unset TICO_DOMAIN to run on this machine only"
+      [ -z "${TICO_DOMAIN:-}" ] || die "TICO_DOMAIN is set, so humans reach this server over a public address and it needs sign-in: set TICO_AUTH_PROXY (oidc or cloudflare), or unset TICO_DOMAIN to run on this computer only"
       # The server may only be reached on loopback: it trusts a local owner token.
       export TICO_PUBLIC_URL="${TICO_PUBLIC_URL:-http://127.0.0.1:${TICO_PORT:-8765}}" TICO_LOCAL_OWNER_TOKEN_FILE=$DATA/local-owner.token
       unset TICO_AUTH_PROXY
@@ -125,7 +127,7 @@ warn_backups() {
   esac
 }
 
-# An empty volume never quietly becomes a new company when a company exists (or may exist) behind it. The restore
+# An empty volume never quietly becomes a new team when a team exists (or may exist) behind it. The restore
 # result is kept, not ignored; and markers outside the database (backend/replication.py) say what was here before.
 # --initialize-empty (or TICO_INITIALIZE_EMPTY=1) is the explicit way to start over.
 seed() {
@@ -147,7 +149,7 @@ seed() {
   fi
   mkdir -p "$DATA/blobs" "$DATA/seed-projects"
   if [ ! -d "$TICO_REGISTRY_DIR" ]; then
-    log "seeding the registry for $TICO_COMPANY_NAME"
+    log "seeding the registry for $TICO_TEAM_NAME"
     python - "$DATA" "${TICO_OWNER_NAME:-$TICO_OWNER_EMAIL}" <<'PY'
 import os, sys
 from pathlib import Path

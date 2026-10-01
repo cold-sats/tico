@@ -28,6 +28,27 @@ def create(api,**kwargs):
     return post(api,'credentials',{'name':'PostHog','secret':'phx-synthetic-private-987654','env':'POSTHOG_API_KEY',**kwargs})
 
 
+def test_known_model_key_names_infer_variables_and_preserve_explicit_variables(api):
+    setup(api)
+    from backend.tests.test_api import runner
+
+    computer = runner(api)
+    row = create(api, name='OPENAI_API_KEY', env='')
+    assert row['env'] == 'OPENAI_API_KEY'
+    assert get(api, 'runner-model-credentials?runtime=codex', computer['token'])['credentials'] == []
+    post(api, f"credentials/{row['id']}/grants", {'subject': 'computers'})
+    assert get(api, 'runner-model-credentials?runtime=codex', computer['token'])['credentials'][0]['env'] == 'OPENAI_API_KEY'
+    explicit = create(api, name='OPENAI_API_KEY', env='CUSTOM_MODEL_KEY')
+    assert explicit['env'] == 'CUSTOM_MODEL_KEY'
+    assert create(api, name='Account password', kind='password', env='')['env'] == ''
+    # An older install's name-only key still offers Every computer without an edit/save step.
+    with api.app.state.store.transaction() as c:
+        c.execute('UPDATE credentials SET env=\'\' WHERE id=?', (row['id'],))
+    assert next(item for item in get(api, 'credentials')['credentials'] if item['id'] == row['id'])['env'] == 'OPENAI_API_KEY'
+    post(api, f"credentials/{row['id']}/grants", {'subject': 'computers'})
+    assert get(api, 'runner-model-credentials?runtime=codex', computer['token'])['credentials'][0]['env'] == 'OPENAI_API_KEY'
+
+
 def test_ciphertext_only_and_authorizers_and_validation_redaction(api):
     setup(api)
     row=create(api)

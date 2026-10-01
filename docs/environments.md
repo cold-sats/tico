@@ -58,7 +58,7 @@ and a hand-run `uvicorn`, so both see exactly the same configuration. Keys:
 
 `TICO_DB`, `TICO_BLOB_DIR`, `TICO_REGISTRY_DIR` (all inside the environment directory),
 `TICO_PUBLIC_URL` and `TICO_RUNNER_URL` (both the loopback URL), `TICO_ENVIRONMENT_ID`,
-`TICO_COMPANY_NAME`, `TICO_APP_NAME`, `TICO_ASSISTANT_NAME`, `TICO_OWNER_EMAIL`,
+`TICO_TEAM_NAME` (`TICO_COMPANY_NAME` remains an alias), `TICO_APP_NAME`, `TICO_ASSISTANT_NAME`, `TICO_OWNER_EMAIL`,
 `TICO_LOCAL_OWNER_TOKEN_FILE`, `TICO_SCHEDULER=1`, and `TICO_GITHUB_OWNER` when
 `env create --github-owner` was given. Values are single lines; a newline is refused at creation.
 

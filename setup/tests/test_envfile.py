@@ -12,7 +12,7 @@ def s(**kw):
 
 def test_render_orders_and_omits_empty_and_doubles_dollars():
     text = envfile.render(s().to_env())
-    assert 'TICO_COMPANY_NAME="Acme Inc"' in text
+    assert 'TICO_TEAM_NAME="Acme Inc"' in text and 'TICO_COMPANY_NAME="Acme Inc"' in text
     assert 'TICO_OIDC_CLIENT_SECRET="S3cret$$value"' in text
     assert "COMPOSE_PROFILES=caddy,updater" in text
     assert "TICO_TAG" not in text and "CLOUDFLARE_TUNNEL_TOKEN" not in text

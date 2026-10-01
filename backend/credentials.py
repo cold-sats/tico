@@ -26,6 +26,11 @@ FILE_MIGRATION = 'credential-file-migration-v1'
 HUB_MIGRATION = 'credential-file-migration-v2-hub'
 
 
+def model_env(name, kind, env=''):
+    name = name.strip()
+    return env or (name if name in providers.MODEL_KEY_NAMES and kind in ('api_key', 'token') else '')
+
+
 def administrator(c, who, admins):
     """`admins` is the credential administrators: TICO_CREDENTIAL_ADMINS, which defaults to the owner and the Admins
     (`Auth.sync_access`, unless the owner's rule says the owner alone)."""
@@ -255,7 +260,7 @@ class Vault:
     @staticmethod
     def brief(row):
         return {k: row[k] for k in ('id', 'name', 'username', 'kind', 'env', 'preview', 'source', 'revision', 'created', 'updated')} | {
-            'stored': row['ciphertext'] is not None}
+            'stored': row['ciphertext'] is not None, 'env': model_env(row['name'], row['kind'], row['env'])}
 
     def write(self, c, who, body, cid=None):
         require_admin(c, who, self.admins)
@@ -282,7 +287,7 @@ class Vault:
                   'VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,username=excluded.username,'
                   'kind=excluded.kind,env=excluded.env,preview=excluded.preview,ciphertext=excluded.ciphertext,nonce=excluded.nonce,'
                   'source=excluded.source,revision=credentials.revision+1,updated=excluded.updated,updated_by=excluded.updated_by',
-                  (cid,name,body.username,body.kind,body.env,preview,ciphertext,nonce,body.source,now,now,who.actor))
+                  (cid,name,body.username,body.kind,model_env(name,body.kind,body.env),preview,ciphertext,nonce,body.source,now,now,who.actor))
         H.event(c,who.actor,'credential.updated' if old else 'credential.created',cid,{'secret_changed':secret is not None})
         return self.brief(self.row(c,cid))
 
@@ -304,6 +309,12 @@ class Vault:
     def grant(self, c, who, cid, subject):
         row=self.row(c,cid)
         parent = self.grant_authority(c,who,cid,subject)
+        inferred = model_env(row['name'], row['kind'], row['env'])
+        if inferred and not row['env']:
+            # Older name-only model keys gain a variable only when someone grants them.
+            c.execute('UPDATE credentials SET env=?,revision=revision+1,updated=?,updated_by=? WHERE id=?',
+                      (inferred,H.now(),who.actor,cid))
+            row=self.row(c,cid)
         if subject == COMPUTERS:
             if row['env'] not in providers.MODEL_KEY_NAMES or row['kind'] not in ('api_key','token') or row['ciphertext'] is None:
                 raise Problem('subject','Only a stored model API key or token, named '+', '.join(sorted(providers.MODEL_KEY_NAMES))

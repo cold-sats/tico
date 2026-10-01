@@ -102,6 +102,14 @@ def test_the_shipped_catalog_has_a_head_for_every_department_and_hq_has_a_curren
         assert R.head_of(built, dept["id"]) == dept["head"], dept["id"]
         assert dept["icon"] and dept["question"] and dept["placeholder"], dept["id"]
     assert all(row["icon"] and row["summary"] for row in built["cards"])
+    starter = yaml.safe_load((settings.catalog_dir / 'content' / 'card.yaml').read_text())
+    shown = next(row for row in built['cards'] if row['template'] == starter['template'])
+    assert shown['name'] == starter['name'] == 'Content Marketer' and shown['department'] == 'marketing'
+    assert {row['tool'] for row in starter['prerequisites'] if row.get('required')} == {'hub'}
+    for guide in (ROOT / 'README.md', ROOT / 'docs/install.md'):
+        text = guide.read_text()
+        assert f"**{shown['name']}**" in text and '**Marketing**' in text
+        assert 'Draft a 200-word blog post' in text and 'Docs Writer' not in text
     check = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_catalog_json.py"), "--check"],
                            capture_output=True, text=True)
     assert check.returncode == 0, check.stderr

@@ -32,6 +32,10 @@ def get(api, path, token="ana-test", expected=200):
 def test_the_release_ships_only_built_in_services_and_every_page_parses():
     pages, _ = I.load(ROOT / "integrations")
     assert set(pages) == SHIPPED
+    assert {name: pages[name]['title'] for name in ('aside', 'postgres', 'mysql', 'mongodb', 'sqlite')} == {
+        'aside': 'Aside', 'postgres': 'PostgreSQL', 'mysql': 'MySQL and MariaDB', 'mongodb': 'MongoDB', 'sqlite': 'SQLite'}
+    with pytest.raises(I.Problem, match='No tool named missing'):
+        I.Catalog(ROOT / "integrations").resolve('missing')
 
 
 def test_a_company_page_adds_a_service_and_replaces_a_shipped_one(tmp_path):
@@ -69,4 +73,3 @@ def test_shipped_pages_and_templates_name_no_fixture_people_or_companies(path):
     text = FENCE.sub("", path.read_text())
     hits = FIXTURE_NAMES.findall(text)
     assert not hits, f"{path.relative_to(ROOT)} names {sorted(set(hits))}"
-

@@ -1054,6 +1054,7 @@ class Runner:
             if rejected and row.get("installed"):
                 report[runtime] = {**row, "authenticated": "rejected", "rejected_at": rejected["at"],
                                    "rejected_reason": rejected["reason"],
+                                   "credential_source": "credentials" if not row.get("profiles") and self.team_key_only(runtime) else "computer",
                                    "detail": ("Sign-in rejected: " + rejected["reason"])[:500]}
         return report
 
@@ -2119,8 +2120,20 @@ class Runner:
                 "agent_instructions": agent_instructions,
                 **({"checkout": self._checkout} if getattr(self, "_checkout", None) and not self.follower.following else {}),
                 **self.follower.fields()}
+        runtime_rows = body["readiness"].get("runtimes", {}).values()
+        if not getattr(self, "_reports_credential_source", False):
+            for row in runtime_rows:
+                row.pop("credential_source", None)
         try:
-            beat = self.client.post("runners/heartbeat", body)
+            try:
+                beat = self.client.post("runners/heartbeat", body)
+            except APIError as exc:
+                # A rollback to an older server must keep the heartbeat working.
+                if exc.status != 422 or not any("credential_source" in row for row in runtime_rows):
+                    raise
+                for row in runtime_rows:
+                    row.pop("credential_source", None)
+                beat = self.client.post("runners/heartbeat", body)
         except APIError as exc:
             # A server from before harness reports refuses the new field outright; the runner
             # must not go offline over it, so it reports without and asks again later.
@@ -2139,6 +2152,7 @@ class Runner:
             for row in body["readiness"].get("bots", {}).values():
                 row.pop("tools", None)
             beat = self.client.post("runners/heartbeat", body)
+        self._reports_credential_source = (beat or {}).get("runtime_credential_source") is True
         self.published_agent_instructions.update(instruction_versions)
         if (beat or {}).get("restart") and self.restart_due is None:
             # A person pressed Restart: take main if that is safe, then restart once nothing runs.

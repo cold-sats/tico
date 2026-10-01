@@ -34,7 +34,9 @@ Files go to `/opt/tico` on Linux (it uses `sudo`) and to `~/tico` on a Mac (no `
 The public, runner and MCP addresses follow this port. `TICO_PUBLIC_URL` and `TICO_RUNNER_URL` override their defaults.
 To prefill Finish setup, add `--owner-name "Ana" --team-name "Acme"` to the local installer command; `--company` remains an alias.
 
-It prints a link that signs you in once. Open it in your browser: the app opens on **Finish setup**. Then:
+It prints a reusable private owner sign-in link. Keep it private: anyone with the link on this computer can sign in as you.
+Recover the token any time with `docker compose exec server cat /data/local-owner.token` in the install directory.
+Open the link in your browser: the app opens on **Finish setup**. Then:
 
 1. **Choose AI providers** (optional): leave them all unticked to do it later. Bots need one to run; until then each bot says
    "Add an AI provider", and Settings > AI providers adds it.
@@ -48,13 +50,14 @@ It prints a link that signs you in once. Open it in your browser: the app opens 
    Wait for the computer's model sign-in to show **ready**. Other harnesses use their own terminal sign-in; API credentials and
    profiles are explained in [Harnesses](harnesses.md). Pick a provider in **Settings > AI providers** if you skipped it,
    then choose the starter's model in **Settings > Bots**.
-6. **Set up one starter.** Select **Content Marketer** (`content`, in Marketing), open its page and press **Set up**.
-   It needs only Tico; no GitHub or outside Tool is required. Paste the sample answers below, answer any remaining
-   questions and review its first draft in the same chat. Outbound sending stays off until you turn it on for that bot.
-7. **Finish one task.** On **Tasks > New task**, assign it: “Draft a 150-word launch post for project teams from these facts:
+6. **Set up one starter.** Select **Content Marketer** (`content`) in the **Marketing** group, open its page and press **Set up**.
+   It needs only Tico; no GitHub or outside Tool is required. Tell it the readers, publishing plans, voice, topics and privacy rules
+   using the sample answers below. Answer any remaining questions and review its first draft in the same chat. Outbound
+   sending stays off until you turn it on for that bot.
+7. **Finish one task.** On **Tasks > New task**, assign it: “Draft a 200-word blog post introducing our example app to project teams from these facts:
    our example app keeps tasks and meeting notes together; readers can try it locally; use a plain, friendly voice and invent
-   no claims.” Open the task to read its result, then close it. Success is a reviewed draft and a completed task, with the
-   computer online and no blocking Health issue.
+   no claims. Return a draft on this task.” Open the task to read its result, then close it. Success is a reviewed draft and a
+   completed task, with the computer online and no blocking Health issue.
 
 ### Sample answers for Content Marketer
 
@@ -73,7 +76,9 @@ Paste this into its Setup chat (or replace it with your own facts):
 - **Add an AI provider**: choose one in **Settings > AI providers**, then select the bot's model in **Settings > Bots**.
 - **Offline** or **Missing bot repository or AGENT.md**: check **Settings > Computers** and keep the joined computer running;
   [Setup troubleshooting](onboarding.md#troubleshooting) explains repository and placement failures.
-- **Sign-in rejected**: use **Sign in** again on the computer and finish the provider flow; check [Harnesses](harnesses.md).
+- **Sign-in rejected**: Health names the credential source when the computer reports it. Replace a shared model key in
+  **Tools > Credentials**; for a computer-local key or login, update it or use **Sign in** in **Settings > Computers**.
+  Older computers show both paths. See [Harnesses](harnesses.md).
 - **Needs setup**: open the bot's chat and press **Set up**; tasks and routines wait until that conversation is finished.
 - **A missing Tool or Credential**: use the bot's card or [Connect tools](connect-tools.md) and grant the credential to that bot.
 
@@ -92,7 +97,9 @@ COMPOSE_PROFILES=updater
 TICO_UPDATER_URL=http://updater:8080
 ```
 
-Set `TICO_TAG` to the release whose bundle you downloaded. `TICO_COMPANY_NAME` remains an alias for existing installs. To upgrade by hand, run that release's installer with `--version vX.Y.Z`; it replaces the bundle and pins the images.
+`TICO_TEAM_NAME` is the team name; existing `TICO_COMPANY_NAME` settings still work. If both are set, `TICO_TEAM_NAME` wins.
+
+Set `TICO_TAG` to the release whose bundle you downloaded. To upgrade by hand, run that release's installer with `--version vX.Y.Z`; it replaces the bundle and pins the images.
 
 Then get the sign-in token with `docker compose exec server cat /data/local-owner.token` and open
 `http://127.0.0.1:8765/api/v2/local-signin?token=<token>`. The app opens on the first-run wizard; you can create the team
@@ -210,7 +217,7 @@ Then it shows the plan and asks "Go ahead?". `--dry-run` prints the plan and cha
 
 ```
 $ python3 -m setup --dry-run --non-interactive --target local --front-door caddy --domain tico.example.com \
-    --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --company Acme --owner-email you@example.com
+    --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --team-name Acme --owner-email you@example.com
 tico setup (dry run: nothing will be created or changed)
 Sign-in: create a Google OAuth client at https://console.cloud.google.com/auth/clients/create
   with redirect URI exactly https://tico.example.com/auth/callback
@@ -264,12 +271,12 @@ they never appear in a process list:
 
 ```
 TICO_OIDC_CLIENT_SECRET=... sh install.sh --yes --version vX.Y.Z -- --domain tico.example.com --front-door caddy \
-  --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --company Acme \
+  --server-ip 203.0.113.7 --auth google --client-id 1234-abc.apps.googleusercontent.com --team-name Acme \
   --owner-email you@example.com --backup local
 ```
 
 Flags: `--domain`, `--front-door caddy|cloudflared`, `--server-ip`, `--tico-version`, `--auth google|microsoft|cloudflare`,
-`--tenant`, `--client-id`, `--allowed-domain`, `--company`, `--owner-email`, `--decisions-provider` (the old `--judge-provider` still works), `--backup`,
+`--tenant`, `--client-id`, `--allowed-domain`, `--team-name` (`--company` remains an alias), `--owner-email`, `--decisions-provider` (the old `--judge-provider` still works), `--backup`,
 `--backup-url`, `--backup-endpoint`, `--backup-region`, `--no-updater`, `--dns-timeout MINUTES`, `--skip-dns-wait`.
 Credentials: `TICO_OIDC_CLIENT_SECRET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_TUNNEL_TOKEN`, `OPENAI_API_KEY` (or
 `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`). `python3 -m setup --help` lists all of them.
@@ -349,9 +356,9 @@ type API key or token), open **Manage access** on it and choose **Every computer
 and BotOps asks for a Confirm click first. From then on, when a new computer joins or gets its first job and its model is not
 signed in, the runner (the software on the computer) asks the server for that key as itself, saves it in its own secrets folder
 and signs in the way it would with a key you had typed there. Nobody copies a key between computers, and the key is in no log.
-Set **Bot variable name** to `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or `CURSOR_API_KEY`.
-**Every computer (signs models in)** is offered only for a stored model API key or token with that field set. The Credential's
-name alone does not set its variable. Tool Credentials need a grant per bot; `hub_credential_grant` targets a bot.
+For those model-key names, a blank **Bot variable name** is inferred automatically; an explicit variable takes precedence.
+Older name-only model keys also offer **Every computer (signs models in)**, and granting one fills the missing variable.
+Tool Credentials need a grant per bot; `hub_credential_grant` targets a bot.
 
 Only that model credential comes this way: a bot's own credentials stay with that bot, and a computer never receives them.
 
@@ -462,7 +469,7 @@ and grant them to each bot that needs them. A bot run receives only its grants; 
 `_shared.env` or the runner's process credentials. On upgrade, each existing bot is granted its own keys and every
 key in its computer's `_shared.env`, so its access continues. Bots created after the upgrade start with none. See [Credentials](credential-vault.md).
 
-**Codex with an API key.** Model sign-in on a Computer may use a machine key or a team's model key shared
+**Codex with an API key.** Model sign-in on a Computer may use a computer-local key or a team's model key shared
 with **Every computer (signs models in)**. The runner sends it to `codex login --with-api-key` on standard input,
 with no key in a command line or log. This signs models in; tool Credentials still need a grant per bot.
 A key Codex refuses is tried again after ten minutes or when the key changes.

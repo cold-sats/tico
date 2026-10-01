@@ -27,16 +27,16 @@ curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh 
 Docker Desktop must be open and running on a Mac. Tico runs at `http://127.0.0.1:8765`; open the sign-in link the
 installer prints. Then get one bot working:
 
-1. In **Finish setup**, choose an AI provider, name your team and pick one starter, such as **Content Marketer** (`content`), which needs only Tico.
-   Assistant, BotOps, Librarian and Goal Manager are the four built-in bots.
+1. In **Finish setup**, choose an AI provider, name your team and choose **Content Marketer** (`content`) in the **Marketing** group.
+   It needs only Tico. Assistant, BotOps, Librarian and Goal Manager are the four built-in bots.
 2. Use **Add computer** to join this computer, run the command shown, then **Create my team**.
 3. Open **Settings > Computers** and **Sign in** beside Codex or Claude Code; finish the provider's browser flow.
    Other harnesses and API credentials are covered in [Harnesses](docs/harnesses.md). Choose the bot's model in **Settings > Bots**.
 4. Open Content Marketer and press **Set up**. Use the [sample answers](docs/install.md#sample-answers-for-content-marketer)
-   to give it a reader, topics and voice examples; review its first draft in chat.
-5. On **Tasks > New task**, assign it: “Draft a 150-word launch post for project teams from these facts: our example app
-   keeps tasks and meeting notes together; readers can try it locally; use a plain, friendly voice and invent no claims.”
-   Read its result on the task, then close it.
+   to give it readers, publishing plans, topics, voice examples and privacy rules; review its first draft in chat.
+5. On **Tasks > New task**, assign it: “Draft a 200-word blog post introducing our example app to project teams from these facts:
+   our example app keeps tasks and meeting notes together; readers can try it locally; use a plain, friendly voice and invent
+   no claims. Return a draft on this task.” Read its result on the task, then close it.
 
 You can choose providers later in **Settings > AI providers**; bots wait with “Add an AI provider” until you do.
 If the bot waits or sign-in fails, open **Settings > Health** and follow [first-result recovery](docs/install.md#first-result-recovery).
@@ -184,8 +184,9 @@ named team must also carry a permanent id, or the process refuses to start.
 | Variable | Meaning | Example |
 |---|---|---|
 | `TICO_DB` | SQLite database path. Required; there is no default | `/var/lib/tico/hub.sqlite` |
-| `TICO_ENVIRONMENT_ID` | Permanent opaque id for this team. Required whenever `TICO_COMPANY_NAME` is set | `9f3c1ab27d0e4a51` |
-| `TICO_COMPANY_NAME` | Team name in the interface | `Acme` |
+| `TICO_ENVIRONMENT_ID` | Permanent opaque id for this team. Required whenever `TICO_TEAM_NAME` or its alias is set | `9f3c1ab27d0e4a51` |
+| `TICO_TEAM_NAME` | Team name in the interface; takes precedence over `TICO_COMPANY_NAME` | `Acme` |
+| `TICO_COMPANY_NAME` | Compatibility alias for the team name | `Acme` |
 | `TICO_APP_NAME` | App, window and notification name | `Atlas` |
 | `TICO_ASSISTANT_NAME` | The Assistant's name (default `Assistant`) | `Morgan` |
 | `TICO_ASSISTANT_BOT` | Slug of that assistant in the roster | `coo` |

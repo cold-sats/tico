@@ -467,6 +467,7 @@ class RuntimeReadiness(Contract):
     authenticated: Literal["ready", "missing", "failed", "unknown", "rejected"] = "unknown"
     rejected_at: str = Field(default="", max_length=40)
     rejected_reason: str = Field(default="", max_length=300)
+    credential_source: Literal["", "credentials", "computer"] = ""
     version: str = Field(default="", max_length=100)
     models: list[ID] = Field(default_factory=list, max_length=50)
     controls: list[Literal["interrupt", "new-session"]] = Field(default_factory=list)

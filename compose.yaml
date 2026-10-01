@@ -20,9 +20,16 @@ services:
     read_only: true
     tmpfs: [/tmp]
     environment:
+      TICO_TEAM_NAME:
       TICO_COMPANY_NAME:
       TICO_OWNER_EMAIL:
       TICO_OWNER_NAME:
+      TICO_BLOCK_EXTERNAL_INVITES:
+      TICO_CREDENTIAL_ADMINS:
+      TICO_CREDENTIAL_KMS_KEY:
+      TICO_PROCESSING_OPERATORS:
+      TICO_ALB_ARN:
+      TICO_ALB_REGION:
       TICO_DOMAIN:
       TICO_PORT: ${TICO_PORT:-8765}
       TICO_PUBLIC_URL:
@@ -88,9 +95,16 @@ services:
     tmpfs: [/tmp]
     healthcheck: {disable: true}  # the image's check probes the server's port; Health shows this service
     environment:
+      TICO_TEAM_NAME:
       TICO_COMPANY_NAME:
       TICO_OWNER_EMAIL:
       TICO_OWNER_NAME:
+      TICO_BLOCK_EXTERNAL_INVITES:
+      TICO_CREDENTIAL_ADMINS:
+      TICO_CREDENTIAL_KMS_KEY:
+      TICO_PROCESSING_OPERATORS:
+      TICO_ALB_ARN:
+      TICO_ALB_REGION:
       TICO_DOMAIN:
       TICO_PORT: ${TICO_PORT:-8765}
       TICO_PUBLIC_URL:

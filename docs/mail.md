@@ -235,6 +235,9 @@ $HUB_DIR/scripts/mail.sh schedule --thread 18f2... --slot 2026-09-08T13:00:00-07
 `calendar add` is audited and deterministic: the same exact request retrieves the existing event
 instead of making a duplicate. It accepts any attendee address by default. Set `TICO_BLOCK_EXTERNAL_INVITES=1` to allow only roster attendees;
 this opt-in rule also applies to the `schedule` flow.
+In Docker, set it in the server install's `.env` and run `docker compose up -d`.
+**Settings > Health > Outside calendar invites** shows whether this calendar Tool setting is active.
+A mail-local calendar command on a computer needs the setting in that computer's environment too.
 
 `slots` reads **every** calendar the mailbox can see, treats all of them as busy, keeps a
 30-minute buffer both sides, and only offers weekdays 09:00-17:00 America/Los_Angeles. It prints

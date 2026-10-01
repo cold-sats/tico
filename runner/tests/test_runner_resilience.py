@@ -85,11 +85,60 @@ class Execution(unittest.TestCase):
                 "installed": True, "authenticated": "ready", "version": "", "models": [], "controls": [], "detail": ""}):
             row = runner.runtime_report([])["codex"]
             self.assertEqual((row["authenticated"], row["rejected_at"]), ("rejected", held["at"]))
+        team = Path(self.tmp.name) / "secrets" / service.TEAM_KEYS_FILE
+        team.write_text("OPENAI_API_KEY=synthetic-team-key\n")
+        runner.reject("codex", "Unauthorized")
+        with mock.patch.object(Runner, "runtime_readiness", return_value={"installed": True}):
+            row = runner.runtime_report([])["codex"]
+            self.assertEqual(row["credential_source"], "credentials")
+            self.assertNotIn("synthetic-team-key", json.dumps(row))
         (Path(self.tmp.name) / "secrets" / "_shared.env").write_text("OPENAI_API_KEY=new\n")
         self.assertIsNone(runner.rejection("codex"), "a changed secrets file lifts it")
         runner.reject("codex", "Incorrect API key")
+        with mock.patch.object(Runner, "runtime_readiness", return_value={"installed": True}):
+            self.assertEqual(runner.runtime_report([])["codex"]["credential_source"], "computer")
         with mock.patch("runner.service.time.monotonic", return_value=time.monotonic() + service.REJECT_RECHECK_S + 1):
             self.assertIsNone(runner.rejection("codex"), "after a few minutes one turn may find out again")
+
+    def test_credential_source_waits_for_server_support_and_survives_rollback(self):
+        import copy
+
+        client = FakeClient()
+        client.get = lambda path, **kw: {"bots": {}} if path == "runner-credential-grants" else []
+        runner = self.runner(client)
+        runner.tools = mock.Mock()
+        runner.follower = mock.Mock(following=True)
+        runner.follower.fields.return_value = {}
+        runner.migrate_credentials = lambda rows: None
+        runner.enabled_providers = lambda: []
+        runner.runtime_report = lambda rows: {"codex": {"installed": True, "authenticated": "rejected",
+                                                       "credential_source": "credentials"}}
+        runner.preflight = lambda *args: []
+        runner.changed_agent_instructions = lambda rows: ({}, {})
+        runner.mail_agent_instructions = lambda rows: {}
+        runner.readiness = lambda rows, checks, runtimes: {"schema_version": 1, "runtimes": runtimes,
+                                                          "harnesses": {"codex": {"installed": True}}, "bots": {}}
+        runner.recover_output = lambda: None
+        sent, supported = [], True
+
+        def heartbeat(path, body):
+            sent.append(copy.deepcopy(body))
+            if not supported and "credential_source" in body["readiness"]["runtimes"]["codex"]:
+                raise APIError("validation", "Unknown field", 422)
+            return {"runtime_credential_source": True} if supported else {}
+
+        client.post = heartbeat
+        runner.maintain()
+        assert "credential_source" not in sent[-1]["readiness"]["runtimes"]["codex"]
+        runner.maintain()
+        assert sent[-1]["readiness"]["runtimes"]["codex"]["credential_source"] == "credentials"
+        supported = False
+        runner.maintain()
+        assert "credential_source" not in sent[-1]["readiness"]["runtimes"]["codex"]
+        assert "harnesses" in sent[-1]["readiness"]
+        assert runner._harness_after == 0 and not runner._reports_credential_source
+        runner.maintain()
+        assert "credential_source" not in sent[-1]["readiness"]["runtimes"]["codex"]
 
     def test_a_due_self_update_exits_when_idle_and_drains_after_a_while(self):
         # The runner updates itself instead of asking a person to pull and restart.

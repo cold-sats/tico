@@ -194,8 +194,8 @@ const obOffText = reason => ({demo: 'Off in the demo', DO_NOT_TRACK: 'Off: DO_NO
                               setting: 'Off: the usage count is off in Settings'})[reason] || 'Off';
 function obHqHTML(state) {
   const org = state.org, off = !org.hq.available;
-  return `<label class="ob-hq${off ? ' off' : ''}"><input type="checkbox" role="switch" id="ob-hq" ${org.share && !off ? 'checked' : ''} ${off ? 'disabled' : ''}>
-      <span>Suggestions from Tico HQ (sends this answer)</span></label>${off ? `<span class="ob-hq-off" data-ob-hq-off>${esc(obOffText(org.hq.off_by))}</span>` : ''}`;
+  return `<label class="ob-hq${off ? ' off' : ''}"><input type="checkbox" role="switch" id="ob-hq" aria-describedby="ob-hq-payload" ${org.share && !off ? 'checked' : ''} ${off ? 'disabled' : ''}>
+      <span>Suggestions from Tico HQ</span></label><small id="ob-hq-payload">When on, sends your group, answer, team description, customer type, software choice, catalog version and install ID (when counting is on and its notice has been shown). <a href="https://github.com/ticoteam/tico/blob/main/PRIVACY.md#suggestions-while-you-build-your-team-chart" target="_blank" rel="noopener">Privacy</a></small>${off ? `<span class="ob-hq-off" data-ob-hq-off>${esc(obOffText(org.hq.off_by))}</span>` : ''}`;
 }
 function obBotCardHTML(state, card, why, head) {
   const row = obCatalogCard(state, card.template);

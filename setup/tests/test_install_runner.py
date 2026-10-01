@@ -154,7 +154,9 @@ def test_local_port_and_names_prefill_setup_and_survive_an_upgrade(box):
     result = install(box, "--local", "--owner-email", "ana@example.com", "--owner-name", "Ana", "--team-name", "Acme", "--port", "8877")
     assert result.returncode == 0, result.stdout + result.stderr
     text = (box["dir"] / ".env").read_text()
-    assert 'TICO_OWNER_NAME="Ana"' in text and 'TICO_COMPANY_NAME="Acme"' in text and 'TICO_PORT=8877' in text
+    assert 'TICO_OWNER_NAME="Ana"' in text and 'TICO_TEAM_NAME="Acme"' in text and 'TICO_COMPANY_NAME="Acme"' in text and 'TICO_PORT=8877' in text
+    assert 'reusable owner sign-in link private' in result.stdout or 'token from:' in result.stdout
+    assert 'Recover the sign-in token:' in result.stdout and 'this computer' in result.stdout
     assert 'http://127.0.0.1:8877/healthz' in box["log"].read_text()
     result = install(box, "--local")
     assert result.returncode == 0 and (box["dir"] / ".env").read_text() == text
