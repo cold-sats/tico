@@ -243,6 +243,17 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
 
     // ---- the tour: replay from Help, focus stays inside, Escape closes and is remembered
     page = await open('#/help');
+    // Help's map: one drawing shown (wide here), described for screen readers; the four built-ins in Who does what.
+    const helpMap = () => page.evaluate(() => ({
+      shown: [...document.querySelectorAll('#help-map svg')].filter(svg => getComputedStyle(svg).display !== 'none').map(svg => svg.classList[1]),
+      label: document.querySelector('#help-map').getAttribute('aria-label'),
+      builtIn: [...document.querySelectorAll('.help-who tr.built-in th')].map(th => th.firstChild.textContent),
+      fits: document.documentElement.scrollWidth <= innerWidth,
+    }));
+    let map = await helpMap();
+    assert.deepEqual(map.shown, ['wide']);
+    assert.match(map.label, /Tico server/);
+    assert.deepEqual(map.builtIn, ['Assistant', 'BotOps', 'Librarian', 'Goal Manager']);
     await page.locator('[data-gs-tour]').click();
     const tour = page.locator('.gs-tour[role=dialog][aria-modal=true]');
     await tour.waitFor();
@@ -282,6 +293,8 @@ const bots = [['coo', 'Ace'], ['botops', 'BotOps']].map(([name, display_name]) =
 
     // Skip is the same as closing, and the tour works on a phone, through the drawer.
     page = await open('#/help', {width: 390, height: 844});
+    map = await helpMap();
+    assert.deepEqual([map.shown, map.fits], [['tall'], true], 'the tall map on a phone, no sideways scroll');
     await page.evaluate(() => window.gsStartTour());
     const phoneTour = page.locator('.gs-tour');
     await phoneTour.waitFor();

@@ -1,6 +1,26 @@
 # How Tico works
 
-The current system, in one page. For a teammate's questions read [Using Tico](using-tico.md). Words are defined in the [Glossary](glossary.md).
+One Tico server holds the team's shared work, and your computers run the bots. Humans reach the server from the web
+app, Slack (DM Tico) or MCP and the CLI; each computer's runner asks it for work, runs the bot on that computer's own
+model subscriptions and sends the results back. The same picture is the in-app Help page (**?** in the sidebar).
+
+![How Tico works](images/help-desktop-light.png)
+
+- **Tico server**: tasks, goals and KPIs, docs, updates, messages and Credentials. It runs no bots
+  ([Architecture](architecture.md)).
+- **Computers**: your Macs or Linux and Docker machines, with the runner. Each bot is a Git repository with its
+  Instructions and memory, on one computer.
+- **Team**: humans and bots are teammates on one team chart, in groups.
+- **Built-in**: four bots every team gets. The [Assistant](assistant.md) is each human's own helper; BotOps sets up and
+  fixes bots, computers, Tools and Credentials; the [Librarian](librarian.md) answers from the team's docs and the Tico
+  manual; the [Goal Manager](goals-and-kpis.md#the-goal-manager) keeps KPIs and goal status current.
+- **Message bots** work a human's email or a Slack channel. **External agents** (Hermes, OpenClaw, Codex, Claude) connect
+  over MCP with a token ([Connect an external agent](connect-an-agent.md)).
+- **Tools and Credentials**: a bot gets only the Credentials granted to it, and drafts to outsiders until its send switch
+  is on.
+
+The rest of this page is the current system in detail. For a teammate's questions read [Using Tico](using-tico.md).
+Words are defined in the [Glossary](glossary.md).
 
 ## The six nouns
 
