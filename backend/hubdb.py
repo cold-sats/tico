@@ -1972,9 +1972,30 @@ def task_update(conn, actor, task_id, status=None, note=None, owner=None, due=No
         _unblock(conn, after)
     # A decline always goes back: nobody is doing the work, which is news whoever asked for it.
     if notify_requester:
+        refs = None
+        if is_human(after["requester"]):
+            # Keep completion notices out of ordinary Slack reply mirroring, including quiet
+            # updates. One eligible notice per task/status also covers reopen/retry cycles.
+            duplicate = _one(conn, "SELECT 1 FROM messages WHERE json_extract(refs_json,'$.task')=? "
+                             "AND json_extract(refs_json,'$.task_completion.status')=? "
+                             "AND json_extract(refs_json,'$.task_completion.notify')=1 LIMIT 1",
+                             (task_id, status))
+            from . import people as P
+            saved = _one(conn, "SELECT value_json FROM registry_metadata WHERE key='people'") if _one(
+                conn, "SELECT 1 FROM sqlite_master WHERE name='registry_metadata'") else None
+            roster = P.load(_json(saved["value_json"], {}) if saved else {"people": humans(conn)})
+            person = P.person(actor_id(after["requester"]), roster) or {}
+            linked = person.get("slack_id") or (human(conn, after["requester"]) or {}).get("slack_id")
+            if not linked and _one(conn, "SELECT 1 FROM sqlite_master WHERE name='slack_events'"):
+                linked = _one(conn, "SELECT 1 FROM slack_events WHERE actor=? "
+                              "AND state IN ('routed','recorded') LIMIT 1", (after["requester"],))
+            refs = {"task_completion": {"status": status, "owner": after["owner"],
+                    "note": str(note or "").splitlines()[0] if note else "",
+                    "notify": bool(not quiet and row["status"] != status and not duplicate
+                                   and linked and person.get("notify_slack_task_done") is not False)}}
         _wake(conn, after, after["requester"],
               f"{'Finished' if status == 'done' else 'Declined'}: {after['title']}"
-              + (f"\n{note}" if note and not quiet else ""), quiet_bots=True)
+              + (f"\n{note}" if note and not quiet else ""), refs=refs, quiet_bots=True)
     if (status == "open" or owner is not None and owner != row["owner"]) and actor != after["owner"]:
         _wake(conn, after, after["owner"], f"Open: {after['title']}")
     _recount(conn, after["owner"])

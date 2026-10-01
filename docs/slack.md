@@ -63,3 +63,16 @@ file is ignored. A public install has no such file and needs none.
 
 Kill switch: remove `slack` from `COMPOSE_PROFILES` and run `docker compose up -d --remove-orphans`.
 The server, its data and the saved tokens are untouched.
+
+## Task results
+
+When a bot or another human finishes or declines a task you requested, Tico DMs you:
+`Finished: <title>` (or `Declined: <title>`), `by <owner name>`, the first line of the completion
+note if there is one, and **Open task**, a link to the task in Tico. It uses your Tico DM even
+when you created the task in the app. Each task sends each result once, including if it is reopened.
+
+This is on by default for humans linked to Slack. On your human page, under **Profile → Notifications**,
+turn off **Task results in Slack**. You can also ask BotOps to turn it off for you, or use
+`POST /api/v2/humans/<id>` with `{"notify_slack_task_done": false}` (through the API or MCP's `hub_api`).
+Turning it on again uses `true`. Self-completed tasks and quiet updates do not send a DM;
+no linked Slack account or a disabled gateway means no Slack delivery. In-app notices continue.

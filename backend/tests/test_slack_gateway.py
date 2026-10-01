@@ -547,3 +547,131 @@ def test_a_decision_outage_retries_for_ten_minutes_and_then_fails_instead_of_loo
     calls = len(gateway._judge.calls)
     gateway.clock.advance(3600)
     assert gateway.tick()["events"] == [] and len(gateway._judge.calls) == calls
+
+
+def task_notice(hub, owner='bot:legal', requester='human:ana', actor=None, status='done', quiet=False):
+    with hub.transaction() as c:
+        made = H.task_create(c, requester, 'Write the summary', 'Write the summary for the team.', owner, lint=False)
+        H.task_update(c, actor or owner, made['id'], status=status, note='Ready <now>\nMore details.', quiet=quiet)
+    return made
+
+
+def link_task_requester(hub, slack_id='U1', enabled=True):
+    hub.settings.slack_gateway_enabled = enabled
+    hub.settings.public_url = 'https://tico.example.com'
+    with hub.transaction() as c:
+        c.execute('UPDATE humans SET slack_id=? WHERE id=?', (slack_id, 'ana'))
+
+
+@pytest.mark.parametrize('owner', ['bot:legal', 'human:ben'])
+@pytest.mark.parametrize('status', ['done', 'declined'])
+def test_task_results_are_one_tico_dm_per_task_status(gateway, hub, owner, status):
+    link_task_requester(hub)
+    made = task_notice(hub, owner=owner, status=status)
+    assert gateway.task_completions() == 1
+    assert gateway.task_completions() == 0
+    gateway.originate()
+    gateway.mirror()
+    assert len(rows(hub, 'SELECT * FROM slack_posts')) == 1
+    # Recreate the gateway before delivering: queued work survives a restart.
+    restarted = G.Gateway(hub, gateway.slack, clock=gateway.clock)
+    restarted.verify_app()
+    assert restarted.task_completions() == 0
+    assert restarted.deliver()[0]['state'] == 'sent'
+    assert restarted.deliver() == []
+    post = gateway.slack.posts[0]
+    label = 'Finished' if status == 'done' else 'Declined'
+    assert post['text'] == (f'{label}: Write the summary\nby {"Legal" if owner.startswith("bot:") else "Ben"}'
+                            f'\nReady &lt;now&gt;\n<https://tico.example.com/#/task/{made["id"]}|Open task>')
+    assert post['channel'] == 'D0U1' and post['thread_ts'] is None
+    assert post['username'] is None
+    with hub.transaction() as c:
+        H.task_update(c, 'human:ana', made['id'], status='open')
+        H.task_update(c, owner, made['id'], status=status)
+        H.task_update(c, owner, made['id'], status=status)
+    assert gateway.task_completions() == 0
+    gateway.originate()
+    gateway.mirror()
+    assert len(rows(hub, 'SELECT * FROM slack_posts')) == 1
+
+
+@pytest.mark.parametrize('skip', ['self', 'quiet', 'bot', 'unlinked', 'off', 'disabled', 'outside', 'wrong_person', 'guest'])
+def test_task_result_skips(gateway, hub, skip):
+    slack_id = {'outside': 'U8', 'wrong_person': 'U2', 'guest': 'U5'}.get(skip, 'U1')
+    link_task_requester(hub, slack_id='' if skip == 'unlinked' else slack_id, enabled=skip != 'disabled')
+    if skip == 'off':
+        with hub.transaction() as c:
+            doc = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()[0])
+            doc['people'][0]['notify_slack_task_done'] = False
+            c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(doc),))
+    task_notice(hub, requester='bot:coo' if skip == 'bot' else 'human:ana',
+                actor='human:ana' if skip == 'self' else None, quiet=skip == 'quiet')
+    assert gateway.task_completions() == 0
+    gateway.originate()
+    gateway.mirror()
+    assert rows(hub, 'SELECT * FROM slack_posts') == []
+    assert gateway.slack.posts == []
+
+
+def test_task_result_reuses_verified_slack_dm_and_retries_rate_limit(gateway, hub):
+    hub.settings.slack_gateway_enabled = True
+    send(gateway, 'Please help', answers(legal=0.8), channel=DM, kind='message')
+    gateway.tick()
+    gateway.slack.calls.clear()
+    made = task_notice(hub)
+    assert gateway.task_completions() == 1
+    assert not any(call[0] == 'conversations.open' for call in gateway.slack.calls)
+    gateway.slack.failures.append(G.SlackError('chat.postMessage', 'ratelimited', retry_after=5))
+    assert gateway.deliver()[0]['state'] == 'rate_limited'
+    assert gateway.deliver() == []
+    gateway.clock.advance(6)
+    assert gateway.deliver()[0]['state'] == 'sent'
+    assert gateway.slack.posts[-1]['channel'] == DM
+    with hub.transaction() as c:
+        H.task_update(c, 'human:ana', made['id'], status='open')
+        H.task_update(c, 'bot:legal', made['id'], status='declined')
+        H.task_update(c, 'human:ana', made['id'], status='open')
+        H.task_update(c, 'bot:legal', made['id'], status='done')
+        H.task_update(c, 'bot:legal', made['id'], status='declined')
+    assert gateway.task_completions() == 1
+    assert len(rows(hub, 'SELECT * FROM slack_posts')) == 2
+
+
+def test_task_notification_preparation_is_durable_and_respects_open_retry_after(gateway, hub):
+    link_task_requester(hub)
+    task_notice(hub)
+    original = gateway.slack.conversations_open
+    failures = [G.SlackError('conversations.open', 'ratelimited', retry_after=120)]
+
+    def open_dm(user_id):
+        if failures:
+            raise failures.pop()
+        return original(user_id)
+
+    gateway.slack.conversations_open = open_dm
+    assert gateway.task_completions() == 0
+    restarted = G.Gateway(hub, gateway.slack, clock=gateway.clock)
+    restarted.verify_app()
+    gateway.clock.advance(61)
+    assert restarted.task_completions() == 0
+    gateway.clock.advance(60)
+    assert restarted.task_completions() == 1
+    hub.settings.slack_gateway_enabled = False
+    assert restarted.deliver() == []
+    hub.settings.slack_gateway_enabled = True
+    assert restarted.deliver()[0]['state'] == 'sent'
+    assert len(gateway.slack.posts) == 1
+
+
+def test_task_notification_opt_out_does_not_deliver_old_results_on_opt_in(gateway, hub):
+    link_task_requester(hub)
+    with hub.transaction() as c:
+        doc = json.loads(c.execute("SELECT value_json FROM registry_metadata WHERE key='people'").fetchone()[0])
+        doc['people'][0]['notify_slack_task_done'] = False
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(doc),))
+    task_notice(hub)
+    with hub.transaction() as c:
+        doc['people'][0]['notify_slack_task_done'] = True
+        c.execute("UPDATE registry_metadata SET value_json=? WHERE key='people'", (encode(doc),))
+    assert gateway.task_completions() == 0
+    assert rows(hub, 'SELECT * FROM slack_posts') == []
