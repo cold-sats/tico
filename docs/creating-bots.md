@@ -50,8 +50,9 @@ files at its current commit: `AGENT.md`, `skills/`, `playbooks/`, `knowledge/` a
 from <original> at <commit>`), without the history. The original's memory, notes, state and reports are left out unless you say
 `--with-memory`. A credential, `.env`, key file or `secrets/` is never copied, and neither are routines.
 
-The credentials the original's tools need are listed: a credential administrator (the owner or an admin) has each one the original
-holds granted to the copy at once; the rest come back as "needs credential X" for BotOps to ask for with a card. Nothing else is shared:
+When a Credential administrator (the Owner or an Admin) copies a bot, the copy automatically receives
+the grants for every Credential the original holds. Secret files and Routines are never copied.
+For anyone else, missing grants come back as "needs credential X" for BotOps to ask for with a card. Nothing else is shared:
 after the copy the two bots change on their own, and the server keeps only `copied_from: {bot, sha}`, for two requests you make
 explicitly:
 

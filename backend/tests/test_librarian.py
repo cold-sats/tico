@@ -37,6 +37,17 @@ def ask(api, question, token="ana-test", expected=200, **more):
     return post(api, "docs/ask", {"question": question, **more}, token=token, expected=expected)
 
 
+@pytest.mark.parametrize("next_run", [False, True])
+def test_upgrade_refresh_waits_for_a_runner_that_carries_next_run_tasks(desk, next_run):
+    with desk.app.state.store.transaction() as c:
+        c.execute("DELETE FROM registry_metadata WHERE key='librarian_fix33'")
+    ask(desk, "Where are the docs?")
+    attempt = post(desk, "jobs/claim", {"next_run": next_run}, token=desk.runner["token"])["attempt"]
+    assert [item["title"] for item in attempt["next_run"]] == (["Refresh the map"] if next_run else [])
+    with desk.app.state.store.read() as c:
+        assert bool(c.execute("SELECT 1 FROM registry_metadata WHERE key='librarian_fix33'").fetchone()) == next_run
+
+
 def test_a_question_goes_to_the_persons_private_docs_conversation_and_is_answered_there(desk):
     sent = ask(desk, "How long do refunds take?")
     assert sent["results"] == RESULTS and desk.seen == ["How long do refunds take?"]
@@ -47,12 +58,15 @@ def test_a_question_goes_to_the_persons_private_docs_conversation_and_is_answere
     assert get(desk, "me", attempt["token"])["actor"] == "bot:librarian"
     post(desk, f"attempts/{attempt['id']}/started", {"thread_id": "t"}, token=desk.runner["token"])
     post(desk, f"attempts/{attempt['id']}/complete",
-         {"outcome": "completed", "text": "14 days. [Internal doc · Refund policy](doc:d1)", "last_seq": 0},
+         {"outcome": "completed", "text": r"14 days.\n\nRead company docs with your coworker. "
+          "[Internal doc · Refund policy](doc:d1) `printf '\\n'`", "last_seq": 0},
          token=desk.runner["token"])
     snapshot = get(desk, f"conversations/{sent['conversation_id']}/snapshot")
     reply = next(m for m in snapshot["messages"] if m["from_actor"] == "bot:librarian")
     assert reply["in_reply_to"] in (sent["message_id"], again["message_id"])
     assert "Refund policy" in reply["body"]
+    assert "14 days.\n\nRead team docs with your teammate." in reply["body"]
+    assert "`printf '\\n'`" in reply["body"]
 
 
 def test_nobody_else_reads_or_posts_in_a_persons_docs_conversation_the_owner_included(desk):

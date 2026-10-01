@@ -240,3 +240,7 @@ If pairing says **Paired, finish connecting tools**, the credential and heartbea
 Python interpreter lacks PyYAML and the profile already has other MCP servers. Run the one command
 printed by the connector to install PyYAML in that interpreter and reinstall using the saved credential;
 then run `/reload-mcp` in Hermes. Existing MCP servers stay in place. No new pairing code is needed.
+
+With `--no-timer`, heartbeat mode is manual: run `heartbeat` with the same profile flags every minute.
+Doctor warns about that requirement without reporting a missing timer as broken. Reinstall and update
+keep your selected mode. To enable the timer later, run `reinstall` with the same profile flags and `--timer`.

@@ -594,6 +594,9 @@ class Execution:
         # still its own task to mark done. Only a runner that puts them in its prompt gets them.
         carried = []
         if getattr(body, "next_run", False):
+            if row["bot"] == "librarian":
+                from .docs import refresh_generated_docs
+                refresh_generated_docs(c)  # Also covers a Librarian enabled after the upgrade.
             for item in H.next_run_tasks(c, row["bot"], exclude=task["id"] if task else None):
                 c.execute("UPDATE tasks SET carried_by=? WHERE id=?", (aid, item["id"]))
                 carried.append({k: item.get(k) for k in ("id", "title", "body", "requester", "created")})

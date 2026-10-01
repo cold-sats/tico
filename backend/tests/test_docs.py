@@ -225,3 +225,42 @@ def test_add_a_human_or_bot_question_prioritizes_the_procedure(api):
     for question in ("add a human or bot", "How do I add a human or bot to the team?"):
         hits = call(api, "GET", "docs/search", params={"q": question, "collection": "all", "limit": 3})["results"]
         assert hits[0]["id"] in ("manual:org-chart", "manual:creating-bots", "manual:people")
+    hits = call(api, "GET", "docs/search", params={
+        "q": "How do I add a human teammate and let them sign in when our Tico team is behind Cloudflare Access?",
+        "collection": "all", "limit": 3})["results"]
+    assert hits[0]["id"] == "manual:people"
+
+
+def test_upgrade_repairs_generated_docs_once_and_queues_next_run_refresh(api):
+    from backend.store import H
+    source = make(api, "Refund policy", path="finance/refunds.md")
+    old = make(api, "Old prices", path="sales/pricing.md")
+    edit(api, old, archived=True)
+    make(api, "Prices", path="sales/pricing.md")
+    idx = make(api, "Document index", "- `finance/refunds.md` (v1): Refunds.\n- `sales/pricing.md`: Prices.\n",
+               path="_librarian/index.md")
+    gap = make(api, "Missing and outdated company information", "Sources I could not read: None",
+               path="_librarian/missing.md")
+    faq = make(api, "FAQ", "Internal company docs for coworkers. Read `knowledge/company.md`.", path="FAQ.md")
+    custom = make(api, "Our terms", "Company policy.", path="_librarian/glossary.md")
+    with api.app.state.store.transaction() as c:
+        c.execute("DELETE FROM registry_metadata WHERE key='librarian_fix33'")
+        c.execute("INSERT INTO bots(slug,display_name,runtime,model,effort,cwd,host,state,created) "
+                  "VALUES('librarian','Librarian','fake','','','','keeper','active',?)", (H.now(),))
+        c.execute("INSERT INTO bot_config(bot,config_json,operator) VALUES('librarian','{}','ana')")
+        c.execute("UPDATE docs SET archived=1 WHERE id=?", (source["id"],))  # Older archive, stale cache.
+        c.execute("UPDATE docs SET updated_by='bot:librarian' WHERE id=?", (faq["id"],))
+    api.app.state.store.initialize(seed_market=False)
+    fresh = call(api, "GET", "docs/" + idx["id"])["doc"]
+    assert fresh["title"] == "Docs index" and "refunds.md`" not in fresh["body"]
+    assert "sales/pricing.md" in fresh["body"]
+    assert call(api, "GET", "docs/" + gap["id"])["doc"]["title"] == "Docs gaps"
+    assert call(api, "GET", "docs/" + faq["id"])["doc"]["body"] == "Internal team docs for teammates. Read `knowledge/company.md`."
+    assert call(api, "GET", "docs/" + custom["id"])["doc"]["body"] == custom["body"]
+    assert call(api, "GET", "docs/%s/versions/1" % idx["id"])["version"]["body"] == idx["body"]
+    api.app.state.store.initialize(seed_market=False)
+    assert call(api, "GET", "docs/" + idx["id"])["doc"]["version"] == fresh["version"]
+    with api.app.state.store.read() as c:
+        tasks = c.execute("SELECT * FROM tasks WHERE owner='bot:librarian' AND title='Refresh the map'").fetchall()
+        assert len(tasks) == 1 and tasks[0]["next_run"] == 1
+        assert "unreadable" in tasks[0]["body"] and "archived" in tasks[0]["body"]

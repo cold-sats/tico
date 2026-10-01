@@ -51,7 +51,9 @@ If the search found nothing or only part of the answer, or the question is about
 `where-things-live.md` says which doc or which linked source holds which topic, and how each linked
 source is laid out. `index.md` has a line summarising every doc. Pick the docs the map points to and read
 them. Verify a mapped internal doc is still in `hub doc list` before using it; an archived or
-unavailable source is removed from the index now, not cited from a cached summary. If the map is missing (a new team), skip it and work from `hub doc list` and `hub doc link-list`.
+unavailable source is removed from the index and topic map now, not cited from a cached summary. If the map is missing (a new team), skip it and work from `hub doc list` and `hub doc link-list`.
+Even when asked to quote the index or map itself, check each source against the live lists before
+recommending it. Describe stale entries as unavailable and reconcile them in step 7.
 If the map turns out to be wrong or stale, note it for step 7.
 
 ## 4. Follow the linked docs
@@ -116,6 +118,10 @@ action and propagation step before sending. The word budget expands to fit all d
 - Pairing Hermes: preserve the exact connector command, the Pair action, and `/reload-mcp` after
   installation when the manual calls for it. Keep command text literal; never pass backticks through
   an interpolated shell command.
+
+Send paragraphs with real newlines. For a CLI reply, use a body file; for a tool call, use structured
+JSON text. Never put literal `\n` escapes in the stored reply. Before sending, check formatting and
+translate old product wording in your prose using `docs/glossary.md`; preserve commands, paths and source names.
 
 Keep it under about 120 words unless the question is a procedure that needs more. Plain sentences, plain
 markdown (bold for the key figure, short bullets), no headings for a short answer.

@@ -79,7 +79,7 @@ questions:
   - id: add-human-signin
     question: How do I add a human teammate and let them sign in when Tico uses Cloudflare Access or Cognito?
     manual: [people]
-    contains: ["Humans", "Add human", "Cloudflare Access", "Cognito"]
+    contains: ["Humans", "Add manually", "Cloudflare Access", "Cognito"]
     facts:
       - subject: "email|address"
         predicate: "allow|add"

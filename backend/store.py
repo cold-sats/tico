@@ -969,6 +969,7 @@ class Store:
                                                     (FILE_MIGRATION,)).fetchone()[0]))
                     again = [r[0] for r in c.execute("SELECT slug FROM bots") if r[0] not in done]
                     c.execute("INSERT INTO registry_metadata VALUES(?,?)", (HUB_MIGRATION, encode(again)))
+                _docs.refresh_generated_docs(c)
                 record = c.execute("SELECT value_json FROM registry_metadata WHERE key='onboarding'").fetchone()
                 if record:
                     choices = H._json(record[0], {})

@@ -766,6 +766,7 @@ def perform_install(harness, profile, directory, url, bot, token, no_timer=False
     for kept in ("sync", "sync_job", "updated_at"):
         if kept in previous:
             config[kept] = previous[kept]
+    config["heartbeat_mode"] = "manual" if no_timer else "timer"
     config.setdefault("updated_at", time.time())
     path = save_config(key, config)
     reply = request(url, token, "POST", "/api/v2/agents/heartbeat", heartbeat_body(harness, profile, directory))
@@ -871,7 +872,7 @@ def cmd_heartbeat(args):
 
 def cmd_status(args):
     config = load_config(args.key)
-    print(json.dumps({k: config.get(k) for k in ("url", "bot", "profile", "profile_dir", "python", "timer",
+    print(json.dumps({k: config.get(k) for k in ("url", "bot", "profile", "profile_dir", "python", "timer", "heartbeat_mode",
                                                  "sync", "sync_error", "updated_at", "last_reply", "backoff")}, indent=2))
     return 0
 
@@ -961,7 +962,7 @@ def cmd_pair(args):
                        "host": socket.gethostname().split(".")[0], "version": VERSION})
     pairing, code, secret = created.get("pairing_id"), created.get("code"), created.get("secret")
     if not (pairing and code and secret):
-        raise Failure("Tico did not start a pairing; is this Tico's runner address?")
+        raise Failure("Tico did not start a pairing; is this the address Tico shows?")
     wait = max(1, int(created.get("expires_in") or 600))
     every = min(30, max(1, int(created.get("poll_every") or 3)))
     print(f"Tell BotOps (or press Pair on the bot in Settings → Bots): {pair_code_sentence(args.harness, args.profile, code)}")
@@ -1044,7 +1045,9 @@ def cmd_reinstall(args):
         parse_sync(args.sync)
     directory = profile_directory(args.harness, args.profile, config.get("profile_dir"))
     return perform_install(args.harness, args.profile, directory, config["url"], config["bot"], config["token"],
-                           no_timer=not config.get("timer"), sync=args.sync, previous=config)
+                           no_timer=False if args.timer else (config.get("heartbeat_mode") == "manual" or
+                                                             ("heartbeat_mode" not in config and not config.get("timer"))),
+                           sync=args.sync, previous=config)
 
 
 # Tools renamed in Tico 0.2.21 (CHANGELOG, Breaking changes), old -> new. Names ending in `_` are prefixes.
@@ -1257,8 +1260,15 @@ def cmd_doctor(args):
     else:
         say("ok", f"{ENV_TOKEN} is present in {env_name}")
 
-    loaded, note = timer_loaded(args.key)
-    say("ok" if loaded else "problem", f"heartbeat timer ({note}) is " + ("loaded" if loaded else "not loaded; run update"))
+    manual = config.get("heartbeat_mode") == "manual" or ("heartbeat_mode" not in config and not config.get("timer"))
+    if manual:
+        command = shlex.join([config.get("python") or sys.executable, str(installed_copy())])
+        profile_flags = shlex.join(flags(harness, args.profile))
+        say("warn", f"manual heartbeat mode: run `{command} heartbeat {profile_flags}` every minute; "
+                    f"to install a timer, run `{command} reinstall {profile_flags} --timer`")
+    else:
+        loaded, note = timer_loaded(args.key)
+        say("ok" if loaded else "problem", f"heartbeat timer ({note}) is " + ("loaded" if loaded else "not loaded; run update"))
 
     reply = config.get("last_reply")
     last_ok = config.get("last_ok")
@@ -1357,7 +1367,7 @@ def parser():
     s.set_defaults(fn=cmd_install)
     s = sub.add_parser("pair", help="connect the profile to a bot with a code, no token to copy")
     common(s)
-    s.add_argument("--url", required=True, help="Tico's runner address, for example https://runner.example.com")
+    s.add_argument("--url", required=True, help="the address Tico shows, for example https://tico.example.com")
     s.add_argument("--profile-dir", help="the profile directory when it is not under ~/.hermes (or ~/.openclaw)")
     s.add_argument("--no-timer", action="store_true", help="do not install a launchd/systemd timer")
     sync_option(s, SYNC_DEFAULT)
@@ -1365,6 +1375,7 @@ def parser():
     s = sub.add_parser("reinstall", help="run the install steps again with the saved credential; --sync changes the interval")
     common(s)
     sync_option(s, None)
+    s.add_argument("--timer", action="store_true", help="install the heartbeat timer")
     s.set_defaults(fn=cmd_reinstall)
     s = sub.add_parser("check", help="what the sync job asks first: what is waiting, and whether the weekly update is due")
     common(s)

@@ -1465,8 +1465,28 @@ def _close_open_asks(conn, actor, target, kind, msg):
           {"asks": open_asks, "bot": target})
 
 
+def librarian_text(body):
+    """Repair generated prose while preserving commands, links and quoted source text."""
+    parts = re.split(r'(```.*?```|`[^`]*`|\[[^\]]*\]\([^)]*\)|https?://\S+|[\w.-]+/[\w/.-]+|"[^"\n]*")',
+                     str(body or ""), flags=re.S)
+    for i in range(0, len(parts), 2):
+        text = parts[i].replace(r"\n", "\n")
+        for old, new in ((r"\bcompany docs\b", "team docs"),
+                         (r"\bcompany information\b", "team information"),
+                         (r"\bcoworkers\b", "teammates"), (r"\bcoworker\b", "teammate"),
+                         (r"\bnew machine\b", "new Computer"), (r"\bthat machine\b", "that Computer"),
+                         (r"\bthrough the runner\b", "through Tico"), (r"\bHub docs\b", "Tico docs")):
+            text = re.sub(old, new, text, flags=re.I)
+        for old, new in (("company", "team"), ("machine", "Computer"), ("machines", "Computers")):
+            text = re.sub(r"(?<![\w.-])" + old + r"(?![\w.-])", new, text, flags=re.I)
+        parts[i] = text
+    return "".join(parts)
+
+
 def _write_message(conn, actor, target, body, conv, kind, refs, in_reply_to, wait_s,
                    expires_at=None, delivered_at=None, read_at=None):
+    if actor == "bot:librarian":
+        body = librarian_text(body)
     if VIA.get() and is_human(actor):
         refs = {**(refs or {}), "via": VIA.get()}         # the Assistant wrote this for the person
     row = {"id": new_id(), "conversation_id": conv["id"], "from_actor": actor, "to_actor": target,
