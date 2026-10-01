@@ -31,6 +31,14 @@ Read this page when you are writing those instructions, tailoring what BotOps pr
 a bot up outside that flow. The wizard, the template folder format and the ways to add a bot later
 are in [Finish setup](onboarding.md).
 
+## Edit Instructions
+
+Open the bot's **Docs > Instructions > Edit Instructions**, or **Bot settings > Edit Instructions**.
+Describe the change and choose **Ask BotOps to change**. BotOps receives your request in its chat and updates
+`AGENT.md` on the bot's computer. Description is separate: it summarizes the bot on the roster.
+The app displays the Instructions from the latest repository snapshot; refresh after BotOps finishes.
+New repositories default to `bot-<slug>`.
+
 ## Copy a bot
 
 Ask BotOps to copy a bot ("make me a copy of the support bot"), or run `hub bot copy <bot> [--name "..."] [--with-memory]`

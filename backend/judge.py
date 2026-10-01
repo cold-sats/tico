@@ -62,7 +62,7 @@ def used_today(c, actor, at=None):
 
 def install_judge(app, store, auth):
     settings = store.settings
-    app.state.judge = J.direct(settings.typesafe_api_key) if settings.typesafe_api_key else None
+    app.state.judge = J.direct(settings.typesafe_api_key) if settings.typesafe_api_key and not settings.rehearsal else None
 
     @app.get("/api/v2/judge")
     def config(request: Request):
@@ -70,8 +70,8 @@ def install_judge(app, store, auth):
         auth.domain(who)
         with store.read() as c:
             used = used_today(c, who.actor)
-            engine = app.state.judge or fallback_engine(providers.load(c, settings))
-        return {"configured": engine is not None, "model": J.MODEL if app.state.judge else getattr(engine, "model", ""),
+            engine = None if settings.rehearsal else app.state.judge or fallback_engine(providers.load(c, settings))
+        return {"configured": engine is not None, "model": (J.MODEL if app.state.judge else getattr(engine, "model", "")) if engine else "",
                 "daily_calls": DAILY_CALLS[who.role], "used_today": used,
                 "max_questions": J.MAX_QUESTIONS, "max_state_chars": J.MAX_STATE_CHARS}
 
@@ -79,6 +79,8 @@ def install_judge(app, store, auth):
     def ask(request: Request, body: Ask):
         who = request.state.identity
         auth.domain(who)
+        if settings.rehearsal:
+            raise Problem("rehearsal", "Decisions are off in rehearsal mode; nothing is sent to a provider", 503)
         with store.read() as c:
             engine = app.state.judge or fallback_engine(providers.load(c, settings))
         if engine is None:

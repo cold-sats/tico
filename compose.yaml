@@ -24,6 +24,11 @@ services:
       TICO_OWNER_EMAIL:
       TICO_OWNER_NAME:
       TICO_DOMAIN:
+      TICO_PORT: ${TICO_PORT:-8765}
+      TICO_PUBLIC_URL:
+      TICO_RUNNER_URL:
+      TICO_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-tico}
+      TICO_SERVER_NETWORK: ${TICO_SERVER_NETWORK:-${COMPOSE_PROJECT_NAME:-tico}_default}
       TICO_ENVIRONMENT_ID:
       TICO_AUTH_PROXY:
       TICO_OIDC_ISSUER:
@@ -69,7 +74,7 @@ services:
       # The Cloudflare tunnel's route for TICO_DOMAIN, written at every start for the cloudflared service below.
       - tico-tunnel:/tunnel
     # Loopback only: for health checks and TICO_AUTH_PROXY=none test installs.
-    ports: ["127.0.0.1:8765:8765"]
+    ports: ["127.0.0.1:${TICO_PORT:-8765}:8765"]
 
   # Slack: DMs and @mentions reach your bots. Same image, its own process, an outbound websocket only
   # (Socket Mode), so no port and no public URL. Off unless COMPOSE_PROFILES includes slack. The tokens
@@ -87,6 +92,11 @@ services:
       TICO_OWNER_EMAIL:
       TICO_OWNER_NAME:
       TICO_DOMAIN:
+      TICO_PORT: ${TICO_PORT:-8765}
+      TICO_PUBLIC_URL:
+      TICO_RUNNER_URL:
+      TICO_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-tico}
+      TICO_SERVER_NETWORK: ${TICO_SERVER_NETWORK:-${COMPOSE_PROJECT_NAME:-tico}_default}
       # Sign-in settings: the gateway loads the same settings as the server and refuses to start when the
       # selected proxy (oidc, cloudflare) is missing its own.
       TICO_AUTH_PROXY:

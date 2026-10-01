@@ -8,7 +8,7 @@ function settingsBotEditorRows(e) {
   const chips = list => (list || []).map(o => `<span class="pchip">${personCircle(o.name || o.id, 16)}<span>${esc(firstName(o.name) || o.id)}</span></span>`).join('');
   const manage = settingsCanManageBot(e);
   const change = (attr, what) => manage ? `<button class="ghost" type="button" ${attr}="${esc(e.name)}" aria-label="Change ${what} for ${esc(e.display_name)}">Change</button>` : '<span></span>';
-  return `<div class="sb-row"><span>Access</span><span data-access-summary>${esc(accessSummary(e.access_policy))}</span>${change('data-edit-access', 'access')}</div>
+  return `${manage ? `<div class="sb-row"><span>Instructions</span><button class="ghost" type="button" data-edit-instructions="${esc(e.name)}">Edit Instructions</button></div>` : ''}<div class="sb-row"><span>Access</span><span data-access-summary>${esc(accessSummary(e.access_policy))}</span>${change('data-edit-access', 'access')}</div>
     <div class="sb-row"><span>Works for</span><div class="settings-owner-list">${chips(e.users) || '<span class="muted">Nobody</span>'}</div>${change('data-edit-owners', 'who it works for')}</div>
     <div class="sb-row"><span>Owners</span><div class="settings-owner-list" data-bot-owners>${chips(e.bot_owners) || '<span class="muted">Its owner</span>'}</div>${change('data-edit-bot-owners', 'owners')}</div>
     ${e.agent ? `<div class="sb-row"><span>Computer</span>${settingsAgentCell(e)}</div>`
@@ -48,7 +48,7 @@ function settingsEditBot(slug = '') {
         <label>Reports to<select name="reports_to"><option value="">Top level</option>${parentOptions}</select></label>
         <label>Other bots<select name="bot_contact"><option value="open" ${(e?.bot_contact || 'open') === 'open' ? 'selected' : ''}>May chat and assign</option><option value="replies" ${e?.bot_contact === 'replies' ? 'selected' : ''}>Replies only</option><option value="tasks" ${e?.bot_contact === 'tasks' ? 'selected' : ''}>Tasks only</option></select><small>Applies to bots only. Humans are never affected.</small></label>
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
-        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `emp-${slug}` : ''))}" placeholder="emp-release-captain" maxlength="200" required></label>
+        <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
@@ -108,7 +108,6 @@ function settingsEditBot(slug = '') {
     // Remove = archive (#535): off the chart, no routines or new work; open tasks go to the picked heir.
     const successor = form.elements.successor.value;
     const hermes = ['hermes', 'openclaw'].includes(e.agent?.harness);
-    if (!confirm(`Remove ${e.display_name}? It leaves the team chart and stops running${hermes ? `; its ${e.agent.harness === 'openclaw' ? 'OpenClaw' : 'Hermes'} agent will stop` : ''}; its open tasks go to ${form.elements.successor.selectedOptions[0].textContent.replace('Hand its work to ', '')}.`)) return;
     remove.disabled = true; status.textContent = 'Removing…';
     try {
       const done = await post(`/v2/bots/${encodeURIComponent(slug)}/archive`, {successor: successor || null, expected_revision: e.revision,
@@ -122,7 +121,7 @@ function settingsEditBot(slug = '') {
     const slugInput = form.elements.slug, repo = form.elements.repo;
     let repoEdited = false, operatorEdited = false;
     repo.addEventListener('input', () => { repoEdited = true; });
-    slugInput.addEventListener('input', () => { if (!repoEdited) repo.value = slugInput.value ? `emp-${slugInput.value}` : ''; });
+    slugInput.addEventListener('input', () => { if (!repoEdited) repo.value = slugInput.value ? `bot-${slugInput.value}` : ''; });
     form.elements.operator.addEventListener('change', () => { operatorEdited = true; });
     form.elements.reports_to.addEventListener('change', event => {
       const parent = S.emps.find(row => row.name === event.target.value);
@@ -338,3 +337,30 @@ function settingsWatchTransition(id, origin = {}) {
   };
   void paint(); SETTINGS_TRANSITION_TIMER = setInterval(paint, 2000);
 }
+
+function settingsEditInstructions(slug) {
+  const bot = S.emps.find(row => row.name === slug);
+  if (!bot || !settingsCanManageBot(bot)) return;
+  const dialog = document.createElement('dialog'); dialog.className = 'tmodal';
+  dialog.innerHTML = `<form><header><h2>Edit Instructions</h2><button class="ghost" type="button" data-close>Close</button></header>
+    <label>Changes for ${esc(bot.display_name)}<textarea name="changes" required rows="6" aria-label="Instructions changes"></textarea></label>
+    <p class="muted">BotOps updates AGENT.md on the bot's computer.</p>
+    <button class="primary" type="submit">Ask BotOps to change</button><p class="err" data-error></p></form>`;
+  dialog.querySelector('[data-close]').onclick = () => dialog.close();
+  dialog.onclose = () => dialog.remove();
+  dialog.querySelector('form').onsubmit = async event => {
+    event.preventDefault();
+    const form = event.target, changes = form.elements.changes.value.trim(), button = form.querySelector('[type=submit]');
+    if (!changes) return;
+    button.disabled = true;
+    try {
+      await post('/v2/chat/botops', {text: `Update the Instructions (AGENT.md) for ${bot.display_name} [${slug}]. Apply these changes and verify the file on its computer:\n\n${changes}`});
+      dialog.close(); location.hash = '#/bot/botops/chat'; toast('Instructions changes sent to BotOps');
+    } catch (error) { form.querySelector('[data-error]').textContent = error.message; button.disabled = false; }
+  };
+  document.body.appendChild(dialog); dialog.showModal(); dialog.querySelector('textarea').focus();
+}
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-edit-instructions]');
+  if (button) settingsEditInstructions(button.dataset.editInstructions);
+});

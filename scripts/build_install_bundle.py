@@ -41,7 +41,10 @@ def build_bundle(source: Path, version: str) -> bytes:
             tar.addfile(info, io.BytesIO(data))
         for name in bundle_names(source):
             path = source / name
-            add(name, path.read_bytes(), 0o755 if path.stat().st_mode & 0o111 else 0o644)
+            data = path.read_bytes()
+            if name == ".env.example":
+                data = re.sub(rb"(?m)^TICO_TAG=.*$", ("TICO_TAG=" + version).encode(), data)
+            add(name, data, 0o755 if path.stat().st_mode & 0o111 else 0o644)
         add("VERSION", (version.lstrip("v") + "\n").encode(), 0o644)
     out = io.BytesIO()
     with gzip.GzipFile(fileobj=out, mode="wb", mtime=0, compresslevel=9) as gz:

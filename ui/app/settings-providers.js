@@ -55,13 +55,13 @@ async function renderSettingsProviders() {
     const view = await get('/v2/providers');
     if (!$('#set-providers')) return;
     el.innerHTML = `${providersFormHTML(view, SETTINGS_DATA.models, 'set-prov', owner)}
+      ${providersNextHTML(view, owner)}
       ${owner ? '<div class="onb-actions"><button class="primary" type="button" id="set-prov-save">Save</button><span class="spacer"></span><span class="muted" id="set-prov-status"></span></div>'
         : '<p class="muted">Only the owner can change this.</p>'}`;
     providersWire($('#set-prov'), view, SETTINGS_DATA.models);
     const save = $('#set-prov-save');
     if (save) save.onclick = async () => {
       const chosen = providersCollect($('#set-prov')), status = $('#set-prov-status');
-      if (!chosen.enabled.length) { status.innerHTML = '<span class="err">Tick at least one provider.</span>'; return; }
       save.disabled = true; status.textContent = 'Saving…';
       try {
         const saved = await providersSave(view, chosen);
@@ -73,3 +73,21 @@ async function renderSettingsProviders() {
     };
   } catch (error) { el.innerHTML = `<div class="err">${esc(error.message)}</div>`; }
 }
+
+function providersNextHTML(view, owner) {
+  if (!view.enabled?.length) return '<p class="muted">Bots wait until you add an AI provider.</p>';
+  const wanted = new Set(SETTINGS_DATA.models.filter(model => view.enabled.includes(model.provider)).map(model => model.runtime));
+  const machines = SETTINGS_DATA.machines.filter(machine => !machine.revoked_at);
+  const rows = machines.flatMap(machine => [...wanted].filter(runtime => machine.readiness?.runtimes?.[runtime]?.authenticated !== 'ready').map(runtime => {
+    const online = machine.last_seen && Date.now() - new Date(machine.last_seen) < 60000;
+    const ready = machine.readiness?.runtimes?.[runtime]?.installed;
+    return `<li>${esc(machine.label)} · ${esc(runtime)}${owner && online && ready && ['codex', 'claude'].includes(runtime)
+      ? ` <button class="ghost" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(runtime)}" data-machine="${esc(machine.label)}">Sign in</button>`
+      : ' · <a href="#/settings" data-provider-computers>Open computer</a>'}</li>`;
+  }));
+  return `<div class="provider-next"><p>Sign in on each computer, or <a href="${CREDENTIALS}">use an API key</a> in Credentials and grant it to Every computer.</p>
+    ${machines.length ? (rows.length ? `<ul>${rows.join('')}</ul>` : '<p class="muted">Computers are signed in.</p>') : '<p><a href="#/settings" data-provider-computers>Add computer</a></p>'}</div>`;
+}
+document.addEventListener('click', event => {
+  if (event.target.closest('[data-provider-computers]')) settingsShow('devices');
+});

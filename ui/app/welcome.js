@@ -15,17 +15,16 @@ const onbStepList = needsProviders => needsProviders ? ['providers', ...ONB_STEP
 const ONB_TITLES = {providers: 'AI providers', names: 'Names', about: 'About the team',
                     org: 'Your team chart', machine: 'Add the computer that runs your bots', agent: 'Connect an external agent', review: 'Review and create'};
 // At most one short hint line under a step's title; most steps have none.
-const ONB_BLURB = {providers: 'Optional.', agent: 'Optional.'};
+const ONB_BLURB = {providers: 'Bots wait until you add one in Settings > AI providers.', agent: 'Optional.'};
 const ONB_CUSTOMERS = [['businesses', 'Businesses'], ['consumers', 'Consumers'], ['both', 'Both']];
 // The four the server accepts (models.WorkArrival). Adding one here needs the same word there.
 const ONB_ARRIVES = [['email', 'Email'], ['slack', 'Slack'], ['crm', 'CRM'], ['tickets', 'Tickets']];
-const ONB_NEVER = [['send', 'Send anything'], ['spend', 'Spend money'], ['publish', 'Publish anything'], ['hire', 'Hire anyone']];
 // Kept with a number in them: a human reads the answer, and an older record's chooser read the largest number.
 const ONB_SIZES = ['1 (just me)', '2-10', '11-50', '51-200', '201+'];
 const ONB_BLANK = {
   names: {company_name: '', app_name: '', assistant_name: '', owner_name: '', team_domain: ''},
   answers: {what_we_do: '', customers: '', team_size: '', work_arrives: [], repetitive_work: '',
-            never_without_person: ['send', 'spend', 'publish', 'hire'], software_product: '', departments: [], briefings: {}},
+            software_product: '', departments: [], briefings: {}},
   selected: {}, completed: null, home: '', bots: [], machine: {runners: [], enrolled: false}, needed: true};
 let ONB = null;
 // A server that is a container is the usual install, and the computer that runs bots is a Linux one beside it.
@@ -74,13 +73,11 @@ function onbAdopt(state, record) {
     selected: {...(row.selected || {})}, home: row.home || '',
     bots: row.bots || [],
     machine: {...blank.machine, ...(row.machine || {})}};
-  // The server stores "not answered yet" as an empty list; the four rules start on.
-  if (!row.updated && !(state.record.answers.never_without_person || []).length)
-    state.record.answers.never_without_person = [...blank.answers.never_without_person];
+  delete state.record.answers.never_without_person;
   const names = state.record.names;
   if (!names.company_name) names.company_name = S.config.company_name || '';
   if (!names.app_name) names.app_name = appName();
-  if (!names.owner_name) names.owner_name = onbOwnerGuess();
+  if (!names.owner_name) names.owner_name = S.config.owner_name || onbOwnerGuess();
   // Never the team's name: that was an earlier release's default, and it made the Review step list the assistant as the team.
   if (!names.assistant_name || names.assistant_name.trim().toLowerCase() === (names.company_name || '').trim().toLowerCase()) names.assistant_name = assistantName();
   onbSeedPicks(state);
@@ -131,7 +128,7 @@ function onbStepHTML(state, key) {
   const actions = label => `<div class="onb-actions">${back}<button class="primary" type="button" id="onb-next">${label}</button>
     <span class="spacer"></span><span class="muted" id="onb-status"></span></div>`;
   if (key === 'providers') return `${providersFormHTML(state.providers, state.models, 'onb-prov')}
-    ${actions('Next')}`;
+    ${actions(state.providers.enabled?.length ? 'Next' : 'Skip for now')}`;
   if (key === 'names') return `
     <label class="onb-field"><span class="k">Team/Company name</span>
       <input type="text" id="onb-company" maxlength="120" value="${esc(names.company_name)}" autocomplete="organization"></label>
@@ -154,9 +151,6 @@ function onbStepHTML(state, key) {
     <label class="onb-field"><span class="k">Team size</span>
       <select id="onb-size"><option value="">Not saying</option>${ONB_SIZES.map(size =>
         `<option value="${esc(size)}" ${a.team_size === size ? 'selected' : ''}>${esc(size)}</option>`).join('')}</select></label>
-    <div class="onb-field"><span class="k">What must never happen without a human</span>
-      <div class="onb-choices">${ONB_NEVER.map(([value, label]) =>
-        `<label><input type="checkbox" data-onb-never value="${value}" ${(a.never_without_person || []).includes(value) ? 'checked' : ''}>${label}</label>`).join('')}</div></div>
     ${actions('Next')}`;
   if (key === 'org') return obStepHTML(state);
   if (key === 'machine') {
@@ -223,14 +217,12 @@ function onbMachineStatus(record) {
 function onbSummaryHTML(state) {
   const r = state.record, a = r.answers;
   const label = (key, value) => `<div><span class="k">${esc(key)}</span><span>${esc(value || '—')}</span></div>`;
-  const choice = (list, values) => list.filter(([value]) => (values || []).includes(value)).map(([, name]) => name).join(', ');
   return `<div class="onb-summary">
     ${label('Team', r.names.company_name)}${label('App', r.names.app_name)}
     ${label('What you do', a.what_we_do)}
     ${label('Sells to', ONB_CUSTOMERS.find(([value]) => value === a.customers)?.[1] || '')}
     ${label('Software is the product', a.software_product ? (a.software_product === 'yes' ? 'Yes' : 'No') : '')}
     ${label('Team size', a.team_size)}
-    ${label('Never without a human', choice(ONB_NEVER, a.never_without_person))}
     ${label('Computers', onbMachineStatus(r))}
     ${frSummaryTeamHTML(state)}
   </div>`;
@@ -265,7 +257,11 @@ function onbWire(state, key) {
   if (back) back.onclick = () => { onbCollect(state, key); state.step = Math.max(0, state.step - 1); onbRender(state); };
   const next = $('#onb-next');
   if (next) next.onclick = () => void onbAdvance(state, key);
-  if (key === 'providers') providersWire($('#onb-prov'), state.providers, state.models);
+  if (key === 'providers') {
+    const root = $('#onb-prov');
+    providersWire(root, state.providers, state.models);
+    root.addEventListener('change', () => { $('#onb-next').textContent = providersCollect(root).enabled.length ? 'Next' : 'Skip for now'; });
+  }
   if (key === 'org') obWire(state);
   if (key === 'machine') {
     const commands = onbCommands(state);
@@ -308,8 +304,7 @@ function onbCollect(state, key) {
     what_we_do: $('#onb-what').value.trim(),
     customers: $('input[name=onb-customers]:checked')?.value || '',
     software_product: $('input[name=onb-software]:checked')?.value || '',
-    team_size: $('#onb-size').value,
-    never_without_person: [...document.querySelectorAll('[data-onb-never]:checked')].map(input => input.value)};
+    team_size: $('#onb-size').value};
   frCollect(state, key);
 }
 function onbBusy(state, busy, message) {
@@ -351,12 +346,15 @@ async function onbAdvance(state, key) {
   if (key === 'providers') {
     const chosen = providersCollect($('#onb-prov'));
     // Nothing ticked is fine: the team is created first and its bots run once a provider is added (Settings > AI providers).
-    if (!chosen.enabled.length) { state.step += 1; onbRender(state); return; }
+    if (!chosen.enabled.length && !state.providers.enabled?.length) {
+      state.providers = {...state.providers, enabled: [], default: {runtime: '', model: ''}};
+      state.step += 1; onbRender(state); return;
+    }
     onbBusy(state, true, 'Saving…');
     try {
       state.providers = await providersSave(state.providers, chosen);
       if (ONB !== state) return;
-      applyConfig({...S.config, providers_configured: true});
+      applyConfig({...S.config, providers_configured: !!state.providers.enabled?.length});
       state.step += 1;
       onbRender(state);
     } catch (error) {

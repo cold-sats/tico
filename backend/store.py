@@ -411,7 +411,7 @@ def readiness_document(value):
 
 def bot_readiness(value, bot):
     row = readiness_document(value).get("bots", {}).get(bot)
-    return row if isinstance(row, dict) else {"ready": False, "problems": ["No readiness report from this machine"]}
+    return row if isinstance(row, dict) else {"ready": False, "problems": ["No readiness report from this computer"]}
 
 
 def repo_url(repo, github_owner=""):

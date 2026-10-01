@@ -114,6 +114,9 @@ class Settings:
     local_owner_token: str = field(default="", repr=False)
     public_url: str = "http://127.0.0.1:8765"
     runner_url: str = ""
+    owner_name: str = ""
+    compose_project: str = "tico"
+    server_network: str = "tico_default"
     access_issuer: str = ""
     access_audience: str = ""
     # Empty means Cloudflare Access's default JWKS path under the issuer.
@@ -243,8 +246,9 @@ class Settings:
                 "app_name": self.app_name, "assistant_name": self.assistant_name,
                 "assistant_bot": self.assistant_bot, "public_url": self.public_url,
                 "runner_url": self.runner_url, "github_owner": self.github_owner,
+                "compose_project": self.compose_project, "server_network": self.server_network,
                 "local": self.local_signin, "release": self.release_id,
-                "owner_email": self.owner_email, "demo": self.demo, "rehearsal": self.rehearsal}
+                "owner_email": self.owner_email, "owner_name": self.owner_name, "demo": self.demo, "rehearsal": self.rehearsal}
 
     def allows_origin(self, origin):
         """Whether a browser write comes from this server's own page. A demo is opened by whatever
@@ -290,7 +294,11 @@ class Settings:
             local_owner_token_file=Path(token_file) if token_file else None,
             local_owner_email=os.environ.get("TICO_LOCAL_OWNER_EMAIL", "").strip().lower(),
             local_owner_token=os.environ.get("TICO_LOCAL_OWNER_TOKEN", "").strip(),
-            public_url=os.environ.get("TICO_PUBLIC_URL", "http://127.0.0.1:8765").rstrip("/"),
+            public_url=(os.environ.get("TICO_PUBLIC_URL") or
+                        "http://127.0.0.1:" + os.environ.get("TICO_PORT", "8765")).rstrip("/"),
+            owner_name=os.environ.get("TICO_OWNER_NAME", "").strip(),
+            compose_project=os.environ.get("TICO_COMPOSE_PROJECT", "tico"),
+            server_network=os.environ.get("TICO_SERVER_NETWORK", "tico_default"),
             runner_url=os.environ.get("TICO_RUNNER_URL", "").rstrip("/"),
             access_issuer=os.environ.get("TICO_ACCESS_ISSUER", "").rstrip("/"),
             access_audience=os.environ.get("TICO_ACCESS_AUDIENCE", ""),
@@ -326,7 +334,7 @@ class Settings:
             posthog_host=quiet(os.environ.get("TICO_POSTHOG_HOST", "")),
             sentry_dsn=quiet(os.environ.get("TICO_SENTRY_DSN", "")),
             sentry_server_dsn=quiet(os.environ.get("TICO_SENTRY_SERVER_DSN", "")),
-            typesafe_api_key=_typesafe_key(),
+            typesafe_api_key="" if rehearsal else _typesafe_key(),
             enabled_providers=tuple(part.strip().lower() for part in
                                     os.environ.get("TICO_ENABLED_PROVIDERS", "").split(",") if part.strip()),
             default_runtime=os.environ.get("TICO_DEFAULT_RUNTIME", "").strip().lower(),

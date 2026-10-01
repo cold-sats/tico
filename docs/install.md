@@ -30,7 +30,9 @@ curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh 
 ```
 
 That installs the newest release; to pin one, use `releases/download/vX.Y.Z/install.sh` instead of `releases/latest/download/install.sh`.
-Files go to `/opt/tico` on Linux (it uses `sudo`) and to `~/tico` on a Mac (no `sudo`); `--dir` changes it. Port 8765 must be free.
+Files go to `/opt/tico` on Linux (it uses `sudo`) and to `~/tico` on a Mac (no `sudo`); `--dir` changes it. Port 8765 is the default; use `--port 8877` if it is occupied. By hand, set `TICO_PORT=8877` in `.env`.
+The public, runner and MCP addresses follow this port. `TICO_PUBLIC_URL` and `TICO_RUNNER_URL` override their defaults.
+To prefill Finish setup, add `--owner-name "Ana" --team-name "Acme"` to the local installer command; `--company` remains an alias.
 
 It prints a link that signs you in once. Open it in your browser: the app opens on **Finish setup**. Then:
 
@@ -71,8 +73,13 @@ to `.env`, keep only these lines, and run `docker compose up -d`:
 ```
 TICO_COMPANY_NAME=Acme
 TICO_OWNER_EMAIL=you@example.com
+TICO_TAG=v0.2.30
+TICO_PORT=8765
 COMPOSE_PROFILES=updater
+TICO_UPDATER_URL=http://updater:8080
 ```
+
+Set `TICO_TAG` to the release whose bundle you downloaded. To upgrade by hand, run that release's installer with `--version vX.Y.Z`; it replaces the bundle and pins the images.
 
 Then get the sign-in token with `docker compose exec server cat /data/local-owner.token` and open
 `http://127.0.0.1:8765/api/v2/local-signin?token=<token>`. The app opens on the first-run wizard; you can create the team
@@ -658,16 +665,65 @@ The server sends no email of its own. The app shows a banner on every page, **Re
 and `GET /api/v2/config` carries `"rehearsal": true`.
 
 ```
-# a separate directory and a separate .env, never the production ones
+# in a separate directory, with a copy of compose.yaml and .env
+# Set these in the copy's .env, and leave TICO_DOMAIN and COMPOSE_PROFILES empty:
+COMPOSE_PROJECT_NAME=tico-rehearsal
+TICO_PORT=8877
 TICO_REHEARSAL=1
-TICO_BACKUP_URL=s3://my-bucket/tico     # optional: an empty volume restores from it, read only
-docker compose up -d                    # or copy the production data volume in first
+TICO_BACKUP_URL=s3://my-bucket/tico     # restore reads this backup; replication stays off
+# Use local owner sign-in: unset TICO_AUTH_PROXY, TICO_PUBLIC_URL, TICO_RUNNER_URL and TICO_UPDATER_URL.
+docker compose up -d
 ```
+
+For a local backup on the same computer, a second directory also needs its own project, data volume and port.
+Stop the source server first so its local backup is complete. In its original install directory:
+
+```sh
+docker compose stop server
+```
+
+Copy `compose.yaml` and `.env` into a separate rehearsal directory. In the copied `.env`, set
+`COMPOSE_PROJECT_NAME=tico-rehearsal`, `TICO_PORT=8877` and `TICO_REHEARSAL=1`; leave `TICO_DOMAIN`,
+`TICO_AUTH_PROXY`, `TICO_PUBLIC_URL`, `TICO_RUNNER_URL`, `COMPOSE_PROFILES`, `TICO_UPDATER_URL` and
+`TICO_BACKUP_URL` empty. Create `rehearsal.yaml` there:
+
+```yaml
+services:
+  server:
+    volumes:
+      - tico-backups:/backups:ro
+volumes:
+  tico-backups:
+    external: true
+    name: tico_tico-backups
+```
+
+Replace `tico_tico-backups` with the source project's backup volume (`<project>_tico-backups` for the default
+volume naming). The rehearsal's data volume remains separate. In the rehearsal directory:
+
+```sh
+docker compose -f compose.yaml -f rehearsal.yaml run --rm --no-deps server restore
+docker compose -f compose.yaml -f rehearsal.yaml up -d server
+docker compose -f compose.yaml -f rehearsal.yaml exec server cat /data/local-owner.token
+```
+
+Open `http://127.0.0.1:8877/api/v2/local-signin?token=<token>` with that token. The backup is mounted read-only:
+restore reads the database, attachments and credential key; rehearsal does not write backups or call a decision provider.
+Restart the source from its original directory with `docker compose start server`. Remove the rehearsal when finished with
+`docker compose -f compose.yaml -f rehearsal.yaml down -v`; its external source backup volume is kept.
 
 Set `TICO_REHEARSAL=1` before the first start of the copy. Do not enrol runners against it or give it the production
 domain: a runner that connects would run bots against the copy's queue. Leave rehearsal by building a new server without
 the variable; a copy that ran in rehearsal was never backed up. An explicit `TICO_SCHEDULER=0` (without `TICO_REHEARSAL`)
 turns off only the scheduler and directory sync; unset, the server starts them.
+
+Generated **Add computer** commands use this server's Docker network and a separate runner name for each enrollment.
+With `COMPOSE_PROJECT_NAME=acme`, the network is `acme_default`; if you use a custom network, set
+`TICO_SERVER_NETWORK` in the server's `.env`. Its runner commands use that network rather than the default `tico_default`.
+
+In **Settings > Computers**, **Remove computer** revokes its registration immediately. Its assigned bots remain visible;
+use **Reassign in Bots** to choose another computer. The page shows how to stop the Docker runner from that computer's
+install directory; this keeps its repositories and sign-in. Re-register it with a new code if you want to use it again.
 
 ## Operating it
 

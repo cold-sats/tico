@@ -153,15 +153,19 @@ function dockerRunnerCommands(code, label, runtime) {
   // runner's container, which has a loopback of its own. The runner joins the server's Docker network instead.
   const local = !!S.config?.local;
   const join = local ? '--url http://server:8765' : `--url ${runnerUrl()}`;
+  const network = String(S.config?.server_network || 'tico_default').replace(/[^a-zA-Z0-9_.-]/g, '');
+  const project = String(S.config?.compose_project || 'tico').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 20);
+  const name = `${project}-${String(code).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'computer'}`;
+  const container = `tico-runner-${name}`;
   return [
     [local ? 'Set up the runner on this computer (installs Docker if it is missing; keeps itself on this server\'s release)'
            : 'Set up the runner on the server (installs Docker if it is missing; keeps itself on this server\'s release)',
-     `curl -fsSL ${installer} | sh -s -- --runner ${join}${local ? ' --server-network tico_default' : ''} --code ${code} --label ${quoted}`],
+     `curl -fsSL ${installer} | sh -s -- --runner --name ${name} ${join}${local ? ` --server-network ${network}` : ''} --code ${code} --label ${quoted}`],
     // Signing in to a model comes only once a provider is chosen; before that there is no model to name.
     runtime ? ['Sign the bots in to a model, once (the runner installs the model CLI first; give it a minute)',
-     `docker exec -it tico-runner ${runtime === 'claude' ? 'claude setup-token' : 'codex login --device-auth'}`] : null,
+     `docker exec -it ${container} ${runtime === 'claude' ? 'claude setup-token' : 'codex login --device-auth'}`] : null,
     ['Or with plain Docker instead of the line above. It has no updater, so it will not follow the server\'s releases',
-     `docker run -d --name tico-runner --restart unless-stopped${local ? ' --network tico_default' : ''} -v tico-runner:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code ${code} --label ${quoted}`],
+     `docker run -d --name ${container} --restart unless-stopped${local ? ` --network ${network}` : ''} -v ${container}_runner-home:/home/runner ghcr.io/ticoteam/tico-runner:${tag || 'latest'} join ${join} --code ${code} --label ${quoted}`],
   ];
 }
 async function enrollmentDownload(operator, label) {
@@ -211,9 +215,9 @@ function renderSettingsMachines() {
       <td>${esc(settingsPersonName(machine.operator))}${machine.revoked_at ? '' : settingsIsAdmin()
         ? `<label class="settings-cell-note machine-members"><input type="checkbox" data-member-bots="${esc(machine.id)}" ${machine.accepts_member_bots ? 'checked' : ''}> Accepts members' bots</label>`
         : machine.accepts_member_bots ? '<span class="settings-cell-note">Accepts members\' bots</span>' : ''}</td>
-      <td>${machine.bots.length}${failures ? ` <span class="err">· ${failures} not ready</span>` : ''}</td>
+      <td>${machine.bots.length}${machine.bots.length ? `<span class="settings-cell-note">${machine.bots.map(slug => `<a href="#/bot/${encodeURIComponent(slug)}/more">${esc(settingsBotName(slug))}</a>`).join(', ')} · <a href="#/settings" data-computer-reassign>Reassign in Bots</a></span>` : ''}${failures ? ` <span class="err">· ${failures} not ready</span>` : ''}</td>
       <td><div class="machine-runtime">${runtime || '<span class="muted">—</span>'}</div>${harnesses ? `<div class="machine-harnesses" aria-label="Tools on ${esc(machine.label)}">${harnesses}</div>` : ''}</td>
-      <td>${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}</td></tr>`;
+      <td>${machine.revoked_at ? '<span class="pill fail">revoked</span>' : online ? '<span class="pill ok">online</span>' : '<span class="pill">offline</span>'}${machine.last_seen ? `<span class="settings-cell-note">${esc(ago(machine.last_seen))}</span>` : ''}${!machine.revoked_at && (settingsIsAdmin() || machine.operator === S.me?.id) ? `<button class="ghost" type="button" data-computer-remove="${esc(machine.id)}">Remove computer</button>` : ''}</td></tr>`;
   }).join('');
   el.onchange = async event => {
     const box = event.target.closest('[data-member-bots]');
@@ -226,6 +230,18 @@ function renderSettingsMachines() {
     } catch (error) { toast(error.message, true); box.checked = !box.checked; box.disabled = false; }
   };
   el.onclick = async event => {
+    if (event.target.closest('[data-computer-reassign]')) { settingsShow('bots'); return; }
+    const remove = event.target.closest('[data-computer-remove]');
+    if (remove) {
+      remove.disabled = true;
+      try {
+        await post(`/v2/computers/${encodeURIComponent(remove.dataset.computerRemove)}/revoke`, {});
+        await loadSettings();
+        $('#machine-enroll-status').innerHTML = 'Computer removed. Its bots wait until reassigned in Bots. For Docker, stop its runner from its install directory: <code>docker compose -f runner.compose.yaml down</code>. Include <code>-f runner.override.yaml</code> before <code>down</code> if that file is present. This keeps repositories and sign-in.';
+        toast('Computer removed');
+      } catch (error) { toast(error.message, true); remove.disabled = false; }
+      return;
+    }
     const button = event.target.closest('[data-harness-action]');
     if (!button || button.disabled) return;
     button.disabled = true;

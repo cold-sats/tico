@@ -145,3 +145,19 @@ def test_name_needs_runner_and_a_usable_slug_and_the_default_is_unchanged(box):
         assert result.returncode == 2 and wanted in result.stderr, result.stderr
     assert install(box, *JOIN).returncode == 0
     assert not (box["dir"] / "runner.override.yaml").exists()
+
+
+def test_local_port_and_names_prefill_setup_and_survive_an_upgrade(box):
+    curl = box["stubs"] / "curl"
+    curl.write_text('#!/bin/sh\ncase "$*" in *healthz*) echo "health $*" >> "$STUB_LOG"; echo ok;; *) exec /usr/bin/curl "$@";; esac\n')
+    curl.chmod(0o755)
+    result = install(box, "--local", "--owner-email", "ana@example.com", "--owner-name", "Ana", "--team-name", "Acme", "--port", "8877")
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = (box["dir"] / ".env").read_text()
+    assert 'TICO_OWNER_NAME="Ana"' in text and 'TICO_COMPANY_NAME="Acme"' in text and 'TICO_PORT=8877' in text
+    assert 'http://127.0.0.1:8877/healthz' in box["log"].read_text()
+    result = install(box, "--local")
+    assert result.returncode == 0 and (box["dir"] / ".env").read_text() == text
+    result = install(box, "--local", "--port", "8878")
+    assert result.returncode == 0 and 'TICO_PORT=8878' in (box["dir"] / ".env").read_text()
+    assert 'http://127.0.0.1:8878/healthz' in box["log"].read_text()

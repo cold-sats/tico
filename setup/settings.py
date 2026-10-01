@@ -77,6 +77,7 @@ class Settings:
 
     def to_env(self) -> dict[str, str]:
         e = {"TICO_COMPANY_NAME": self.company, "TICO_OWNER_EMAIL": self.owner_email, "TICO_DOMAIN": self.domain,
+             "TICO_PORT": os.environ.get("TICO_PORT", "8765"),
              "COMPOSE_PROFILES": contract.profiles(self.front_door, self.updater),
              "TICO_TAG": self.tag if self.tag != "latest" else "", "TICO_UPDATER_URL": contract.UPDATER_URL if self.updater else ""}
         if self.front_door == "cloudflared":

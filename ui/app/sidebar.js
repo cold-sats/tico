@@ -401,7 +401,7 @@ function orgTreeWithHelpers(byParent) {
     else (out[lift(parent)] ||= []).push(n);
   }
   if (helpers.length) {
-    (out[''] ||= []).push({kind: 'group', id: HELPERS_GROUP, name: 'Built-in', helpers: true});
+    (out[''] ||= []).push({kind: 'group', id: HELPERS_GROUP, name: 'Helpers', helpers: true});
     out['g:' + HELPERS_GROUP] = helpers;
   }
   return out;

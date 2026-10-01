@@ -59,3 +59,17 @@ def test_a_person_or_a_bot_judges_and_the_audit_keeps_the_answers_not_the_state(
     assert not err and out["answers"]["is_ask"]["noul"] == 0.9
     assert events(api, "bot:ops")[0][0] == ""
 
+
+
+def test_rehearsal_decisions_never_reach_a_configured_or_fallback_provider(api, monkeypatch):
+    api.app.state.store.settings.rehearsal = True
+    engine = fake(api)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("A rehearsal must not resolve a provider")
+    monkeypatch.setattr(B, "fallback_engine", forbidden)
+    for configured in (engine, None):
+        api.app.state.judge = configured
+        assert get(api, "judge")["configured"] is False
+        result = api.post("/api/v2/decisions", json={"state": {"team": "Acme"}, "questions": QUESTIONS}, headers=headers())
+        assert result.status_code == 503 and result.json()["error"]["code"] == "rehearsal"
+    assert engine.calls == [] and events(api, "human:ana") == []

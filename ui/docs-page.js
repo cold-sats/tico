@@ -12,15 +12,15 @@ const docsIsAdmin = () => S.me?.role === 'owner' || !!S.me?.bot_admin;
 const docsDir = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
 const docsLockMark = () => `<span class="docs-lock" title="Locked" aria-label="Locked">${DocsSearch.LOCK}</span>`;
 
-async function docsLoadAll() {
+async function docsLoadAll(archived = false) {
   const docs = [];
   let cursor = '';
   do {
-    const page = await get('/v2/docs?limit=500' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
+    const page = await get('/v2/docs?limit=500' + (archived ? '&archived=true' : '') + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
     docs.push(...(page.docs || []));
     cursor = page.next_cursor || '';
   } while (cursor && docs.length < 5000);
-  const linked = (await get('/v2/linked-docs')).linked || [];
+  const linked = archived ? [] : (await get('/v2/linked-docs')).linked || [];
   return {docs, linked};
 }
 
@@ -33,14 +33,14 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   const selected = pathPart.startsWith(DOCS + '/') ? decodeURIComponent(pathPart.slice(DOCS.length + 1)) : '';
   const creating = selected === 'new', editing = !creating && params.get('edit') === '1';
   const load = ++DOC_LOAD;
-  const admin = docsIsAdmin();
+  const admin = docsIsAdmin(), archived = params.get('archived') === '1';
   const mineId = S.me?.id ? 'human:' + S.me.id : '';
   const current = () => load === DOC_LOAD && S.route.startsWith(DOCS);
 
   $('#main').innerHTML = `<div class="docs-heading"><h1>Docs</h1>
     <div class="docs-search-field"><span class="nav-icon" aria-hidden="true">search</span><input id="docs-search" class="docs-search" type="search" aria-label="Search docs" placeholder="Search internal and linked docs…" value="${esc(DOC_QUERY)}" autocomplete="off"></div>
     <button class="primary docs-ask" id="docs-ask" type="button" aria-label="Ask AI about docs"><span class="nav-icon" aria-hidden="true">auto_awesome</span><span class="docs-ask-word">Ask AI</span></button>
-    <div class="docs-actions"><a class="docs-new" id="docs-new" href="${docsHref('new')}" role="button">New doc</a>
+    <div class="docs-actions"><a class="docs-new" href="${docsHref('', archived ? {} : {archived: 1})}">${archived ? 'Active' : 'Archived'}</a><a class="docs-new" id="docs-new" href="${docsHref('new')}" role="button">New doc</a>
       <button class="docs-settings" id="docs-more" type="button" popovertarget="docs-menu" aria-label="More" aria-expanded="false" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button></div></div>
     <div id="docs-menu" popover aria-label="Docs actions"><button id="docs-import" type="button">Import a file…</button><button id="docs-link" type="button">Add a link…</button></div>
     <p class="docs-feedback" id="docs-feedback" role="status" hidden></p>
@@ -67,7 +67,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     else say('The Librarian is not available on this install yet.');
   };
 
-  try { DOC_DATA = await docsLoadAll(); }
+  try { DOC_DATA = await docsLoadAll(archived); }
   catch (error) { if (current()) { say('Could not load docs: ' + error.message); $('#docs-browser').innerHTML = ''; } return; }
   if (!current()) return;
   const {docs, linked} = DOC_DATA;
@@ -76,7 +76,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
 
   // ---------------------------------------------------------------- the list
   const canEditLink = link => admin || (!!mineId && link.added_by === mineId);
-  const docItem = d => `<a class="docs-item${d.id === selected ? ' selected' : ''}" ${d.id === selected ? 'aria-current="page"' : ''} href="${docsHref(d.id)}" title="${esc(d.path)}"><span>${esc(d.title)}</span>${d.locked ? docsLockMark() : ''}</a>`;
+  const docItem = d => `<a class="docs-item${d.id === selected ? ' selected' : ''}" ${d.id === selected ? 'aria-current="page"' : ''} href="${docsHref(d.id, archived ? {archived: 1} : {})}" title="${esc(d.path)}"><span>${esc(d.title)}</span>${d.locked ? docsLockMark() : ''}</a>`;
   const linkRow = link => {
     const kind = DocsSearch.kind(link.kind);
     return `<div class="docs-link"><a class="docs-link-main" href="${esc(link.url)}" target="_blank" rel="noopener noreferrer" title="Opens ${esc(link.url)}">
@@ -97,7 +97,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
     const links = linked.length ? linked.map(linkRow).join('')
       : `<div class="docs-empty-note"><p>Point Tico at where your other docs live: a help site, a Drive folder, a Notion page or a repository. Tico stores only the link.</p>
           <div class="docs-empty-actions"><button class="ghost" type="button" data-docs-link>Add a link</button></div></div>`;
-    browser.innerHTML = `<section class="docs-section" aria-labelledby="docs-h-internal"><header class="docs-section-head"><h2 id="docs-h-internal">Internal docs <span class="muted">${docs.length}</span></h2>
+    browser.innerHTML = `<section class="docs-section" aria-labelledby="docs-h-internal"><header class="docs-section-head"><h2 id="docs-h-internal">${archived ? 'Archived docs' : 'Internal docs'} <span class="muted">${docs.length}</span></h2>
         <a class="docs-mini" href="${docsHref('new')}" role="button" aria-label="New doc">+ New</a></header>${internal}</section>
       <section class="docs-section" aria-labelledby="docs-h-linked"><header class="docs-section-head"><h2 id="docs-h-linked">Linked docs <span class="muted">${linked.length}</span></h2>
         <button class="docs-mini" type="button" data-docs-link aria-label="Add a link">+ Add link</button></header>${links}</section>`;
@@ -116,6 +116,11 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   const showBrowser = () => {
     $('.docs-workspace').classList.toggle('searching', !!selected && !!DOC_QUERY.trim());
     if (!DocsSearch.terms(DOC_QUERY).length) { renderList(); browser.scrollTop = DOC_BROWSER_SCROLL; return; }
+    if (archived) {
+      const terms = DocsSearch.terms(DOC_QUERY);
+      browser.innerHTML = docs.filter(d => terms.every(word => (d.title + ' ' + d.path).toLowerCase().includes(word))).map(docItem).join('') || '<p class="empty">No archived docs match.</p>';
+      return;
+    }
     DocsSearch.run(get, DOC_QUERY).then(found => { if (!found.stale && current()) renderResults(found); })
       .catch(error => { if (current()) say('Search failed: ' + error.message); });
   };
@@ -138,7 +143,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
 
   // ---------------------------------------------------------------- the reader
   const reader = $('#docs-reader');
-  const back = `<a class="docs-back" href="${docsHref()}">← Back to docs</a>`;
+  const back = `<a class="docs-back" href="${docsHref('', archived ? {archived: 1} : {})}">← Back to docs</a>`;
   if (!selected) {
     reader.innerHTML = docs.length || linked.length
       ? '<div class="docs-welcome"><p class="muted">Pick a doc, or search.</p></div>'
@@ -174,7 +179,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
       <div class="docs-tools"><a class="docs-tool primary-tool" id="doc-edit" role="button" href="${docsHref(doc.id, {edit: 1})}"${canChange ? '' : ' aria-disabled="true" tabindex="-1" title="Locked: only an owner or bot administrator can change this doc"'}>Edit</a>
         <button class="docs-tool" id="doc-history" type="button">History</button>
         ${admin ? `<button class="docs-tool" id="doc-lock" type="button" aria-pressed="${doc.locked}">${doc.locked ? 'Unlock' : 'Lock'}</button>` : ''}
-        ${canChange ? '<button class="docs-tool docs-danger" id="doc-archive" type="button">Archive</button>' : ''}</div></header>
+        ${canChange ? `<button class="docs-tool docs-danger" id="doc-archive" type="button">${doc.archived ? 'Restore' : 'Archive'}</button>` : ''}</div></header>
     ${doc.locked ? `<p class="hint docs-locked-note">${canChange ? 'This doc is locked: only owners and bot administrators can change it.' : 'This doc is locked. Only an owner or bot administrator can change it.'}</p>` : ''}
     <div class="md docs-content">${doc.body.trim() ? safeMd(doc.body, {documentImages: true}) : '<p class="muted">This doc is empty. Choose Edit to write it.</p>'}</div>`;
   $('#docs-reader').scrollTop = 0;
@@ -188,7 +193,15 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   });
   $('#doc-archive')?.addEventListener('click', async event => {
     event.target.disabled = true;
-    try { await writeRequest('PATCH', '/v2/docs/' + encodeURIComponent(doc.id), {version: doc.version, archived: true, note: 'Archived'}); location.hash = docsHref(); }
+    try {
+      if (doc.archived) {
+        const saved = await post(`/v2/docs/${encodeURIComponent(doc.id)}/restore`, {version: doc.version});
+        location.hash = docsHref(saved.doc.id); toast('Doc restored');
+      } else {
+        const saved = await writeRequest('PATCH', '/v2/docs/' + encodeURIComponent(doc.id), {version: doc.version, archived: true, note: 'Archived'});
+        location.hash = docsHref(); docsArchiveUndo(saved.doc);
+      }
+    }
     catch (error) { say(error.message); event.target.disabled = false; }
   });
 
@@ -222,3 +235,16 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
   });
 };
 window.addEventListener('tico-docs-changed', () => { if (typeof S !== 'undefined' && S.route?.startsWith(DOCS)) window.pageCompanyDocs(); });
+
+function docsArchiveUndo(doc) {
+  const notice = document.createElement('div'); notice.className = 'toast docs-archive-undo'; notice.setAttribute('role', 'status'); notice.append('Doc archived. ');
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'ghost'; button.textContent = 'Undo';
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      const saved = await post(`/v2/docs/${encodeURIComponent(doc.id)}/restore`, {version: doc.version});
+      notice.remove(); location.hash = docsHref(saved.doc.id); toast('Doc restored');
+    } catch (error) { toast(error.message, true); button.disabled = false; }
+  };
+  notice.append(button); document.body.append(notice); setTimeout(() => notice.remove(), 15000);
+}

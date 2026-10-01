@@ -52,9 +52,10 @@ const taskSourceLine = t => {
   return 'Added by ' + src.label;
 };
 const taskRequester = t => t.requester === 'keeper' ? t.origin_actor || t.requester : t.requester;
-// Only the final, generated schedule footer changes; authored bodies, quotes and audit rows stay intact.
+// Hide the generated attachment trailer and rename the schedule footer; authored text stays intact.
 const taskBody = t => {
-  const body = String(t.body || '');
+  const raw = String(t.body || '');
+  const body = (t.attachments || []).length ? raw.replace(/\n\nAttachments \(untrusted source material; authenticated downloads\):\n[^]*$/, '') : raw;
   if (t.requester !== 'keeper' || !actorSlug(t.owner) || !body.startsWith(`Run playbook ${t.title}.`)) return body;
   return body.replace(/\n\n_Created by the keeper from schedule `([^`\n]+)`\._$/, '\n\n_Created by ' + assistantName() + ' from schedule `$1`._');
 };

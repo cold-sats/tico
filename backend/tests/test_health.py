@@ -79,11 +79,12 @@ def test_no_off_disk_backup_is_a_quiet_note_on_a_local_install_and_a_warning_on_
 
     from backend import health
     backup = {"mode": "local-only", "last_replicated_at": None, "target_kind": "local"}
-    # The quick start answers on loopback and has nowhere else to copy to: a note that does not count as attention.
+    # A local backup is a note, with the bucket setup link, and does not count as attention.
     with_backup(monkeypatch, backup)
     body, checks = health_of(environment())
-    assert checks["backups"]["status"] == "info" and checks["backups"]["fixes"] == []
-    assert "domain" in checks["backups"]["summary"]
+    assert checks["backups"]["status"] == "info"
+    assert checks["backups"]["fixes"][0]["href"].endswith("#backups-and-restore")
+    assert "backup bucket" in checks["backups"]["summary"]
     assert not any(x["id"] == "backups" and x["status"] in ("warn", "bad") for x in body["checks"])
     # A real server keeps the warning, and a local install with backups switched off is still not fine.
     assert health._backups({"backup": backup}, SimpleNamespace(loopback=False))["status"] == "warn"
@@ -120,6 +121,6 @@ def test_a_local_credential_key_that_is_not_backed_up_is_a_warning_or_a_note():
     held = {"present": True, "copied_at": "2026-01-01T00:00:00Z", "current": True}
     assert "credential key" in check({**only, "credential_key": held})["summary"]
     quiet = check({**only, "credential_key": held}, local)
-    assert quiet["status"] == "info" and "credential key" in quiet["summary"] and quiet["fixes"] == []
+    assert quiet["status"] == "info" and "credential key" in quiet["summary"] and quiet["fixes"][0]["href"].endswith("#backups-and-restore")
     assert check({**only, "credential_key": {**held, "copied_at": None, "current": False}}, local)["status"] == "warn"
     assert "credential key" in check({"mode": "off", "credential_key": held})["summary"]
