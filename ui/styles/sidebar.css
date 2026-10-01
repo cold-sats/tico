@@ -55,6 +55,9 @@ button.nav-librarian{border:0;background:none;cursor:pointer;padding:0}
 .inbox-kind{width:16px;height:16px;font-size:16px;flex:none}
 .inbox-slack{width:15px;height:15px;flex:none;color:var(--muted)}
 .inbox-list a.cur .inbox-slack,.inbox-list a.cur .inbox-kind{color:var(--ink)}
+.tree ul.node-sources{margin:0 0 2px 27px;padding:0 0 0 2px}
+.tree ul.node-sources a{padding:4px 8px;font-size:12.5px;color:var(--muted)}
+.tree ul.node-sources a:hover,.tree ul.node-sources a.cur{color:var(--ink)}
 .side-footer{flex:none;border-top:1px solid var(--line);padding:3px 0 max(3px,env(safe-area-inset-bottom))}
 .side-utility{display:flex;align-items:center;gap:8px;padding:5px 10px;min-width:0}
 #heartbeat{display:flex;align-items:center;flex:none}

@@ -21,7 +21,8 @@ Controls appear when your rights allow the action.
 | Read or write team knowledge | Docs → Internal docs; outside sources are Linked docs |
 | Review goals and KPIs | Goals |
 
-All four system bots are **Built-in**: Assistant, BotOps, Librarian and Goal Manager.
+All four system bots appear as **Built-in** in Settings > Bots. Assistant and BotOps have main rail entries;
+the Goal Manager is on Goals, and Ask the Librarian is on Docs and Market. They stay out of the team chart.
 Inbox Manager and other repeating message work appear under **Message bots**.
 An older app may show Instructions under the bot's Docs tab; the action is still **Edit Instructions**.
 Removing a Computer revokes its registration and leaves its local files and bots in place.

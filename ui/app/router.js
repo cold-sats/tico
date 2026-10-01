@@ -4,6 +4,7 @@
 
 let LAST_ROUTE = '';
 function route() {
+  GOAL_MANAGER_STOP?.();
   const from = LAST_ROUTE;
   S.route = LAST_ROUTE = location.hash || UPDATES;
   const botOf = r => r.startsWith('#/bot/') ? r.slice(6).split('/')[0] : '';
@@ -64,6 +65,7 @@ function route() {
   else if (S.route === '#/runs') pageRuns();
   else if (S.route === '#/usage') pageUsage();
   else location.hash = UPDATES;         // unknown or empty routes land on Updates, home
+  window.syncLibrarianRail?.();
   $('#main').scrollTop = 0;
 }
 window.addEventListener('hashchange', route);

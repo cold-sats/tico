@@ -203,6 +203,8 @@ STABLE = [
     ("/api/v2/assistant/actions/{aid}/cancel", "post", "Assistant", "cancelAssistantAction",
      "Drop a proposal; it never runs", "AssistantActionResult"),
     # Goals and KPIs (docs/goals-and-kpis.md)
+    ("/api/v2/goal-manager/turn-on", "post", "Goals", "turnOnGoalManager",
+     "Owner only: add the Goal Manager from the catalog or restore it, and activate it", None),
     ("/api/v2/goals", "get", "Goals", "listGoals",
      "The caller's own goals, the chain above them and their reports' goals; ?all=true is every goal the caller may read "
      "(?status=red,gray filters); ?owner= names someone else", "GoalList"),

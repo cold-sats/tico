@@ -20,10 +20,10 @@ document.querySelectorAll('[data-section-toggle]').forEach(button => button.oncl
   renderNavSections();
 });
 renderNavSections();
-// The assistant and the Librarian work in the background and nobody chats with them as a bot
-// (each person's private Assistant is a tab on their own page, ui/assistant.js), so search, bot pickers and a
-// person's page do not list them. The org panel does, in its Built-in group, and so does Settings → Bots;
-// #/bot/<slug> opens, and the Librarian stays one click away from the Docs nav row (renderLibrarians).
+// The built-ins stay out of the team chart. The Assistant and BotOps have their own rows in the main rail (each
+// person's private Assistant is a tab on their own page, ui/assistant.js); the Goal Manager is on Goals and the
+// Librarian on Docs and Market. Search, bot pickers and a person's page do not list the Assistant or the Librarian;
+// Settings > Bots manages all four, and #/bot/<slug> opens each.
 const isHiddenBot = slug => slug === assistantBot() || slug === 'librarian';
 const shownEmps = () => (S.emps || []).filter(e => !isHiddenBot(e.name));
 // Groups first: a human or a bot hangs in the group its `team` names (backend/groups.py); groups nest by `parent`. Inside
@@ -104,25 +104,39 @@ function inboxNavRows() {
   slack.sort((a, b) => a.label.localeCompare(b.label));
   return [...mail, ...slack];
 }
+// The mailboxes and Slack channels a bot works hang under that bot in the team list (renderTree): an Inbox Manager's
+// in the Message bots group, a chart bot's under it on the chart. The section below the team list holds only the ones
+// whose bot is not shown there (the recently-viewed list, or "Only bots I can read or write").
+let INBOX_PLACED = new Set();
+function inboxNavLink(row) {
+  const here = messagingParams();
+  const href = `${MESSAGING}?bot=${encodeURIComponent(row.bot)}&source=${encodeURIComponent(row.source)}`;
+  const on = S.route.startsWith(MESSAGING) && here.bot === row.bot && here.source === row.source;
+  const icon = row.kind === 'slack' ? SLACK_ICON : `<span class="nav-icon inbox-kind" aria-hidden="true">mail</span>`;
+  return `<li><a href="${href}" title="${esc(row.title)}"${on ? ' class="cur" aria-current="page"' : ''}>${icon}<span>${esc(row.label)}</span></a></li>`;
+}
 function renderInboxNav() {
   const section = $('#nav-inboxes-section'), list = $('#inbox-list');
   if (!section || !list) return;
   if (INBOX_NAV === null) {
     INBOX_NAV = false;
-    get('/v2/messaging/bots').then(data => { INBOX_NAV = data; renderInboxNav(); })
-      .catch(() => { INBOX_NAV = {bots: []}; renderInboxNav(); });
+    get('/v2/messaging/bots').then(data => { INBOX_NAV = data; renderTree(); })
+      .catch(() => { INBOX_NAV = {bots: []}; renderTree(); });
   }
-  const rows = inboxNavRows();
+  const rows = inboxNavRows().filter(row => !INBOX_PLACED.has(row.bot));
   section.hidden = !rows.length;
-  const here = messagingParams();
-  list.innerHTML = rows.map(row => {
-    const href = `${MESSAGING}?bot=${encodeURIComponent(row.bot)}&source=${encodeURIComponent(row.source)}`;
-    const on = S.route.startsWith(MESSAGING) && here.bot === row.bot && here.source === row.source;
-    const icon = row.kind === 'slack' ? SLACK_ICON : `<span class="nav-icon inbox-kind" aria-hidden="true">mail</span>`;
-    return `<li><a href="${href}" title="${esc(row.title)}"${on ? ' class="cur" aria-current="page"' : ''}>${icon}<span>${esc(row.label)}</span></a></li>`;
-  }).join('');
+  list.innerHTML = rows.map(inboxNavLink).join('');
 }
 function renderLibrarians() {
+  for (const [id, slug, href] of [
+    ['nav-assistant', assistantBot(), mePerson() ? `#/person/${encodeURIComponent(mePerson().id)}/assistant` : `#/bot/${encodeURIComponent(assistantBot())}`],
+    ['nav-botops', 'botops', '#/bot/botops'],
+  ]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.href = href;
+    el.hidden = !(S.emps || []).some(e => e.name === slug);
+  }
   for (const [id, slug] of [['nav-docs-librarian', 'librarian'], ['nav-market-librarian', 'market-analyst']]) {
     const el = document.getElementById(id);
     if (!el) continue;
@@ -378,9 +392,8 @@ $('#org-history').onclick = () => {
   }
   renderTree();
 };
-// Built-in and message bots sit in separate groups after the team chart. `reports_to` is untouched,
+// Message bots sit in their own group after the team chart; built-ins have separate entry points. `reports_to` is untouched,
 // and a bot that reports to one hangs where it would have.
-const HELPERS_GROUP = '__helpers';
 const MESSAGE_BOTS_GROUP = '__message_bots';
 const isHelperBot = e => isBuiltInBot(e.name) || !!e.helper || (S.people || []).some(p => p.inbox_bot === e.name);
 // The order here and on Goals: the Assistant, then the other built-ins, then message bots.
@@ -398,7 +411,6 @@ function orgTreeWithHelpers(byParent) {
     else (out[lift(parent)] ||= []).push(n);
   }
   for (const [id, name, members, order] of [
-    [HELPERS_GROUP, 'Built-in', helpers.filter(e => isBuiltInBot(e.name)), 0],
     [MESSAGE_BOTS_GROUP, 'Message bots', helpers.filter(e => !isBuiltInBot(e.name)), 1],
   ]) {
     if (!members.length) continue;
@@ -419,6 +431,9 @@ function renderTree() {
     (c.kind === 'group' && subtreeNeeds('g:' + c.id)));
   const isTemp = e => e.kind === 'bot' && isTempBot(e);
   const nameOf = n => n.kind === 'person' ? (n.person.name || n.id) : (n.display_name || '').replace(TEMP_RE, '');
+  const sources = {};
+  for (const r of inboxNavRows()) (sources[r.bot] ||= []).push(r);
+  INBOX_PLACED = new Set();
   const rec = (parent, depth) => (byParent[parent] || []).slice()
     .sort((a, b) => {
       if (!!a.helpers !== !!b.helpers) return a.helpers ? 1 : -1;        // built-in and message groups come last
@@ -458,12 +473,15 @@ function renderTree() {
     }
     const e = node, key = 'b:' + e.name, st = stateOf(e.name), n = needsMeCount(e.name), kids = !flat && byParent[key], isCol = kids && collapsed.has(key);
     const helper = isHelperBot(e);                 // not on the chart: nothing is dragged onto or out of it
+    const own = !flat && sources[e.name];
+    if (own) INBOX_PLACED.add(e.name);
     return `<li class="${kids ? 'dept' : ''}"><div class="noderow">
       ${kids ? `<button class="chev ${isCol ? 'col' : ''}" data-toggle="${esc(key)}" aria-label="${isCol ? 'Expand' : 'Collapse'} ${esc(e.display_name)}">›</button>` : ''}
       <a class="node ${e.status} ${curBot === e.name ? 'cur' : ''} ${st}" href="#/bot/${e.name}"${curBot === e.name ? ' aria-current="page"' : ''} data-org="b:${esc(e.name)}"${helper ? ' data-helper' : ''}${!flat && !helper && orgMayDrag(key) ? ' draggable="true"' : ''}>
         ${avatar(e.name, depth ? 16 : 20, st)}<span class="nm">${shownName(e)}</span>${runtimeTag(e)}${frTreeMark(e)}
         ${isCol && subtreeNeeds(key) ? '<span class="dot needs" title="something inside needs attention"></span>' : ''}
         ${treeBadge(n, st)}</a></div>
+      ${own ? `<ul class="inbox-list node-sources" aria-label="${esc(e.display_name || e.name)}: mailboxes and channels">${own.map(inboxNavLink).join('')}</ul>` : ''}
       ${kids ? `<ul ${isCol ? 'hidden' : ''}>${rec(key, depth + 1)}</ul>` : ''}</li>`;
   };
   // Every bot and person, the one you opened last on top; ones you never opened follow by name.
@@ -474,7 +492,6 @@ function renderTree() {
       .map(node => row(node, 0, true)).join('');
   };
   renderOnboardingNav();
-  renderInboxNav();
   renderLibrarians();
   const historyOn = orgHistoryOn();
   $('#org-history').setAttribute('aria-pressed', String(historyOn));
@@ -485,6 +502,7 @@ function renderTree() {
   $('#tree').innerHTML = historyOn ? history()
     : (manage && ORG_EDIT?.add === '' ? `<li class="org-new">${orgGroupFieldHTML()}</li>` : '') + rec('', 0)
       + (manage ? '<li class="org-no-group" data-org="g:">No group</li>' : '');
+  renderInboxNav();                                   // after the tree, which places what it can
   orgDragWire($('#tree'));
   orgGroupFieldWire();
   $('#tree').onclick = ev => {
@@ -511,6 +529,8 @@ function renderTree() {
       (a.dataset.nav === 'runs' && S.route === '#/runs') ||
       (a.dataset.nav === 'usage' && S.route === '#/usage') ||
       (a.dataset.nav === 'updates' && (S.route === UPDATES || S.route.startsWith(UPDATES + '?'))) ||
+      (a.dataset.nav === 'assistant' && S.route === $('#nav-assistant')?.getAttribute('href')) ||
+      (a.dataset.nav === 'botops' && /^#\/bot\/botops(?:\/|$)/.test(S.route)) ||
       (a.dataset.nav === 'goals' && (S.route === GOALS || S.route.startsWith(GOALS + '/') || S.route.startsWith(GOALS + '?'))) ||
       (a.dataset.nav === 'more' && !mobilePrimary);
     a.classList.toggle('cur', isCurrent);

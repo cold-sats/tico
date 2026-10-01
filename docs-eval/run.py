@@ -209,7 +209,7 @@ def main(argv=None):
     PREFIX = "eval-fixture/" + uuid.uuid4().hex[:12] + "/"
     tico = Tico(os.environ["TICO_URL"], os.environ["TICO_TOKEN"])
     if not tico.call("GET", "/api/v2/librarian").get("available"):
-        raise SystemExit("The Librarian is not running on that Tico: turn it on (Docs > Ask AI) and enroll a computer")
+        raise SystemExit("The Librarian is not running on that Tico: turn it on (Docs > Ask the Librarian) and enroll a computer")
     print(f"Loading {len(fixture_files())} fixture docs under {PREFIX} ...")
     id_by_path, results, retained = {}, [], []
     try:

@@ -105,7 +105,7 @@ Every colour is stored with who set it: `status_by`, and `status_source` (`auto`
 ## The Goal Manager
 
 The Goal Manager (`goal-manager`) is a built-in bot, created for every team like the Librarian. It appears in **Settings**
-and on the team chart marked **Built-in**; nobody archives it, and only the team owner edits it. A team from before it
+as **Built-in**, and in its panel at the top of Goals; nobody archives it, and only the team owner edits it. A team from before it
 existed gets it on update once a computer and a model exist. Its template is `templates/catalog/goal-manager/`; its
 playbooks are the product.
 
@@ -163,11 +163,19 @@ edited or logged to.
 
 ## The Goals page
 
+The Goal Manager's panel sits above the tree: one line on what it does (keeps KPIs current and each goal green, yellow or
+red; humans set the goals), its routines as the server has them (when each runs and when it next does, or paused), and its
+last run with the first line of its result. The box beside it is your own chat with the Goal Manager, the one on its bot
+page: ask it to change a goal and its latest reply shows there, earlier messages under **History**, and the tree is drawn
+again when it answers. **Open bot** goes to its page. If it is off or not set up, the owner gets **Turn on** (`POST
+/api/v2/goal-manager/turn-on`, the same steps as on update); with no computer or model yet, the panel says so.
+
 One tree, built like the team chart: the team on top, then every human and every bot that is not archived, indented
 under whoever they report to, whether or not they have a goal. Each is one line: the avatar and name, then the goal's
 colour dot and its title (cut short; the whole title is in the tooltip) and its KPIs as small chips, a dot and the latest
 value each (a count when there is no room). More goals follow on lines of their own under the first. The built-in bots (the
-Assistant, BotOps, the Librarian and the Goal Manager) are not roles, so they sit apart under **Built-in**.
+Assistant, BotOps, the Librarian and the Goal Manager) stay out of this tree and its goal owner choices.
+New teams get no default goals for built-in bots. Existing built-in goals are hidden here and kept in storage.
 Message bots such as Inbox Manager follow separately under **Message bots**.
 
 Tapping any line opens that owner's panel (a sheet at the bottom on a phone). It lists their goals: tap one to edit its
@@ -177,7 +185,7 @@ and version, its owner, its targets and the Goal Manager's latest check-in, with
 (a KPI no goal uses yet) are at the bottom, owned by whoever was tapped, and the KPIs no goal uses are listed there too.
 Someone with no goal opens on a new one; the team line opens the team goal. **Needs you** is a short strip at the
 top, shown only when something waits: red KPIs on goals you own, stale data on KPIs you own, and definitions and targets
-waiting for your confirmation. The page is two requests, the tree and Needs you.
+waiting for your confirmation. The page is two requests, the tree and Needs you; the Goal Manager panel loads on its own.
 
 ## Permissions
 

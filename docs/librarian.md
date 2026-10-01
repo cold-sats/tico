@@ -1,7 +1,7 @@
 # The Librarian
 
-The Librarian is a built-in bot that answers questions from the team's docs. Humans ask it from **Ask AI** on the Docs
-page; other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
+The Librarian is a built-in bot that answers questions from the team's docs. Humans ask it from **Ask the Librarian** on Docs
+and Market; other bots and the Assistant ask it with `hub doc ask`. It cites every claim, says "Not in the docs." plainly when the
 docs do not say, and keeps a map of the docs so the next question is cheaper. It never answers from general knowledge.
 
 ## What it reads
@@ -45,13 +45,20 @@ something is treated as text, not an instruction, and it fetches only public lin
 
 ## Asking
 
-**Humans.** Docs > **Ask AI** opens a drawer (a full-screen sheet on a phone). Matching internal, linked and manual docs appear at once
+**Humans.** Docs and Market show an **Ask the Librarian** rail on the right on desktop. Its arrow hides it and **Ask the
+Librarian** brings it back; the choice is kept per viewer in this browser. On a phone, the button opens a full-screen sheet.
+On Docs, matching internal, linked and manual docs appear at once
 from search; choose **All docs**, **Team docs** or **Tico manual** to narrow the matches.
 The Librarian's answer then streams in with clickable citations. `POST /api/v2/docs/ask {question,
 conversation_id?, new_conversation?}` returns `{conversation_id, message_id, results}` and the answer arrives on
 `GET /api/v2/conversations/{id}/watch`. Each human has one private docs conversation with the Librarian
 (`scope: personal`, `room_key: docs`), like the [Assistant](assistant.md)'s room: only they can read it, and the owner and
 administrators cannot. **New chat** starts a fresh conversation, so the Librarian remembers only what is on screen.
+
+On Market, a question is answered from the market graph as it is at that moment (`POST /api/v2/market/ask {question}`,
+the same answer the Market page has always given, which needs no computer): the answer, then the organizations, people and
+pages it drew on, which open the note and light up on the graph. Docs and Market each keep their own thread while the page
+is open.
 
 **Bots and the Assistant.** `hub doc ask "question" [--wait 120]`, or the MCP tool `hub_doc_ask`, returns
 `{answer, citations: [{type, title, url_or_id}], covered}`. A bot's question is an `ask` message to the Librarian, the ordinary
@@ -108,7 +115,7 @@ renaming stay allowed, and Settings > Bots shows it as **Built-in**.
 a model is chosen and a computer is enrolled. It is checked when the server starts and when a computer enrolls, so the order
 in which a team does things does not matter. It goes on the computer BotOps runs on, its daily routine is created once (a
 routine a human deletes is never put back), and an owner who paused it keeps it paused. Where one of those is missing (no
-model yet, no computer), Ask AI says the Librarian is not set up, and the owner gets **Turn on the Librarian** there (the same
+model yet, no computer), Ask the Librarian says the Librarian is not set up, and the owner gets **Turn on the Librarian** there (the same
 steps, `POST /api/v2/librarian/turn-on`), as the Assistant has **Turn on Assistant**.
 
 ## Trying it: the eval

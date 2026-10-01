@@ -277,7 +277,7 @@ Bots lists them as **Built-in**, with no Archive or Delete control. Like every b
 whatever it says.
 
 The third, the [Librarian](librarian.md#built-in), answers questions from the team's docs. A team from before it existed gets it on
-update, without a click, once a model is chosen and a computer is enrolled; until then its owner gets **Turn on the Librarian** on Ask AI.
+update, without a click, once a model is chosen and a computer is enrolled; until then its owner gets **Turn on the Librarian** in Ask the Librarian.
 
 The fourth, the [Goal Manager](goals-and-kpis.md#the-goal-manager), keeps the KPIs and sets goals' automatic colours. It is
 built the same way (a required, bootstrap card; a team from before it existed gets it on update once a model is chosen

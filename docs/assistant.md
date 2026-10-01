@@ -3,7 +3,9 @@
 Every human has one private chat with the team's assistant (the `coo` bot; you may have renamed it): a personal
 bot that knows how Tico is laid out and does things in it on your behalf. It is the **Assistant** tab, first on
 your own page (`#/person/<you>`), and **Ask the Assistant…** at the bottom of search (⌘K), which opens the same chat with
-your words in the box. It works on a phone too.
+your words in the box. **Assistant** in the main left rail opens this same private chat. **BotOps** beside it opens
+BotOps' bot page. These built-ins stay out of the team chart and Goals tree; Settings > Bots still manages all four.
+It works on a phone too.
 
 Ask it to find a meeting, a doc, a file or a task; to tell you what needs you; to make a task; to hand work to the
 right bot; to ask BotOps for a new bot; or how something works. It answers briefly and links what it names (tasks,

@@ -1,5 +1,5 @@
-/* Market is its own room: a note, the graph of who connects to whom, and a librarian
-   that reads the graph at the moment you ask. It is not the Docs library. */
+/* Market is its own room: a note, the graph of who connects to whom, and Ask the Librarian beside it
+   (ui/docs-ask.js), which reads the graph at the moment you ask. It is not the Docs library. */
 let MARKET_VIEW = null;
 
 const MARKET_TYPES = [
@@ -36,6 +36,10 @@ marketStyle.textContent = `.market-shell.market-shell-blank{display:flex;align-i
 @media (prefers-reduced-motion:reduce){.market-spin{animation:none;border-color:var(--accent)}}
 .market-none{margin:0;color:var(--muted);font-size:14px}
 .market-blank{margin:0;color:#9a9a9a}
+.market-ask-open{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:0 0 10px;padding:7px 10px;border-radius:7px;background:none;border:1px solid #3a3a3a;color:#e6e6e6;font-size:13px;cursor:pointer}
+.market-ask-open .nav-icon{font-size:17px;color:#c4b5fd}
+.market-ask-open:hover{background:#2a2a2a}
+.market-ask-open:focus-visible{outline:2px solid #c4b5fd;outline-offset:1px}
 @media (max-width:600px){.market-shell.market-shell-blank{align-items:flex-start;padding:28px 16px}.market-start-actions .primary{flex:1}}`;
 document.head.appendChild(marketStyle);
 
@@ -56,12 +60,9 @@ window.marketStop = function marketStop() {
   if (MARKET_VIEW) MARKET_VIEW.stop();
 };
 
-// Draws the page again from the server, when the research notice sees the market's first content. A
-// question being typed is left alone.
+// Draws the page again from the server, when the research notice sees the market's first content.
 window.marketReload = function marketReload() {
   if (!MARKET_VIEW || !(S.route === '#/market' || S.route.startsWith('#/market?') || S.route.startsWith('#/market/'))) return;
-  const ask = $('#market-q');
-  if (ask && (ask.value || document.activeElement === ask)) return;
   MARKET_VIEW.stop();
   MARKET_VIEW = null;
   void pageMarket();
@@ -77,11 +78,16 @@ window.pageMarket = async function pageMarket() {
       MARKET_VIEW = await mountMarket(shell);
     } catch (error) {
       shell.innerHTML = `<p class="market-loading">${esc(error.message || 'The market graph did not load.')}</p>`;
+      window.syncLibrarianRail?.(true);
       return;
     }
   }
   await MARKET_VIEW.open(note);
+  if (S.route.startsWith('#/market')) window.syncLibrarianRail?.(true);
 };
+// What Ask the Librarian needs from the graph (ui/docs-ask.js): a name for each row it cites, and those rows lit up.
+window.marketName = id => MARKET_VIEW?.name?.(id) || '';
+window.marketCite = ids => MARKET_VIEW?.cite?.(ids);
 
 async function mountMarket(shell) {
   const today = new Date().toISOString().slice(0, 10);
@@ -102,18 +108,11 @@ async function mountMarket(shell) {
   shell.innerHTML = `<aside class="market-list" aria-label="Market notes">
       <a id="market-overview" class="market-overview-btn" href="${marketHref(MARKET_BRIEF)}">Overview</a>
       <input id="market-filter" type="search" placeholder="Search the market" aria-label="Search the market" autocomplete="off">
+      <button class="market-ask-open" type="button" data-librarian-open><span class="nav-icon" aria-hidden="true">auto_awesome</span>Ask the Librarian</button>
       <div id="market-index"></div>
     </aside>
     <section class="market-note">
       <div id="market-read" class="market-read"></div>
-      <form id="market-ask" class="market-ask">
-        <label for="market-q">Ask the librarian</label>
-        <div class="market-ask-row">
-          <input id="market-q" name="q" type="text" placeholder="Who competes with us?" autocomplete="off">
-          <button type="submit">Ask</button>
-        </div>
-        <div id="market-answer" class="market-answer" hidden></div>
-      </form>
     </section>
     <div class="market-graph">
       <canvas id="market-canvas" aria-label="Graph of the market"></canvas>
@@ -139,30 +138,6 @@ async function mountMarket(shell) {
   }
   renderIndex('');
   filter.oninput = () => renderIndex(filter.value);
-  $('#market-ask').onsubmit = async event => {
-    event.preventDefault();
-    const question = $('#market-q').value.trim();
-    if (!question) return;
-    const box = $('#market-answer');
-    box.hidden = false;
-    box.innerHTML = '<p class="market-pulling">Pulling from the market graph…</p>';
-    try {
-      const out = await post('/v2/market/ask', {question});
-      const cites = out.citations || [];
-      graph.cite(cites.filter(row => row.kind === 'entity').map(row => row.id));
-      const chips = cites.map(row => {
-        const node = byId.get(row.id);
-        const label = node ? node.name : 'evidence';
-        const href = node ? marketHref(row.id) : '';
-        return href ? `<a href="${href}" data-market-note="${esc(row.id)}">${esc(label)}</a>` : `<span>${esc(label)}</span>`;
-      }).join(' ');
-      const prose = String(out.answer || '').replace(/\s*\[[a-z]+:[^\]]+\]/gi, '');
-      box.innerHTML = `<div class="md market-md">${safeMd(prose)}</div>`
-        + (chips ? `<p class="market-cites">Pulled ${esc(String(cites.length))} ${cites.length === 1 ? 'row' : 'rows'}: ${chips}</p>` : '');
-    } catch (error) {
-      box.innerHTML = `<p class="market-pulling">${esc(error.message || 'The librarian could not answer.')}</p>`;
-    }
-  };
 
   async function open(id) {
     const overview = $('#market-overview');
@@ -204,7 +179,7 @@ async function mountMarket(shell) {
     await showDoc(doc);
   }
 
-  return {shell, open, stop: () => graph.stop()};
+  return {shell, open, stop: () => graph.stop(), name: id => byId.get(id)?.name || '', cite: ids => graph.cite(ids)};
 }
 
 // ---------------------------------------------------------------- an empty market

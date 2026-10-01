@@ -52,16 +52,6 @@
 .market-md h1,.market-md h2,.market-md h3{color:#f3f3f3}
 .market-md a{color:#c4b5fd}
 .market-md code{background:#2a2a2a;color:#eee;border-radius:4px;padding:0 4px}
-.market-ask{flex:none;border-top:1px solid #2e2e2e;padding:10px 16px 12px;background:#161616}
-.market-ask label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8a8a8a;margin:0 0 6px}
-.market-ask-row{display:flex;gap:8px}
-.market-ask input{flex:1;background:#2a2a2a;border:1px solid #3a3a3a;border-radius:8px;color:#f2f2f2;padding:8px 10px}
-.market-ask button{background:#3a3a3a;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
-.market-ask button:hover{background:#4a4a4a}
-.market-answer{margin-top:10px;font-size:13.5px;line-height:1.5}
-.market-pulling{color:#9a9a9a;margin:0}
-.market-cites{color:#9a9a9a;font-size:12px;margin:8px 0 0}
-.market-cites a{color:#c4b5fd;margin-right:8px}
 .market-graph{min-height:0;position:relative;background:#191919}
 .market-graph canvas{width:100%;height:100%;display:block;cursor:grab}
 @media(max-width:980px){

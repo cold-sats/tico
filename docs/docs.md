@@ -73,9 +73,10 @@ A question written as a sentence keeps all meaningful words and maps old Tico wo
 column. Librarian maps and logs under `_librarian/` rank below source docs. Linked docs match title, description and address.
 Each result says which it is: **Internal**, **Linked**, or **Tico manual** when `collection=all|manual` is requested.
 
-## Ask AI
+## Ask the Librarian
 
-**Ask AI** asks the Librarian, the built-in bot for the team's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub doc ask`.
+**Ask the Librarian** is the rail on the right of Docs (a button and a full-screen sheet on a phone). It asks the Librarian, the
+built-in bot for the team's docs, which answers with citations (`docs/librarian.md`). Bots and the Assistant ask it with `hub doc ask`.
 
 ## Upgrading
 
