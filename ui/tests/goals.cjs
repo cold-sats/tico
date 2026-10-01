@@ -55,6 +55,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
       const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
       if (ui) { const file = uiFile(ui[1]); if (fs.existsSync(file)) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(file, 'utf8')}); }
+      if (p === '/vendor/fonts/material-symbols-outlined.woff2') return route.fulfill({contentType: 'font/woff2', body: fs.readFileSync(uiFile('vendor/fonts/material-symbols-outlined.woff2'))});
       if (p.startsWith('/api/')) requests.push(req.method() + ' ' + p);
       const body = post ? req.postDataJSON() : null;
       if (post) posted.push({path: p, body});
@@ -63,7 +64,13 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
       if (p === '/api/humans') return json({people});
       if (p === '/api/issues') return json([]);
       if (p === '/api/status') return json({active: [], employees: []});
-      if (p === '/api/v2/status') return json({bots: []});
+      if (p === '/api/v2/status') return json({bots: [{bot: 'goal-manager', state: 'idle', last_turn_at: '2026-10-01T09:00:00Z', last_result: 'Updated KPI readings.'}]});
+      if (p === '/api/v2/bots/goal-manager/routines') return json({routines: [{id: 'gm-review', title: 'Checks goals', cron: '0 9 * * *', active: true, enabled: true, timezone: 'UTC', next: '2026-10-02T09:00:00Z'}]});
+      if (p === '/api/v2/routines/gm-review/occurrences') return json({occurrences: [{started: '2026-10-01T09:00:00Z', title: 'Checks goals', exit: 'completed'}]});
+      if (p === '/api/v2/conversations' && posted.some(r => r.path === '/api/v2/chat/goal-manager')) return json({conversations: [{id: 'gm-chat', kind: 'chat', scope: 'direct', participants: ['human:ana', 'bot:goal-manager']}]});
+      if (p === '/api/v2/goal-manager/turn-on' && post) { bots.find(b => b.name === 'goal-manager').status = 'active'; return json({state: 'active'}); }
+      if (p === '/api/v2/chat/goal-manager' && post) return json({conversation: {id: 'gm-chat'}, message: {id: 'gm-q', from_actor: 'human:ana', body: body.text}});
+      if (p === '/api/v2/conversations/gm-chat/snapshot') return json({messages: [{id: 'gm-q', from_actor: 'human:ana', body: 'Change the revenue goal'}, {id: 'gm-a', from_actor: 'bot:goal-manager', body: 'Updated the goal.'}]});
       if (p === '/api/v2/goals/tree') return json({goals, owners: {}, other_kpis: other, proposals: []});
       if (p === '/api/v2/goals/needs-you') return json({actor: 'human:ana', items: needs});
       if (p === '/api/v2/goals' && post) {
@@ -97,14 +104,26 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     // Every person and every bot that is not archived, goal or not, nested as the org chart nests them; built-in and message bots apart.
     const lines = await page.locator('#goal-tree > li').evaluateAll(els => els.map(el => el.classList.contains('gt-sep') ? el.textContent : el.classList.contains('gt-cont') ? '+' + el.dataset.goal : `${el.dataset.owner}@${el.style.getPropertyValue('--d')}`));
     assert.deepEqual(lines, ['company@0', 'human:ana@0', 'human:ben@1', 'bot:cmo@1', '+g-cmo2', 'bot:seo@2', 'bot:sales@1', 'bot:support@1',
-      'Built-in', 'bot:coo@0', 'bot:botops@0', 'bot:librarian@0', 'bot:goal-manager@0', 'Message bots', 'bot:inbox@0', 'bot:channel@0']);
+      'Message bots', 'bot:inbox@0', 'bot:channel@0']);
     // The sidebar separates the same built-in and message bots, in the same order.
     assert.deepEqual(await page.locator('#tree a.node[data-helper]').evaluateAll(els => els.map(el => el.dataset.org)),
-      ['b:coo', 'b:botops', 'b:librarian', 'b:goal-manager', 'b:inbox', 'b:channel']);
-    assert.deepEqual(await page.locator('#tree .noderow[data-helper] .dept-label').allTextContents(), ['Built-in', 'Message bots']);
+      ['b:inbox', 'b:channel']);
+    assert.deepEqual(await page.locator('#tree .noderow[data-helper] .dept-label').allTextContents(), ['Message bots']);
     const row = owner => page.locator(`#goal-tree .gt-row[data-owner="${owner}"]:not(.gt-cont)`);
     assert.equal(await row('bot:sales').locator('.gt-goal').count(), 0, 'no goal: nothing written');
-    assert.match(await row('bot:goal-manager').innerText(), /Every KPI read on time/, 'a built-in bot shows its goal');
+    assert.equal(await row('bot:goal-manager').count(), 0, 'existing built-in goals are hidden');
+    assert.equal(await page.locator('#nav-assistant').getAttribute('href'), '#/person/ana/assistant');
+    assert.equal(await page.locator('#nav-botops').getAttribute('href'), '#/bot/botops');
+    await page.locator('.gm-routines li b').first().waitFor();
+    assert.match(await page.locator('#goal-manager-panel').innerText(), /Checks goals.*every day/s);
+    assert.match(await page.locator('#goal-manager-panel').innerText(), /Last run/);
+    await page.locator('.gm-form textarea').fill('Change the revenue goal');
+    await page.locator('.gm-form button').click();
+    await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+    assert.equal(last().path, '/api/v2/chat/goal-manager');
+    assert.deepEqual(last().body, {text: 'Change the revenue goal', refs: {}});
+    assert.equal(await page.locator('.gm-history').getAttribute('open'), null);
+
     assert.match(await row('human:ben').innerText(), /Keep the board honest\./, 'a profile goal shows');
     // One line each, about 36px, the goals lined up in one column.
     for (const owner of ['company', 'bot:cmo', 'bot:seo', 'bot:sales']) {
@@ -113,7 +132,7 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     }
     const lefts = await page.locator('#goal-tree .gt-row:not(.gt-cont) .gt-goal').evaluateAll(els => [...new Set(els.map(el => Math.round(el.getBoundingClientRect().left)))]);
     assert.equal(lefts.length, 1, 'goals line up: ' + lefts);
-    if (screenshotDir) await page.screenshot({path: path.join(screenshotDir, 'goals-tree-test.png')});
+    if (screenshotDir) await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-tree-test.png')});
     // A long goal is cut short with an ellipsis; the whole of it is in the tooltip.
     const long = page.locator('#goal-tree .gt-cont[data-goal="g-cmo2"] .gt-goal');
     assert.equal(await long.getAttribute('title'), LONG);
@@ -213,6 +232,11 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     // A phone: two lines where needed, a smaller indent, no sideways scroll; the panel is a sheet at the bottom.
     await page.setViewportSize({width: 390, height: 844});
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
+    await page.evaluate(() => setDrawer(false));
+    if (screenshotDir) {
+      await page.locator('[data-gm-latest]', {hasText: 'Updated the goal.'}).waitFor();
+      await page.screenshot({animations: 'disabled', path: path.join(screenshotDir, 'goals-phone-test.png')});
+    }
     const cmo = await row('bot:cmo').boundingBox(), seo = await row('bot:seo').locator('.gt-av').boundingBox(), ana = await row('human:ana').locator('.gt-av').boundingBox();
     assert(cmo.height >= 44 && cmo.height <= 80, 'name and goal on two lines: ' + cmo.height);
     assert(seo.x - ana.x <= 22, 'a smaller indent: ' + (seo.x - ana.x));
@@ -221,6 +245,17 @@ const kpi = (id, name, over) => ({id, name, unit: '%', direction: 'up', cadence:
     const sheet = await panel.boundingBox();
     assert(Math.abs(sheet.y + sheet.height - 844) <= 2 && sheet.width >= 388, 'a sheet at the bottom');
     await page.keyboard.press('Escape');
+    // Turn on uses the existing setup method, without disturbing the goals tree.
+    bots.find(b => b.name === 'goal-manager').status = 'paused';
+    await page.setViewportSize({width: 1440, height: 900});
+    await page.reload();
+    await page.locator('[data-gm-on]').click();
+    await page.locator('.gm-form').waitFor();
+    assert.deepEqual(posted.findLast(r => r.path === '/api/v2/goal-manager/turn-on').body, {});
+    assert.equal(bots.find(b => b.name === 'goal-manager').status, 'active');
+    assert.equal(await page.locator('#goal-tree [data-owner="bot:goal-manager"]').count(), 0);
+    assert.match(await page.locator('[data-gm-result]').innerText(), /Updated KPI readings/);
+
     assert.deepEqual(errors, []);
     console.log('PASS: goals tree, built-in and message bots, panel adds and edits goals and KPIs, truncation, phone.');
   } finally { await browser.close(); }

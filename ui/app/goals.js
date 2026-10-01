@@ -8,6 +8,7 @@
 // comes from its owner: `company`, a human or a bot. Its parent is optional ("Supports"); a goal with
 // none is simply not linked. A bot reads its own with `hub goal list`; nothing here is pushed into a run.
 let GOALS_ST = null;
+const goalBuiltInOwner = actor => String(actor || '').startsWith('bot:') && isBuiltInBot(actor.slice(4));
 const goalLive = g => !['done', 'dropped'].includes(g.status);
 const goalRank = (a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9);
 const GOAL_COMPANY = 'company';
@@ -138,7 +139,7 @@ function goalAddInline(host, owner, done) {
 function goalOwnerChoices(mine) {
   if (S.me?.role !== 'owner') return mine ? [[mine, 'Me']] : [];
   return [...(S.people || []).filter(p => !p.hidden).map(p => ['human:' + p.id, p.name || p.id]),
-          ...shownEmps().map(e => ['bot:' + e.name, e.display_name || e.name])];
+          ...shownEmps().filter(e => !isBuiltInBot(e.name)).map(e => ['bot:' + e.name, e.display_name || e.name])];
 }
 // The colour a person sets by hand sticks until they let the Goal Manager set it again.
 const GOAL_COLOURS = [['green', 'On track'], ['yellow', 'At risk'], ['red', 'Off track'], ['done', 'Done']];
@@ -228,15 +229,17 @@ function pageGoals() {
   if (was) { was._state = null; if (was.open) was.close(); }
   const state = GOALS_ST = {goals: [], other: [], proposals: [], needs: [], owners: {}, loaded: false, open, panel: null};
   $('#main').innerHTML = `<div class="board-tools tasks-head"><h1>Goals</h1></div>
+    <section class="gm" id="goal-manager-panel" aria-label="Goal Manager"></section>
     <div id="goal-body"><p class="muted">Loading…</p></div>`;
+  goalManagerMount(state);
   goalsLoad(state);
 }
 function goalsApply(state, data, needs) {
-  state.goals = data.goals || [];
-  state.other = data.other_kpis || [];
+  state.goals = (data.goals || []).filter(g => !goalBuiltInOwner(g.owner));
+  state.other = (data.other_kpis || []).filter(k => !goalBuiltInOwner(k.owner));
   state.proposals = data.proposals || [];
   state.owners = data.owners || {};
-  if (needs !== undefined) state.needs = needs?.items || [];
+  if (needs !== undefined) state.needs = (needs?.items || []).filter(n => !goalBuiltInOwner(n.goal_owner) && !goalBuiltInOwner(n.owner) && !(data.goals || []).some(g => g.id === (n.goal_id || n.proposal?.goal_id) && goalBuiltInOwner(g.owner)));
 }
 // Two requests: the tree and what needs you. The roster (people, bots, departments) is already in S.
 async function goalsLoad(state) {
@@ -277,4 +280,147 @@ async function goalsRefresh() {
     if (r) goalsApply(GOALS_ST, r, needs);
   }
   headGoalsReload();
+}
+
+// The Goal Manager at the top of Goals (docs/goals-and-kpis.md): what it does, its routines from the server (when
+// each next runs), its last run, and the viewer's own direct chat with it, the one its bot page shows. A reply
+// redraws the tree, since the Goal Manager may have just edited a goal. Leaving the page stops its stream.
+let GOAL_MANAGER_STOP = null;
+const GM = 'goal-manager';
+const GM_STATE = {paused: 'Paused', planned: 'Not set up', archived: 'Off', retired: 'Off', quarantined: 'Paused'};
+async function goalManagerMount(pageState) {
+  GOAL_MANAGER_STOP?.();
+  const host = $('#goal-manager-panel');
+  if (!host) return;
+  const bot = (S.emps || []).find(e => e.name === GM);
+  const active = !!bot && !GM_STATE[bot.status];
+  let stopped = false, es = null, poll = null, conversation = null, messages = [], sending = false, lastReply;
+  const current = () => !stopped && GOALS_ST === pageState && host.isConnected;
+  const stopStream = () => { try { es?.close(); } catch { /* closed */ } es = null; clearInterval(poll); poll = null; };
+  GOAL_MANAGER_STOP = () => { stopped = true; stopStream(); };
+  const off = !bot ? 'Not set up' : GM_STATE[bot.status] || '';
+  host.innerHTML = `<div class="gm-info">
+      <header class="gm-head"><h2>Goal Manager</h2>${off ? `<span class="pill">${esc(off)}</span>` : ''}<a href="#/bot/${GM}">Open bot</a></header>
+      <p class="gm-what">Keeps KPIs current and each goal green, yellow or red. Humans set the goals.</p>
+      ${bot ? '<ul class="gm-routines" data-gm-routines><li class="muted">Loading routines…</li></ul><p class="gm-last" data-gm-result></p>' : ''}
+    </div>
+    <div class="gm-chat" data-gm-chat></div>`;
+  const chat = host.querySelector('[data-gm-chat]');
+  if (!active) {
+    chat.innerHTML = S.me?.role === 'owner'
+      ? '<div class="gm-on"><button class="primary" type="button" data-gm-on>Turn on</button><span class="muted" data-gm-status role="status"></span></div>'
+      : '<p class="muted gm-on">The owner can turn it on.</p>';
+    const on = chat.querySelector('[data-gm-on]');
+    if (on) on.onclick = async () => {
+      on.disabled = true;
+      const status = chat.querySelector('[data-gm-status]');
+      status.textContent = '';
+      try {
+        const result = await post('/v2/goal-manager/turn-on', {});
+        if (!current()) return;
+        if (result.state === 'active') { await refresh(true); if (current()) goalManagerMount(pageState); return; }
+        status.textContent = 'Needs a computer with a model. See Settings.';
+      } catch (e) { if (current()) status.textContent = e.message; }
+      if (current()) on.disabled = false;
+    };
+  } else {
+    chat.innerHTML = `<div class="gm-latest" data-gm-latest aria-live="polite" hidden></div>
+      <details class="gm-history" hidden><summary>History</summary><div data-gm-history></div></details>
+      <form class="gm-form"><textarea rows="1" maxlength="4000" aria-label="Message to the Goal Manager" placeholder="Ask it to change a goal…"></textarea><button class="primary" type="submit">Send</button></form>
+      <p class="err" data-gm-error role="alert" hidden></p>`;
+    const form = chat.querySelector('form'), box = form.querySelector('textarea'), error = chat.querySelector('[data-gm-error]');
+    const fail = text => { if (!current()) return; error.textContent = text || ''; error.hidden = !text; };
+    const isReply = m => m.from_actor === 'bot:' + GM;
+    const draw = () => {
+      if (!current()) return;
+      const shown = messages.at(-1) && !isReply(messages.at(-1)) ? messages.at(-1) : messages.filter(isReply).at(-1);
+      const latest = chat.querySelector('[data-gm-latest]');
+      latest.hidden = !shown;
+      latest.innerHTML = !shown ? '' : isReply(shown) ? `<div class="md">${safeMd(shown.body || '')}</div>`
+        : `<p class="gm-you">${esc(shown.body || '')}</p><p class="muted">Sent. The reply shows here.</p>`;
+      const earlier = messages.filter(m => m !== shown).slice(-40);
+      chat.querySelector('[data-gm-history]').innerHTML = earlier.map(m => `<div class="gm-message"><b>${isReply(m) ? 'Goal Manager' : 'You'}</b><div class="md">${safeMd(m.body || '')}</div></div>`).join('');
+      chat.querySelector('.gm-history').hidden = !earlier.length;
+    };
+    const apply = async data => {
+      if (!current()) return;
+      messages = data.messages || [];
+      draw();
+      const reply = messages.filter(isReply).at(-1)?.id;
+      // A new reply after the first look may come with an edited goal: draw the tree again.
+      if (lastReply !== undefined && reply !== lastReply) await goalsReload(pageState);
+      lastReply = reply ?? null;
+    };
+    const snapshot = async () => {
+      if (!conversation || !current()) return;
+      try { await apply(await get(`/v2/conversations/${encodeURIComponent(conversation.id)}/snapshot`)); fail(''); }
+      catch (e) { fail(e.message); }
+    };
+    // The same stream the bot page's chat uses; when it cannot connect, a poll.
+    const watch = () => {
+      stopStream();
+      if (!conversation || !current()) return;
+      const fallback = () => { if (!poll && current()) poll = setInterval(snapshot, 5000); };
+      if (typeof EventSource === 'undefined') return fallback();
+      es = new EventSource(`${API}/v2/conversations/${encodeURIComponent(conversation.id)}/watch`);
+      es.addEventListener('snapshot', ev => { let d; try { d = JSON.parse(ev.data); } catch { return; } void apply(d); });
+      es.addEventListener('expired', () => { stopStream(); fallback(); });
+      es.addEventListener('error', () => { if (es && es.readyState === 2) { stopStream(); fallback(); } });
+    };
+    box.onkeydown = ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); } };
+    form.onsubmit = async ev => {
+      ev.preventDefault();
+      const text = box.value.trim();
+      if (!text || sending) return;
+      sending = true; form.querySelector('button').disabled = true; fail('');
+      try {
+        const out = await cloudCompose('/v2/chat/' + GM, {text, refs: {}});
+        if (!current()) return;
+        const fresh = out.conversation && out.conversation.id !== conversation?.id;
+        conversation = out.conversation || conversation;
+        if (out.message && !messages.some(m => m.id === out.message.id)) messages.push(out.message);
+        if (lastReply === undefined) lastReply = messages.filter(isReply).at(-1)?.id ?? null;
+        box.value = ''; draw();
+        if (fresh || !es) watch();
+        await snapshot();
+      } catch (e) { fail(e.message); }
+      finally { sending = false; if (current()) form.querySelector('button').disabled = false; }
+    };
+    void (async () => {
+      try {
+        const list = await get('/v2/conversations?chat_with=' + GM);
+        if (!current() || conversation) return;
+        const me = myActor();
+        conversation = (list.conversations || []).find(c => c.kind === 'chat' && !c.task_id && !c.closed_at && String(c.scope || 'direct') === 'direct'
+          && (c.participants || []).includes(me) && (c.participants || []).includes('bot:' + GM)) || null;
+        if (conversation) { await snapshot(); watch(); }
+      } catch (e) { fail(e.message); }
+    })();
+  }
+  if (!bot) return;
+  // The routines are the server's rows; the times are the viewer's own, with the routine's zone when it differs.
+  const routinesEl = host.querySelector('[data-gm-routines]'), resultEl = host.querySelector('[data-gm-result]');
+  try {
+    const rows = (await get(`/v2/bots/${GM}/routines`)).routines || [];
+    const runs = await Promise.all(rows.map(r => get(`/v2/routines/${encodeURIComponent(r.id)}/occurrences`).then(o => o.occurrences?.[0] || null, () => null)));
+    if (!current()) return;
+    let here = '';
+    try { here = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* no zone */ }
+    routinesEl.innerHTML = rows.length ? rows.map(r => {
+      const when = r.enabled === false || !r.active ? 'paused' : r.on ? '' : r.next ? 'next ' + fmt(r.next) : '';
+      const zone = r.timezone && !r.on && r.timezone !== here ? ' (' + r.timezone + ')' : '';
+      return `<li><span class="nav-icon" aria-hidden="true">schedule</span><span><b>${esc(r.title)}</b> · ${esc(cadenceWords(r) + zone)}${when ? ' · ' + esc(when) : ''}</span></li>`;
+    }).join('') : '<li class="muted">No routines.</li>';
+    // The last run: what the bot last reported, else the newest routine firing.
+    const status = v2StatusOf(GM);
+    const fired = runs.filter(Boolean).map(o => ({at: o.started || o.occurrence, what: o.outcome || o.status || ''}))
+      .concat(rows.filter(r => r.last_fired).map(r => ({at: r.last_fired, what: ''})))
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)))[0];
+    const at = status?.last_turn_at || fired?.at, said = String(status?.last_result || fired?.what || '').split('\n')[0].slice(0, 240);
+    resultEl.textContent = at ? `Last run ${fmt(at) || at}${said ? ' · ' + said : ''}` : 'Not run yet.';
+  } catch (e) {
+    if (!current()) return;
+    routinesEl.innerHTML = `<li class="err">Routines did not load. ${esc(e.message || '')}</li>`;
+    resultEl.textContent = '';
+  }
 }

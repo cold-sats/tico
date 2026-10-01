@@ -1,10 +1,15 @@
-/* Ask AI on the Docs page (docs/librarian.md): a right-side drawer on a desktop, a full-screen sheet on a
-   phone. Type a question and matching docs, internal and linked, show at once from the search that comes
+/* Ask the Librarian on Docs and Market (docs/librarian.md): a right rail on desktop, open unless this viewer
+   hid it (remembered in this browser), and a full-screen sheet on a phone.
+
+   On Docs, type a question and matching docs, internal and linked, show at once from the search that comes
    back with POST /api/v2/docs/ask; the Librarian's answer then streams in from the conversation it
    went to (GET /api/v2/conversations/{id}/watch), with clickable citations. Only the person who asked
-   can read that conversation.
+   can read that conversation. On Market, the question is answered from the market graph as it is now
+   (POST /api/v2/market/ask): the answer and the organizations, people and pages it drew on, which open the
+   note and light up on the graph. Each page keeps its own thread.
 
-   window.openDocsAsk(question?) opens it; with a question it asks it straight away.
+   window.openDocsAsk(question?) opens it; with a question it asks it straight away. The page's own
+   [data-librarian-open] button opens it again; window.syncLibrarianRail(settled) is called after each route.
 
    The Librarian cites [Internal doc · Title](doc:<id>) and [Linked · host](https://...). `doc:<id>` is
    turned into the Docs page route here and nowhere else (docHref). Its text is bot text: it only ever
@@ -13,16 +18,19 @@
 (function () {
   const css = `
 .dask-backdrop{position:fixed;inset:0;z-index:1500;background:rgba(10,14,18,.4)}
-.dask{position:fixed;top:0;right:0;bottom:0;z-index:1501;width:min(460px,100vw);display:flex;flex-direction:column;background:var(--surface);color:var(--ink);border-left:1px solid var(--line);box-shadow:-12px 0 40px rgba(0,0,0,.25);animation:dask-in .18s ease-out}
+.dask{position:fixed;top:0;right:0;bottom:0;z-index:1501;width:min(460px,100vw);display:flex;flex-direction:column;background:var(--surface);color:var(--ink);border-left:1px solid var(--line);animation:dask-in .18s ease-out}
+html.demo .dask{top:var(--demo-h)}
 @keyframes dask-in{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.dask{animation:none}.dask-think i{animation:none}}
-.dask-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.dask-head{display:flex;align-items:center;gap:6px;min-height:57px;padding:10px 8px 10px 14px;border-bottom:1px solid var(--line)}
 .dask-head .nav-icon{font-size:20px;color:var(--accent)}
-.dask-head h2{font-size:15px}
+.dask-head h2{font-size:15px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dask-head small{display:block;color:var(--muted);font-size:12px;font-weight:400}
 .dask-head .spacer{flex:1}
-.dask-new{font-size:12.5px;padding:4px 10px}
-.dask-close{background:none;border:0;border-radius:6px;padding:6px 9px;font-size:16px;cursor:pointer;color:var(--muted)}
+.dask-new{font-size:12.5px;padding:4px 10px;white-space:nowrap}
+.dask-close{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;background:none;border:0;border-radius:6px;padding:0 6px;font-size:16px;cursor:pointer;color:var(--muted)}
+.dask-close .nav-icon{font-size:20px;color:inherit}
+.dask-close:focus-visible,.dask-new:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .dask-close:hover{background:var(--surface2);color:var(--ink)}
 .dask-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
 .dask-empty{color:var(--muted);font-size:13.5px}
@@ -56,15 +64,53 @@
 .dask-form textarea:focus{outline:2px solid var(--accent);outline-offset:0}
 .dask-form .primary{min-height:44px}
 .dask-off{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.dask-cites{display:flex;flex-wrap:wrap;gap:4px 6px;margin:2px 0 0}
+.dask-cites a.dask-cite{display:inline-block;font-size:12px;line-height:1.35;padding:0 7px;border-radius:10px;border:1px solid var(--line);background:var(--bg);text-decoration:none;color:var(--accent)}
+.dask-cites a.dask-cite:hover{background:var(--surface2)}
 @media (max-width:760px){
   .dask{inset:0;width:auto;border-left:0;box-shadow:none;height:100dvh}
+  html.demo .dask{height:calc(100dvh - var(--demo-h))}
   .dask-backdrop{display:none}
+}
+/* Desktop: a rail beside the page, which gives up its room on the right. */
+@media(min-width:761px){
+  #main.librarian-open{--librarian-width:clamp(300px,26vw,360px);margin-right:var(--librarian-width);max-width:min(1180px,calc(100% - var(--librarian-width)))}
+  #main.librarian-open.market-layout{max-width:calc(100% - var(--librarian-width))}
+  #main.librarian-open [data-librarian-open]{display:none}
+  #main.librarian-open .docs-heading{grid-template-columns:auto minmax(180px,1fr) auto}
+  #main.librarian-open .docs-workspace{grid-template-columns:minmax(240px,300px) minmax(0,1fr);gap:20px}
+  .dask{width:clamp(300px,26vw,360px);box-shadow:none;animation:none}
+  body:has(#main.librarian-open) .toast{right:calc(clamp(300px,26vw,360px) + 20px)}
+}
+/* The market's three columns need room the rail takes: under 1600px the graph moves below the note. */
+@media(min-width:761px) and (max-width:1599px){
+  #main.librarian-open .market-shell{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(200px,34vh)}
+  #main.librarian-open .market-graph{grid-column:1/-1;border-top:1px solid #2a2a2a}
+  #main.librarian-open .market-read{padding:22px 24px 16px}
+}
+@media(min-width:761px) and (max-width:1100px){
+  #main.librarian-open .docs-heading{display:flex;flex-wrap:wrap}
+  #main.librarian-open .docs-search-field{flex-basis:100%}
+  #main.librarian-open .docs-actions{flex-wrap:wrap;max-width:100%}
+  #main.librarian-open .docs-workspace{display:block;overflow:auto}
+  #main.librarian-open .docs-browser{border-right:0;padding-right:0}
+  #main.librarian-open .docs-reader{overflow:visible}
+  #main.librarian-open .docs-workspace.has-selection:not(.searching) .docs-browser,
+  #main.librarian-open .docs-workspace.has-selection.searching .docs-reader,
+  #main.librarian-open .docs-workspace:not(.has-selection) .docs-reader{display:none}
+  #main.librarian-open .docs-back{display:inline-block}
 }`;
 
-  // What the page keeps between opening and closing the panel: the conversation, so a follow-up has context,
-  // and what was asked and answered, so closing it does not lose the thread.
-  const session = {conversationId: '', turns: []};
-  let panel = null, opener = null, es = null, poll = null, busy = false;
+  // What each page keeps between opening and closing the panel: the conversation, so a follow-up has context,
+  // and what was asked and answered, so closing it does not lose the thread. Docs and Market each have their own.
+  const sessions = {docs: {conversationId: '', turns: []}, market: {turns: []}};
+  const where = () => /^#\/market(?:[/?]|$)/.test(location.hash) ? 'market' : 'docs';
+  const HINTS = {docs: ['How do we handle a refund?', 'Who owns onboarding?', 'Where is the pricing?'],
+    market: ['Who competes with us?', 'What changed this week?', 'Which channels matter?']};
+  const PLACEHOLDER = {docs: 'Ask about your docs…', market: 'Ask about the market…'};
+  const TURN_LIMIT = 50;
+  let ctx = where(), panel = null, opener = null, es = null, poll = null, busy = false;
+  const session = () => sessions[ctx];
 
   const docHref = id => '#/docs/' + encodeURIComponent(id);
   const KINDS = {website: 'Website', google_drive: 'Google Drive', google_doc: 'Google Doc', notion: 'Notion', github: 'GitHub', other: 'Link'};
@@ -79,8 +125,18 @@
     document.head.appendChild(el);
   }
 
+  // Desktop on Docs or Market: a rail beside the page. Anywhere else, and on a phone: a sheet over it.
+  const desktop = () => matchMedia('(min-width: 761px)').matches;
+  const railPage = () => /^#\/(docs|market)(?:[/?]|$)/.test(location.hash);
+  const asRail = () => desktop() && railPage();
+  // Hidden or shown, per viewer, in this browser only; a browser that will not store it shows the rail.
+  const hiddenKey = () => 'tico.librarian.collapsed.' + (S.me?.id || '');
+  function railHidden() { try { return localStorage.getItem(hiddenKey()) === '1'; } catch { return false; } }
+  function rememberHidden(value) { try { localStorage.setItem(hiddenKey(), value ? '1' : '0'); } catch { /* not kept */ } }
+  const openButton = () => $('#main')?.querySelector('[data-librarian-open]');
+
   // The Librarian's markdown, sanitized. `doc:<id>` becomes the docs route first; afterwards each citation
-  // is a chip, an in-app link opens in place (and closes the panel), everything else opens in a new tab.
+  // is a chip, an in-app link opens in place (and closes the sheet on a phone), everything else opens in a new tab.
   function answerHtml(text) {
     return safeMd(String(text || '').replace(/\]\(doc:([^)\s]+)\)/g, (_, id) => '](' + docHref(id) + ')'));
   }
@@ -88,7 +144,7 @@
     root.querySelectorAll('a').forEach(a => {
       const href = a.getAttribute('href') || '';
       if (/^(Internal doc|Linked|Tico manual) · /.test(a.textContent)) a.classList.add('dask-cite');
-      if (href.startsWith('#/')) { a.removeAttribute('target'); a.addEventListener('click', () => close(false)); }
+      if (href.startsWith('#/')) { a.removeAttribute('target'); a.addEventListener('click', () => { if (!asRail()) close(false); }); }
     });
   }
 
@@ -99,11 +155,19 @@
           r.description ? `<p>${esc(r.description)}</p>` : `<p>${esc(host(r.url))}</p>`}</li>`
       : r.type === 'manual'
       ? `<li data-type="manual"><div class="dask-line"><span class="dask-badge">Tico manual</span><a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${esc(r.title)}</a></div>${r.excerpt ? `<p>${esc(clean(r.excerpt))}</p>` : ''}</li>`
-      : `<li data-type="internal"><div class="dask-line"><span class="dask-badge internal">Internal doc</span><a href="${esc(docHref(r.id))}" data-close>${esc(r.title || r.path)}</a></div>${
+      : `<li data-type="internal"><div class="dask-line"><span class="dask-badge internal">Internal doc</span><a href="${esc(docHref(r.id))}">${esc(r.title || r.path)}</a></div>${
           r.excerpt ? `<p>${esc(clean(r.excerpt))}</p>` : ''}</li>`).join('')}</ul>`;
   }
 
   function turnHtml(t, i) {
+    if (t.market) {
+      const state = t.error ? `<p class="dask-err" role="alert">${esc(t.error)}</p>`
+        : t.answer != null ? '' : '<p class="dask-think" data-thinking role="status">Reading the market<i></i><i></i><i></i></p>';
+      return `<section data-turn="${i}"><div class="dask-q">${esc(t.question)}</div>
+        ${t.answer != null ? `<h3 class="dask-label">Librarian</h3><div class="dask-a md" data-answer>${safeMd(t.answer)}</div>` : ''}
+        ${t.cites?.length ? `<p class="dask-cites">${t.cites.map(c => `<a class="dask-cite" href="${esc(c.href)}">${esc(c.label)}</a>`).join('')}</p>` : ''}
+        ${state}</section>`;
+    }
     const state = t.error ? `<p class="dask-err" role="alert">${esc(t.error)}</p>`
       : t.answer != null ? '' : `<p class="dask-think" data-thinking role="status">The Librarian is reading the docs<i></i><i></i><i></i></p>`;
     return `<section data-turn="${i}"><div class="dask-q">${esc(t.question)}</div>
@@ -116,15 +180,15 @@
     if (!panel) return;
     const body = panel.querySelector('.dask-body');
     const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 80;
-    body.innerHTML = session.turns.length ? session.turns.map(turnHtml).join('')
+    const turns = session().turns;
+    body.innerHTML = turns.length ? turns.map(turnHtml).join('')
       : `<div class="dask-empty">
-          <div class="dask-hints">${['How do we handle a refund?', 'Who owns onboarding?', 'Where is the pricing?'].map(h => `<button class="ghost" type="button" data-hint="${esc(h)}">${esc(h)}</button>`).join('')}</div></div>`;
+          <div class="dask-hints">${HINTS[ctx].map(h => `<button class="ghost" type="button" data-hint="${esc(h)}">${esc(h)}</button>`).join('')}</div></div>`;
     decorate(body);
-    body.querySelectorAll('a[data-close]').forEach(a => a.addEventListener('click', () => close(false)));
     body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => ask(b.dataset.hint); });
     body.querySelectorAll('[data-collection]').forEach(select => {
       select.onchange = async () => {
-        const turn = session.turns[Number(select.dataset.collection)], collection = select.value;
+        const turn = turns[Number(select.dataset.collection)], collection = select.value;
         turn.collection = collection;
         try {
           const found = await get('/v2/docs/search?limit=8&collection=' + collection + '&q=' + encodeURIComponent(turn.question));
@@ -135,6 +199,7 @@
     if (atEnd || busy) body.scrollTop = body.scrollHeight;
     const button = panel.querySelector('.dask-form button');
     if (button) button.disabled = busy;
+    panel.querySelector('textarea').placeholder = PLACEHOLDER[ctx];
   }
 
   function stop() {
@@ -165,26 +230,45 @@
     es.addEventListener('error', () => { if (es && es.readyState === 2) { stop(); fallback(); } });
   }
 
+  // Market: the graph as it is now answers, and what it drew on lights up on the graph (ui/market-page.js).
+  async function askMarket(turn) {
+    try {
+      const out = await post('/v2/market/ask', {question: turn.question});
+      const ids = [...new Set((out.citations || []).filter(c => c.kind === 'entity').map(c => c.id))];
+      turn.answer = String(out.answer || '').replace(/\s*\[[a-z]+:[^\]]+\]/gi, '');
+      turn.cites = ids.map(id => ({href: '#/market?note=' + encodeURIComponent(id), label: window.marketName?.(id) || id})).filter(c => c.label);
+      window.marketCite?.(ids);
+    } catch (e) {
+      turn.error = (e && e.message) || 'The Librarian could not answer.';
+    }
+    if (turn.ctx === ctx) busy = false;
+    draw();
+  }
+
   async function ask(question) {
     question = String(question || '').trim();
     if (!question || busy || !panel) return;
     busy = true;
-    const turn = {question, results: null, answer: null, live: '', error: '', conversationId: session.conversationId, messageId: ''};
-    session.turns.push(turn);
+    const s = session();
+    const turn = {question, ctx, results: null, answer: null, live: '', error: '', conversationId: s.conversationId, messageId: ''};
+    if (ctx === 'market') turn.market = true;
+    s.turns.push(turn);
+    if (s.turns.length > TURN_LIMIT) s.turns.shift();
     draw();
+    if (turn.market) return askMarket(turn);
     try {
       // The first question of a page session, and the first after New chat, opens a new conversation, so what
       // the Librarian remembers is what the thread on screen shows; follow-ups continue it.
-      const sent = await post('/v2/docs/ask', {question, ...(session.conversationId ? {conversation_id: session.conversationId} : {new_conversation: true})});
-      session.conversationId = turn.conversationId = sent.conversation_id;
+      const sent = await post('/v2/docs/ask', {question, ...(s.conversationId ? {conversation_id: s.conversationId} : {new_conversation: true})});
+      s.conversationId = turn.conversationId = sent.conversation_id;
       turn.messageId = sent.message_id;
       turn.results = sent.results || [];
       draw();
-      follow(turn);
+      if (panel && ctx === 'docs') follow(turn);
     } catch (e) {
       busy = false;
       const code = e?.body?.error?.code;
-      if (code === 'conversation') session.conversationId = '';
+      if (code === 'conversation') s.conversationId = '';
       turn.error = code === 'librarian_off' ? 'The Librarian is off.' : (e && e.message) || 'That did not go through.';
       draw();
       if (code === 'librarian_off') offNotice();
@@ -208,51 +292,74 @@
       const status = note.querySelector('[data-turn-status]');
       try {
         const r = await post('/v2/librarian/turn-on', {});
-        if (r.state === 'active') { note.remove(); session.turns.pop(); draw(); toast?.('The Librarian is on'); }
+        if (r.state === 'active') { note.remove(); session().turns.pop(); draw(); toast?.('The Librarian is on'); }
         else status.textContent = 'It is set up, but needs a computer with a model before it can answer (Settings).';
       } catch (e) { on.disabled = false; status.textContent = e.message; }
     };
   }
 
-  function close(returnFocus = true) {
+  // Rail or sheet: the role, the backdrop and the close button follow. A rail is part of the page (Escape leaves
+  // it alone, and its button hides it); a sheet is a dialog that Escape and its ✕ close.
+  function setMode() {
+    if (!panel) return;
+    const rail = asRail();
+    panel.setAttribute('role', rail ? 'complementary' : 'dialog');
+    if (rail) panel.removeAttribute('aria-modal'); else panel.setAttribute('aria-modal', 'true');
+    const x = panel.querySelector('.dask-close');
+    x.setAttribute('aria-label', rail ? 'Hide Ask the Librarian' : 'Close Ask the Librarian');
+    x.title = rail ? 'Hide' : 'Close';
+    x.innerHTML = rail ? '<span class="nav-icon" aria-hidden="true">chevron_right</span>' : '✕';
+    const backdrop = document.querySelector('.dask-backdrop');
+    if (rail) backdrop?.remove();
+    else if (!backdrop) {
+      const el = document.createElement('div');
+      el.className = 'dask-backdrop';
+      el.onclick = () => close();
+      panel.before(el);
+    }
+    $('#main')?.classList.toggle('librarian-open', rail);
+  }
+
+  // hide: the viewer hid the rail, so it stays hidden on Docs and Market until they open it again.
+  function close(returnFocus = true, hide = false) {
     if (!panel) return;
     stop();
     busy = false;
     document.removeEventListener('keydown', onKey, true);
-    panel.previousElementSibling?.remove();          // the backdrop
+    document.querySelector('.dask-backdrop')?.remove();
+    $('#main')?.classList.remove('librarian-open');
+    if (hide) rememberHidden(true);
     panel.remove();
     panel = null;
-    if (returnFocus) opener?.focus?.();
+    if (returnFocus) (openButton() || opener)?.focus?.();
   }
   function onKey(ev) {
-    if (ev.key === 'Escape' && panel) { ev.stopPropagation(); close(); }
+    if (ev.key === 'Escape' && panel && panel.getAttribute('role') === 'dialog') { ev.stopPropagation(); close(); }
   }
 
-  function open(question) {
+  function open(question, focus = true) {
     style();
     if (!panel) {
+      ctx = where();
       opener = document.activeElement;
-      const backdrop = document.createElement('div');
-      backdrop.className = 'dask-backdrop';
-      backdrop.onclick = () => close();
       panel = document.createElement('aside');
       panel.className = 'dask';
-      panel.setAttribute('role', 'dialog');
-      panel.setAttribute('aria-modal', 'true');
       panel.setAttribute('aria-labelledby', 'dask-title');
       panel.dataset.docsAsk = '';
       panel.innerHTML = `<header class="dask-head"><span class="nav-icon" aria-hidden="true">auto_awesome</span>
-          <div><h2 id="dask-title">Ask AI</h2></div><span class="spacer"></span>
+          <h2 id="dask-title">Ask the Librarian</h2><span class="spacer"></span>
           <button class="ghost dask-new" type="button" data-new-chat>New chat</button>
-          <button class="dask-close" type="button" aria-label="Close Ask AI">✕</button></header>
+          <button class="dask-close" type="button"></button></header>
         <div class="dask-body"></div>
-        <form class="dask-form"><textarea rows="2" maxlength="4000" aria-label="Your question" placeholder="Ask about your docs…" required></textarea>
+        <form class="dask-form"><textarea rows="2" maxlength="4000" aria-label="Your question" required></textarea>
         <button class="primary" type="submit">Ask</button></form>`;
-      document.body.append(backdrop, panel);
-      panel.querySelector('.dask-close').onclick = () => close();
+      document.body.append(panel);
+      setMode();
+      if (asRail()) rememberHidden(false);
+      panel.querySelector('.dask-close').onclick = () => close(true, asRail());
       panel.querySelector('[data-new-chat]').onclick = () => {
         if (busy) return;
-        stop(); session.conversationId = ''; session.turns = []; draw(); panel.querySelector('textarea').focus();
+        stop(); sessions[ctx] = ctx === 'docs' ? {conversationId: '', turns: []} : {turns: []}; draw(); panel.querySelector('textarea').focus();
       };
       const box = panel.querySelector('textarea');
       box.onkeydown = ev => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); panel.querySelector('form').requestSubmit(); } };
@@ -262,15 +369,37 @@
         if (text.trim() && !busy) { box.value = ''; ask(text); }
       };
       document.addEventListener('keydown', onKey, true);
-      // Follow-ups keep their conversation; a turn that was still running when the panel closed is picked up again.
-      const last = session.turns.at(-1);
-      draw();
-      if (last && last.answer == null && !last.error && last.messageId) { busy = true; draw(); follow(last); }
+      resume();
     }
-    panel.querySelector('textarea').focus();
+    if (focus) panel.querySelector('textarea').focus();
     if (question && question.trim()) ask(question);
   }
+  // Draw this page's thread; a docs turn that was still running when the panel closed (or the page changed)
+  // is picked up again.
+  function resume() {
+    const last = session().turns.at(-1);
+    busy = false;
+    draw();
+    if (ctx === 'docs' && last && last.answer == null && !last.error && last.messageId) { busy = true; draw(); follow(last); }
+    else if (ctx === 'market' && last && last.answer == null && !last.error) { busy = true; draw(); }
+  }
 
+  // After every route (ui/app/router.js) and when the window is resized. On Docs and Market on a desktop the
+  // rail opens unless this viewer hid it; a phone gets the page's button only. `settled`: the page has drawn
+  // (the market draws later than the route), so a page with no button (an empty market) has no rail.
+  window.syncLibrarianRail = settled => {
+    if (!railPage()) { close(false); return; }
+    style();
+    const button = openButton();
+    if (!button) { if (settled === true) close(false); return; }
+    button.onclick = () => open();
+    if (panel && ctx !== where()) { stop(); ctx = where(); resume(); }
+    if (desktop()) {
+      if (panel) setMode();
+      else if (!railHidden()) open(undefined, false);
+    } else if (panel?.getAttribute('role') === 'complementary') close(false);
+  };
+  window.addEventListener('resize', () => window.syncLibrarianRail());
   window.openDocsAsk = open;
   // The old entry point, until every page that called it says openDocsAsk.
   window.openDocsChat = () => open();

@@ -12,6 +12,11 @@ On **Tasks**, press **New task** and pick who it is for — any human or bot. On
 **Give a task**. On a bot, ask it in Chat. Or ask your own external agent (Grok, Muse, Claude and others) to file
 it through Tico's MCP. Each task shows who added it: you, another human, or a bot.
 
+**Where are the built-in bots?**
+**Assistant** and **BotOps** are in the main left rail. The Goal Manager is at the top of **Goals**: its routines, its last
+run and a box to ask it to change a goal. **Docs** and **Market** have **Ask the Librarian** on the right (a button on a
+phone). All four are managed in **Settings > Bots**; they stay out of the team chart and the goal owner list.
+
 **How do I ask a bot a question?**
 Open the bot's page and use its **Chat** tab; the reply comes back into the same conversation.
 For anything across the team, ask your own external agent: **Connect an external agent** (the plug button beside

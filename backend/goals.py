@@ -717,29 +717,6 @@ def decide(conn, actor, proposal_id, decision, note=""):
     return proposal(conn, proposal_id)
 
 
-# ----------------------------------------------------------------------------- BotOps' first goal
-BOTOPS_GOAL = ("Keep the bots running smoothly",
-               "Help people and bots create new bots and edit existing ones so they run smoothly. "
-               "Watch for bot issues and resolve them.")
-
-
-def ensure_botops_goal(conn):
-    """BotOps starts with one goal of its own, with no parent, set by the keeper (the actor the
-    seeded goals use). Once per company: a `goal.default` event is the record, so nobody's deleting
-    or dropping it brings it back, and a BotOps that already has any goal of its own is left alone.
-    Returns the new goal, or None. With no BotOps yet nothing is recorded, so setting it up does it."""
-    slug = H.FLEET_MAINTAINER
-    if not H.bot(conn, slug):
-        return None
-    if conn.execute("SELECT 1 FROM events WHERE action='goal.default' AND target=?", (slug,)).fetchone():
-        return None
-    owner, made = H.bot_actor(slug), None
-    if not conn.execute("SELECT 1 FROM goals WHERE owner=?", (owner,)).fetchone():
-        made = create(conn, H.KEEPER, BOTOPS_GOAL[0], owner, body=BOTOPS_GOAL[1])
-    H.event(conn, H.KEEPER, "goal.default", slug, {"goal": made["id"] if made else None})
-    return made
-
-
 # ----------------------------------------------------------------------------- seed
 def seed(conn, document, resolve):
     """Import `registry/goals.yaml` once per goal: a goal whose `id` is already in the table is

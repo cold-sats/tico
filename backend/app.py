@@ -1045,6 +1045,13 @@ def create_app(settings=None):
         with store.read() as c:
             return {"cards": onboarding.catalog(c)}
 
+    @app.post("/api/v2/goal-manager/turn-on")
+    def turn_on_goal_manager(request: Request, body: M.Empty):
+        who = request.state.identity
+        if who.role != "owner":
+            raise Problem("forbidden", "Only the owner turns the Goal Manager on", 403)
+        return mutate(request, body, lambda c: onboarding.turn_on_goal_manager(c, who))
+
     @app.get("/api/v2/onboarding")
     def onboarding_record(request: Request):
         who = request.state.identity

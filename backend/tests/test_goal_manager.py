@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import create_app
 from backend.store import H
-from backend.tests.test_onboarding import (ASSISTANT_AGENT, ASSISTANT_CARD, BOTOPS_CARD, as_person, draft,  # noqa: F401
+from backend.tests.test_onboarding import (PEOPLE, ASSISTANT_AGENT, ASSISTANT_CARD, BOTOPS_CARD, as_person, draft,  # noqa: F401
                                            environment, machine, signed_in)
 
 TEMPLATE = Path(__file__).resolve().parents[2] / "templates" / "catalog" / "goal-manager"
@@ -106,3 +106,15 @@ def test_the_template_is_short_and_every_playbook_it_names_exists():
     named = (TEMPLATE / "AGENT.md").read_text()
     for playbook in (TEMPLATE / "playbooks").glob("*.md"):
         assert playbook.name == "README.md" or playbook.name in named or playbook.name in (TEMPLATE / "playbooks/README.md").read_text()
+
+
+def test_turn_on_path_reuses_existing_goal_manager_and_requires_owner(environment):
+    api, _ = built(environment)
+    with api.app.state.store.transaction() as c:
+        c.execute("UPDATE bots SET state='paused' WHERE slug='goal-manager'")
+    denied = api.post("/api/v2/goal-manager/turn-on", json={}, headers=as_person(api, PEOPLE["people"][1]["id"]))
+    assert denied.status_code == 403
+    result = api.post("/api/v2/goal-manager/turn-on", json={}, headers=signed_in())
+    assert result.status_code == 200, result.text
+    assert states(api)["goal-manager"] == "active"
+    assert len(routines(api)) == 2

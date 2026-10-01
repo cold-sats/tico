@@ -1,5 +1,5 @@
 /* The Docs page (docs/docs.md): internal docs, written or imported in Tico with history and locks,
-   and linked docs, which are only links. Search covers both. Ask AI is the Librarian's (ui/docs-ask.js). */
+   and linked docs, which are only links. Search covers both. Ask the Librarian is ui/docs-ask.js. */
 let DOC_DATA = {docs: [], linked: []};
 let DOC_QUERY = '';
 let DOC_LOAD = 0;
@@ -39,7 +39,7 @@ window.pageCompanyDocs = async function pageCompanyDocs() {
 
   $('#main').innerHTML = `<div class="docs-heading"><h1>Docs</h1>
     <div class="docs-search-field"><span class="nav-icon" aria-hidden="true">search</span><input id="docs-search" class="docs-search" type="search" aria-label="Search docs" placeholder="Search internal and linked docs…" value="${esc(DOC_QUERY)}" autocomplete="off"></div>
-    <button class="primary docs-ask" id="docs-ask" type="button" aria-label="Ask AI about docs"><span class="nav-icon" aria-hidden="true">auto_awesome</span><span class="docs-ask-word">Ask AI</span></button>
+    <button class="primary docs-ask" id="docs-ask" type="button" data-librarian-open aria-label="Ask the Librarian"><span class="nav-icon" aria-hidden="true">auto_awesome</span><span class="docs-ask-word">Ask the Librarian</span></button>
     <div class="docs-actions"><a class="docs-new" href="${docsHref('', archived ? {} : {archived: 1})}">${archived ? 'Active' : 'Archived'}</a><a class="docs-new" id="docs-new" href="${docsHref('new')}" role="button">New doc</a>
       <button class="docs-settings" id="docs-more" type="button" popovertarget="docs-menu" aria-label="More" aria-expanded="false" title="More"><span class="nav-icon" aria-hidden="true">more_horiz</span></button></div></div>
     <div id="docs-menu" popover aria-label="Docs actions"><button id="docs-import" type="button">Import a file…</button><button id="docs-link" type="button">Add a link…</button></div>

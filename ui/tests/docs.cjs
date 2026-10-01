@@ -14,7 +14,7 @@ const shot = async (page, name) => {
   if (!shots) return;
   for (const scheme of ['light', 'dark']) {
     await page.emulateMedia({colorScheme: scheme});
-    await page.screenshot({path: path.join(shots, `docs-${name}-${scheme}.png`)});
+    await page.screenshot({animations: 'disabled', path: path.join(shots, `docs-${name}-${scheme}.png`)});
   }
   await page.emulateMedia({colorScheme: 'light'});
 };
@@ -75,7 +75,21 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
       if (p === '/api/v2/updates/unread') return json({unread: 0});
       if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, next_before: null, today: {}});
       if (p === '/api/v2/tasks') return json({tasks: []});
+      if (p === '/api/v2/docs/ask') {
+        const body = req.postDataJSON(); requests.push({api: 'docs/ask', body});
+        return json({conversation_id: 'librarian-chat', message_id: 'ask-docs', results: [{id: 'doc-000000000001', title: 'Refund policy', type: 'internal'}]});
+      }
+      if (p === '/api/v2/conversations/librarian-chat/watch') return route.fulfill({contentType: 'text/event-stream', body: 'event: snapshot\ndata: ' + JSON.stringify({messages: [{id: 'answer-docs', in_reply_to: 'ask-docs', from_actor: 'bot:librarian', body: 'See [Internal doc · Refund policy](doc:doc-000000000001).'}]}) + '\n\n'});
       if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+      // A one-row market, so the Market page draws and Ask the Librarian answers from its graph.
+      if (p === '/api/v2/market/entities') return json({entities: [{id: 'company/rival', type: 'company', name: 'Rival', status: 'active'}]});
+      if (p === '/api/v2/market/entities/company/rival') return json({entity: {id: 'company/rival', type: 'company', name: 'Rival', summary: 'Sells to studios.'}, edges: [], evidence: []});
+      if (p === '/api/v2/market/edges') return json({edges: []});
+      if (p === '/api/company-docs') return json({documents: []});
+      if (p === '/api/v2/market/ask') {
+        requests.push({api: 'market/ask', body: req.postDataJSON()});
+        return json({answer: 'Rival competes on price [entity:company/rival].', citations: [{kind: 'entity', id: 'company/rival'}], excerpts: []});
+      }
       if (p === '/api/v2/setup/getting-started' && method === 'GET') return json({items: [], done: 0, total: 0, complete: true, dismissed: true, tour_seen: true,
         cards_dismissed: started.cards, can_build: true, owner: me.role === 'owner', empty: {docs: true, market: false, tasks: false, updates: false, goals: false, meetings: false, ...started.empty}});
       if (p === '/api/v2/setup/getting-started/state') return json({tour: true, checklist: true, cards: [], skipped: []});
@@ -172,6 +186,29 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(await page.locator('.docs-welcome').count(), 1);
     await shot(page, 'list');
 
+    // Desktop rail stays open while reading, streams answers and preserves collapse per viewer.
+    assert.equal(await page.locator('[data-docs-ask]').getAttribute('role'), 'complementary');
+    assert.equal(await page.locator('.dask-backdrop').count(), 0);
+    const mainBox = await page.locator('#main').boundingBox(), railBox = await page.locator('[data-docs-ask]').boundingBox();
+    assert(mainBox.x + mainBox.width <= railBox.x + 1, 'rail has its own space');
+    await page.locator('.dask-form textarea').fill('What is the refund policy?');
+    await page.locator('.dask-form button').click();
+    await page.locator('.dask-cite').waitFor();
+    assert.equal(await page.locator('.dask-cite').getAttribute('href'), '#/docs/doc-000000000001');
+    assert.equal(await page.locator('.dask-results a').textContent(), 'Refund policy');
+    await shot(page, 'rail-desktop');
+    // The rail is part of the page: Escape elsewhere leaves it open.
+    await page.locator('#docs-search').focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-docs-ask]').count(), 1);
+    await page.locator('.dask-close').click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'docs-ask', 'hiding the rail focuses its button');
+    await page.reload();
+    await page.locator('.docs-heading').waitFor();
+    assert.equal(await page.locator('[data-docs-ask]').count(), 0);
+    await page.locator('#docs-ask').click();
+    await page.locator('[data-docs-ask]').waitFor();
+
     // ---- read an internal doc, and its relative link to another doc stays in the app
     await page.locator('.docs-item', {hasText: 'Pricing and plans'}).click();
     await page.locator('.docs-reader-head h2', {hasText: 'Pricing and plans'}).waitFor();
@@ -181,6 +218,34 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     await page.locator('.docs-item', {hasText: 'Refund policy'}).click();
     await page.locator('.docs-reader-head h2', {hasText: 'Refund policy'}).waitFor();
     await shot(page, 'doc');
+
+    // Market: the same rail, its own thread, answered from the market graph; what it drew on opens the note.
+    const docsAsks = requests.filter(r => r.api === 'docs/ask').length;
+    await page.evaluate(() => { location.hash = '#/market'; });
+    await page.locator('#market-shell [data-librarian-open]').waitFor({state: 'attached'});
+    await page.locator('[data-docs-ask]').waitFor();
+    assert.equal(await page.locator('.dask-form textarea').getAttribute('placeholder'), 'Ask about the market…');
+    assert.equal(await page.locator('[data-docs-ask] [data-turn]').count(), 0, 'Market has its own thread');
+    await page.locator('.dask-form textarea').fill('Who competes with us?');
+    await page.locator('.dask-form button').click();
+    await page.locator('.dask-cites .dask-cite', {hasText: 'Rival'}).waitFor();
+    assert.equal(requests.findLast(r => r.api === 'market/ask').body.question, 'Who competes with us?');
+    assert.equal(requests.filter(r => r.api === 'docs/ask').length, docsAsks);
+    assert.equal(await page.locator('[data-docs-ask] [data-answer]').innerText(), 'Rival competes on price.');
+    await page.locator('.dask-cites .dask-cite').click();
+    await page.waitForFunction(() => location.hash === '#/market?note=company%2Frival');
+    assert.equal(await page.locator('[data-docs-ask]').count(), 1, 'a citation opens the note beside the rail');
+    await page.evaluate(() => { location.hash = '#/docs'; });
+    await page.locator('.docs-heading').waitFor();
+    assert.equal(await page.locator('.dask-form textarea').getAttribute('placeholder'), 'Ask about your docs…');
+
+    // A narrow desktop still reserves space for the rail and lets a doc open.
+    await page.setViewportSize({width: 1024, height: 860});
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.locator('.docs-item', {hasText: 'Refund policy'}).click();
+    await page.locator('.docs-reader-head h2', {hasText: 'Refund policy'}).waitFor();
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.setViewportSize({width: 1280, height: 860});
 
     // ---- create: title, path, a Markdown body, a safe preview
     await page.locator('#docs-new').click();
@@ -314,6 +379,12 @@ const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     assert.equal(await page.locator('#docs-ask .docs-ask-word').isVisible(), false);
     await shot(page, 'phone-list');
+    assert.equal(await page.locator('[data-docs-ask]').count(), 0);
+    await page.locator('#docs-ask').click();
+    assert.equal(await page.locator('[data-docs-ask]').getAttribute('aria-modal'), 'true');
+    await shot(page, 'rail-phone');
+    await page.locator('.dask-close').click();
+
     await page.locator('.docs-item').first().click();
     await page.locator('.docs-reader-head h2').waitFor();
     assert.equal(await page.locator('#docs-browser').isVisible(), false);

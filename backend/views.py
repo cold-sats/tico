@@ -174,7 +174,7 @@ def default_bot(c, settings, botops="botops"):
 
 
 def docs_room(conv, who):
-    """A person's own "Ask AI about docs" room. Its follow-ups reach the documentation agent
+    """A person's own "Ask the Librarian" room. Its follow-ups reach the documentation agent
     whether or not the person is one of that bot's assigned users, as the first question did."""
     return (conv.get("scope") == rooms.PERSONAL and conv.get("owner_actor") == who.actor
             and str(conv.get("room_key") or "").startswith("docs:")
