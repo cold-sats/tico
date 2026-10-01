@@ -553,3 +553,17 @@ def test_a_note_on_botops_own_task_is_botops_words_not_the_requesters(api, botop
                         (task["id"],)).fetchone()
         assert row["actor"] == "bot:botops"
 
+
+
+def test_botops_closing_its_own_task_for_the_person_keeps_their_close_and_its_own_words(api, botops):
+    """The close is the person's (closed_by), the closing note is BotOps' own report."""
+    ana = turn(api, botops, person="ana-test", text="Clean up the QA bot")
+    task = post(api, "tasks", {"owner": "botops", "title": "Clean up the QA bot", "body": "Clean it."})
+    closed = act(api, ana, "POST", f"tasks/{task['id']}", {"version": task["version"], "close": True,
+                                                            "note": "Cleanup complete; folder kept."})
+    assert closed.status_code == 200, closed.text
+    with api.app.state.store.read() as c:
+        row = c.execute("SELECT closed_by FROM tasks WHERE id=?", (task["id"],)).fetchone()
+        note = c.execute("SELECT from_actor FROM messages WHERE body='Cleanup complete; folder kept.'").fetchall()
+    assert row["closed_by"] == "human:ana"
+    assert note and {r["from_actor"] for r in note} == {"bot:botops"}

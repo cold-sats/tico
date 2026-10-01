@@ -2046,7 +2046,14 @@ def create_app(settings=None):
                                                body.labels, body.blocked_by, body.parent_id, body.rank,
                                                body.goal_id, body.type, body.step)):
                     raise Problem("close", "Close and edit are separate operations", 422)
-                H.task_close(c, who.actor, task_id, note=body.note or "", quiet=body.quiet)
+                note = body.note or ""
+                if (note.strip() and getattr(who, "via", "") == "botops" and who.actor != "bot:" + BOTOPS
+                        and row["owner"] == "bot:" + BOTOPS):
+                    # The close is the person's (only the requester or a human closes), but the words are
+                    # BotOps' own report on its own task: they read as BotOps, like its other progress notes.
+                    H.task_comment(c, "bot:" + BOTOPS, task_id, note, wake=False)
+                    note = ""
+                H.task_close(c, who.actor, task_id, note=note, quiet=body.quiet)
             else:
                 fields = body.model_dump(exclude={"version", "close", "on_behalf_of"})
                 for name in ("blocked_by", "parent_id"):

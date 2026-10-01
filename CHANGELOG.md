@@ -12,6 +12,9 @@ All notable changes to Tico are recorded here. The format follows
   variation" for an exact price.
 - A request you DM to BotOps in Slack counts as yours, like your Tico chat. Channel and thread messages still change
   nothing for you.
+- When BotOps closes its own task for you, the close stays yours and its closing note reads as BotOps.
+- A person with no photo gets initials and no photo request (it logged a 404 on every page).
+- The Docs sample question asks "Who helps new hires?".
 - The Librarian closes a fenced code block only on a line of the same fence character, so code with a mixed line stays
   literal.
 

@@ -904,12 +904,14 @@ def install_views(app, store, auth, mutate, task_view):
         human_only(who)
         with store.read() as c:
             r, configs = roster(c), entries(c)
+            from . import people_photos
             archived = {row["slug"] for row in H.bots(c) if row.get("state") == "archived"}
             view = P.org_view(r, configs, archived)
             access = auth.bot_accesses(c, who)
             return {**r, "by_team": P.by_team(r), "org_groups": view["org_groups"], "people": [{
                 **p, "org_parent": P.org_parent("person", p["id"], r, configs, archived),
-                "photo_url": "/api/humans/" + p["id"] + "/photo",
+                **({"photo_url": "/api/humans/" + p["id"] + "/photo"}
+                   if people_photos.may_have(store.settings, p.get("email"), p.get("photo")) else {}),
                 "bots": [b for b in P.bots_of(p["id"], r, configs)
                          if access.get(b, auth.FULL)["see"] and b not in archived]}
                 for p in r["people"]]}
