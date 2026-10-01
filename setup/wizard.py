@@ -79,7 +79,7 @@ def host_of(ssh: str) -> str:
 def gather(io: IO, args, s: Settings, dry: bool) -> Settings:
     a = Asker(io, args, s, dry)
     a.get("target", "Where should Tico run?", choices=st.TARGETS, default="aws")
-    a.get("domain", "Domain to serve Tico at (for example tico.yourcompany.com)", validate=lambda v: bool(st.DOMAIN_RE.match(v.lower())))
+    a.get("domain", "Domain to serve Tico at (for example tico.example.com)", validate=lambda v: bool(st.DOMAIN_RE.match(v.lower())))
     s.domain = s.domain.lower()
     a.get("front_door", "How should people reach it?", choices=st.FRONT_DOORS, default="caddy")
     if s.target == "ssh":
@@ -263,7 +263,7 @@ def plan_lines(s: Settings, zone: dnsmod.Zone | None, records: list[dnsmod.Recor
     else:
         add("Backups: local only")
         L.append(f"       ! {bk.LOCAL_WARNING}")
-    add(f"Company {s.company!r}, owner {s.owner_email}" + (f", decisions key {contract.DECISIONS_KEYS[s.decisions_provider]} (server only)" if s.decisions_provider else ""))
+    add(f"Team {s.company!r}, owner {s.owner_email}" + (f", decisions key {contract.DECISIONS_KEYS[s.decisions_provider]} (server only)" if s.decisions_provider else ""))
     add("Verify: HTTPS certificate, /healthz, sign-in redirect, server container up")
     return L
 

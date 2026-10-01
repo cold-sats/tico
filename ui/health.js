@@ -49,9 +49,15 @@ function hlCheckHtml(check) {
     <div class="hl-fixes">${check.fixes.map(hlFixHtml).join('')}${checkButton}</div></li>`;
 }
 
+function hlCredentialFix(source) {
+  if (source === 'credentials') return 'Replace the model key in <a href="#/credentials">Credentials</a>';
+  if (source === 'computer') return 'Update the computer-local key or sign in again';
+  return 'If the key is stored in <a href="#/credentials">Credentials</a>, replace it there; otherwise update the computer-local key or sign in again';
+}
+
 function hlComputerHtml(machine) {
   const models = machine.runtimes.map(row => {
-    const state = row.rejected ? `sign-in rejected${row.rejected_at ? ' ' + ago(row.rejected_at) : ''}${row.rejected_reason ? ' (' + row.rejected_reason + ')' : ''}. Replace the credential on the computer, or sign in again`
+    const state = row.rejected ? `sign-in rejected${row.rejected_at ? ' ' + esc(ago(row.rejected_at)) : ''}${row.rejected_reason ? ' (' + esc(row.rejected_reason) + ')' : ''}. ${hlCredentialFix(row.credential_source)}`
       : row.ready ? 'signed in' : row.installed ? 'not signed in' : 'not installed';
     const login = row.signable
       ? ` <button class="ghost" type="button" data-model-login data-runner="${esc(machine.id)}" data-runtime="${esc(row.name)}" data-machine="${esc(machine.label)}">Sign in</button>` : '';

@@ -27,14 +27,16 @@ curl -fsSL https://github.com/ticoteam/tico/releases/latest/download/install.sh 
 Docker Desktop must be open and running on a Mac. Tico runs at `http://127.0.0.1:8765`; open the sign-in link the
 installer prints. Then get one bot working:
 
-1. In **Finish setup**, choose an AI provider, name your team and pick one starter, such as Docs Writer.
+1. In **Finish setup**, choose an AI provider, name your team and choose **Content Marketer** in the **Marketing** group.
    Assistant, BotOps, Librarian and Goal Manager are the four built-in bots.
 2. Use **Add computer** to join this computer, run the command shown, then **Create my team**.
 3. Open **Settings > Computers** and **Sign in** beside Codex or Claude Code; finish the provider's browser flow.
    Other harnesses and API credentials are covered in [Harnesses](docs/harnesses.md). Choose the bot's model in **Settings > Bots**.
-4. Open the starter and press **Set up**. Answer its questions and review its first draft.
-5. On **Tasks > New task**, assign it a small task: “Write a one-page welcome guide from these notes: our team builds an
-   example app; we meet Mondays; ask Sam for help.” Read its result on the task, then close it.
+4. Open the starter and press **Set up**. Tell it the readers, where you publish, your voice, topics and what must stay private.
+   It needs only Tico; paste your notes in its chat, answer its questions and review its first draft.
+5. On **Tasks > New task**, assign it a small task: “Draft a 200-word blog post introducing our scheduling app to small teams.
+   It lets teammates share availability and book meetings. Keep the tone plain; end by asking readers to try it.
+   Use only these facts; no customer names or numbers. Return a draft on this task.” Read its result on the task, then close it.
 
 You can choose providers later in **Settings > AI providers**; bots wait with “Add an AI provider” until you do.
 If the bot waits or sign-in fails, open **Settings > Health** and follow [first-result recovery](docs/install.md#first-result-recovery).

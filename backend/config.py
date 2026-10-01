@@ -268,10 +268,10 @@ class Settings:
         if not path:
             raise RuntimeError("TICO_DB must explicitly name the cloud service database")
         environment_id = os.environ.get("TICO_ENVIRONMENT_ID", "").strip()
-        company = os.environ.get("TICO_COMPANY_NAME", "").strip()
+        company = os.environ.get("TICO_TEAM_NAME", "").strip() or os.environ.get("TICO_COMPANY_NAME", "").strip()
         if company and not environment_id:
-            raise RuntimeError("TICO_ENVIRONMENT_ID must give this company a permanent, opaque "
-                               "identity whenever TICO_COMPANY_NAME is set")
+            raise RuntimeError("TICO_ENVIRONMENT_ID must give this team a permanent, opaque "
+                               "identity whenever TICO_TEAM_NAME (or TICO_COMPANY_NAME) is set")
         token_file = os.environ.get("TICO_LOCAL_OWNER_TOKEN_FILE", "").strip()
         rehearsal = rehearsal_on()
         # Whatever else the environment holds, a rehearsal cannot reach the services it would otherwise talk to.
@@ -356,5 +356,5 @@ class Settings:
                 settings.local_owner_email and settings.local_owner_token):
             raise RuntimeError(
                 settings.public_url + " is reachable by others, so it needs sign-in. Set TICO_AUTH_PROXY "
-                "(oidc, cloudflare or aws-alb), or point TICO_PUBLIC_URL at 127.0.0.1 to run on this machine only.")
+                "(oidc, cloudflare or aws-alb), or point TICO_PUBLIC_URL at 127.0.0.1 to run on this computer only.")
         return settings

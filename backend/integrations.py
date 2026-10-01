@@ -199,7 +199,7 @@ class Catalog:
         name = str(name or "").strip().lower()
         service = aliases.get(name, name)
         if service not in pages:
-            raise Problem("not_found", f"No integration named {name}", 404)
+            raise Problem("not_found", f"No tool named {name}", 404)
         return pages[service]
 
     def listing(self):

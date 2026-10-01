@@ -118,11 +118,13 @@ function frNextHTML(state) {
       <select data-fr-owner="${esc(bot.slug)}" aria-label="Add an owner for ${esc(bot.display_name || bot.slug)}"><option value="">Add an owner…</option>${frPeople().map(person =>
         `<option value="${esc(person.id)}">${esc(person.name || person.id)}${('human:' + person.id) === frOwner() ? ' (you)' : ''}</option>`).join('')}</select>
       <span class="muted" data-fr-owned="${esc(bot.slug)}">${esc(frPersonName(S.me?.id))} owns it</span></div>`).join('');
-  return `<section class="card fr-card" id="fr-admin"><header><h2>Invite an admin</h2></header>
-      <form id="fr-admin-form" class="fr-form"><label class="onb-field"><span class="k">Name</span><input name="name" autocomplete="off" placeholder="Sam Ortiz"></label>
+  return `<section class="card fr-card" id="fr-providers"><header><h2>AI providers</h2></header>
+      <a href="#/settings" data-fr-providers>${S.config?.providers_configured === false ? 'Add an AI provider' : 'AI providers'}</a></section>
+    <section class="card fr-card" id="fr-admin"><header><h2>Add an admin</h2></header>
+      <form id="fr-admin-form" class="fr-form"><label class="onb-field"><span class="k">Name</span><input name="name" autocomplete="off" placeholder="Sam"></label>
         <label class="onb-field"><span class="k">Email</span><input name="email" type="email" autocomplete="off" required placeholder="sam@example.com"></label>
-        <div class="onb-actions"><button class="primary" type="submit">Invite as admin</button><span class="muted" id="fr-admin-status" role="status"></span></div></form>
-      <small class="muted">Tico sends no email: tell them.</small></section>
+        <div class="onb-actions"><button class="primary" type="submit">Add admin</button><span class="muted" id="fr-admin-status" role="status"></span></div></form>
+      <small class="muted">Tico sends no email: tell them.${S.config?.local ? ' Only you can sign in until you add a domain and sign-in.' : ''}</small></section>
     <section class="card fr-card" id="fr-owners"><header><h2>Who owns each bot</h2></header>
       ${owners || '<p class="muted">No bots yet.</p>'}</section>
     <section class="card fr-card" id="fr-tools"><header><h2>Tools</h2></header>
@@ -157,12 +159,12 @@ function frWireNext(state) {
   if (form) form.onsubmit = async event => {
     event.preventDefault();
     const status = $('#fr-admin-status'), data = Object.fromEntries(new FormData(form));
-    form.querySelector('button').disabled = true; status.textContent = 'Inviting…';
+    form.querySelector('button').disabled = true; status.textContent = 'Adding…';
     try {
       const added = await post('/v2/access/humans', {name: data.name || '', email: data.email});
       // Adding is the roster and the sign-in list; the role is a second, owner-only step.
       await post('/v2/access/humans/' + encodeURIComponent(added.person), {role: 'admin'});
-      status.textContent = `${added.name || data.email} is on the roster as an admin.`;
+      status.textContent = `${added.name || data.email} is on the roster as an admin.${S.config?.local ? ' Only you can sign in until you add a domain and sign-in.' : ' Tico sends no email: tell them.'}`;
       form.reset();
       const roster = await get('/humans').catch(() => null);
       if (roster?.people) { SETTINGS_DATA.people = roster.people; setPeople(roster); }

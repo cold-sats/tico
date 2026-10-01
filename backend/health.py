@@ -7,6 +7,7 @@ which the page turns into one-click links. People who are not administrators see
 """
 
 import json
+import os
 
 from . import access, inbox_isolation, model_login, providers, releases, runner_versions, watchers
 from .getting_started import _online_runners, _signed_in_runtime, _wanted_runtimes, _person
@@ -50,6 +51,7 @@ def _computers(c, runners_online, settings):
                                    "rejected": v.get("authenticated") == "rejected",
                                    "rejected_at": v.get("rejected_at") or "" if v.get("authenticated") == "rejected" else "",
                                    "rejected_reason": v.get("rejected_reason") or "" if v.get("authenticated") == "rejected" else "",
+                                   "credential_source": v.get("credential_source") or "",
                                    "signable": bool(v.get("installed")) and v.get("authenticated") != "ready"
                                    and n in model_login.RUNTIMES,
                                    # A model this computer runs (a bot on it, or the company's default) that it has no
@@ -115,8 +117,8 @@ def _made_by_member(c, bot):
 
 
 def _rejected(computers):
-    """Online computers whose wanted harness refused its key or login: (computer, runtime, when, why)."""
-    return [(x["label"], r["name"], r["rejected_at"], r["rejected_reason"])
+    """Online computers whose wanted harness refused its key or login: (computer, runtime, when, why, credential source)."""
+    return [(x["label"], r["name"], r["rejected_at"], r["rejected_reason"], r["credential_source"])
             for x in computers if x["online"] for r in x["runtimes"] if r["rejected"] and r["needed"]]
 
 
@@ -128,11 +130,15 @@ def _needs_sign_in(computers):
 
 def _rejected_summary(rows):
     """What to do about it; the reason is the harness's own sanitized words, never the key."""
-    first = ", ".join(sorted({f"{name} on {label}" for label, name, _, _ in rows}))
+    first = ", ".join(sorted({f"{name} on {label}" for label, name, _, _, _ in rows}))
     when, why = rows[0][2], rows[0][3]
+    sources = {row[4] for row in rows}
+    fix = (" Replace the model key in Tools > Credentials." if sources == {"credentials"} else
+           " Update the computer-local key or sign in again from Settings > Computers." if sources == {"computer"} else
+           " If the model key is stored in Credentials, replace it in Tools > Credentials. Otherwise update the "
+           "computer-local key or sign in again from Settings > Computers.")
     return (f"Sign-in rejected for {first}" + (f" at {when}" if when else "") + (f": {why}" if why else ".")
-            + " Replace the key in the runner's secrets, or sign in again from Settings > Computers. "
-            "It takes no work that needs it until then.")
+            + fix + " It takes no work that needs it until then.")
 
 
 def _waiting(c, online_ids):
@@ -256,6 +262,34 @@ def _signin(settings):
                   [_fix("Sign-in settings", "#/settings", "access")])
 
 
+def _server_settings(c, settings):
+    checks = []
+    if settings.block_external_invites or os.environ.get("TICO_BLOCK_EXTERNAL_INVITES") == "1":
+        active = settings.block_external_invites
+        checks.append(_check("external_invites", "Outside calendar invites", "ok" if active else "warn",
+                             "Blocked for bots through the calendar Tool." if active else
+                             "TICO_BLOCK_EXTERNAL_INVITES=1 was requested but is not active. Recreate the server with the "
+                             "release's compose.yaml and check its environment.",
+                             [] if active else [_fix("Calendar settings", "https://github.com/ticoteam/tico/blob/main/docs/mail.md")]))
+    key = settings.credential_kms_key.strip() or os.environ.get("TICO_CREDENTIAL_KMS_KEY", "").strip()
+    row = c.execute("SELECT kms_key FROM credential_keys WHERE id='v1'").fetchone()
+    stored = row["kms_key"] if row else ""
+    if key or (stored and stored != "local"):
+        active = bool(key and key == settings.credential_kms_key and stored == key)
+        summary = ("The credential key is wrapped with the configured AWS KMS key." if active else
+                   "TICO_CREDENTIAL_KMS_KEY was requested but is not active. Recreate the server with the release's "
+                   "compose.yaml and check its environment." if key and not settings.credential_kms_key.strip() else
+                   "AWS KMS was requested but no credential key has been wrapped yet. Saving a credential will wrap it; "
+                   "check the server's AWS credentials, region and KMS permissions if saving fails." if key and not stored else
+                   "AWS KMS was requested but credentials still use the local key. The next credential save or read will "
+                   "wrap that same key; check the server's AWS credentials, region and KMS permissions if it fails." if key and stored == "local" else
+                   "Credentials use a different AWS KMS key than the server configuration. Restore the original "
+                   "TICO_CREDENTIAL_KMS_KEY in .env and recreate the server.")
+        checks.append(_check("credential_kms", "Credential encryption", "ok" if active else "warn", summary,
+                             [_fix("Credential settings", "https://github.com/ticoteam/tico/blob/main/docs/credential-vault.md")]))
+    return checks
+
+
 def _failed(c):
     since = H.shift(H.now(), hours=-RECENT_HOURS)
     rows = c.execute("SELECT bot,state,finished FROM attempts WHERE state IN ('failed','expired') AND finished>? "
@@ -335,12 +369,12 @@ def view(c, who, settings, auth, github, config):
                                  [_fix("Choose providers", "#/settings", "providers")]))
         elif online and not signed and rejected:
             checks.append(_check("models", "Models", "bad", _rejected_summary(rejected),
-                                 [_fix("Open Computers", "#/settings", "devices")]))
+                                 [_fix("Open Credentials", "#/credentials"), _fix("Open Computers", "#/settings", "devices")]))
         elif online and not signed:
             checks.append(_check("models", "Models", "bad", "No online computer is signed in to your model.",
                                  [_fix("Open Computers", "#/settings", "devices")]))
         elif signed and rejected:
-            checks.append(_check("models", "Models", "warn", f"{signed} is signed in on another computer. " + _rejected_summary(rejected), [_fix("Open Computers", "#/settings", "devices")]))
+            checks.append(_check("models", "Models", "warn", f"{signed} is signed in on another computer. " + _rejected_summary(rejected), [_fix("Open Credentials", "#/credentials"), _fix("Open Computers", "#/settings", "devices")]))
         elif signed:
             checks.append(_check("models", "Models", "ok", f"{signed} is signed in."))
         else:
@@ -409,6 +443,7 @@ def view(c, who, settings, auth, github, config):
                       _check("backups", "Backups", "ok", "Rehearsal: backups are off on purpose.")
                       if settings.rehearsal else _backups(config, settings))
         checks.append(_signin(settings))
+        checks.extend(_server_settings(c, settings))
     checks.append(_check("failed", "Failed runs", "warn" if failed else "ok",
                          f"{_plural(failed, 'run')} failed in the last day." if failed else "No failed runs in the last day.",
                          [_fix("Open Runs", "#/runs")] if failed and full else []))

@@ -175,3 +175,34 @@ def test_no_sign_in_is_fine_on_loopback_and_refused_on_a_public_address(monkeypa
     monkeypatch.setenv("TICO_PUBLIC_URL", "https://tico.acme.example")
     with pytest.raises(RuntimeError, match="needs sign-in"):
         Settings.from_env()
+
+
+def test_team_name_alias_and_compose_server_settings(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    monkeypatch.setenv("TICO_DB", str(tmp_path / "hub.db"))
+    monkeypatch.setenv("TICO_ENVIRONMENT_ID", "example-team")
+    monkeypatch.setenv("TICO_COMPANY_NAME", "Old team")
+    monkeypatch.setenv("TICO_TEAM_NAME", "New team")
+    monkeypatch.setenv("TICO_AUTH_PROXY", "")
+    monkeypatch.setenv("TICO_PUBLIC_URL", "http://127.0.0.1:8765")
+    assert Settings.from_env().company_name == "New team"
+    monkeypatch.setenv("TICO_TEAM_NAME", "  ")
+    assert Settings.from_env().company_name == "Old team"
+    monkeypatch.delenv("TICO_TEAM_NAME")
+    assert Settings.from_env().company_name == "Old team"
+
+    values = {"TICO_BLOCK_EXTERNAL_INVITES": "1", "TICO_CREDENTIAL_ADMINS": "ana@example.com",
+              "TICO_CREDENTIAL_KMS_KEY": "example-key", "TICO_PROCESSING_OPERATORS": "sam@example.com",
+              "TICO_ALB_ARN": "example-alb", "TICO_ALB_REGION": "us-east-1"}
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    settings = Settings.from_env()
+    assert settings.block_external_invites and settings.credential_admins == ("ana@example.com",)
+    assert settings.credential_kms_key == "example-key" and settings.processing_operators == ("sam@example.com",)
+    assert settings.alb_arn == "example-alb" and settings.alb_region == "us-east-1"
+    root = Path(__file__).resolve().parents[2]
+    compose = yaml.safe_load((root / "compose.yaml").read_text())
+    for service in ("server", "slack"):
+        assert set(values) | {"TICO_TEAM_NAME", "TICO_COMPANY_NAME"} <= compose["services"][service]["environment"].keys()
+    assert all(key in (root / ".env.example").read_text() for key in values)

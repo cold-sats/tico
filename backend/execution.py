@@ -214,6 +214,8 @@ class Execution:
                 row.pop('profiles', None)
             if row.get('authenticated') != 'rejected':
                 row.pop('rejected_at', None), row.pop('rejected_reason', None)
+            if not row.get('credential_source'):
+                row.pop('credential_source', None)
         if not readiness.get('harnesses'):
             readiness.pop('harnesses', None)
         if not readiness.get('mail_key'):
@@ -271,7 +273,7 @@ class Execution:
         restart = c.execute("SELECT restart_requested FROM runners WHERE id=?", (who.runner_id,)).fetchone()
         if restart and restart["restart_requested"]:
             c.execute("UPDATE runners SET restart_requested=NULL WHERE id=?", (who.runner_id,))
-        return {"server_time": H.now(), "assignments": self.assigned(c, who),
+        return {"server_time": H.now(), "assignments": self.assigned(c, who), "runtime_credential_source": True,
                 **({"restart": True} if restart and restart["restart_requested"] else {})}
 
     def assigned(self, c, who):

@@ -91,10 +91,11 @@ More on why it is built this way, and how to run HQ yourself: [docs/telemetry.md
 ## Suggestions while you build your team chart
 
 When you set up Tico, the team chart step asks one short question per group ("What kind of sales do you do today?") and
-suggests bots for it. Each group card has a toggle, **Suggestions from Tico HQ (sends this answer)**. While it is on, your
-Tico server (never your browser) sends that one answer to Tico HQ, which ranks the group's bot templates with a language
-model and says why each fits. While it is off, or whenever HQ cannot be reached within 6 seconds, your own server ranks them
-locally and nothing is sent.
+suggests bots for it. Each group card has a toggle, **Suggestions from Tico HQ**. While it is on, your
+Tico server (never your browser) sends the group, your answer, team description, customer type, software choice,
+catalog version and, when counting is on and its notice has been shown, install ID to Tico HQ. The exact fields are listed below. HQ ranks the group's bot templates with a language
+model and says why each fits. While it is off, your own server ranks them locally and nothing is sent. If HQ does not answer
+within 6 seconds, your server ranks them locally after attempting to send the request.
 
 ### What is sent
 
@@ -117,7 +118,7 @@ POST https://updates.tico.team/v1/recruit
 | `about.sells_to` | `businesses`, `consumers`, `both`, or empty |
 | `about.software` | Whether software is your product |
 | `catalog_version` | Which release's bot templates you have, so HQ answers with templates you have |
-| `install_id` | Only while the anonymous usage count is on: its random install ID, used for a rate limit and nothing else |
+| `install_id` | Only while the anonymous usage count is on and its notice has been shown: its random install ID, used for a rate limit and nothing else |
 
 Nothing else: no team name, domain, humans, email addresses or bot names. HQ answers with template ids and a one-line
 reason for each; your server keeps only ids that are in its own templates.

@@ -43,6 +43,9 @@ def test_no_sign_in_setup_runs_on_this_machine_and_a_domain_needs_one(tmp_path):
     result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off")
     assert result.returncode == 0, result.stderr
     assert seen["TICO_PUBLIC_URL"] == "http://127.0.0.1:8765" and seen["TICO_LOCAL_OWNER_TOKEN_FILE"]
+    assert seen["TICO_TEAM_NAME"] == seen["TICO_COMPANY_NAME"] == "Acme"
+    result, seen, _ = serve(tmp_path, TICO_TEAM_NAME="New team", TICO_AUTH_PROXY="", TICO_BACKUP="off")
+    assert result.returncode == 0 and seen["TICO_TEAM_NAME"] == seen["TICO_COMPANY_NAME"] == "New team"
     result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off", TICO_PORT="8877")
     assert result.returncode == 0 and seen["TICO_PUBLIC_URL"] == "http://127.0.0.1:8877"
     result, seen, _ = serve(tmp_path, TICO_AUTH_PROXY="", TICO_BACKUP="off", TICO_PORT="8877", TICO_PUBLIC_URL="http://localhost:8877")

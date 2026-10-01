@@ -43,6 +43,48 @@ def test_all_good(environment, monkeypatch):
     assert body["computers"][0]["online"] and body["computers"][0]["runtimes"][0]["ready"]
 
 
+def test_requested_server_settings_report_effective_state(environment, monkeypatch):
+    from backend.credentials import CredentialCipher
+    from backend.tests.test_credentials import FakeKMS
+
+    api = environment()
+    settings = api.app.state.store.settings
+    settings.credential_kms_key = "example-key"
+    monkeypatch.setenv("TICO_BLOCK_EXTERNAL_INVITES", "1")
+    _, checks = health_of(api)
+    assert checks["external_invites"]["status"] == checks["credential_kms"]["status"] == "warn"
+    settings.block_external_invites = True
+    api.app.state.vault.cipher = CredentialCipher("example-key", FakeKMS())
+    with api.app.state.store.transaction() as c:
+        api.app.state.vault.cipher.key(c)
+    _, checks = health_of(api)
+    assert checks["external_invites"]["status"] == checks["credential_kms"]["status"] == "ok"
+    settings.credential_kms_key = ""
+    _, checks = health_of(api)
+    assert checks["credential_kms"]["status"] == "warn"
+    assert "Restore the original" in checks["credential_kms"]["summary"]
+    monkeypatch.setenv("TICO_CREDENTIAL_KMS_KEY", "example-key")
+    _, checks = health_of(api)
+    assert checks["credential_kms"]["status"] == "warn"
+    assert "requested but is not active" in checks["credential_kms"]["summary"]
+
+
+@pytest.mark.parametrize("source", ["credentials", "computer", ""])
+def test_rejected_model_key_points_to_its_source(environment, source):
+    api = environment()
+    runner = enrolled(api)
+    runtime = {"installed": True, "authenticated": "rejected", "rejected_reason": "Unauthorized"}
+    if source:
+        runtime["credential_source"] = source
+    heartbeat(api, runner, seconds_ago=5, runtimes={"codex": runtime})
+    body, checks = health_of(api)
+    summary = checks["models"]["summary"]
+    assert "Sign-in rejected" in summary and "runner's secrets" not in summary
+    assert "Tools > Credentials" in summary if source != "computer" else "computer-local" in summary
+    assert body["computers"][0]["runtimes"][0]["credential_source"] == source
+    assert any(fix["href"] == "#/credentials" for fix in checks["models"]["fixes"])
+
+
 def test_an_offline_computer_holds_its_bots(environment):
     api = environment()
     runner = enrolled(api)

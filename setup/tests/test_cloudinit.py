@@ -47,7 +47,7 @@ def test_server_render_puts_the_env_in_the_inputs_block_and_stays_valid_yaml():
     env = envfile.parse(files(doc)["/etc/tico/tico.env"]["content"])
     assert env["TICO_CLOUD_VERSION"] == "v1.2.3" and env["TICO_CLOUD_SERVER_IP"] == "203.0.113.7" and env["TICO_CLOUD_ALLOW_SSH"] == "1"
     assert env["TICO_DOMAIN"] == "tico.example.com" and env["COMPOSE_PROFILES"] == "caddy,updater"
-    assert env["TICO_COMPANY_NAME"] == "Acme Inc" and env["TICO_OIDC_CLIENT_SECRET"] == "S3CRET$x"
+    assert env["TICO_TEAM_NAME"] == env["TICO_COMPANY_NAME"] == "Acme Inc" and env["TICO_OIDC_CLIENT_SECRET"] == "S3CRET$x"
     assert "TICO_TAG" not in env  # the bootstrap pins it to the version
     assert "you@example.com" not in text  # the template's example values are all replaced
     assert files(doc)["/usr/local/sbin/tico-bootstrap"]["content"] == script(load("tico-server.yaml"), "/usr/local/sbin/tico-bootstrap")

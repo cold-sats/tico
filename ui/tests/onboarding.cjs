@@ -355,8 +355,10 @@ function recruitFor({department, briefing, share}) {
     assert.equal(await page.locator('.ob-question').textContent(), 'What kind of sales do you do today?');
     assert.equal(await page.locator('#ob-brief').getAttribute('placeholder'), sales.placeholder);
     // The toggle says what it sends; it follows the install's setting, which is on here.
-    assert.equal((await page.locator('.ob-hq').textContent()).trim(), 'Suggestions from Tico HQ (sends this answer)');
+    assert.equal((await page.locator('.ob-hq').textContent()).trim(), 'Suggestions from Tico HQ');
     assert.equal(await page.locator('#ob-hq').isChecked(), true);
+    assert.match(await page.locator('.ob-hq-row').textContent(), /group, answer, team description, customer type, software choice, catalog version and install ID/);
+    assert.match(await page.locator('.ob-hq-row a').getAttribute('href'), /PRIVACY.md#suggestions/);
     assert.equal(await page.locator('#ob-skip').isVisible(), true);
     assert.match(await page.locator('#ob-chart [data-oc-dept=sales]').getAttribute('class'), /oc-cur/);
     await shot(page, 'desktop-4-department');
@@ -869,6 +871,15 @@ function recruitFor({department, briefing, share}) {
     await waiting.locator('[data-onb-bot=coo]').waitFor();
     assert.match(await waiting.locator('[data-onb-bot=coo]').textContent(), /Add an AI provider\./);
     assert.equal(await waiting.locator('[data-onb-bot=coo] a[data-fr-providers]').count(), 1);   // a link to Settings > AI providers
+    assert.equal(await waiting.locator('#onb-after > section').first().getAttribute('id'), 'fr-providers');
+    await waiting.locator('#fr-providers [data-fr-providers]').click();
+    await waiting.waitForFunction(() => SETTINGS_TAB === 'providers');
+    CONFIG.local = true;
+    await waiting.goto('https://tico-ui.test/#/welcome');
+    await waiting.locator('#fr-admin-form').waitFor();
+    assert.match(await waiting.locator('#fr-admin').textContent(), /Only you can sign in until you add a domain and sign-in/);
+    assert.equal(await waiting.locator('#fr-admin h2').textContent(), 'Add an admin');
+    CONFIG.local = false;
     delete CONFIG.providers_configured;
 
     // A viewer has no setup entry and lands on Tasks if they type the address.

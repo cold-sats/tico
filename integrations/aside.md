@@ -1,6 +1,6 @@
 ---
 service: aside
-title: Aside (the company browser)
+title: Aside
 kind: browser
 summary: Signed-in websites through the dedicated bot browser, Aside, with the sites and verbs a bot may use declared in its bot.yaml.
 access: "`$HUB_DIR/connectors/browser.py` — nobody drives Chrome, the Orca browser or `aside` directly"
@@ -9,7 +9,7 @@ credentials:
   - ASIDE_CLI (optional) — path to the `aside` binary when it is not ~/.local/bin/aside
 declared_as: |
   - service: aside
-    identity: the company browser (Aside), the owner's sessions
+    identity: the team browser (Aside), the owner's sessions
     account: u0                       # optional Aside account
     sites: [app.example.com]               # hosts it may open; a subdomain of a listed host counts
     can: [read]                       # [read] looks; [read, act] clicks, types, submits, runs `task`
@@ -22,7 +22,7 @@ aliases: [browser]
 
 Aside (aside.com) is a Chromium browser with its own agent, password manager and CLI.
 `aside repl` runs Playwright-style JavaScript in the signed-in browser; `aside exec` hands a
-job to Aside's agent. The hub's connector, `connectors/browser.py`, is the only way a bot reaches
+job to Aside's agent. Tico's connector, `connectors/browser.py`, is the only way a bot reaches
 either: it checks the bot's `tools:` entry, refuses hosts outside `sites:`, refuses actions
 for a read-only bot, and appends every call to `<projects>/runtime/browser-audit.jsonl`. The
 skill that teaches a model the REPL is `skills/aside-browser/SKILL.md`; run `aside guide repl`
@@ -31,7 +31,7 @@ before writing REPL code. The CLI installs with
 
 ## What data it has
 
-Whatever the signed-in sites show. Typical declarations: the company's own app (read only, for
+Whatever the signed-in sites show. Typical declarations: the team's own app (read only, for
 support-style bots); social sites and news (a listening bot, read); ad dashboards such as
 `ads.google.com` (read); a design tool (act). Each is a `sites:` entry in the bot's own
 `bot.yaml`.
@@ -39,8 +39,8 @@ support-style bots); social sites and news (a listening bot, read); ad dashboard
 **The owner's social sessions are the listening bot's alone**. The connector refuses
 any other employee that names a social site (X, Reddit, LinkedIn, Facebook, Instagram, TikTok,
 YouTube and the rest of `SOCIAL_HOSTS` in `connectors/browser.py`) in its `sites:` or its code;
-ad-account dashboards on those domains are not social reading. The listening bot saves what it reads to the hub (`hub listening save`), the decision model routes
-each post to the inboxes that want it (the company's `registry/listening.yaml`), and every other bot works its
+ad-account dashboards on those domains are not social reading. The listening bot saves what it reads in Tico (`hub listening save`), the decision model routes
+each post to the inboxes that want it (the team's `registry/listening.yaml`), and every other bot works its
 inbox (`hub listening item list`, `hub listening item resolve`) or asks the listening bot by task for a lookup.
 
 ## How a bot uses it
@@ -53,7 +53,7 @@ $HUB_DIR/connectors/browser.py repl --as <slug> --file steps.js
 $HUB_DIR/connectors/browser.py task --as <slug> "Find the pricing page on app.example.com and ..."   # Aside's own agent; needs act
 ```
 
-Exit codes: `0` ok, `1` failure (CLI missing, Aside not running, timeout), `2` a hub policy
+Exit codes: `0` ok, `1` failure (CLI missing, Aside not running, timeout), `2` a Tico policy
 refused it. The REPL stops after 120 s; a `task` after 900 s (`ASIDE_TASK_TIMEOUT`).
 
 ## Rules

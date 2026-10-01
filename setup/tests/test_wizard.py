@@ -32,6 +32,7 @@ def test_dry_run_aws_caddy_google_prints_the_plan_and_changes_nothing(tmp_path):
                  "Bots run on computers you add afterwards"):
         assert want in out
     assert SECRET not in out and "TICO_OIDC_CLIENT_SECRET=********" in out
+    assert "Team 'Acme', owner me@example.com" in out
     assert not (tmp_path / "home").exists()
 
 

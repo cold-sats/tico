@@ -26,6 +26,11 @@ Credentials use AES-256-GCM with per-write random nonces and credential-bound au
 
 The Credential's variable-name field becomes an environment variable only for a granted bot, during its run (`GET /api/v2/credential-runtime`), on a Mac or Linux computer and in the Docker runner alike. File Credentials become mode-0600 temporary files during the run. A bot cannot be granted two Credentials that use one variable name (the second grant is refused until the first is taken away). Computer login entries describe existing CLI/browser sessions and must be connected separately on each computer. A bot's Tools row and Health count a granted Credential as present ("granted through the credential vault") even though its computer's secrets file does not hold it. Existing bots' own-file values migrate into grants on upgrade; an old file is never a run fallback. Storing a Credential does not erase that file or give its value to another bot.
 
+Model credentials named `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` or `CURSOR_API_KEY` infer
+that variable when the optional variable field is blank. An explicit variable always wins. For a stored API key or token,
+**Manage access > Every computer** lets computers sign their models in. It gives no bot access: grant a bot separately.
+Older name-only model credentials also offer this choice; granting them fills the missing variable without changing the secret.
+
 ## The key: nothing to set up
 
 The vault works as soon as Tico starts. The AES-256 data key is 32 random bytes made once, the first time a credential is stored,
@@ -44,6 +49,25 @@ To use AWS KMS instead, set `TICO_CREDENTIAL_KMS_KEY` (a key id or alias). Then 
 is in the database. Setting it on a server that has been using the key file wraps the same key with KMS on the next use, without
 re-encrypting anything, and the file can then be deleted. An install that began with KMS is unchanged, and taking the KMS key away
 again is refused rather than starting a second key.
+
+In Docker, set the KMS key in the install's `.env` and run `docker compose up -d` to recreate the server.
+The server container also needs AWS credentials and a region, with `kms:GenerateDataKey`, `kms:Encrypt` and `kms:Decrypt`
+on that key. An instance role can provide the credentials. For an AWS credentials file, mount it read-only and set the SDK's
+region in `compose.override.yaml` (keep the file private and outside version control):
+
+```yaml
+services:
+  server:
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_SHARED_CREDENTIALS_FILE: /run/aws/credentials
+    volumes:
+      - ./aws-credentials:/run/aws/credentials:ro
+```
+
+**Settings > Health > Credential encryption** reports whether the data key is wrapped with the requested KMS key.
+Before the first credential save, or until a local key is wrapped on its next use, it warns that KMS is not active yet.
+If saving fails, check the container's AWS credentials, region and key permissions; existing encrypted values stay intact.
 
 ## Give a bot a credential another bot has
 

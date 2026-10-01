@@ -76,7 +76,8 @@ class Settings:
         return {k: v for k, v in asdict(self).items() if k not in SECRET_FIELDS}
 
     def to_env(self) -> dict[str, str]:
-        e = {"TICO_COMPANY_NAME": self.company, "TICO_OWNER_EMAIL": self.owner_email, "TICO_DOMAIN": self.domain,
+        # Keep the alias too: a pinned older server can use the generated settings.
+        e = {"TICO_TEAM_NAME": self.company, "TICO_COMPANY_NAME": self.company, "TICO_OWNER_EMAIL": self.owner_email, "TICO_DOMAIN": self.domain,
              "TICO_PORT": os.environ.get("TICO_PORT", "8765"),
              "COMPOSE_PROFILES": contract.profiles(self.front_door, self.updater),
              "TICO_TAG": self.tag if self.tag != "latest" else "", "TICO_UPDATER_URL": contract.UPDATER_URL if self.updater else ""}
