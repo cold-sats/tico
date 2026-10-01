@@ -762,6 +762,9 @@ def create_app(settings=None):
             body.to = settings.assistant_bot
             body.conversation_id = ensure_room(c, who.actor, settings.assistant_bot)["id"]
         to = auth.target(c, who, body.to)
+        if not body.conversation_id:
+            from .shared_bots import route
+            to = auth.target(c, who, route(c, who.actor, to))
         if to.startswith("bot:"):
             docs = (who.role in ("human", "owner") and body.conversation_id and to == "bot:" + views.DOC_BOT
                     and views.docs_room(auth.conversation(c, who, body.conversation_id), who))
@@ -1217,7 +1220,13 @@ def create_app(settings=None):
         row["onboarding_state"] = (config["onboarding_state"] or "") if config else ""
         if config:
             repo = config["repo"] or ("emp-" + bot["slug"])
-            declared = json.loads(config["config_json"]) if config["config_json"] else {}
+            from .shared_bots import follow
+            declared = follow(c, bot["slug"], json.loads(config["config_json"]) if config["config_json"] else {})
+            if declared.get("shared_from"):
+                repo = declared.get("repo") or repo
+                row.update({"model": declared.get("model") or "", "runtime": declared.get("runtime") or "",
+                            "effort": declared.get("reasoning_effort") or "", "session": declared.get("session"),
+                            "fallback": declared.get("fallback")})
             row.update({"description": config["description"] or "",
                         "harness": resolve_harness(declared, bot.get("runtime")),
                         "reports_to": config["reports_to"], "repo": repo,
@@ -1225,6 +1234,8 @@ def create_app(settings=None):
                         "bot_contact": declared.get("bot_contact") or "open",
                         "template": declared.get("template") or "",
                         "template_version": declared.get("template_version") or "",
+                        "shared": bool(declared.get("shared")),
+                        "shared_from": str(declared.get("shared_from") or ""),
                         "temp": bool(declared.get("temp")),
                         "thread_mode": config["thread_mode"] or rooms.thread_mode(c, bot["slug"])})
         configured = json.loads(config["owner_ids_json"]) if config and config["owner_ids_json"] else None
@@ -1491,6 +1502,9 @@ def create_app(settings=None):
         with store.read() as c:
             if bot and who.role != "owner":
                 raise Problem("forbidden", "Only the owner may inspect a bot's conversations", 403)
+            if chat_with:
+                from .shared_bots import route
+                chat_with = H.actor_id(route(c, who.actor, "bot:" + chat_with))
             rows = (H.chats_with(c, who.actor, "bot:" + chat_with) if chat_with
                     else H.conversations_for(c, "bot:" + bot if bot else who.actor))
             visible = []
@@ -1669,10 +1683,12 @@ def create_app(settings=None):
         def work(c):
             if who.role not in ("owner", "human"):
                 raise Problem("identity", "Only a person can start a fresh chat", 403)
-            if rooms.thread_mode(c, bot) != rooms.PERSONAL:
+            from .shared_bots import route
+            target_bot = H.actor_id(route(c, who.actor, "bot:" + bot))
+            if rooms.thread_mode(c, target_bot) != rooms.PERSONAL:
                 raise Problem("shared_room", "A shared bot room cannot be reset by one member", 409)
-            views.require_chat(c, auth, who, bot)
-            archived = rooms.archive_personal_room(c, who.actor, bot)
+            views.require_chat(c, auth, who, target_bot)
+            archived = rooms.archive_personal_room(c, who.actor, target_bot)
             return {"archived": archived["id"] if archived else None}
         return mutate(request, body, work)
 
@@ -1944,7 +1960,9 @@ def create_app(settings=None):
             who = delegated_identity(c, who, request_id)
         if body.parent_id:
             body.parent_id = auth.resolve_task(c, who, body.parent_id)
-        owner = auth.target(c, who, body.owner, need="write")
+        from .shared_bots import route
+        original = auth.target(c, who, body.owner, need="write")
+        owner = auth.target(c, who, route(c, who.actor, original), need="write")
         auth.require_bot_contact(c, who, owner, task_id=body.parent_id, kind="task")
         # A subtask is the shape that parks the filer as `waiting` and makes it care when the
         # other one finishes. A bot set to `tasks` has opted out of that on both sides: it does
@@ -2378,6 +2396,10 @@ def create_app(settings=None):
         def work(c):
             if who.actor != "bot:" + bot and not (auth.operator(c, who, bot) or auth.bot_manager(c, who, bot)):
                 raise Problem("forbidden", "You cannot manage this bot", 403)
+            from .shared_bots import declared, source_of
+            source = source_of(declared(c, bot))
+            if source and (H.bot(c, source) or {}).get("state") == "archived" and body.state in ("active", "paused", "quarantined"):
+                raise Problem("original_archived", "Restore the original before changing its branch's status", 409)
             if body.state == "active" and (H.bot(c, bot) or {}).get("state") == "quarantined":
                 raise Problem("quarantined", "Review the refusal and use quarantine clear to resume this bot", 409)
             if body.task_id:
@@ -2522,7 +2544,8 @@ def create_app(settings=None):
             company = Providers.load(c, settings)
             for row in rows:
                 value = dict(row)
-                value["config"] = Providers.fill(company, json.loads(value.pop("config_json")))
+                from .shared_bots import follow
+                value["config"] = Providers.fill(company, follow(c, row["bot"], json.loads(value.pop("config_json"))))
                 value["repository"] = bot_repository(c, settings, row["bot"])
                 result.append(value)
             return result
@@ -3068,6 +3091,8 @@ def create_app(settings=None):
         who = request.state.identity
         def work(c):
             settings_admin._manager(c, who, bot)
+            from .shared_bots import refuse_copy
+            refuse_copy(c, bot)
             choice = MODEL_BY_ID.get(body.model)
             if not choice:
                 raise Problem("model", "Choose one of the supported models", 422)
@@ -3340,6 +3365,8 @@ def create_app(settings=None):
         except Problem:
             return who
     install_bot_tools(app, store, auth, mutate, settings_admin, as_requester)
+    from .shared_bots import install as install_branches
+    install_branches(app, store, auth, mutate, settings_admin, execution)
     from .bot_copy import install as install_bot_copy
     install_bot_copy(app, store, auth, mutate, settings_admin, place_now)
     from .groups import install as install_groups

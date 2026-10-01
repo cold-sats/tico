@@ -20,6 +20,7 @@ function settingsEditBot(slug = '') {
   const editing = !!slug, e = editing ? S.emps.find(row => row.name === slug) : null;
   const dialog = $('#bot-editor');
   if (!dialog || editing && !e) return;
+  if (e?.shared_from) return settingsEditBranch(e);
   SETTINGS_KEEP_MODEL = e?.model || '';
   // A new bot starts on the team default; nothing here names a vendor.
   const enabledModels = SETTINGS_DATA.models.filter(model => !model.deprecated && model.provider &&
@@ -50,6 +51,7 @@ function settingsEditBot(slug = '') {
         <label>Status<select name="status">${['planned','active','paused'].map(value => `<option value="${value}" ${(e?.status || 'planned') === value ? 'selected' : ''}>${value === 'planned' ? 'Setting up' : value[0].toUpperCase() + value.slice(1)}</option>`).join('')}</select></label>
         <label>Repository<input name="repo" type="text" autocomplete="off" spellcheck="false" value="${esc(e?.repo || (slug ? `bot-${slug}` : ''))}" placeholder="bot-release-captain" maxlength="200" required></label>
         ${editing && S.me?.role === 'owner' ? `<label class="bot-editor-wide" data-extra-repos hidden>Extra GitHub repositories<textarea name="extra_repos" rows="3" maxlength="2000" placeholder="shared-docs&#10;design-system" spellcheck="false"></textarea><small>One per line, in the connected GitHub organization. The bot's GitHub token covers its own repository and these, with the same permissions.</small></label>` : ''}
+        <label class="bot-editor-check"><input type="checkbox" name="shared" ${e?.shared ? 'checked' : ''}> Allow branches</label>
         <label class="bot-editor-check"><input type="checkbox" name="temp" ${e?.temp ? 'checked' : ''}> Temp bot</label>
         <label>Conversation<select name="thread_mode"><option value="personal" ${(e?.thread_mode || 'personal') === 'personal' ? 'selected' : ''}>Private per human</option><option value="shared" ${e?.thread_mode === 'shared' ? 'selected' : ''}>Shared room</option></select></label>
         ${editing ? '<div class="bot-editor-wide sb-rows" data-bot-people></div>' : ''}
@@ -180,7 +182,7 @@ function settingsEditBot(slug = '') {
           reports_to: form.elements.reports_to.value || null, status: form.elements.status.value,
           bot_contact: form.elements.bot_contact.value,
           repo: form.elements.repo.value, thread_mode: form.elements.thread_mode.value,
-          temp: form.elements.temp.checked, expected_revision: rev});
+          temp: form.elements.temp.checked, shared: form.elements.shared.checked, expected_revision: rev});
         if (extraLoaded !== null && extraLines(form.elements.extra_repos.value).join('\n') !== extraLines(extraLoaded).join('\n'))
           await put(`/v2/bots/${encodeURIComponent(slug)}/github-repos`, {repositories: extraLines(form.elements.extra_repos.value)});
       } else {
@@ -188,7 +190,7 @@ function settingsEditBot(slug = '') {
         added = await post('/v2/bots', {slug: form.elements.slug.value, display_name: form.elements.display_name.value,
           description: form.elements.description.value, reports_to: form.elements.reports_to.value || null,
           status: form.elements.status.value, repo: form.elements.repo.value,
-          thread_mode: form.elements.thread_mode.value, model: choice.model, effort: choice.effort,
+          thread_mode: form.elements.thread_mode.value, shared: form.elements.shared.checked, model: choice.model, effort: choice.effort,
           harness: choice.harness, operator: form.elements.operator.value || S.me?.id,
           runner_id: form.elements.runner_id.value || null});
       }
@@ -340,7 +342,7 @@ function settingsWatchTransition(id, origin = {}) {
 
 function settingsEditInstructions(slug) {
   const bot = S.emps.find(row => row.name === slug);
-  if (!bot || !settingsCanManageBot(bot)) return;
+  if (!bot || bot.shared_from || !settingsCanManageBot(bot)) return;
   const dialog = document.createElement('dialog'); dialog.className = 'tmodal';
   dialog.innerHTML = `<form><header><h2>Edit Instructions</h2><button class="ghost" type="button" data-close>Close</button></header>
     <label>Changes for ${esc(bot.display_name)}<textarea name="changes" required rows="6" aria-label="Instructions changes"></textarea></label>

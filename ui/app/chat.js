@@ -19,6 +19,7 @@ function v2ChatStop() {
 // Which of the viewer's rooms with a bot is its chat: the shared room, or one of their own. The bot page and the
 // Goal Manager on Goals both show this one room.
 function v2ChatMode(slug) {
+  slug = botBranchChatTarget(slug);
   const bot = (S.emps || []).find(e => e.name === slug);
   const configured = bot?.thread_mode;
   // A shared room belongs to the people the bot works for who may read it; anyone else talks to it in a room of their own.
@@ -28,6 +29,7 @@ function v2ChatMode(slug) {
 }
 function v2ChatRoom(conversations, slug, mode = v2ChatMode(slug)) {
   const me = myActor();
+  slug = botBranchChatTarget(slug);
   return (conversations || []).find(c => String(c.kind) === 'chat' && !c.task_id
     && !c.closed_at
     && (c.participants || []).includes(`bot:${slug}`)

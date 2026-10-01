@@ -10,7 +10,7 @@ it refuses, say so in one line, and who can change it, and stop.
 What a copy is: an ordinary bot **owned by the person who asked**, reporting to them, with the original's instructions (`AGENT.md`),
 `skills/`, `playbooks/`, `knowledge/` and `tools:` list, in a fresh repository with one commit, "Copied from <original> at <commit>".
 Nothing is shared and nothing stays linked: the copy and the original change on their own. The only thing kept is where the copy came
-from, so the two explicit requests below can work. There are no shared bots and no templates to set up: anyone who may read a bot may ask
+from, so the two explicit requests below can work. A branch follows its original and shares its repository; this copy stays independent: anyone who may read a bot may ask
 for a copy.
 
 ## 1. Copy it

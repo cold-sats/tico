@@ -1,6 +1,8 @@
 name: software-architect              # the slug: it matches the repository bot-software-architect and the label owner:software-architect
 display_name: "Software Architect"
 labels: [owner:software-architect]
+shared: true
+session: task
 reads: []                        # other bot repositories this one may clone read-only
 
 # These must agree with the bot's settings on the server, or be left out of this file entirely.

@@ -3,6 +3,8 @@ slug: software-architect
 name: "Software Architect"
 required: false
 bootstrap: false
+shared: true
+session: task
 group: engineering
 pack: engineering
 icon: architecture

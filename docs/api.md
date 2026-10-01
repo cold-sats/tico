@@ -101,3 +101,20 @@ included:
 Tico does not rate-limit ordinary calls. What it does enforce: writes are limited to 2 MB (uploads and meeting
 imports 20 MB, `413 too_large`), a few actions have a daily budget (`429`), and each open live stream costs the
 server a small read every second. [custom-frontend.md](custom-frontend.md#rate-limits) has the guidance.
+
+## Branches
+
+`POST /api/v2/bots/{bot}/copies` (also `/branches`) makes the caller's branch and returns its definition,
+`created` and `assignment`. Send `{ "runner_id": "your-computer-id" }`, or `{}` for a planned branch.
+The caller must be a human with Read on the original, which must allow branches (`shared: true`).
+A selected computer belongs to that human and cannot already run the original or a branch of it.
+Repeated requests return the same `<bot>-<person>` bot. Independent copies keep using `/copy`.
+
+`GET /api/v2/bots/{bot}/branches` returns `{original, shared, branches}`; the branch definitions include
+`shared_from`, `operator` and `status`. Only branches the caller can read are returned.
+Bot definitions expose `shared` and `shared_from`; updates accept `shared` and `session: "bot" | "task"`
+with the existing `expected_revision`. A branch accepts only status changes to its definition.
+MCP uses `hub_bot_branch(bot, runner_id?)` and `hub_bot_update(slug, shared=)`; CLI uses
+`hub bot branch <bot> [--computer C]` and `hub bot update <bot> --shared|--no-shared`.
+New tasks and canonical chats to an original route to the caller's active branch when branches are allowed.
+Stored keys, room-mode `shared`, independent copy routes and older runner payloads keep their meanings.

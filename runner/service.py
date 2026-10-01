@@ -26,7 +26,7 @@ from .hosts.base import is_auth_rejected, rejection_reason, settings as host_set
 from .hosts.cursor import MODELS as CURSOR_HOST_MODELS
 from .hosts.pi import MODELS as PI_HOST_MODELS
 from .outage import RECENT, Outage, describe, log
-from .state import BOT_THREAD, State
+from .state import BOT_THREAD, State, session_key
 from .warm import WarmSessions
 from .watchers import Watchers
 
@@ -285,6 +285,62 @@ def pull_repo(path, env=None, timeout=45):
     return (stderr.splitlines() or [f"exit {pulled.returncode}"])[-1][:120]
 
 
+def is_shared(config):
+    """An original that allows branches, or a branch that shares its repository."""
+    config = config or {}
+    return bool(config.get("shared") or config.get("shared_from"))
+
+
+def shared_checkout(config):
+    """The checkout a branch of a bot with branches works in: the original repository's own name."""
+    config = config or {}
+    if not config.get("shared_from"):
+        return ""
+    name = str(config.get("repo") or "").strip().rstrip("/").split("/")[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
+def sync_shared(path, env=None, timeout=45):
+    """Rebase the shared checkout onto its upstream before the turn, or say why not.
+
+    Other people's branches push to the same repository, so a turn must start from what they
+    learned. Unlike `pull_repo`, commits this checkout could not push are replayed on top
+    (rebase), and a problem is returned for the bot to fix rather than only logged: running on
+    a stale AGENT.md or memory is exactly how branches would drift apart."""
+    path = Path(path)
+    if not (path / ".git").exists():
+        return "the checkout is missing"
+    env = {**(env if env is not None else os.environ), "GIT_TERMINAL_PROMPT": "0"}
+    def git(*args, timeout=15):
+        return isolation.run(["git", "-C", str(path), *args], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, env=env, timeout=timeout)
+    try:
+        dirty = git("status", "--porcelain")
+        if dirty.returncode != 0:
+            return "git status failed"
+        if dirty.stdout.strip():
+            return "it has uncommitted changes from an earlier turn"
+        fetched = git("fetch", "--quiet", "--no-tags", timeout=timeout)
+        if fetched.returncode != 0:
+            return "fetch failed: " + (fetched.stderr.strip().splitlines() or ["no detail"])[-1][:120]
+        rebased = git("rebase", "--quiet", "@{u}", timeout=timeout)
+        if rebased.returncode == 0:
+            return ""
+        git("rebase", "--abort")
+        stderr = rebased.stderr.strip().lower()
+        if "no upstream" in stderr or "unknown revision" in stderr:
+            return "the checkout has no upstream; set it to the original repository branch"
+        return "its unpushed commits conflict with what other branches pushed"
+    except subprocess.TimeoutExpired:
+        try:
+            git("rebase", "--abort")
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return "git timed out"
+    except (OSError, subprocess.SubprocessError) as exc:
+        return type(exc).__name__
+
+
 def declared_reads(path):
     manifest = manifest_path(path)
     if not manifest.is_file():
@@ -371,7 +427,7 @@ def known_repo_names(workspace, assignments=()):
     return names
 
 
-def scrub_reply(text, bot, known=None):
+def scrub_reply(text, bot, known=None, own=None):
     """The reply with the references the hub would refuse taken out; everything else as written. `emp-<name>/` is always
     another bot's repository; `bot-<name>/` only when it is one of the `known` folders (known_repo_names), so an ordinary
     word such as "bot-driven/" stays. With no `known`, only the `emp-` form goes."""
@@ -381,7 +437,7 @@ def scrub_reply(text, bot, known=None):
     def other(what):
         def swap(match):
             prefix, slug = match.group(1).lower(), match.group(2)
-            if slug.lower() == str(bot).lower():
+            if slug.lower() == str(bot).lower() or f"{prefix}-{slug.lower()}" == str(own or "").lower():
                 return match.group(0)
             if prefix == "bot" and f"bot-{slug.lower()}" not in (known or ()):
                 return match.group(0)
@@ -487,10 +543,28 @@ class Runner:
                                 "readiness check succeeded again")
         self.published_agent_instructions = {}
         self.logins = Logins(self)
+        self.shared_checkouts = {}
         self.assignments_seen = []    # the last runners/assignments answer, for the watchers (runner/watchers.py)
         self.watchers = Watchers(self)
         self.restart_due = None       # monotonic time a self-update asked for a restart
         self.restart_forced = False   # a person asked (Restart): drain after SELF_UPDATE_DRAIN_S
+
+    @staticmethod
+    def shared_lines(bot, config, sync_problem=""):
+        source = str(config.get("shared_from") or "")
+        lines = ["Other people run branches from this same repository. Every branch reads and writes the same "
+                 "AGENT.md, knowledge and memory. Follow those files on every computer."]
+        if source:
+            lines.append(f"You run as `{bot}`, a branch of `{source}`. Where your files name `{source}` as yourself, "
+                         f"they mean you; use `{bot}` in hub commands about your own work.")
+        lines.append("Save only lessons about the code, designs and work to the repository, never who asked or "
+                     "one person's preferences, messages or attachments. Commit lessons, then `git pull --rebase` "
+                     "and `git push`, keeping both sides' lessons on a conflict.")
+        if sync_problem:
+            lines.append(f"Before anything else: the checkout could not sync with the original repository ({sync_problem}). "
+                         "Commit or preserve unfinished changes, run `git pull --rebase`, resolve conflicts keeping "
+                         "both sides' lessons, and push before reading AGENT.md and memory.")
+        return lines
 
     def stale_playbook_note(self, attempt):
         """What to tell a routine whose text is an older copy of one of the bot's playbooks, or "".
@@ -508,8 +582,16 @@ class Runner:
                 f"routine at the file so it cannot go stale again: hub routine update {routine.get('id', '<id>')} "
                 f"--text 'Run {path}'")
 
-    def local_path(self, bot):
-        return Path(self.config.get("repos", {}).get(bot) or repo_dir(self.config["projects_dir"], bot))
+    def local_path(self, bot, config=None):
+        checkouts = self.__dict__.setdefault("shared_checkouts", {})
+        checkout = shared_checkout(config)
+        source = (config or {}).get("shared_from")
+        explicit = self.config.get("repos", {}).get(source or bot)
+        if checkout:
+            checkouts[bot] = Path(explicit or Path(self.config["projects_dir"]) / checkout)
+        if bot in checkouts:
+            return checkouts[bot]
+        return Path(explicit or repo_dir(self.config["projects_dir"], bot))
 
     def refresh_product_files(self, bot, config, path):
         """A built-in bot's instructions and playbooks follow the release: once per start of this runner, before the bot's
@@ -670,13 +752,15 @@ class Runner:
         log(f"Tico runner: {bot} materialized from the {template} catalog template at {path}")
         return f"materialized from catalog: {template}", ""
 
-    def push(self, path, env=None):
+    def push(self, path, env=None, shared=False):
         """Best-effort. A checkout whose push keeps failing (diverged, sign-in) is a person's job,
         said once an hour per repository rather than after every turn."""
         path = Path(path)
         try:
             with self.push_lock:            # several bots can share one checkout; one push at a time
                 ahead, error = self.push_repo(path, env)
+                if shared and error == "non-fast-forward" and not sync_shared(path, env):
+                    ahead, error = self.push_repo(path, env)
         except Exception as exc:
             ahead, error = 0, type(exc).__name__
         if not error:
@@ -802,7 +886,7 @@ class Runner:
             except APIError:
                 if self.stop.wait(30):
                     return
-        for path in sorted({self.local_path(row["bot"]) for row in assignments}):
+        for path in sorted({self.local_path(row["bot"], row.get("config")) for row in assignments}):
             if self.stop.is_set():
                 return
             self.push(path)
@@ -1094,7 +1178,7 @@ class Runner:
         for entry in assignments:
             bot = entry["bot"]
             runtime = entry["config"].get("runtime") or ""
-            path = self.local_path(bot)
+            path = self.local_path(bot, entry.get("config"))
             profile = self.profile(bot)
             # This bot's own subscription, not the worst of the machine's: a signed-out profile
             # blocks its own bots only.
@@ -1578,6 +1662,8 @@ class Runner:
             f"`next_before` reads the page before. Your repository, its files and git log, is the record "
             f"of your own past work.",
         ]
+        if is_shared(attempt.get("config")):
+            lines = self.shared_lines(attempt["bot"], attempt["config"], attempt.get("branch_sync_problem", "")) + lines
         if attempt["bot"] == "coo" and conversation.get("scope") == "personal":
             lines += [
                 f"You are privately assisting {conversation.get('owner_actor') or attempt.get('principal')}. ",
@@ -1774,6 +1860,7 @@ class Runner:
         meter, ran = [usage.Meter()], [config.get("model") or "", config.get("runtime") or ""]
         try:
             try:
+                self.local_path(bot, config)
                 env = base_env = self.environment(attempt)
                 # GitHub App: this turn's repository-scoped token (runner/git_credentials.py).
                 socket_path = self.arm_credentials(env, attempt, bot)
@@ -1789,9 +1876,13 @@ class Runner:
                 runtime = config.get("runtime") or ""
                 if persistent:
                     runtime += ":antigravity"
-                conv = BOT_THREAD
-                execution_path = self.local_path(bot)
-                self.refresh_workspace(bot, execution_path, env)
+                conv = session_key(config, attempt)
+                execution_path = self.local_path(bot, config)
+                if is_shared(config):
+                    attempt["branch_sync_problem"] = sync_shared(execution_path, env)
+                    self.ensure_reads(execution_path)
+                else:
+                    self.refresh_workspace(bot, execution_path, env)
                 self.refresh_product_files(bot, config, execution_path)
                 started_at = redact_mod.head(execution_path) if redactor else ""
                 # A bot keeps one thread and stays on it; this machine alone remembers which.
@@ -1861,6 +1952,7 @@ class Runner:
                 host.start()
                 settings = host_settings(execution_path, model=config.get("model"),
                                          effort=config.get("reasoning_effort"), env=env, slug=bot,
+                                         shared=is_shared(config),
                                          mcp_servers=self.mcp_for_run(attempt, execution_path, env, config.get("runtime"),
                                                                       config.get("harness"), diagnose))
                 resumed = False
@@ -1924,7 +2016,7 @@ class Runner:
                 try:
                     host = self.host_factory({**attempt, "config": hop_config, "fallback": fallback}, base_env)
                     host.start()
-                    settings = host_settings(execution_path, model=hop["model"],
+                    settings = host_settings(execution_path, model=hop["model"], shared=is_shared(config),
                                              effort=hop["reasoning_effort"], env=base_env, slug=bot,
                                              mcp_servers=self.mcp_for_run(attempt, execution_path, base_env, hop["runtime"],
                                                                           hop["harness"], diagnose))
@@ -1971,7 +2063,8 @@ class Runner:
                         reply = (reply + "\n\n" if reply else "") + "not pushed: a commit made this turn contains a secret"
                         log(f"Tico runner: {bot}: a commit made this turn contains a granted secret; it was not pushed")
             if outcome == "completed":
-                scrubbed = scrub_reply(reply, bot, known_repo_names(self.config.get("projects_dir"), self.assignments_seen))
+                scrubbed = scrub_reply(reply, bot, known_repo_names(self.config.get("projects_dir"), self.assignments_seen),
+                                        own=self.local_path(bot).name if is_shared(config) else None)
                 if scrubbed != reply:
                     log(f"Tico runner: {bot}: took local file links or other repositories' paths out of the reply")
                     reply = scrubbed
@@ -1996,7 +2089,7 @@ class Runner:
                     held = bool(tree and tree["committed"])
                     if not held:
                         self.publish(bot, self.local_path(bot), env)
-                    pushed = False if held else self.push(self.local_path(bot), env)
+                    pushed = False if held else self.push(self.local_path(bot), env, shared=is_shared(config))
                     files_publish.after_turn(self, attempt, self.local_path(bot), pushed,
                                              skip=[str(Path(p).relative_to(execution_path)) for p in (tree or {}).get("left_out", [])])
             except APIError as exc:

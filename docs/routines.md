@@ -101,3 +101,6 @@ and ignores them.
 
 Routine and run responses use `bot`. The older `employee` field is a compatibility alias for `bot`;
 existing clients may continue to read it.
+
+[Branches](creating-bots.md#branches) follow the original's instructions, but their routines never fire separately.
+Timed and event routines stay with the original, so a shared lesson or weekly review runs once.

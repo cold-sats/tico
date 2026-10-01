@@ -1301,6 +1301,8 @@ def routine_run(api, args):
       {"slug": _s("The bot to change"), "on_behalf_of": _s("Id of the person's message to BotOps asking for it (default: the message that started this turn)"),
        "reports_to": _s("A bot slug, or human:<id>"), "display_name": _s("New display name"),
        "description": _s("New description"), "template": _s("Correct the template metadata; use hub_template_list"), "repo": _s("Its GitHub repository: <org>/bot-<slug>"),
+       "shared": {"type": "boolean", "description": "Allow branches"},
+       "session": {"type": "string", "enum": ["bot", "task"]},
        "status": {"type": "string", "enum": ["active", "paused", "planned"]}},
       required=("slug",), writes=True)
 def bot_set(api, args):
@@ -1312,7 +1314,7 @@ def bot_set(api, args):
         row = api.get(f"bots/{args['slug']}/access", **({"on_behalf_of": on_behalf} if delegated else {}))
         if not row:
             raise ValueError("No bot " + args["slug"])
-    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status") if args.get(k) is not None}
+    change = {k: args[k] for k in ("reports_to", "display_name", "description", "template", "repo", "status", "shared", "session") if args.get(k) is not None}
     return api.post(f"bots/{args['slug']}/definition",
                     {**change, "expected_revision": row["revision"],
                      **({"on_behalf_of": on_behalf} if delegated else {})}, key=_key(args))
@@ -1527,6 +1529,17 @@ def bot_go_live(api, args):
       {"bot": _s("The archived bot's slug")}, required=("bot",), writes=True)
 def bot_restore(api, args):
     return _as_person(api).post(f"bots/{args['bot']}/restore", {}, key=_key(args))
+
+
+# ----------------------------------------------------------------------------- branches
+@tool("hub_bot_branch", "Make your branch of a bot that allows branches, on your own computer. "
+      "It follows the original's instructions and model with personal tasks and chats. Asking again returns your branch. "
+      "BotOps acts as the person who asked.",
+      {"bot": _s("The original bot"), "runner_id": _s("Your computer's id; omit to create a planned branch")},
+      required=("bot",), writes=True)
+def bot_branch(api, args):
+    body = {"runner_id": args["runner_id"]} if args.get("runner_id") else {}
+    return _as_person(api).post(f"bots/{args['bot']}/copies", body, key=_key(args))
 
 
 # Copying a bot or a skill moves files in the workspace on this computer, so these run here, never on the server
@@ -2405,6 +2418,7 @@ ASSISTANT_WRITES = {"hub_task_create", "hub_task_update", "hub_task_comment", "h
                     "hub_update_mark_read", "hub_assistant_propose"}
 AUDIENCE = {
     # Humans use their own rights; BotOps acts through `on_behalf_of`, which the server allows for no other bot.
+    "hub_bot_branch": REQUESTER,
     "hub_bot_update": REQUESTER, "hub_api": REQUESTER, "hub_credential_request": BOTOPS,
     "hub_credential_set": BOTOPS, "hub_message_redact": BOTOPS, "hub_support_file": BOTOPS,
     "hub_bot_repo_create": ("owner", "botops"),

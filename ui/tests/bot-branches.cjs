@@ -1,0 +1,116 @@
+// Offline branch picker, computer ownership and definition editor contracts.
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {html, uiFile} = require('./support/page.cjs');
+
+(async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 390, height: 844}, serviceWorkers: 'block'});
+    page.setDefaultTimeout(5000);
+    const errors = [], writes = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const base = {host: 'keeper', status: 'active', state: 'active', can_chat: true, can_manage: true,
+      my_access: {see: true, read: true, write: true}, schedules: [], revision: 1, thread_mode: 'personal', users: []};
+    const original = {...base, name: 'architect', slug: 'architect', display_name: 'Architect', operator: 'sam', shared: true, repo: 'bot-architect'};
+    const bots = [original];
+    const people = [{id: 'ana', name: 'Ana'}, {id: 'sam', name: 'Sam'}];
+    let collision = true, stale = true;
+    await page.route('**/*', route => {
+      const request = route.request(), url = new URL(request.url()), p = url.pathname;
+      const json = body => route.fulfill({contentType: 'application/json', body: JSON.stringify(body)});
+      if (p === '/') return route.fulfill({contentType: 'text/html', body: html});
+      const ui = p.match(/\/tico\/ui\/((?:app\/|styles\/)?[^/]+\.(?:js|css))$/);
+      if (ui && fs.existsSync(uiFile(ui[1]))) return route.fulfill({contentType: ui[1].endsWith('.css') ? 'text/css' : 'application/javascript', body: fs.readFileSync(uiFile(ui[1]), 'utf8')});
+      if (p === '/api/me') return json({id: 'ana', name: 'Ana', role: 'owner', cloud: true});
+      if (p === '/api/employees') return json(bots);
+      if (p === '/api/humans') return json({people});
+      if (p === '/api/issues') return json([]);
+      if (p === '/api/status') return json({cloud: true, active: [], queued: [], recent_runs: [], schedules: []});
+      if (p === '/api/v2/status') return json({bots: []});
+      if (p === '/api/v2/goals') return json({goals: [], chain: [], company: [], reports: []});
+      if (p === '/api/v2/updates') return json({updates: [], missed: [], unread: 0, today: {}});
+      if (p === '/api/v2/tasks') return json({tasks: []});
+      if (p === '/api/v2/conversations') return json({conversations: []});
+      if (p === '/api/v2/computers') return json({computers: [
+        {id: 'ana-mac', label: 'My Mac', operator: 'ana'},
+        {id: 'sam-mac', label: 'Other Mac', operator: 'sam'},
+        {id: 'old-mac', label: 'Old Mac', operator: 'ana', revoked_at: '2026-01-01'}]});
+      if (p.endsWith('/branches')) return json({original: 'architect', shared: original.shared,
+        branches: bots.filter(b => b.shared_from).map(b => ({...b, slug: b.name}))});
+      if (p.endsWith('/copies')) {
+        writes.push([p, JSON.parse(request.postData())]);
+        if (collision) return route.fulfill({status: 409, contentType: 'application/json', body: JSON.stringify({error: {detail: 'That computer already runs the original or a branch of it. Choose another computer'}})});
+        const branch = {...base, name: 'architect-ana', slug: 'architect-ana', display_name: 'Architect', operator: 'ana', shared_from: 'architect'};
+        bots.push(branch); return json(branch);
+      }
+      if (p.endsWith('/definition')) {
+        writes.push([p, JSON.parse(request.postData())]);
+        if (p.includes('architect-ana') && stale) {
+          stale = false;
+          return route.fulfill({status: 409, contentType: 'application/json', body: JSON.stringify({error: {code: 'version_conflict', detail: 'Bot configuration changed; refresh before saving'}})});
+        }
+        return json({revision: 3});
+      }
+      if (p === '/api/v2/bots/architect-ana') return json({revision: 2});
+      if (p.endsWith('/watch')) return route.fulfill({contentType: 'text/event-stream', body: ': fixture\n\n'});
+      if (p.endsWith('/files')) return json({files: []});
+      return json({});
+    });
+    await page.goto('https://tico-ui.test/#/bot/architect');
+    const picker = page.locator('[data-branch-picker]');
+    await picker.waitFor();
+    assert.deepEqual(await picker.locator('option').allTextContents(), ['Original', 'Make my branch']);
+    await picker.focus();
+    await picker.press('m');
+    assert.equal(await page.locator('#branch-editor').count(), 0);
+    await picker.press('Tab');
+    await page.locator('[data-branch-make]').click();
+    let dialog = page.locator('#branch-editor');
+    await dialog.waitFor({state: 'visible'});
+    assert.deepEqual(await dialog.locator('[name=runner_id] option').allTextContents(), ['My Mac']);
+    await dialog.locator('[type=submit]').click();
+    await dialog.locator('[data-branch-status]').filter({hasText: 'already runs'}).waitFor();
+    assert.equal(await dialog.locator('[type=submit]').isEnabled(), true);
+    collision = false;
+    await dialog.locator('[type=submit]').click();
+    await page.waitForFunction(() => BOT?.slug === 'architect-ana');
+    await page.locator('[data-branch-picker] option[value=architect-ana]').waitFor({state: 'attached'});
+    assert.equal(await page.locator('[data-branch-picker]').inputValue(), 'architect-ana');
+    assert.equal(await page.locator('[data-branch-make]').count(), 0);
+    assert.equal(await page.locator('#bot-branches a').getAttribute('href'), '#/bot/architect');
+    assert.deepEqual(writes[0][1], {runner_id: 'ana-mac'});
+    original.shared = false;
+    await page.evaluate(() => botBranchesLoad('architect-ana'));
+    assert.match(await page.locator('#bot-branches').innerText(), /branches off/);
+    await page.evaluate(() => settingsEditBot('architect-ana'));
+    assert.equal(await dialog.locator('[name=description]').count(), 0);
+    assert.equal(await dialog.locator('[name=model_effort]').count(), 0);
+    await dialog.locator('[name=status]').selectOption('paused');
+    await dialog.locator('[type=submit]').click();
+    await dialog.locator('[data-branch-status]').filter({hasText: 'configuration changed'}).waitFor();
+    await page.waitForFunction(() => !document.querySelector('#branch-editor [type=submit]').disabled);
+    await dialog.locator('[type=submit]').click();
+    await page.waitForFunction(() => !document.querySelector('#branch-editor'));
+    assert.deepEqual(writes.at(-1)[1], {status: 'paused', expected_revision: 2});
+    await page.waitForFunction(() => document.querySelector('#bot-branches select'));
+    await page.evaluate(() => { location.hash = '#/bot/architect/more'; });
+    await page.waitForFunction(() => BOT?.slug === 'architect' && BOT?.tab === 'more');
+    await page.locator('[data-branch-picker]').waitFor();
+    assert.equal(await page.locator('[data-branch-picker] option[value=architect-ana]').count(), 1);
+    dialog = page.locator('#bot-editor');
+    await page.evaluate(() => { S.emps.find(e => e.name === 'architect').shared = false; SETTINGS_DATA.models = []; SETTINGS_DATA.people = S.people; SETTINGS_DATA.machines = []; settingsEditBot('architect'); });
+    const allow = dialog.locator('[name=shared]');
+    await allow.waitFor();
+    assert.equal(await allow.isChecked(), false);
+    assert.match(await allow.locator('..').innerText(), /Allow branches/);
+    await allow.check();
+    await dialog.locator('[type=submit]').click();
+    await page.waitForFunction(() => !document.querySelector('#bot-editor').open);
+    assert.equal(writes.at(-1)[1].shared, true);
+    assert.deepEqual(errors, []);
+    console.log('bot branches: passed');
+    await page.close();
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

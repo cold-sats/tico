@@ -122,10 +122,11 @@ def entries(c, github_owner=""):
     result = {}
     for row in c.execute("SELECT bot,config_json,owner_ids_json,description,reports_to,repo,thread_mode,"
                          "onboarding_state FROM bot_config"):
-        config = json.loads(row["config_json"])
+        from .shared_bots import follow
+        config = follow(c, row["bot"], json.loads(row["config_json"]))
         if row["onboarding_state"]:
             config["onboarding_state"] = row["onboarding_state"]
-        repo = row["repo"] or ("emp-" + row["bot"])
+        repo = config.get("repo") or row["repo"] or ("emp-" + row["bot"])
         config.update({"description": row["description"] or "", "reports_to": row["reports_to"],
                        "repo": repo, "repo_url": repo_url(repo, github_owner)})
         if row["thread_mode"]:
@@ -1185,6 +1186,9 @@ def install_views(app, store, auth, mutate, task_view):
         # No assistant fallback since its chat was retired: a task with no bot has nobody to chat to.
         slug = next((H.actor_id(p) for p in candidates if str(p).startswith("bot:")
                      and auth.visible_bot(c, who, H.actor_id(p)) and H.bot(c, H.actor_id(p))), None)
+        if slug:
+            from .shared_bots import route
+            slug = H.actor_id(route(c, who.actor, "bot:" + slug))
         bot = (H.bot(c, slug) if slug else None) or {}
         allowed = bool(slug) and may_chat(c, auth, who, slug)
         conv = rooms.chat_room(c, auth, who, slug) if allowed else None

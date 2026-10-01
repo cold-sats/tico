@@ -10,6 +10,10 @@ requested work needs no separate approval for each action. Every bot is created 
 "Needs setup" and costs nothing until someone sets it up; it then gets a first useful, reviewable result in its first
 session. The template format is in [Finish setup](onboarding.md); how to write and tune a bot is in [Creating bots](creating-bots.md).
 
+New Software Architect and PR Reviewer bots allow [branches](creating-bots.md#branches) and use a separate provider
+session per task. Each person can run a branch on their own computer while sharing instructions and repository lessons.
+Existing bots keep their settings; developers can branch or make an independent copy.
+
 ## Groups
 
 `templates/groups.yaml` lists the nine groups in the order Finish setup offers them. For each: `id`, `name`, a

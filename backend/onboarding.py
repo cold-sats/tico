@@ -122,6 +122,8 @@ def _card(document, instructions):
     return {"template": template, "slug": str(document.get("slug") or template).strip(),
             "name": str(document.get("name") or template), "required": bool(document.get("required")),
             "bootstrap": bool(document.get("bootstrap")),
+            "shared": bool(document.get("shared")),
+            "session": "task" if document.get("session") == "task" else "bot",
             # The template that heads its department in the org builder (templates/groups.yaml `head`).
             "lead": bool(document.get("lead")),
             # Where the org builder shows it (backend/recruit_rank.py): its department (else its `pack`'s),
@@ -893,8 +895,10 @@ class Onboarding:
             self.admin.create_bot(c, who, M.BotDefinitionCreate(
                 slug=slug, display_name=choice["display_name"], description=summary,
                 status="planned", repo="bot-" + slug, thread_mode="personal",
-                reports_to=reports_to or None,
+                reports_to=reports_to or None, shared=bool(card.get("shared")),
                 model=model, effort=effort, owners=[H.actor_id(who.actor)]))
+            if card.get("session") == "task":
+                c.execute("UPDATE bot_config SET config_json=json_set(config_json,'$.session','task') WHERE bot=?", (slug,))
             if not picked:
                 self._follow_default(c, slug)
         else:

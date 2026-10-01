@@ -40,6 +40,40 @@ Describe the change and choose **Ask BotOps to change**. BotOps receives your re
 The app displays the Instructions from the latest repository snapshot; refresh after BotOps finishes.
 New repositories default to `bot-<slug>`.
 
+## Branches
+
+A branch is your own bot for work with an original's instructions and repository. Its chats and tasks are personal,
+and it runs on your computer and AI subscription. Lessons committed to the repository reach every branch on its next turn.
+
+The original's owner turns on **Allow branches** in the bot editor, or asks BotOps to do it. It is off by default;
+new Software Architect and PR Reviewer templates allow branches. Existing bots keep their settings.
+BotOps uses `hub_bot_update(slug, shared=true)` (the current name of `hub_bot_set`), or `hub bot update <bot> --shared`.
+`--no-shared` turns it off. This is separate from a **Shared room**, which is a conversation everyone in that room can read.
+
+On the original's page, choose **Make my branch** and one of your computers. Or use
+`hub bot branch <bot> [--computer <label-or-id>]` or the MCP tool `hub_bot_branch(bot, runner_id?)`.
+Without a computer the CLI and tool create a planned branch; repeat with your computer to activate it.
+The bot is named `<bot>-<person>`, reports to that person and shares the original's repository.
+Asking again returns the same branch. Choose a different computer from the one running the original or another branch of it.
+
+The page's branch picker opens the **Original** or each person's branch. A branch links back to its original.
+New tasks and chats addressed to the original go to your active branch while branches are allowed.
+People without an active branch reach the original. Selecting another person's branch addresses it directly, with the usual access checks.
+Existing task threads keep their participants and history.
+
+A branch follows the original's model, harness, runtime, effort, session mode and fallback. Its editor changes only its status;
+change the original to change its definition. `session: task` gives each task its own provider session, and chat keeps its own session.
+Routines run only on the original, including event routines. Archiving the original archives its branches, and restoring it restores
+those branches to their previous statuses with their work and computers preserved. Branches archived separately stay archived.
+Turning off **Allow branches** preserves existing branches but stops automatic routing; their pages say **branches off**.
+
+Before each turn, the runner fetches and rebases the checkout onto its upstream. A conflict aborts the rebase and tells the bot to
+resolve it while keeping both sides' lessons. After the turn, a rejected push rebases and retries under the push lock. Keep private
+messages, attachments and personal preferences out of repository files.
+
+`hub bot copy` makes an independent bot in a new repository. Use a branch for the same instructions and shared lessons;
+use a copy when the new bot should change independently.
+
 ## Copy a bot
 
 Ask BotOps to copy a bot ("make me a copy of the support bot"), or run `hub bot copy <bot> [--name "..."] [--with-memory]`
